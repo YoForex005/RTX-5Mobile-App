@@ -1,0 +1,74 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { quotes } from '../mock/tradingData';
+
+export type QuoteViewMode = 'list' | 'table' | 'edit';
+
+const defaultSymbols = quotes.map((item) => item.symbol);
+
+type UserPreferencesState = {
+  quoteSymbols: string[];
+  quoteViewMode: QuoteViewMode;
+  chartSymbol: string;
+  chartTimeframe: string;
+  chartDrawings: string[];
+  chartLockAll: boolean;
+  chartHideAll: boolean;
+  oneClickAccepted: boolean;
+  historyRange: string;
+  setQuoteViewMode: (mode: QuoteViewMode) => void;
+  addQuoteSymbol: (symbol: string) => void;
+  removeQuoteSymbol: (symbol: string) => void;
+  setChartSymbol: (symbol: string) => void;
+  setChartTimeframe: (timeframe: string) => void;
+  addChartDrawing: (drawing: string) => void;
+  removeChartDrawing: (drawing: string) => void;
+  setChartLockAll: (lock: boolean) => void;
+  setChartHideAll: (hide: boolean) => void;
+  setOneClickAccepted: (accepted: boolean) => void;
+  setHistoryRange: (range: string) => void;
+};
+
+export const useUserPreferences = create<UserPreferencesState>()(
+  persist(
+    (set, get) => ({
+      quoteSymbols: defaultSymbols,
+      quoteViewMode: 'list',
+      chartSymbol: 'BTCUSDm',
+      chartTimeframe: 'H1',
+      chartDrawings: [],
+      chartLockAll: false,
+      chartHideAll: false,
+      oneClickAccepted: false,
+      historyRange: 'Last 6 months',
+      setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
+      addQuoteSymbol: (symbol) => {
+        const current = get().quoteSymbols;
+        if (!current.includes(symbol)) {
+          set({ quoteSymbols: [...current, symbol] });
+        }
+      },
+      removeQuoteSymbol: (symbol) => {
+        set({ quoteSymbols: get().quoteSymbols.filter((item) => item !== symbol) });
+      },
+      setChartSymbol: (symbol) => set({ chartSymbol: symbol }),
+      setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
+      addChartDrawing: (drawing) => {
+        const list = get().chartDrawings;
+        set({ chartDrawings: [...list, drawing] });
+      },
+      removeChartDrawing: (drawing) => {
+        set({ chartDrawings: get().chartDrawings.filter((item) => item !== drawing) });
+      },
+      setChartLockAll: (lock) => set({ chartLockAll: lock }),
+      setChartHideAll: (hide) => set({ chartHideAll: hide }),
+      setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
+      setHistoryRange: (range) => set({ historyRange: range }),
+    }),
+    {
+      name: 'rtx5-user-preferences-v1',
+      storage: createJSONStorage(() => AsyncStorage),
+    }
+  )
+);

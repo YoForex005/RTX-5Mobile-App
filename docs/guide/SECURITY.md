@@ -1,0 +1,63 @@
+# RTX5 Security Guide
+
+## Security Objectives
+- Protect credentials, sessions, and account data.
+- Prevent unauthorized trade actions.
+- Reduce impact of compromised devices/networks.
+
+## Mandatory Controls
+
+### 1) Secure Storage
+- Store tokens and secrets in platform secure storage only.
+- Do not store tokens in AsyncStorage or plaintext files.
+
+Pass criteria:
+- [ ] Access/refresh tokens are only persisted via secure keystore/keychain wrapper.
+- [ ] Sensitive values are removed from logs and crash reports.
+
+### 2) Biometric App Lock
+- Require biometric or local PIN unlock after inactivity timeout.
+
+Pass criteria:
+- [ ] Lock engages after configured idle interval.
+- [ ] Unlock required when app returns from background beyond threshold.
+
+### 3) Certificate Pinning
+- Pin production API certificates for critical endpoints.
+
+Pass criteria:
+- [ ] Pinned hosts configured for release builds.
+- [ ] Connection fails closed when pin validation fails.
+
+### 4) Device Integrity Checks
+- Detect root/jailbreak and emulator risk state.
+- Apply policy tiers (warn, restrict, block) by environment.
+
+Pass criteria:
+- [ ] Integrity checks run at startup and resume.
+- [ ] Restricted actions are blocked based on configured policy.
+
+### 5) Session Lifecycle
+- Support refresh token rotation and forced logout.
+- Prevent stale or replayed sessions.
+
+Pass criteria:
+- [ ] Expired tokens trigger refresh path.
+- [ ] Refresh failures hard-logout and clear secure state.
+- [ ] Device ID is included in auth/session requests.
+
+### 6) Logging and Redaction
+- Redact account identifiers, token fragments, and personal data.
+- No PII in analytics breadcrumbs.
+
+Pass criteria:
+- [ ] Redaction middleware active for all logging layers.
+- [ ] Security review confirms no sensitive fields in telemetry payloads.
+
+## Threat-Model Notes
+- Primary threats: credential theft, MITM tampering, unauthorized trade action, compromised device state.
+- Mitigation stack: secure storage + pinning + integrity checks + app lock + redaction.
+
+## Security Release Gate
+A beta/public release is blocked if any mandatory control above is not green.
+
