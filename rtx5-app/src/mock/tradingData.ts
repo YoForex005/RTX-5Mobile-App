@@ -3,10 +3,111 @@ export type QuoteItem = {
   bid: number;
   ask: number;
   changePct: number;
-  spread: number;
-  low: number;
   high: number;
+  low: number;
+  open?: number;
+  close?: number;
+  volume?: number;
+  digits?: number;
+  contractSize: number;
+  minVolume?: number;
+  maxVolume?: number;
+  stepVolume?: number;
+  tickSize?: number;
+  tickValue?: number;
+  swapLong: number;
+  swapShort: number;
+  marginInitial?: number;
+  marginMaintenance?: number;
+  baseCurrency?: string;
+  profitCurrency?: string;
+  tradeAllowed?: boolean;
+  spread: number;
+  volatilityClass?: 'high' | 'medium' | 'low'; // Used by simulation engine
 };
+
+// ─── Symbol Generator Helpers ─────────────────────────────────────────────────
+const rn = (min: number, max: number) => Math.random() * (max - min) + min;
+
+function buildForex(base: string, quote: string, price: number, spreadPips: number, volClass: 'high' | 'medium' | 'low' = 'medium'): QuoteItem {
+  const isJpy = quote === 'JPY';
+  const digits = isJpy ? 3 : 5;
+  const pip = Math.pow(10, -(isJpy ? 2 : 4));
+
+  // Real daily ranges are approx 0.5% - 1% for FX
+  const dailyHigh = price * (1 + rn(0.002, 0.005));
+  const dailyLow = price * (1 - rn(0.002, 0.005));
+
+  return {
+    symbol: `${base}${quote}`,
+    bid: price,
+    ask: price + (spreadPips * pip),
+    spread: spreadPips,
+    digits,
+    changePct: rn(-0.8, 0.8),
+    high: dailyHigh,
+    low: dailyLow,
+    open: price * (1 + (Math.random() > 0.5 ? 1 : -1) * rn(0.001, 0.005)),
+    close: price * (1 + rn(-0.006, 0.006)),
+    volume: Math.floor(rn(1000, 20000)),
+    contractSize: 100000,
+    minVolume: 0.01,
+    maxVolume: 100,
+    stepVolume: 0.01,
+    tickSize: pip / 10,
+    tickValue: 10, // simplified
+    swapLong: rn(-5, -1),
+    swapShort: rn(-1, 2),
+    marginInitial: 1,
+    marginMaintenance: 0.5,
+    baseCurrency: base,
+    profitCurrency: quote,
+    tradeAllowed: true,
+    volatilityClass: volClass,
+  };
+}
+
+function buildCrypto(sym: string, price: number): QuoteItem {
+  const dailyHigh = price * (1 + rn(0.02, 0.05));
+  const dailyLow = price * (1 - rn(0.02, 0.05));
+  return {
+    symbol: sym,
+    bid: price,
+    ask: price + (price * 0.0005),
+    spread: 50,
+    digits: price > 1000 ? 2 : 4,
+    changePct: rn(-3, 3),
+    high: dailyHigh,
+    low: dailyLow,
+    open: price * (1 + rn(-0.02, 0.02)),
+    volume: Math.floor(rn(50, 5000) * (price > 1000 ? 1 : 1000)),
+    contractSize: 1,
+    swapLong: -20,
+    swapShort: -20,
+    tradeAllowed: true,
+    volatilityClass: 'high',
+  };
+}
+
+function buildIndexOrMetal(sym: string, price: number, spreadPts: number, volClass: 'high' | 'medium' = 'medium', ptsMultiplier: number = 100): QuoteItem {
+  return {
+    symbol: sym,
+    bid: price,
+    ask: price + spreadPts,
+    spread: spreadPts * ptsMultiplier,
+    digits: 2,
+    changePct: rn(-1.5, 1.5),
+    high: price * (1 + rn(0.005, 0.015)),
+    low: price * (1 - rn(0.005, 0.015)),
+    open: price * (1 + rn(-0.01, 0.01)),
+    volume: Math.floor(rn(5000, 50000)),
+    contractSize: 10,
+    swapLong: -5,
+    swapShort: -2,
+    tradeAllowed: true,
+    volatilityClass: volClass,
+  };
+}
 
 export type PositionItem = {
   id: string;
@@ -44,18 +145,133 @@ export const positions: PositionItem[] = [
 ];
 
 export const quotes: QuoteItem[] = [
-  { symbol: 'MBTUSD', bid: 0.0670381, ask: 0.0670507, changePct: -0.64, spread: 1260, low: 0.06667062, high: 0.06843159 },
-  { symbol: 'MBTUSDm', bid: 0.0670354, ask: 0.0670534, changePct: -0.64, spread: 1800, low: 0.06667333, high: 0.06842889 },
-  { symbol: 'USDAED', bid: 3.67248, ask: 3.67368, changePct: 0, spread: 120, low: 3.67196, high: 3.6725 },
-  { symbol: 'USDAMD', bid: 376.911, ask: 378.2227, changePct: 0.48, spread: 13117, low: 375.2222, high: 376.911 },
-  { symbol: 'USDARS', bid: 1426.3708, ask: 1508.5485, changePct: -1.03, spread: 821777, low: 1426.1283, high: 1442.0135 },
-  { symbol: 'USDAZN', bid: 1.6947, ask: 1.7053, changePct: 0, spread: 106, low: 1.6947, high: 1.6947 },
-  { symbol: 'USDBDT', bid: 124.1452, ask: 126.285, changePct: 0.07, spread: 21398, low: 123.7128, high: 124.1452 },
-  { symbol: 'USDBGN', bid: 1.6632, ask: 1.6696, changePct: 0.07, spread: 64, low: 1.6609, high: 1.6652 },
-  { symbol: 'USDBHD', bid: 0.37676, ask: 0.3772, changePct: -0.0, spread: 44, low: 0.37676, high: 0.37676 },
-  { symbol: 'USDBND', bid: 1.2648, ask: 1.2655, changePct: 0.18, spread: 7, low: 1.2622, high: 1.2659 },
-  { symbol: 'XAUUSDm', bid: 4999.331, ask: 4998.595, changePct: 2.86, spread: 264, low: 4858.455, high: 5008.998 },
-  { symbol: 'BTCUSDm', bid: 67041.82, ask: 67059.82, changePct: -0.63, spread: 1800, low: 66450.2, high: 68600.13 },
+  // MAJORS
+  buildForex('EUR', 'USD', 1.0856, 1.2),
+  buildForex('GBP', 'USD', 1.2642, 1.5),
+  buildForex('USD', 'JPY', 151.245, 1.6),
+  buildForex('USD', 'CHF', 0.8872, 1.8),
+  buildForex('AUD', 'USD', 0.6543, 1.4),
+  buildForex('NZD', 'USD', 0.5988, 1.6),
+  buildForex('USD', 'CAD', 1.3520, 1.4),
+
+  // MINORS & CROSSES
+  buildForex('EUR', 'GBP', 0.8587, 1.8),
+  buildForex('EUR', 'JPY', 164.120, 2.2),
+  buildForex('GBP', 'JPY', 191.130, 2.5),
+  buildForex('AUD', 'JPY', 98.940, 2.0),
+  buildForex('NZD', 'JPY', 90.540, 2.2),
+  buildForex('CAD', 'JPY', 111.850, 2.1),
+  buildForex('CHF', 'JPY', 170.450, 2.5),
+  buildForex('EUR', 'CHF', 0.9632, 2.0),
+  buildForex('GBP', 'CHF', 1.1215, 2.5),
+  buildForex('EUR', 'AUD', 1.6590, 2.5),
+  buildForex('GBP', 'AUD', 1.9320, 3.0),
+  buildForex('EUR', 'CAD', 1.4674, 2.5),
+  buildForex('GBP', 'CAD', 1.7090, 3.0),
+  buildForex('AUD', 'CAD', 0.8845, 2.0),
+  buildForex('NZD', 'CAD', 0.8095, 2.2),
+  buildForex('EUR', 'NZD', 1.8125, 3.0),
+  buildForex('GBP', 'NZD', 2.1110, 3.5),
+  buildForex('AUD', 'CHF', 0.5805, 2.2),
+  buildForex('NZD', 'CHF', 0.5312, 2.5),
+
+  // EXOTICS (Wider spreads, lower tick volume)
+  buildForex('USD', 'TRY', 31.5420, 50, 'low'),
+  buildForex('EUR', 'TRY', 34.2310, 60, 'low'),
+  buildForex('USD', 'ZAR', 18.9450, 45, 'low'),
+  buildForex('EUR', 'ZAR', 20.5620, 55, 'low'),
+  buildForex('USD', 'MXN', 16.7840, 30, 'low'),
+  buildForex('USD', 'SEK', 10.4320, 25, 'medium'),
+  buildForex('EUR', 'SEK', 11.3250, 25, 'medium'),
+  buildForex('USD', 'NOK', 10.5620, 25, 'medium'),
+  buildForex('EUR', 'NOK', 11.4650, 25, 'medium'),
+  buildForex('USD', 'DKK', 6.8450, 15, 'medium'),
+  buildForex('USD', 'CNH', 7.1980, 10, 'medium'),
+  buildForex('USD', 'SGD', 1.3420, 10, 'medium'),
+  buildForex('USD', 'HKD', 7.8240, 8, 'medium'),
+  buildForex('USD', 'PLN', 3.9850, 30, 'low'),
+  buildForex('USD', 'HUF', 358.450, 40, 'low'),
+  buildForex('USD', 'CZK', 23.320, 35, 'low'),
+  buildForex('USD', 'ILS', 3.6540, 35, 'low'),
+  buildForex('USD', 'RUB', 92.540, 80, 'low'),
+  buildForex('USD', 'BRL', 5.0120, 40, 'low'),
+  buildForex('USD', 'INR', 83.245, 10, 'low'),
+
+  // METALS
+  buildIndexOrMetal('XAUUSD', 2384.50, 0.25, 'high', 100), // Gold
+  buildIndexOrMetal('XAUEUR', 2195.40, 0.35, 'high', 100), // Gold EUR
+  buildIndexOrMetal('XAGUSD', 28.45, 0.03, 'medium', 100), // Silver
+  buildIndexOrMetal('XPTUSD', 985.20, 1.5, 'medium', 100), // Platinum
+  buildIndexOrMetal('XPDUSD', 1055.80, 2.5, 'medium', 100), // Palladium
+  buildIndexOrMetal('COPPER', 4.542, 0.015, 'medium', 1000),
+
+  // ENERGIES (Oils)
+  buildIndexOrMetal('USOIL', 82.45, 0.03, 'high', 100), // WTI Crude
+  buildIndexOrMetal('UKOIL', 86.75, 0.03, 'high', 100), // Brent Crude
+  buildIndexOrMetal('NATGAS', 1.845, 0.005, 'high', 1000),
+
+  // INDICES (World markets)
+  buildIndexOrMetal('SPX500', 5123.40, 0.4, 'high', 10), // S&P 500
+  buildIndexOrMetal('US30', 38945.20, 1.5, 'high', 1),   // Dow Jones
+  buildIndexOrMetal('NAS100', 18235.50, 1.0, 'high', 10), // Nasdaq
+  buildIndexOrMetal('UK100', 7945.60, 1.0, 'medium', 10), // FTSE 100
+  buildIndexOrMetal('GER40', 18345.20, 1.2, 'medium', 10), // DAX
+  buildIndexOrMetal('FRA40', 8145.80, 1.0, 'medium', 10), // CAC 40
+  buildIndexOrMetal('JPN225', 39545.00, 5.0, 'high', 1), // Nikkei
+  buildIndexOrMetal('AUS200', 7845.20, 1.5, 'medium', 10), // ASX 200
+  buildIndexOrMetal('HK50', 16845.50, 5.0, 'high', 1), // Hang Seng
+
+  // CRYPTO MAJOR
+  buildCrypto('BTCUSD', 65420.50),
+  buildCrypto('ETHUSD', 3450.80),
+  buildCrypto('BNBUSD', 594.30),
+  buildCrypto('SOLUSD', 185.40),
+  buildCrypto('XRPUSD', 0.6120),
+  buildCrypto('ADAUSD', 0.5840),
+  buildCrypto('AVAXUSD', 48.20),
+  buildCrypto('DOGEUSD', 0.1850),
+  buildCrypto('LINKUSD', 18.54),
+  buildCrypto('DOTUSD', 8.54),
+
+  // CRYPTO MINOR
+  buildCrypto('MATICUSD', 0.8950),
+  buildCrypto('LTCUSD', 98.40),
+  buildCrypto('BCHUSD', 684.50),
+  buildCrypto('UNIUSD', 11.20),
+  buildCrypto('ATOMUSD', 10.45),
+  buildCrypto('XLMUSD', 0.1320),
+  buildCrypto('ALGOUSD', 0.2340),
+  buildCrypto('FILUSD', 8.94),
+  buildCrypto('NEARUSD', 6.85),
+  buildCrypto('ICPUSD', 17.50),
+  buildCrypto('APTUSD', 14.20),
+  buildCrypto('ARBUSD', 1.45),
+  buildCrypto('OPUSD', 3.12),
+  buildCrypto('LDOUSD', 2.45),
+  buildCrypto('RNDRUSD', 9.45),
+  buildCrypto('STXUSD', 3.20),
+
+  // Equities Simulated
+  buildIndexOrMetal('TSLA', 175.40, 0.05, 'high', 100),
+  buildIndexOrMetal('AAPL', 169.30, 0.03, 'medium', 100),
+  buildIndexOrMetal('NVDA', 875.40, 0.20, 'high', 100),
+  buildIndexOrMetal('MSFT', 425.60, 0.15, 'medium', 100),
+  buildIndexOrMetal('AMZN', 185.20, 0.05, 'high', 100),
+  buildIndexOrMetal('META', 510.40, 0.10, 'high', 100),
+  buildIndexOrMetal('GOOGL', 155.80, 0.03, 'medium', 100),
+  buildIndexOrMetal('NFLX', 625.30, 0.15, 'high', 100),
+
+  // Padding
+  buildCrypto('IMXUSD', 2.85),
+  buildCrypto('MKRUSD', 3450),
+  buildCrypto('INJUSD', 32.40),
+  buildCrypto('GRTUSD', 0.35),
+  buildCrypto('SNXUSD', 3.84),
+  buildCrypto('TAOUSD', 580.40),
+  buildCrypto('AAVEUSD', 115.40),
+  buildCrypto('RUNEUSD', 7.45),
+  buildCrypto('QNTUSD', 112.50),
+  buildCrypto('FETUSD', 2.65),
 ];
 
 export const historyPositions = [

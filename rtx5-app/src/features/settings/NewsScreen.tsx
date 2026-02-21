@@ -1,7 +1,8 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { newsItems } from '../../mock/tradingData';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 export function NewsScreen() {
   return (
@@ -32,7 +33,7 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: colors.accent,
+    color: G.accent,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -41,39 +42,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingVertical: 12,
-    borderBottomColor: '#111722',
+    borderBottomColor: G.border,
     borderBottomWidth: 1,
   },
   icon: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#e06a6a',
+    backgroundColor: G.down,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconText: {
-    color: '#fff',
+    color: G.text,
     fontWeight: '700',
   },
   content: {
     flex: 1,
   },
   headline: {
-    color: '#f4f6f9',
+    color: G.text,
     fontSize: 15,
   },
   source: {
-    color: '#4e9ef9',
+    color: G.textSub,
     fontSize: 13,
     marginTop: 2,
   },
   time: {
-    color: '#72a9ff',
+    color: G.textMuted,
     fontSize: 13,
   },
   dot: {
-    color: '#2f7dee',
+    color: G.accent,
     textAlign: 'right',
   },
 });

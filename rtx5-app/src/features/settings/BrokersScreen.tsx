@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { brokers } from '../../mock/tradingData';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 type BrokerFilter = 'all' | 'popular' | 'regulated';
 
@@ -216,7 +217,7 @@ export function BrokersScreen() {
             <TextInput
               style={styles.search}
               placeholder='Enter company or server name'
-              placeholderTextColor='#6f7f98'
+              placeholderTextColor={G.textMuted}
               value={search}
               onChangeText={setSearch}
             />
@@ -297,7 +298,7 @@ export function BrokersScreen() {
         onRequestClose={() => setSelectedBroker(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setSelectedBroker(null)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
             <View style={styles.modalHeader}>
               <BrokerLogo
                 broker={selectedBroker}
@@ -455,19 +456,19 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#223651',
-    backgroundColor: '#0d1729',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     padding: spacing.md,
   },
   title: {
-    color: colors.text,
+    color: G.text,
     fontSize: 31,
     fontWeight: '700',
     textAlign: 'center',
   },
   subtitle: {
     marginTop: 4,
-    color: '#8498b8',
+    color: G.textSub,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -475,8 +476,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2a3f5f',
-    backgroundColor: '#101c31',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     minHeight: 44,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -485,7 +486,7 @@ const styles = StyleSheet.create({
   search: {
     flex: 1,
     marginLeft: 7,
-    color: colors.text,
+    color: G.text,
     fontSize: 16,
     paddingVertical: 8,
   },
@@ -498,26 +499,26 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#2a3f5f',
-    backgroundColor: '#111d31',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   filterPillActive: {
-    borderColor: '#2f6eaf',
-    backgroundColor: '#153259',
+    borderColor: G.borderHi,
+    backgroundColor: G.glass3,
   },
   filterLabel: {
-    color: '#97acd0',
+    color: G.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   filterLabelActive: {
-    color: '#cde5ff',
+    color: G.text,
   },
   resultMeta: {
     marginTop: spacing.sm,
-    color: '#7690b4',
+    color: G.textSub,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -530,8 +531,8 @@ const styles = StyleSheet.create({
   rowCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e324d',
-    backgroundColor: '#0b1424',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -542,8 +543,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2c415f',
-    backgroundColor: '#f4f7fb',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -557,8 +558,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2d4363',
-    backgroundColor: '#152640',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -574,14 +575,14 @@ const styles = StyleSheet.create({
   },
   name: {
     flex: 1,
-    color: '#f0f5ff',
+    color: G.text,
     fontSize: 19,
     fontWeight: '600',
     paddingRight: 8,
   },
   server: {
     marginTop: 2,
-    color: '#9baed0',
+    color: G.textSub,
     fontSize: 13,
   },
   metaRow: {
@@ -594,8 +595,8 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#2d4263',
-    backgroundColor: '#122039',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -603,7 +604,7 @@ const styles = StyleSheet.create({
   },
   metaBadgeText: {
     marginLeft: 4,
-    color: '#a9bedf',
+    color: G.textMuted,
     fontSize: 11,
   },
   badge: {
@@ -612,10 +613,10 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeBlue: {
-    backgroundColor: '#1b4576',
+    backgroundColor: G.accentGlow,
   },
   badgeText: {
-    color: '#d8ebff',
+    color: G.accent,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.4,
@@ -633,20 +634,20 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     marginTop: 8,
-    color: '#7e90ab',
+    color: G.textMuted,
     fontSize: 13,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(3, 9, 18, 0.68)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'flex-end',
     padding: spacing.md,
   },
   modalCard: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#2b4264',
-    backgroundColor: '#111d33',
+    borderColor: G.borderHi,
+    backgroundColor: G.glass1,
     padding: spacing.md,
   },
   modalHeader: {
@@ -658,13 +659,13 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.sm,
   },
   modalTitle: {
-    color: '#eef4ff',
+    color: G.text,
     fontSize: 18,
     fontWeight: '700',
   },
   modalSub: {
     marginTop: 2,
-    color: '#9eb2d1',
+    color: G.textSub,
     fontSize: 12,
   },
   modalStatsRow: {
@@ -677,27 +678,27 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#29415f',
-    backgroundColor: '#0f1a2e',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     paddingVertical: 7,
     paddingHorizontal: 8,
   },
   detailLabel: {
-    color: '#7d93b8',
+    color: G.textMuted,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   detailValue: {
     marginTop: 3,
-    color: '#e0ebfc',
+    color: G.text,
     fontSize: 12,
     fontWeight: '700',
   },
   primaryButton: {
     marginTop: spacing.md,
     borderRadius: 11,
-    backgroundColor: '#0a84ff',
+    backgroundColor: G.accent,
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -705,7 +706,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     marginLeft: 6,
-    color: '#ebf5ff',
+    color: G.text,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -713,8 +714,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     borderRadius: 11,
     borderWidth: 1,
-    borderColor: '#2e517d',
-    backgroundColor: '#132440',
+    borderColor: G.borderHi,
+    backgroundColor: G.glass2,
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -722,7 +723,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     marginLeft: 6,
-    color: '#80bbff',
+    color: G.accent,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -735,7 +736,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     marginLeft: 5,
-    color: '#89a1c4',
+    color: G.textSub,
     fontSize: 13,
   },
   pressed: {

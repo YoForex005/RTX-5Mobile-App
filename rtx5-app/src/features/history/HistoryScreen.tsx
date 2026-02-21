@@ -6,7 +6,8 @@ import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { historyDeals, historyOrders, historyPositions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
@@ -324,8 +325,8 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#22344f',
-    backgroundColor: '#0c1423',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     padding: spacing.sm,
     paddingBottom: spacing.md,
   },
@@ -339,8 +340,8 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     borderWidth: 1,
-    borderColor: '#274061',
-    backgroundColor: '#111d31',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -349,8 +350,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#293e5f',
-    backgroundColor: '#111a2c',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
   },
   segmentButton: {
     minWidth: 82,
@@ -359,15 +360,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   segmentButtonActive: {
-    backgroundColor: '#2c3f5f',
+    backgroundColor: G.glass3,
   },
   segmentText: {
-    color: '#d5deec',
+    color: G.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   segmentTextActive: {
-    color: '#f3f8ff',
+    color: G.text,
   },
   metricsRow: {
     marginTop: spacing.sm,
@@ -379,8 +380,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#243753',
-    backgroundColor: '#101a2d',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     paddingHorizontal: 8,
     paddingVertical: 6,
     marginRight: spacing.sm,
@@ -392,7 +393,7 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     marginLeft: 4,
-    color: '#7f93b3',
+    color: G.textMuted,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -401,6 +402,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+    color: G.text,
   },
   list: {
     flex: 1,
@@ -413,8 +415,8 @@ const styles = StyleSheet.create({
   rowCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1f314a',
-    backgroundColor: '#0b1423',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     marginBottom: spacing.sm,
@@ -431,7 +433,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.md,
   },
   symbolText: {
-    color: '#eef4fd',
+    color: G.text,
     fontSize: 18,
     lineHeight: 20,
     fontWeight: '700',
@@ -445,16 +447,16 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   sidePillBuy: {
-    backgroundColor: 'rgba(30, 144, 255, 0.12)',
-    borderColor: 'rgba(30, 144, 255, 0.34)',
+    backgroundColor: G.accentGlow,
+    borderColor: G.accentGlow,
   },
   sidePillSell: {
-    backgroundColor: 'rgba(255, 75, 66, 0.12)',
-    borderColor: 'rgba(255, 75, 66, 0.34)',
+    backgroundColor: G.downGlow,
+    borderColor: G.downGlow,
   },
   sidePillNeutral: {
-    backgroundColor: '#182235',
-    borderColor: '#2f4566',
+    backgroundColor: G.glass2,
+    borderColor: G.border,
   },
   sideText: {
     fontSize: 11,
@@ -464,13 +466,13 @@ const styles = StyleSheet.create({
   volumePill: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2b3e5f',
-    backgroundColor: '#14233a',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
   volumeText: {
-    color: '#d0dcf1',
+    color: G.textSub,
     fontSize: 11,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -478,19 +480,20 @@ const styles = StyleSheet.create({
   statusPill: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#2e5f9a',
-    backgroundColor: '#122845',
+    borderColor: G.accentGlow,
+    backgroundColor: G.accentGlow,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   statusText: {
-    color: '#5ba9ff',
+    color: G.accent,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   profitValue: {
+    color: G.text,
     fontSize: 18,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -498,7 +501,7 @@ const styles = StyleSheet.create({
   },
   priceTrack: {
     marginTop: 4,
-    color: '#96a8c2',
+    color: G.textMuted,
     fontSize: 13,
     fontVariant: ['tabular-nums'],
   },
@@ -509,23 +512,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   ticketText: {
-    color: '#5f708d',
+    color: G.textSub,
     fontSize: 11,
     fontWeight: '600',
   },
   timeText: {
-    color: '#6f7f9a',
+    color: G.textMuted,
     fontSize: 11,
     fontVariant: ['tabular-nums'],
   },
   timeOnly: {
-    color: '#8ea0bd',
+    color: G.textMuted,
     fontSize: 12,
     fontVariant: ['tabular-nums'],
   },
   emptyText: {
     marginTop: spacing.lg,
-    color: '#7f90a8',
+    color: G.textMuted,
     textAlign: 'center',
     fontSize: 13,
   },
@@ -534,8 +537,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#21334d',
-    backgroundColor: '#0d1628',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     overflow: 'hidden',
   },
   summaryHeader: {
@@ -546,15 +549,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm + 2,
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a2a41',
+    borderBottomColor: G.border,
   },
   summaryTitle: {
-    color: '#e7effd',
+    color: G.text,
     fontSize: 15,
     fontWeight: '700',
   },
   summaryCurrency: {
-    color: '#7f95b7',
+    color: G.textMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -563,20 +566,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a2a41',
+    borderBottomColor: G.border,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   summaryLabel: {
-    color: '#c6d2e7',
+    color: G.textSub,
     fontSize: 14,
   },
   summaryLabelEmphasize: {
-    color: '#e6eefb',
+    color: G.text,
     fontWeight: '700',
   },
   summaryValue: {
-    color: '#e9f1ff',
+    color: G.text,
     fontSize: 14,
     fontVariant: ['tabular-nums'],
   },
@@ -585,12 +588,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   positiveText: {
-    color: colors.positive,
+    color: G.up,
   },
   negativeText: {
-    color: colors.negative,
+    color: G.down,
   },
   neutralText: {
-    color: '#dfe8f6',
+    color: G.textMuted,
   },
 });

@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { G } from '../theme/glass';
 
 type Props = {
   label: string;
@@ -30,19 +31,19 @@ const styles = StyleSheet.create({
   },
   rowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#1a2233',
+    borderBottomColor: G.border,
   },
   label: {
-    color: '#c8d0de',
+    color: G.textMuted,
     fontSize: 16,
   },
   labelCompact: {
-    color: '#a3b1c6',
+    color: G.textMuted,
     fontSize: 12,
     letterSpacing: 0.2,
   },
   value: {
-    color: '#e7ecf5',
+    color: G.text,
     fontSize: 16,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],

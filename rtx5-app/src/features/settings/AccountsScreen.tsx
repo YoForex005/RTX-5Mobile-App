@@ -3,7 +3,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 type ConnectMode = 'live' | 'demo';
 
@@ -107,7 +108,7 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: colors.text,
+    color: G.text,
     fontSize: 30,
     fontWeight: '700',
   },
@@ -115,8 +116,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2a4467',
-    backgroundColor: '#11253f',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     paddingHorizontal: 10,
     paddingVertical: 7,
     flexDirection: 'row',
@@ -125,15 +126,15 @@ const styles = StyleSheet.create({
   },
   bannerText: {
     marginLeft: 6,
-    color: '#cde5ff',
+    color: G.text,
     fontSize: 12,
   },
   card: {
     marginTop: spacing.sm,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#273c5b',
-    backgroundColor: '#0f182a',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     padding: spacing.md,
   },
   cardTop: {
@@ -142,18 +143,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   name: {
-    color: '#eef5ff',
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   info: {
     marginTop: 3,
-    color: '#9da9bb',
+    color: G.textSub,
     fontSize: 14,
   },
   balance: {
     marginTop: 8,
-    color: '#58a9ff',
+    color: G.accent,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -164,15 +165,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   modeLive: {
-    backgroundColor: '#12335e',
-    borderColor: '#2f6eaf',
+    backgroundColor: G.glass2,
+    borderColor: G.borderHi,
   },
   modeDemo: {
-    backgroundColor: '#283118',
-    borderColor: '#6f8a3a',
+    backgroundColor: G.glass3,
+    borderColor: G.borderHi,
   },
   modeText: {
-    color: '#e8f2ff',
+    color: G.text,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -181,25 +182,25 @@ const styles = StyleSheet.create({
     marginTop: -1,
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#1d3049',
-    backgroundColor: '#0b1322',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     paddingHorizontal: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   key: {
-    color: '#edf2f9',
+    color: G.text,
     fontSize: 16,
   },
   value: {
-    color: '#9ca3af',
+    color: G.textSub,
     fontSize: 14,
     marginLeft: spacing.md,
     flexShrink: 1,
     textAlign: 'right',
   },
   danger: {
-    color: colors.negative,
+    color: G.down,
   },
 });

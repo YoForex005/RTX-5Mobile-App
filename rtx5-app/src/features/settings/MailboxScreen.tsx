@@ -1,6 +1,7 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 const messages = new Array(12).fill(0).map((_, i) => ({
   id: `${i}`,
@@ -38,7 +39,7 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: colors.text,
+    color: G.text,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -47,39 +48,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingVertical: 12,
-    borderBottomColor: '#111722',
+    borderBottomColor: G.border,
     borderBottomWidth: 1,
   },
   avatar: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#98be4a',
+    backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    color: '#fff',
+    color: G.text,
     fontWeight: '700',
   },
   content: {
     flex: 1,
   },
   msg: {
-    color: '#f5f7fa',
+    color: G.text,
     fontSize: 15,
   },
   source: {
-    color: '#53a2ff',
+    color: G.textSub,
     fontSize: 13,
     marginTop: 2,
   },
   time: {
-    color: '#72a9ff',
+    color: G.textMuted,
     fontSize: 13,
   },
   dot: {
-    color: '#2f7dee',
+    color: G.accent,
     textAlign: 'right',
   },
 });

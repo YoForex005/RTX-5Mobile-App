@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
 
@@ -87,13 +88,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: '#7e8ba1',
+    color: G.textSub,
     fontSize: 12,
   },
   referenceCard: {
@@ -101,19 +102,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     padding: spacing.md,
     borderRadius: 8,
-    backgroundColor: '#0d1522',
+    backgroundColor: G.glass1,
     borderWidth: 1,
-    borderColor: '#223049',
+    borderColor: G.border,
   },
   referenceTitle: {
-    color: '#8f9fb8',
+    color: G.textMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
   },
   referenceValue: {
     marginTop: 4,
-    color: '#e5ecf7',
+    color: G.text,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -121,9 +122,9 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
     borderRadius: 10,
-    backgroundColor: '#0a111c',
+    backgroundColor: G.glass1,
     borderWidth: 1,
-    borderColor: '#1d2840',
+    borderColor: G.border,
     overflow: 'hidden',
   },
   pairRow: {
@@ -133,19 +134,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: '#18253b',
+    borderBottomColor: G.border,
   },
   pairRowSelected: {
-    backgroundColor: '#111d30',
+    backgroundColor: G.glass2,
   },
   pairTitle: {
-    color: '#eaf0fb',
+    color: G.text,
     fontSize: 14,
     fontWeight: '600',
   },
   pairMeta: {
     marginTop: 2,
-    color: '#8ea0ba',
+    color: G.textSub,
     fontSize: 12,
   },
   pairPnl: {
@@ -154,14 +155,14 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   positive: {
-    color: colors.positive,
+    color: G.up,
   },
   negative: {
-    color: colors.negative,
+    color: G.down,
   },
   emptyText: {
     padding: spacing.md,
-    color: '#7f8ca2',
+    color: G.textMuted,
     fontSize: 13,
   },
   success: {
@@ -169,19 +170,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#254f42',
-    backgroundColor: '#122f27',
+    borderColor: G.upGlow,
+    backgroundColor: G.upGlow,
     padding: spacing.md,
   },
   successText: {
-    color: '#7be0b5',
+    color: G.up,
     fontSize: 13,
   },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: '#0f6bca',
+    backgroundColor: G.accent,
     alignItems: 'center',
     paddingVertical: 12,
   },
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   submitText: {
-    color: '#fff',
+    color: G.text,
     fontSize: 15,
     fontWeight: '700',
   },

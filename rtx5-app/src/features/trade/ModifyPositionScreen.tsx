@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { findPositionById } from './tradeFlow';
 
 export function ModifyPositionScreen() {
@@ -63,7 +64,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor='#6d788c'
+        placeholderTextColor={G.textMuted}
         keyboardType='numeric'
         style={styles.input}
       />
@@ -77,13 +78,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: '#7e8ba1',
+    color: G.textSub,
     fontSize: 12,
   },
   formCard: {
@@ -92,49 +93,49 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e283b',
-    backgroundColor: '#0a111c',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     gap: spacing.md,
   },
   fieldWrap: {
     gap: 6,
   },
   fieldLabel: {
-    color: '#9aa8bc',
+    color: G.textMuted,
     fontSize: 13,
   },
   input: {
-    backgroundColor: '#121c2b',
+    backgroundColor: G.glass2,
     borderWidth: 1,
-    borderColor: '#2a3850',
+    borderColor: G.border,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    color: '#e7edf7',
+    color: G.text,
     fontSize: 15,
   },
   success: {
     marginHorizontal: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#254f42',
-    backgroundColor: '#122f27',
+    borderColor: G.upGlow,
+    backgroundColor: G.upGlow,
     padding: spacing.md,
   },
   successText: {
-    color: '#7be0b5',
+    color: G.up,
     fontSize: 13,
   },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: '#0f6bca',
+    backgroundColor: G.accent,
     alignItems: 'center',
     paddingVertical: 12,
   },
   submitText: {
-    color: '#fff',
+    color: G.text,
     fontSize: 15,
     fontWeight: '700',
   },

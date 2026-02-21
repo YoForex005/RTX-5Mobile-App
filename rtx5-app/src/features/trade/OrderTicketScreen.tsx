@@ -2,7 +2,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { symbolDisplayName } from './tradeFlow';
 
@@ -177,8 +178,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#222f46',
-    backgroundColor: '#0c1627',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
   },
   instrumentRow: {
     flexDirection: 'row',
@@ -187,19 +188,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   symbol: {
-    color: '#eef3fb',
+    color: G.text,
     fontSize: 32,
     fontWeight: '700',
     lineHeight: 32,
   },
   symbolChevron: {
-    color: '#90a8cd',
+    color: G.textMuted,
     fontSize: 18,
     marginTop: 2,
   },
   subtitle: {
     textAlign: 'center',
-    color: '#8da0bb',
+    color: G.textSub,
     fontSize: 12,
     marginTop: 4,
   },
@@ -208,21 +209,21 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#212f45',
-    backgroundColor: '#0a121f',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     overflow: 'hidden',
   },
   typeTrigger: {
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1c283c',
+    borderBottomColor: G.border,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   typeLabel: {
-    color: '#8ea0bc',
+    color: G.textMuted,
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -233,18 +234,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeValue: {
-    color: '#edf3fd',
+    color: G.text,
     fontSize: 15,
     fontWeight: '600',
   },
   typeChevron: {
-    color: '#7e90ac',
+    color: G.textMuted,
     fontSize: 14,
   },
   dropdown: {
-    backgroundColor: '#0f1a2b',
+    backgroundColor: G.glass2,
     borderBottomWidth: 1,
-    borderBottomColor: '#1d2c42',
+    borderBottomColor: G.border,
   },
   optionRow: {
     minHeight: 46,
@@ -256,20 +257,20 @@ const styles = StyleSheet.create({
   },
   optionDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#203048',
+    borderBottomColor: G.border,
   },
   optionText: {
     fontSize: 16,
     fontWeight: '600',
   },
   optionBuy: {
-    color: colors.positive,
+    color: G.up,
   },
   optionSell: {
-    color: colors.negative,
+    color: G.down,
   },
   optionCheck: {
-    color: '#e8eef9',
+    color: G.text,
     fontSize: 17,
     minWidth: 14,
     textAlign: 'right',
@@ -281,29 +282,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#1b273b',
+    borderBottomColor: G.border,
   },
   stepChip: {
     minWidth: 58,
     height: 32,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#24334b',
-    backgroundColor: '#101a2a',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepChipActive: {
-    borderColor: '#3269ae',
-    backgroundColor: '#163560',
+    borderColor: G.borderHi,
+    backgroundColor: G.glass3,
   },
   stepText: {
-    color: '#78a9e8',
+    color: G.textSub,
     fontSize: 13,
     fontWeight: '600',
   },
   stepTextActive: {
-    color: '#b9d5ff',
+    color: G.text,
   },
   row: {
     minHeight: 46,
@@ -312,10 +313,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#1b273b',
+    borderBottomColor: G.border,
   },
   rowLabel: {
-    color: '#d5deeb',
+    color: G.text,
     fontSize: 14,
   },
   rowRight: {
@@ -324,7 +325,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   rowValue: {
-    color: '#8b97ab',
+    color: G.textSub,
     fontSize: 14,
     fontVariant: ['tabular-nums'],
   },
@@ -333,13 +334,13 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2c4366',
-    backgroundColor: '#11223a',
+    borderColor: G.border,
+    backgroundColor: G.glass3,
     alignItems: 'center',
     justifyContent: 'center',
   },
   plus: {
-    color: colors.accent,
+    color: G.accent,
     fontSize: 16,
     lineHeight: 16,
   },
@@ -354,21 +355,21 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#25344f',
-    backgroundColor: '#0f1a2b',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 6,
   },
   metaChipLabel: {
-    color: '#8095b5',
+    color: G.textMuted,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
   },
   metaChipValue: {
     marginTop: 2,
-    color: '#e2ecfa',
+    color: G.text,
     fontSize: 14,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -378,8 +379,8 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1f2f47',
-    backgroundColor: '#0b1627',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     flexDirection: 'row',
     overflow: 'hidden',
   },
@@ -389,24 +390,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   quoteLabel: {
-    color: '#7f93b0',
+    color: G.textMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
   },
   quoteDivider: {
     width: 1,
-    backgroundColor: '#1f2d43',
+    backgroundColor: G.border,
   },
   bid: {
-    color: colors.negative,
+    color: G.down,
     fontSize: 26,
     fontWeight: '700',
     marginTop: 2,
     fontVariant: ['tabular-nums'],
   },
   ask: {
-    color: colors.positive,
+    color: G.up,
     fontSize: 26,
     fontWeight: '700',
     marginTop: 2,
@@ -426,16 +427,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sellBtn: {
-    backgroundColor: '#cf4036',
+    backgroundColor: G.down,
   },
   buyBtn: {
-    backgroundColor: '#1d77cf',
+    backgroundColor: G.up,
   },
   placeBtn: {
-    backgroundColor: '#50607a',
+    backgroundColor: G.glass3,
   },
   buttonText: {
-    color: '#fff',
+    color: G.text,
     fontWeight: '700',
     fontSize: 17,
   },
@@ -445,13 +446,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
     borderRadius: 10,
-    backgroundColor: '#101928',
+    backgroundColor: G.glass1,
     borderWidth: 1,
-    borderColor: '#25344c',
+    borderColor: G.border,
   },
   warn: {
     textAlign: 'center',
-    color: '#8797b0',
+    color: G.textSub,
     fontSize: 12,
     lineHeight: 17,
   },

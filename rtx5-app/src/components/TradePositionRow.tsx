@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PositionItem } from '../mock/tradingData';
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { G } from '../theme/glass';
 import { fmt } from '../utils/format';
 
 export function TradePositionRow({
@@ -63,24 +64,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
     borderRadius: 12,
-    backgroundColor: '#0b131f',
+    backgroundColor: G.glass1,
     borderWidth: 1,
-    borderColor: '#1d2a3f',
+    borderColor: G.border,
   },
   rowPressed: {
     opacity: 0.88,
   },
   rowSelected: {
-    backgroundColor: '#101d2e',
-    borderColor: '#2a4369',
+    backgroundColor: G.glass2,
+    borderColor: G.borderHi,
   },
   rowBuy: {
     borderLeftWidth: 2,
-    borderLeftColor: '#1d8bff',
+    borderLeftColor: G.accent,
   },
   rowSell: {
     borderLeftWidth: 2,
-    borderLeftColor: '#ff5f57',
+    borderLeftColor: G.down,
   },
   body: {
     width: '100%',
@@ -97,7 +98,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   symbol: {
-    color: '#eef3fb',
+    color: G.text,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -107,10 +108,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   sideBadgeBuy: {
-    backgroundColor: '#173a63',
+    backgroundColor: G.accentGlow,
   },
   sideBadgeSell: {
-    backgroundColor: '#4c2528',
+    backgroundColor: G.downGlow,
   },
   sideText: {
     fontSize: 10,
@@ -119,13 +120,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   sideTextBuy: {
-    color: '#8ec9ff',
+    color: G.accent,
   },
   sideTextSell: {
-    color: '#ffaea9',
+    color: G.down,
   },
   volume: {
-    color: '#c8d2e2',
+    color: G.textSub,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -138,10 +139,10 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   positive: {
-    color: colors.positive,
+    color: G.up,
   },
   negative: {
-    color: colors.negative,
+    color: G.down,
   },
   priceRow: {
     marginTop: 4,
@@ -150,17 +151,17 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   price: {
-    color: '#9ba9bf',
+    color: G.textMuted,
     fontSize: 12,
     fontVariant: ['tabular-nums'],
   },
   arrow: {
-    color: '#73829a',
+    color: G.textMuted,
     fontSize: 11,
   },
   meta: {
     marginTop: 4,
-    color: '#6c7a91',
+    color: G.textSub,
     fontSize: 10,
     fontVariant: ['tabular-nums'],
   },

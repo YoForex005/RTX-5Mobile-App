@@ -73,3 +73,48 @@ Build RTX5 as a frontend-only React Native trading app with near parity to the r
 - Do not add or modify backend service logic in this repo.
 - Do not bypass security or OTA release gates for convenience.
 - Do not merge parity-impacting UI changes without updating the screenshot map.
+
+---
+
+## 🤖 Multi-Agent Orchestration System
+
+This workspace runs a **Claude-style parallel multi-agent team**. All agent definitions live in `_agents/`. The system is fully autonomous — zero permission prompts.
+
+### Agent Registry
+
+| Agent File | Role | Domains |
+|---|---|---|
+| [`_agents/ORCHESTRATOR.md`](./_agents/ORCHESTRATOR.md) | 🧠 Main Agent | Plans, dispatches, reports |
+| [`_agents/MISSION_CONTROL.md`](./_agents/MISSION_CONTROL.md) | 📡 Router | Dispatch & aggregation |
+| [`_agents/AGENT_PROTOCOL.md`](./_agents/AGENT_PROTOCOL.md) | 📋 Protocol | Inter-agent comms standard |
+| [`_agents/AUTO_PILOT.md`](./_agents/AUTO_PILOT.md) | ✈️ Autonomy | Zero-permission rules |
+| [`_agents/agents/ui_agent.md`](./_agents/agents/ui_agent.md) | 🎨 UI | React Native / Expo / TSX |
+| [`_agents/agents/backend_agent.md`](./_agents/agents/backend_agent.md) | ⚙️ Backend | Node.js / FIX / WebSocket |
+| [`_agents/agents/db_agent.md`](./_agents/agents/db_agent.md) | 🗄️ Data | State / Zustand / Types |
+| [`_agents/agents/qa_agent.md`](./_agents/agents/qa_agent.md) | 🧪 QA | Testing / Lint / Review |
+| [`_agents/agents/devops_agent.md`](./_agents/agents/devops_agent.md) | 🚀 DevOps | EAS / Build / Deploy |
+
+### Slash Commands
+
+| Command | Description |
+|---|---|
+| `/feature [description]` | Build a full feature — UI + API + State + QA |
+| `/bugfix [issue]` | Diagnose and fix a bug across the stack |
+| `/deploy` | Full QA sweep + EAS build |
+| `/review` | AI code review of all recent changes |
+| `/turbo-build` | Parallel zero-touch build across all agents |
+
+### Autonomy Level
+All agents run under `AUTO_PILOT.md` rules:
+- ✅ **Auto-execute:** file edits, builds, installs, tests, lint, git commits
+- 🚨 **Escalate only:** prod secret rotation, App Store submission, production data deletion
+
+### Dispatch Flow
+```
+User task → Orchestrator → parallel dispatch → ui_agent + backend_agent + db_agent
+                                              → qa_agent (after impl agents)
+                                              → devops_agent (after QA)
+                                              → Mission Control aggregates
+                                              → Orchestrator reports
+```
+

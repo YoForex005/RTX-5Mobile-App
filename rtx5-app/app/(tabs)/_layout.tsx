@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { colors } from '../../src/theme';
+import { G } from '../../src/theme/glass';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -16,13 +16,13 @@ export default function TabsLayout() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#10131b',
-          borderTopColor: '#171b24',
+          backgroundColor: G.bg,
+          borderTopColor: G.border,
           height: 74,
           paddingTop: 8,
         },
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: '#9ca3af',
+        tabBarActiveTintColor: G.text,
+        tabBarInactiveTintColor: G.textMuted,
         tabBarIcon: ({ color, size }) => {
           const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
           return <Ionicons name={name} size={size} color={color} />;

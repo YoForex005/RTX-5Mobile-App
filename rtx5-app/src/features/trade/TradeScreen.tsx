@@ -7,7 +7,8 @@ import { Screen } from '../../components/Screen';
 import { TradePositionRow } from '../../components/TradePositionRow';
 import { account, PositionItem, positions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
-import { colors, radius, spacing } from '../../theme';
+import { radius, spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 
 export function TradeScreen() {
@@ -209,9 +210,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginHorizontal: spacing.md,
     borderRadius: radius.lg,
-    backgroundColor: '#0b1422',
+    backgroundColor: G.glass1,
     borderWidth: 1,
-    borderColor: '#23314a',
+    borderColor: G.border,
   },
   summaryTop: {
     paddingHorizontal: spacing.md,
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    color: '#8a99b2',
+    color: G.textMuted,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -233,14 +234,14 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   floatingPositive: {
-    color: colors.positive,
+    color: G.up,
   },
   floatingNegative: {
-    color: colors.negative,
+    color: G.down,
   },
   summaryHint: {
     marginTop: 4,
-    color: '#70819c',
+    color: G.textSub,
     fontSize: 11,
     fontVariant: ['tabular-nums'],
   },
@@ -249,23 +250,23 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     borderWidth: 1,
-    borderColor: '#3a5682',
-    backgroundColor: '#14233b',
+    borderColor: G.borderHi,
+    backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   newOrderButtonPressed: {
-    opacity: 0.86,
+    backgroundColor: G.glass3,
   },
   plus: {
-    color: '#9ab7e2',
+    color: G.text,
     fontSize: 31,
     lineHeight: 31,
   },
   metricsCard: {
     borderTopWidth: 1,
-    borderTopColor: '#25344e',
-    backgroundColor: '#0c1727',
+    borderTopColor: G.border,
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   positionsHeader: {
@@ -277,16 +278,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#24324a',
+    borderBottomColor: G.border,
   },
   positionsTitle: {
-    color: '#edf2fb',
+    color: G.text,
     fontSize: 21,
     fontWeight: '700',
   },
   positionsMeta: {
     marginTop: 3,
-    color: '#7c8ca7',
+    color: G.textMuted,
     fontSize: 11,
     letterSpacing: 0.2,
   },
@@ -295,14 +296,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#304461',
-    backgroundColor: '#13223a',
+    borderColor: G.border,
+    backgroundColor: G.glass2,
   },
   bulkButtonPressed: {
-    opacity: 0.88,
+    backgroundColor: G.glass3,
   },
   bulkButtonText: {
-    color: '#8db4f2',
+    color: G.textSub,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -314,23 +315,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: '#0d1727',
-    borderColor: '#263652',
+    backgroundColor: G.glass1,
+    borderColor: G.border,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   oneClickPressed: {
-    opacity: 0.9,
+    backgroundColor: G.glass2,
   },
   oneClickTitle: {
-    color: '#e8eef8',
+    color: G.text,
     fontSize: 14,
     fontWeight: '600',
   },
   oneClickSub: {
-    color: '#8597b2',
+    color: G.textMuted,
     fontSize: 11,
     marginTop: 3,
     letterSpacing: 0.2,
@@ -342,12 +343,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statusPillEnabled: {
-    borderColor: '#1a5a49',
-    backgroundColor: '#0f2c24',
+    borderColor: G.upGlow,
+    backgroundColor: G.upGlow,
   },
   statusPillDisabled: {
-    borderColor: '#524527',
-    backgroundColor: '#2d2614',
+    borderColor: G.downGlow,
+    backgroundColor: G.downGlow,
   },
   statusPillText: {
     fontSize: 10,
@@ -355,9 +356,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   statusPillTextEnabled: {
-    color: '#51cf9f',
+    color: G.up,
   },
   statusPillTextDisabled: {
-    color: '#e6ca6b',
+    color: G.down,
   },
 });

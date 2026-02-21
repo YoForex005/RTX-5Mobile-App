@@ -1,6 +1,6 @@
 import { PropsWithChildren } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
-import { colors } from '../theme';
+import { G } from '../theme/glass';
 
 type ScreenProps = PropsWithChildren<{
   scroll?: boolean;
@@ -30,11 +30,11 @@ export function Screen({ children, scroll = false, style }: ScreenProps) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: G.bg,
   },
   base: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: G.bg,
   },
   content: {
     paddingBottom: 36,

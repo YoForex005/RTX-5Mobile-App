@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 export function ObjectsScreen() {
   const {
@@ -44,7 +45,7 @@ export function ObjectsScreen() {
       <Text style={styles.help}>Long tap the object on the chart to edit or delete it</Text>
       <View style={styles.savedWrap}>
         <Text style={styles.savedTitle}>Saved Drawings ({chartDrawings.length})</Text>
-        {chartDrawings.map((drawing) => (
+        {chartDrawings.map((drawing: string) => (
           <Pressable key={drawing} style={styles.savedRow} onLongPress={() => removeChartDrawing(drawing)}>
             <Text style={styles.savedText}>{drawing}</Text>
             <Text style={styles.savedHint}>hold to remove</Text>
@@ -59,7 +60,7 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     marginHorizontal: spacing.md,
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
@@ -71,32 +72,33 @@ const styles = StyleSheet.create({
   },
   toggle: {
     flex: 1,
-    backgroundColor: '#171b24',
+    backgroundColor: G.glass1,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   toggleActive: {
-    borderColor: '#2b78d1',
-    borderWidth: 1,
+    borderColor: G.borderHi,
   },
   toggleText: {
-    color: '#d5dae2',
+    color: G.textSub,
     fontSize: 14,
   },
   card: {
     margin: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1b1f2a',
-    backgroundColor: '#12151d',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
   },
   item: {
-    color: colors.text,
+    color: G.text,
     fontSize: 17,
     paddingVertical: 14,
     paddingHorizontal: 14,
-    borderBottomColor: '#1d2230',
+    borderBottomColor: G.border,
     borderBottomWidth: 1,
   },
   toolsRow: {
@@ -106,13 +108,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   tool: {
-    color: colors.accent,
+    color: G.accent,
     fontSize: 24,
   },
   help: {
     marginTop: spacing.xl,
     textAlign: 'center',
-    color: '#6e7686',
+    color: G.textMuted,
     fontSize: 14,
   },
   savedWrap: {
@@ -120,14 +122,15 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
   },
   savedTitle: {
-    color: '#d5dae2',
+    color: G.text,
     fontSize: 16,
     marginBottom: spacing.sm,
     fontWeight: '700',
   },
   savedRow: {
     borderWidth: 1,
-    borderColor: '#1c2231',
+    borderColor: G.border,
+    backgroundColor: G.glass1,
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -136,11 +139,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   savedText: {
-    color: '#e8ecf3',
+    color: G.text,
     fontSize: 14,
   },
   savedHint: {
-    color: '#7f8797',
+    color: G.textMuted,
     fontSize: 12,
   },
 });

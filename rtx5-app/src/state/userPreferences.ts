@@ -35,7 +35,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     (set, get) => ({
       quoteSymbols: defaultSymbols,
       quoteViewMode: 'list',
-      chartSymbol: 'BTCUSDm',
+      chartSymbol: 'BTCUSD',
       chartTimeframe: 'H1',
       chartDrawings: [],
       chartLockAll: false,
@@ -67,7 +67,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setHistoryRange: (range) => set({ historyRange: range }),
     }),
     {
-      name: 'rtx5-user-preferences-v1',
+      name: 'rtx5-user-preferences-v2',
       storage: createJSONStorage(() => AsyncStorage),
     }
   )
