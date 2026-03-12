@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing } from '../theme';
-import { G } from '../theme/glass';
+import { useTheme } from '../theme/useTheme';
 
 type Props = {
   label: string;
@@ -10,10 +10,12 @@ type Props = {
 };
 
 export function MetricRow({ label, value, compact = false, withDivider = false }: Props) {
+  const T = useTheme();
+
   return (
-    <View style={[styles.row, compact && styles.rowCompact, withDivider && styles.rowDivider]}>
-      <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text>
-      <Text style={[styles.value, compact && styles.valueCompact]}>{value}</Text>
+    <View style={[styles.row, compact && styles.rowCompact, withDivider && { borderBottomWidth: 1, borderBottomColor: T.border }]}>
+      <Text style={[styles.label, { color: T.textMuted }, compact && styles.labelCompact]}>{label}</Text>
+      <Text style={[styles.value, { color: T.text }, compact && styles.valueCompact]}>{value}</Text>
     </View>
   );
 }
@@ -29,21 +31,14 @@ const styles = StyleSheet.create({
   rowCompact: {
     paddingVertical: 8,
   },
-  rowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
   label: {
-    color: G.textMuted,
     fontSize: 16,
   },
   labelCompact: {
-    color: G.textMuted,
     fontSize: 12,
     letterSpacing: 0.2,
   },
   value: {
-    color: G.text,
     fontSize: 16,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],

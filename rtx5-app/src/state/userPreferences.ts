@@ -4,10 +4,12 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { quotes } from '../mock/tradingData';
 
 export type QuoteViewMode = 'list' | 'table' | 'edit';
+export type ThemeMode = 'light' | 'dark';
 
 const defaultSymbols = quotes.map((item) => item.symbol);
 
 type UserPreferencesState = {
+  themeMode: ThemeMode;
   quoteSymbols: string[];
   quoteViewMode: QuoteViewMode;
   chartSymbol: string;
@@ -18,6 +20,7 @@ type UserPreferencesState = {
   oneClickAccepted: boolean;
   historyRange: string;
   setQuoteViewMode: (mode: QuoteViewMode) => void;
+  setThemeMode: (mode: ThemeMode) => void;
   addQuoteSymbol: (symbol: string) => void;
   removeQuoteSymbol: (symbol: string) => void;
   setChartSymbol: (symbol: string) => void;
@@ -33,6 +36,7 @@ type UserPreferencesState = {
 export const useUserPreferences = create<UserPreferencesState>()(
   persist(
     (set, get) => ({
+      themeMode: 'dark' as ThemeMode,
       quoteSymbols: defaultSymbols,
       quoteViewMode: 'list',
       chartSymbol: 'BTCUSD',
@@ -43,6 +47,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       oneClickAccepted: false,
       historyRange: 'Last 6 months',
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
+      setThemeMode: (mode) => set({ themeMode: mode }),
       addQuoteSymbol: (symbol) => {
         const current = get().quoteSymbols;
         if (!current.includes(symbol)) {

@@ -2,17 +2,20 @@ import 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren, useEffect, useCallback } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
-import { colors } from '../src/theme';
+import { useTheme } from '../src/theme/useTheme';
+import { useUserPreferences } from '../src/state/userPreferences';
+import * as Font from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
   height: 932,
 };
 
-function WebIPhoneFrame({ children }: PropsWithChildren) {
+function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: string }>) {
   const { width, height } = useWindowDimensions();
 
   if (Platform.OS !== 'web') {
@@ -30,22 +33,25 @@ function WebIPhoneFrame({ children }: PropsWithChildren) {
   return (
     <View style={styles.webCanvas}>
       <View style={[styles.deviceShell, { transform: [{ scale }] }]}>
-        <View style={styles.deviceFrame}>{children}</View>
+        <View style={[styles.deviceFrame, bgColor ? { backgroundColor: bgColor } : null]}>{children}</View>
       </View>
     </View>
   );
 }
 
-export default function RootLayout() {
+function InnerLayout() {
+  const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+
   return (
-    <AppProviders>
-      <StatusBar style='light' />
-      <WebIPhoneFrame>
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <WebIPhoneFrame bgColor={T.bg}>
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: colors.background },
-            headerTintColor: '#f3f4f6',
-            contentStyle: { backgroundColor: colors.background },
+            headerStyle: { backgroundColor: T.bg },
+            headerTintColor: T.text,
+            contentStyle: { backgroundColor: T.bg },
           }}
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
@@ -64,6 +70,22 @@ export default function RootLayout() {
           <Stack.Screen name='settings/brokers' options={{ title: 'Brokers' }} />
         </Stack>
       </WebIPhoneFrame>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  useEffect(() => {
+    // Preload Ionicons font; silently catch timeout on web
+    Font.loadAsync(Ionicons.font).catch(() => {
+      // Font loading timed out on web — icons will use fallback glyphs
+      console.warn('Ionicons font failed to load, continuing without custom icons');
+    });
+  }, []);
+
+  return (
+    <AppProviders>
+      <InnerLayout />
     </AppProviders>
   );
 }
@@ -98,7 +120,7 @@ const styles = StyleSheet.create({
     height: IPHONE_14_PRO_MAX.height,
     borderRadius: 34,
     overflow: 'hidden',
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
     borderWidth: 1,
     borderColor: '#242b3a',
   },

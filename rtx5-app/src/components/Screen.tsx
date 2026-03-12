@@ -1,6 +1,6 @@
 import { PropsWithChildren } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
-import { G } from '../theme/glass';
+import { useTheme } from '../theme/useTheme';
 
 type ScreenProps = PropsWithChildren<{
   scroll?: boolean;
@@ -8,10 +8,12 @@ type ScreenProps = PropsWithChildren<{
 }>;
 
 export function Screen({ children, scroll = false, style }: ScreenProps) {
+  const T = useTheme();
+
   if (scroll) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <ScrollView style={styles.base} contentContainerStyle={[styles.content, style]}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: T.bg }]}>
+        <ScrollView style={[styles.base, { backgroundColor: T.bg }]} contentContainerStyle={[styles.content, style]}>
           {children}
         </ScrollView>
       </SafeAreaView>
@@ -19,8 +21,8 @@ export function Screen({ children, scroll = false, style }: ScreenProps) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={[styles.base, style]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: T.bg }]}>
+      <View style={[styles.base, { backgroundColor: T.bg }, style]}>
         {children}
       </View>
     </SafeAreaView>
@@ -30,11 +32,9 @@ export function Screen({ children, scroll = false, style }: ScreenProps) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: G.bg,
   },
   base: {
     flex: 1,
-    backgroundColor: G.bg,
   },
   content: {
     paddingBottom: 36,

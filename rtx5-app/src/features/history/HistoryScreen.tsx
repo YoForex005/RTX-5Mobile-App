@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { historyDeals, historyOrders, historyPositions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useUIState } from '../../state/uiState';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
@@ -39,6 +40,7 @@ export function HistoryScreen() {
   const [sortBy, setSortBy] = useState<SortBy>('Default');
   const [sortOpen, setSortOpen] = useState(false);
   const { historyRange } = useUserPreferences();
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
 
   const baseData = useMemo<HistoryRow[]>(() => {
     if (tab === 'Orders') return historyOrders;
@@ -73,6 +75,15 @@ export function HistoryScreen() {
   return (
     <Screen>
       <View style={styles.page}>
+        {/* ── Header with ☰ ── */}
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+              <Ionicons name="menu" size={24} color="#fff" />
+            </Pressable>
+            <Text style={styles.headerTitle}>History</Text>
+          </View>
+        </View>
         <View style={styles.topBlock}>
           <View style={styles.topControlsRow}>
             <Pressable style={styles.iconButton} onPress={() => setSortOpen(true)}>
@@ -596,4 +607,8 @@ const styles = StyleSheet.create({
   neutralText: {
     color: G.textMuted,
   },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, paddingHorizontal: spacing.md, marginTop: spacing.sm },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
 });

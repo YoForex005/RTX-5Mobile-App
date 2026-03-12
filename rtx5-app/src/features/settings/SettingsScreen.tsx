@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SectionList, StyleSheet, Text, View, Image } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { settingsMenu } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useUIState } from '../../state/uiState';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
@@ -56,6 +57,7 @@ const ACCOUNT_CARD = {
 
 export function SettingsScreen() {
   const { quoteSymbols, chartDrawings, oneClickAccepted } = useUserPreferences();
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
 
   const sections = useMemo<SectionItem[]>(() => {
     const byId = new Map(settingsMenu.map((item) => [item.id, item]));
@@ -78,7 +80,14 @@ export function SettingsScreen() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={(
           <>
-            <Text style={styles.title}>Settings</Text>
+            <View style={styles.headerRow}>
+              <View style={styles.headerLeft}>
+                <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+                  <Ionicons name="menu" size={24} color="#fff" />
+                </Pressable>
+                <Text style={styles.headerTitle}>Settings</Text>
+              </View>
+            </View>
             <Text style={styles.subtitle}>Account, terminal and market preferences</Text>
 
             <Pressable
@@ -209,14 +218,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl,
-  },
-  title: {
-    marginTop: spacing.md,
-    color: G.text,
-    fontSize: 38,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: 0.2,
   },
   subtitle: {
     marginTop: 4,
@@ -435,4 +436,8 @@ const styles = StyleSheet.create({
   footerSpace: {
     height: 12,
   },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: spacing.sm },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
 });

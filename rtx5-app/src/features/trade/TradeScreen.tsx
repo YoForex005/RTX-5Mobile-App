@@ -1,12 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
+import { Pressable, StyleSheet, Text, View, FlatList, Image } from 'react-native';
 import { ActionSheet } from '../../components/ActionSheet';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { TradePositionRow } from '../../components/TradePositionRow';
 import { account, PositionItem, positions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useUIState } from '../../state/uiState';
 import { radius, spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
@@ -15,6 +17,7 @@ export function TradeScreen() {
   const [activePosition, setActivePosition] = useState<PositionItem | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const { oneClickAccepted, setChartSymbol } = useUserPreferences();
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const totalVolume = positions.reduce((sum, position) => sum + position.volume, 0);
   const activePositionId = activePosition?.id;
 
@@ -28,6 +31,16 @@ export function TradeScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={(
           <>
+            {/* ── Header with ☰ ── */}
+            <View style={styles.headerRow}>
+              <View style={styles.headerLeft}>
+                <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+                  <Ionicons name="menu" size={24} color="#fff" />
+                </Pressable>
+                <Text style={styles.headerTitle}>Trade</Text>
+              </View>
+            </View>
+
             <View style={styles.summaryBlock}>
               <View style={styles.summaryTop}>
                 <View>
@@ -361,4 +374,8 @@ const styles = StyleSheet.create({
   statusPillTextDisabled: {
     color: G.down,
   },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: spacing.md, marginTop: spacing.sm },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
 });

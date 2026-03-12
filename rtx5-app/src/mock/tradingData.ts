@@ -2,6 +2,8 @@ export type QuoteItem = {
   symbol: string;
   bid: number;
   ask: number;
+  prevBid?: number;
+  prevAsk?: number;
   changePct: number;
   high: number;
   low: number;

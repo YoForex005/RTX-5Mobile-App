@@ -1,354 +1,519 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Animated } from 'react-native';
-import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Image } from 'react-native';
+
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
-import { quotes, QuoteItem } from '../../mock/tradingData';
+import { QuoteItem, quotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
-import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
-import { fmt } from '../../utils/format';
+import { useUIState } from '../../state/uiState';
 
+/* ───── Helpers ───── */
 
-const dCol = (c: number) => c > 0 ? G.up : c < 0 ? G.down : G.flat;
-const dBg = (c: number) => c > 0 ? G.upGlow : c < 0 ? G.downGlow : 'rgba(161,168,181,0.05)';
-const sgn = (c: number) => c > 0 ? '+' : '';
-const digs = (q: QuoteItem) => q.digits ?? (q.bid >= 100 ? 2 : q.bid >= 10 ? 3 : 4);
-const sMid = (q: QuoteItem) => (q.bid + q.ask) / 2;
-const sRng = (q: QuoteItem) => q.high - q.low;
-const sRPct = (q: QuoteItem) => q.low > 0 ? ((q.high - q.low) / q.low) * 100 : 0;
-const sPos = (q: QuoteItem) => { const r = sRng(q); return r > 0 ? Math.min(100, Math.max(0, ((sMid(q) - q.low) / r) * 100)) : 50; };
-const sPip = (q: QuoteItem) => (q.spread * (1 / Math.pow(10, digs(q)))).toFixed(1);
+/* Currency code → ISO country code for flag images */
+const CURRENCY_TO_COUNTRY: Record<string, string> = {
+  EUR: 'eu', USD: 'us', GBP: 'gb', JPY: 'jp',
+  CHF: 'ch', AUD: 'au', NZD: 'nz', CAD: 'ca',
+};
 
-// ─── Glowing Neon Bar ─────────────────────────────────────────────────────────
-function RangeBar({ pos, color }: { pos: number; color: string }) {
+const flagUrl = (cc: string) => `https://flagcdn.com/w80/${cc}.png`;
+
+/* Renders two overlapping circular flag icons for a currency pair */
+function CurrencyFlags({ symbol }: { symbol: string }) {
+  const core = symbol.replace(/m$/i, '');
+  if (core.length < 6) return null;
+  const base = CURRENCY_TO_COUNTRY[core.slice(0, 3)];
+  const quote = CURRENCY_TO_COUNTRY[core.slice(3, 6)];
+  if (!base || !quote) return null;
   return (
-    <View style={rb.track}>
-      <View style={[rb.fill, { width: `${pos}%` as any, backgroundColor: color, shadowColor: color, shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } }]} />
-      <View style={[rb.knob, { left: `${pos}%` as any, backgroundColor: G.bg, borderColor: color, shadowColor: color, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }]} />
+    <View style={s.flagsWrap}>
+      <Image source={{ uri: flagUrl(base) }} style={s.flagIcon} />
+      <Image source={{ uri: flagUrl(quote) }} style={[s.flagIcon, s.flagOverlap]} />
     </View>
   );
 }
-const rb = StyleSheet.create({
-  track: { height: 3, backgroundColor: G.border, borderRadius: 2, position: 'relative' },
-  fill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 2, opacity: 0.8 },
-  knob: { position: 'absolute', top: -4.5, width: 12, height: 12, borderRadius: 6, borderWidth: 2, marginLeft: -6 },
-});
 
-// ─── Price Block ──────────────────────────────────────────────────────────────
-function PriceCol({ label, value, color }: { label: string; value: string; color: string }) {
+const digitsFor = (item: QuoteItem) =>
+  item.digits ?? (item.bid >= 100 ? 3 : item.bid >= 10 ? 4 : 5);
+
+const pairLabel = (symbol: string) => {
+  const core = symbol.replace(/m$/i, '');
+  return core;
+};
+
+const volumeLabel = (volume?: number) => {
+  if (!volume) return '--';
+  if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(1)}M`;
+  return volume.toLocaleString('en-US');
+};
+
+/* ───── Theme ───── */
+
+const POSITIVE = '#089981'; // Pro green
+const NEGATIVE = '#F23645'; // Pro red
+const GREY = '#78849E';
+const CARD_BG = '#131722';  // TradingView dark card
+const BORDER = '#1E2433';   // Subtle delineation
+const BG = '#040609';       // Ultra-premium OLED Midnight
+
+const trendColor = (pct: number) => (pct >= 0 ? POSITIVE : NEGATIVE);
+const pillBg = (pct: number) =>
+  pct >= 0 ? 'rgba(8,153,129,0.12)' : 'rgba(242,54,69,0.12)';
+
+const gmtClock = (d: Date) =>
+  d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
+
+/* ───── Sparkline (smooth curve – pure RN, web + native) ───── */
+
+const SPARK_W = 90;
+const SPARK_H = 36;
+const NUM_PTS = 40; // many points → smooth curve
+
+/** Simple seeded random for consistent sparklines per pair */
+function seededRandom(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s & 0x7fffffff) / 0x7fffffff;
+  };
+}
+
+/** Generate smooth Y points for a sparkline */
+function generatePoints(isUp: boolean, seed: number): number[] {
+  const rand = seededRandom(seed);
+  const pts: number[] = [];
+  const pad = 1;
+  const range = SPARK_H - pad * 2;
+
+  for (let i = 0; i < NUM_PTS; i++) {
+    const t = i / (NUM_PTS - 1);
+    // Base trend: upward starts LOW on screen (high Y) → rises to TOP; downward opposite
+    const trend = isUp ? (0.95 - t * 0.85) : (0.05 + t * 0.85);
+    // Smaller wave so trend direction is clearly visible
+    const wave = Math.sin(t * Math.PI * 2.5 + seed) * 0.1
+      + Math.sin(t * Math.PI * 4 + seed * 2) * 0.06;
+    const noise = (rand() - 0.5) * 0.04;
+    const val = trend + wave + noise;
+    pts.push(pad + Math.max(0, Math.min(1, val)) * range);
+  }
+  return pts;
+}
+
+/** Hash symbol string to a seed number */
+function hashSymbol(sym: string): number {
+  let h = 0;
+  for (let i = 0; i < sym.length; i++) {
+    h = ((h << 5) - h + sym.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function Sparkline({ isUp, color, symbol }: { isUp: boolean; color: string; symbol: string }) {
+  const pts = useMemo(() => generatePoints(isUp, hashSymbol(symbol)), [isUp, symbol]);
+  const step = SPARK_W / (pts.length - 1);
+
+  const segments = useMemo(() => {
+    const segs: React.ReactNode[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const x1 = i * step;
+      const y1 = pts[i];
+      const x2 = (i + 1) * step;
+      const y2 = pts[i + 1];
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+      segs.push(
+        <View
+          key={i}
+          style={{
+            position: 'absolute',
+            left: x1,
+            top: y1 - 0.75,
+            width: len + 0.5, // tiny overlap to avoid gaps
+            height: 1.5,
+            backgroundColor: color,
+            transform: [{ rotate: `${angle}deg` }],
+            transformOrigin: 'left center',
+          }}
+        />,
+      );
+    }
+    return segs;
+  }, [pts, step, color]);
+
+  // Faded fill columns under each point
+  const fills = useMemo(() => {
+    const cols: React.ReactNode[] = [];
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = i * step;
+      const y = pts[i];
+      cols.push(
+        <View
+          key={`f${i}`}
+          style={{
+            position: 'absolute',
+            left: x,
+            top: y,
+            width: step * 2.5,
+            height: SPARK_H - y,
+            backgroundColor: color,
+            opacity: 0.06,
+          }}
+        />,
+      );
+    }
+    return cols;
+  }, [pts, step, color]);
+
   return (
-    <View style={pc.wrap}>
-      <Text style={pc.lbl}>{label}</Text>
-      <Text style={[pc.val, { color }]}>{value}</Text>
+    <View style={{ width: SPARK_W, height: SPARK_H, overflow: 'hidden' }}>
+      {fills}
+      {segments}
     </View>
   );
 }
-const pc = StyleSheet.create({
-  wrap: { alignItems: 'flex-end' },
-  lbl: { color: G.textSub, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: '600' },
-  val: { fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
-});
 
-// ─── Data cell ────────────────────────────────────────────────────────────────
-function DC({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <View style={dc.cell}>
-      <Text style={dc.lbl}>{label}</Text>
-      <Text style={[dc.val, color ? { color } : null]}>{value}</Text>
-    </View>
-  );
-}
-const dc = StyleSheet.create({
-  cell: { width: '33.33%', paddingTop: 12, paddingRight: 6 },
-  lbl: { color: G.textMuted, fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: '600' },
-  val: { color: G.textSub, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 3 },
-});
+/* ───── QuoteCard ───── */
 
-// ─── Seamless Glass Shell & Swipeable ─────────────────────────────────────────
-function CardShell({ item, children, onPress, onLongPress, onAction }: { item: QuoteItem; children: React.ReactNode; onPress: () => void; onLongPress: () => void; onAction: (action: string, sym: string) => void }) {
-  const swipeableRef = useRef<Swipeable>(null);
+function QuoteCard({
+  item,
+  updatedAt,
+  onPress,
+  onLongPress,
+}: {
+  item: QuoteItem;
+  updatedAt: Date;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  const isUp = item.changePct >= 0;
+  const color = trendColor(item.changePct);
+  const d = digitsFor(item);
+  const symbol = pairLabel(item.symbol);
+  const pct = `${isUp ? '+' : ''}${item.changePct.toFixed(2)}%`;
 
-  const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>) => {
-    const scale = dragX.interpolate({ inputRange: [-120, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  const bidTick = item.prevBid ? (item.bid > item.prevBid ? 'up' : item.bid < item.prevBid ? 'down' : 'neutral') : 'neutral';
+  const askTick = item.prevAsk ? (item.ask > item.prevAsk ? 'up' : item.ask < item.prevAsk ? 'down' : 'neutral') : 'neutral';
 
-    // Four actions: Delete (red), Details (glass), Chart (glass), Trade (blue)
-    return (
-      <View style={sps.actionsWrap}>
-        <Pressable style={[sps.btn, sps.btnDel]} onPress={() => { swipeableRef.current?.close(); onAction('delete', item.symbol); }}>
-          <Ionicons name="trash-outline" size={20} color={G.text} />
-        </Pressable>
-        <Pressable style={[sps.btn, sps.btnGlass]} onPress={() => { swipeableRef.current?.close(); onAction('details', item.symbol); }}>
-          <Ionicons name="information-circle-outline" size={20} color={G.text} />
-        </Pressable>
-        <Pressable style={[sps.btn, sps.btnGlass]} onPress={() => { swipeableRef.current?.close(); onAction('chart', item.symbol); }}>
-          <Ionicons name="bar-chart-outline" size={20} color={G.text} />
-        </Pressable>
-        <Pressable style={[sps.btn, sps.btnTrade]} onPress={() => { swipeableRef.current?.close(); onAction('trade', item.symbol); }}>
-          <Ionicons name="flash-outline" size={20} color={G.text} />
-        </Pressable>
-      </View>
-    );
+  const getTickColor = (tick: string) => {
+    if (tick === 'up') return POSITIVE;
+    if (tick === 'down') return NEGATIVE;
+    return 'transparent';
+  };
+
+  const getTickArrow = (tick: string) => {
+    if (tick === 'up') return '↗';
+    if (tick === 'down') return '↘';
+    return '';
   };
 
   return (
-    <Swipeable ref={swipeableRef} renderRightActions={renderRightActions} overshootRight={false} friction={2}>
-      <Pressable style={({ pressed }) => [cs.card, pressed && { backgroundColor: G.glass2, borderColor: G.borderHi }]} onPress={onPress} onLongPress={onLongPress} delayLongPress={150}>
-        {children}
-      </Pressable>
-    </Swipeable>
-  );
-}
-const cs = StyleSheet.create({
-  card: { backgroundColor: G.glass1, borderWidth: 1, borderColor: G.border, borderRadius: 16, marginHorizontal: spacing.md, marginBottom: 12, overflow: 'hidden' },
-});
-const sps = StyleSheet.create({
-  actionsWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: spacing.md, marginBottom: 12 },
-  btn: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
-  btnDel: { backgroundColor: 'rgba(255,23,68,0.2)', borderColor: G.down },
-  btnGlass: { backgroundColor: G.glass2, borderColor: G.border },
-  btnTrade: { backgroundColor: 'rgba(41,121,255,0.2)', borderColor: G.accent },
-});
-
-// ─── SIMPLE card ──────────────────────────────────────────────────────────────
-function SimpleCard({ item, onPress, onLongPress, onAction }: { item: QuoteItem; onPress: () => void; onLongPress: () => void; onAction: (a: string, s: string) => void }) {
-  const col = dCol(item.changePct); const d = digs(item);
-  return (
-    <CardShell item={item} onPress={onPress} onLongPress={onLongPress} onAction={onAction}>
-      <View style={sm.body}>
-        <View style={sm.left}>
-          <Text style={sm.sym}>{item.symbol}</Text>
-          <View style={[sm.badge, { backgroundColor: dBg(item.changePct) }]}>
-            <Text style={[sm.badgeTxt, { color: col }]}>{sgn(item.changePct)}{item.changePct.toFixed(2)}%</Text>
+    <Pressable
+      style={({ pressed }) => [s.card, pressed && s.cardPressed]}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={180}
+    >
+      {/* Row 1: Symbol + Flags … Change Pill … Timestamp */}
+      <View style={s.cardRow1}>
+        <View style={s.symbolWrap}>
+          <Text style={s.symbolText}>{symbol}</Text>
+          <CurrencyFlags symbol={item.symbol} />
+          <View style={[s.changePill, { backgroundColor: pillBg(item.changePct) }]}>
+            <Text style={[s.changePillText, { color }]}>{pct}</Text>
           </View>
-          <Text style={sm.sub}>VOL {(item.volume ?? 0).toLocaleString()}</Text>
         </View>
-        <View style={sm.right}>
-          <PriceCol label="BID" value={fmt.price(item.bid, d)} color={col} />
-          <View style={sm.sep} />
-          <PriceCol label="ASK" value={fmt.price(item.ask, d)} color={col} />
-        </View>
+        <Text style={s.timestampText}>{gmtClock(updatedAt)} GMT</Text>
       </View>
-    </CardShell>
-  );
-}
-const sm = StyleSheet.create({
-  body: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
-  left: { gap: 6 },
-  sym: { color: G.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  badge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' },
-  badgeTxt: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  sub: { color: G.textMuted, fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginTop: 2 },
-  right: { flexDirection: 'row', alignItems: 'center' },
-  sep: { width: 1, height: 40, backgroundColor: G.border, marginHorizontal: 12 },
-});
 
-// ─── ADVANCED card ────────────────────────────────────────────────────────────
-function AdvancedCard({ item, onPress, onLongPress, onAction }: { item: QuoteItem; onPress: () => void; onLongPress: () => void; onAction: (a: string, s: string) => void }) {
-  const col = dCol(item.changePct); const d = digs(item);
-  const pos = sPos(item); const m = sMid(item); const rng = sRng(item); const rp = sRPct(item); const spp = sPip(item);
+      {/* Row 2: Stats … Sparkline … Prices */}
+      <View style={s.cardRow2}>
+        <View style={s.statsCol}>
+          <Text style={s.volText}>Vol: <Text style={s.statValue}>{volumeLabel(item.volume)}</Text></Text>
+          <Text style={s.spreadText}>Spread: <Text style={s.statValue}>{item.spread.toFixed(1)}</Text></Text>
+        </View>
 
-  return (
-    <CardShell item={item} onPress={onPress} onLongPress={onLongPress} onAction={onAction}>
-      {/* Upper Data */}
-      <View style={av.rowA}>
-        <View style={av.leftBlock}>
-          <Text style={av.sym}>{item.symbol}</Text>
-          <View style={[av.badge, { backgroundColor: dBg(item.changePct) }]}>
-            <Text style={[av.badgeTxt, { color: col }]}>{sgn(item.changePct)}{item.changePct.toFixed(2)}%</Text>
+        <View style={s.sparkCol}>
+          <Sparkline isUp={isUp} color={color} symbol={item.symbol} />
+        </View>
+
+        <View style={s.pricesCol}>
+          <View style={s.priceLabelsRow}>
+            <View style={s.labelWithTick}>
+               <Text style={s.priceLabel}>BID</Text>
+               {bidTick !== 'neutral' && <Text style={[s.tickArrow, { color: getTickColor(bidTick) }]}>{getTickArrow(bidTick)}</Text>}
+            </View>
+            <View style={s.labelWithTick}>
+               <Text style={s.priceLabel}>ASK</Text>
+               {askTick !== 'neutral' && <Text style={[s.tickArrow, { color: getTickColor(askTick) }]}>{getTickArrow(askTick)}</Text>}
+            </View>
           </View>
-          <Text style={av.oc}>O: {fmt.price(item.open ?? item.bid, d)}  ·  C: {fmt.price(item.close ?? item.ask, d)}</Text>
-        </View>
-        <View style={av.prices}>
-          <PriceCol label="BID" value={fmt.price(item.bid, d)} color={col} />
-          <View style={av.pSep} />
-          <PriceCol label="ASK" value={fmt.price(item.ask, d)} color={col} />
+          <View style={s.priceValuesRow}>
+            <Text style={[s.priceValue, { color }]}>{item.bid.toFixed(d)}</Text>
+            <Text style={[s.priceValue, { color }]}>{item.ask.toFixed(d)}</Text>
+          </View>
         </View>
       </View>
-      {/* Glowing Range */}
-      <View style={av.rangeRow}>
-        <Text style={av.rEdge}>{fmt.price(item.low, d)}</Text>
-        <View style={{ flex: 1, marginHorizontal: 12 }}><RangeBar pos={pos} color={col} /></View>
-        <Text style={av.rEdge}>{fmt.price(item.high, d)}</Text>
-      </View>
-      {/* 9-cell detail grid */}
-      <View style={av.grid}>
-        <DC label="SPREAD" value={String(item.spread)} />
-        <DC label="SPR PIPS" value={spp} />
-        <DC label="MID" value={fmt.price(m, d)} color={col} />
-        <DC label="DAY RNG" value={fmt.price(rng, d)} />
-        <DC label="RANGE %" value={rp.toFixed(2) + '%'} />
-        <DC label="VOLUME" value={(item.volume ?? 0).toLocaleString()} />
-        <DC label="LOT MIN" value={String(item.minVolume ?? '—')} />
-        <DC label="CONTRACT" value={(item.contractSize ?? 0) >= 1000 ? `${Math.round((item.contractSize ?? 0) / 1000)}K` : String(item.contractSize ?? '—')} />
-        <DC label="MARGIN" value={(item.marginInitial ?? 0).toFixed(1) + '%'} />
-      </View>
-    </CardShell>
+
+    </Pressable>
   );
 }
-const av = StyleSheet.create({
-  rowA: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 16, paddingBottom: 12 },
-  leftBlock: { gap: 6 },
-  sym: { color: G.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  badge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' },
-  badgeTxt: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  oc: { color: G.textSub, fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginTop: 2 },
-  prices: { flexDirection: 'row', alignItems: 'center' },
-  pSep: { width: 1, height: 40, backgroundColor: G.border, marginHorizontal: 12 },
-  rangeRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: G.border },
-  rEdge: { color: G.textMuted, fontSize: 10, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingBottom: 16 },
-});
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
-type Mode = 'simple' | 'advanced';
+/* ───── QuotesScreen ───── */
+
 export function QuotesScreen() {
+  const router = useRouter();
+  
+  const quoteSymbols = useUserPreferences((st) => st.quoteSymbols);
+  const removeQuoteSymbol = useUserPreferences((st) => st.removeQuoteSymbol);
+  const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
+
+  const sidebarOpen = useUIState((s) => s.sidebarOpen);
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+
   const [search, setSearch] = useState('');
-  const [mode, setMode] = useState<Mode>('simple');
   const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
-  const { quoteSymbols, quoteViewMode, setQuoteViewMode, addQuoteSymbol, removeQuoteSymbol, setChartSymbol } = useUserPreferences();
-
   const [liveQuotes, setLiveQuotes] = useState<QuoteItem[]>(quotes);
+  const [updatedAt, setUpdatedAt] = useState(new Date());
 
+  /* 1-second clock tick */
   useEffect(() => {
-    // Advanced Physics & Market Simulation Engine
-    const interval = setInterval(() => {
-      setLiveQuotes(current => current.map(q => {
-        const volProbability = q.volatilityClass === 'high' ? 0.75 : q.volatilityClass === 'medium' ? 0.4 : 0.15;
-
-        // Skip tick if probability misses
-        if (Math.random() > volProbability) return q;
-
-        const pipSize = q.tickSize ?? (1 / Math.pow(10, q.digits ?? 4));
-        const priceScale = q.bid;
-
-        // Simulating realistic Brownian motion: prices move randomly but within a constrained daily 2-3% bounds
-        const maxDailySwing = priceScale * 0.03; // ~3% daily variance
-        const driftLimitHigh = (q.open ?? priceScale) + maxDailySwing;
-        const driftLimitLow = (q.open ?? priceScale) - maxDailySwing;
-
-        // Force mean reversion if boundaries are pushed
-        let bias = 0;
-        if (q.bid > driftLimitHigh) bias = -0.001;
-        if (q.bid < driftLimitLow) bias = 0.001;
-
-        // Move by 1 to 5 pips max per tick depending on asset weight
-        const pipVariance = (Math.random() - 0.5 + bias) * pipSize * (q.volatilityClass === 'high' ? 15 : 5);
-
-        const newBid = Math.max(0.0001, q.bid + pipVariance);
-        const newAsk = newBid + (q.spread * pipSize); // Lock Ask to the Bid based on Spread
-
-        const newHigh = Math.max(q.high, newAsk);
-        const newLow = Math.min(q.low, newBid);
-
-        const newVol = q.volume ? q.volume + Math.floor(Math.random() * (q.volatilityClass === 'high' ? 150 : 10)) : q.volume;
-
-        const open = q.open ?? q.bid;
-        const changePct = open > 0 ? ((newBid - open) / open) * 100 : 0;
-
-        return { ...q, bid: newBid, ask: newAsk, high: newHigh, low: newLow, volume: newVol, changePct };
-      }));
-    }, 800); // Super fast 800ms cycle for dense updates
-
-    return () => clearInterval(interval);
+    const id = setInterval(() => setUpdatedAt(new Date()), 1000);
+    return () => clearInterval(id);
   }, []);
 
-  const filtered = useMemo(() => liveQuotes.filter(q => quoteSymbols.includes(q.symbol)).filter(q => q.symbol.toLowerCase().includes(search.trim().toLowerCase())), [quoteSymbols, search, liveQuotes]);
-  const nextSymbol = useMemo(() => liveQuotes.find(q => !quoteSymbols.includes(q.symbol)), [quoteSymbols, liveQuotes]);
+  /* Simulated price feed */
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLiveQuotes((cur) =>
+        cur.map((q) => {
+          const pip = q.tickSize ?? 1 / Math.pow(10, q.digits ?? 5);
+          const nextBid = Math.max(0.00001, q.bid + (Math.random() - 0.5) * pip * 6);
+          const nextAsk = nextBid + q.spread * pip;
+          const open = q.open ?? q.bid;
+          const change = open > 0 ? ((nextBid - open) / open) * 100 : q.changePct;
+          return {
+            ...q, 
+            prevBid: q.bid, 
+            prevAsk: q.ask,
+            bid: nextBid, 
+            ask: nextAsk,
+            high: Math.max(q.high, nextAsk), low: Math.min(q.low, nextBid),
+            changePct: change,
+          };
+        }),
+      );
+    }, 850);
+    return () => clearInterval(id);
+  }, []);
 
-  const isEdit = quoteViewMode === 'edit';
-  const goDetail = (sym: string) => { setChartSymbol(sym); router.push({ pathname: '/quotes/details', params: { symbol: sym } }); };
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return liveQuotes
+      .filter((i) => quoteSymbols.includes(i.symbol))
+      .filter((i) => i.symbol.toLowerCase().includes(q));
+  }, [liveQuotes, quoteSymbols, search]);
 
-  const handleAction = (action: string, sym: string) => {
-    switch (action) {
-      case 'delete': removeQuoteSymbol(sym); break;
-      case 'details': goDetail(sym); break;
-      case 'chart': setChartSymbol(sym); router.push('/(tabs)/chart'); break;
-      case 'trade': router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } }); break;
-    }
+  const goDetail = (sym: string) => {
+    setChartSymbol(sym);
+    router.push({ pathname: '/quotes/details', params: { symbol: sym } });
   };
 
   return (
-    // Beautiful deep layered gradient background
-    <LinearGradient colors={['#040a18', '#000000', '#0a0d14']} locations={[0, 0.4, 1]} style={{ flex: 1 }}>
-      {/* Decorative ambient glow orbs behind everything */}
-      <View style={[s.orb, { top: -100, left: -100, backgroundColor: 'rgba(41, 121, 255, 0.15)' }]} />
-      <View style={[s.orb, { top: 300, right: -150, backgroundColor: 'rgba(0, 230, 118, 0.08)' }]} />
+      <Screen style={s.screen}>
 
-      <Screen style={{ backgroundColor: 'transparent' }}>
-        {/* Header */}
-        <View style={s.header}>
-          <Text style={s.title}>Markets</Text>
-          <View style={s.actions}>
-            <View style={s.seg}>
-              <Pressable style={[s.segBtn, mode === 'simple' && s.segOn]} onPress={() => setMode('simple')}>
-                <Text style={[s.segTxt, mode === 'simple' && s.segTxtOn]}>SIM</Text>
-              </Pressable>
-              <Pressable style={[s.segBtn, mode === 'advanced' && s.segOn]} onPress={() => setMode('advanced')}>
-                <Text style={[s.segTxt, mode === 'advanced' && s.segTxtOn]}>ADV</Text>
-              </Pressable>
-            </View>
-            <Pressable style={s.iconBtn} onPress={() => setQuoteViewMode(isEdit ? 'list' : 'edit')}>
-              <Ionicons name={isEdit ? 'checkmark' : 'pencil'} size={14} color={isEdit ? G.up : G.textSub} />
+        {/* ── Header ── */}
+        <View style={s.headerRow}>
+          <View style={s.headerLeft}>
+            <Pressable style={s.menuBtn} onPress={() => setSidebarOpen(true)}>
+              <Ionicons name="menu" size={24} color="#fff" />
             </Pressable>
+            <Text style={s.headerTitle}>Markets</Text>
+          </View>
+          <View style={s.headerRight}>
+            <View style={s.avatarWrap}>
+              <Image
+                source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
+                style={s.avatarImg}
+              />
+              <View style={s.avatarDot} />
+            </View>
           </View>
         </View>
 
-        {/* Search */}
-        <View style={s.search}>
-          <Ionicons name="search" size={16} color={G.textMuted} />
-          <TextInput style={s.searchInput} placeholder="Search assets..." placeholderTextColor={G.textMuted} value={search} onChangeText={setSearch} autoCapitalize="characters" />
-          {search.length > 0 && <Pressable onPress={() => setSearch('')}><Ionicons name="close-circle" size={16} color={G.textMuted} /></Pressable>}
+        {/* ── Subheader ── */}
+        <View style={s.subheaderRow}>
+          <Text style={s.subLeft}>Last Updated: {gmtClock(updatedAt)} GMT</Text>
+          <View style={s.subRight}>
+            <Text style={s.subGrey}>Status: </Text>
+            <Text style={s.subLive}>LIVE</Text>
+          </View>
         </View>
 
-        {/* Edit mode adder */}
-        {isEdit && (
-          <Pressable style={[s.addBtn, !nextSymbol && { opacity: 0.3 }]} disabled={!nextSymbol} onPress={() => { if (nextSymbol) addQuoteSymbol(nextSymbol.symbol); }}>
-            <Ionicons name="add-circle" size={18} color={G.accent} />
-            <Text style={s.addTxt}>{nextSymbol ? `Add ${nextSymbol.symbol}` : 'All tracked'}</Text>
-          </Pressable>
-        )}
+        {/* ── Search ── */}
+        <View style={s.searchBar}>
+          <Ionicons name="search" size={20} color={GREY} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            style={s.searchInput}
+            placeholder="Search Assets, Pairs, and Indices..."
+            placeholderTextColor={GREY}
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+          {search.length > 0 && (
+            <Pressable onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={16} color={GREY} />
+            </Pressable>
+          )}
+        </View>
 
-        {/* List */}
+        {/* ── List ── */}
         <FlatList
           data={filtered}
-          keyExtractor={item => item.symbol}
+          keyExtractor={(i) => i.symbol}
+          renderItem={({ item }) => (
+            <QuoteCard
+              item={item}
+              updatedAt={updatedAt}
+              onPress={() => goDetail(item.symbol)}
+              onLongPress={() => setActiveSymbol(item.symbol)}
+            />
+          )}
+          style={s.list}
+          contentContainerStyle={s.listPad}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={s.list}
-          ListEmptyComponent={<View style={s.empty}><Text style={s.emptyTxt}>No assets match search.</Text></View>}
-          renderItem={({ item }) => mode === 'advanced'
-            ? <AdvancedCard item={item} onPress={() => goDetail(item.symbol)} onLongPress={() => setActiveSymbol(item.symbol)} onAction={handleAction} />
-            : <SimpleCard item={item} onPress={() => goDetail(item.symbol)} onLongPress={() => setActiveSymbol(item.symbol)} onAction={handleAction} />
+          ListEmptyComponent={
+            <View style={s.emptyWrap}>
+              <Text style={s.emptyText}>No assets match this search.</Text>
+            </View>
           }
         />
 
-        {/* Action sheet */}
-        <ActionSheet visible={Boolean(activeSymbol)} title={activeSymbol ?? ''} onClose={() => setActiveSymbol(null)} actions={[{ label: 'Chart', onPress: () => { if (activeSymbol) setChartSymbol(activeSymbol); router.push('/(tabs)/chart'); } }, { label: 'Details', onPress: () => goDetail(activeSymbol ?? 'BTCUSDm') }, { label: 'Remove', danger: true, onPress: () => { if (activeSymbol) removeQuoteSymbol(activeSymbol); } }]} />
+        <ActionSheet
+          visible={Boolean(activeSymbol)}
+          title={activeSymbol ?? ''}
+          onClose={() => setActiveSymbol(null)}
+          actions={[
+            { label: 'Chart', onPress: () => { if (activeSymbol) { setChartSymbol(activeSymbol); router.push('/(tabs)/chart'); } } },
+            { label: 'Details', onPress: () => goDetail(activeSymbol ?? 'EURUSD') },
+            { label: 'Remove', danger: true, onPress: () => { if (activeSymbol) removeQuoteSymbol(activeSymbol); } },
+          ]}
+        />
       </Screen>
-    </LinearGradient>
   );
 }
 
+/* ───── Styles ───── */
+
 const s = StyleSheet.create({
-  orb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, filter: [{ blur: 50 }] },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingTop: spacing.lg, paddingBottom: 16 },
-  title: { color: G.text, fontSize: 28, fontWeight: '900', letterSpacing: -1 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: G.glass2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.border },
-  seg: { flexDirection: 'row', backgroundColor: G.border, borderRadius: 20, padding: 4 },
-  segBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16 },
-  segOn: { backgroundColor: G.glass3 },
-  segTxt: { color: G.textSub, fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  segTxtOn: { color: G.text },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: spacing.md, marginBottom: 16, backgroundColor: G.glass1, borderWidth: 1, borderColor: G.borderHi, borderRadius: 12, paddingHorizontal: 16, height: 48 },
-  searchInput: { flex: 1, color: G.text, fontSize: 15, fontWeight: '500' },
-  statsRow: { flexDirection: 'row', gap: 12, marginHorizontal: spacing.md, marginBottom: 16 },
-  addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: spacing.md, marginBottom: 16, backgroundColor: G.glass1, borderWidth: 1, borderColor: G.accentGlow, borderRadius: 12, paddingVertical: 16 },
-  addTxt: { color: G.accent, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  list: { paddingBottom: 100 },
-  empty: { alignItems: 'center', paddingTop: 60 },
-  emptyTxt: { color: G.textMuted, fontSize: 15, fontWeight: '600' },
+  root: { flex: 1, backgroundColor: BG },
+  screen: { flex: 1, backgroundColor: 'transparent', paddingHorizontal: 16, paddingTop: 10 },
+
+  /* Header */
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+
+  avatarWrap: { width: 34, height: 34, borderRadius: 17, position: 'relative' },
+  avatarImg: { width: '100%', height: '100%', borderRadius: 17 },
+  avatarDot: {
+    position: 'absolute', right: -2, bottom: -2, width: 10, height: 10,
+    borderRadius: 5, backgroundColor: POSITIVE, borderWidth: 2, borderColor: BG,
+  },
+
+  /* Subheader */
+  subheaderRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 8, marginBottom: 16,
+  },
+  subLeft: { color: GREY, fontSize: 13, fontWeight: '500' },
+  subRight: { flexDirection: 'row', alignItems: 'center' },
+  subGrey: { color: GREY, fontSize: 13, fontWeight: '500' },
+  subLive: { color: POSITIVE, fontSize: 13, fontWeight: '700' },
+
+  /* Search */
+  searchBar: {
+    backgroundColor: '#1A202C', borderColor: BORDER,
+    borderWidth: 1, borderRadius: 24, height: 44,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, marginBottom: 20, gap: 10,
+  },
+  searchInput: { flex: 1, color: '#E2E8F0', fontSize: 14, fontWeight: '500' },
+
+  /* List */
+  list: { flex: 1 },
+  listPad: { paddingBottom: 100 },
+  emptyWrap: { paddingTop: 48, alignItems: 'center' },
+  emptyText: { color: GREY, fontSize: 16, fontWeight: '500' },
+
+  /* ── Card ── */
+  card: {
+    marginBottom: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: BORDER,
+    backgroundColor: CARD_BG,
+    paddingVertical: 14, paddingHorizontal: 16,
+  },
+  cardPressed: { opacity: 0.85 },
+
+  /* Card Row 1: symbol + flags … timestamp */
+  cardRow1: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 12,
+  },
+  symbolWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  symbolText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
+  flagsWrap: { flexDirection: 'row', alignItems: 'center' },
+  flagIcon: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: BG },
+  flagOverlap: { marginLeft: -6 },
+  timestampText: { color: GREY, fontSize: 13, fontWeight: '500' },
+
+  /* Change Pill */
+  changePill: {
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 6, marginLeft: 6,
+  },
+  changePillText: { fontSize: 13, fontWeight: '700' },
+
+  /* Card Row 2: stats … sparkline … prices */
+  cardRow2: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+
+  /* Left stats column */
+  statsCol: { flex: 1, justifyContent: 'flex-end' },
+  volText: { color: GREY, fontSize: 13, fontWeight: '500', marginBottom: 2 },
+  spreadText: { color: GREY, fontSize: 13, fontWeight: '500' },
+  statValue: { color: '#E2E8F0', fontSize: 15, fontWeight: '700' },
+
+  /* Center sparkline column */
+  sparkCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', marginLeft: -20, marginBottom: 2 },
+
+  /* Right prices column */
+  pricesCol: { alignItems: 'flex-end', flexShrink: 0, justifyContent: 'flex-end' },
+  priceLabelsRow: { flexDirection: 'row', gap: 4, marginBottom: 2 },
+  labelWithTick: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 75 },
+  priceLabel: { color: GREY, fontSize: 14, fontWeight: '700' },
+  tickArrow: { fontSize: 12, fontWeight: '900', marginLeft: 6 },
+  priceValuesRow: { flexDirection: 'row', gap: 4, flexWrap: 'nowrap' },
+  priceValue: {
+    fontSize: 20, fontWeight: '800', textAlign: 'center',
+    width: 80, fontVariant: ['tabular-nums'],
+  },
+
+  /* Daily Range Row (Text based) */
+  rangeTextRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: BORDER,
+  },
+  rangeLabel: { color: GREY, fontSize: 13, fontWeight: '500' },
+  rangeValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });

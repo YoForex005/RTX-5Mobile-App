@@ -1,9 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Canvas, Group, Line, Path, Skia } from '@shopify/react-native-skia';
+import React, { useEffect, useMemo, useState } from 'react';
+import { LayoutChangeEvent, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { Canvas, Group, Line, Path, Skia, DashPathEffect } from '@shopify/react-native-skia';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
+import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
@@ -12,34 +14,61 @@ import Animated, { useAnimatedStyle, useSharedValue, withDecay, useDerivedValue,
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
+const getStartPrice = (sym: string) => {
+  if (sym.includes('JPY')) return 150.00;
+  if (sym.includes('XAU')) return 5180.00;
+  return 1.0500;
+};
+
+const mapTf = (tf: string) => {
+  if (tf.startsWith('M') && tf !== 'MN') return tf.replace('M', '') + ' m';
+  if (tf.startsWith('H')) return tf.replace('H', '') + ' h';
+  if (tf === 'D1') return '1 d';
+  if (tf === 'W1') return '1 w';
+  if (tf === 'MN') return '1 M';
+  return tf;
+};
+
 function generateCandles(count: number, startPrice: number) {
   let price = startPrice;
   const candles = [];
   for (let i = 0; i < count; i++) {
     const isUp = Math.random() > 0.49;
-    const range = price * 0.002;
+    const range = price * 0.001;
     const open = price;
     let close = price + (isUp ? 1 : -1) * (Math.random() * range);
-    if (Math.random() > 0.9) {
-      close += (isUp ? 1 : -1) * range * 2;
+    if (Math.random() > 0.8) {
+      close += (isUp ? 1 : -1) * range * 1.5;
     }
-    const high = Math.max(open, close) + Math.random() * (range * 0.5);
-    const low = Math.min(open, close) - Math.random() * (range * 0.5);
+    const high = Math.max(open, close) + Math.random() * (range * 0.4);
+    const low = Math.min(open, close) - Math.random() * (range * 0.4);
     price = close;
     candles.push({ open, high, low, close });
   }
   return candles;
 }
 
-const CANDLE_WIDTH = 6;
-const CANDLE_GAP = 3;
+const CANDLE_WIDTH = 7;
+const CANDLE_GAP = 4;
+
+const APP_BG = '#0B0E14';
+const CARD_BG = '#131722';
+const BLUE = '#2962FF';
+const RED = '#F23645';
+const UP_COLOR = '#00C853';
+const GRID = 'rgba(255, 255, 255, 0.04)';
+const TEXT = '#F7F9FC';
+const TEXT_MUTED = '#8B9DB6';
+const BTN_BG = '#1A2130';
+const PILL_BG = '#1A202C';
 
 export function ChartScreen() {
   const { chartSymbol, chartTimeframe, setChartTimeframe } = useUserPreferences();
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
-  const [candles, setCandles] = useState(() => generateCandles(120, chartSymbol.includes('JPY') ? 150.00 : 1.0500));
+  const [candles, setCandles] = useState(() => generateCandles(120, getStartPrice(chartSymbol)));
 
   const translateX = useSharedValue(0);
   const scaleX = useSharedValue(1);
@@ -57,7 +86,7 @@ export function ChartScreen() {
         const lastIndex = next.length - 1;
         const current = { ...next[lastIndex] };
 
-        const range = current.open * 0.0005;
+        const range = current.open * 0.0003;
         const tick = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * range);
 
         current.close += tick;
@@ -83,7 +112,7 @@ export function ChartScreen() {
   }, []);
 
   useEffect(() => {
-    setCandles(generateCandles(120, chartSymbol.includes('JPY') ? 150.00 : 1.0500));
+    setCandles(generateCandles(120, getStartPrice(chartSymbol)));
     translateX.value = 0;
     scaleX.value = 1;
     savedScaleX.value = 1;
@@ -198,8 +227,13 @@ export function ChartScreen() {
   const gridLineY1 = CHART_HEIGHT * 0.25;
   const gridLineY2 = CHART_HEIGHT * 0.5;
   const gridLineY3 = CHART_HEIGHT * 0.75;
+  const gridLineX1 = chartLayout.width * 0.25;
+  const gridLineX2 = chartLayout.width * 0.5;
+  const gridLineX3 = chartLayout.width * 0.75;
 
   const currentPriceY = candles.length > 0 ? getY(candles[candles.length - 1].close) : -10;
+  const bidPriceY = currentPriceY;
+  const askPriceY = getY(candles.length > 0 ? candles[candles.length - 1].close - (chartSymbol.includes('XAU') ? 0.396 : 0.00015) : -10);
 
   const crosshairVerticalStyle = useAnimatedStyle(() => ({
     position: 'absolute',
@@ -207,7 +241,7 @@ export function ChartScreen() {
     top: 0,
     bottom: 0,
     width: 1,
-    backgroundColor: G.textMuted,
+    backgroundColor: TEXT_MUTED,
     opacity: isCrosshairActive.value ? 1 : 0,
     pointerEvents: 'none',
   }));
@@ -218,7 +252,7 @@ export function ChartScreen() {
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: G.textMuted,
+    backgroundColor: TEXT_MUTED,
     opacity: isCrosshairActive.value ? 1 : 0,
     pointerEvents: 'none',
   }));
@@ -228,11 +262,11 @@ export function ChartScreen() {
       position: 'absolute',
       right: 0,
       top: crosshairY.value - 12,
-      backgroundColor: G.glass1,
+      backgroundColor: PILL_BG,
       paddingHorizontal: 4,
       paddingVertical: 2,
       borderWidth: 1,
-      borderColor: G.border,
+      borderColor: GRID,
       opacity: isCrosshairActive.value ? 1 : 0,
       pointerEvents: 'none',
     };
@@ -247,60 +281,170 @@ export function ChartScreen() {
     }
   });
 
+  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : getStartPrice(chartSymbol);
+  const latestBid = latestClose;
+  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.396 : 0.00015); 
+  const displayDecimals = chartSymbol.includes('JPY') || chartSymbol.includes('XAU') ? 3 : 5;
+  const displaySymbol = chartSymbol.replace('/', '') === 'EURUSD' ? 'EUR/USD' : chartSymbol.replace('/', '') === 'XAUUSD' ? 'XAU/USD' : chartSymbol;
+
   return (
-    <Screen>
-      <View style={styles.topRow}>
-        <Pressable onPress={() => setTfOpen(true)}>
-          <Text style={styles.title}>{chartTimeframe}</Text>
-        </Pressable>
-        <View style={styles.icons}>
-          <Text style={styles.icon}>╂</Text>
-          <Text style={styles.icon}>ƒ</Text>
-          <Pressable onPress={() => setMenuOpen(true)}>
-            <Text style={styles.icon}>⌂</Text>
-          </Pressable>
+    <Screen style={styles.screen}>
+      <View style={styles.topHeaderRow}>
+        <View style={styles.accountBadge}>
+          <View style={styles.liveIndicator} />
+          <Text style={styles.accountTypeText}>DEMO ACCOUNT</Text>
         </View>
+        <Text style={styles.balanceText}>1,500.00 USD</Text>
       </View>
 
-      <Text style={styles.symbol}>{chartSymbol} ▾ {chartTimeframe}</Text>
-      <Text style={styles.sub}>Instrument chart</Text>
-      <Text style={styles.sub}>Market closed</Text>
-
-      <View style={styles.chartWrap} onLayout={handleLayout}>
-        <GestureDetector gesture={composedGesture}>
-          <View style={styles.gestureWrap}>
-            {CHART_HEIGHT > 0 && (
-              <Canvas style={styles.canvas}>
-                <Line p1={{ x: 0, y: gridLineY1 }} p2={{ x: chartLayout.width, y: gridLineY1 }} color={G.border} strokeWidth={1} />
-                <Line p1={{ x: 0, y: gridLineY2 }} p2={{ x: chartLayout.width, y: gridLineY2 }} color={G.border} strokeWidth={1} />
-                <Line p1={{ x: 0, y: gridLineY3 }} p2={{ x: chartLayout.width, y: gridLineY3 }} color={G.border} strokeWidth={1} />
-
-                <Group transform={transform}>
-                  <Path path={paths.upWicks} color={G.up} style="stroke" strokeWidth={1} />
-                  <Path path={paths.upBodies} color={G.up} />
-                  <Path path={paths.downWicks} color={G.down} style="stroke" strokeWidth={1} />
-                  <Path path={paths.downBodies} color={G.down} />
-
-                  <Line p1={{ x: 0, y: currentPriceY }} p2={{ x: 10000, y: currentPriceY }} color={G.text} strokeWidth={1} style="stroke" />
-                </Group>
-              </Canvas>
-            )}
-
-            <Animated.View style={crosshairVerticalStyle} />
-            <Animated.View style={crosshairHorizontalStyle} />
-            <Animated.View style={crosshairPriceStyle}>
-              <Text style={styles.crosshairText}>{crosshairPriceDisplay}</Text>
-            </Animated.View>
+      <View style={styles.card}>
+        <View style={styles.glassToolbar}>
+          <View style={styles.toolbarRow}>
+            <View style={styles.symbolInfo}>
+              <View style={styles.flagStack}>
+                <Image
+                  source={{ uri: 'https://flagcdn.com/w160/eu.png' }}
+                  style={[styles.flagCircle, { zIndex: 2 }]}
+                />
+                <Image
+                  source={{ uri: 'https://flagcdn.com/w160/us.png' }}
+                  style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]}
+                />
+              </View>
+              <View>
+                <Text style={styles.symbolText}>
+                  {displaySymbol}
+                </Text>
+                <Text style={styles.symbolSubText}>Euro / US Dollar</Text>
+              </View>
+            </View>
           </View>
-        </GestureDetector>
-      </View>
 
-      <View style={styles.timeframeRow}>
-        {timeframes.map((tf) => (
-          <Pressable key={tf} onPress={() => setChartTimeframe(tf)}>
-            <Text style={[styles.tfText, chartTimeframe === tf && styles.tfActive]}>{tf}</Text>
-          </Pressable>
-        ))}
+          <View style={styles.plRow}>
+            <Text style={styles.plText}>Positions: 0 Open  •  P&L: 0.00</Text>
+            <View style={styles.toolbarActions}>
+              <Ionicons name="alarm-outline" size={18} color={TEXT_MUTED} />
+              <Ionicons name="expand-outline" size={18} color={TEXT_MUTED} />
+              <Ionicons name="settings-outline" size={18} color={TEXT_MUTED} />
+              <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.chartContainer} onLayout={handleLayout}>
+          <GestureDetector gesture={composedGesture}>
+            <View style={styles.gestureWrap}>
+              {CHART_HEIGHT > 0 && (
+                <Canvas style={styles.canvas}>
+                  <Line p1={{ x: 0, y: gridLineY1 }} p2={{ x: chartLayout.width, y: gridLineY1 }} color={GRID} strokeWidth={1} />
+                  <Line p1={{ x: 0, y: gridLineY2 }} p2={{ x: chartLayout.width, y: gridLineY2 }} color={GRID} strokeWidth={1} />
+                  <Line p1={{ x: 0, y: gridLineY3 }} p2={{ x: chartLayout.width, y: gridLineY3 }} color={GRID} strokeWidth={1} />
+                  <Line p1={{ x: gridLineX1, y: 0 }} p2={{ x: gridLineX1, y: chartLayout.height }} color={GRID} strokeWidth={1} />
+                  <Line p1={{ x: gridLineX2, y: 0 }} p2={{ x: gridLineX2, y: chartLayout.height }} color={GRID} strokeWidth={1} />
+                  <Line p1={{ x: gridLineX3, y: 0 }} p2={{ x: gridLineX3, y: chartLayout.height }} color={GRID} strokeWidth={1} />
+
+                  <Group transform={transform}>
+                    <Path path={paths.upWicks} color={BLUE} style="stroke" strokeWidth={1} />
+                    <Path path={paths.upBodies} color={BLUE} />
+                    <Path path={paths.downWicks} color={RED} style="stroke" strokeWidth={1} />
+                    <Path path={paths.downBodies} color={RED} />
+
+                    <Line p1={{ x: 0, y: bidPriceY }} p2={{ x: 10000, y: bidPriceY }} color={BLUE} strokeWidth={1} style="stroke">
+                      <DashPathEffect intervals={[4, 4]} />
+                    </Line>
+                    <Line p1={{ x: 0, y: askPriceY }} p2={{ x: 10000, y: askPriceY }} color={RED} strokeWidth={1} style="stroke">
+                      <DashPathEffect intervals={[4, 4]} />
+                    </Line>
+                  </Group>
+                </Canvas>
+              )}
+
+              {CHART_HEIGHT > 0 && (
+                <>
+                  <View style={[styles.priceTagWrap, { top: bidPriceY - 10, backgroundColor: BLUE }]}>
+                    <Text style={styles.priceTagText}>{latestBid.toFixed(displayDecimals)}</Text>
+                  </View>
+                  <View style={[styles.priceTagWrap, { top: askPriceY - 10, backgroundColor: RED }]}>
+                    <Text style={styles.priceTagText}>{latestAsk.toFixed(displayDecimals)}</Text>
+                  </View>
+
+                  <Text style={[styles.axisLabelY, { top: gridLineY1 - 8 }]}>{(minVal + yRange * 0.75).toFixed(displayDecimals)}</Text>
+                  <Text style={[styles.axisLabelY, { top: gridLineY2 - 8 }]}>{(minVal + yRange * 0.5).toFixed(displayDecimals)}</Text>
+                  <Text style={[styles.axisLabelY, { top: gridLineY3 - 8 }]}>{(minVal + yRange * 0.25).toFixed(displayDecimals)}</Text>
+                </>
+              )}
+
+              <View style={styles.xAxis}>
+                <Text style={[styles.xTick, { left: '8%' }]}>14:15</Text>
+                <Text style={[styles.xTick, { left: '42%' }]}>15:05</Text>
+                <Text style={[styles.xTick, { left: '80%' }]}>15:55</Text>
+              </View>
+
+              <Animated.View style={crosshairVerticalStyle} />
+              <Animated.View style={crosshairHorizontalStyle} />
+              <Animated.View style={crosshairPriceStyle}>
+                <Text style={styles.crosshairText}>{crosshairPriceDisplay}</Text>
+              </Animated.View>
+            </View>
+          </GestureDetector>
+        </View>
+
+        <View style={styles.bottomArea}>
+          <View style={styles.timeframesRow}>
+            {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map((tf) => (
+              <Pressable key={tf} onPress={() => setChartTimeframe(tf)} style={[styles.tfBtn, chartTimeframe === tf && styles.tfBtnActive]}>
+                <Text style={[styles.tfText, chartTimeframe === tf && styles.tfTextActive]}>{tf}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.segmentedControl}>
+            {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
+              <Pressable key={tab} style={[styles.segmentBtn, tab === 'POSITIONS' && styles.segmentBtnActive]}>
+                <Text style={[styles.segmentText, tab === 'POSITIONS' && styles.segmentTextActive]}>{tab}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.sentimentLabelsRow}>
+            <Text style={styles.sentimentLabelSell}>32% SELL</Text>
+            <Text style={styles.sentimentLabelBuy}>68% BUY</Text>
+          </View>
+          <View style={styles.sentimentBarRow}>
+            <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: 0.32 }]} />
+            <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
+          </View>
+
+          <View style={styles.tradeControlsRow}>
+            <Pressable style={[styles.actionBtn, styles.actionBtnSell]}>
+              <View style={styles.actionBtnInnerLeft}>
+                <Text style={styles.actionBtnLabelTitle}>SELL</Text>
+                <Text style={styles.actionBtnPriceText}>@ {latestAsk.toFixed(displayDecimals)}</Text>
+              </View>
+              <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
+            </Pressable>
+
+            <View style={styles.actionSpacer} />
+
+            <Pressable style={[styles.actionBtn, styles.actionBtnBuy]}>
+              <View style={styles.actionBtnInnerLeft}>
+                <Text style={styles.actionBtnLabelTitle}>BUY</Text>
+                <Text style={styles.actionBtnPriceText}>@ {latestBid.toFixed(displayDecimals)}</Text>
+              </View>
+              <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
+            </Pressable>
+          </View>
+
+          <View style={styles.lotSelectorBar}>
+            <Pressable style={styles.lotStepperBtn}>
+              <Ionicons name="remove" size={20} color="#94A3B8" />
+            </Pressable>
+            <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>0.10</Text></Text>
+            <Pressable style={styles.lotStepperBtn}>
+              <Ionicons name="add" size={20} color="#94A3B8" />
+            </Pressable>
+          </View>
+        </View>
       </View>
 
       <ActionSheet
@@ -325,46 +469,108 @@ export function ChartScreen() {
 }
 
 const styles = StyleSheet.create({
-  topRow: {
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
+  screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
+  topHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  accountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 200, 83, 0.4)',
+    gap: 8,
+  },
+  liveIndicator: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: UP_COLOR,
+  },
+  accountTypeText: {
+    color: UP_COLOR, fontSize: 11, fontWeight: '800', letterSpacing: 0.5
+  },
+  balanceText: {
+    color: TEXT, fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.3,
+    marginTop: 4,
+  },
+  card: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  glassToolbar: {
+    marginHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: CARD_BG,
+    paddingTop: 12,
+    paddingBottom: 8,
+    marginBottom: 12,
+  },
+  toolbarRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  title: {
-    color: G.text,
+  symbolInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  flagStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  flagCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: APP_BG,
+  },
+  flagOverlap: {
+    marginLeft: -10,
+  },
+  symbolText: {
+    color: '#fff',
     fontSize: 20,
     fontWeight: '700',
   },
-  icons: {
+  symbolSubText: {
+    color: TEXT_MUTED,
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  toolbarActions: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 14,
   },
-  icon: {
-    color: G.textMuted,
-    fontSize: 22,
+  plRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.04)',
   },
-  symbol: {
-    marginTop: spacing.md,
-    marginHorizontal: spacing.md,
-    color: G.text,
-    fontWeight: '700',
+  plText: {
+    color: TEXT_MUTED,
+    fontSize: 11,
   },
-  sub: {
-    marginHorizontal: spacing.md,
-    color: G.textSub,
-    fontSize: 14,
-  },
-  chartWrap: {
+  chartContainer: {
     flex: 1,
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    borderRadius: 4,
-    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: GRID,
+    position: 'relative',
   },
   gestureWrap: {
     flex: 1,
@@ -372,23 +578,210 @@ const styles = StyleSheet.create({
   canvas: {
     flex: 1,
   },
+  overlayPill: {
+    /* Removed from mockup, but leaving empty class just in case */
+  },
+  overlayPillText: {
+  },
+  xAxis: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 24,
+    flexDirection: 'row',
+  },
+  xTick: {
+    position: 'absolute',
+    color: TEXT_MUTED,
+    fontSize: 11,
+    top: 4,
+  },
+  axisLabelY: {
+    position: 'absolute',
+    right: 8,
+    color: TEXT_MUTED,
+    fontSize: 11,
+  },
+  priceTagWrap: {
+    position: 'absolute',
+    right: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+  },
+  priceTagText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   crosshairText: {
-    color: G.text,
+    color: '#E2E8F0',
     fontSize: 12,
   },
-  timeframeRow: {
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
+  bottomArea: {
+    backgroundColor: CARD_BG,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  timeframesRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 12,
+  },
+  tfBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  tfBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   tfText: {
-    color: G.textSub,
+    color: '#94A3B8',
     fontSize: 13,
+    fontWeight: '600',
   },
-  tfActive: {
-    color: G.accent,
+  tfTextActive: {
+    color: '#fff',
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  segmentBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  segmentText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  segmentTextActive: {
+    color: '#fff',
+  },
+  sentimentLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  sentimentLabelSell: {
+    color: RED,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sentimentLabelBuy: {
+    color: BLUE,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sentimentBarRow: {
+    flexDirection: 'row',
+    height: 4,
+    marginBottom: 20,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  sentimentHalf: {
+    height: '100%',
+  },
+  sentimentSell: {
+    backgroundColor: RED,
+  },
+  sentimentBuy: {
+    backgroundColor: BLUE,
+  },
+  tradeControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  actionBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  actionBtnSell: {
+    backgroundColor: 'rgba(255, 51, 102, 0.15)', // Translucent red
+    borderWidth: 1,
+    borderColor: 'rgba(255, 51, 102, 0.3)',
+  },
+  actionBtnBuy: {
+    backgroundColor: 'rgba(41, 98, 255, 0.15)', // Translucent blue
+    borderWidth: 1,
+    borderColor: 'rgba(41, 98, 255, 0.3)',
+  },
+  actionBtnInnerLeft: {
+    flex: 1,
+  },
+  actionBtnLabelTitle: {
+    color: TEXT,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  actionBtnPriceText: {
+    color: TEXT,
+    fontSize: 12,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+    opacity: 0.9,
+  },
+  actionChevron: {
+    opacity: 0.8,
+  },
+  actionSpacer: {
+    width: 12,
+  },
+  lotSelectorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0A0D14', // Inset CNC dial look
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
+  },
+  lotStepperBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lotLabelText: {
+    color: '#94A3B8',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  lotValueText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '700',
   },
 });
