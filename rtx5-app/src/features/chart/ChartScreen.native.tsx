@@ -51,16 +51,16 @@ function generateCandles(count: number, startPrice: number) {
 const CANDLE_WIDTH = 7;
 const CANDLE_GAP = 4;
 
-const APP_BG = '#0B0E14';
-const CARD_BG = '#131722';
-const BLUE = '#2962FF';
-const RED = '#F23645';
-const UP_COLOR = '#00C853';
-const GRID = 'rgba(255, 255, 255, 0.04)';
-const TEXT = '#F7F9FC';
-const TEXT_MUTED = '#8B9DB6';
-const BTN_BG = '#1A2130';
-const PILL_BG = '#1A202C';
+const APP_BG = G.bg;
+const CARD_BG = '#0B0F19'; // Deep Navy Card
+const BLUE = '#2962FF'; // Vivid professional blue
+const RED = '#FF2A55'; // Vibrant, sharp red
+const UP_COLOR = G.up;
+const GRID = G.border;
+const TEXT = G.text;
+const TEXT_MUTED = '#8E9AAF';
+const BTN_BG = G.glass2;
+const PILL_BG = G.glass1;
 
 export function ChartScreen() {
   const { chartSymbol, chartTimeframe, setChartTimeframe } = useUserPreferences();
@@ -290,11 +290,20 @@ export function ChartScreen() {
   return (
     <Screen style={styles.screen}>
       <View style={styles.topHeaderRow}>
-        <View style={styles.accountBadge}>
-          <View style={styles.liveIndicator} />
-          <Text style={styles.accountTypeText}>DEMO ACCOUNT</Text>
+        <View style={styles.headerSpacer}>
+          <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+            <Ionicons name="menu" size={24} color={G.textMuted} />
+          </Pressable>
         </View>
-        <Text style={styles.balanceText}>1,500.00 USD</Text>
+        <View style={styles.accountBadgeGroup}>
+          <View style={styles.accountBadge}>
+            <View style={styles.liveIndicatorGlow}>
+              <View style={styles.liveIndicator} />
+            </View>
+            <Text style={styles.accountTypeText}>DEMO ACCOUNT</Text>
+          </View>
+        </View>
+        <View style={[styles.headerSpacer, styles.headerSpacerRight]} />
       </View>
 
       <View style={styles.card}>
@@ -311,22 +320,40 @@ export function ChartScreen() {
                   style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]}
                 />
               </View>
-              <View>
-                <Text style={styles.symbolText}>
-                  {displaySymbol}
-                </Text>
+              <View style={styles.symbolTextCol}>
+                <View style={styles.symbolNameRow}>
+                  <Text style={styles.symbolText}>{displaySymbol}</Text>
+                  <View style={styles.microBadge}>
+                    <Text style={styles.microBadgeText}>FX</Text>
+                  </View>
+                </View>
                 <Text style={styles.symbolSubText}>Euro / US Dollar</Text>
               </View>
+            </View>
+            <View style={styles.balanceContainer}>
+              <Text style={styles.balanceLabel}>Balance</Text>
+              <Text style={styles.balanceText}>1,500.00 <Text style={styles.currencyText}>USD</Text></Text>
             </View>
           </View>
 
           <View style={styles.plRow}>
-            <Text style={styles.plText}>Positions: 0 Open  •  P&L: 0.00</Text>
+            <View style={styles.plInfoGroup}>
+              <Text style={styles.plLabel}>Positions:</Text>
+              <Text style={styles.plValue}>0</Text>
+              <View style={styles.plDivider} />
+              <Text style={styles.plLabel}>P&L:</Text>
+              <Text style={[styles.plValue, { color: G.textMuted }]}>0.00</Text>
+            </View>
             <View style={styles.toolbarActions}>
-              <Ionicons name="alarm-outline" size={18} color={TEXT_MUTED} />
-              <Ionicons name="expand-outline" size={18} color={TEXT_MUTED} />
-              <Ionicons name="settings-outline" size={18} color={TEXT_MUTED} />
-              <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
+              <Pressable style={styles.toolbarActionBtn}>
+                <Ionicons name="alarm-outline" size={17} color={TEXT_MUTED} />
+              </Pressable>
+              <Pressable style={styles.toolbarActionBtn}>
+                <Ionicons name="scan-outline" size={17} color={TEXT_MUTED} />
+              </Pressable>
+              <Pressable style={styles.toolbarActionBtn}>
+                <Ionicons name="options-outline" size={17} color={TEXT_MUTED} />
+              </Pressable>
             </View>
           </View>
         </View>
@@ -475,29 +502,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  headerSpacer: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  headerSpacerRight: {
+    alignItems: 'flex-end',
+  },
+  menuBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: G.glass1,
+    borderWidth: 1,
+    borderColor: G.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountBadgeGroup: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   accountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'transparent',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: G.upGlow,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(0, 200, 83, 0.4)',
+    borderColor: 'rgba(0, 230, 118, 0.3)',
     gap: 8,
   },
+  liveIndicatorGlow: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   liveIndicator: {
-    width: 6, height: 6, borderRadius: 3, backgroundColor: UP_COLOR,
+    width: 6, 
+    height: 6, 
+    borderRadius: 3, 
+    backgroundColor: G.up,
   },
   accountTypeText: {
-    color: UP_COLOR, fontSize: 11, fontWeight: '800', letterSpacing: 0.5
+    color: G.up, 
+    fontSize: 10, 
+    fontWeight: '800', 
+    letterSpacing: 0.6,
+  },
+  balanceContainer: {
+    alignItems: 'flex-end',
+  },
+  balanceLabel: {
+    color: G.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
   },
   balanceText: {
-    color: TEXT, fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.3,
-    marginTop: 4,
+    color: G.text, 
+    fontSize: 18, 
+    fontWeight: '800', 
+    fontVariant: ['tabular-nums'], 
+    letterSpacing: -0.4,
+  },
+  currencyText: {
+    fontSize: 12,
+    color: G.textSub,
+    fontWeight: '700',
   },
   card: {
     flex: 1,
@@ -528,42 +609,95 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   flagCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
-    borderColor: APP_BG,
+    borderColor: CARD_BG,
   },
   flagOverlap: {
-    marginLeft: -10,
+    marginLeft: -8,
+  },
+  symbolTextCol: {
+    justifyContent: 'center',
+  },
+  symbolNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   symbolText: {
-    color: '#fff',
+    color: G.text,
     fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  microBadge: {
+    backgroundColor: G.glass2,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: G.border,
+  },
+  microBadgeText: {
+    color: G.textSub,
+    fontSize: 9,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
   symbolSubText: {
-    color: TEXT_MUTED,
-    fontSize: 11,
+    color: G.textMuted,
+    fontSize: 12,
     fontWeight: '500',
-    marginTop: 1,
+    marginTop: 2,
   },
   toolbarActions: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 8,
+  },
+  toolbarActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   plRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingTop: 6,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.04)',
+    borderTopColor: G.border,
   },
-  plText: {
-    color: TEXT_MUTED,
-    fontSize: 11,
+  plInfoGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  plLabel: {
+    color: G.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  plValue: {
+    color: G.text,
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.2,
+  },
+  plDivider: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: G.textMuted,
+    marginHorizontal: 8,
   },
   chartContainer: {
     flex: 1,
@@ -626,16 +760,16 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopColor: G.border,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
   timeframesRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     gap: 12,
   },
   tfBtn: {
@@ -659,7 +793,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 12,
     padding: 4,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   segmentBtn: {
     flex: 1,
@@ -682,7 +816,7 @@ const styles = StyleSheet.create({
   sentimentLabelsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   sentimentLabelSell: {
     color: RED,
@@ -697,7 +831,7 @@ const styles = StyleSheet.create({
   sentimentBarRow: {
     flexDirection: 'row',
     height: 4,
-    marginBottom: 20,
+    marginBottom: 12,
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -713,11 +847,11 @@ const styles = StyleSheet.create({
   tradeControlsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   actionBtn: {
     flex: 1,
-    height: 56,
+    height: 52,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -725,14 +859,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   actionBtnSell: {
-    backgroundColor: 'rgba(255, 51, 102, 0.15)', // Translucent red
+    backgroundColor: 'rgba(255, 42, 85, 0.1)', // Subtle red tint
     borderWidth: 1,
-    borderColor: 'rgba(255, 51, 102, 0.3)',
+    borderColor: 'rgba(255, 42, 85, 0.25)',
   },
   actionBtnBuy: {
-    backgroundColor: 'rgba(41, 98, 255, 0.15)', // Translucent blue
+    backgroundColor: 'rgba(41, 98, 255, 0.1)', // Subtle blue tint
     borderWidth: 1,
-    borderColor: 'rgba(41, 98, 255, 0.3)',
+    borderColor: 'rgba(41, 98, 255, 0.25)',
   },
   actionBtnInnerLeft: {
     flex: 1,
@@ -761,12 +895,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#0A0D14', // Inset CNC dial look
+    backgroundColor: G.glass2, 
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)',
+    borderColor: G.border,
   },
   lotStepperBtn: {
     width: 40,
