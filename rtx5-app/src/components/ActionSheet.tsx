@@ -1,6 +1,5 @@
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
-import { useUserPreferences } from '../state/userPreferences';
 
 type ActionSheetProps = {
   visible: boolean;
@@ -11,16 +10,14 @@ type ActionSheetProps = {
 
 export function ActionSheet({ visible, title, actions, onClose }: ActionSheetProps) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-
-  const sheetBg = isDark ? '#171d28' : '#ffffff';
-  const borderCol = isDark ? '#2a3549' : 'rgba(0,0,0,0.1)';
-  const handleCol = isDark ? '#3a465b' : '#c8cdd4';
-  const titleCol = isDark ? '#97a4ba' : '#6b7280';
-  const dividerCol = isDark ? '#243043' : 'rgba(0,0,0,0.06)';
-  const chevronCol = isDark ? '#62718c' : '#9ca3af';
-  const cancelBg = isDark ? '#141b27' : '#f3f4f6';
-  const overlayBg = isDark ? 'rgba(2, 7, 14, 0.62)' : 'rgba(0, 0, 0, 0.3)';
+  const sheetBg = T.glass1;
+  const borderCol = T.border;
+  const handleCol = T.borderMedium;
+  const titleCol = T.textMuted;
+  const dividerCol = T.borderSubtle;
+  const chevronCol = T.textDimmed;
+  const cancelBg = T.glass2;
+  const overlayBg = 'rgba(0,0,0,0.60)';
 
   return (
     <Modal transparent animationType='fade' visible={visible} onRequestClose={onClose}>

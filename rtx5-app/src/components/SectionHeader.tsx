@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme';
+import { useTheme } from '../theme/useTheme';
+import { spacing } from '../theme';
 
 type SectionHeaderProps = {
   title: string;
@@ -7,17 +8,18 @@ type SectionHeaderProps = {
 };
 
 export function SectionHeader({ title, rightLabel = '•••' }: SectionHeaderProps) {
+  const T = useTheme();
+
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.dots}>{rightLabel}</Text>
+    <View style={[styles.wrap, { backgroundColor: T.glass1, borderColor: T.border }]}>
+      <Text style={[styles.title, { color: T.text }]}>{title}</Text>
+      <Text style={[styles.dots, { color: T.textMuted }]}>{rightLabel}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: '#0b0f17',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -25,15 +27,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#1b2130',
   },
   title: {
-    color: colors.text,
     fontSize: 19,
     fontWeight: '700',
   },
   dots: {
-    color: '#7f8795',
     fontSize: 13,
     letterSpacing: 0.4,
   },

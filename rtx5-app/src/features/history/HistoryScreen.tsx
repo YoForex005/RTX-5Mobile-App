@@ -113,6 +113,7 @@ export function HistoryScreen() {
               value={historyRange}
               icon='calendar-outline'
               tone='neutral'
+              valueOverrideStyle={styles.rangeValueText}
             />
             <MetricPill
               label={tab === 'Orders' ? 'Filled' : 'Win Rate'}
@@ -129,16 +130,6 @@ export function HistoryScreen() {
           </View>
         </View>
 
-        <FlatList
-          style={styles.list}
-          data={data}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => <HistoryItemRow item={item} tab={tab} />}
-          ListEmptyComponent={<Text style={styles.emptyText}>No history records</Text>}
-        />
-
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
             <Text style={styles.summaryTitle}>Account Summary</Text>
@@ -150,6 +141,16 @@ export function HistoryScreen() {
           <SummaryRow label='Commission' value={fmt.int(ACCOUNT_SUMMARY.commission)} />
           <SummaryRow label='Balance' value={fmt.int(ACCOUNT_SUMMARY.balance)} emphasize />
         </View>
+
+        <FlatList
+          style={styles.list}
+          data={data}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => <HistoryItemRow item={item} tab={tab} />}
+          ListEmptyComponent={<Text style={styles.emptyText}>No history records</Text>}
+        />
 
         <ActionSheet
           visible={sortOpen}
@@ -173,6 +174,9 @@ function HistoryItemRow({ item, tab }: { item: HistoryRow; tab: Tab }) {
 
   return (
     <View style={styles.rowCard}>
+      <View style={styles.ticketWrap}>
+        <Text style={styles.ticketText}>#{extractTicket(item.id)}</Text>
+      </View>
       <View style={styles.rowTop}>
         <View style={styles.rowTitleWrap}>
           <Text style={styles.symbolText}>{symbol}</Text>
@@ -203,10 +207,8 @@ function HistoryItemRow({ item, tab }: { item: HistoryRow; tab: Tab }) {
         )}
       </View>
 
-      <Text style={styles.priceTrack}>{item.line2}</Text>
-
       <View style={styles.rowMeta}>
-        <Text style={styles.ticketText}>#{extractTicket(item.id)}</Text>
+        <Text style={styles.priceTrack}>{item.line2}</Text>
         <Text style={styles.timeText}>{item.time}</Text>
       </View>
     </View>
@@ -218,11 +220,13 @@ function MetricPill({
   value,
   icon,
   tone,
+  valueOverrideStyle,
 }: {
   label: string;
   value: string;
   icon: keyof typeof Ionicons.glyphMap;
   tone: Tone;
+  valueOverrideStyle?: object;
 }) {
   return (
     <View style={styles.metricPill}>
@@ -236,6 +240,7 @@ function MetricPill({
           tone === 'positive' && styles.positiveText,
           tone === 'negative' && styles.negativeText,
           tone === 'neutral' && styles.neutralText,
+          valueOverrideStyle,
         ]}
         numberOfLines={1}
       >
@@ -334,10 +339,10 @@ const styles = StyleSheet.create({
   topBlock: {
     marginTop: spacing.md,
     marginHorizontal: spacing.md,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass2,
     padding: spacing.sm,
     paddingBottom: spacing.md,
   },
@@ -375,8 +380,8 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     color: G.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
   segmentTextActive: {
     color: G.text,
@@ -391,7 +396,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: G.borderMedium,
     backgroundColor: G.glass1,
     paddingHorizontal: 8,
     paddingVertical: 6,
@@ -404,16 +409,21 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     marginLeft: 4,
-    color: G.textMuted,
-    fontSize: 10,
+    color: G.textSub,
+    fontSize: 11,
+    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   metricValue: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     fontVariant: ['tabular-nums'],
     color: G.text,
+  },
+  rangeValueText: {
+    color: G.text,
+    fontSize: 12,
   },
   list: {
     flex: 1,
@@ -426,8 +436,8 @@ const styles = StyleSheet.create({
   rowCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass2,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     marginBottom: spacing.sm,
@@ -448,6 +458,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 20,
     fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginRight: 6,
   },
   sidePill: {
@@ -458,8 +470,8 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   sidePillBuy: {
-    backgroundColor: G.accentGlow,
-    borderColor: G.accentGlow,
+    backgroundColor: 'rgba(37, 99, 235, 0.15)',
+    borderColor: 'rgba(37, 99, 235, 0.15)',
   },
   sidePillSell: {
     backgroundColor: G.downGlow,
@@ -511,30 +523,36 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
   priceTrack: {
-    marginTop: 4,
-    color: G.textMuted,
+    color: G.textSub,
     fontSize: 13,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
   rowMeta: {
-    marginTop: 4,
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  ticketWrap: {
+    marginBottom: 4,
+  },
   ticketText: {
-    color: G.textSub,
-    fontSize: 11,
-    fontWeight: '600',
+    color: G.text,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   timeText: {
-    color: G.textMuted,
-    fontSize: 11,
+    color: G.textSub,
+    fontSize: 12,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   timeOnly: {
-    color: G.textMuted,
-    fontSize: 12,
+    color: G.textSub,
+    fontSize: 13,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
   emptyText: {
@@ -545,11 +563,12 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     marginHorizontal: spacing.md,
+    marginTop: spacing.md,
     marginBottom: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass2,
     overflow: 'hidden',
   },
   summaryHeader: {
@@ -568,8 +587,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   summaryCurrency: {
-    color: G.textMuted,
-    fontSize: 11,
+    color: '#FFFFFF',
+    fontSize: 13,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -599,7 +618,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   positiveText: {
-    color: G.up,
+    color: G.trading.profit,
   },
   negativeText: {
     color: G.down,
@@ -609,6 +628,6 @@ const styles = StyleSheet.create({
   },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, paddingHorizontal: spacing.md, marginTop: spacing.sm },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: G.glass1, borderWidth: 1, borderColor: G.borderHi, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: G.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
 });

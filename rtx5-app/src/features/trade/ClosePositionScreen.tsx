@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
 
@@ -85,13 +86,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: '#7e8ba1',
+    color: G.textMuted,
     fontSize: 12,
   },
   card: {
@@ -100,8 +101,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e283b',
-    backgroundColor: '#0a111c',
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass2,
   },
   symbolRow: {
     flexDirection: 'row',
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   symbol: {
-    color: '#ecf2fb',
+    color: G.text,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -119,14 +120,14 @@ const styles = StyleSheet.create({
     textTransform: 'lowercase',
   },
   buy: {
-    color: colors.positive,
+    color: G.trading.buy.primary,
   },
   sell: {
-    color: colors.negative,
+    color: G.trading.sell.primary,
   },
   instrument: {
     marginTop: 4,
-    color: '#90a0b7',
+    color: G.textMuted,
     fontSize: 12,
   },
   metrics: {
@@ -139,43 +140,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   metricLabel: {
-    color: '#9aa8bc',
+    color: G.textMuted,
     fontSize: 13,
   },
   metricValue: {
-    color: '#e6edf8',
+    color: G.text,
     fontSize: 14,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   negative: {
-    color: colors.negative,
+    color: G.trading.loss,
   },
   positive: {
-    color: colors.positive,
+    color: G.trading.profit,
   },
   success: {
     marginHorizontal: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#254f42',
-    backgroundColor: '#122f27',
+    borderColor: 'rgba(74,222,128,0.25)',
+    backgroundColor: 'rgba(74,222,128,0.08)',
     padding: spacing.md,
   },
   successText: {
-    color: '#7be0b5',
+    color: G.trading.profit,
     fontSize: 13,
   },
   dangerButton: {
     marginTop: spacing.lg,
     marginHorizontal: spacing.md,
-    backgroundColor: '#bf342c',
+    backgroundColor: G.trading.sell.primary,
     borderRadius: 8,
     alignItems: 'center',
     paddingVertical: 12,
   },
   dangerButtonText: {
-    color: '#fff',
+    color: G.text,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -184,13 +185,13 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2d3a52',
-    backgroundColor: '#121a2a',
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass1,
     alignItems: 'center',
     paddingVertical: 12,
   },
   secondaryButtonText: {
-    color: '#8db8ff',
+    color: G.accent,
     fontSize: 15,
     fontWeight: '600',
   },

@@ -22,9 +22,12 @@ export function TradePositionRow({
     <Pressable
       style={({ pressed }) => [
         styles.row,
-        { backgroundColor: T.glass1, borderColor: T.border },
-        isBuy ? { borderLeftWidth: 2, borderLeftColor: T.accent } : { borderLeftWidth: 2, borderLeftColor: T.down },
-        selected && { backgroundColor: T.glass2, borderColor: T.borderHi },
+        {
+          backgroundColor: T.glass2,
+          borderColor: T.borderMedium,
+          borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
+        },
+        selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
         pressed && styles.rowPressed,
       ]}
       onPress={() => onPress(item)}
@@ -35,25 +38,30 @@ export function TradePositionRow({
         <View style={styles.headerRow}>
           <View style={styles.symbolLine}>
             <Text style={[styles.symbol, { color: T.text }]}>{item.symbol}</Text>
-            <View style={[styles.sideBadge, { backgroundColor: isBuy ? T.accentGlow : T.downGlow }]}>
-              <Text style={[styles.sideText, { color: isBuy ? T.accent : T.down }]}>
+            <View style={[
+              styles.sideBadge,
+              isBuy
+                ? { backgroundColor: 'rgba(37,99,235,0.15)' }
+                : { backgroundColor: 'rgba(220,38,38,0.12)' },
+            ]}>
+              <Text style={[styles.sideText, { color: isBuy ? T.trading.buy.hover : T.trading.sell.hover }]}>
                 {item.side}
               </Text>
             </View>
-            <Text style={[styles.volume, { color: T.textSub }]}>{item.volume.toFixed(2)}</Text>
+            <Text style={[styles.volume, { color: T.textMuted }]}>{item.volume.toFixed(2)}</Text>
           </View>
-          <Text style={[styles.pnl, { color: item.pnl >= 0 ? T.up : T.down }]}>
+          <Text style={[styles.pnl, { color: item.pnl >= 0 ? T.trading.profit : T.trading.loss }]}>
             {fmt.pnl(item.pnl)}
           </Text>
         </View>
 
         <View style={styles.priceRow}>
-          <Text style={[styles.price, { color: T.textMuted }]}>{fmt.price(item.openPrice)}</Text>
-          <Text style={[styles.arrow, { color: T.textMuted }]}>→</Text>
-          <Text style={[styles.price, { color: T.textMuted }]}>{fmt.price(item.currentPrice)}</Text>
+          <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice)}</Text>
+          <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
+          <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.currentPrice)}</Text>
         </View>
 
-        <Text style={[styles.meta, { color: T.textSub }]} numberOfLines={1}>#{item.id} • {item.openTime}</Text>
+        <Text style={[styles.meta, { color: T.textMuted }]} numberOfLines={1}>#{item.id} • {item.openTime}</Text>
       </View>
     </Pressable>
   );
@@ -65,8 +73,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
-    borderRadius: 12,
+    borderRadius: 7,
     borderWidth: 1,
+    borderLeftWidth: 2,
   },
   rowPressed: {
     opacity: 0.88,
@@ -86,30 +95,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   symbol: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sideBadge: {
-    borderRadius: 4,
+    borderRadius: 3,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   sideText: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     textTransform: 'lowercase',
     letterSpacing: 0.3,
   },
   volume: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
   },
   pnl: {
     minWidth: 88,
     textAlign: 'right',
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
-    lineHeight: 22,
+    letterSpacing: 0,
     fontVariant: ['tabular-nums'],
   },
   priceRow: {
@@ -120,6 +131,7 @@ const styles = StyleSheet.create({
   },
   price: {
     fontSize: 12,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   arrow: {
@@ -127,7 +139,8 @@ const styles = StyleSheet.create({
   },
   meta: {
     marginTop: 4,
-    fontSize: 10,
+    fontSize: 11,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
 });

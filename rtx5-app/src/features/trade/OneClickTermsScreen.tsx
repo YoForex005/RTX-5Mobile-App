@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 export function OneClickTermsScreen() {
   const { oneClickAccepted, setOneClickAccepted } = useUserPreferences();
@@ -23,7 +24,12 @@ export function OneClickTermsScreen() {
         </Text>
       </View>
       <View style={styles.row}>
-        <Switch value={oneClickAccepted} onValueChange={setOneClickAccepted} />
+        <Switch
+          value={oneClickAccepted}
+          onValueChange={setOneClickAccepted}
+          trackColor={{ false: G.borderMedium, true: G.trading.buy.primary }}
+          thumbColor={G.text}
+        />
         <Text style={styles.accept}>I Accept these Terms and Conditions</Text>
       </View>
       <Pressable style={[styles.button, !oneClickAccepted && styles.buttonDisabled]} onPress={() => setOneClickAccepted(true)}>
@@ -37,20 +43,20 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: colors.text,
+    color: G.text,
     fontSize: 22,
     fontWeight: '700',
   },
   card: {
     margin: spacing.md,
-    borderTopWidth: 4,
-    borderBottomWidth: 4,
-    borderColor: '#0f131d',
-    backgroundColor: '#11141b',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass1,
     padding: spacing.md,
   },
   text: {
-    color: '#d2d8e2',
+    color: G.textSub,
     fontSize: 15,
     lineHeight: 23,
     marginBottom: spacing.md,
@@ -63,14 +69,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   accept: {
-    color: '#c8cfda',
+    color: G.textSub,
     fontSize: 16,
     flex: 1,
   },
   button: {
     margin: spacing.md,
     marginTop: spacing.lg,
-    backgroundColor: colors.accent,
+    backgroundColor: G.trading.buy.primary,
     borderRadius: 8,
     alignItems: 'center',
     paddingVertical: 14,
@@ -79,7 +85,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   buttonText: {
-    color: '#fff',
+    color: G.text,
     fontWeight: '700',
     fontSize: 20,
   },

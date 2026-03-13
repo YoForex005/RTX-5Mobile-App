@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, FlatList, Image } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
@@ -43,10 +44,16 @@ export function TradeScreen() {
 
             <View style={styles.summaryBlock}>
               <View style={styles.summaryTop}>
+                {/* Glow Background for the Top Section */}
+                <LinearGradient
+                  colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
+                  start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
                 <View>
                   <Text style={styles.summaryLabel}>Unrealized P/L</Text>
-                  <Text style={[styles.floating, account.floating >= 0 ? styles.floatingPositive : styles.floatingNegative]}>
-                    {fmt.pnl(account.floating)} {account.currency}
+                  <Text style={styles.floating}>
+                    {fmt.pnl(account.floating)} <Text style={styles.floatingCurrency}>{account.currency}</Text>
                   </Text>
                   <Text style={styles.summaryHint}>Margin level {fmt.int(account.marginLevel)}%</Text>
                 </View>
@@ -58,11 +65,11 @@ export function TradeScreen() {
                 </Pressable>
               </View>
               <View style={styles.metricsCard}>
-                <MetricRow label='Balance:' value={fmt.int(account.balance)} compact withDivider />
-                <MetricRow label='Equity:' value={fmt.int(account.equity)} compact withDivider />
-                <MetricRow label='Margin:' value={fmt.int(account.margin)} compact withDivider />
-                <MetricRow label='Free Margin:' value={fmt.int(account.freeMargin)} compact withDivider />
-                <MetricRow label='Margin Level (%):' value={fmt.int(account.marginLevel)} compact />
+                <MetricRow label='Balance:' value={fmt.int(account.balance)} compact withDivider white />
+                <MetricRow label='Equity:' value={fmt.int(account.equity)} compact withDivider white />
+                <MetricRow label='Margin:' value={fmt.int(account.margin)} compact withDivider white />
+                <MetricRow label='Free Margin:' value={fmt.int(account.freeMargin)} compact withDivider white />
+                <MetricRow label='Margin Level (%):' value={fmt.int(account.marginLevel)} compact white />
               </View>
             </View>
 
@@ -222,10 +229,16 @@ const styles = StyleSheet.create({
   summaryBlock: {
     marginTop: spacing.md,
     marginHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: G.glass1,
+    borderRadius: 18,
+    backgroundColor: G.glass2,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: G.borderMedium,
+    shadowColor: G.trading.buy.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 4,
+    overflow: 'hidden',
   },
   summaryTop: {
     paddingHorizontal: spacing.md,
@@ -235,38 +248,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    color: G.textMuted,
-    fontSize: 10,
+    color: G.text,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
   },
   floating: {
-    fontSize: 34,
-    fontWeight: '700',
-    lineHeight: 36,
-    marginTop: 3,
+    color: G.trading.buy.hover,
+    fontSize: 42,
+    fontWeight: '800',
+    letterSpacing: -1,
+    lineHeight: 46,
+    marginTop: 4,
+    fontVariant: ['tabular-nums'],
   },
-  floatingPositive: {
-    color: G.up,
-  },
-  floatingNegative: {
-    color: G.down,
+  floatingCurrency: {
+    color: G.trading.buy.hover,
+    fontSize: 22,
+    fontWeight: '800',
   },
   summaryHint: {
     marginTop: 4,
     color: G.textSub,
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
   newOrderButton: {
+    position: 'absolute',
+    right: spacing.md,
+    top: spacing.md,
     width: 42,
     height: 42,
     borderRadius: 21,
     borderWidth: 1,
-    borderColor: G.borderHi,
-    backgroundColor: G.glass2,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass1,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 10,
   },
   newOrderButtonPressed: {
     backgroundColor: G.glass3,
@@ -278,7 +299,7 @@ const styles = StyleSheet.create({
   },
   metricsCard: {
     borderTopWidth: 1,
-    borderTopColor: G.border,
+    borderTopColor: G.borderMedium,
     backgroundColor: 'transparent',
     overflow: 'hidden',
   },
@@ -291,35 +312,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: G.border,
+    borderBottomColor: G.borderMedium,
   },
   positionsTitle: {
     color: G.text,
-    fontSize: 21,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   positionsMeta: {
-    marginTop: 3,
+    marginTop: 2,
     color: G.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: '500',
   },
   bulkButton: {
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass1,
   },
   bulkButtonPressed: {
     backgroundColor: G.glass3,
   },
   bulkButtonText: {
-    color: G.textSub,
-    fontSize: 10,
+    color: G.textMuted,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   oneClick: {
@@ -327,27 +349,32 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: G.glass1,
-    borderColor: G.border,
+    borderRadius: 18,
+    backgroundColor: G.glass2,
+    borderColor: G.borderMedium,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    shadowColor: G.trading.buy.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 4,
   },
   oneClickPressed: {
     backgroundColor: G.glass2,
   },
   oneClickTitle: {
     color: G.text,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
   oneClickSub: {
     color: G.textMuted,
-    fontSize: 11,
-    marginTop: 3,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
   },
   statusPill: {
     paddingHorizontal: 11,
@@ -376,6 +403,6 @@ const styles = StyleSheet.create({
   },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: spacing.md, marginTop: spacing.sm },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  menuBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium },
+  headerTitle: { color: G.text, fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
 });

@@ -7,15 +7,16 @@ type Props = {
   value: string;
   compact?: boolean;
   withDivider?: boolean;
+  white?: boolean;
 };
 
-export function MetricRow({ label, value, compact = false, withDivider = false }: Props) {
+export function MetricRow({ label, value, compact = false, withDivider = false, white = false }: Props) {
   const T = useTheme();
 
   return (
-    <View style={[styles.row, compact && styles.rowCompact, withDivider && { borderBottomWidth: 1, borderBottomColor: T.border }]}>
-      <Text style={[styles.label, { color: T.textMuted }, compact && styles.labelCompact]}>{label}</Text>
-      <Text style={[styles.value, { color: T.text }, compact && styles.valueCompact]}>{value}</Text>
+    <View style={[styles.row, compact && styles.rowCompact, withDivider && { borderBottomWidth: 1, borderBottomColor: T.borderMedium }]}>
+      <Text style={[styles.label, { color: white ? '#FFFFFF' : T.textMuted }, compact && styles.labelCompact]}>{label}</Text>
+      <Text style={[styles.value, { color: white ? '#FFFFFF' : T.text }, compact && styles.valueCompact]}>{value}</Text>
     </View>
   );
 }
@@ -33,17 +34,20 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
+    fontWeight: '500',
   },
   labelCompact: {
-    fontSize: 12,
-    letterSpacing: 0.2,
+    fontSize: 12, // Standard subtext
+    fontWeight: '500',
   },
   value: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   valueCompact: {
-    fontSize: 14,
+    fontSize: 13, // Values slightly larger than 12
+    fontWeight: '700', // Standard value weight
+    letterSpacing: 0.2,
   },
 });

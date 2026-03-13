@@ -18,7 +18,7 @@ const TAB_BAR_HIDDEN = { display: 'none' } as const;
 const icons = {
   quotes: 'swap-vertical-outline',
   chart: 'stats-chart-outline',
-  trade: 'repeat-outline',
+  trade: 'trending-up-outline',
   history: 'time-outline',
   settings: 'settings-outline',
 } as const;

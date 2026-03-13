@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 
 const presets = ['Today', 'Last week', 'Last month', 'Last 3 months', 'Last 6 months', 'Last year', 'Custom'];
 
@@ -37,61 +38,67 @@ const styles = StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   symbolRow: {
     margin: spacing.md,
-    backgroundColor: '#161b24',
+    backgroundColor: G.glass1,
     borderRadius: 10,
     padding: spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: G.border,
   },
   label: {
-    color: '#cbd1dc',
+    color: G.textSub,
     fontSize: 16,
   },
   value: {
-    color: '#b7bfcd',
+    color: G.textMuted,
     fontSize: 16,
   },
   card: {
     marginHorizontal: spacing.md,
-    backgroundColor: '#171b24',
+    backgroundColor: G.glass1,
     borderRadius: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: G.borderMedium,
   },
   option: {
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
-    borderBottomColor: '#232938',
+    borderBottomColor: G.borderMedium,
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   optionText: {
-    color: '#eef2f7',
+    color: G.text,
     fontSize: 18,
   },
   check: {
-    color: colors.accent,
+    color: G.accent,
     fontSize: 20,
   },
   reportBtn: {
     margin: spacing.md,
     marginTop: spacing.xl,
-    backgroundColor: '#171b24',
+    backgroundColor: G.glass1,
     borderRadius: 10,
     padding: spacing.md,
+    borderWidth: 1,
+    borderColor: G.border,
   },
   reportTitle: {
-    color: '#e5e7eb',
+    color: G.text,
     fontSize: 18,
   },
   reportSub: {
-    color: '#8d95a3',
+    color: G.textMuted,
     marginTop: 4,
   },
 });

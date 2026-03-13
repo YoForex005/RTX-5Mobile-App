@@ -2,7 +2,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
+import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
 
@@ -83,13 +84,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: colors.text,
+    color: G.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: '#7e8ba1',
+    color: G.textMuted,
     fontSize: 12,
   },
   summaryCard: {
@@ -98,8 +99,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1f2a3e',
-    backgroundColor: '#0a111c',
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass2,
     gap: 10,
   },
   summaryRow: {
@@ -108,11 +109,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    color: '#9da9bc',
+    color: G.textMuted,
     fontSize: 13,
   },
   summaryValue: {
-    color: '#e5ecf8',
+    color: G.text,
     fontSize: 14,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -121,22 +122,22 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1d2739',
-    backgroundColor: '#0b121d',
+    borderColor: G.borderMedium,
+    backgroundColor: G.glass1,
     overflow: 'hidden',
   },
   previewRow: {
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#172236',
+    borderBottomColor: G.borderMedium,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.sm,
   },
   previewLeft: {
-    color: '#cfd7e5',
+    color: G.textSub,
     fontSize: 12,
     flex: 1,
   },
@@ -147,7 +148,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     padding: spacing.md,
-    color: '#7f8ba0',
+    color: G.textMuted,
     fontSize: 13,
   },
   success: {
@@ -155,19 +156,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#254f42',
-    backgroundColor: '#122f27',
+    borderColor: 'rgba(74,222,128,0.25)',
+    backgroundColor: 'rgba(74,222,128,0.08)',
     padding: spacing.md,
   },
   successText: {
-    color: '#7be0b5',
+    color: G.trading.profit,
     fontSize: 13,
   },
   executeButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: '#bf342c',
+    backgroundColor: G.trading.sell.primary,
     alignItems: 'center',
     paddingVertical: 12,
   },
@@ -175,14 +176,14 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   executeText: {
-    color: '#fff',
+    color: G.text,
     fontSize: 15,
     fontWeight: '700',
   },
   danger: {
-    color: colors.negative,
+    color: G.trading.loss,
   },
   positive: {
-    color: colors.positive,
+    color: G.trading.profit,
   },
 });

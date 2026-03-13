@@ -1,443 +1,384 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View, Image } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { settingsMenu } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
-
-type SettingItem = (typeof settingsMenu)[number];
-type SectionItem = {
-  title: string;
-  data: SettingItem[];
-};
-
-type MenuMeta = {
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  route?: string;
-  badge?: string;
-};
-
-const MENU_META: Record<string, MenuMeta> = {
-  'new-account': { icon: 'person-add-outline', color: '#72d88d', route: '/settings/brokers' },
-  mailbox: { icon: 'mail-unread-outline', color: '#61a6ff', route: '/settings/mailbox' },
-  news: { icon: 'newspaper-outline', color: '#f0b36d', route: '/settings/news' },
-  tradays: { icon: 'calendar-outline', color: '#61d1ff' },
-  chat: { icon: 'chatbubbles-outline', color: '#4f9dff', badge: '9' },
-  community: { icon: 'people-outline', color: '#6f8fff' },
-  algo: { icon: 'flash-outline', color: '#4ab0ff' },
-  otp: { icon: 'shield-checkmark-outline', color: '#82d6a4' },
-  interface: { icon: 'language-outline', color: '#9cb3d4' },
-  charts: { icon: 'stats-chart-outline', color: '#6ea8ff' },
-  journal: { icon: 'reader-outline', color: '#9fa9bc' },
-  settings: { icon: 'settings-outline', color: '#99a5ba' },
-};
-
-const SECTION_GROUPS = [
-  { title: 'Account', ids: ['new-account'] },
-  { title: 'Market', ids: ['mailbox', 'news', 'tradays'] },
-  { title: 'Community', ids: ['chat', 'community', 'algo'] },
-  { title: 'Terminal', ids: ['otp', 'interface', 'charts', 'journal', 'settings'] },
-] as const;
-
-const ACCOUNT_CARD = {
-  name: 'Standard',
-  company: 'Exness Technologies Ltd',
-  login: '415257556',
-  server: 'Exness-MT5Trial14',
-  accessPoint: 'Access Point #6',
-  balance: 119701.53,
-  currency: 'USD',
-};
+import { LinearGradient } from 'expo-linear-gradient';
+import { G } from '../../theme/glass';
 
 export function SettingsScreen() {
-  const { quoteSymbols, chartDrawings, oneClickAccepted } = useUserPreferences();
+  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount } = useUserPreferences();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
-
-  const sections = useMemo<SectionItem[]>(() => {
-    const byId = new Map(settingsMenu.map((item) => [item.id, item]));
-
-    return SECTION_GROUPS.map((group) => ({
-      title: group.title,
-      data: group.ids
-        .map((id) => byId.get(id))
-        .filter(Boolean) as SettingItem[],
-    })).filter((section) => section.data.length > 0);
-  }, []);
 
   return (
     <Screen>
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item.id}
-        stickySectionHeadersEnabled={false}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={(
-          <>
-            <View style={styles.headerRow}>
-              <View style={styles.headerLeft}>
-                <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-                  <Ionicons name="menu" size={24} color="#fff" />
-                </Pressable>
-                <Text style={styles.headerTitle}>Settings</Text>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+        {/* ── Header ────────────────────────────────────────────── */}
+        <View style={styles.headerRow}>
+          <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+            <Ionicons name="menu" size={24} color="#CBD5E1" />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Settings</Text>
+            <Text style={styles.headerSub}>Account, Terminal & Market Preferences</Text>
+          </View>
+          <Pressable style={styles.searchBtn}>
+            <Ionicons name="search" size={20} color="#94A3B8" />
+          </Pressable>
+        </View>
+
+        {/* ── Main Account Card ─────────────────────────────────── */}
+        <Pressable onPress={() => router.push('/settings/accounts')}>
+          <View style={[styles.accountCard, styles.cardShadow]}>
+            <LinearGradient
+              colors={['#0F162A', '#060B18']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            {/* Massive deep blue circle on top left */}
+            <View style={styles.cardBubbleLeft} />
+            {/* Darker deep blue circle on top right (behind Connected) */}
+            <View style={styles.cardBubbleRight} />
+
+            <View style={styles.accTopRow}>
+              <Pressable 
+                onPress={() => setIsDemoAccount(!isDemoAccount)}
+                style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}
+              >
+                <View style={[styles.indicatorGlow, isDemoAccount ? styles.glowDemo : styles.glowLive]}>
+                  <View style={[styles.indicatorDot, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
+                </View>
+                <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
+                  {isDemoAccount ? 'DEMO ACCOUNT' : 'REAL ACCOUNT'}
+                </Text>
+              </Pressable>
+              <View style={styles.connectedPill}>
+                <View style={styles.greenDot} />
+                <Text style={styles.connectedText}>Connected</Text>
               </View>
             </View>
-            <Text style={styles.subtitle}>Account, terminal and market preferences</Text>
 
-            <Pressable
-              style={({ pressed }) => [styles.accountCard, pressed && styles.pressed]}
-              onPress={() => router.push('/settings/accounts')}
-            >
-              <View style={styles.accountHeader}>
-                <View>
-                  <Text style={styles.accountLabel}>Live Account</Text>
-                  <Text style={styles.accountName}>{ACCOUNT_CARD.name}</Text>
-                  <Text style={styles.accountBalance}>
-                    {fmt.int(ACCOUNT_CARD.balance)} {ACCOUNT_CARD.currency}
-                  </Text>
-                </View>
+            <Text style={styles.accName}>Standard</Text>
+            <Text style={styles.accBalance}>
+              119,701.53 <Text style={styles.accCurrency}>USD</Text>
+            </Text>
 
-                <View style={styles.statusPill}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Connected</Text>
-                </View>
-              </View>
+            <View style={styles.accDivider} />
 
-              <View style={styles.accountDivider} />
-
-              <Text style={styles.accountSub}>{ACCOUNT_CARD.company}</Text>
-              <Text style={styles.accountSub}>#{ACCOUNT_CARD.login} · {ACCOUNT_CARD.server}</Text>
-              <Text style={styles.accountSub}>{ACCOUNT_CARD.accessPoint}</Text>
-
-              <View style={styles.chipsRow}>
-                <MetaChip icon='server-outline' label='MT5' />
-                <MetaChip icon='link-outline' label='Point #6' />
-                <MetaChip icon='shield-checkmark-outline' label='Secure' />
-              </View>
-            </Pressable>
-
-            <View style={styles.quickRow}>
-              <QuickMetric label='Quotes' value={String(quoteSymbols.length)} />
-              <QuickMetric label='Drawings' value={String(chartDrawings.length)} />
-              <QuickMetric label='One-Click' value={oneClickAccepted ? 'On' : 'Off'} accent={oneClickAccepted} />
+            <View style={styles.accDetailsWrap}>
+              <Text style={styles.accCompany}>Exness Technologies Ltd</Text>
+              <Text style={styles.accServer}>#415257556 • Exness-MT5 Trial 14 • Access Point #6</Text>
             </View>
-          </>
-        )}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-        )}
-        renderItem={({ item, index, section }) => {
-          const meta = MENU_META[item.id] ?? { icon: 'ellipse-outline', color: '#7a8aa5' };
-          const last = index === section.data.length - 1;
-          const actionable = Boolean(meta.route);
 
-          return (
-            <Pressable
-              disabled={!actionable}
-              style={({ pressed }) => [
-                styles.row,
-                index > 0 && styles.rowStacked,
-                index === 0 && styles.rowTop,
-                last && styles.rowBottom,
-                !actionable && styles.rowDisabled,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => {
-                if (actionable && meta.route) {
-                  router.push(meta.route as never);
-                }
-              }}
-            >
-              <View style={styles.rowLeft}>
-                <View style={[styles.rowIconWrap, { backgroundColor: `${meta.color}20`, borderColor: `${meta.color}4d` }]}>
-                  <Ionicons name={meta.icon} size={16} color={meta.color} />
-                </View>
-
-                <View style={styles.rowTextWrap}>
-                  <Text style={styles.rowTitle}>{item.label}</Text>
-                  {item.sub ? <Text style={styles.rowSub}>{item.sub}</Text> : null}
-                </View>
+            <View style={styles.chipRow}>
+              <View style={styles.chip}>
+                <Ionicons name="server-outline" size={12} color="#94A3B8" />
+                <Text style={styles.chipText}>MT5</Text>
               </View>
-
-              <View style={styles.rowRight}>
-                {meta.badge ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{meta.badge}</Text>
-                  </View>
-                ) : null}
-                <Ionicons name='chevron-forward' size={18} color={actionable ? '#647793' : '#3f4f69'} />
+              <View style={styles.chip}>
+                <Ionicons name="cloud-done-outline" size={12} color="#94A3B8" />
+                <Text style={styles.chipText}>Point #6</Text>
               </View>
-            </Pressable>
-          );
-        }}
-        ListFooterComponent={<View style={styles.footerSpace} />}
-      />
+              <View style={styles.chip}>
+                <Ionicons name="shield-checkmark-outline" size={12} color="#94A3B8" />
+                <Text style={styles.chipText}>Secure</Text>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+
+        {/* ── Metrics Row ───────────────────────────────────────── */}
+        <View style={styles.metricsRow}>
+          {/* Quotes Block */}
+          <View style={styles.metricBlock}>
+            <View style={styles.metricLabelRow}>
+              <Ionicons name="list" size={12} color="#64748B" style={styles.metricIcon} />
+              <Text style={styles.metricLabel}>Quotes</Text>
+            </View>
+            <Text style={styles.metricValue}>108</Text>
+          </View>
+
+          {/* Drawings Block */}
+          <View style={styles.metricBlock}>
+            <View style={styles.metricLabelRow}>
+              <Ionicons name="analytics" size={12} color="#64748B" style={styles.metricIcon} />
+              <Text style={styles.metricLabel}>Drawings</Text>
+            </View>
+            <Text style={styles.metricValue}>0</Text>
+          </View>
+
+          {/* One-Click Block */}
+          <View style={[styles.metricBlock, { alignItems: 'center' }]}>
+            <Text style={styles.metricLabelCenter}>One-Click</Text>
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleText}>{oneClickAccepted ? 'On' : 'Off'}</Text>
+              <Switch
+                value={oneClickAccepted}
+                onValueChange={setOneClickAccepted}
+                trackColor={{ false: '#1E293B', true: '#3B82F6' }}
+                thumbColor={'#FFFFFF'}
+                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>ACCOUNT</Text>
+        <Pressable style={[styles.singleRowCard, styles.cardShadow]}>
+          <View style={[styles.iconBox, { backgroundColor: 'rgba(34,197,94,0.1)' }]}>
+            <Ionicons name="person-outline" size={20} color="#22C55E" />
+          </View>
+          <Text style={styles.rowTitleSingle}>New Account</Text>
+          <Ionicons name="chevron-forward" size={18} color="#475569" />
+        </Pressable>
+
+        {/* ── MARKET & NEWS SECTION ─────────────────────────────── */}
+        <Text style={styles.sectionTitle}>MARKET & NEWS</Text>
+        <View style={[styles.groupCard, styles.cardShadow]}>
+          <SettingRow
+            icon="mail-outline" color="#1D4ED8"
+            title="Mailbox" sub="High Importance News"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="newspaper-outline" color="#F59E0B"
+            title="News" sub="WTI, US-Iran Talks, OPEC+"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="calendar-outline" color="#22C55E"
+            title="Tradays" sub="Economic Calendar"
+          />
+        </View>
+
+        {/* ── COMMUNITY SECTION ─────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>COMMUNITY</Text>
+        <View style={[styles.groupCard, styles.cardShadow]}>
+          <SettingRow
+            icon="chatbubble-outline" color="#1D4ED8"
+            title="Chat & Messages" sub="Sign in to MQL5.community"
+            badge="9"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="people-outline" color="#1D4ED8"
+            title="Traders Community"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="flash-outline" color="#10B981"
+            title="MQL5 Algo Trading"
+          />
+        </View>
+
+        {/* ── TERMINAL SECTION (Vertical List) ───────────────────── */}
+        <Text style={styles.sectionTitle}>TERMINAL</Text>
+        <View style={[styles.groupCard, styles.cardShadow]}>
+          <SettingRow
+            icon="shield-checkmark-outline" color="#22C55E"
+            title="OTP" sub="Passcode Generator"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="browsers-outline" color="#64748B"
+            title="Interface" sub="English"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="stats-chart-outline" color="#1D4ED8"
+            title="Charts"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="reader-outline" color="#64748B"
+            title="Journal"
+          />
+        </View>
+
+        {/* ── SUPPORT SECTION ───────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>SUPPORT & HELP</Text>
+        <View style={[styles.groupCard, styles.cardShadow]}>
+          <SettingRow
+            icon="help-buoy-outline" color="#3B82F6"
+            title="Support" sub="Contact our dedicated team"
+          />
+          <View style={styles.dividerInner} />
+          <SettingRow
+            icon="information-circle-outline" color="#10B981"
+            title="Help" sub="FAQs & Documentation"
+          />
+        </View>
+
+        {/* ── LOGOUT SECTION ────────────────────────────────────── */}
+        <View style={styles.logoutContainer}>
+          <Pressable style={styles.singleRowCard}>
+            <View style={styles.iconBox}>
+                <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+              </View>
+              <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
+          </Pressable>
+        </View>
+
+      </ScrollView>
     </Screen>
   );
 }
 
-function MetaChip({
-  icon,
-  label,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-}) {
+// ── Shared Row Component ────────────────────────────────────────
+
+function SettingRow({ icon, color, title, sub, badge }: { icon: any, color: string, title: string, sub?: string, badge?: string }) {
   return (
-    <View style={styles.chip}>
-      <Ionicons name={icon} size={11} color='#87a2c8' />
-      <Text style={styles.chipText}>{label}</Text>
-    </View>
+    <Pressable style={styles.row}>
+      <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
+        <Ionicons name={icon} size={20} color={color} />
+      </View>
+      <View style={styles.rowTextWrap}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        {sub && <Text style={styles.rowSub}>{sub}</Text>}
+      </View>
+      <View style={styles.rowRight}>
+        {badge && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badge}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={18} color="#475569" />
+      </View>
+    </Pressable>
   );
 }
 
-function QuickMetric({
-  label,
-  value,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <View style={styles.quickMetric}>
-      <Text style={styles.quickMetricLabel}>{label}</Text>
-      <Text style={[styles.quickMetricValue, accent && styles.quickMetricValueAccent]}>{value}</Text>
-    </View>
-  );
-}
+// ── Styles ──────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  listContent: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
+  container: { flex: 1, backgroundColor: G.bgRoot },
+  content: { paddingBottom: 100 },
+
+  cardShadow: {
+    shadowColor: G.trading.buy.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  subtitle: {
-    marginTop: 4,
-    color: G.textSub,
-    fontSize: 13,
-    textAlign: 'center',
+
+  // Header
+  headerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12
   },
+  menuBtn: {
+    width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium
+  },
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerTitle: { color: G.text, fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
+  headerSub: { color: G.textDimmed, fontSize: 13, fontWeight: '500', marginTop: 2 },
+  searchBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: G.glass1,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium
+  },
+
+  // Account Card
   accountCard: {
-    marginTop: spacing.md,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    padding: spacing.md,
+    marginHorizontal: 16, marginTop: 12, borderRadius: 18, padding: 16,
+    borderWidth: 1, borderColor: G.trading.buy.dark, overflow: 'hidden', position: 'relative'
   },
-  accountHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  cardBubbleLeft: {
+    position: 'absolute', top: -70, left: -20, width: 220, height: 220,
+    backgroundColor: '#0F162A', borderRadius: 110, opacity: 0 // Made completely transparent/blended
   },
-  accountLabel: {
-    color: G.textMuted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.9,
+  cardBubbleRight: {
+    position: 'absolute', top: -80, right: -60, width: 200, height: 200,
+    backgroundColor: '#060B18', borderRadius: 100, opacity: 0 // Made completely transparent/blended
   },
-  accountName: {
-    marginTop: 3,
-    color: G.text,
-    fontSize: 30,
-    lineHeight: 32,
-    fontWeight: '700',
+  accTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+
+  accountBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, gap: 6 },
+  badgeDemo: { backgroundColor: 'rgba(0, 230, 118, 0.12)', borderColor: 'rgba(0, 230, 118, 0.3)' },
+  badgeLive: { backgroundColor: 'rgba(250, 204, 21, 0.12)', borderColor: 'rgba(250, 204, 21, 0.3)' },
+  indicatorGlow: { width: 10, height: 10, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
+  glowDemo: { backgroundColor: 'rgba(0, 230, 118, 0.2)' },
+  glowLive: { backgroundColor: 'rgba(250, 204, 21, 0.2)' },
+  indicatorDot: { width: 6, height: 6, borderRadius: 3 },
+  dotDemo: { backgroundColor: '#00E676' },
+  dotLive: { backgroundColor: '#FACC15' },
+  accountTypeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  textDemo: { color: '#00E676' },
+  textLive: { color: '#FACC15' },
+
+  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.bgRoot, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: G.borderMedium },
+  greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399', marginRight: 6 },
+  connectedText: { color: G.text, fontSize: 11, fontWeight: '600' },
+
+  accName: {
+    color: G.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4,
+    backgroundColor: G.bgRoot, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, overflow: 'hidden'
   },
-  accountBalance: {
-    marginTop: 4,
-    color: G.accent,
-    fontSize: 15,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-  },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: G.borderHi,
+  accBalance: { color: G.trading.buy.hover, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  accCurrency: { fontSize: 14, fontWeight: '800', color: G.trading.buy.hover },
+
+  accDivider: { height: 1, backgroundColor: G.border, marginTop: 20, marginBottom: 16 },
+
+  accDetailsWrap: { marginBottom: 16 },
+  accCompany: { color: G.text, fontSize: 13, fontWeight: '600', marginBottom: 2, letterSpacing: -0.2 },
+  accServer: { color: G.textMuted, fontSize: 11, fontWeight: '400', letterSpacing: 0.1 },
+
+  chipRow: { flexDirection: 'row', gap: 10 },
+  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.bgRoot, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, gap: 6, borderWidth: 1, borderColor: G.borderMedium },
+  chipText: { color: G.textMuted, fontSize: 11, fontWeight: '600' },
+
+  // Metrics Row
+  metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 16 },
+  metricBlock: { flex: 1, backgroundColor: G.glass2, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: G.borderMedium, paddingBottom: 16, overflow: 'hidden', position: 'relative' },
+  metricBlockActive: {
+    borderColor: G.trading.buy.primary,
     backgroundColor: G.glass2,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    shadowColor: G.trading.buy.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: G.up,
-    marginRight: 6,
+  metricLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, justifyContent: 'center' },
+  metricIcon: { marginRight: 4 },
+  dotsVertical: { marginRight: 4, gap: 2, height: 12, justifyContent: 'center' },
+  tinyDot: { width: 2, height: 2, backgroundColor: G.trading.buy.hover, borderRadius: 1 },
+  metricLabel: { color: G.textDimmed, fontSize: 11, fontWeight: '600' },
+  metricLabelActive: { color: G.trading.buy.hover, fontSize: 11, fontWeight: '600' },
+  metricValue: { color: G.text, fontSize: 20, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  metricLabelCenter: { color: G.textDimmed, fontSize: 11, fontWeight: '600', marginBottom: 4 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  toggleText: { color: G.text, fontSize: 14, fontWeight: '700' },
+
+  // Sections
+  sectionTitle: { color: G.textDimmed, fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 24, marginTop: 24, marginBottom: 8 },
+  singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.glass2, marginHorizontal: 16, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: G.borderMedium, overflow: 'hidden' },
+  rowTitleSingle: { flex: 1, color: G.text, fontSize: 15, fontWeight: '700', marginLeft: 16, zIndex: 1 },
+
+  groupCard: { backgroundColor: G.glass2, marginHorizontal: 16, borderRadius: 18, borderWidth: 1, borderColor: G.borderMedium, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 16, zIndex: 1 },
+  dividerInner: { height: 1, backgroundColor: G.borderMedium, marginLeft: 64, zIndex: 1 },
+
+  iconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  rowTextWrap: { flex: 1, marginLeft: 16, zIndex: 1 },
+  rowTitle: { color: G.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
+  rowSub: { color: G.textDimmed, fontSize: 12, fontWeight: '500' },
+  rowRight: { flexDirection: 'row', alignItems: 'center', zIndex: 1 },
+  badge: { backgroundColor: G.trading.sell.primary, minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginRight: 10 },
+  badgeText: { color: G.text, fontSize: 11, fontWeight: '800' },
+
+  radialHighlight: {
+    position: 'absolute', top: -50, right: -50, width: 150, height: 150,
+    backgroundColor: G.trading.buy.primary, borderRadius: 75, opacity: 0.05,
   },
-  statusText: {
-    color: G.text,
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+  logoutContainer: {
+    marginTop: 24, marginBottom: 24, marginHorizontal: 16,
+    borderRadius: 18, backgroundColor: G.glass2, borderWidth: 1, borderColor: G.borderMedium,
+    overflow: 'hidden'
   },
-  accountDivider: {
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    height: 1,
-    backgroundColor: G.border,
-  },
-  accountSub: {
-    color: G.textSub,
-    fontSize: 14,
-    lineHeight: 19,
-  },
-  chipsRow: {
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 8,
-    marginTop: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  chipText: {
-    marginLeft: 4,
-    color: G.textMuted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  quickRow: {
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    marginRight: -spacing.sm,
-  },
-  quickMetric: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    marginRight: spacing.sm,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-  },
-  quickMetricLabel: {
-    color: G.textMuted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    textAlign: 'center',
-  },
-  quickMetricValue: {
-    marginTop: 3,
-    color: G.text,
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
-  quickMetricValueAccent: {
-    color: G.up,
-  },
-  sectionTitle: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-    color: G.textMuted,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.9,
-    fontWeight: '600',
-  },
-  row: {
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rowStacked: {
-    marginTop: -1,
-  },
-  rowDisabled: {
-    opacity: 0.88,
-  },
-  rowTop: {
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-  },
-  rowBottom: {
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-  },
-  rowLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: spacing.md,
-  },
-  rowIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  rowTextWrap: {
-    flex: 1,
-  },
-  rowTitle: {
-    color: G.text,
-    fontSize: 17,
-    fontWeight: '500',
-  },
-  rowSub: {
-    marginTop: 2,
-    color: G.textSub,
-    fontSize: 13,
-    lineHeight: 17,
-  },
-  rowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  badge: {
-    marginRight: 8,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: G.down,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: G.text,
-    fontSize: 11,
-    fontWeight: '700',
-    lineHeight: 11,
-  },
-  pressed: {
-    backgroundColor: G.glass2,
-  },
-  footerSpace: {
-    height: 12,
-  },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: spacing.sm },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
 });

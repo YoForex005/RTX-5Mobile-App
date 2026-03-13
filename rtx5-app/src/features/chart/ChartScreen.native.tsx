@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, Group, Line, Path, Skia, DashPathEffect } from '@shopify/react-native-skia';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
@@ -63,7 +64,7 @@ const BTN_BG = G.glass2;
 const PILL_BG = G.glass1;
 
 export function ChartScreen() {
-  const { chartSymbol, chartTimeframe, setChartTimeframe } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, setChartTimeframe, isDemoAccount } = useUserPreferences();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
@@ -283,31 +284,47 @@ export function ChartScreen() {
 
   const latestClose = candles.length > 0 ? candles[candles.length - 1].close : getStartPrice(chartSymbol);
   const latestBid = latestClose;
-  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.396 : 0.00015); 
+  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.396 : 0.00015);
   const displayDecimals = chartSymbol.includes('JPY') || chartSymbol.includes('XAU') ? 3 : 5;
   const displaySymbol = chartSymbol.replace('/', '') === 'EURUSD' ? 'EUR/USD' : chartSymbol.replace('/', '') === 'XAUUSD' ? 'XAU/USD' : chartSymbol;
 
   return (
     <Screen style={styles.screen}>
       <View style={styles.topHeaderRow}>
-        <View style={styles.headerSpacer}>
+        <View style={styles.headerLeft}>
           <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-            <Ionicons name="menu" size={24} color={G.textMuted} />
+            <Ionicons name="menu" size={28} color="#fff" />
           </Pressable>
         </View>
         <View style={styles.accountBadgeGroup}>
-          <View style={styles.accountBadge}>
-            <View style={styles.liveIndicatorGlow}>
-              <View style={styles.liveIndicator} />
+          <View style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}>
+            <View style={[styles.liveIndicatorGlow, isDemoAccount ? styles.glowDemo : styles.glowLive]}>
+              <View style={[styles.liveIndicator, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
             </View>
-            <Text style={styles.accountTypeText}>DEMO ACCOUNT</Text>
+            <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
+              {isDemoAccount ? 'DEMO ACCOUNT' : 'REAL ACCOUNT'}
+            </Text>
           </View>
         </View>
-        <View style={[styles.headerSpacer, styles.headerSpacerRight]} />
+        <View style={[styles.headerSpacer, styles.headerSpacerRight]}>
+          <View style={styles.avatarWrap}>
+            <Image
+              source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
+              style={styles.avatarImg}
+            />
+            <View style={styles.avatarDot} />
+          </View>
+        </View>
       </View>
 
       <View style={styles.card}>
         <View style={styles.glassToolbar}>
+          {/* Blue Radial Glow Background */}
+          <LinearGradient
+            colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
+            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
           <View style={styles.toolbarRow}>
             <View style={styles.symbolInfo}>
               <View style={styles.flagStack}>
@@ -529,56 +546,77 @@ const styles = StyleSheet.create({
   accountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: G.upGlow,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(0, 230, 118, 0.3)',
     gap: 8,
+  },
+  badgeDemo: {
+    backgroundColor: 'rgba(0, 230, 118, 0.08)',
+    borderColor: 'rgba(0, 230, 118, 0.3)',
+  },
+  badgeLive: {
+    backgroundColor: 'rgba(250, 204, 21, 0.08)',
+    borderColor: 'rgba(250, 204, 21, 0.3)',
   },
   liveIndicatorGlow: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: 'rgba(0, 230, 118, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  glowDemo: {
+    backgroundColor: 'rgba(0, 230, 118, 0.2)',
+  },
+  glowLive: {
+    backgroundColor: 'rgba(250, 204, 21, 0.2)',
+  },
   liveIndicator: {
-    width: 6, 
-    height: 6, 
-    borderRadius: 3, 
-    backgroundColor: G.up,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dotDemo: {
+    backgroundColor: '#00E676',
+  },
+  dotLive: {
+    backgroundColor: '#FACC15',
   },
   accountTypeText: {
-    color: G.up, 
-    fontSize: 10, 
-    fontWeight: '800', 
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.6,
+  },
+  textDemo: {
+    color: '#00E676',
+  },
+  textLive: {
+    color: '#FACC15',
   },
   balanceContainer: {
     alignItems: 'flex-end',
   },
   balanceLabel: {
-    color: G.textMuted,
+    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 2,
   },
   balanceText: {
-    color: G.text, 
-    fontSize: 18, 
-    fontWeight: '800', 
-    fontVariant: ['tabular-nums'], 
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
     letterSpacing: -0.4,
   },
   currencyText: {
     fontSize: 12,
-    color: G.textSub,
-    fontWeight: '700',
+    color: '#F8FAFC',
+    fontWeight: '800',
   },
   card: {
     flex: 1,
@@ -586,11 +624,19 @@ const styles = StyleSheet.create({
   },
   glassToolbar: {
     marginHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: CARD_BG,
+    borderRadius: 18, // Match Trade Screen summary block
+    backgroundColor: '#0a0f1f', // Match Trade Screen background
+    borderWidth: 1,
+    borderColor: '#1E293B',
     paddingTop: 12,
     paddingBottom: 8,
     marginBottom: 12,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 4,
+    overflow: 'hidden',
   },
   toolbarRow: {
     flexDirection: 'row',
@@ -647,7 +693,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   symbolSubText: {
-    color: G.textMuted,
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
@@ -680,13 +726,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   plLabel: {
-    color: G.textMuted,
+    color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '800',
     marginRight: 4,
   },
   plValue: {
-    color: G.text,
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -696,11 +742,13 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: G.textMuted,
-    marginHorizontal: 8,
+    backgroundColor: '#FFFFFF',
+    marginLeft: 16,
+    marginRight: 6,
   },
   chartContainer: {
     flex: 1,
+    backgroundColor: '#060b17',
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: GRID,
@@ -728,14 +776,14 @@ const styles = StyleSheet.create({
   xTick: {
     position: 'absolute',
     color: TEXT_MUTED,
-    fontSize: 11,
+    fontSize: 13,
     top: 4,
   },
   axisLabelY: {
     position: 'absolute',
     right: 8,
     color: TEXT_MUTED,
-    fontSize: 11,
+    fontSize: 13,
   },
   priceTagWrap: {
     position: 'absolute',
@@ -747,7 +795,7 @@ const styles = StyleSheet.create({
   },
   priceTagText: {
     color: '#fff',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
@@ -790,8 +838,10 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(41, 98, 255, 0.08)',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(41, 98, 255, 0.15)',
     padding: 4,
     marginBottom: 8,
   },
@@ -862,18 +912,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 42, 85, 0.1)', // Subtle red tint
     borderWidth: 1,
     borderColor: 'rgba(255, 42, 85, 0.25)',
+    shadowColor: '#FF2A55',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 2,
   },
   actionBtnBuy: {
     backgroundColor: 'rgba(41, 98, 255, 0.1)', // Subtle blue tint
     borderWidth: 1,
     borderColor: 'rgba(41, 98, 255, 0.25)',
+    shadowColor: '#2962FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 2,
   },
   actionBtnInnerLeft: {
     flex: 1,
   },
   actionBtnLabelTitle: {
     color: TEXT,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     marginBottom: 2,
     letterSpacing: 0.5,
@@ -895,12 +955,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: G.glass2, 
+    backgroundColor: 'rgba(41, 98, 255, 0.08)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: 'rgba(41, 98, 255, 0.15)',
   },
   lotStepperBtn: {
     width: 40,
@@ -918,5 +978,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  avatarWrap: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#2962FF', overflow: 'visible', position: 'relative' },
+  avatarImg: { width: 36, height: 36, borderRadius: 18 },
+  avatarDot: { position: 'absolute', bottom: 0, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#089981', borderWidth: 2, borderColor: '#040609' },
 });
 

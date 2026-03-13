@@ -19,6 +19,7 @@ type UserPreferencesState = {
   chartHideAll: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
+  isDemoAccount: boolean;
   setQuoteViewMode: (mode: QuoteViewMode) => void;
   setThemeMode: (mode: ThemeMode) => void;
   addQuoteSymbol: (symbol: string) => void;
@@ -31,6 +32,7 @@ type UserPreferencesState = {
   setChartHideAll: (hide: boolean) => void;
   setOneClickAccepted: (accepted: boolean) => void;
   setHistoryRange: (range: string) => void;
+  setIsDemoAccount: (isDemo: boolean) => void;
 };
 
 export const useUserPreferences = create<UserPreferencesState>()(
@@ -46,6 +48,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartHideAll: false,
       oneClickAccepted: false,
       historyRange: 'Last 6 months',
+      isDemoAccount: true,
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       addQuoteSymbol: (symbol) => {
@@ -70,6 +73,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
+      setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
     }),
     {
       name: 'rtx5-user-preferences-v2',

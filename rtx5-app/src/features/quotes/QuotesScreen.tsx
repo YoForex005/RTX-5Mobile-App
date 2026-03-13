@@ -8,6 +8,7 @@ import { Screen } from '../../components/Screen';
 import { QuoteItem, quotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
+import { G } from '../../theme/glass';
 
 /* ───── Helpers ───── */
 
@@ -50,131 +51,19 @@ const volumeLabel = (volume?: number) => {
 
 /* ───── Theme ───── */
 
-const POSITIVE = '#089981'; // Pro green
-const NEGATIVE = '#F23645'; // Pro red
-const GREY = '#78849E';
-const CARD_BG = '#131722';  // TradingView dark card
-const BORDER = '#1E2433';   // Subtle delineation
-const BG = '#040609';       // Ultra-premium OLED Midnight
+const POSITIVE = G.trading.profit;   // #4ade80
+const NEGATIVE = G.trading.loss;     // #f87171
+const GREY = G.textMuted;            // #808088
+const CARD_BG = G.glass2;            // #252525
+const BORDER = G.borderMedium;       // #28282e
+const BG = G.bgRoot;                 // #0d0d11
 
 const trendColor = (pct: number) => (pct >= 0 ? POSITIVE : NEGATIVE);
 const pillBg = (pct: number) =>
-  pct >= 0 ? 'rgba(8,153,129,0.12)' : 'rgba(242,54,69,0.12)';
+  pct >= 0 ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)';
 
 const gmtClock = (d: Date) =>
   d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
-
-/* ───── Sparkline (smooth curve – pure RN, web + native) ───── */
-
-const SPARK_W = 90;
-const SPARK_H = 36;
-const NUM_PTS = 40; // many points → smooth curve
-
-/** Simple seeded random for consistent sparklines per pair */
-function seededRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 16807 + 0) % 2147483647;
-    return (s & 0x7fffffff) / 0x7fffffff;
-  };
-}
-
-/** Generate smooth Y points for a sparkline */
-function generatePoints(isUp: boolean, seed: number): number[] {
-  const rand = seededRandom(seed);
-  const pts: number[] = [];
-  const pad = 1;
-  const range = SPARK_H - pad * 2;
-
-  for (let i = 0; i < NUM_PTS; i++) {
-    const t = i / (NUM_PTS - 1);
-    // Base trend: upward starts LOW on screen (high Y) → rises to TOP; downward opposite
-    const trend = isUp ? (0.95 - t * 0.85) : (0.05 + t * 0.85);
-    // Smaller wave so trend direction is clearly visible
-    const wave = Math.sin(t * Math.PI * 2.5 + seed) * 0.1
-      + Math.sin(t * Math.PI * 4 + seed * 2) * 0.06;
-    const noise = (rand() - 0.5) * 0.04;
-    const val = trend + wave + noise;
-    pts.push(pad + Math.max(0, Math.min(1, val)) * range);
-  }
-  return pts;
-}
-
-/** Hash symbol string to a seed number */
-function hashSymbol(sym: string): number {
-  let h = 0;
-  for (let i = 0; i < sym.length; i++) {
-    h = ((h << 5) - h + sym.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function Sparkline({ isUp, color, symbol }: { isUp: boolean; color: string; symbol: string }) {
-  const pts = useMemo(() => generatePoints(isUp, hashSymbol(symbol)), [isUp, symbol]);
-  const step = SPARK_W / (pts.length - 1);
-
-  const segments = useMemo(() => {
-    const segs: React.ReactNode[] = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const x1 = i * step;
-      const y1 = pts[i];
-      const x2 = (i + 1) * step;
-      const y2 = pts[i + 1];
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-
-      segs.push(
-        <View
-          key={i}
-          style={{
-            position: 'absolute',
-            left: x1,
-            top: y1 - 0.75,
-            width: len + 0.5, // tiny overlap to avoid gaps
-            height: 1.5,
-            backgroundColor: color,
-            transform: [{ rotate: `${angle}deg` }],
-            transformOrigin: 'left center',
-          }}
-        />,
-      );
-    }
-    return segs;
-  }, [pts, step, color]);
-
-  // Faded fill columns under each point
-  const fills = useMemo(() => {
-    const cols: React.ReactNode[] = [];
-    for (let i = 0; i < pts.length; i += 2) {
-      const x = i * step;
-      const y = pts[i];
-      cols.push(
-        <View
-          key={`f${i}`}
-          style={{
-            position: 'absolute',
-            left: x,
-            top: y,
-            width: step * 2.5,
-            height: SPARK_H - y,
-            backgroundColor: color,
-            opacity: 0.06,
-          }}
-        />,
-      );
-    }
-    return cols;
-  }, [pts, step, color]);
-
-  return (
-    <View style={{ width: SPARK_W, height: SPARK_H, overflow: 'hidden' }}>
-      {fills}
-      {segments}
-    </View>
-  );
-}
 
 /* ───── QuoteCard ───── */
 
@@ -204,10 +93,10 @@ function QuoteCard({
     return 'transparent';
   };
 
-  const getTickArrow = (tick: string) => {
-    if (tick === 'up') return '↗';
-    if (tick === 'down') return '↘';
-    return '';
+  const getTickIcon = (tick: string) => {
+    if (tick === 'up') return 'caret-up';
+    if (tick === 'down') return 'caret-down';
+    return null;
   };
 
   return (
@@ -236,19 +125,15 @@ function QuoteCard({
           <Text style={s.spreadText}>Spread: <Text style={s.statValue}>{item.spread.toFixed(1)}</Text></Text>
         </View>
 
-        <View style={s.sparkCol}>
-          <Sparkline isUp={isUp} color={color} symbol={item.symbol} />
-        </View>
-
         <View style={s.pricesCol}>
           <View style={s.priceLabelsRow}>
             <View style={s.labelWithTick}>
                <Text style={s.priceLabel}>BID</Text>
-               {bidTick !== 'neutral' && <Text style={[s.tickArrow, { color: getTickColor(bidTick) }]}>{getTickArrow(bidTick)}</Text>}
+               {bidTick !== 'neutral' && <Ionicons name={bidTick === 'up' ? 'caret-up' : 'caret-down'} size={12} color={getTickColor(bidTick)} style={{ marginLeft: 2 }} />}
             </View>
             <View style={s.labelWithTick}>
                <Text style={s.priceLabel}>ASK</Text>
-               {askTick !== 'neutral' && <Text style={[s.tickArrow, { color: getTickColor(askTick) }]}>{getTickArrow(askTick)}</Text>}
+               {askTick !== 'neutral' && <Ionicons name={askTick === 'up' ? 'caret-up' : 'caret-down'} size={12} color={getTickColor(askTick)} style={{ marginLeft: 2 }} />}
             </View>
           </View>
           <View style={s.priceValuesRow}>
@@ -257,7 +142,6 @@ function QuoteCard({
           </View>
         </View>
       </View>
-
     </Pressable>
   );
 }
@@ -332,15 +216,6 @@ export function QuotesScreen() {
               <Ionicons name="menu" size={24} color="#fff" />
             </Pressable>
             <Text style={s.headerTitle}>Markets</Text>
-          </View>
-          <View style={s.headerRight}>
-            <View style={s.avatarWrap}>
-              <Image
-                source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
-                style={s.avatarImg}
-              />
-              <View style={s.avatarDot} />
-            </View>
           </View>
         </View>
 
@@ -419,14 +294,6 @@ const s = StyleSheet.create({
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-
-  avatarWrap: { width: 34, height: 34, borderRadius: 17, position: 'relative' },
-  avatarImg: { width: '100%', height: '100%', borderRadius: 17 },
-  avatarDot: {
-    position: 'absolute', right: -2, bottom: -2, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: POSITIVE, borderWidth: 2, borderColor: BG,
-  },
 
   /* Subheader */
   subheaderRow: {
@@ -488,13 +355,10 @@ const s = StyleSheet.create({
   },
 
   /* Left stats column */
-  statsCol: { flex: 1, justifyContent: 'flex-end' },
-  volText: { color: GREY, fontSize: 13, fontWeight: '500', marginBottom: 2 },
-  spreadText: { color: GREY, fontSize: 13, fontWeight: '500' },
-  statValue: { color: '#E2E8F0', fontSize: 15, fontWeight: '700' },
-
-  /* Center sparkline column */
-  sparkCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', marginLeft: -20, marginBottom: 2 },
+  statsCol: { flex: 1, justifyContent: 'flex-end', paddingBottom: 2 },
+  volText: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginBottom: 6 },
+  spreadText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  statValue: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
 
   /* Right prices column */
   pricesCol: { alignItems: 'flex-end', flexShrink: 0, justifyContent: 'flex-end' },
