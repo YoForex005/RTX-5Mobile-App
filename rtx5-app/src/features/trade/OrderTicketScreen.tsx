@@ -1,459 +1,625 @@
-import { useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fmt } from '../../utils/format';
-import { symbolDisplayName } from './tradeFlow';
 
-const orderTypes = [
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+const BG       = '#0B0D14';
+const SURFACE  = '#111520';
+const ELEVATED = '#181D2A';
+const LINE     = 'rgba(255,255,255,0.04)';
+const LINE_M   = 'rgba(255,255,255,0.06)';
+const SELL_C   = '#FF3B30';
+const SELL_BG  = 'rgba(255,59,48,0.06)';
+const SELL_BR  = 'rgba(255,59,48,0.25)';
+const BUY_C    = '#34C759';
+const BUY_BG   = 'rgba(52,199,89,0.06)';
+const BUY_BR   = 'rgba(52,199,89,0.25)';
+const ACCENT   = '#0A84FF';
+const WHITE    = '#FFFFFF';
+const SUB      = '#8E8E93';
+const DIM      = 'rgba(255,255,255,0.28)';
+
+const ORDER_TYPES = [
   'Market Execution',
-  'Buy Limit',
-  'Sell Limit',
-  'Buy Stop',
-  'Sell Stop',
-  'Buy Stop Limit',
-  'Sell Stop Limit',
+  'Buy Limit', 'Sell Limit',
+  'Buy Stop', 'Sell Stop',
+  'Buy Stop Limit', 'Sell Stop Limit',
 ];
 
+const BID = 67022.0;
+const ASK = 67040.0;
+
+/* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
   const { symbol } = useLocalSearchParams<{ symbol?: string }>();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
   const [orderType, setOrderType] = useState('Market Execution');
-  const [expanded, setExpanded] = useState(false);
-  const [step, setStep] = useState('0.01');
-  const activeSymbol = symbol ?? 'BTCUSDm';
-  const isMarketOrder = orderType === 'Market Execution';
-  const requiresPrice = !isMarketOrder;
-  const requiresStopLimitPrice = orderType.includes('Stop Limit');
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [volume, setVolume] = useState(0.01);
+  const [slEnabled, setSlEnabled] = useState(false);
+  const [tpEnabled, setTpEnabled] = useState(false);
+
+  const adj = (delta: number) =>
+    setVolume(v => Math.min(100, Math.max(0.01, parseFloat(((v || 0) + delta).toFixed(2)))));
+
+  const spread = Math.round((ASK - BID) / 0.01);
 
   return (
-    <Screen>
-      <View style={styles.instrumentCard}>
-        <View style={styles.instrumentRow}>
-          <Text style={styles.symbol}>{activeSymbol}</Text>
-          <Text style={styles.symbolChevron}>▾</Text>
+    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* ── Compact Header ─────────────────────────────────────────── */}
+      <View style={[styles.header, { paddingTop: insets.top + 32 }]}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={18} color={WHITE} />
+        </Pressable>
+        <View style={styles.hCenter}>
+          <Text style={styles.hSymbol}>EURUSD</Text>
         </View>
-        <Text style={styles.subtitle}>{symbolDisplayName(activeSymbol)}</Text>
+        <View style={styles.livePill}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveLabel}>Live</Text>
+        </View>
       </View>
 
-      <View style={styles.orderCard}>
-        <Pressable style={styles.typeTrigger} onPress={() => setExpanded((v) => !v)}>
-          <Text style={styles.typeLabel}>Order Type</Text>
-          <View style={styles.typeRight}>
-            <Text style={styles.typeValue}>{orderType}</Text>
-            <Text style={styles.typeChevron}>{expanded ? '▴' : '▾'}</Text>
+      {/* ── Price Panel (HERO — always visible) ────────────────────── */}
+      <View style={styles.pricePanel}>
+        {/* SELL side */}
+        <View style={[styles.priceHalf, { backgroundColor: SELL_BG }]}>
+          <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
+          <Text style={styles.priceMain}>{fmt.price(BID, 2)}</Text>
+          <Text style={styles.priceLabel}>BID</Text>
+        </View>
+
+        {/* Spread pillar */}
+        <View style={styles.spreadCenter}>
+          <Ionicons name="swap-horizontal" size={11} color={DIM} />
+          <Text style={styles.spreadVal}>{spread}</Text>
+          <Text style={styles.spreadUnit}>pts</Text>
+        </View>
+
+        {/* BUY side */}
+        <View style={[styles.priceHalf, { backgroundColor: BUY_BG }]}>
+          <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
+          <Text style={styles.priceMain}>{fmt.price(ASK, 2)}</Text>
+          <Text style={styles.priceLabel}>ASK</Text>
+        </View>
+      </View>
+
+      {/* ── Scrollable Form ────────────────────────────────────────── */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Order Type */}
+        <Pressable style={styles.flatRow} onPress={() => setTypeOpen(v => !v)}>
+          <Text style={styles.rowLabel}>Order Type</Text>
+          <View style={styles.rowRight}>
+            <Text style={styles.rowValueWhite}>{orderType}</Text>
+            <Ionicons name={typeOpen ? 'chevron-up' : 'chevron-down'} size={14} color={DIM} />
           </View>
         </Pressable>
+        <View style={styles.hairline} />
 
-        {expanded ? (
+        {typeOpen && (
           <View style={styles.dropdown}>
-            {orderTypes.map((opt, index) => {
-              const selected = opt === orderType;
-              const isSell = opt.includes('Sell');
+            {ORDER_TYPES.map((opt, i) => {
+              const isSell = opt.toLowerCase().includes('sell');
+              const isCur = opt === orderType;
               return (
                 <Pressable
                   key={opt}
-                  style={[styles.optionRow, index < orderTypes.length - 1 && styles.optionDivider]}
-                  onPress={() => {
-                    setOrderType(opt);
-                    setExpanded(false);
-                  }}
+                  style={[styles.dropOpt, isCur && styles.dropOptActive]}
+                  onPress={() => { setOrderType(opt); setTypeOpen(false); }}
                 >
-                  <Text style={[styles.optionText, isSell ? styles.optionSell : styles.optionBuy]}>{opt}</Text>
-                  <Text style={styles.optionCheck}>{selected ? '✓' : ''}</Text>
+                  <View style={[styles.dropDot, { backgroundColor: isSell ? SELL_C : BUY_C }]} />
+                  <Text style={[styles.dropText, { color: isCur ? WHITE : SUB }]}>{opt}</Text>
+                  {isCur && <Ionicons name="checkmark" size={16} color={ACCENT} />}
                 </Pressable>
               );
             })}
+            <View style={styles.hairline} />
           </View>
-        ) : null}
-
-        <View style={styles.stepperRow}>
-          {['-0.5', '-0.1', '0.01', '+0.1', '+0.5'].map((stepValue) => {
-            const selected = stepValue === step;
-            return (
-              <Pressable
-                key={stepValue}
-                onPress={() => setStep(stepValue)}
-                style={[styles.stepChip, selected && styles.stepChipActive]}
-              >
-                <Text style={[styles.stepText, selected && styles.stepTextActive]}>{stepValue}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {requiresPrice ? <Row label='Price' value='not set' editable /> : null}
-        {requiresStopLimitPrice ? <Row label='Stop Limit Price' value='not set' editable /> : null}
-        <Row label='Stop Loss' value='not set' editable />
-        <Row label='Take Profit' value='not set' editable />
-        {isMarketOrder ? (
-          <Row label='Fill Policy' value='Fill or Kill' />
-        ) : (
-          <Row label='Expiration' value='GTC' editable />
         )}
-      </View>
 
-      <View style={styles.metaStrip}>
-        <MetaChip label='Volume' value={step} />
-        <MetaChip label='Spread' value='18.00' />
-        <MetaChip label='Policy' value={isMarketOrder ? 'FOK' : 'GTC'} />
-      </View>
-
-      <View style={styles.quotePanel}>
-        <View style={styles.quoteCell}>
-          <Text style={styles.quoteLabel}>Bid</Text>
-          <Text style={styles.bid}>{fmt.price(67022.0, 2)}</Text>
-        </View>
-        <View style={styles.quoteDivider} />
-        <View style={styles.quoteCell}>
-          <Text style={styles.quoteLabel}>Ask</Text>
-          <Text style={styles.ask}>{fmt.price(67040.0, 2)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.actionsWrap}>
-        {isMarketOrder ? (
-          <>
-            <Pressable style={[styles.actionButton, styles.sellBtn]}>
-              <Text style={styles.buttonText}>Sell by Market</Text>
+        {/* Volume */}
+        <View style={styles.volSection}>
+          <Text style={styles.rowLabel}>Volume</Text>
+          <View style={styles.volStepper}>
+            <Pressable style={styles.volBtn} onPress={() => adj(-0.01)} hitSlop={8}>
+              <Ionicons name="remove" size={18} color={SUB} />
             </Pressable>
-            <Pressable style={[styles.actionButton, styles.buyBtn]}>
-              <Text style={styles.buttonText}>Buy by Market</Text>
+            <View style={styles.volCenter}>
+              <Text style={styles.volNum}>{(volume || 0).toFixed(2)}</Text>
+            </View>
+            <Pressable style={styles.volBtn} onPress={() => adj(+0.01)} hitSlop={8}>
+              <Ionicons name="add" size={18} color={SUB} />
             </Pressable>
-          </>
-        ) : (
-          <Pressable style={[styles.actionButton, styles.placeBtn]}>
-            <Text style={styles.buttonText}>Place Order</Text>
+          </View>
+        </View>
+        <View style={styles.quickRow}>
+          {[0.01, 0.05, 0.10, 0.50, 1.00].map(v => (
+            <Pressable
+              key={v}
+              style={[styles.quickPill, volume === v && styles.quickPillActive]}
+              onPress={() => setVolume(v)}
+            >
+              <Text style={[styles.quickTxt, volume === v && styles.quickTxtActive]}>
+                {(v || 0).toFixed(2)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.hairline} />
+
+        {/* Risk Management */}
+        <Text style={styles.sectionTitle}>RISK MANAGEMENT</Text>
+        <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => setSlEnabled(v => !v)} />
+        <View style={styles.hairline} />
+        <ToggleRow label="Take Profit" icon="analytics-outline" enabled={tpEnabled} onToggle={() => setTpEnabled(v => !v)} />
+        <View style={styles.hairline} />
+        <ToggleRow label="Trailing Stop" icon="git-commit-outline" enabled={false} onToggle={() => {}} />
+        <View style={styles.hairline} />
+
+        {/* Market Data (inline key-value) */}
+        <Text style={styles.sectionTitle}>MARKET DATA</Text>
+        <InfoRow label="Fill Policy" value="FOK" />
+        <View style={styles.hairline} />
+        <InfoRow label="Spread" value={`${spread} pts`} />
+        <View style={styles.hairline} />
+        <InfoRow label="Margin" value="-$6.72" />
+        <View style={styles.hairline} />
+        <InfoRow label="Acc. Leverage" value="1:30" />
+        <View style={styles.hairline} />
+
+        {/* Depth of Market — compact table */}
+        <Text style={styles.sectionTitle}>DEPTH OF MARKET</Text>
+        <View style={styles.domTable}>
+          {/* Header */}
+          <View style={styles.domHeaderRow}>
+            <Text style={[styles.domColHead, { textAlign: 'right' }]}>SELL VOL</Text>
+            <Text style={styles.domColHead}>PRICE</Text>
+            <Text style={styles.domColHead}>BUY VOL</Text>
+          </View>
+          {/* Rows */}
+          {[
+            { sell: 40, price: '67022.00', buy: 30 },
+            { sell: 60, price: '67028.00', buy: 55 },
+            { sell: 30, price: '67035.00', buy: 70 },
+          ].map((r, i) => (
+            <View key={i} style={styles.domRow}>
+              <View style={styles.domBarCol}>
+                <View style={[styles.domBarSell, { width: `${r.sell}%` }]} />
+              </View>
+              <Text style={styles.domPrice}>{r.price}</Text>
+              <View style={[styles.domBarCol, { alignItems: 'flex-start' }]}>
+                <View style={[styles.domBarBuy, { width: `${r.buy}%` }]} />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* Execution Buttons */}
+        <View style={styles.execRow}>
+          <Pressable style={[styles.execBtn, styles.execSell]}>
+            <Text style={styles.execCta}>SELL BY MARKET</Text>
+            <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
           </Pressable>
-        )}
-      </View>
+          <Pressable style={[styles.execBtn, styles.execBuy]}>
+            <Text style={styles.execCta}>BUY BY MARKET</Text>
+            <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.warningCard}>
-        <Text style={styles.warn}>
-          The trade will be executed at market conditions. Execution price may differ from the requested price.
-        </Text>
-      </View>
-    </Screen>
+        {/* Disclaimer */}
+        <View style={styles.disclaimer}>
+          <Text style={styles.disclaimerTxt}>
+            *Market execution. The executed price may differ from the requested price.
+          </Text>
+          <View style={styles.disclaimerIcons}>
+            <Ionicons name="document-text-outline" size={16} color={DIM} />
+            <Ionicons name="information-circle-outline" size={16} color={DIM} />
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
-function Row({
-  label,
-  value,
-  editable = false,
-}: {
-  label: string;
-  value: string;
-  editable?: boolean;
+/* ── ToggleRow ─────────────────────────────────────────────────────────── */
+function ToggleRow({ label, icon, enabled, onToggle }: {
+  label: string; icon: keyof typeof Ionicons.glyphMap;
+  enabled: boolean; onToggle: () => void;
 }) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
+    <View style={styles.flatRow}>
+      <View style={styles.rowLeft}>
+        <Ionicons name={icon} size={14} color={DIM} />
+        <Text style={styles.rowLabel}>{label}</Text>
+      </View>
       <View style={styles.rowRight}>
-        <Text style={styles.rowValue}>{value}</Text>
-        {editable ? (
-          <View style={styles.plusChip}>
-            <Text style={styles.plus}>+</Text>
-          </View>
-        ) : null}
+        <Pressable onPress={onToggle} style={[styles.track, enabled && styles.trackOn]}>
+          <View style={[styles.thumb, enabled && styles.thumbOn]} />
+        </Pressable>
+        <Text style={[styles.statusTxt, enabled && { color: ACCENT }]}>
+          {enabled ? 'ON' : 'OFF'}
+        </Text>
       </View>
     </View>
   );
 }
 
-function MetaChip({ label, value }: { label: string; value: string }) {
+/* ── InfoRow ────────────────────────────────────────────────────────────── */
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.metaChip}>
-      <Text style={styles.metaChipLabel}>{label}</Text>
-      <Text style={styles.metaChipValue}>{value}</Text>
+    <View style={styles.flatRow}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValueWhite}>{value}</Text>
     </View>
   );
 }
 
+/* ── Styles ─────────────────────────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  instrumentCard: {
-    marginTop: spacing.md,
-    marginHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-  },
-  instrumentRow: {
+  root: { flex: 1, backgroundColor: BG },
+
+  /* Header */
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  backBtn: {
+    width: 32, height: 32,
+    borderRadius: 8,
+    backgroundColor: ELEVATED,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
   },
-  symbol: {
-    color: G.text,
-    fontSize: 32,
+  hCenter: { flex: 1, alignItems: 'center' },
+  hSymbol: { color: WHITE, fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  livePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: BUY_BG,
+  },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BUY_C },
+  liveLabel: { color: BUY_C, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+
+  /* ── PRICE PANEL (Hero) ───────────────────────────────────── */
+  pricePanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: SURFACE,
+  },
+  priceHalf: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  priceTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  priceMain: {
+    color: WHITE,
+    fontSize: 24,
     fontWeight: '700',
-    lineHeight: 32,
+    fontVariant: ['tabular-nums'],
+    marginTop: 1,
+    letterSpacing: -0.5,
   },
-  symbolChevron: {
-    color: G.textMuted,
-    fontSize: 18,
+  priceLabel: {
+    color: DIM,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     marginTop: 2,
   },
-  subtitle: {
-    textAlign: 'center',
-    color: G.textSub,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  orderCard: {
-    marginTop: spacing.md,
-    marginHorizontal: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    overflow: 'hidden',
-  },
-  typeTrigger: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  spreadCenter: {
+    width: 40,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  typeLabel: {
-    color: G.textMuted,
+  spreadVal: {
+    color: WHITE,
     fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    marginTop: 1,
   },
-  typeRight: {
+  spreadUnit: {
+    color: DIM,
+    fontSize: 8,
+    fontWeight: '700',
+  },
+
+  /* ── Scroll ───────────────────────────────────────────────── */
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+  },
+
+  /* ── Section titles ───────────────────────────────────────── */
+  sectionTitle: {
+    color: DIM,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 10,
+    marginBottom: 2,
+  },
+
+  /* ── Flat rows ────────────────────────────────────────────── */
+  flatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  typeValue: {
-    color: G.text,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  typeChevron: {
-    color: G.textMuted,
-    fontSize: 14,
-  },
-  dropdown: {
-    backgroundColor: G.glass2,
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
-  optionRow: {
-    minHeight: 46,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  optionDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
-  optionText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  optionBuy: {
-    color: G.up,
-  },
-  optionSell: {
-    color: G.down,
-  },
-  optionCheck: {
-    color: G.text,
-    fontSize: 17,
-    minWidth: 14,
-    textAlign: 'right',
-  },
-  stepperRow: {
-    paddingVertical: 8,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
-  stepChip: {
-    minWidth: 58,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepChipActive: {
-    borderColor: G.borderHi,
-    backgroundColor: G.glass3,
-  },
-  stepText: {
-    color: G.textSub,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  stepTextActive: {
-    color: G.text,
-  },
-  row: {
-    minHeight: 46,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
-  rowLabel: {
-    color: G.text,
-    fontSize: 14,
   },
   rowRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  rowValue: {
-    color: G.textSub,
+  rowLabel: {
+    color: '#E8E8ED',
     fontSize: 14,
+    fontWeight: '500',
+  },
+  rowValueWhite: {
+    color: WHITE,
+    fontSize: 14,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
-  plusChip: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass3,
-    alignItems: 'center',
-    justifyContent: 'center',
+  hairline: {
+    height: 1,
+    backgroundColor: LINE,
   },
-  plus: {
-    color: G.accent,
-    fontSize: 16,
-    lineHeight: 16,
-  },
-  metaStrip: {
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.md,
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  metaChip: {
-    flex: 1,
-    minHeight: 48,
+
+  /* ── Dropdown ─────────────────────────────────────────────── */
+  dropdown: {
+    backgroundColor: ELEVATED,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
+    marginBottom: 4,
   },
-  metaChipLabel: {
-    color: G.textMuted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  metaChipValue: {
-    marginTop: 2,
-    color: G.text,
-    fontSize: 14,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  quotePanel: {
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+  dropOpt: {
     flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  dropOptActive: {
+    backgroundColor: 'rgba(10,132,255,0.06)',
+  },
+  dropDot: {
+    width: 6, height: 6, borderRadius: 3,
+  },
+  dropText: {
+    flex: 1, fontSize: 14, fontWeight: '500',
+  },
+
+  /* ── Volume ───────────────────────────────────────────────── */
+  volSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  volStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: ELEVATED,
     overflow: 'hidden',
   },
-  quoteCell: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  quoteLabel: {
-    color: G.textMuted,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  quoteDivider: {
-    width: 1,
-    backgroundColor: G.border,
-  },
-  bid: {
-    color: G.down,
-    fontSize: 26,
-    fontWeight: '700',
-    marginTop: 2,
-    fontVariant: ['tabular-nums'],
-  },
-  ask: {
-    color: G.up,
-    fontSize: 26,
-    fontWeight: '700',
-    marginTop: 2,
-    fontVariant: ['tabular-nums'],
-  },
-  actionsWrap: {
-    flexDirection: 'row',
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.md,
-    gap: spacing.sm,
-  },
-  actionButton: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 10,
+  volBtn: {
+    width: 40,
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sellBtn: {
-    backgroundColor: G.down,
+  volCenter: {
+    paddingHorizontal: 16,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: LINE,
   },
-  buyBtn: {
-    backgroundColor: G.up,
-  },
-  placeBtn: {
-    backgroundColor: G.glass3,
-  },
-  buttonText: {
-    color: G.text,
+  volNum: {
+    color: WHITE,
+    fontSize: 18,
     fontWeight: '700',
-    fontSize: 17,
+    fontVariant: ['tabular-nums'],
   },
-  warningCard: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
-    borderRadius: 10,
-    backgroundColor: G.glass1,
-    borderWidth: 1,
-    borderColor: G.border,
+  quickRow: {
+    flexDirection: 'row',
+    gap: 5,
+    paddingBottom: 4,
   },
-  warn: {
-    textAlign: 'center',
-    color: G.textSub,
+  quickPill: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: ELEVATED,
+    alignItems: 'center',
+  },
+  quickPillActive: {
+    backgroundColor: 'rgba(10,132,255,0.12)',
+  },
+  quickTxt: {
+    color: SUB,
     fontSize: 12,
-    lineHeight: 17,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  quickTxtActive: {
+    color: ACCENT,
+  },
+
+  /* ── Toggle switch ────────────────────────────────────────── */
+  track: {
+    width: 40,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#252C3B',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  trackOn: { backgroundColor: ACCENT },
+  thumb: {
+    width: 18, height: 18,
+    borderRadius: 9,
+    backgroundColor: '#A0ABC0',
+  },
+  thumbOn: {
+    backgroundColor: WHITE,
+    transform: [{ translateX: 18 }],
+  },
+  statusTxt: {
+    color: DIM,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    minWidth: 22,
+  },
+
+  /* ── DOM Table ────────────────────────────────────────────── */
+  domTable: {
+    marginTop: 4,
+    marginBottom: 6,
+    borderRadius: 8,
+    backgroundColor: SURFACE,
+    overflow: 'hidden',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  domHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  domColHead: {
+    flex: 1,
+    color: '#C8C8CC',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textAlign: 'center',
+  },
+  domRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 16,
+    marginBottom: 2,
+  },
+  domBarCol: {
+    flex: 1,
+    height: 10,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  domBarSell: {
+    height: 12,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,59,48,0.55)',
+  },
+  domBarBuy: {
+    height: 12,
+    borderRadius: 2,
+    backgroundColor: 'rgba(52,199,89,0.55)',
+  },
+  domPrice: {
+    width: 80,
+    textAlign: 'center',
+    color: WHITE,
+    fontSize: 10,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+
+  /* ── Disclaimer ───────────────────────────────────────────── */
+  disclaimer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  disclaimerTxt: {
+    color: DIM,
+    fontSize: 10,
+    lineHeight: 14,
+    flex: 1,
+  },
+  disclaimerIcons: { flexDirection: 'row', gap: 10 },
+
+  /* ── Execution Buttons ─────────────────────────────── */
+  execRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  execBtn: {
+    flex: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  execSell: {
+    backgroundColor: '#DC2626',
+    shadowColor: '#DC2626',
+  },
+  execBuy: {
+    backgroundColor: '#16A34A',
+    shadowColor: '#16A34A',
+  },
+  execCta: {
+    color: WHITE,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  execLots: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
 });

@@ -34,7 +34,7 @@ export function SettingsScreen() {
         <Pressable onPress={() => router.push('/settings/accounts')}>
           <View style={[styles.accountCard, styles.cardShadow]}>
             <LinearGradient
-              colors={['#0F162A', '#060B18']}
+              colors={['#0d1628', '#07101e']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFillObject}
             />
@@ -133,7 +133,7 @@ export function SettingsScreen() {
             <Ionicons name="person-outline" size={20} color="#22C55E" />
           </View>
           <Text style={styles.rowTitleSingle}>New Account</Text>
-          <Ionicons name="chevron-forward" size={18} color="#475569" />
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
         </Pressable>
 
         {/* ── MARKET & NEWS SECTION ─────────────────────────────── */}
@@ -246,7 +246,7 @@ function SettingRow({ icon, color, title, sub, badge }: { icon: any, color: stri
             <Text style={styles.badgeText}>{badge}</Text>
           </View>
         )}
-        <Ionicons name="chevron-forward" size={18} color="#475569" />
+        <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
       </View>
     </Pressable>
   );
@@ -255,48 +255,48 @@ function SettingRow({ icon, color, title, sub, badge }: { icon: any, color: stri
 // ── Styles ──────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: G.bgRoot },
+  container: { flex: 1, backgroundColor: '#000' },
   content: { paddingBottom: 100 },
 
   cardShadow: {
-    shadowColor: G.trading.buy.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 6,
   },
 
   // Header
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12
+    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
   },
   menuBtn: {
     width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { color: G.text, fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
-  headerSub: { color: G.textDimmed, fontSize: 13, fontWeight: '500', marginTop: 2 },
+  headerSub: { color: G.textMuted, fontSize: 12, fontWeight: '500', marginTop: 2 },
   searchBtn: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: G.glass1,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium
+    width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium,
   },
 
   // Account Card
   accountCard: {
-    marginHorizontal: 16, marginTop: 12, borderRadius: 18, padding: 16,
-    borderWidth: 1, borderColor: G.trading.buy.dark, overflow: 'hidden', position: 'relative'
+    marginHorizontal: 16, marginTop: 12, borderRadius: 20, padding: 20,
+    borderWidth: 1, borderColor: 'rgba(59,130,246,0.25)', overflow: 'hidden', position: 'relative',
   },
   cardBubbleLeft: {
     position: 'absolute', top: -70, left: -20, width: 220, height: 220,
-    backgroundColor: '#0F162A', borderRadius: 110, opacity: 0 // Made completely transparent/blended
+    backgroundColor: '#0F162A', borderRadius: 110, opacity: 0,
   },
   cardBubbleRight: {
     position: 'absolute', top: -80, right: -60, width: 200, height: 200,
-    backgroundColor: '#060B18', borderRadius: 100, opacity: 0 // Made completely transparent/blended
+    backgroundColor: '#060B18', borderRadius: 100, opacity: 0,
   },
-  accTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  accTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
 
   accountBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, gap: 6 },
   badgeDemo: { backgroundColor: 'rgba(0, 230, 118, 0.12)', borderColor: 'rgba(0, 230, 118, 0.3)' },
@@ -311,66 +311,63 @@ const styles = StyleSheet.create({
   textDemo: { color: '#00E676' },
   textLive: { color: '#FACC15' },
 
-  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.bgRoot, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: G.borderMedium },
+  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(52,211,153,0.08)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(52,211,153,0.2)' },
   greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399', marginRight: 6 },
-  connectedText: { color: G.text, fontSize: 11, fontWeight: '600' },
+  connectedText: { color: '#34D399', fontSize: 11, fontWeight: '700' },
 
-  accName: {
-    color: G.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4,
-    backgroundColor: G.bgRoot, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, overflow: 'hidden'
-  },
-  accBalance: { color: G.trading.buy.hover, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  accCurrency: { fontSize: 14, fontWeight: '800', color: G.trading.buy.hover },
+  accName: { color: G.text, fontSize: 28, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
+  accBalance: { color: '#3b82f6', fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+  accCurrency: { fontSize: 16, fontWeight: '700', color: '#3b82f6' },
 
-  accDivider: { height: 1, backgroundColor: G.border, marginTop: 20, marginBottom: 16 },
+  accDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 20, marginBottom: 16 },
 
   accDetailsWrap: { marginBottom: 16 },
-  accCompany: { color: G.text, fontSize: 13, fontWeight: '600', marginBottom: 2, letterSpacing: -0.2 },
-  accServer: { color: G.textMuted, fontSize: 11, fontWeight: '400', letterSpacing: 0.1 },
+  accCompany: { color: G.textSub, fontSize: 13, fontWeight: '600', marginBottom: 4 },
+  accServer: { color: G.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.1 },
 
-  chipRow: { flexDirection: 'row', gap: 10 },
-  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.bgRoot, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, gap: 6, borderWidth: 1, borderColor: G.borderMedium },
-  chipText: { color: G.textMuted, fontSize: 11, fontWeight: '600' },
+  chipRow: { flexDirection: 'row', gap: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  chipText: { color: G.textSub, fontSize: 11, fontWeight: '700' },
 
   // Metrics Row
-  metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 16 },
-  metricBlock: { flex: 1, backgroundColor: G.glass2, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: G.borderMedium, paddingBottom: 16, overflow: 'hidden', position: 'relative' },
+  metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 14 },
+  metricBlock: { flex: 1, backgroundColor: '#0c1018', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingBottom: 14, overflow: 'hidden', position: 'relative' },
   metricBlockActive: {
     borderColor: G.trading.buy.primary,
-    backgroundColor: G.glass2,
+    backgroundColor: '#0c1018',
     shadowColor: G.trading.buy.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 6,
   },
-  metricLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, justifyContent: 'center' },
+  metricLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'center' },
   metricIcon: { marginRight: 4 },
   dotsVertical: { marginRight: 4, gap: 2, height: 12, justifyContent: 'center' },
   tinyDot: { width: 2, height: 2, backgroundColor: G.trading.buy.hover, borderRadius: 1 },
-  metricLabel: { color: G.textDimmed, fontSize: 11, fontWeight: '600' },
+  metricLabel: { color: G.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
   metricLabelActive: { color: G.trading.buy.hover, fontSize: 11, fontWeight: '600' },
-  metricValue: { color: G.text, fontSize: 20, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
-  metricLabelCenter: { color: G.textDimmed, fontSize: 11, fontWeight: '600', marginBottom: 4 },
+  metricValue: { color: G.text, fontSize: 22, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  metricLabelCenter: { color: G.textMuted, fontSize: 11, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   toggleText: { color: G.text, fontSize: 14, fontWeight: '700' },
 
   // Sections
-  sectionTitle: { color: G.textDimmed, fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 24, marginTop: 24, marginBottom: 8 },
-  singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: G.glass2, marginHorizontal: 16, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: G.borderMedium, overflow: 'hidden' },
-  rowTitleSingle: { flex: 1, color: G.text, fontSize: 15, fontWeight: '700', marginLeft: 16, zIndex: 1 },
+  sectionTitle: { color: '#4a5570', fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
+  singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d1220', marginHorizontal: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  rowTitleSingle: { flex: 1, color: G.text, fontSize: 15, fontWeight: '600', marginLeft: 16, zIndex: 1 },
 
-  groupCard: { backgroundColor: G.glass2, marginHorizontal: 16, borderRadius: 18, borderWidth: 1, borderColor: G.borderMedium, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 16, zIndex: 1 },
-  dividerInner: { height: 1, backgroundColor: G.borderMedium, marginLeft: 64, zIndex: 1 },
+  groupCard: { backgroundColor: '#0d1220', marginHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, zIndex: 1 },
+  dividerInner: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginLeft: 72, zIndex: 1 },
 
-  iconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  rowTextWrap: { flex: 1, marginLeft: 16, zIndex: 1 },
-  rowTitle: { color: G.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  rowSub: { color: G.textDimmed, fontSize: 12, fontWeight: '500' },
+  iconBox: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  rowTextWrap: { flex: 1, marginLeft: 14, zIndex: 1 },
+  rowTitle: { color: G.text, fontSize: 15, fontWeight: '600' },
+  rowSub: { color: G.textMuted, fontSize: 12, fontWeight: '500', marginTop: 2 },
   rowRight: { flexDirection: 'row', alignItems: 'center', zIndex: 1 },
-  badge: { backgroundColor: G.trading.sell.primary, minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginRight: 10 },
-  badgeText: { color: G.text, fontSize: 11, fontWeight: '800' },
+  badge: { backgroundColor: '#dc2626', minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginRight: 10 },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 
   radialHighlight: {
     position: 'absolute', top: -50, right: -50, width: 150, height: 150,
@@ -378,7 +375,7 @@ const styles = StyleSheet.create({
   },
   logoutContainer: {
     marginTop: 24, marginBottom: 24, marginHorizontal: 16,
-    borderRadius: 18, backgroundColor: G.glass2, borderWidth: 1, borderColor: G.borderMedium,
-    overflow: 'hidden'
+    borderRadius: 16, backgroundColor: '#0d1220', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
   },
 });

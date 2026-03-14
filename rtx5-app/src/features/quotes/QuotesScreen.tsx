@@ -1,10 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Image } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, SafeAreaView } from 'react-native';
 
-import { ActionSheet } from '../../components/ActionSheet';
-import { Screen } from '../../components/Screen';
 import { QuoteItem, quotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -45,7 +43,7 @@ const pairLabel = (symbol: string) => {
 
 const volumeLabel = (volume?: number) => {
   if (!volume) return '--';
-  if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(1)}M`;
+  if (volume >= 1_000_000) return `${((volume || 0) / 1_000_000).toFixed(1)}M`;
   return volume.toLocaleString('en-US');
 };
 
@@ -54,9 +52,9 @@ const volumeLabel = (volume?: number) => {
 const POSITIVE = G.trading.profit;   // #4ade80
 const NEGATIVE = G.trading.loss;     // #f87171
 const GREY = G.textMuted;            // #808088
-const CARD_BG = G.glass2;            // #252525
-const BORDER = G.borderMedium;       // #28282e
-const BG = G.bgRoot;                 // #0d0d11
+const CARD_BG = '#0f1525';
+const BORDER = 'rgba(255, 255, 255, 0.10)';
+const BG = '#000';
 
 const trendColor = (pct: number) => (pct >= 0 ? POSITIVE : NEGATIVE);
 const pillBg = (pct: number) =>
@@ -82,7 +80,7 @@ function QuoteCard({
   const color = trendColor(item.changePct);
   const d = digitsFor(item);
   const symbol = pairLabel(item.symbol);
-  const pct = `${isUp ? '+' : ''}${item.changePct.toFixed(2)}%`;
+  const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
 
   const bidTick = item.prevBid ? (item.bid > item.prevBid ? 'up' : item.bid < item.prevBid ? 'down' : 'neutral') : 'neutral';
   const askTick = item.prevAsk ? (item.ask > item.prevAsk ? 'up' : item.ask < item.prevAsk ? 'down' : 'neutral') : 'neutral';
@@ -93,12 +91,6 @@ function QuoteCard({
     return 'transparent';
   };
 
-  const getTickIcon = (tick: string) => {
-    if (tick === 'up') return 'caret-up';
-    if (tick === 'down') return 'caret-down';
-    return null;
-  };
-
   return (
     <Pressable
       style={({ pressed }) => [s.card, pressed && s.cardPressed]}
@@ -106,39 +98,43 @@ function QuoteCard({
       onLongPress={onLongPress}
       delayLongPress={180}
     >
-      {/* Row 1: Symbol + Flags … Change Pill … Timestamp */}
-      <View style={s.cardRow1}>
-        <View style={s.symbolWrap}>
-          <Text style={s.symbolText}>{symbol}</Text>
-          <CurrencyFlags symbol={item.symbol} />
-          <View style={[s.changePill, { backgroundColor: pillBg(item.changePct) }]}>
-            <Text style={[s.changePillText, { color }]}>{pct}</Text>
-          </View>
-        </View>
-        <Text style={s.timestampText}>{gmtClock(updatedAt)} GMT</Text>
-      </View>
+      {/* Left accent bar */}
+      <View style={[s.accentBar, { backgroundColor: color }]} />
 
-      {/* Row 2: Stats … Sparkline … Prices */}
-      <View style={s.cardRow2}>
-        <View style={s.statsCol}>
-          <Text style={s.volText}>Vol: <Text style={s.statValue}>{volumeLabel(item.volume)}</Text></Text>
-          <Text style={s.spreadText}>Spread: <Text style={s.statValue}>{item.spread.toFixed(1)}</Text></Text>
-        </View>
-
-        <View style={s.pricesCol}>
-          <View style={s.priceLabelsRow}>
-            <View style={s.labelWithTick}>
-               <Text style={s.priceLabel}>BID</Text>
-               {bidTick !== 'neutral' && <Ionicons name={bidTick === 'up' ? 'caret-up' : 'caret-down'} size={12} color={getTickColor(bidTick)} style={{ marginLeft: 2 }} />}
-            </View>
-            <View style={s.labelWithTick}>
-               <Text style={s.priceLabel}>ASK</Text>
-               {askTick !== 'neutral' && <Ionicons name={askTick === 'up' ? 'caret-up' : 'caret-down'} size={12} color={getTickColor(askTick)} style={{ marginLeft: 2 }} />}
+      <View style={s.cardInner}>
+        {/* Left: symbol info */}
+        <View style={s.symbolCol}>
+          {/* Row 1: Flags + Symbol + % pill */}
+          <View style={s.cardRow1}>
+            <CurrencyFlags symbol={item.symbol} />
+            <Text style={s.symbolText}>{symbol}</Text>
+            <View style={[s.changePill, { backgroundColor: pillBg(item.changePct) }]}>
+              <Text style={[s.changePillText, { color }]}>{pct}</Text>
             </View>
           </View>
-          <View style={s.priceValuesRow}>
-            <Text style={[s.priceValue, { color }]}>{item.bid.toFixed(d)}</Text>
-            <Text style={[s.priceValue, { color }]}>{item.ask.toFixed(d)}</Text>
+          {/* Row 2: Vol · Spread */}
+          <View style={s.cardRow2}>
+            <Text style={s.volText}>Vol <Text style={s.statValue}>{volumeLabel(item.volume)}</Text></Text>
+            <View style={s.statDot} />
+            <Text style={s.spreadText}>Spread <Text style={s.statValue}>{(item.spread || 0).toFixed(1)}</Text></Text>
+          </View>
+        </View>
+
+        {/* Right: BID / ASK */}
+        <View style={s.pricesRow}>
+          <View style={s.priceBlock}>
+            <View style={s.labelWithTick}>
+              {bidTick !== 'neutral' && <Ionicons name={bidTick === 'up' ? 'caret-up' : 'caret-down'} size={9} color={getTickColor(bidTick)} style={{ marginRight: 2 }} />}
+              <Text style={s.priceLabel}>BID</Text>
+            </View>
+            <Text style={[s.priceValue, { color }]}>{(item.bid || 0).toFixed(d)}</Text>
+          </View>
+          <View style={s.priceBlock}>
+            <View style={s.labelWithTick}>
+              {askTick !== 'neutral' && <Ionicons name={askTick === 'up' ? 'caret-up' : 'caret-down'} size={9} color={getTickColor(askTick)} style={{ marginRight: 2 }} />}
+              <Text style={s.priceLabel}>ASK</Text>
+            </View>
+            <Text style={[s.priceValue, { color }]}>{(item.ask || 0).toFixed(d)}</Text>
           </View>
         </View>
       </View>
@@ -157,9 +153,9 @@ export function QuotesScreen() {
 
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const [search, setSearch] = useState('');
-  const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
   const [liveQuotes, setLiveQuotes] = useState<QuoteItem[]>(quotes);
   const [updatedAt, setUpdatedAt] = useState(new Date());
 
@@ -207,15 +203,25 @@ export function QuotesScreen() {
   };
 
   return (
-      <Screen style={s.screen}>
+    <View style={[s.root, { backgroundColor: '#000' }]}>
+      <SafeAreaView style={s.safe}>
+        <View style={s.screen}>
 
-        {/* ── Header ── */}
+          {/* ── Header ── */}
         <View style={s.headerRow}>
           <View style={s.headerLeft}>
             <Pressable style={s.menuBtn} onPress={() => setSidebarOpen(true)}>
               <Ionicons name="menu" size={24} color="#fff" />
             </Pressable>
-            <Text style={s.headerTitle}>Markets</Text>
+            <Text style={s.headerTitle}>Quotes</Text>
+          </View>
+          <View style={s.headerRight}>
+            <Pressable style={s.iconBtnPrimary} onPress={() => {}}>
+              <Ionicons name="add" size={22} color="#fff" />
+            </Pressable>
+            <Pressable style={s.iconBtnSecondary} onPress={() => {}}>
+              <Ionicons name="create-outline" size={19} color="#94A3B8" />
+            </Pressable>
           </View>
         </View>
 
@@ -256,7 +262,7 @@ export function QuotesScreen() {
               item={item}
               updatedAt={updatedAt}
               onPress={() => goDetail(item.symbol)}
-              onLongPress={() => setActiveSymbol(item.symbol)}
+              onLongPress={() => showActionSheet({ title: item.symbol, actions: [ { label: 'Chart', onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } }, { label: 'Details', onPress: () => goDetail(item.symbol) }, { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(item.symbol) }, ] })}
             />
           )}
           style={s.list}
@@ -269,31 +275,27 @@ export function QuotesScreen() {
           }
         />
 
-        <ActionSheet
-          visible={Boolean(activeSymbol)}
-          title={activeSymbol ?? ''}
-          onClose={() => setActiveSymbol(null)}
-          actions={[
-            { label: 'Chart', onPress: () => { if (activeSymbol) { setChartSymbol(activeSymbol); router.push('/(tabs)/chart'); } } },
-            { label: 'Details', onPress: () => goDetail(activeSymbol ?? 'EURUSD') },
-            { label: 'Remove', danger: true, onPress: () => { if (activeSymbol) removeQuoteSymbol(activeSymbol); } },
-          ]}
-        />
-      </Screen>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 /* ───── Styles ───── */
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  screen: { flex: 1, backgroundColor: 'transparent', paddingHorizontal: 16, paddingTop: 10 },
+  root: { flex: 1 },
+  safe: { flex: 1 },
+  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
 
   /* Header */
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   menuBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  iconBtnPrimary: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#2563EB', shadowColor: '#2563EB', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
+  iconBtnSecondary: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
 
   /* Subheader */
   subheaderRow: {
@@ -307,7 +309,7 @@ const s = StyleSheet.create({
 
   /* Search */
   searchBar: {
-    backgroundColor: '#1A202C', borderColor: BORDER,
+    backgroundColor: '#0c1018', borderColor: BORDER,
     borderWidth: 1, borderRadius: 24, height: 44,
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, marginBottom: 20, gap: 10,
@@ -322,62 +324,54 @@ const s = StyleSheet.create({
 
   /* ── Card ── */
   card: {
-    marginBottom: 12, borderRadius: 12,
+    marginBottom: 16, borderRadius: 16,
     borderWidth: 1, borderColor: BORDER,
     backgroundColor: CARD_BG,
-    paddingVertical: 14, paddingHorizontal: 16,
+    paddingVertical: 22, paddingLeft: 24, paddingRight: 20,
+    overflow: 'hidden',
   },
   cardPressed: { opacity: 0.85 },
 
-  /* Card Row 1: symbol + flags … timestamp */
-  cardRow1: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 12,
+  /* Left accent bar */
+  accentBar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 3,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
   },
-  symbolWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  symbolText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
+
+  /* Card inner: horizontal split */
+  cardInner: { flexDirection: 'row', alignItems: 'center' },
+  symbolCol: { flex: 1 },
+
+  /* Row 1: flags + symbol + % pill */
+  cardRow1: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  symbolText: { color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
   flagsWrap: { flexDirection: 'row', alignItems: 'center' },
-  flagIcon: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: BG },
+  flagIcon: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: CARD_BG },
   flagOverlap: { marginLeft: -6 },
-  timestampText: { color: GREY, fontSize: 13, fontWeight: '500' },
 
   /* Change Pill */
-  changePill: {
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: 6, marginLeft: 6,
-  },
-  changePillText: { fontSize: 13, fontWeight: '700' },
+  changePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  changePillText: { fontSize: 11, fontWeight: '700' },
 
-  /* Card Row 2: stats … sparkline … prices */
-  cardRow2: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-
-  /* Left stats column */
-  statsCol: { flex: 1, justifyContent: 'flex-end', paddingBottom: 2 },
-  volText: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginBottom: 6 },
-  spreadText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  statValue: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
-
-  /* Right prices column */
-  pricesCol: { alignItems: 'flex-end', flexShrink: 0, justifyContent: 'flex-end' },
-  priceLabelsRow: { flexDirection: 'row', gap: 4, marginBottom: 2 },
-  labelWithTick: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 75 },
-  priceLabel: { color: GREY, fontSize: 14, fontWeight: '700' },
-  tickArrow: { fontSize: 12, fontWeight: '900', marginLeft: 6 },
-  priceValuesRow: { flexDirection: 'row', gap: 4, flexWrap: 'nowrap' },
-  priceValue: {
-    fontSize: 20, fontWeight: '800', textAlign: 'center',
-    width: 80, fontVariant: ['tabular-nums'],
+  /* Row 2: vol · spread */
+  cardRow2: { flexDirection: 'row', alignItems: 'center' },
+  volText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
+  spreadText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
+  statValue: { color: '#CBD5E1', fontSize: 11, fontWeight: '700' },
+  statDot: {
+    width: 3, height: 3, borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: 6,
   },
 
-  /* Daily Range Row (Text based) */
-  rangeTextRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    marginTop: 10, paddingTop: 10,
-    borderTopWidth: 1, borderTopColor: BORDER,
-  },
-  rangeLabel: { color: GREY, fontSize: 13, fontWeight: '500' },
-  rangeValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  /* Right: BID / ASK side-by-side */
+  pricesRow: { flexDirection: 'row', gap: 14, alignItems: 'center' },
+  priceBlock: { alignItems: 'flex-end' },
+  labelWithTick: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  priceLabel: { color: GREY, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  priceValue: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'right' },
+
 });

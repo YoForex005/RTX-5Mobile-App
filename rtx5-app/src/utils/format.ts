@@ -1,6 +1,6 @@
 export const fmt = {
-  price: (value: number, digits = 2) => value.toFixed(digits),
-  pnl: (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`,
-  pct: (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
-  int: (value: number) => value.toLocaleString('en-US'),
+  price: (value: number, digits = 2) => (value || 0).toFixed(digits),
+  pnl: (value: number) => `${(value || 0) >= 0 ? '+' : ''}${(value || 0).toFixed(2)}`,
+  pct: (value: number) => `${(value || 0) >= 0 ? '+' : ''}${(value || 0).toFixed(2)}%`,
+  int: (value: number) => (value || 0).toLocaleString('en-US'),
 };

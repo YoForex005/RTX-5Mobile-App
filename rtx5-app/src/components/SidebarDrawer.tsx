@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -43,9 +44,12 @@ const DRAWER_WIDTH = 310;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) {
+  const router = useRouter();
   const T = useTheme();
   const themeMode = useUserPreferences((s) => s.themeMode);
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
+  const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const isDark = themeMode === 'dark';
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -119,10 +123,32 @@ export function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) {
               <View style={ds.avatarWrap}>
                 <Ionicons name="person-circle" size={48} color={T.accent} />
               </View>
-              <View style={ds.profileText}>
-                <Text style={ds.hello}>Hello,</Text>
-                <Text style={ds.userName}>Trader</Text>
-              </View>
+              {isLoggedIn && accountDetails ? (
+                <View style={ds.profileText}>
+                  <Text style={ds.userName} numberOfLines={1}>{accountDetails.name}</Text>
+                  <Text style={ds.accountDetails} numberOfLines={1}>{accountDetails.id} - {accountDetails.server}</Text>
+                  <Pressable style={ds.manageBtn} onPress={() => {
+                    handleClose();
+                    setTimeout(() => router.push('/settings/accounts'), 150);
+                  }}>
+                    <Text style={ds.manageText}>Manage accounts</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={ds.profileText}>
+                  <Text style={ds.loginText}>Login to existing account or open demo account</Text>
+                  <Pressable
+                    style={ds.getStartedBtn}
+                    onPress={() => {
+                      handleClose();
+                      // Slight delay to allow drawer to close before navigating
+                      setTimeout(() => router.push('/login'), 150);
+                    }}
+                  >
+                    <Text style={ds.getStartedText}>Get started</Text>
+                  </Pressable>
+                </View>
+              )}
               <Pressable style={ds.closeBtn} onPress={handleClose}>
                 <Ionicons name="close" size={20} color={T.text} />
               </Pressable>
@@ -182,26 +208,6 @@ export function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) {
             ))}
           </ScrollView>
 
-          {/* ── Logout ── */}
-          <View style={ds.logoutSection}>
-            <View style={ds.divider} />
-            <Pressable
-              style={({ pressed }) => [
-                ds.menuItem,
-                ds.logoutItem,
-                pressed && ds.menuItemPressed,
-              ]}
-              onPress={handleClose}
-            >
-              <Ionicons
-                name="log-out-outline"
-                size={20}
-                color={T.textSub}
-                style={ds.menuIcon}
-              />
-              <Text style={ds.menuText}>Logout</Text>
-            </Pressable>
-          </View>
         </Animated.View>
       </View>
   );
@@ -225,7 +231,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       bottom: 0,
       width: DRAWER_WIDTH,
-      backgroundColor: isDark ? '#0c0f18' : '#ffffff',
+      backgroundColor: '#0a0a0a',
       borderRightWidth: 1,
       borderRightColor: T.border,
       paddingTop: 48,
@@ -238,7 +244,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     profileRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
     },
     avatarWrap: {
       width: 48,
@@ -253,17 +259,44 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       marginLeft: 12,
     },
-    hello: {
-      color: T.text,
-      fontSize: 20,
-      fontWeight: '800',
-      letterSpacing: -0.5,
-    },
     userName: {
+      color: T.text,
+      fontSize: 18,
+      fontWeight: '700',
+      marginBottom: 3,
+    },
+    accountDetails: {
       color: T.textSub,
-      fontSize: 13,
+      fontSize: 14,
+      marginBottom: 8,
+    },
+    manageBtn: {
+      alignSelf: 'flex-start',
+      paddingVertical: 4,
+    },
+    manageText: {
+      color: T.accent,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    loginText: {
+      color: T.text,
+      fontSize: 14,
       fontWeight: '600',
-      marginTop: 1,
+      lineHeight: 20,
+    },
+    getStartedBtn: {
+      backgroundColor: T.accent,
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      borderRadius: 16,
+      alignSelf: 'flex-start',
+      marginTop: 8,
+    },
+    getStartedText: {
+      color: '#ffffff',
+      fontSize: 12,
+      fontWeight: '700',
     },
     closeBtn: {
       width: 32,
@@ -360,12 +393,5 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0.1,
     },
 
-    /* Logout */
-    logoutSection: {
-      paddingBottom: 28,
-    },
-    logoutItem: {
-      marginTop: 6,
-    },
   });
 }

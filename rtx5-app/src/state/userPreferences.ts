@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { quotes } from '../mock/tradingData';
+import { logoutAPI } from '../api/auth';
 
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
@@ -20,6 +21,20 @@ type UserPreferencesState = {
   oneClickAccepted: boolean;
   historyRange: string;
   isDemoAccount: boolean;
+  isLoggedIn: boolean;
+  accountDetails: {
+    id: string;
+    name: string;
+    server: string;
+    credentials?: {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: string;
+    };
+  } | null;
+  login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }) => void;
+  logout: () => void;
+  updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;
   setQuoteViewMode: (mode: QuoteViewMode) => void;
   setThemeMode: (mode: ThemeMode) => void;
   addQuoteSymbol: (symbol: string) => void;
@@ -49,6 +64,41 @@ export const useUserPreferences = create<UserPreferencesState>()(
       oneClickAccepted: false,
       historyRange: 'Last 6 months',
       isDemoAccount: true,
+      isLoggedIn: false,
+      accountDetails: null,
+      login: (id, name, server, tokens) =>
+        set({
+          isLoggedIn: true,
+          accountDetails: {
+            id,
+            name,
+            server,
+            credentials: {
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token,
+              expiresAt: tokens.expires_at,
+            },
+          },
+        }),
+      logout: () => {
+        // Fire and forget actual API logout
+        logoutAPI();
+        set({ isLoggedIn: false, accountDetails: null });
+      },
+      updateTokens: (accessToken, refreshToken, expiresAt) =>
+        set((state) => {
+          if (!state.accountDetails) return state;
+          return {
+            accountDetails: {
+              ...state.accountDetails,
+              credentials: {
+                accessToken,
+                refreshToken,
+                expiresAt,
+              },
+            },
+          };
+        }),
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       addQuoteSymbol: (symbol) => {

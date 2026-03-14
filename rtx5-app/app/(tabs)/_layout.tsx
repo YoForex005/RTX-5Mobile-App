@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { useUIState } from '../../src/state/uiState';
+import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
 
 const TAB_BAR_VISIBLE = {
@@ -26,6 +27,8 @@ const icons = {
 export default function TabsLayout() {
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const actionSheet = useUIState((s) => s.actionSheet);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
 
   return (
     <View style={styles.root}>
@@ -57,6 +60,14 @@ export default function TabsLayout() {
       <SidebarDrawer
         visible={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+      />
+
+      {/* Action sheet – shared across all tabs, renders inside device frame */}
+      <ActionSheet
+        visible={actionSheet !== null}
+        title={actionSheet?.title}
+        actions={actionSheet?.actions ?? []}
+        onClose={hideActionSheet}
       />
     </View>
   );

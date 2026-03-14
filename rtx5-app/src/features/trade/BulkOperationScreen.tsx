@@ -6,10 +6,12 @@ import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
+import { useExposure } from '../../query/exposure';
 
 export function BulkOperationScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [submitted, setSubmitted] = useState(false);
+  const { data: exposureData } = useExposure();
 
   const title = bulkModeLabel(mode);
   const affectedPositions = useMemo(
@@ -17,6 +19,10 @@ export function BulkOperationScreen() {
     [mode]
   );
   const totalPnl = affectedPositions.reduce((sum, position) => sum + position.pnl, 0);
+
+  // Live exposure stats
+  const activeExposures = exposureData?.exposure?.filter(e => e.volume_net !== 0) ?? [];
+  const totalNetExposure = activeExposures.reduce((sum, e) => sum + e.volume_net, 0);
 
   return (
     <Screen>
@@ -28,12 +34,14 @@ export function BulkOperationScreen() {
       <View style={styles.summaryCard}>
         <Row label='Affected Positions' value={String(affectedPositions.length)} />
         <Row label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} />
+        <Row label='Active Exposures' value={String(activeExposures.length)} />
+        <Row label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} />
       </View>
 
       <View style={styles.previewCard}>
         {affectedPositions.slice(0, 6).map((position) => (
           <View key={position.id} style={styles.previewRow}>
-            <Text style={styles.previewLeft}>#{position.id} {position.symbol} {position.side} {position.volume.toFixed(2)}</Text>
+            <Text style={styles.previewLeft}>#{position.id} {position.symbol} {position.side} {(position.volume || 0).toFixed(2)}</Text>
             <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
           </View>
         ))}

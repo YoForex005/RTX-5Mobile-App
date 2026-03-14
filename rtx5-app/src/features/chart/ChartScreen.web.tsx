@@ -1,21 +1,50 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
+import { Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
+import { useAccountSummary } from '../../query/account';
+import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
+const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
+
+const SYMBOL_FLAGS: Record<string, [string, string]> = {
+  EURUSD: ['eu', 'us'], GBPUSD: ['gb', 'us'], AUDUSD: ['au', 'us'],
+  USDJPY: ['us', 'jp'], NZDUSD: ['nz', 'us'], USDCAD: ['us', 'ca'],
+  EURGBP: ['eu', 'gb'], AUDCAD: ['au', 'ca'], AUDCHF: ['au', 'ch'],
+  AUDJPY: ['au', 'jp'],
+};
+
+const SYMBOL_NAMES: Record<string, string> = {
+  EURUSD: 'Euro / US Dollar', GBPUSD: 'British Pound / USD',
+  AUDUSD: 'Australian Dollar / USD', USDJPY: 'US Dollar / Japanese Yen',
+  NZDUSD: 'New Zealand Dollar / USD', USDCAD: 'US Dollar / Canadian Dollar',
+  EURGBP: 'Euro / British Pound', AUDCAD: 'Australian / Canadian Dollar',
+  AUDCHF: 'Australian / Swiss Franc', AUDJPY: 'Australian / Japanese Yen',
+  XAUUSD: 'Gold / US Dollar', BTCUSD: 'Bitcoin / US Dollar',
+};
+
+const SYMBOL_CATEGORY: Record<string, string> = {
+  XAUUSD: 'METAL', BTCUSD: 'CRYPTO',
+};
+
 const getStartPrice = (sym: string) => {
-  if (sym.includes('JPY')) return 150.00;
-  if (sym.includes('XAU')) return 5180.00;
-  return 1.0500;
+  if (sym.includes('BTC')) return 85000.00;
+  if (sym.includes('XAU')) return 2950.00;
+  const prices: Record<string, number> = {
+    EURUSD: 1.0850, GBPUSD: 1.2740, AUDUSD: 0.6480, NZDUSD: 0.5920,
+    USDJPY: 149.50, USDCAD: 1.3550, EURGBP: 0.8510, AUDCAD: 0.8790,
+    AUDCHF: 0.5840, AUDJPY: 96.80,
+  };
+  return prices[sym] ?? 1.0500;
 };
 
 const mapTf = (tf: string) => {
@@ -58,10 +87,13 @@ const BTN_BG = G.glass2;
 const PILL_BG = G.glass1;
 
 export function ChartScreen() {
-  const { chartSymbol, chartTimeframe, setChartTimeframe, isDemoAccount } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
+  const { data: liveAccount } = useAccountSummary(accountDetails?.id);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
+  const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
+  const [lotSize, setLotSize] = useState(0.10);
   const scrollRef = useRef<ScrollView>(null);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const [candles, setCandles] = useState(() => generateCandles(120, getStartPrice(chartSymbol)));
@@ -133,9 +165,12 @@ export function ChartScreen() {
 
   const latestClose = candles.length > 0 ? candles[candles.length - 1].close : getStartPrice(chartSymbol);
   const latestBid = latestClose;
-  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.396 : 0.00015);
-  const displayDecimals = chartSymbol.includes('JPY') || chartSymbol.includes('XAU') ? 3 : 5;
-  const displaySymbol = chartSymbol.replace('/', '') === 'EURUSD' ? 'EUR/USD' : chartSymbol.replace('/', '') === 'XAUUSD' ? 'XAU/USD' : chartSymbol;
+  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
+  const displayDecimals = chartSymbol.includes('JPY') ? 3 : chartSymbol.includes('XAU') ? 2 : chartSymbol.includes('BTC') ? 2 : 5;
+  const displaySymbol = chartSymbol.length >= 6 ? `${chartSymbol.slice(0, 3)}/${chartSymbol.slice(3, 6)}` : chartSymbol;
+  const symbolFlags = SYMBOL_FLAGS[chartSymbol] ?? null;
+  const symbolName = SYMBOL_NAMES[chartSymbol] ?? chartSymbol;
+  const symbolCategory = SYMBOL_CATEGORY[chartSymbol] ?? 'FX';
 
   return (
     <Screen style={styles.screen}>
@@ -167,30 +202,35 @@ export function ChartScreen() {
             style={StyleSheet.absoluteFillObject}
           />
           <View style={styles.toolbarRow}>
-            <View style={styles.symbolInfo}>
+            <Pressable style={styles.symbolInfo} onPress={() => setSymbolPickerOpen(true)}>
               <View style={styles.flagStack}>
-                <Image
-                  source={{ uri: 'https://flagcdn.com/w160/eu.png' }}
-                  style={[styles.flagCircle, { zIndex: 2 }]}
-                />
-                <Image
-                  source={{ uri: 'https://flagcdn.com/w160/us.png' }}
-                  style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]}
-                />
+                {symbolFlags ? (
+                  <>
+                    <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[0]}.png` }} style={[styles.flagCircle, { zIndex: 2 }]} />
+                    <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[1]}.png` }} style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]} />
+                  </>
+                ) : (
+                  <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{chartSymbol.slice(0, 3)}</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.symbolTextCol}>
                 <View style={styles.symbolNameRow}>
                   <Text style={styles.symbolText}>{displaySymbol}</Text>
                   <View style={styles.microBadge}>
-                    <Text style={styles.microBadgeText}>FX</Text>
+                    <Text style={styles.microBadgeText}>{symbolCategory}</Text>
                   </View>
+                  <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
                 </View>
-                <Text style={styles.symbolSubText}>Euro / US Dollar</Text>
+                <Text style={styles.symbolSubText}>{symbolName}</Text>
               </View>
-            </View>
+            </Pressable>
             <View style={styles.balanceContainer}>
               <Text style={styles.balanceLabel}>Balance</Text>
-              <Text style={styles.balanceText}>1,500.00 <Text style={styles.currencyText}>USD</Text></Text>
+              <Text style={styles.balanceText}>
+                {liveAccount ? fmt.int(liveAccount.balance) : '---'} <Text style={styles.currencyText}>{liveAccount ? liveAccount.currency : 'USD'}</Text>
+              </Text>
             </View>
           </View>
 
@@ -203,13 +243,13 @@ export function ChartScreen() {
               <Text style={[styles.plValue, { color: G.textMuted }]}>0.00</Text>
             </View>
             <View style={styles.toolbarActions}>
-              <Pressable style={styles.toolbarActionBtn}>
+              <Pressable style={styles.toolbarActionBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
                 <Ionicons name="alarm-outline" size={17} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={styles.toolbarActionBtn}>
-                <Ionicons name="scan-outline" size={17} color={TEXT_MUTED} />
+              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
+                <Ionicons name="expand-outline" size={18} color="#5B9BFF" />
               </Pressable>
-              <Pressable style={styles.toolbarActionBtn}>
+              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
                 <Ionicons name="options-outline" size={17} color={TEXT_MUTED} />
               </Pressable>
             </View>
@@ -278,15 +318,15 @@ export function ChartScreen() {
           {CHART_HEIGHT > 0 && (
             <>
               <View style={[styles.priceTagWrap, { top: getY(latestBid) - 10, backgroundColor: BLUE }]}>
-                <Text style={styles.priceTagText}>{latestBid.toFixed(displayDecimals)}</Text>
+                <Text style={styles.priceTagText}>{(latestBid || 0).toFixed(displayDecimals)}</Text>
               </View>
               <View style={[styles.priceTagWrap, { top: getY(latestAsk) - 10, backgroundColor: RED }]}>
-                <Text style={styles.priceTagText}>{latestAsk.toFixed(displayDecimals)}</Text>
+                <Text style={styles.priceTagText}>{(latestAsk || 0).toFixed(displayDecimals)}</Text>
               </View>
 
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.25 - 8 }]}>{(min + range * 0.75).toFixed(displayDecimals)}</Text>
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.5 - 8 }]}>{(min + range * 0.5).toFixed(displayDecimals)}</Text>
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.75 - 8 }]}>{(min + range * 0.25).toFixed(displayDecimals)}</Text>
+              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.25 - 8 }]}>{(min + range * 0.75 || 0).toFixed(displayDecimals)}</Text>
+              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.5 - 8 }]}>{(min + range * 0.5 || 0).toFixed(displayDecimals)}</Text>
+              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.75 - 8 }]}>{(min + range * 0.25 || 0).toFixed(displayDecimals)}</Text>
             </>
           )}
 
@@ -324,32 +364,38 @@ export function ChartScreen() {
           </View>
 
           <View style={styles.tradeControlsRow}>
-            <Pressable style={[styles.actionBtn, styles.actionBtnSell]}>
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnSell]}
+              onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } })}
+            >
               <View style={styles.actionBtnInnerLeft}>
                 <Text style={styles.actionBtnLabelTitle}>SELL</Text>
-                <Text style={styles.actionBtnPriceText}>@ {latestAsk.toFixed(displayDecimals)}</Text>
+                <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
               </View>
               <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
             </Pressable>
 
             <View style={styles.actionSpacer} />
 
-            <Pressable style={[styles.actionBtn, styles.actionBtnBuy]}>
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnBuy]}
+              onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } })}
+            >
               <View style={styles.actionBtnInnerLeft}>
                 <Text style={styles.actionBtnLabelTitle}>BUY</Text>
-                <Text style={styles.actionBtnPriceText}>@ {latestBid.toFixed(displayDecimals)}</Text>
+                <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
               </View>
               <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
             </Pressable>
           </View>
 
           <View style={styles.lotSelectorBar}>
-            <Pressable style={styles.lotStepperBtn}>
-              <Ionicons name="remove" size={20} color="#94A3B8" />
+            <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
+              <Ionicons name="remove" size={18} color={G.textSub} />
             </Pressable>
-            <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>0.10</Text></Text>
-            <Pressable style={styles.lotStepperBtn}>
-              <Ionicons name="add" size={20} color="#94A3B8" />
+            <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>{(lotSize || 0).toFixed(2)}</Text></Text>
+            <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => +((prev || 0) + 0.01).toFixed(2))}>
+              <Ionicons name="add" size={18} color={G.textSub} />
             </Pressable>
           </View>
         </View>
@@ -371,6 +417,16 @@ export function ChartScreen() {
         onClose={() => setTfOpen(false)}
         title='Timeframes'
         actions={timeframes.map((tf) => ({ label: tf, onPress: () => setChartTimeframe(tf) }))}
+      />
+
+      <ActionSheet
+        visible={symbolPickerOpen}
+        onClose={() => setSymbolPickerOpen(false)}
+        title='Select Symbol'
+        actions={CHART_SYMBOLS.map((sym) => ({
+          label: sym,
+          onPress: () => setChartSymbol(sym),
+        }))}
       />
     </Screen>
   );
@@ -488,8 +544,8 @@ const styles = StyleSheet.create({
   },
   glassToolbar: {
     marginHorizontal: 16,
-    borderRadius: 18, // Match Trade Screen summary block
-    backgroundColor: '#0a0f1f', // Match Trade Screen background
+    borderRadius: 18,
+    backgroundColor: '#0a0f1f',
     borderWidth: 1,
     borderColor: '#1E293B',
     paddingTop: 12,
@@ -500,7 +556,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 4,
-    overflow: 'hidden',
   },
   toolbarRow: {
     flexDirection: 'row',
@@ -567,12 +622,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   toolbarActionBtn: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 10,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },

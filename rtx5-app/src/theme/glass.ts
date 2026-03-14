@@ -46,21 +46,21 @@ export type CategoryTokens = {
 // ── Full GDark shape ──────────────────────────────────────────────────────────
 export const GDark = {
   // ── Backgrounds (flat + namespaced) ────────────────────────────────────────
-  bg: '#131316',                          // primary surface  (was: '#020617')
+  bg: '#000000',                          // primary surface
   bgRoot: '#0d0d11',                      // root / screen base
   bgSecondary: '#0e0e12',                 // secondary panels
-  glass1: '#191a1e',                      // elevated items
-  glass2: '#252525',                      // cards
+  glass1: '#0c1018',                      // elevated items (buttons, inputs on cards)
+  glass2: '#141a28',                      // cards, panels
   glass3: 'rgba(255,255,255,0.07)',       // hover / selected
-  inputBg: 'rgba(255,255,255,0.04)',      // input fields
+  inputBg: 'rgba(255,255,255,0.05)',      // input fields
 
   // ── Borders ────────────────────────────────────────────────────────────────
-  border: 'rgba(255,255,255,0.06)',       // default
-  borderSubtle: 'rgba(255,255,255,0.04)',
-  borderMedium: '#28282e',
-  borderHi: 'rgba(255,255,255,0.08)',     // strong / active
-  borderHover: '#5a5a65',
-  borderZinc: '#374151',
+  border: 'rgba(255,255,255,0.08)',       // default
+  borderSubtle: 'rgba(255,255,255,0.05)',
+  borderMedium: '#1e2640',
+  borderHi: 'rgba(255,255,255,0.13)',     // strong / active
+  borderHover: '#3a4a6a',
+  borderZinc: '#1e2a44',
 
   // ── Text ───────────────────────────────────────────────────────────────────
   text: '#e2e2e8',          // primary

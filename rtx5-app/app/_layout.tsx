@@ -62,6 +62,7 @@ function InnerLayout() {
           <Stack.Screen name='trade/close-by' options={{ title: 'Close By' }} />
           <Stack.Screen name='trade/modify-position' options={{ title: 'Modify Position' }} />
           <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
+          <Stack.Screen name='login' options={{ title: 'Login' }} />
           <Stack.Screen name='chart/objects' options={{ title: 'Objects' }} />
           <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />
           <Stack.Screen name='settings/accounts' options={{ title: 'Accounts' }} />

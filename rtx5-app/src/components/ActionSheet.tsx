@@ -1,5 +1,7 @@
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useTheme } from '../theme/useTheme';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 type ActionSheetProps = {
   visible: boolean;
@@ -9,64 +11,79 @@ type ActionSheetProps = {
 };
 
 export function ActionSheet({ visible, title, actions, onClose }: ActionSheetProps) {
-  const T = useTheme();
-  const sheetBg = T.glass1;
-  const borderCol = T.border;
-  const handleCol = T.borderMedium;
-  const titleCol = T.textMuted;
-  const dividerCol = T.borderSubtle;
-  const chevronCol = T.textDimmed;
-  const cancelBg = T.glass2;
-  const overlayBg = 'rgba(0,0,0,0.60)';
+  const insets = useSafeAreaInsets();
+
+  if (!visible) return null;
 
   return (
-    <Modal transparent animationType='fade' visible={visible} onRequestClose={onClose}>
-      <Pressable style={[styles.overlay, { backgroundColor: overlayBg }]} onPress={onClose}>
-        <View style={[styles.sheet, { backgroundColor: sheetBg, borderColor: borderCol }]}>
-          <View style={[styles.handle, { backgroundColor: handleCol }]} />
-          {title ? <Text style={[styles.title, { color: titleCol, borderBottomColor: dividerCol }]}>{title}</Text> : null}
-          {actions.map((action, index) => (
-            <Pressable
-              key={action.label}
-              onPress={() => {
-                action.onPress?.();
-                onClose();
-              }}
-              style={({ pressed }) => [
-                styles.action,
-                index < actions.length - 1 && [styles.actionDivider, { borderBottomColor: dividerCol }],
-                action.danger && styles.actionDanger,
-                pressed && styles.actionPressed,
-              ]}
-            >
-              <Text style={[styles.actionText, action.danger ? { color: T.down } : { color: T.accent }]}>
-                {action.label}
-              </Text>
-              <Text style={[styles.chevron, { color: chevronCol }]}>›</Text>
-            </Pressable>
-          ))}
+    <View style={styles.overlay} pointerEvents="box-none">
+      {/* Tap-outside-to-dismiss */}
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+
+      {/* Content */}
+      <View style={{ paddingHorizontal: 0, paddingBottom: Math.max(insets.bottom, 16) }}>
+        {/* Sheet */}
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          {title ? <Text style={styles.title}>{title}</Text> : null}
+          <ScrollView
+            style={styles.actionsScroll}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            {actions.map((action, index) => (
+              <Pressable
+                key={action.label}
+                onPress={() => {
+                  action.onPress?.();
+                  onClose();
+                }}
+                style={({ pressed }) => [
+                  styles.action,
+                  index < actions.length - 1 && styles.actionDivider,
+                  action.danger && styles.actionDanger,
+                  pressed && styles.actionPressed,
+                ]}
+              >
+                <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
+                  {action.label}
+                </Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
-        <Pressable style={({ pressed }) => [styles.cancelButton, { backgroundColor: cancelBg, borderColor: borderCol }, pressed && styles.actionPressed]} onPress={onClose}>
-          <Text style={[styles.cancelText, { color: T.accent }]}>Cancel</Text>
+
+        {/* Cancel */}
+        <Pressable
+          style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
+          onPress={onClose}
+        >
+          <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-      </Pressable>
-    </Modal>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
+    backgroundColor: 'rgba(0,0,0,0.72)',
     justifyContent: 'flex-end',
-    padding: 10,
   },
   sheet: {
     width: '100%',
-    maxWidth: Platform.OS === 'web' ? 430 : undefined,
-    alignSelf: 'center',
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#000',
+    maxHeight: SCREEN_HEIGHT * 0.70,
   },
   handle: {
     alignSelf: 'center',
@@ -75,6 +92,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   title: {
     textAlign: 'center',
@@ -82,6 +100,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     paddingBottom: 12,
     borderBottomWidth: 1,
+    color: 'rgba(255,255,255,0.45)',
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  actionsScroll: {
+    maxHeight: SCREEN_HEIGHT * 0.55,
   },
   action: {
     minHeight: 56,
@@ -92,6 +115,7 @@ const styles = StyleSheet.create({
   },
   actionDivider: {
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   actionDanger: {
     backgroundColor: 'rgba(255, 75, 66, 0.03)',
@@ -103,23 +127,27 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '500',
   },
+  actionTextNormal: { color: '#fff' },
+  actionTextDanger:  { color: '#FF453A' },
   chevron: {
     fontSize: 21,
     lineHeight: 21,
+    color: 'rgba(255,255,255,0.25)',
   },
   cancelButton: {
     width: '100%',
-    maxWidth: Platform.OS === 'web' ? 430 : undefined,
-    alignSelf: 'center',
-    marginTop: 8,
+    marginTop: 0,
     minHeight: 54,
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
     fontSize: 17,
     fontWeight: '600',
+    color: '#fff',
   },
 });

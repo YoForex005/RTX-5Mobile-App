@@ -34,7 +34,7 @@ export function CloseByScreen() {
       <View style={styles.referenceCard}>
         <Text style={styles.referenceTitle}>Source Position</Text>
         <Text style={styles.referenceValue}>
-          #{sourcePosition.id} {sourcePosition.symbol} {sourcePosition.side} {sourcePosition.volume.toFixed(2)}
+          #{sourcePosition.id} {sourcePosition.symbol} {sourcePosition.side} {(sourcePosition.volume || 0).toFixed(2)}
         </Text>
       </View>
 
@@ -50,7 +50,7 @@ export function CloseByScreen() {
           >
             <View>
               <Text style={styles.pairTitle}>#{candidate.id} {candidate.symbol}</Text>
-              <Text style={styles.pairMeta}>{candidate.side} {candidate.volume.toFixed(2)} • {fmt.price(candidate.currentPrice)}</Text>
+              <Text style={styles.pairMeta}>{candidate.side} {(candidate.volume || 0).toFixed(2)} • {fmt.price(candidate.currentPrice)}</Text>
             </View>
             <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
               {fmt.pnl(candidate.pnl)}

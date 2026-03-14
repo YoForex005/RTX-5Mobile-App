@@ -22,7 +22,7 @@ export function ModifyPositionScreen() {
     <Screen>
       <View style={styles.header}>
         <Text style={styles.title}>Modify Position</Text>
-        <Text style={styles.subTitle}>#{position.id} {position.symbol} {position.side} {position.volume.toFixed(2)}</Text>
+        <Text style={styles.subTitle}>#{position.id} {position.symbol} {position.side} {(position.volume || 0).toFixed(2)}</Text>
       </View>
 
       <View style={styles.formCard}>

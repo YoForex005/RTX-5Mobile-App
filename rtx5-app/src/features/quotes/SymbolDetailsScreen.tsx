@@ -97,10 +97,10 @@ export function SymbolDetailsScreen() {
   const rPct = q.low > 0 ? (rng / q.low) * 100 : 0;
   const vol = rng > 0 ? Math.min(100, Math.max(0, ((mid - q.low) / rng) * 100)) : 50;
   const pip = 1 / Math.pow(10, d);
-  const spp = (q.spread * pip).toFixed(1);
+  const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
   const ctk = q.tickValue ?? (10 / mid);
 
-  const pts = ((q.bid - (q.close ?? q.bid)) / pip).toFixed(0);
+  const pts = (((q.bid || 0) - (q.close ?? q.bid ?? 0)) / (pip || 1)).toFixed(0);
 
   return (
     <LinearGradient colors={['#000000', '#0a0d14', '#000000']} locations={[0, 0.5, 1]} style={{ flex: 1 }}>
@@ -151,7 +151,7 @@ export function SymbolDetailsScreen() {
           {/* Glowing Badges Row */}
           <View style={hero.strip}>
             <View style={[hero.chgBadge, { backgroundColor: col, shadowColor: col, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }]}>
-              <Text style={hero.chgTxt}>{sgn(q.changePct)}{q.changePct.toFixed(2)}%</Text>
+              <Text style={hero.chgTxt}>{sgn(q.changePct)}{(q.changePct || 0).toFixed(2)}%</Text>
             </View>
             <Text style={[hero.pts, { color: col }]}>{sgn(q.changePct)}{pts} PTS</Text>
             <View style={{ flex: 1 }} />
@@ -170,7 +170,7 @@ export function SymbolDetailsScreen() {
           <View style={hero.rangeWrap}>
             <View style={hero.rangeLabels}>
               <Text style={hero.rLbl}>L  {fmt.price(q.low, d)}</Text>
-              <Text style={hero.rLbl}>DAY RANGE  {rPct.toFixed(2)}%</Text>
+              <Text style={hero.rLbl}>DAY RANGE  {(rPct || 0).toFixed(2)}%</Text>
               <Text style={hero.rLbl}>H  {fmt.price(q.high, d)}</Text>
             </View>
             <View style={{ paddingHorizontal: 16, paddingBottom: 20 }}>
@@ -191,12 +191,13 @@ export function SymbolDetailsScreen() {
 
         {/* ── Data Sections ────────────── */}
         <Section title="Contract Specification">
-          <Row label="Contract Size" value={q.contractSize >= 1000 ? `${(q.contractSize / 1000).toFixed(0)}K units` : String(q.contractSize)} />
+          <Row label="Contract Size" value={q.contractSize >= 1000 ? `${((q.contractSize || 0) / 1000).toFixed(0)}K units` : String(q.contractSize)} />
           <Row label="Min Volume" value={String(q.minVolume ?? ' 0.01') + ' lot'} />
           <Row label="Max Volume" value={String(q.maxVolume ?? '500') + ' lots'} />
           <Row label="Lot Step" value={String(q.stepVolume ?? '0.01')} />
           <Row label="Tick Size" value={String(q.tickSize ?? pip)} />
           <Row label="Tick Value" value={'$' + ctk.toFixed(4)} last />
+          <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(4)} last />
         </Section>
 
         <Section title="Pricing & Fees">

@@ -34,6 +34,7 @@ export function TradePositionRow({
       onLongPress={() => onLongPress(item)}
       delayLongPress={160}
     >
+      <Text style={[styles.cornerId, { color: '#FFFFFF' }]}>#{item.id}</Text>
       <View style={styles.body}>
         <View style={styles.headerRow}>
           <View style={styles.symbolLine}>
@@ -48,20 +49,23 @@ export function TradePositionRow({
                 {item.side}
               </Text>
             </View>
-            <Text style={[styles.volume, { color: T.textMuted }]}>{item.volume.toFixed(2)}</Text>
+            <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
           </View>
-          <Text style={[styles.pnl, { color: item.pnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-            {fmt.pnl(item.pnl)}
-          </Text>
+          <View style={styles.rightCol}>
+            <Text style={[styles.pnl, { color: item.pnl >= 0 ? T.trading.profit : T.trading.loss }]}>
+              {fmt.pnl(item.pnl)}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.priceRow}>
-          <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice)}</Text>
-          <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
-          <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.currentPrice)}</Text>
+          <View style={styles.priceLeft}>
+            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice)}</Text>
+            <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
+            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.currentPrice)}</Text>
+          </View>
+          <Text style={[styles.dateRight, { color: T.textMuted }]}>{item.openTime}</Text>
         </View>
-
-        <Text style={[styles.meta, { color: T.textMuted }]} numberOfLines={1}>#{item.id} • {item.openTime}</Text>
       </View>
     </Pressable>
   );
@@ -71,7 +75,8 @@ const styles = StyleSheet.create({
   row: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
-    paddingVertical: 10,
+    paddingTop: 18,
+    paddingBottom: 10,
     paddingHorizontal: spacing.md,
     borderRadius: 7,
     borderWidth: 1,
@@ -86,7 +91,7 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   symbolLine: {
     flexDirection: 'row',
@@ -124,7 +129,12 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   priceRow: {
-    marginTop: 4,
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  priceLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -137,10 +147,23 @@ const styles = StyleSheet.create({
   arrow: {
     fontSize: 11,
   },
-  meta: {
-    marginTop: 4,
+  dateRight: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
+    textAlign: 'right',
     fontVariant: ['tabular-nums'],
+  },
+  rightCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  cornerId: {
+    position: 'absolute',
+    top: 4,
+    left: 8,
+    fontSize: 10,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.5,
   },
 });

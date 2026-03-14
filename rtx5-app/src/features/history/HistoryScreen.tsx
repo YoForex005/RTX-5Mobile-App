@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { historyDeals, historyOrders, historyPositions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -10,6 +9,8 @@ import { useUIState } from '../../state/uiState';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
+import { useAccountSummary } from '../../query/account';
+import { useTransactions } from '../../query/transactions';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -27,26 +28,46 @@ type Tone = 'positive' | 'negative' | 'neutral';
 const TABS: Tab[] = ['Positions', 'Orders', 'Deals'];
 const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume', 'Open Time', 'Close Time', 'Profit'];
 
-const ACCOUNT_SUMMARY = {
-  deposit: 100000,
-  profit: 19701.53,
-  swap: 0,
-  commission: 0,
-  balance: 119701.53,
-};
-
 export function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
-  const [sortOpen, setSortOpen] = useState(false);
-  const { historyRange } = useUserPreferences();
+  const { historyRange, accountDetails } = useUserPreferences();
+  const { data: liveAccount } = useAccountSummary(accountDetails?.id);
+  const { data: txnData } = useTransactions();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const showActionSheet = useUIState((s) => s.showActionSheet);
+
+  const accountSummary = liveAccount || {
+    balance: 0,
+    profit: 0,
+    currency: 'USD',
+  };
+  const deposit = accountSummary.balance - accountSummary.profit;
+
+  // Map API transactions to HistoryRow format, fallback to mock if empty
+  const liveRows = useMemo<HistoryRow[]>(() => {
+    if (!txnData?.transactions?.length) return [];
+    return txnData.transactions.map((t) => ({
+      id: t.id || String(Math.random()),
+      line1: `${t.symbol ?? t.type} ${t.side ?? ''} ${(t.volume || 0).toFixed(2)}`.trim(),
+      line2: t.open_price && t.close_price
+        ? `${(t.open_price || 0).toFixed(5)} → ${(t.close_price || 0).toFixed(5)}`
+        : t.description || '',
+      time: t.created_at ? new Date(t.created_at).toLocaleString() : '',
+      status: t.status,
+      profit: t.profit ?? null,
+    }));
+  }, [txnData]);
+
+  const hasLiveData = liveRows.length > 0;
 
   const baseData = useMemo<HistoryRow[]>(() => {
+    if (hasLiveData) return liveRows; // Use live API data when available
+    // Fallback to mock data
     if (tab === 'Orders') return historyOrders;
     if (tab === 'Deals') return historyDeals;
     return historyPositions;
-  }, [tab]);
+  }, [tab, hasLiveData, liveRows]);
 
   const data = useMemo(() => sortHistoryRows(baseData, sortBy), [baseData, sortBy]);
   const profitRows = useMemo(
@@ -86,7 +107,7 @@ export function HistoryScreen() {
         </View>
         <View style={styles.topBlock}>
           <View style={styles.topControlsRow}>
-            <Pressable style={styles.iconButton} onPress={() => setSortOpen(true)}>
+            <Pressable style={styles.iconButton} onPress={() => showActionSheet({ title: 'Sort By', actions: SORT_OPTIONS.map((option) => ({ label: option === sortBy ? `${option} ✓` : option, onPress: () => setSortBy(option) })) })}>
               <Ionicons name='swap-vertical-outline' size={17} color='#9db2d5' />
             </Pressable>
 
@@ -133,13 +154,13 @@ export function HistoryScreen() {
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
             <Text style={styles.summaryTitle}>Account Summary</Text>
-            <Text style={styles.summaryCurrency}>USD</Text>
+            <Text style={styles.summaryCurrency}>{accountSummary.currency}</Text>
           </View>
-          <SummaryRow label='Deposit' value={fmt.int(ACCOUNT_SUMMARY.deposit)} />
-          <SummaryRow label='Profit' value={fmt.int(ACCOUNT_SUMMARY.profit)} tone='positive' />
-          <SummaryRow label='Swap' value={fmt.int(ACCOUNT_SUMMARY.swap)} />
-          <SummaryRow label='Commission' value={fmt.int(ACCOUNT_SUMMARY.commission)} />
-          <SummaryRow label='Balance' value={fmt.int(ACCOUNT_SUMMARY.balance)} emphasize />
+          <SummaryRow label='Deposit' value={fmt.int(deposit)} />
+          <SummaryRow label='Profit' value={fmt.int(accountSummary.profit)} tone='positive' />
+          <SummaryRow label='Swap' value={fmt.int(0)} />
+          <SummaryRow label='Commission' value={fmt.int(0)} />
+          <SummaryRow label='Balance' value={fmt.int(accountSummary.balance)} emphasize />
         </View>
 
         <FlatList
@@ -152,15 +173,6 @@ export function HistoryScreen() {
           ListEmptyComponent={<Text style={styles.emptyText}>No history records</Text>}
         />
 
-        <ActionSheet
-          visible={sortOpen}
-          onClose={() => setSortOpen(false)}
-          title='Sort By'
-          actions={SORT_OPTIONS.map((option) => ({
-            label: option === sortBy ? `${option} ✓` : option,
-            onPress: () => setSortBy(option),
-          }))}
-        />
       </View>
     </Screen>
   );
@@ -349,7 +361,7 @@ const styles = StyleSheet.create({
   topControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
   },
   iconButton: {
     width: 34,
@@ -360,8 +372,10 @@ const styles = StyleSheet.create({
     backgroundColor: G.glass2,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   segment: {
+    flex: 1,
     flexDirection: 'row',
     borderRadius: 12,
     overflow: 'hidden',
@@ -370,7 +384,7 @@ const styles = StyleSheet.create({
     backgroundColor: G.glass2,
   },
   segmentButton: {
-    minWidth: 82,
+    flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
