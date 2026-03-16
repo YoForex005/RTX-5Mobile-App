@@ -4,17 +4,7 @@ import { View, StyleSheet } from 'react-native';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
-
-const TAB_BAR_VISIBLE = {
-  backgroundColor: '#040609',
-  borderTopColor: '#131722',
-  borderTopWidth: 1,
-  height: 74,
-  paddingTop: 8,
-  paddingBottom: 8,
-} as const;
-
-const TAB_BAR_HIDDEN = { display: 'none' } as const;
+import { useUserPreferences } from '../../src/state/userPreferences';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -25,19 +15,27 @@ const icons = {
 } as const;
 
 export default function TabsLayout() {
-  const sidebarOpen = useUIState((s) => s.sidebarOpen);
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+
+  const TAB_BAR_STYLE = {
+    backgroundColor: isDark ? '#040609' : '#ffffff',
+    borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.08)',
+    borderTopWidth: 1,
+    height: 74,
+    paddingTop: 8,
+    paddingBottom: 8,
+  };
 
   return (
     <View style={styles.root}>
       <Tabs
         screenOptions={({ route }) => ({
           headerShown: false,
-          tabBarStyle: sidebarOpen ? TAB_BAR_HIDDEN : TAB_BAR_VISIBLE,
+          tabBarStyle: TAB_BAR_STYLE,
           tabBarActiveTintColor: '#2962FF',
-          tabBarInactiveTintColor: '#5A6B87',
+          tabBarInactiveTintColor: isDark ? '#5A6B87' : '#94a3b8',
           tabBarIcon: ({ color, size }) => {
             const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
             return <Ionicons name={name} size={size} color={color} />;
@@ -57,10 +55,7 @@ export default function TabsLayout() {
       </Tabs>
 
       {/* Sidebar overlay – shared across all tabs */}
-      <SidebarDrawer
-        visible={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+      <SidebarDrawer />
 
       {/* Action sheet – shared across all tabs, renders inside device frame */}
       <ActionSheet

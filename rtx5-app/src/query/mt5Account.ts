@@ -13,6 +13,9 @@ import {
  * const { mutate: createAccount, isPending, data, error } = useCreateMT5Account();
  * createAccount({ name: 'John', email: 'john@example.com', ... });
  * ```
+ * 
+ * Note: When building the UI for account creation, utilize `useMt5Groups` from `../../query/mt5` 
+ * to fetch the available groups to populate the form selection.
  */
 export function useCreateMT5Account() {
   return useMutation<CreateMT5AccountResponse, Error, CreateMT5AccountRequest>({

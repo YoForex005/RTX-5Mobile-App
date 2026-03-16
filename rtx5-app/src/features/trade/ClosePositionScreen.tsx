@@ -1,16 +1,18 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert, ActivityIndicator } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
+import { useClosePositionMutation } from '../../query/positions';
 
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
+  const closePositionMutation = useClosePositionMutation();
 
   const position = useMemo(
     () => findPositionById(positionId) ?? positions[0],
@@ -41,14 +43,41 @@ export function ClosePositionScreen() {
         </View>
       </View>
 
-      {submitted ? (
+      {closePositionMutation.isError || submitted ? (
         <View style={styles.success}>
-          <Text style={styles.successText}>Close order simulated. Waiting for backend confirmation.</Text>
+          {closePositionMutation.isError ? (
+            <Text style={[styles.successText, { color: G.trading.sell.primary }]}>
+              {(closePositionMutation.error as any)?.response?.data?.error || 'Failed to close position'}
+            </Text>
+          ) : (
+            <Text style={styles.successText}>Close order submitted. Waiting for backend confirmation.</Text>
+          )}
         </View>
       ) : null}
 
-      <Pressable style={styles.dangerButton} onPress={() => setSubmitted(true)}>
-        <Text style={styles.dangerButtonText}>Close Position</Text>
+      <Pressable 
+        style={[styles.dangerButton, closePositionMutation.isPending && { opacity: 0.6 }]} 
+        disabled={closePositionMutation.isPending}
+        onPress={() => {
+          if (!positionId) return;
+          closePositionMutation.mutate(positionId, {
+            onSuccess: () => {
+              setSubmitted(true);
+              setTimeout(() => {
+                router.back();
+              }, 1500);
+            },
+            onError: (err) => {
+              console.error(err);
+            }
+          });
+        }}
+      >
+        {closePositionMutation.isPending ? (
+          <ActivityIndicator color={G.text} />
+        ) : (
+          <Text style={styles.dangerButtonText}>Close Position</Text>
+        )}
       </Pressable>
 
       <Pressable

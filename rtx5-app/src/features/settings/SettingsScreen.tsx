@@ -21,10 +21,7 @@ export function SettingsScreen() {
           <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
             <Ionicons name="menu" size={24} color="#CBD5E1" />
           </Pressable>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Settings</Text>
-            <Text style={styles.headerSub}>Account, Terminal & Market Preferences</Text>
-          </View>
+          <View style={{ flex: 1 }} />
           <Pressable style={styles.searchBtn}>
             <Ionicons name="search" size={20} color="#94A3B8" />
           </Pressable>
@@ -70,7 +67,13 @@ export function SettingsScreen() {
 
             <View style={styles.accDetailsWrap}>
               <Text style={styles.accCompany}>Exness Technologies Ltd</Text>
-              <Text style={styles.accServer}>#415257556 • Exness-MT5 Trial 14 • Access Point #6</Text>
+              <View style={styles.accServerRow}>
+                <Text style={styles.accServer}>#415257556</Text>
+                <View style={styles.accServerDot} />
+                <Text style={styles.accServer}>Exness-MT5 Trial 14</Text>
+                <View style={styles.accServerDot} />
+                <Text style={styles.accServer}>Access Point #6</Text>
+              </View>
             </View>
 
             <View style={styles.chipRow}>
@@ -94,8 +97,10 @@ export function SettingsScreen() {
         <View style={styles.metricsRow}>
           {/* Quotes Block */}
           <View style={styles.metricBlock}>
-            <View style={styles.metricLabelRow}>
-              <Ionicons name="list" size={12} color="#64748B" style={styles.metricIcon} />
+            <View style={styles.metricTopRow}>
+              <View style={styles.metricIconCircle}>
+                <Ionicons name="list" size={18} color="#3B82F6" />
+              </View>
               <Text style={styles.metricLabel}>Quotes</Text>
             </View>
             <Text style={styles.metricValue}>108</Text>
@@ -103,24 +108,31 @@ export function SettingsScreen() {
 
           {/* Drawings Block */}
           <View style={styles.metricBlock}>
-            <View style={styles.metricLabelRow}>
-              <Ionicons name="analytics" size={12} color="#64748B" style={styles.metricIcon} />
+            <View style={styles.metricTopRow}>
+              <View style={styles.metricIconCircle}>
+                <Ionicons name="analytics" size={18} color="#F59E0B" />
+              </View>
               <Text style={styles.metricLabel}>Drawings</Text>
             </View>
             <Text style={styles.metricValue}>0</Text>
           </View>
 
           {/* One-Click Block */}
-          <View style={[styles.metricBlock, { alignItems: 'center' }]}>
-            <Text style={styles.metricLabelCenter}>One-Click</Text>
+          <View style={styles.metricBlock}>
+            <View style={styles.metricTopRow}>
+              <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
+                <Ionicons name="flash" size={18} color={oneClickAccepted ? '#10B981' : '#64748B'} />
+              </View>
+              <Text style={styles.metricLabel}>One-Click</Text>
+            </View>
             <View style={styles.toggleRow}>
-              <Text style={styles.toggleText}>{oneClickAccepted ? 'On' : 'Off'}</Text>
+              <Text style={[styles.toggleText, oneClickAccepted && { color: '#10B981' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
               <Switch
                 value={oneClickAccepted}
                 onValueChange={setOneClickAccepted}
-                trackColor={{ false: '#1E293B', true: '#3B82F6' }}
-                thumbColor={'#FFFFFF'}
-                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                trackColor={{ false: '#1E293B', true: 'rgba(16,185,129,0.35)' }}
+                thumbColor={oneClickAccepted ? '#10B981' : '#64748B'}
+                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
               />
             </View>
           </View>
@@ -215,8 +227,8 @@ export function SettingsScreen() {
 
         {/* ── LOGOUT SECTION ────────────────────────────────────── */}
         <View style={styles.logoutContainer}>
-          <Pressable style={styles.singleRowCard}>
-            <View style={styles.iconBox}>
+          <Pressable style={styles.singleRowCardLogout}>
+            <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                 <Ionicons name="log-out-outline" size={20} color="#EF4444" />
               </View>
               <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
@@ -272,14 +284,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
   },
   menuBtn: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1,
+    width: 40, height: 40, borderRadius: 10, backgroundColor: G.glass1,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: G.text, fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
-  headerSub: { color: G.textMuted, fontSize: 12, fontWeight: '500', marginTop: 2 },
+  headerTitle: { color: G.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  headerSub: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '500', marginTop: 2 },
   searchBtn: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: G.glass1,
+    width: 40, height: 40, borderRadius: 10, backgroundColor: G.glass1,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: G.borderMedium,
   },
 
@@ -317,13 +329,15 @@ const styles = StyleSheet.create({
 
   accName: { color: G.text, fontSize: 28, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
   accBalance: { color: '#3b82f6', fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
-  accCurrency: { fontSize: 16, fontWeight: '700', color: '#3b82f6' },
+  accCurrency: { fontSize: 26, fontWeight: '800', color: '#3b82f6' },
 
   accDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 20, marginBottom: 16 },
 
   accDetailsWrap: { marginBottom: 16 },
-  accCompany: { color: G.textSub, fontSize: 13, fontWeight: '600', marginBottom: 4 },
-  accServer: { color: G.textMuted, fontSize: 11, fontWeight: '500', letterSpacing: 0.1 },
+  accCompany: { color: '#CBD5E1', fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  accServer: { color: G.textMuted, fontSize: 12, fontWeight: '500', letterSpacing: 0.1 },
+  accServerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
+  accServerDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#FFFFFF', marginLeft: 14, marginRight: 2 },
 
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
@@ -331,7 +345,23 @@ const styles = StyleSheet.create({
 
   // Metrics Row
   metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 14 },
-  metricBlock: { flex: 1, backgroundColor: '#0c1018', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingBottom: 14, overflow: 'hidden', position: 'relative' },
+  metricBlock: {
+    flex: 1,
+    backgroundColor: '#0c1018',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+    position: 'relative',
+    gap: 4,
+  },
+  metricTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   metricBlockActive: {
     borderColor: G.trading.buy.primary,
     backgroundColor: '#0c1018',
@@ -341,20 +371,41 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  metricLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'center' },
-  metricIcon: { marginRight: 4 },
-  dotsVertical: { marginRight: 4, gap: 2, height: 12, justifyContent: 'center' },
-  tinyDot: { width: 2, height: 2, backgroundColor: G.trading.buy.hover, borderRadius: 1 },
-  metricLabel: { color: G.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
-  metricLabelActive: { color: G.trading.buy.hover, fontSize: 11, fontWeight: '600' },
-  metricValue: { color: G.text, fontSize: 22, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
-  metricLabelCenter: { color: G.textMuted, fontSize: 11, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
-  toggleText: { color: G.text, fontSize: 14, fontWeight: '700' },
+  metricIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricIconCircleActive: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderColor: 'rgba(16,185,129,0.25)',
+  },
+  metricLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  metricValue: {
+    color: G.text,
+    fontSize: 26,
+    fontWeight: '800',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.5,
+  },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 34 },
+  toggleText: { color: G.text, fontSize: 15, fontWeight: '700' },
 
   // Sections
   sectionTitle: { color: '#4a5570', fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
   singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d1220', marginHorizontal: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  singleRowCardLogout: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0d1220', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
   rowTitleSingle: { flex: 1, color: G.text, fontSize: 15, fontWeight: '600', marginLeft: 16, zIndex: 1 },
 
   groupCard: { backgroundColor: '#0d1220', marginHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
@@ -374,8 +425,6 @@ const styles = StyleSheet.create({
     backgroundColor: G.trading.buy.primary, borderRadius: 75, opacity: 0.05,
   },
   logoutContainer: {
-    marginTop: 24, marginBottom: 24, marginHorizontal: 16,
-    borderRadius: 16, backgroundColor: '#0d1220', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-    overflow: 'hidden',
+    marginTop: 24, marginBottom: 24, paddingHorizontal: 16,
   },
 });

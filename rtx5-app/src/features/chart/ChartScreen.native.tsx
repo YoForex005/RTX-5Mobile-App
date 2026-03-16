@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, LayoutChangeEvent, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, StyleSheet, Text, View, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, Group, Line, Path, Skia, DashPathEffect } from '@shopify/react-native-skia';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -13,6 +13,7 @@ import { useEquityHistory } from '../../query/equityHistory';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
+import { useCandleStream } from '../../query/websocket';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withDecay, useDerivedValue, runOnJS } from 'react-native-reanimated';
 
@@ -40,17 +41,6 @@ const SYMBOL_CATEGORY: Record<string, string> = {
   XAUUSD: 'METAL', BTCUSD: 'CRYPTO',
 };
 
-const getStartPrice = (sym: string) => {
-  if (sym.includes('BTC')) return 85000.00;
-  if (sym.includes('XAU')) return 2950.00;
-  const prices: Record<string, number> = {
-    EURUSD: 1.0850, GBPUSD: 1.2740, AUDUSD: 0.6480, NZDUSD: 0.5920,
-    USDJPY: 149.50, USDCAD: 1.3550, EURGBP: 0.8510, AUDCAD: 0.8790,
-    AUDCHF: 0.5840, AUDJPY: 96.80,
-  };
-  return prices[sym] ?? 1.0500;
-};
-
 const mapTf = (tf: string) => {
   if (tf.startsWith('M') && tf !== 'MN') return tf.replace('M', '') + ' m';
   if (tf.startsWith('H')) return tf.replace('H', '') + ' h';
@@ -60,24 +50,16 @@ const mapTf = (tf: string) => {
   return tf;
 };
 
-function generateCandles(count: number, startPrice: number) {
-  let price = startPrice;
-  const candles = [];
-  for (let i = 0; i < count; i++) {
-    const isUp = Math.random() > 0.49;
-    const range = price * 0.001;
-    const open = price;
-    let close = price + (isUp ? 1 : -1) * (Math.random() * range);
-    if (Math.random() > 0.8) {
-      close += (isUp ? 1 : -1) * range * 1.5;
-    }
-    const high = Math.max(open, close) + Math.random() * (range * 0.4);
-    const low = Math.min(open, close) - Math.random() * (range * 0.4);
-    price = close;
-    candles.push({ open, high, low, close });
+/** Format a Unix timestamp into a short time label for the x-axis */
+const formatXLabel = (time: number, tf: string): string => {
+  const d = new Date(time * 1000);
+  if (['D1', 'W1', 'MN'].includes(tf)) {
+    return `${d.getDate()}/${d.getMonth() + 1}`;
   }
-  return candles;
-}
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
 
 const CANDLE_WIDTH = 7;
 const CANDLE_GAP = 4;
@@ -104,7 +86,7 @@ export function ChartScreen() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
-  const [candles, setCandles] = useState(() => generateCandles(120, getStartPrice(chartSymbol)));
+  const { candles, isLoading, isError } = useCandleStream(chartSymbol, chartTimeframe);
 
   const translateX = useSharedValue(0);
   const scaleX = useSharedValue(1);
@@ -115,40 +97,6 @@ export function ChartScreen() {
   const isCrosshairActive = useSharedValue(false);
 
   useEffect(() => {
-    let tickCount = 0;
-    const interval = setInterval(() => {
-      setCandles((prev) => {
-        const next = [...prev];
-        const lastIndex = next.length - 1;
-        const current = { ...next[lastIndex] };
-
-        const range = current.open * 0.0003;
-        const tick = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * range);
-
-        current.close += tick;
-        current.high = Math.max(current.high, current.close);
-        current.low = Math.min(current.low, current.close);
-
-        next[lastIndex] = current;
-
-        tickCount++;
-        if (tickCount > 40) {
-          tickCount = 0;
-          next.push({
-            open: current.close,
-            high: current.close,
-            low: current.close,
-            close: current.close,
-          });
-        }
-        return next;
-      });
-    }, 250);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setCandles(generateCandles(120, getStartPrice(chartSymbol)));
     translateX.value = 0;
     scaleX.value = 1;
     savedScaleX.value = 1;
@@ -269,7 +217,8 @@ export function ChartScreen() {
 
   const currentPriceY = candles.length > 0 ? getY(candles[candles.length - 1].close) : -10;
   const bidPriceY = currentPriceY;
-  const askPriceY = getY(candles.length > 0 ? candles[candles.length - 1].close - (chartSymbol.includes('XAU') ? 0.396 : 0.00015) : -10);
+  const askSpread = chartSymbol.includes('XAU') ? 0.396 : chartSymbol.includes('BTC') ? 25 : 0.00015;
+  const askPriceY = getY(candles.length > 0 ? candles[candles.length - 1].close - askSpread : -10);
 
   const crosshairVerticalStyle = useAnimatedStyle(() => ({
     position: 'absolute',
@@ -317,7 +266,7 @@ export function ChartScreen() {
     }
   });
 
-  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : getStartPrice(chartSymbol);
+  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
   const displayDecimals = chartSymbol.includes('JPY') ? 3 : chartSymbol.includes('XAU') ? 2 : chartSymbol.includes('BTC') ? 2 : 5;
@@ -325,6 +274,25 @@ export function ChartScreen() {
   const symbolFlags = SYMBOL_FLAGS[chartSymbol] ?? null;
   const symbolName = SYMBOL_NAMES[chartSymbol] ?? chartSymbol;
   const symbolCategory = SYMBOL_CATEGORY[chartSymbol] ?? 'FX';
+
+  // Dynamic X-axis labels from actual candle timestamps
+  const xAxisLabels = useMemo(() => {
+    if (candles.length === 0) return [];
+    const labelCount = 3;
+    const labels: { text: string; position: `${number}%` }[] = [];
+    for (let i = 0; i < labelCount; i++) {
+      const idx = Math.floor((candles.length / (labelCount + 1)) * (i + 1));
+      const candle = candles[Math.min(idx, candles.length - 1)];
+      if (candle && candle.time) {
+        labels.push({
+          text: formatXLabel(candle.time, chartTimeframe),
+          position: `${Math.round(((idx + 0.5) / candles.length) * 100)}%`,
+        });
+      }
+    }
+    return labels;
+  }, [candles, chartTimeframe]);
+
 
   return (
     <Screen style={styles.screen}>
@@ -400,11 +368,11 @@ export function ChartScreen() {
 
           <View style={styles.plRow}>
             <View style={styles.plInfoGroup}>
-              <Text style={styles.plLabel}>Positions:</Text>
+              <Text style={styles.plLabel}>Positions :</Text>
               <Text style={styles.plValue}>0</Text>
               <View style={styles.plDivider} />
-              <Text style={styles.plLabel}>P&L:</Text>
-              <Text style={[styles.plValue, { color: G.textMuted }]}>0.00</Text>
+              <Text style={styles.plLabel}>P&L :</Text>
+              <Text style={[styles.plValue, { color: '#FFFFFF' }]}>0.00</Text>
             </View>
             <View style={styles.toolbarActions}>
               <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
@@ -421,9 +389,26 @@ export function ChartScreen() {
         </View>}
 
         <View style={styles.chartContainer} onLayout={handleLayout}>
+          {/* Loading Spinner */}
+          {isLoading && (
+            <View style={styles.chartOverlay}>
+              <ActivityIndicator size="large" color={BLUE} />
+              <Text style={styles.overlayText}>Loading chart data...</Text>
+            </View>
+          )}
+
+          {/* Error / Retry */}
+          {isError && !isLoading && (
+            <View style={styles.chartOverlay}>
+              <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
+              <Text style={styles.overlayText}>Unable to load chart</Text>
+              <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+            </View>
+          )}
+
           <GestureDetector gesture={composedGesture}>
             <View style={styles.gestureWrap}>
-              {CHART_HEIGHT > 0 && (
+              {CHART_HEIGHT > 0 && candles.length > 0 && (
                 <Canvas style={styles.canvas}>
                   <Line p1={{ x: 0, y: gridLineY1 }} p2={{ x: chartLayout.width, y: gridLineY1 }} color={GRID} strokeWidth={1} />
                   <Line p1={{ x: 0, y: gridLineY2 }} p2={{ x: chartLayout.width, y: gridLineY2 }} color={GRID} strokeWidth={1} />
@@ -448,7 +433,7 @@ export function ChartScreen() {
                 </Canvas>
               )}
 
-              {CHART_HEIGHT > 0 && (
+              {CHART_HEIGHT > 0 && candles.length > 0 && (
                 <>
                   <View style={[styles.priceTagWrap, { top: bidPriceY - 10, backgroundColor: BLUE }]}>
                     <Text style={styles.priceTagText}>{(latestBid || 0).toFixed(displayDecimals)}</Text>
@@ -463,10 +448,11 @@ export function ChartScreen() {
                 </>
               )}
 
+              {/* Dynamic X-axis time labels from actual candle timestamps */}
               <View style={styles.xAxis}>
-                <Text style={[styles.xTick, { left: '8%' }]}>14:15</Text>
-                <Text style={[styles.xTick, { left: '42%' }]}>15:05</Text>
-                <Text style={[styles.xTick, { left: '80%' }]}>15:55</Text>
+                {candles.length > 0 && xAxisLabels.map((label, i) => (
+                  <Text key={i} style={[styles.xTick, { left: label.position }]}>{label.text}</Text>
+                ))}
               </View>
 
               <Animated.View style={crosshairVerticalStyle} />
@@ -597,8 +583,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   menuBtn: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: 10,
     backgroundColor: G.glass1,
     borderWidth: 1,
@@ -792,7 +778,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   plLabel: {
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
     fontWeight: '800',
     marginRight: 4,
@@ -809,8 +795,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: '#FFFFFF',
-    marginLeft: 16,
-    marginRight: 6,
+    marginLeft: 20,
+    marginRight: 2,
   },
   chartContainer: {
     flex: 1,
@@ -1061,6 +1047,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
+  },
+  chartOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(5, 8, 16, 0.85)',
+  },
+  overlayText: {
+    color: TEXT_MUTED,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  overlaySubText: {
+    color: 'rgba(142, 154, 175, 0.6)',
+    fontSize: 12,
+    marginTop: 4,
   },
 });
 

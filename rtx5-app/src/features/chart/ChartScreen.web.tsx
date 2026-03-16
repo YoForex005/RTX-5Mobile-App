@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
@@ -11,6 +11,7 @@ import { useAccountSummary } from '../../query/account';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { G } from '../../theme/glass';
+import { useCandleStream } from '../../query/websocket';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -36,17 +37,6 @@ const SYMBOL_CATEGORY: Record<string, string> = {
   XAUUSD: 'METAL', BTCUSD: 'CRYPTO',
 };
 
-const getStartPrice = (sym: string) => {
-  if (sym.includes('BTC')) return 85000.00;
-  if (sym.includes('XAU')) return 2950.00;
-  const prices: Record<string, number> = {
-    EURUSD: 1.0850, GBPUSD: 1.2740, AUDUSD: 0.6480, NZDUSD: 0.5920,
-    USDJPY: 149.50, USDCAD: 1.3550, EURGBP: 0.8510, AUDCAD: 0.8790,
-    AUDCHF: 0.5840, AUDJPY: 96.80,
-  };
-  return prices[sym] ?? 1.0500;
-};
-
 const mapTf = (tf: string) => {
   if (tf.startsWith('M') && tf !== 'MN') return tf.replace('M', '') + ' m';
   if (tf.startsWith('H')) return tf.replace('H', '') + ' h';
@@ -56,24 +46,16 @@ const mapTf = (tf: string) => {
   return tf;
 };
 
-function generateCandles(count: number, startPrice: number) {
-  let price = startPrice;
-  const candles = [];
-  for (let i = 0; i < count; i++) {
-    const isUp = Math.random() > 0.49;
-    const range = price * 0.001;
-    const open = price;
-    let close = price + (isUp ? 1 : -1) * (Math.random() * range);
-    if (Math.random() > 0.8) {
-      close += (isUp ? 1 : -1) * range * 1.5;
-    }
-    const high = Math.max(open, close) + Math.random() * (range * 0.4);
-    const low = Math.min(open, close) - Math.random() * (range * 0.4);
-    price = close;
-    candles.push({ open, high, low, close });
+/** Format a Unix timestamp into a short time label for the x-axis */
+const formatXLabel = (time: number, tf: string): string => {
+  const d = new Date(time * 1000);
+  if (['D1', 'W1', 'MN'].includes(tf)) {
+    return `${d.getDate()}/${d.getMonth() + 1}`;
   }
-  return candles;
-}
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
 
 const APP_BG = G.bg;
 const CARD_BG = '#0B0F19'; // Deep Navy Card
@@ -96,51 +78,14 @@ export function ChartScreen() {
   const [lotSize, setLotSize] = useState(0.10);
   const scrollRef = useRef<ScrollView>(null);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
-  const [candles, setCandles] = useState(() => generateCandles(120, getStartPrice(chartSymbol)));
+  const { candles, isLoading, isError } = useCandleStream(chartSymbol, chartTimeframe);
 
-  // Live tick simulation
+  // Auto-scroll to end when candles arrive
   useEffect(() => {
-    let tickCount = 0;
-    const interval = setInterval(() => {
-      setCandles(prev => {
-        const next = [...prev];
-        const lastIndex = next.length - 1;
-        const current = { ...next[lastIndex] };
-
-        // Random walk
-        const range = current.open * 0.0003;
-        const tick = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * range);
-
-        current.close += tick;
-        current.high = Math.max(current.high, current.close);
-        current.low = Math.min(current.low, current.close);
-
-        next[lastIndex] = current;
-
-        // Spawn literal new candle every 40 ticks
-        tickCount++;
-        if (tickCount > 40) {
-          tickCount = 0;
-          next.push({
-            open: current.close,
-            high: current.close,
-            low: current.close,
-            close: current.close,
-          });
-          // Scroll slightly to reveal new candle
-          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
-        }
-
-        return next;
-      });
-    }, 250); // fast ticks
-    return () => clearInterval(interval);
-  }, []);
-
-  // Update starting baseline if symbol changes (hard reset)
-  useEffect(() => {
-    setCandles(generateCandles(120, getStartPrice(chartSymbol)));
-  }, [chartSymbol, chartTimeframe]);
+    if (candles.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [candles.length]);
 
   const CANDLE_WIDTH = 6;
   const CANDLE_GAP = 3;
@@ -163,7 +108,7 @@ export function ChartScreen() {
     });
   };
 
-  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : getStartPrice(chartSymbol);
+  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
   const displayDecimals = chartSymbol.includes('JPY') ? 3 : chartSymbol.includes('XAU') ? 2 : chartSymbol.includes('BTC') ? 2 : 5;
@@ -171,6 +116,24 @@ export function ChartScreen() {
   const symbolFlags = SYMBOL_FLAGS[chartSymbol] ?? null;
   const symbolName = SYMBOL_NAMES[chartSymbol] ?? chartSymbol;
   const symbolCategory = SYMBOL_CATEGORY[chartSymbol] ?? 'FX';
+
+  // Dynamic X-axis labels from actual candle timestamps
+  const xAxisLabels = useMemo(() => {
+    if (candles.length === 0) return [];
+    const labelCount = 3;
+    const labels: { text: string; position: `${number}%` }[] = [];
+    for (let i = 0; i < labelCount; i++) {
+      const idx = Math.floor((candles.length / (labelCount + 1)) * (i + 1));
+      const candle = candles[Math.min(idx, candles.length - 1)];
+      if (candle && candle.time) {
+        labels.push({
+          text: formatXLabel(candle.time, chartTimeframe),
+          position: `${Math.round(((idx + 0.5) / candles.length) * 100)}%`,
+        });
+      }
+    }
+    return labels;
+  }, [candles, chartTimeframe]);
 
   return (
     <Screen style={styles.screen}>
@@ -236,11 +199,11 @@ export function ChartScreen() {
 
           <View style={styles.plRow}>
             <View style={styles.plInfoGroup}>
-              <Text style={styles.plLabel}>Positions:</Text>
+              <Text style={styles.plLabel}>Positions :</Text>
               <Text style={styles.plValue}>0</Text>
               <View style={styles.plDivider} />
-              <Text style={styles.plLabel}>P&L:</Text>
-              <Text style={[styles.plValue, { color: G.textMuted }]}>0.00</Text>
+              <Text style={styles.plLabel}>P&L :</Text>
+              <Text style={[styles.plValue, { color: '#FFFFFF' }]}>0.00</Text>
             </View>
             <View style={styles.toolbarActions}>
               <Pressable style={styles.toolbarActionBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
@@ -257,7 +220,24 @@ export function ChartScreen() {
         </View>
 
         <View style={styles.chartContainer} onLayout={handleLayout}>
-          {CHART_HEIGHT > 0 && (
+          {/* Loading Spinner */}
+          {isLoading && (
+            <View style={styles.chartOverlay}>
+              <ActivityIndicator size="large" color={BLUE} />
+              <Text style={styles.overlayText}>Loading chart data...</Text>
+            </View>
+          )}
+
+          {/* Error / Retry */}
+          {isError && !isLoading && (
+            <View style={styles.chartOverlay}>
+              <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
+              <Text style={styles.overlayText}>Unable to load chart</Text>
+              <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+            </View>
+          )}
+
+          {CHART_HEIGHT > 0 && candles.length > 0 && (
             <ScrollView
               ref={scrollRef}
               horizontal
@@ -315,7 +295,7 @@ export function ChartScreen() {
             </ScrollView>
           )}
 
-          {CHART_HEIGHT > 0 && (
+          {CHART_HEIGHT > 0 && candles.length > 0 && (
             <>
               <View style={[styles.priceTagWrap, { top: getY(latestBid) - 10, backgroundColor: BLUE }]}>
                 <Text style={styles.priceTagText}>{(latestBid || 0).toFixed(displayDecimals)}</Text>
@@ -331,9 +311,9 @@ export function ChartScreen() {
           )}
 
           <View style={styles.xAxis}>
-            <Text style={[styles.xTick, { left: '8%' }]}>14:15</Text>
-            <Text style={[styles.xTick, { left: '42%' }]}>15:05</Text>
-            <Text style={[styles.xTick, { left: '80%' }]}>15:55</Text>
+            {candles.length > 0 && xAxisLabels.map((label, i) => (
+              <Text key={i} style={[styles.xTick, { left: label.position }]}>{label.text}</Text>
+            ))}
           </View>
         </View>
 
@@ -645,7 +625,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   plLabel: {
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
     fontWeight: '800',
     marginRight: 4,
@@ -662,8 +642,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: '#FFFFFF',
-    marginLeft: 16,
-    marginRight: 6,
+    marginLeft: 20,
+    marginRight: 2,
   },
   chartContainer: {
     flex: 1,
@@ -898,5 +878,23 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1,
     backgroundColor: GRID,
+  },
+  chartOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(5, 8, 16, 0.85)',
+  },
+  overlayText: {
+    color: TEXT_MUTED,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  overlaySubText: {
+    color: 'rgba(142, 154, 175, 0.6)',
+    fontSize: 12,
+    marginTop: 4,
   },
 });

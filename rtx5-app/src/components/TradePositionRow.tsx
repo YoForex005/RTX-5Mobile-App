@@ -34,7 +34,7 @@ export function TradePositionRow({
       onLongPress={() => onLongPress(item)}
       delayLongPress={160}
     >
-      <Text style={[styles.cornerId, { color: '#FFFFFF' }]}>#{item.id}</Text>
+      <Text style={[styles.cornerId, { color: T.textMuted }]}>#{item.id}</Text>
       <View style={styles.body}>
         <View style={styles.headerRow}>
           <View style={styles.symbolLine}>
@@ -64,7 +64,9 @@ export function TradePositionRow({
             <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
             <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.currentPrice)}</Text>
           </View>
-          <Text style={[styles.dateRight, { color: T.textMuted }]}>{item.openTime}</Text>
+          <Text style={[styles.dateRight, { color: T.textSub }]}>
+            {item.openTime.replace(' ', '   ')}
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -129,7 +131,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   priceRow: {
-    marginTop: 6,
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { loginAPI } from '../src/api/auth';
+import { useMt5Groups } from '../src/query/mt5';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export default function LoginScreen() {
@@ -25,6 +26,21 @@ export default function LoginScreen() {
   const [savePassword, setSavePassword] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [server, setServer] = useState('flexy market');
+
+  // --- API INTEGRATION: GET /api/mt5/groups ---
+  // We fetch the available account groups from the broker here.
+  // Currently, the "Open Demo Account" flow redirects to this login screen's connection flow.
+  // When an "Open Account" tab/modal is added, `groupsData` should be mapped into a dropdown:
+  //
+  // <Dropdown
+  //   label="Account Group"
+  //   options={groupsData?.groups.map(g => ({ label: `${g.name} (${g.currency})`, value: g.name })) || []}
+  //   value={selectedGroup}
+  //   onChange={setSelectedGroup}
+  // />
+  //
+  // This group string (e.g. 'demo\STD') is then passed into `createMT5Account({ ... payload, group: selectedGroup })`.
+  const { data: groupsData, isLoading: groupsLoading } = useMt5Groups();
 
   const handleLogin = async () => {
     if (!accountId || !password) {

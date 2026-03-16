@@ -287,11 +287,11 @@ export const historyPositions = [
 ];
 
 export const historyOrders = [
-  { id: 'ho1', line1: 'BTCUSDm buy', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:09:42', status: 'filled' },
-  { id: 'ho2', line1: 'BTCUSDm sell', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:09:44', status: 'filled' },
-  { id: 'ho3', line1: 'BTCUSDm buy', line2: '0.11 / 0.11 at market', time: '2026.02.18 16:09:45', status: 'filled' },
-  { id: 'ho4', line1: 'BTCUSDm sell', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:10:01', status: 'filled' },
-  { id: 'ho5', line1: 'BTCUSDm buy', line2: '0.11 / 0.11 at market', time: '2026.02.18 16:11:01', status: 'filled' },
+  { id: 'ho1', line1: 'BTCUSDm buy', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:09:42', status: 'filled', profit: 2.45 },
+  { id: 'ho2', line1: 'BTCUSDm sell', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:09:44', status: 'filled', profit: -1.12 },
+  { id: 'ho3', line1: 'BTCUSDm buy', line2: '0.11 / 0.11 at market', time: '2026.02.18 16:09:45', status: 'filled', profit: 5.87 },
+  { id: 'ho4', line1: 'BTCUSDm sell', line2: '0.01 / 0.01 at market', time: '2026.02.18 16:10:01', status: 'filled', profit: -0.34 },
+  { id: 'ho5', line1: 'BTCUSDm buy', line2: '0.11 / 0.11 at market', time: '2026.02.18 16:11:01', status: 'filled', profit: 3.21 },
 ];
 
 export const historyDeals = [

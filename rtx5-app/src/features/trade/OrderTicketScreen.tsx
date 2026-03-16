@@ -1,8 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { usePlaceOrderMutation } from '../../query/orders';
+import { useUserPreferences } from '../../state/userPreferences';
+import { useMarketData } from '../../query/websocket';
 import { fmt } from '../../utils/format';
 
 /* ── Design tokens ─────────────────────────────────────────────────────── */
@@ -34,15 +37,49 @@ const ASK = 67040.0;
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
-  const { symbol } = useLocalSearchParams<{ symbol?: string }>();
+  const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
+  const symbol = routeSymbol || 'EURUSD'; // Fallback so TS is happy and we have a valid symbol
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { accountDetails } = useUserPreferences();
 
   const [orderType, setOrderType] = useState('Market Execution');
   const [typeOpen, setTypeOpen] = useState(false);
   const [volume, setVolume] = useState(0.01);
   const [slEnabled, setSlEnabled] = useState(false);
   const [tpEnabled, setTpEnabled] = useState(false);
+
+  // Live Pricing
+  const liveQuotesMap = useMarketData([symbol]);
+  const activeQuote = liveQuotesMap[symbol];
+  const BID = activeQuote?.bid || 1.1042;
+  const ASK = activeQuote?.ask || 1.1044;
+
+  const orderMutation = usePlaceOrderMutation();
+
+  const handlePlaceOrder = (side: 'buy' | 'sell') => {
+    if (!accountDetails?.id) {
+      Alert.alert('Error', 'No active account to place order.');
+      return;
+    }
+    
+    orderMutation.mutate({
+      symbol,
+      type: 'market',
+      side,
+      quantity: volume,
+      price: 0,
+      account_login: Number(accountDetails.id),
+    }, {
+      onSuccess: () => {
+        Alert.alert('Success', `Market ${side} order placed for ${symbol}`);
+        router.back();
+      },
+      onError: (err: any) => {
+        Alert.alert('Order Failed', err.response?.data?.error || err.message || 'Failed to place order.');
+      }
+    });
+  };
 
   const adj = (delta: number) =>
     setVolume(v => Math.min(100, Math.max(0.01, parseFloat(((v || 0) + delta).toFixed(2)))));
@@ -59,7 +96,7 @@ export function OrderTicketScreen() {
           <Ionicons name="chevron-back" size={18} color={WHITE} />
         </Pressable>
         <View style={styles.hCenter}>
-          <Text style={styles.hSymbol}>EURUSD</Text>
+          <Text style={styles.hSymbol}>{symbol}</Text>
         </View>
         <View style={styles.livePill}>
           <View style={styles.liveDot} />
@@ -78,7 +115,7 @@ export function OrderTicketScreen() {
 
         {/* Spread pillar */}
         <View style={styles.spreadCenter}>
-          <Ionicons name="swap-horizontal" size={11} color={DIM} />
+          <Ionicons name="swap-horizontal" size={11} color="rgba(255,255,255,0.7)" />
           <Text style={styles.spreadVal}>{spread}</Text>
           <Text style={styles.spreadUnit}>pts</Text>
         </View>
@@ -208,13 +245,33 @@ export function OrderTicketScreen() {
 
         {/* Execution Buttons */}
         <View style={styles.execRow}>
-          <Pressable style={[styles.execBtn, styles.execSell]}>
-            <Text style={styles.execCta}>SELL BY MARKET</Text>
-            <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+          <Pressable 
+            style={[styles.execBtn, styles.execSell]} 
+            onPress={() => handlePlaceOrder('sell')}
+            disabled={orderMutation.isPending}
+          >
+            {orderMutation.isPending ? (
+              <ActivityIndicator color={WHITE} />
+            ) : (
+              <>
+                <Text style={styles.execCta}>SELL BY MARKET</Text>
+                <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+              </>
+            )}
           </Pressable>
-          <Pressable style={[styles.execBtn, styles.execBuy]}>
-            <Text style={styles.execCta}>BUY BY MARKET</Text>
-            <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+          <Pressable 
+             style={[styles.execBtn, styles.execBuy]} 
+             onPress={() => handlePlaceOrder('buy')}
+             disabled={orderMutation.isPending}
+          >
+            {orderMutation.isPending ? (
+              <ActivityIndicator color={WHITE} />
+            ) : (
+              <>
+                <Text style={styles.execCta}>BUY BY MARKET</Text>
+                <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+              </>
+            )}
           </Pressable>
         </View>
 
@@ -224,8 +281,8 @@ export function OrderTicketScreen() {
             *Market execution. The executed price may differ from the requested price.
           </Text>
           <View style={styles.disclaimerIcons}>
-            <Ionicons name="document-text-outline" size={16} color={DIM} />
-            <Ionicons name="information-circle-outline" size={16} color={DIM} />
+            <Ionicons name="document-text-outline" size={16} color="rgba(255,255,255,0.4)" />
+            <Ionicons name="information-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
           </View>
         </View>
       </ScrollView>
@@ -241,7 +298,7 @@ function ToggleRow({ label, icon, enabled, onToggle }: {
   return (
     <View style={styles.flatRow}>
       <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={14} color={DIM} />
+        <Ionicons name={icon} size={14} color="rgba(255,255,255,0.65)" />
         <Text style={styles.rowLabel}>{label}</Text>
       </View>
       <View style={styles.rowRight}>
@@ -327,7 +384,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   priceLabel: {
-    color: DIM,
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -346,7 +403,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   spreadUnit: {
-    color: DIM,
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 8,
     fontWeight: '700',
   },
@@ -361,7 +418,7 @@ const styles = StyleSheet.create({
 
   /* ── Section titles ───────────────────────────────────────── */
   sectionTitle: {
-    color: DIM,
+    color: WHITE,
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 1,
@@ -388,7 +445,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   rowLabel: {
-    color: '#E8E8ED',
+    color: 'rgba(255,255,255,0.65)',
     fontSize: 14,
     fontWeight: '500',
   },
@@ -507,7 +564,7 @@ const styles = StyleSheet.create({
     transform: [{ translateX: 18 }],
   },
   statusTxt: {
-    color: DIM,
+    color: SUB,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -576,7 +633,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   disclaimerTxt: {
-    color: DIM,
+    color: 'rgba(255,255,255,0.4)',
     fontSize: 10,
     lineHeight: 14,
     flex: 1,

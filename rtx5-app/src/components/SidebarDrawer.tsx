@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import {
   Animated,
   Modal,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../state/userPreferences';
+import { useUIState } from '../state/uiState';
 import { useTheme } from '../theme/useTheme';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
@@ -35,15 +36,15 @@ const MENU_ITEMS: MenuItem[] = [
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────────────
-type SidebarDrawerProps = {
-  visible: boolean;
-  onClose: () => void;
-};
-
+// ─── Props ───────────────────────────────────────────────────────────────────
+// DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
 
 // ─── Component ───────────────────────────────────────────────────────────────
-export function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) {
+export function SidebarDrawer() {
+  const visible = useUIState((s) => s.sidebarOpen);
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const onClose = () => setSidebarOpen(false);
   const router = useRouter();
   const T = useTheme();
   const themeMode = useUserPreferences((s) => s.themeMode);
@@ -96,7 +97,7 @@ export function SidebarDrawer({ visible, onClose }: SidebarDrawerProps) {
     });
   };
 
-  const ds = makeStyles(T, isDark);
+  const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   return (
     <View style={ds.container} pointerEvents={visible ? 'auto' : 'none'}>
@@ -231,7 +232,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       bottom: 0,
       width: DRAWER_WIDTH,
-      backgroundColor: '#0a0a0a',
+      backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
       borderRightWidth: 1,
       borderRightColor: T.border,
       paddingTop: 48,

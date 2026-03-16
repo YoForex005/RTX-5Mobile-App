@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
+import { useUserPreferences } from '../state/userPreferences';
 
 type Props = {
   label: string;
@@ -12,11 +13,14 @@ type Props = {
 
 export function MetricRow({ label, value, compact = false, withDivider = false, white = false }: Props) {
   const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const labelColor = white && isDark ? '#FFFFFF' : T.textMuted;
+  const valueColor = white && isDark ? '#FFFFFF' : T.text;
 
   return (
     <View style={[styles.row, compact && styles.rowCompact, withDivider && { borderBottomWidth: 1, borderBottomColor: T.borderMedium }]}>
-      <Text style={[styles.label, { color: white ? '#FFFFFF' : T.textMuted }, compact && styles.labelCompact]}>{label}</Text>
-      <Text style={[styles.value, { color: white ? '#FFFFFF' : T.text }, compact && styles.valueCompact]}>{value}</Text>
+      <Text style={[styles.label, { color: labelColor }, compact && styles.labelCompact]}>{label}</Text>
+      <Text style={[styles.value, { color: valueColor }, compact && styles.valueCompact]}>{value}</Text>
     </View>
   );
 }

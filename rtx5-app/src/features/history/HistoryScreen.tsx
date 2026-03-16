@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { historyDeals, historyOrders, historyPositions } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { useAccountSummary } from '../../query/account';
 import { useTransactions } from '../../query/transactions';
@@ -37,14 +39,13 @@ export function HistoryScreen() {
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
-  const accountSummary = liveAccount || {
-    balance: 0,
-    profit: 0,
-    currency: 'USD',
-  };
+  const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const accountSummary = liveAccount || { balance: 0, profit: 0, currency: 'USD' };
   const deposit = accountSummary.balance - accountSummary.profit;
 
-  // Map API transactions to HistoryRow format, fallback to mock if empty
   const liveRows = useMemo<HistoryRow[]>(() => {
     if (!txnData?.transactions?.length) return [];
     return txnData.transactions.map((t) => ({
@@ -62,8 +63,7 @@ export function HistoryScreen() {
   const hasLiveData = liveRows.length > 0;
 
   const baseData = useMemo<HistoryRow[]>(() => {
-    if (hasLiveData) return liveRows; // Use live API data when available
-    // Fallback to mock data
+    if (hasLiveData) return liveRows;
     if (tab === 'Orders') return historyOrders;
     if (tab === 'Deals') return historyDeals;
     return historyPositions;
@@ -74,215 +74,193 @@ export function HistoryScreen() {
     () => data.filter((item) => typeof item.profit === 'number') as Array<HistoryRow & { profit: number }>,
     [data]
   );
-  const netProfit = useMemo(
-    () => profitRows.reduce((sum, item) => sum + item.profit, 0),
-    [profitRows]
-  );
-  const wins = useMemo(
-    () => profitRows.filter((item) => item.profit > 0).length,
-    [profitRows]
-  );
+  const netProfit = useMemo(() => profitRows.reduce((sum, item) => sum + item.profit, 0), [profitRows]);
+  const wins = useMemo(() => profitRows.filter((item) => item.profit > 0).length, [profitRows]);
   const winRate = useMemo(() => {
     if (!profitRows.length) return '0%';
     return `${Math.round((wins / profitRows.length) * 100)}%`;
   }, [profitRows.length, wins]);
-  const filledCount = useMemo(
-    () => data.filter((item) => item.status === 'filled').length,
-    [data]
-  );
-
+  const filledCount = useMemo(() => data.filter((item) => item.status === 'filled').length, [data]);
   const netTone: Tone = netProfit > 0 ? 'positive' : netProfit < 0 ? 'negative' : 'neutral';
 
   return (
     <Screen>
-      <View style={styles.page}>
-        {/* ── Header with ☰ ── */}
-        <View style={styles.headerRow}>
-          <View style={styles.headerLeft}>
-            <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-              <Ionicons name="menu" size={24} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerTitle}>History</Text>
-          </View>
-        </View>
-        <View style={styles.topBlock}>
-          <View style={styles.topControlsRow}>
-            <Pressable style={styles.iconButton} onPress={() => showActionSheet({ title: 'Sort By', actions: SORT_OPTIONS.map((option) => ({ label: option === sortBy ? `${option} ✓` : option, onPress: () => setSortBy(option) })) })}>
-              <Ionicons name='swap-vertical-outline' size={17} color='#9db2d5' />
-            </Pressable>
-
-            <View style={styles.segment}>
-              {TABS.map((item) => (
-                <Pressable
-                  key={item}
-                  style={[styles.segmentButton, tab === item && styles.segmentButtonActive]}
-                  onPress={() => setTab(item)}
-                >
-                  <Text style={[styles.segmentText, tab === item && styles.segmentTextActive]}>{item}</Text>
-                </Pressable>
-              ))}
+      <FlatList
+        style={styles.list}
+        data={data}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={(
+          <>
+            {/* ── Header ── */}
+            <View style={styles.headerRow}>
+              <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
+                <Ionicons name="menu" size={22} color={T.text} />
+              </Pressable>
             </View>
 
-            <Pressable style={styles.iconButton} onPress={() => router.push('/history/filter')}>
-              <Ionicons name='time-outline' size={17} color='#9db2d5' />
-            </Pressable>
-          </View>
+            {/* ── Account Summary ── */}
+            <Text style={styles.accountSummaryHeading}>Account Summary</Text>
+            <View style={styles.summaryBlock}>
+              <View style={styles.summaryTop}>
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(37,99,235,0.08)' : 'rgba(37,99,235,0.04)' }]} />
+                <Text style={[styles.summaryLabel, { color: T.text }]}>Balance</Text>
+                <View style={styles.floatingRow}>
+                  <Text style={[styles.floating, { color: T.text }]}>
+                    {fmt.int(accountSummary.balance)}
+                  </Text>
+                  <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {accountSummary.currency}</Text>
+                </View>
+              </View>
+              <View style={[styles.metricsCard, { borderTopColor: T.borderMedium }]}>
+                <MetricRow label='Account ID:' value={String(accountDetails?.id ?? '—')} compact withDivider white />
+                <MetricRow label='Deposit:' value={fmt.int(deposit)} compact withDivider white />
+                <MetricRow label='Closed P/L:' value={fmt.pnl(accountSummary.profit)} compact withDivider white />
+                <MetricRow label='Swap:' value={fmt.int(0)} compact withDivider white />
+                <MetricRow label='Commission:' value={fmt.int(0)} compact withDivider white />
+                <MetricRow label='Range:' value={historyRange} compact white />
+              </View>
+            </View>
 
-          <View style={styles.metricsRow}>
-            <MetricPill
-              label='Range'
-              value={historyRange}
-              icon='calendar-outline'
-              tone='neutral'
-              valueOverrideStyle={styles.rangeValueText}
-            />
-            <MetricPill
-              label={tab === 'Orders' ? 'Filled' : 'Win Rate'}
-              value={tab === 'Orders' ? `${filledCount}/${data.length}` : winRate}
-              icon={tab === 'Orders' ? 'checkmark-done-outline' : 'stats-chart-outline'}
-              tone={tab === 'Orders' ? 'neutral' : 'positive'}
-            />
-            <MetricPill
-              label={tab === 'Orders' ? 'Records' : 'Net P/L'}
-              value={tab === 'Orders' ? String(data.length) : fmt.pnl(netProfit)}
-              icon={tab === 'Orders' ? 'layers-outline' : 'cash-outline'}
-              tone={tab === 'Orders' ? 'neutral' : netTone}
-            />
-          </View>
-        </View>
+            {/* ── Controls Card ── */}
+            <View style={styles.topBlock}>
+              <View style={styles.topControlsRow}>
+                <Pressable style={styles.iconButton} onPress={() => showActionSheet({ title: 'Sort By', actions: SORT_OPTIONS.map((option) => ({ label: option === sortBy ? `${option} ✓` : option, onPress: () => setSortBy(option) })) })}>
+                  <Ionicons name='swap-vertical-outline' size={17} color={T.textSub} />
+                </Pressable>
 
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>Account Summary</Text>
-            <Text style={styles.summaryCurrency}>{accountSummary.currency}</Text>
-          </View>
-          <SummaryRow label='Deposit' value={fmt.int(deposit)} />
-          <SummaryRow label='Profit' value={fmt.int(accountSummary.profit)} tone='positive' />
-          <SummaryRow label='Swap' value={fmt.int(0)} />
-          <SummaryRow label='Commission' value={fmt.int(0)} />
-          <SummaryRow label='Balance' value={fmt.int(accountSummary.balance)} emphasize />
-        </View>
+                <View style={styles.segment}>
+                  {TABS.map((item) => (
+                    <Pressable
+                      key={item}
+                      style={[styles.segmentButton, tab === item && styles.segmentButtonActive]}
+                      onPress={() => setTab(item)}
+                    >
+                      <Text style={[styles.segmentText, { color: tab === item ? T.text : T.textMuted }]}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-        <FlatList
-          style={styles.list}
-          data={data}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => <HistoryItemRow item={item} tab={tab} />}
-          ListEmptyComponent={<Text style={styles.emptyText}>No history records</Text>}
-        />
+                <Pressable style={styles.iconButton} onPress={() => router.push('/history/filter')}>
+                  <Ionicons name='time-outline' size={17} color={T.textSub} />
+                </Pressable>
+              </View>
 
-      </View>
+              <View style={styles.metricsRow}>
+                <MetricPill label='Range' value={historyRange} icon='calendar-outline' tone='neutral' T={T} isDark={isDark} />
+                <MetricPill
+                  label={tab === 'Orders' ? 'Filled' : 'Win Rate'}
+                  value={tab === 'Orders' ? `${filledCount} / ${data.length}` : winRate}
+                  icon={tab === 'Orders' ? 'checkmark-done-outline' : 'stats-chart-outline'}
+                  tone={tab === 'Orders' ? (filledCount > 0 ? 'positive' : 'neutral') : 'positive'}
+                  T={T}
+                  isDark={isDark}
+                />
+                <MetricPill label='Trades' value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
+                <MetricPill label='Net P/L' value={fmt.pnl(netProfit)} icon='wallet-outline' tone={netTone} T={T} isDark={isDark} />
+              </View>
+            </View>
+
+            {/* ── Section Header ── */}
+            <View style={[styles.sectionHeader, { borderBottomColor: T.borderMedium }]}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: T.text }]}>Trade Records</Text>
+                <Text style={[styles.sectionMeta, { color: T.textMuted }]}>{data.length} records</Text>
+              </View>
+            </View>
+          </>
+        )}
+        renderItem={({ item }) => <HistoryItemRow item={item} tab={tab} T={T} isDark={isDark} />}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>No history records</Text>}
+      />
     </Screen>
   );
 }
 
-function HistoryItemRow({ item, tab }: { item: HistoryRow; tab: Tab }) {
+function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; T: ThemeColors; isDark: boolean }) {
   const { symbol, side, volume } = parseLine1(item.line1);
   const sideLower = side.toLowerCase().replace(',', '');
-  const sideTone: Tone = sideLower.includes('sell') ? 'negative' : sideLower.includes('buy') ? 'positive' : 'neutral';
+  const isBuy = sideLower.includes('buy');
+  const isSell = sideLower.includes('sell');
   const profit = typeof item.profit === 'number' ? item.profit : null;
+  const cardBg = isDark ? T.glass2 : '#ffffff';
 
   return (
-    <View style={styles.rowCard}>
-      <View style={styles.ticketWrap}>
-        <Text style={styles.ticketText}>#{extractTicket(item.id)}</Text>
-      </View>
-      <View style={styles.rowTop}>
-        <View style={styles.rowTitleWrap}>
-          <Text style={styles.symbolText}>{symbol}</Text>
-          {side ? (
-            <View style={[styles.sidePill, sideTone === 'positive' ? styles.sidePillBuy : sideTone === 'negative' ? styles.sidePillSell : styles.sidePillNeutral]}>
-              <Text style={[styles.sideText, sideTone === 'positive' ? styles.positiveText : sideTone === 'negative' ? styles.negativeText : styles.neutralText]}>
-                {side}
-              </Text>
-            </View>
-          ) : null}
-          {volume ? (
-            <View style={styles.volumePill}>
-              <Text style={styles.volumeText}>{volume}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        {tab === 'Orders' && item.status ? (
-          <View style={styles.statusPill}>
-            <Text style={styles.statusText}>{item.status}</Text>
+    <View style={[
+      rStyles.rowCard,
+      {
+        backgroundColor: cardBg,
+        borderColor: T.borderMedium,
+        borderLeftColor: isBuy ? T.trading.buy.primary : isSell ? T.trading.sell.primary : T.borderMedium,
+      },
+      !isDark && rStyles.cardShadowLight,
+    ]}>
+      <Text style={[rStyles.cornerId, { color: T.textMuted }]}>#{extractTicket(item.id)}</Text>
+      <View style={rStyles.rowBody}>
+        <View style={rStyles.rowTop}>
+          <View style={rStyles.symbolLine}>
+            <Text style={[rStyles.symbolText, { color: T.text }]}>{symbol}</Text>
+            {side ? (
+              <View style={[
+                rStyles.sideBadge,
+                isBuy ? { backgroundColor: 'rgba(37,99,235,0.15)' }
+                  : isSell ? { backgroundColor: 'rgba(220,38,38,0.12)' }
+                  : { backgroundColor: T.glass2 },
+              ]}>
+                <Text style={[
+                  rStyles.sideText,
+                  isBuy ? { color: T.trading.buy.hover }
+                    : isSell ? { color: T.trading.sell.hover }
+                    : { color: T.textMuted },
+                ]}>
+                  {side}
+                </Text>
+              </View>
+            ) : null}
+            {volume ? <Text style={[rStyles.volumeText, { color: T.textMuted }]}>{volume}</Text> : null}
           </View>
-        ) : profit !== null ? (
-          <Text style={[styles.profitValue, profit >= 0 ? styles.positiveText : styles.negativeText]}>
-            {fmt.pnl(profit)}
-          </Text>
-        ) : (
-          <Text style={styles.timeOnly}>{shortTime(item.time)}</Text>
-        )}
-      </View>
-
-      <View style={styles.rowMeta}>
-        <Text style={styles.priceTrack}>{item.line2}</Text>
-        <Text style={styles.timeText}>{item.time}</Text>
+          <View style={rStyles.rightCol}>
+            {profit !== null ? (
+              <Text style={[rStyles.pnlText, { color: profit >= 0 ? T.trading.profit : T.down }]}>
+                {profit >= 0 ? '+' : ''}{profit.toFixed(2)}
+              </Text>
+            ) : (
+              <Text style={[rStyles.timeOnly, { color: T.textSub }]}>{shortTime(item.time)}</Text>
+            )}
+          </View>
+        </View>
+        <View style={rStyles.priceRow}>
+          <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2}</Text>
+          <Text style={[rStyles.timeText, { color: T.textMuted }]}>{item.time}</Text>
+        </View>
       </View>
     </View>
   );
 }
 
 function MetricPill({
-  label,
-  value,
-  icon,
-  tone,
-  valueOverrideStyle,
+  label, value, icon, tone, T, isDark,
 }: {
-  label: string;
-  value: string;
+  label: string; value: string;
   icon: keyof typeof Ionicons.glyphMap;
-  tone: Tone;
-  valueOverrideStyle?: object;
+  tone: Tone; T: ThemeColors; isDark: boolean;
 }) {
+  const cardBg = isDark ? T.glass1 : '#ffffff';
   return (
-    <View style={styles.metricPill}>
-      <View style={styles.metricTop}>
-        <Ionicons name={icon} size={12} color='#7184a3' />
-        <Text style={styles.metricLabel}>{label}</Text>
+    <View style={[mpS.metricPill, { borderColor: T.borderMedium, backgroundColor: cardBg }]}>
+      <View style={mpS.metricTop}>
+        <Ionicons name={icon} size={12} color={T.textSub} />
+        <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
       </View>
       <Text
         style={[
-          styles.metricValue,
-          tone === 'positive' && styles.positiveText,
-          tone === 'negative' && styles.negativeText,
-          tone === 'neutral' && styles.neutralText,
-          valueOverrideStyle,
+          mpS.metricValue,
+          { color: T.text },
+          tone === 'positive' && { color: T.trading.profit },
+          tone === 'negative' && { color: T.down },
         ]}
         numberOfLines={1}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  tone = 'neutral',
-  emphasize = false,
-}: {
-  label: string;
-  value: string;
-  tone?: Tone;
-  emphasize?: boolean;
-}) {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={[styles.summaryLabel, emphasize && styles.summaryLabelEmphasize]}>{label}</Text>
-      <Text
-        style={[
-          styles.summaryValue,
-          tone === 'positive' && styles.positiveText,
-          tone === 'negative' && styles.negativeText,
-          emphasize && styles.summaryValueEmphasize,
-        ]}
       >
         {value}
       </Text>
@@ -295,26 +273,10 @@ function parseLine1(line1: string) {
   const symbol = parts[0] ?? line1;
   const sideRaw = parts[1] ?? '';
   const volumeRaw = parts[2] ?? '';
-
   const side = sideRaw.trim();
   const hasVolume = Number.isFinite(Number(volumeRaw));
   const volume = hasVolume ? Number(volumeRaw).toFixed(2) : '';
-
   return { symbol, side, volume };
-}
-
-function extractSymbol(item: HistoryRow) {
-  return parseLine1(item.line1).symbol;
-}
-
-function extractSide(item: HistoryRow) {
-  return parseLine1(item.line1).side;
-}
-
-function extractVolume(item: HistoryRow) {
-  const raw = parseLine1(item.line1).volume;
-  const volume = Number(raw);
-  return Number.isFinite(volume) ? volume : 0;
 }
 
 function extractTicket(id: string) {
@@ -330,318 +292,85 @@ function shortTime(input: string) {
 function sortHistoryRows(rows: HistoryRow[], sortBy: SortBy) {
   const sorted = [...rows];
   if (sortBy === 'Default') return sorted;
-
   sorted.sort((a, b) => {
-    if (sortBy === 'Symbol') return extractSymbol(a).localeCompare(extractSymbol(b));
+    if (sortBy === 'Symbol') return parseLine1(a.line1).symbol.localeCompare(parseLine1(b.line1).symbol);
     if (sortBy === 'Ticket') return extractTicket(a.id).localeCompare(extractTicket(b.id), undefined, { numeric: true });
-    if (sortBy === 'Type') return extractSide(a).localeCompare(extractSide(b));
-    if (sortBy === 'Volume') return extractVolume(b) - extractVolume(a);
+    if (sortBy === 'Type') return parseLine1(a.line1).side.localeCompare(parseLine1(b.line1).side);
+    if (sortBy === 'Volume') {
+      const av = Number(parseLine1(a.line1).volume) || 0;
+      const bv = Number(parseLine1(b.line1).volume) || 0;
+      return bv - av;
+    }
     if (sortBy === 'Open Time' || sortBy === 'Close Time') return b.time.localeCompare(a.time);
     if (sortBy === 'Profit') return (b.profit ?? Number.NEGATIVE_INFINITY) - (a.profit ?? Number.NEGATIVE_INFINITY);
     return 0;
   });
-
   return sorted;
 }
 
-const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-  },
-  topBlock: {
-    marginTop: spacing.md,
-    marginHorizontal: spacing.md,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass2,
-    padding: spacing.sm,
-    paddingBottom: spacing.md,
-  },
-  topControlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  segment: {
-    flex: 1,
-    flexDirection: 'row',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
-  },
-  segmentButton: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentButtonActive: {
-    backgroundColor: G.glass3,
-  },
-  segmentText: {
-    color: G.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  segmentTextActive: {
-    color: G.text,
-  },
-  metricsRow: {
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    marginRight: -spacing.sm,
-  },
-  metricPill: {
-    flex: 1,
-    minHeight: 52,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass1,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    marginRight: spacing.sm,
-  },
-  metricTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  metricLabel: {
-    marginLeft: 4,
-    color: G.textSub,
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  metricValue: {
-    fontSize: 15,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-    color: G.text,
-  },
-  rangeValueText: {
-    color: G.text,
-    fontSize: 12,
-  },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-  },
+/* ─── Static layout-only stylesheets ──────────────────────────────────────── */
+
+const rStyles = StyleSheet.create({
   rowCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass2,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    marginBottom: spacing.sm,
+    marginHorizontal: spacing.md, marginTop: spacing.sm,
+    paddingTop: 18, paddingBottom: 10, paddingHorizontal: spacing.md,
+    borderRadius: 7, borderWidth: 1, borderLeftWidth: 2,
   },
-  rowTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rowTitleWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    paddingRight: spacing.md,
-  },
-  symbolText: {
-    color: G.text,
-    fontSize: 18,
-    lineHeight: 20,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginRight: 6,
-  },
-  sidePill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginRight: 6,
-  },
-  sidePillBuy: {
-    backgroundColor: 'rgba(37, 99, 235, 0.15)',
-    borderColor: 'rgba(37, 99, 235, 0.15)',
-  },
-  sidePillSell: {
-    backgroundColor: G.downGlow,
-    borderColor: G.downGlow,
-  },
-  sidePillNeutral: {
-    backgroundColor: G.glass2,
-    borderColor: G.border,
-  },
-  sideText: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'lowercase',
-  },
-  volumePill: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  volumeText: {
-    color: G.textSub,
-    fontSize: 11,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  statusPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: G.accentGlow,
-    backgroundColor: G.accentGlow,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  statusText: {
-    color: G.accent,
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  profitValue: {
-    color: G.text,
-    fontSize: 18,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    marginLeft: spacing.sm,
-  },
-  priceTrack: {
-    color: G.textSub,
-    fontSize: 13,
-    fontWeight: '500',
-    fontVariant: ['tabular-nums'],
-  },
-  rowMeta: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  ticketWrap: {
-    marginBottom: 4,
-  },
-  ticketText: {
-    color: G.text,
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  timeText: {
-    color: G.textSub,
-    fontSize: 12,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-  },
-  timeOnly: {
-    color: G.textSub,
-    fontSize: 13,
-    fontWeight: '500',
-    fontVariant: ['tabular-nums'],
-  },
-  emptyText: {
-    marginTop: spacing.lg,
-    color: G.textMuted,
-    textAlign: 'center',
-    fontSize: 13,
-  },
-  summaryCard: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass2,
-    overflow: 'hidden',
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm + 2,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-  },
-  summaryTitle: {
-    color: G.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  summaryCurrency: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  summaryRow: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: G.border,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  summaryLabel: {
-    color: G.textSub,
-    fontSize: 14,
-  },
-  summaryLabelEmphasize: {
-    color: G.text,
-    fontWeight: '700',
-  },
-  summaryValue: {
-    color: G.text,
-    fontSize: 14,
-    fontVariant: ['tabular-nums'],
-  },
-  summaryValueEmphasize: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  positiveText: {
-    color: G.trading.profit,
-  },
-  negativeText: {
-    color: G.down,
-  },
-  neutralText: {
-    color: G.textMuted,
-  },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, paddingHorizontal: spacing.md, marginTop: spacing.sm },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: G.glass1, borderWidth: 1, borderColor: G.borderHi, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: G.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  cardShadowLight: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
+  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
+  rowBody: { width: '100%' },
+  rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  symbolText: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
+  sideText: { fontSize: 11, fontWeight: '800', textTransform: 'lowercase', letterSpacing: 0.3 },
+  volumeText: { fontSize: 13, fontWeight: '700' },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
+  pnlText: { minWidth: 88, textAlign: 'right', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  priceTrack: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  timeText: { fontSize: 11, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  timeOnly: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
 });
+
+const mpS = StyleSheet.create({
+  metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6, marginRight: spacing.sm },
+  metricTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  metricLabel: { marginLeft: 4, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
+  metricValue: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+});
+
+function makeStyles(T: ThemeColors, isDark: boolean) {
+  const cardBg = isDark ? T.glass2 : '#ffffff';
+  return StyleSheet.create({
+    list: { flex: 1 },
+    listContent: { paddingBottom: spacing.xl + spacing.md },
+    headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
+    menuBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.borderMedium },
+    accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
+    summaryBlock: {
+      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 18,
+      backgroundColor: cardBg, borderWidth: 1, borderColor: T.borderMedium,
+      shadowColor: T.trading.buy.primary, shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.05 : 0.1, shadowRadius: 16, elevation: 4, overflow: 'hidden',
+    },
+    summaryTop: { paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+    floating: { fontSize: 28, fontWeight: '800', letterSpacing: -1, lineHeight: 34, marginTop: 4, fontVariant: ['tabular-nums'] },
+    balanceQuickCurrency: { fontSize: 28, fontWeight: '800' },
+    metricsCard: { borderTopWidth: 1, backgroundColor: 'transparent', overflow: 'hidden' },
+    topBlock: { marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 18, borderWidth: 1, borderColor: T.borderMedium, backgroundColor: cardBg, padding: 6, paddingBottom: 8 },
+    topControlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+    iconButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: T.border, backgroundColor: cardBg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    segment: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: cardBg },
+    segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+    segmentButtonActive: { backgroundColor: T.glass3 },
+    segmentText: { fontSize: 13, fontWeight: '700' },
+    metricsRow: { marginTop: 14, flexDirection: 'row', marginRight: -6 },
+    sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
+    sectionTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
+    sectionMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
+    emptyText: { marginTop: spacing.lg, textAlign: 'center', fontSize: 13 },
+  });
+}

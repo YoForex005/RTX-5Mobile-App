@@ -1,3 +1,4 @@
+import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
@@ -8,6 +9,7 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { useAccountSummary } from '../../query/account';
 import { useHealth } from '../../query/health';
+import { useMt5Status } from '../../query/mt5';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
@@ -26,6 +28,7 @@ export function AccountsScreen() {
 
   const { data: liveAccount } = useAccountSummary(activeAccount.id);
   const { data: health, isError: healthError } = useHealth();
+  const { data: mt5Status, isError: mt5StatusError } = useMt5Status();
 
   const handleConnectAccount = () => {
     router.push('/login');
@@ -164,15 +167,29 @@ export function AccountsScreen() {
           </View>
 
           {/* Server Status */}
-          <View style={styles.serverStatus}>
-            <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#34C759' : healthError ? '#FF3B30' : '#8E8E93' }]} />
-            <Text style={styles.statusText}>
-              {health?.status === 'healthy'
-                ? `Server: Healthy · v${health.version}`
-                : healthError
-                ? 'Server: Unreachable'
-                : 'Server: Checking...'}
-            </Text>
+          {/* API INTEGRATION: GET /api/mt5/status */}
+          <View style={styles.serverStatusContainer}>
+            <View style={styles.serverStatus}>
+              <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#34C759' : healthError ? '#FF3B30' : '#8E8E93' }]} />
+              <Text style={styles.statusText}>
+                {health?.status === 'healthy'
+                  ? `Gateway: Healthy · v${health.version}`
+                  : healthError
+                  ? 'Gateway: Unreachable'
+                  : 'Gateway: Checking...'}
+              </Text>
+            </View>
+
+            <View style={styles.serverStatus}>
+              <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#34C759' : mt5StatusError ? '#FF3B30' : '#8E8E93' }]} />
+              <Text style={styles.statusText}>
+                {mt5Status?.connected
+                  ? `MT5: Connected`
+                  : mt5StatusError
+                  ? 'MT5: Disconnected'
+                  : 'MT5: Checking...'}
+              </Text>
+            </View>
           </View>
 
         </ScrollView>
@@ -423,11 +440,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  serverStatusContainer: {
+    paddingVertical: 16,
+    gap: 12,
+    alignItems: 'center',
+  },
   serverStatus: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
     gap: 6,
   },
   statusDot: {

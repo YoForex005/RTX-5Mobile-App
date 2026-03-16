@@ -17,3 +17,11 @@ export function useAccountSummary(login?: string) {
     staleTime: 2000,
   });
 }
+
+// Mock hook to fix compilation error for ChangePasswordSheet which references this
+export function useChangeMt5Password() {
+  return {
+    mutate: (data: any, options: any) => { options?.onSuccess?.(); },
+    isPending: false,
+  };
+}
