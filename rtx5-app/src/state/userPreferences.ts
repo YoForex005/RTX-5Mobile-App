@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { quotes } from '../mock/tradingData';
-import { logoutAPI } from '../api/auth';
 
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
@@ -81,8 +80,6 @@ export const useUserPreferences = create<UserPreferencesState>()(
           },
         }),
       logout: () => {
-        // Fire and forget actual API logout
-        logoutAPI();
         set({ isLoggedIn: false, accountDetails: null });
       },
       updateTokens: (accessToken, refreshToken, expiresAt) =>

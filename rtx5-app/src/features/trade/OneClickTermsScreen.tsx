@@ -2,10 +2,14 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
+import { useMemo } from 'react';
 
 export function OneClickTermsScreen() {
   const { oneClickAccepted, setOneClickAccepted } = useUserPreferences();
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   return (
     <Screen scroll>
@@ -27,8 +31,8 @@ export function OneClickTermsScreen() {
         <Switch
           value={oneClickAccepted}
           onValueChange={setOneClickAccepted}
-          trackColor={{ false: G.borderMedium, true: G.trading.buy.primary }}
-          thumbColor={G.text}
+          trackColor={{ false: T.borderMedium, true: T.trading.buy.primary }}
+          thumbColor={T.text}
         />
         <Text style={styles.accept}>I Accept these Terms and Conditions</Text>
       </View>
@@ -39,11 +43,11 @@ export function OneClickTermsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: G.text,
+    color: T.text,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -51,12 +55,12 @@ const styles = StyleSheet.create({
     margin: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass1,
+    borderColor: T.borderMedium,
+    backgroundColor: T.glass1,
     padding: spacing.md,
   },
   text: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 15,
     lineHeight: 23,
     marginBottom: spacing.md,
@@ -69,14 +73,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   accept: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 16,
     flex: 1,
   },
   button: {
     margin: spacing.md,
     marginTop: spacing.lg,
-    backgroundColor: G.trading.buy.primary,
+    backgroundColor: T.trading.buy.primary,
     borderRadius: 8,
     alignItems: 'center',
     paddingVertical: 14,
@@ -85,7 +89,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   buttonText: {
-    color: G.text,
+    color: T.text,
     fontWeight: '700',
     fontSize: 20,
   },

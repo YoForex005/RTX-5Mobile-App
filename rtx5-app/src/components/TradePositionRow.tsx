@@ -3,6 +3,7 @@ import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import { fmt } from '../utils/format';
+import { useUserPreferences } from '../state/userPreferences';
 
 export function TradePositionRow({
   item,
@@ -16,6 +17,7 @@ export function TradePositionRow({
   selected?: boolean;
 }) {
   const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isBuy = item.side === 'buy';
 
   return (
@@ -24,9 +26,10 @@ export function TradePositionRow({
         styles.row,
         {
           backgroundColor: T.glass2,
-          borderColor: T.borderMedium,
+          borderColor: T.border,
           borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
         },
+        !isDark && styles.shadowLight,
         selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
         pressed && styles.rowPressed,
       ]}
@@ -86,6 +89,13 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     opacity: 0.88,
+  },
+  shadowLight: {
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
   },
   body: {
     width: '100%',

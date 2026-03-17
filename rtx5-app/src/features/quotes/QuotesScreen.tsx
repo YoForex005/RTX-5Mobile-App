@@ -72,7 +72,7 @@ function QuoteCard({
   const POSITIVE = T.trading.profit;
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
-  const pillBgColor = isUp ? T.upGlow : T.downGlow;
+  const pillBgColor = isUp ? POSITIVE : NEGATIVE;
 
   const d = digitsFor(item);
   const symbol = pairLabel(item.symbol);
@@ -94,8 +94,9 @@ function QuoteCard({
   const bidCaret = bidDirection !== 'neutral' ? bidDirection : isUp ? 'up' : 'down';
   const askCaret = askDirection !== 'neutral' ? askDirection : isUp ? 'up' : 'down';
 
-  const cardBg = isDark ? '#0f1525' : '#ffffff';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)';
+  // Elite Fintech Paradigm: Cards on a clean canvas
+  const cardBg = isDark ? '#0f1525' : T.glass2;
+  const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : T.border;
 
   return (
     <Pressable
@@ -103,14 +104,14 @@ function QuoteCard({
         sc.card,
         { backgroundColor: cardBg, borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
+        isDark && sc.cardShadowDark,
         pressed && sc.cardPressed,
       ]}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={180}
     >
-      {/* Left accent bar */}
-      <View style={[sc.accentBar, { backgroundColor: color }]} />
+      {/* Left accent bar removed to match pure flat aesthetics */}
 
       <View style={sc.cardInner}>
         {/* Left: symbol info */}
@@ -120,7 +121,7 @@ function QuoteCard({
             <CurrencyFlags symbol={item.symbol} cardBg={cardBg} />
             <Text style={[sc.symbolText, { color: T.text }]}>{symbol}</Text>
             <View style={[sc.changePill, { backgroundColor: pillBgColor }]}>
-              <Text style={[sc.changePillText, { color }]}>{pct}</Text>
+              <Text style={[sc.changePillText, { color: '#FFFFFF' }]}>{pct}</Text>
             </View>
           </View>
           {/* Row 2: Vol · Spread */}
@@ -214,14 +215,15 @@ export function QuotesScreen() {
   };
 
   /* Dynamic per-theme values */
-  const menuBtnBg   = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
-  const menuBtnBdr  = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
-  const secBtnBg    = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
-  const secBtnBdr   = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)';
-  const searchBg    = isDark ? '#0c1018' : '#ffffff';
+  const menuBtnBg   = isDark ? 'rgba(255,255,255,0.08)' : T.glass1;
+  const menuBtnBdr  = isDark ? 'rgba(255,255,255,0.15)' : T.border;
+  const secBtnBg    = isDark ? 'rgba(255,255,255,0.06)' : T.glass1;
+  const secBtnBdr   = isDark ? 'rgba(255,255,255,0.12)' : T.border;
+  const searchBg    = isDark ? '#0c1018' : T.glass2;
+  const searchBdr   = isDark ? T.border : T.border;
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.bg }}>
+    <View style={{ flex: 1, backgroundColor: T.bgRoot }}>
       <SafeAreaView style={s.safe}>
         <View style={s.screen}>
 
@@ -256,7 +258,7 @@ export function QuotesScreen() {
           </View>
 
           {/* ── Search ── */}
-          <View style={[s.searchBar, { backgroundColor: searchBg, borderColor: T.border }]}>
+          <View style={[s.searchBar, { backgroundColor: searchBg, borderColor: searchBdr }]}>
             <Ionicons name="search" size={20} color={T.textMuted} />
             <TextInput
               value={search}
@@ -319,9 +321,9 @@ const s = StyleSheet.create({
   /* Header */
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  menuBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  iconBtnPrimary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#2563EB', shadowColor: '#2563EB', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
-  iconBtnSecondary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1 },
+  menuBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  iconBtnPrimary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#4F46E5', shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 0 },
+  iconBtnSecondary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
 
   /* Subheader */
   subheaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 },
@@ -335,6 +337,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderRadius: 24, height: 44,
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, marginBottom: 20, gap: 10,
+    borderColor: '#E2E8F0', backgroundColor: '#FFFFFF',
   },
   searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
 
@@ -355,13 +358,20 @@ const sc = StyleSheet.create({
     overflow: 'hidden',
   },
   cardShadowLight: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.03,
+    shadowRadius: 16,
+    elevation: 0, // Eliminate harsh Android shadow on Light Mode
   },
-  cardPressed: { opacity: 0.85 },
+  cardShadowDark: {
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  cardPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   accentBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, borderTopLeftRadius: 12, borderBottomLeftRadius: 12 },
   cardInner: { flexDirection: 'row', alignItems: 'center' },
   symbolCol: { flex: 1 },

@@ -15,32 +15,21 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { loginAPI } from '../src/api/auth';
-import { useMt5Groups } from '../src/query/mt5';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme, type ThemeColors } from '../src/theme/useTheme';
 
 export default function LoginScreen() {
   const login = useUserPreferences((s) => s.login);
 
-  const [accountId, setAccountId] = useState('900767');
-  const [password, setPassword] = useState('47Y$Gj&0YS@T');
+  const [accountId, setAccountId] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [savePassword, setSavePassword] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [server, setServer] = useState('flexy market');
-
-  // --- API INTEGRATION: GET /api/mt5/groups ---
-  // We fetch the available account groups from the broker here.
-  // Currently, the "Open Demo Account" flow redirects to this login screen's connection flow.
-  // When an "Open Account" tab/modal is added, `groupsData` should be mapped into a dropdown:
-  //
-  // <Dropdown
-  //   label="Account Group"
-  //   options={groupsData?.groups.map(g => ({ label: `${g.name} (${g.currency})`, value: g.name })) || []}
-  //   value={selectedGroup}
-  //   onChange={setSelectedGroup}
-  // />
-  //
-  // This group string (e.g. 'demo\STD') is then passed into `createMT5Account({ ... payload, group: selectedGroup })`.
-  const { data: groupsData, isLoading: groupsLoading } = useMt5Groups();
+  const [brokerId, setBrokerId] = useState('');
+  const { themeMode } = useUserPreferences();
+  const T = useTheme();
+  const isDark = themeMode === 'dark';
+  const styles = makeStyles(T, isDark);
 
   const handleLogin = async () => {
     if (!accountId || !password) {
@@ -50,19 +39,26 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      const response = await loginAPI({ username: accountId, password });
-      
+      const response = await loginAPI({
+        username: accountId.trim(),
+        password,
+        broker_id: brokerId.trim(),
+      });
+
+      // Compute expiresAt from expires_in (seconds)
+      const expiresAt = new Date(Date.now() + (response.expires_in ?? 86400) * 1000).toISOString();
+
       login(
-        response.user?.id || accountId,
-        response.user?.username || 'Trader',
-        server, 
+        String(response.account_login),
+        response.username || 'Trader',
+        response.server || brokerId,
         {
           access_token: response.access_token,
           refresh_token: response.refresh_token,
-          expires_at: response.expires_at,
+          expires_at: expiresAt,
         }
       );
-      
+
       if (router.canGoBack()) {
         router.back();
       } else {
@@ -78,19 +74,12 @@ export default function LoginScreen() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={s.bg}>
-        
-        {/* Navy Theme Gradient Background Hint */}
-        <LinearGradient
-          colors={['rgba(25, 60, 140, 0.08)', 'transparent']}
-          style={StyleSheet.absoluteFillObject}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0.8, y: 0.5 }}
-        />
+      <View style={styles.bg}>
+
 
         {/* ── Header ── */}
-        <View style={s.headerRow}>
-          <Pressable 
+        <View style={styles.headerRow}>
+          <Pressable
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
             onPress={() => {
               if (router.canGoBack()) {
@@ -99,91 +88,96 @@ export default function LoginScreen() {
                 router.replace('/');
               }
             }}
-            style={s.backBtn}
+            style={styles.backBtn}
           >
-            <Ionicons name="arrow-back" size={24} color="#e8ecf0" />
+            <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={s.headerTitle}>Broker Login</Text>
+          <Text style={styles.headerTitle}>Broker Login</Text>
         </View>
 
         <KeyboardAvoidingView
-          style={s.container}
+          style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-            
+          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+
             {/* ── Section Title ── */}
-            <View style={s.sectionTitleContainer}>
-              <Text style={s.sectionTitle}>Login to an existing account</Text>
+            <View style={styles.sectionTitleContainer}>
+              <Text style={styles.sectionTitle}>Login to an existing account</Text>
             </View>
 
             {/* ── Form Body ── */}
-            <View style={s.formContainer}>
-              
-              {/* Login Field */}
-              <View style={s.inputRow}>
-                <Text style={s.inputLabel}>Login</Text>
+            <View style={styles.formContainer}>
+
+              {/* Broker ID Field */}
+              <View style={styles.inputRow}>
+                <Text style={styles.inputLabel}>Broker ID</Text>
                 <TextInput
-                  style={s.input}
+                  style={styles.input}
+                  value={brokerId}
+                  onChangeText={setBrokerId}
+                  autoCapitalize="none"
+                  selectionColor={T.accent}
+                  cursorColor={T.accent}
+                  underlineColorAndroid="transparent"
+                  importantForAutofill="no-hide-descendants"
+                  autoComplete="off"
+                  textContentType="none"
+                  spellCheck={false}
+                  autoCorrect={false}
+                  disableFullscreenUI={true}
+                />
+              </View>
+
+              {/* Login Field */}
+              <View style={styles.inputRow}>
+                <Text style={styles.inputLabel}>Login</Text>
+                <TextInput
+                  style={styles.input}
                   value={accountId}
                   onChangeText={setAccountId}
-                  placeholder=""
-                  placeholderTextColor="#4a5568"
                   autoCapitalize="none"
-                  autoComplete="off"
-                  autoCorrect={false}
                   keyboardType="numeric"
-                  selectionColor="#3b8eed"
+                  selectionColor={T.accent}
+                  cursorColor={T.accent}
+                  underlineColorAndroid="transparent"
+                  importantForAutofill="no-hide-descendants"
+                  autoComplete="off"
+                  textContentType="none"
+                  spellCheck={false}
+                  autoCorrect={false}
+                  disableFullscreenUI={true}
                 />
               </View>
-              <View style={s.rowDivider} />
 
               {/* Password Field */}
-              <View style={s.inputRow}>
-                <Text style={s.inputLabel}>Password</Text>
+              <View style={styles.inputRow}>
+                <Text style={styles.inputLabel}>Password</Text>
                 <TextInput
-                  style={s.input}
+                  style={styles.input}
                   value={password}
                   onChangeText={setPassword}
-                  placeholder=""
-                  placeholderTextColor="#4a5568"
-                  secureTextEntry
-                  selectionColor="#3b8eed"
+                  autoCapitalize="none"
+                  secureTextEntry={!showPassword}
+                  selectionColor={T.accent}
+                  cursorColor={T.accent}
+                  underlineColorAndroid="transparent"
+                  importantForAutofill="no-hide-descendants"
+                  autoComplete="off"
+                  textContentType="none"
+                  spellCheck={false}
+                  autoCorrect={false}
+                  disableFullscreenUI={true}
                 />
+                <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={15} style={styles.eyeIconBtn}>
+                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textSub} />
+                </Pressable>
               </View>
-              <View style={s.rowDivider} />
-
-              {/* Server Select */}
-              <Pressable style={s.inputRow}>
-                <Text style={s.inputLabel}>Server</Text>
-                <View style={s.serverSelectWrap}>
-                  <Text style={s.serverText}>{server}</Text>
-                  <Ionicons name="chevron-down" size={18} color="#6b7a90" style={s.serverChevron} />
-                </View>
-              </Pressable>
-              <View style={s.rowDivider} />
-
-              {/* Save Password */}
-              <Pressable style={s.inputRow} onPress={() => setSavePassword(!savePassword)}>
-                <Text style={s.inputLabel}>Save password</Text>
-                <View style={[s.checkbox, savePassword && s.checkboxChecked]}>
-                  {savePassword && <Ionicons name="checkmark-sharp" size={14} color="#fff" />}
-                </View>
-              </Pressable>
-              <View style={s.rowDivider} />
-
-            </View>
-
-            {/* ── Footer ── */}
-            <View style={s.footerContainer}>
-              <Pressable style={s.forgotBtn}>
-                <Text style={s.forgotText}>Forgot password?</Text>
-              </Pressable>
 
               <Pressable
                 style={({ pressed }) => [
-                  s.loginBtn, 
-                  (pressed || isLoading) && s.loginBtnPressed
+                  styles.loginBtn,
+                  (pressed || isLoading) && styles.loginBtnPressed
                 ]}
                 onPress={handleLogin}
                 disabled={isLoading}
@@ -191,11 +185,11 @@ export default function LoginScreen() {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={s.loginBtnText}>LOGIN</Text>
+                  <Text style={styles.loginBtnText}>LOGIN</Text>
                 )}
               </Pressable>
             </View>
-            
+
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
@@ -203,180 +197,130 @@ export default function LoginScreen() {
   );
 }
 
-// ─── RTX5 Navy Theme + Modern MT5 Flat Layout ──────────────────────────────────
-const C = {
-  bgDeep: '#060910',       // Outer background Navy
-  sectionBg: '#0e121a',    // Slightly elevated title bar
-  label: '#6b7a90',        // Premium grey for labels
-  value: '#ffffff',        // Crisp white values
-  accent: '#3b8eed',       // RTX5 Primary Blue
-  border: 'rgba(255,255,255,0.06)', // Glassmorphism lines
-};
+// ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
+function makeStyles(T: ThemeColors, isDark: boolean) {
+  return StyleSheet.create({
+    bg: {
+      flex: 1,
+      backgroundColor: T.bg, // Dynamic theme background
+      paddingTop: Platform.OS === 'ios' ? 56 : 24,
+    },
+    container: {
+      flex: 1,
+    },
+    /* Header */
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 8,
+      backgroundColor: T.glass1, // Subtle glass touch target
+    },
+    headerTitle: {
+      color: T.text,
+      fontSize: 18,
+      fontWeight: '600',
+      letterSpacing: 0.3,
+    },
 
-const s = StyleSheet.create({
-  bg: {
-    flex: 1,
-    backgroundColor: C.bgDeep,
-    paddingTop: Platform.OS === 'ios' ? 56 : 24,
-  },
-  container: {
-    flex: 1,
-  },
-  
-  /* Header */
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)', // Subtle touch target
-  },
-  headerTitle: {
-    color: C.value,
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
+    scrollContent: {
+      paddingBottom: 40,
+    },
 
-  scrollContent: {
-    paddingBottom: 40,
-  },
+    /* Section Title Bar (Minimalist) */
+    sectionTitleContainer: {
+      paddingVertical: 16,
+      marginTop: 12,
+      marginBottom: 20,
+    },
+    sectionTitle: {
+      color: T.textSub,
+      fontSize: 15,
+      fontWeight: '700',
+      textAlign: 'center',
+      letterSpacing: 0.2,
+    },
 
-  /* Section Title Bar */
-  sectionTitleContainer: {
-    backgroundColor: C.sectionBg,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: C.border,
-    marginTop: 12,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  sectionTitle: {
-    color: C.value,
-    fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: 0.2,
-  },
 
-  formContainer: {
-    paddingHorizontal: 20,
-  },
+    formContainer: {
+      paddingHorizontal: 20,
+      marginTop: 40,
+    },
 
-  /* Input Rows */
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 56, // Generous modern touch target height
-    paddingVertical: 12,
-  },
-  inputLabel: {
-    color: C.label,
-    fontSize: 15,
-    fontWeight: '500',
-    width: 125, // Fixed width for clean vertical alignment
-  },
-  input: {
-    flex: 1,
-    color: C.value,
-    fontSize: 16,
-    fontWeight: '600',
-    padding: 0,
-    margin: 0,
-    height: '100%',
-  },
-  
-  /* Server Row */
-  serverSelectWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  serverText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    flex: 1,
-  },
-  serverChevron: {
-    marginLeft: 8,
-  },
+    /* Input Rows (Ultra-Minimalist) */
+    inputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 56,
+      paddingVertical: 12,
+      backgroundColor: T.bg, // Aggressive fix for native highlight leaks
+    },
+    inputLabel: {
+      color: T.text,
+      fontSize: 15,
+      fontWeight: '500',
+      width: 125,
+      backgroundColor: T.bg, // Matches row background
+    },
+    input: {
+      flex: 1,
+      color: T.text,
+      fontSize: 16,
+      fontWeight: '600',
+      padding: 0,
+      paddingHorizontal: 0, // Absolute reset
+      margin: 0,
+      height: '100%',
+      backgroundColor: T.bg, // Matches theme to hide highlights
+      borderWidth: 0,
+      borderColor: 'transparent',
+      borderRadius: 0,
+      // @ts-ignore - web focus ring removal
+      outlineStyle: 'none',
+      // @ts-ignore - additional web focus ring removal
+      outlineWidth: 0,
+      shadowOpacity: 0,
+      elevation: 0,
+    },
 
-  /* Checkbox */
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderWidth: 1.5,
-    borderColor: '#2d3340',
-    borderRadius: 6, // Modern rounded corners
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 'auto', 
-  },
-  checkboxChecked: {
-    backgroundColor: C.accent,
-    borderColor: C.accent,
-  },
+    /* Eye Icon */
+    eyeIconBtn: {
+      padding: 8,
+      marginRight: -8,
+      backgroundColor: T.bg, // Matches row background
+    },
 
-  /* Dividers */
-  rowDivider: {
-    height: 1,
-    backgroundColor: C.border,
-  },
-
-  /* Footer Section */
-  footerContainer: {
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  forgotBtn: {
-    alignItems: 'center',
-    marginBottom: 32,
-    paddingVertical: 12, // Easier to tap
-  },
-  forgotText: {
-    color: C.accent,
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-
-  /* Solid Login Button */
-  loginBtn: {
-    backgroundColor: C.accent,
-    height: 54,
-    borderRadius: 16, // Modern rounded rect, not pure pill
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: C.accent,
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  loginBtnPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  loginBtnText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-});
+    /* Solid Login Button */
+    loginBtn: {
+      backgroundColor: T.accent,
+      height: 54,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 20,
+      shadowColor: T.accent,
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    loginBtnPressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.98 }],
+    },
+    loginBtnText: {
+      color: '#ffffff',
+      fontSize: 16,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+  });
+}

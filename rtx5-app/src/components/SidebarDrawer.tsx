@@ -232,7 +232,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       bottom: 0,
       width: DRAWER_WIDTH,
-      backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
+      backgroundColor: isDark ? '#0a0a0a' : T.glass1,
       borderRightWidth: 1,
       borderRightColor: T.border,
       paddingTop: 48,

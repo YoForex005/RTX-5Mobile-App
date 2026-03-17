@@ -156,86 +156,86 @@ export const GDark = {
   },
 };
 
-// ── Light theme (compatible mapping) ─────────────────────────────────────────
+// ── Elite Enterprise Light Theme ─────────────────────────────────────────
 export const GLight = {
-  bg: '#f5f6fa',
-  bgRoot: '#eef0f5',
-  bgSecondary: '#f0f2f7',
-  glass1: 'rgba(255,255,255,0.92)',
-  glass2: 'rgba(240,242,248,0.95)',
-  glass3: 'rgba(230,233,240,0.98)',
-  inputBg: 'rgba(0,0,0,0.04)',
+  bg: '#F2F5F9',          // Elite cool slate canvas that scales with screen brightness
+  bgRoot: '#F2F5F9',
+  bgSecondary: '#FFFFFF', // Pure White cards
+  glass1: '#F2F6FC',      // Ultra-soft recessed tone for pills and inputs
+  glass2: '#FFFFFF',      // Pure White cards
+  glass3: 'rgba(59, 130, 246, 0.06)', // Soft electric blue pressed state
+  inputBg: '#F2F6FC',     // Recessed input background
 
-  border: 'rgba(0,0,0,0.08)',
-  borderSubtle: 'rgba(0,0,0,0.05)',
-  borderMedium: '#d1d5db',
-  borderHi: 'rgba(0,0,0,0.12)',
-  borderHover: '#9ca3af',
-  borderZinc: '#d1d5db',
+  border: '#E5E7EB',       // Clean, modern structural border
+  borderSubtle: '#F3F4F6', // Almost invisible dividers
+  borderMedium: '#D1D5DB', // Mid-tone generic border
+  borderHi: '#9CA3AF',
+  borderHover: '#6B7280',
+  borderZinc: '#E5E7EB',
 
-  text: '#1a1d26',
-  textSub: '#4a5068',
-  textMuted: '#8f96a8',
-  textDimmed: '#6b7280',
-  textFaint: '#9ca3af',
-  textGhost: '#d1d5db',
-  textDark: '#374151',
+  text: '#111827',         // Deep rich black, not pure #000
+  textSub: '#4B5563',      // Legible secondary gray
+  textMuted: '#6B7280',    // Muted semantic gray
+  textDimmed: '#9CA3AF',   // Dimmed semantic gray
+  textFaint: '#D1D5DB',    // Faint functional gray
+  textGhost: '#E5E7EB',    // Barely visible ghost text
+  textDark: '#030712',     // Absolute deepest slate
 
-  up: '#16a34a',
-  upGlow: 'rgba(22,163,74,0.10)',
-  down: '#dc2626',
-  downGlow: 'rgba(220,38,38,0.08)',
-  flat: '#6b7280',
+  up: '#10B981',           // Slightly more vibrant Emerald
+  upGlow: 'rgba(16, 185, 129, 0.1)',
+  down: '#EF4444',         // Crisp, modern Red
+  downGlow: 'rgba(239, 68, 68, 0.1)',
+  flat: '#64748B',
 
-  accent: '#2563eb',
-  accentGlow: 'rgba(37,99,235,0.15)',
-  dotGradient: 'linear-gradient(135deg, #9ca3af, #6b7280)',
+  accent: '#4338CA',       // Indigo 700: Deepened for maximum light contrast
+  accentGlow: 'rgba(67, 56, 202, 0.15)',
+  dotGradient: 'linear-gradient(135deg, #94A3B8, #CBD5E1)',
 
   trading: {
     buy: {
-      primary: '#2563eb',
-      hover: '#3b82f6',
-      active: '#1d4ed8',
-      dark: '#1e40af',
-      gradient: 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)',
-      glow: '0 0 6px rgba(59,130,246,0.5)',
+      primary: '#2563EB',  // Professional Blue 600 for primary Buy actions
+      hover: '#1D4ED8',
+      active: '#1E40AF',
+      dark: '#1E3A8A',
+      gradient: 'linear-gradient(180deg, #3B82F6 0%, #2563EB 50%, #1D4ED8 100%)',
+      glow: '0 4px 14px rgba(37, 99, 235, 0.3)',
     },
     sell: {
-      primary: '#dc2626',
-      hover: '#ef4444',
-      active: '#b91c1c',
-      dark: '#991b1b',
-      gradient: 'linear-gradient(180deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%)',
+      primary: '#DC2626',
+      hover: '#B91C1C',
+      active: '#991B1B',
+      dark: '#7F1D1D',
+      gradient: 'linear-gradient(180deg, #EF4444 0%, #DC2626 50%, #B91C1C 100%)',
     },
-    profit: '#16a34a',
-    loss: '#dc2626',
-    bidUp: '#16a34a',
-    bidDown: '#dc2626',
-    priceDefault: '#374151',
+    profit: '#059669',     // Emerald 600
+    loss: '#DC2626',
+    bidUp: '#059669',
+    bidDown: '#DC2626',
+    priceDefault: '#0F172A',
   } as TradingTokens,
 
   chart: {
-    background: '#f0f2f7',
-    grid: 'rgba(0,0,0,0.06)',
-    bullCandle: '#16a34a',
-    bearCandle: '#dc2626',
-    volumeUp: 'rgba(22,163,74,0.20)',
-    volumeDown: 'rgba(220,38,38,0.18)',
-    crosshair: '#6b7280',
+    background: '#FFFFFF',
+    grid: '#F1F5F9',       // Slate 100
+    bullCandle: '#059669',
+    bearCandle: '#DC2626',
+    volumeUp: 'rgba(5, 150, 105, 0.1)',
+    volumeDown: 'rgba(220, 38, 38, 0.1)',
+    crosshair: '#94A3B8',
   } as ChartTokens,
 
   categories: {
-    forex: '#2563eb',
-    crypto: '#d97706',
-    metal: '#ca8a04',
-    index: '#6b7280',
+    forex: '#4F46E5',      // Indigo
+    crypto: '#F59E0B',
+    metal: '#EAB308',
+    index: '#64748B',
     commodity: '#059669',
   } as CategoryTokens,
 
   shadows: {
-    dropdown: '0 8px 32px rgba(0,0,0,0.15)',
-    panel: '0 8px 32px rgba(0,0,0,0.12), 0 0 0 1px rgba(37,99,235,0.08)',
-    selectedRow: 'inset 2px 0 0 rgba(0,0,0,0.2)',
+    dropdown: '0 10px 40px -10px rgba(15, 23, 42, 0.12)',
+    panel: '0 4px 12px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(15, 23, 42, 0.03)',
+    selectedRow: 'inset 2px 0 0 rgba(37, 99, 235, 1)',
   },
 
   fontSize: {

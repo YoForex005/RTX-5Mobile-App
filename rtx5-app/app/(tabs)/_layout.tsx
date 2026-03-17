@@ -5,6 +5,7 @@ import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
 import { useUserPreferences } from '../../src/state/userPreferences';
+import { useTheme } from '../../src/theme/useTheme';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -18,10 +19,11 @@ export default function TabsLayout() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const T = useTheme();
 
   const TAB_BAR_STYLE = {
     backgroundColor: isDark ? '#040609' : '#ffffff',
-    borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.08)',
+    borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.05)',
     borderTopWidth: 1,
     height: 74,
     paddingTop: 8,
@@ -34,8 +36,8 @@ export default function TabsLayout() {
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle: TAB_BAR_STYLE,
-          tabBarActiveTintColor: '#2962FF',
-          tabBarInactiveTintColor: isDark ? '#5A6B87' : '#94a3b8',
+          tabBarActiveTintColor: T.accent,
+          tabBarInactiveTintColor: isDark ? '#5A6B87' : T.textDimmed,
           tabBarIcon: ({ color, size }) => {
             const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
             return <Ionicons name={name} size={size} color={color} />;
@@ -43,7 +45,7 @@ export default function TabsLayout() {
           tabBarLabelStyle: {
             fontSize: 12,
             marginBottom: 4,
-            fontWeight: '500',
+            fontWeight: '600',
           },
         })}
       >

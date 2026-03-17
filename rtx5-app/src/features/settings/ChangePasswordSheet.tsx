@@ -3,9 +3,11 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { G } from '../../theme/glass';
 import { spacing } from '../../theme';
-import { useChangeMt5Password } from '../../query/account';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
+import { useMemo, useState } from 'react';
+import { changePasswordAPI } from '../../api/auth';
 
 const MAX_PASSWORD_LENGTH = 15;
 
@@ -34,28 +36,28 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
     resolver: zodResolver(passwordSchema),
   });
 
-  const { mutate, isPending } = useChangeMt5Password();
+  const [isPending, setIsPending] = useState(false);
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
-  const onSubmit = (data: PasswordFormValues) => {
-    mutate(
-      {
-        login: Number(loginId),
-        old_password: data.oldPassword,
+  const onSubmit = async (data: PasswordFormValues) => {
+    setIsPending(true);
+    try {
+      await changePasswordAPI({
+        current_password: data.oldPassword,
         new_password: data.newPassword,
-        type,
-      },
-      {
-        onSuccess: () => {
-          onSuccess();
-        },
-        onError: (err: any) => {
-          setError('root.serverError', {
-            type: 'manual',
-            message: err.message || 'Failed to change password',
-          });
-        },
-      }
-    );
+      });
+      onSuccess();
+    } catch (err: any) {
+      setError('root.serverError', {
+        type: 'manual',
+        message: err.message || 'Failed to change password',
+      });
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -66,7 +68,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
       <View style={styles.sheetHeader}>
         <Text style={styles.title}>Change {type === 'master' ? 'Master' : 'Investor'} Password</Text>
         <Pressable hitSlop={15} onPress={onClose} style={styles.closeBtn}>
-          <Ionicons name="close" size={24} color={G.textSub} />
+          <Ionicons name="close" size={24} color={T.textSub} />
         </Pressable>
       </View>
 
@@ -76,7 +78,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
 
       {errors.root?.serverError && (
         <View style={styles.errorBox}>
-          <Ionicons name="alert-circle" size={16} color={G.down} />
+          <Ionicons name="alert-circle" size={16} color={T.down} />
           <Text style={styles.errorText}>{errors.root.serverError.message}</Text>
         </View>
       )}
@@ -84,44 +86,54 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
       <View style={styles.form}>
         <View style={styles.field}>
           <Text style={styles.label}>Current password</Text>
-          <Controller
-            control={control}
-            name="oldPassword"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextInput
-                style={[styles.input, errors.oldPassword && styles.inputError]}
-                autoCapitalize="none"
-                secureTextEntry
-                placeholder="Enter current password"
-                placeholderTextColor={G.textMuted}
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={value}
-              />
-            )}
-          />
+          <View style={styles.inputWrapper}>
+            <Controller
+              control={control}
+              name="oldPassword"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <TextInput
+                  style={[styles.input, errors.oldPassword && styles.inputError]}
+                  autoCapitalize="none"
+                  secureTextEntry={!showOldPassword}
+                  placeholder="Enter current password"
+                  placeholderTextColor={T.textMuted}
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
+              )}
+            />
+            <Pressable onPress={() => setShowOldPassword(!showOldPassword)} hitSlop={15} style={styles.eyeBtn}>
+              <Ionicons name={showOldPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textMuted} />
+            </Pressable>
+          </View>
           {errors.oldPassword && <Text style={styles.fieldError}>{errors.oldPassword.message}</Text>}
         </View>
 
         <View style={styles.field}>
           <Text style={styles.label}>New password</Text>
-          <Controller
-            control={control}
-            name="newPassword"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextInput
-                style={[styles.input, errors.newPassword && styles.inputError]}
-                autoCapitalize="none"
-                secureTextEntry
-                maxLength={MAX_PASSWORD_LENGTH}
-                placeholder="Enter new password"
-                placeholderTextColor={G.textMuted}
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={value}
-              />
-            )}
-          />
+          <View style={styles.inputWrapper}>
+            <Controller
+              control={control}
+              name="newPassword"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <TextInput
+                  style={[styles.input, errors.newPassword && styles.inputError]}
+                  autoCapitalize="none"
+                  secureTextEntry={!showNewPassword}
+                  maxLength={MAX_PASSWORD_LENGTH}
+                  placeholder="Enter new password"
+                  placeholderTextColor={T.textMuted}
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
+              )}
+            />
+            <Pressable onPress={() => setShowNewPassword(!showNewPassword)} hitSlop={15} style={styles.eyeBtn}>
+              <Ionicons name={showNewPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textMuted} />
+            </Pressable>
+          </View>
           {errors.newPassword && <Text style={styles.fieldError}>{errors.newPassword.message}</Text>}
           <Text style={styles.hintText}>Must be 8-15 characters with at least 1 uppercase, 1 lowercase, 1 number, and 1 special character.</Text>
         </View>
@@ -142,16 +154,16 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   container: {
-    backgroundColor: G.glass2,
+    backgroundColor: T.glass2,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: spacing.md,
     paddingTop: 8,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: G.borderMedium,
+    borderColor: T.borderMedium,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -160,7 +172,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   title: {
-    color: G.text,
+    color: T.text,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -168,7 +180,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   subtitle: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 13,
     marginBottom: 20,
     lineHeight: 18,
@@ -181,30 +193,40 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    color: G.text,
+    color: T.text,
     fontSize: 13,
     fontWeight: '600',
   },
-  input: {
-    backgroundColor: G.glass1,
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.glass1,
     borderWidth: 1,
-    borderColor: G.borderMedium,
+    borderColor: T.borderMedium,
     borderRadius: 12,
-    color: G.text,
+  },
+  input: {
+    flex: 1,
+    color: T.text,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,
   },
+  eyeBtn: {
+    padding: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   inputError: {
-    borderColor: G.downGlow,
+    borderColor: T.downGlow,
   },
   fieldError: {
-    color: G.down,
+    color: T.down,
     fontSize: 12,
     marginTop: 2,
   },
   hintText: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 12,
     marginTop: 4,
   },
@@ -220,7 +242,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   errorText: {
-    color: G.down,
+    color: T.down,
     fontSize: 13,
     flex: 1,
   },

@@ -1,7 +1,7 @@
 import { useUserPreferences } from '../state/userPreferences';
 
-// API base URL
-export const API_BASE_URL = 'https://rtxbackend.tradecopier.org';
+// V2 API base URL
+export const API_BASE_URL = 'http://69.197.178.27/api/v2';
 
 // Queue for pending requests while refreshing token
 let isRefreshing = false;
@@ -23,7 +23,12 @@ const processQueue = (error: any, token: string | null = null) => {
 
 /**
  * Custom fetch wrapper that automatically handles Bearer token injection
- * and 401 token refresh loops natively.
+ * and 401 token refresh loops.
+ *
+ * Token lifecycle (cyclic — no forced logout):
+ *   access_token  → expires after 24 hours
+ *   refresh_token → each refresh call returns a NEW refresh_token,
+ *                    so the token pair renews itself perpetually.
  */
 interface ApiClientRequestInit extends RequestInit {
   _retry?: boolean;
@@ -74,14 +79,13 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
     try {
       const refreshToken = state.accountDetails?.credentials?.refreshToken;
-      const expiresAt = state.accountDetails?.credentials?.expiresAt;
       
       if (!refreshToken) {
         throw new Error('No refresh token available');
       }
 
-      // Call refresh endpoint directly using pure fetch
-      const rs = await fetch(`${API_BASE_URL}/api/refresh`, {
+      // Call V2 refresh endpoint directly using pure fetch
+      const rs = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,7 +93,6 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
         },
         body: JSON.stringify({
           refresh_token: refreshToken,
-          expires_at: expiresAt || new Date().toISOString(), // Fallback if missing
         }),
       });
 
@@ -99,11 +102,13 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
       const refreshData = await rs.json();
       
-      // Update tokens in Zustand state
-      state.updateTokens(refreshData.access_token, refreshData.refresh_token, refreshData.expires_at);
+      // Compute expiresAt from expires_in (seconds)
+      const expiresAt = new Date(Date.now() + (refreshData.expires_in ?? 86400) * 1000).toISOString();
 
-      // Retry original request
-      // We must extract headers and update the auth token natively for fetch
+      // Update tokens in Zustand state — cyclic: new refresh_token replaces old
+      state.updateTokens(refreshData.access_token, refreshData.refresh_token, expiresAt);
+
+      // Retry original request with fresh access token
       const retryHeaders = new Headers(originalRequest.headers);
       retryHeaders.set('Authorization', `Bearer ${refreshData.access_token}`);
       originalRequest.headers = retryHeaders;
@@ -112,7 +117,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       response = await fetch(url, originalRequest);
     } catch (_error) {
       processQueue(_error, null);
-      // Force logout if refresh completely fails
+      // Only logout if refresh actually fails (should be rare in cyclic flow)
       state.logout();
       return Promise.reject(_error);
     } finally {

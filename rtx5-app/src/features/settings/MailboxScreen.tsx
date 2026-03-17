@@ -1,7 +1,9 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
+import { useMemo } from 'react';
 
 const messages = new Array(12).fill(0).map((_, i) => ({
   id: `${i}`,
@@ -11,6 +13,8 @@ const messages = new Array(12).fill(0).map((_, i) => ({
 }));
 
 export function MailboxScreen() {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <Screen>
       <Text style={styles.title}>Mailbox</Text>
@@ -35,11 +39,11 @@ export function MailboxScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: G.text,
+    color: T.text,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -48,39 +52,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingVertical: 12,
-    borderBottomColor: G.border,
+    borderBottomColor: T.border,
     borderBottomWidth: 1,
   },
   avatar: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: G.glass2,
+    backgroundColor: T.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    color: G.text,
+    color: T.text,
     fontWeight: '700',
   },
   content: {
     flex: 1,
   },
   msg: {
-    color: G.text,
+    color: T.text,
     fontSize: 15,
   },
   source: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 13,
     marginTop: 2,
   },
   time: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   dot: {
-    color: G.accent,
+    color: T.accent,
     textAlign: 'right',
   },
 });

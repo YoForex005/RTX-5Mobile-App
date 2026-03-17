@@ -2,9 +2,13 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { newsItems } from '../../mock/tradingData';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
+import { useMemo } from 'react';
 
 export function NewsScreen() {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <Screen>
       <Text style={styles.title}>Categories ▾</Text>
@@ -29,11 +33,11 @@ export function NewsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   title: {
     marginTop: spacing.md,
     textAlign: 'center',
-    color: G.accent,
+    color: T.accent,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -42,39 +46,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingVertical: 12,
-    borderBottomColor: G.border,
+    borderBottomColor: T.border,
     borderBottomWidth: 1,
   },
   icon: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: G.down,
+    backgroundColor: T.down,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconText: {
-    color: G.text,
+    color: T.text,
     fontWeight: '700',
   },
   content: {
     flex: 1,
   },
   headline: {
-    color: G.text,
+    color: T.text,
     fontSize: 15,
   },
   source: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 13,
     marginTop: 2,
   },
   time: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   dot: {
-    color: G.accent,
+    color: T.accent,
     textAlign: 'right',
   },
 });

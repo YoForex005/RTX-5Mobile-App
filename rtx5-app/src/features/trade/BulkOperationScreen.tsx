@@ -3,15 +3,16 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
-import { useExposure } from '../../query/exposure';
 
 export function BulkOperationScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [submitted, setSubmitted] = useState(false);
-  const { data: exposureData } = useExposure();
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   const title = bulkModeLabel(mode);
   const affectedPositions = useMemo(
@@ -21,8 +22,8 @@ export function BulkOperationScreen() {
   const totalPnl = affectedPositions.reduce((sum, position) => sum + position.pnl, 0);
 
   // Live exposure stats
-  const activeExposures = exposureData?.exposure?.filter(e => e.volume_net !== 0) ?? [];
-  const totalNetExposure = activeExposures.reduce((sum, e) => sum + e.volume_net, 0);
+  const activeExposures: any[] = [];
+  const totalNetExposure = 0;
 
   return (
     <Screen>
@@ -78,6 +79,8 @@ function Row({
   danger?: boolean;
   positive?: boolean;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={styles.summaryRow}>
       <Text style={styles.summaryLabel}>{label}</Text>
@@ -86,19 +89,19 @@ function Row({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: G.text,
+    color: T.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 12,
   },
   summaryCard: {
@@ -107,8 +110,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass2,
+    borderColor: T.borderMedium,
+    backgroundColor: T.glass2,
     gap: 10,
   },
   summaryRow: {
@@ -117,11 +120,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   summaryValue: {
-    color: G.text,
+    color: T.text,
     fontSize: 14,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
@@ -130,22 +133,22 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.borderMedium,
-    backgroundColor: G.glass1,
+    borderColor: T.borderMedium,
+    backgroundColor: T.glass1,
     overflow: 'hidden',
   },
   previewRow: {
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: G.borderMedium,
+    borderBottomColor: T.borderMedium,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.sm,
   },
   previewLeft: {
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
     flex: 1,
   },
@@ -156,7 +159,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     padding: spacing.md,
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   success: {
@@ -169,14 +172,14 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   successText: {
-    color: G.trading.profit,
+    color: T.trading.profit,
     fontSize: 13,
   },
   executeButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: G.trading.sell.primary,
+    backgroundColor: T.trading.sell.primary,
     alignItems: 'center',
     paddingVertical: 12,
   },
@@ -184,14 +187,14 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   executeText: {
-    color: G.text,
+    color: T.text,
     fontSize: 15,
     fontWeight: '700',
   },
   danger: {
-    color: G.trading.loss,
+    color: T.trading.loss,
   },
   positive: {
-    color: G.trading.profit,
+    color: T.trading.profit,
   },
 });

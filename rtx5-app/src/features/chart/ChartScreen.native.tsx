@@ -8,12 +8,10 @@ import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useAccountSummary } from '../../query/account';
-import { useEquityHistory } from '../../query/equityHistory';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
-import { useCandleStream } from '../../query/websocket';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withDecay, useDerivedValue, runOnJS } from 'react-native-reanimated';
 
@@ -64,21 +62,25 @@ const formatXLabel = (time: number, tf: string): string => {
 const CANDLE_WIDTH = 7;
 const CANDLE_GAP = 4;
 
-const APP_BG = G.bg;
-const CARD_BG = '#0a0e1c'; // Deep Navy Card
-const BLUE = '#2962FF'; // Vivid professional blue
-const RED = '#FF2A55'; // Vibrant, sharp red
-const UP_COLOR = G.up;
-const GRID = G.border;
-const TEXT = G.text;
-const TEXT_MUTED = '#8E9AAF';
-const BTN_BG = G.glass2;
-const PILL_BG = G.glass1;
+
 
 export function ChartScreen() {
+  const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const APP_BG = T.bg;
+  const CARD_BG = isDark ? '#0B0F19' : T.glass2;
+  const BLUE = T.trading.buy.primary;
+  const RED = T.trading.sell.primary;
+  const GRID = T.borderSubtle;
+  const TEXT = T.text;
+  const TEXT_MUTED = T.textMuted;
+  const BTN_BG = T.glass2;
+  const PILL_BG = T.glass1;
   const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
-  const { data: liveAccount } = useAccountSummary(accountDetails?.id);
-  const { data: equityHistory } = useEquityHistory('30d', '1d');
+  const liveAccount = { balance: 100000, currency: 'USD' };
+  const equityHistory: any = null;
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
@@ -86,7 +88,26 @@ export function ChartScreen() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
-  const { candles, isLoading, isError } = useCandleStream(chartSymbol, chartTimeframe);
+
+  // Generate demo candles inline (no API)
+  const candles = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const basePrice = chartSymbol.includes('JPY') ? 150.0 : chartSymbol.includes('XAU') ? 2350.0 : chartSymbol.includes('BTC') ? 65000.0 : 1.1000;
+    const arr: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
+    let price = basePrice;
+    for (let i = 0; i < 100; i++) {
+      const o = price;
+      const change = (Math.random() - 0.48) * basePrice * 0.002;
+      const c = o + change;
+      const h = Math.max(o, c) + Math.random() * basePrice * 0.001;
+      const l = Math.min(o, c) - Math.random() * basePrice * 0.001;
+      arr.push({ time: now - (100 - i) * 300, open: o, high: h, low: l, close: c, volume: Math.random() * 100 });
+      price = c;
+    }
+    return arr;
+  }, [chartSymbol, chartTimeframe]);
+  const isLoading = false;
+  const isError = false;
 
   const translateX = useSharedValue(0);
   const scaleX = useSharedValue(1);
@@ -298,9 +319,9 @@ export function ChartScreen() {
     <Screen style={styles.screen}>
       {!isFullscreen && (
         <View style={styles.topHeaderRow}>
-          <View style={styles.headerLeft}>
+          <View style={styles.headerSpacer}>
             <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-              <Ionicons name="menu" size={28} color="#fff" />
+              <Ionicons name="menu" size={28} color={isDark ? '#fff' : '#64748B'} />
             </Pressable>
           </View>
           <View style={styles.accountBadgeGroup}>
@@ -313,26 +334,20 @@ export function ChartScreen() {
               </Text>
             </View>
           </View>
-          <View style={[styles.headerSpacer, styles.headerSpacerRight]}>
-            <View style={styles.avatarWrap}>
-              <Image
-                source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
-                style={styles.avatarImg}
-              />
-              <View style={styles.avatarDot} />
-            </View>
-          </View>
+          <View style={[styles.headerSpacer, styles.headerSpacerRight]} />
         </View>
       )}
 
       <View style={styles.card}>
         {!isFullscreen && <View style={styles.glassToolbar}>
           {/* Blue Radial Glow Background */}
-          <LinearGradient
-            colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
-            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
+          {isDark && (
+            <LinearGradient
+              colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
+              start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+          )}
           <View style={styles.toolbarRow}>
             <Pressable style={styles.symbolInfo} onPress={() => setSymbolPickerOpen(true)}>
               <View style={styles.flagStack}>
@@ -353,7 +368,7 @@ export function ChartScreen() {
                   <View style={styles.microBadge}>
                     <Text style={styles.microBadgeText}>{symbolCategory}</Text>
                   </View>
-                  <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  <Ionicons name="chevron-down" size={14} color="#94A3B8" />
                 </View>
                 <Text style={styles.symbolSubText}>{symbolName}</Text>
               </View>
@@ -368,21 +383,23 @@ export function ChartScreen() {
 
           <View style={styles.plRow}>
             <View style={styles.plInfoGroup}>
+              <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
               <Text style={styles.plLabel}>Positions :</Text>
               <Text style={styles.plValue}>0</Text>
               <View style={styles.plDivider} />
+              <Ionicons name="pie-chart-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
               <Text style={styles.plLabel}>P&L :</Text>
-              <Text style={[styles.plValue, { color: '#FFFFFF' }]}>0.00</Text>
+              <Text style={styles.plValue}>0.00</Text>
             </View>
             <View style={styles.toolbarActions}>
               <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
-                <Ionicons name="alarm-outline" size={17} color={TEXT_MUTED} />
+                <Ionicons name="alarm-outline" size={16} color="#8B7355" />
               </Pressable>
               <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => setIsFullscreen(true)}>
-                <Ionicons name="expand-outline" size={18} color="#5B9BFF" />
+                <Ionicons name="expand-outline" size={16} color="#8B7355" />
               </Pressable>
               <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="options-outline" size={17} color={TEXT_MUTED} />
+                <Ionicons name="layers-outline" size={16} color="#8B7355" />
               </Pressable>
             </View>
           </View>
@@ -418,12 +435,12 @@ export function ChartScreen() {
                   <Line p1={{ x: gridLineX3, y: 0 }} p2={{ x: gridLineX3, y: chartLayout.height }} color={GRID} strokeWidth={1} />
 
                   <Group transform={transform}>
-                    <Path path={paths.upWicks} color={BLUE} style="stroke" strokeWidth={1} />
-                    <Path path={paths.upBodies} color={BLUE} />
+                    <Path path={paths.upWicks} color={GREEN} style="stroke" strokeWidth={1} />
+                    <Path path={paths.upBodies} color={GREEN} />
                     <Path path={paths.downWicks} color={RED} style="stroke" strokeWidth={1} />
                     <Path path={paths.downBodies} color={RED} />
 
-                    <Line p1={{ x: 0, y: bidPriceY }} p2={{ x: 10000, y: bidPriceY }} color={BLUE} strokeWidth={1} style="stroke">
+                    <Line p1={{ x: 0, y: bidPriceY }} p2={{ x: 10000, y: bidPriceY }} color={GREEN} strokeWidth={1} style="stroke">
                       <DashPathEffect intervals={[4, 4]} />
                     </Line>
                     <Line p1={{ x: 0, y: askPriceY }} p2={{ x: 10000, y: askPriceY }} color={RED} strokeWidth={1} style="stroke">
@@ -435,23 +452,23 @@ export function ChartScreen() {
 
               {CHART_HEIGHT > 0 && candles.length > 0 && (
                 <>
-                  <View style={[styles.priceTagWrap, { top: bidPriceY - 10, backgroundColor: BLUE }]}>
+                  <View style={[styles.priceTagWrap, { top: bidPriceY - 10, backgroundColor: GREEN }]}>
                     <Text style={styles.priceTagText}>{(latestBid || 0).toFixed(displayDecimals)}</Text>
                   </View>
                   <View style={[styles.priceTagWrap, { top: askPriceY - 10, backgroundColor: RED }]}>
                     <Text style={styles.priceTagText}>{(latestAsk || 0).toFixed(displayDecimals)}</Text>
                   </View>
 
-                  <Text style={[styles.axisLabelY, { top: gridLineY1 - 8 }]}>{(minVal + yRange * 0.75 || 0).toFixed(displayDecimals)}</Text>
-                  <Text style={[styles.axisLabelY, { top: gridLineY2 - 8 }]}>{(minVal + yRange * 0.5 || 0).toFixed(displayDecimals)}</Text>
-                  <Text style={[styles.axisLabelY, { top: gridLineY3 - 8 }]}>{(minVal + yRange * 0.25 || 0).toFixed(displayDecimals)}</Text>
+                  <Text style={[styles.axisLabelY, { top: gridLineY1 - 8, color: TEXT_MUTED }]}>{(minVal + yRange * 0.75 || 0).toFixed(displayDecimals)}</Text>
+                  <Text style={[styles.axisLabelY, { top: gridLineY2 - 8, color: TEXT_MUTED }]}>{(minVal + yRange * 0.5 || 0).toFixed(displayDecimals)}</Text>
+                  <Text style={[styles.axisLabelY, { top: gridLineY3 - 8, color: TEXT_MUTED }]}>{(minVal + yRange * 0.25 || 0).toFixed(displayDecimals)}</Text>
                 </>
               )}
 
               {/* Dynamic X-axis time labels from actual candle timestamps */}
               <View style={styles.xAxis}>
                 {candles.length > 0 && xAxisLabels.map((label, i) => (
-                  <Text key={i} style={[styles.xTick, { left: label.position }]}>{label.text}</Text>
+                  <Text key={i} style={[styles.xTick, { left: label.position, color: TEXT_MUTED }]}>{label.text}</Text>
                 ))}
               </View>
 
@@ -502,7 +519,7 @@ export function ChartScreen() {
               onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } })}
             >
               <View style={styles.actionBtnInnerLeft}>
-                <Text style={styles.actionBtnLabelTitle}>SELL</Text>
+                <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
                 <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
               </View>
               <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
@@ -515,7 +532,7 @@ export function ChartScreen() {
               onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } })}
             >
               <View style={styles.actionBtnInnerLeft}>
-                <Text style={styles.actionBtnLabelTitle}>BUY</Text>
+                <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
                 <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
               </View>
               <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
@@ -565,506 +582,628 @@ export function ChartScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
-  topHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  headerSpacer: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  headerSpacerRight: {
-    alignItems: 'flex-end',
-  },
-  menuBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: G.glass1,
-    borderWidth: 1,
-    borderColor: G.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountBadgeGroup: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    gap: 8,
-  },
-  badgeDemo: {
-    backgroundColor: 'rgba(0, 230, 118, 0.08)',
-    borderColor: 'rgba(0, 230, 118, 0.3)',
-  },
-  badgeLive: {
-    backgroundColor: 'rgba(250, 204, 21, 0.08)',
-    borderColor: 'rgba(250, 204, 21, 0.3)',
-  },
-  liveIndicatorGlow: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glowDemo: {
-    backgroundColor: 'rgba(0, 230, 118, 0.2)',
-  },
-  glowLive: {
-    backgroundColor: 'rgba(250, 204, 21, 0.2)',
-  },
-  liveIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  dotDemo: {
-    backgroundColor: '#00E676',
-  },
-  dotLive: {
-    backgroundColor: '#FACC15',
-  },
-  accountTypeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  textDemo: {
-    color: '#00E676',
-  },
-  textLive: {
-    color: '#FACC15',
-  },
-  balanceContainer: {
-    alignItems: 'flex-end',
-  },
-  balanceLabel: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 2,
-  },
-  balanceText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -0.4,
-  },
-  currencyText: {
-    fontSize: 12,
-    color: '#F8FAFC',
-    fontWeight: '800',
-  },
-  card: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  glassToolbar: {
-    marginHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: '#0d1220',
-    borderWidth: 1,
-    borderColor: '#1e2640',
-    paddingTop: 12,
-    paddingBottom: 8,
-    marginBottom: 12,
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  toolbarRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  symbolInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  flagStack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  flagCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: CARD_BG,
-  },
-  flagOverlap: {
-    marginLeft: -8,
-  },
-  symbolTextCol: {
-    justifyContent: 'center',
-  },
-  symbolNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  symbolText: {
-    color: G.text,
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  microBadge: {
-    backgroundColor: G.glass2,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: G.border,
-  },
-  microBadgeText: {
-    color: G.textSub,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  symbolSubText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  toolbarActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  toolbarActionBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: G.border,
-  },
-  plInfoGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  plLabel: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 12,
-    fontWeight: '800',
-    marginRight: 4,
-  },
-  plValue: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -0.2,
-  },
-  plDivider: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#FFFFFF',
-    marginLeft: 20,
-    marginRight: 2,
-  },
-  chartContainer: {
-    flex: 1,
-    backgroundColor: '#050810',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: GRID,
-    position: 'relative',
-  },
-  gestureWrap: {
-    flex: 1,
-  },
-  canvas: {
-    flex: 1,
-  },
-  overlayPill: {
-    /* Removed from mockup, but leaving empty class just in case */
-  },
-  overlayPillText: {
-  },
-  xAxis: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 24,
-    flexDirection: 'row',
-  },
-  xTick: {
-    position: 'absolute',
-    color: TEXT_MUTED,
-    fontSize: 13,
-    top: 4,
-  },
-  axisLabelY: {
-    position: 'absolute',
-    right: 8,
-    color: TEXT_MUTED,
-    fontSize: 13,
-  },
-  priceTagWrap: {
-    position: 'absolute',
-    right: 0,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderTopLeftRadius: 4,
-    borderBottomLeftRadius: 4,
-  },
-  priceTagText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  crosshairText: {
-    color: '#E2E8F0',
-    fontSize: 12,
-  },
-  bottomArea: {
-    backgroundColor: CARD_BG,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    borderTopColor: G.border,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  timeframesRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 12,
-  },
-  tfBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  tfBtnActive: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  tfText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  tfTextActive: {
-    color: '#fff',
-  },
-  segmentedControl: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(41, 98, 255, 0.08)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(41, 98, 255, 0.15)',
-    padding: 4,
-    marginBottom: 8,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  segmentBtnActive: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  segmentText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  segmentTextActive: {
-    color: '#fff',
-  },
-  sentimentLabelsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  sentimentLabelSell: {
-    color: RED,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  sentimentLabelBuy: {
-    color: BLUE,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  sentimentBarRow: {
-    flexDirection: 'row',
-    height: 4,
-    marginBottom: 12,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  sentimentHalf: {
-    height: '100%',
-  },
-  sentimentSell: {
-    backgroundColor: RED,
-  },
-  sentimentBuy: {
-    backgroundColor: BLUE,
-  },
-  tradeControlsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  actionBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  actionBtnSell: {
-    backgroundColor: 'rgba(255, 42, 85, 0.1)', // Subtle red tint
-    borderWidth: 1,
-    borderColor: 'rgba(255, 42, 85, 0.25)',
-    shadowColor: '#FF2A55',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  actionBtnBuy: {
-    backgroundColor: 'rgba(41, 98, 255, 0.1)', // Subtle blue tint
-    borderWidth: 1,
-    borderColor: 'rgba(41, 98, 255, 0.25)',
-    shadowColor: '#2962FF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  actionBtnInnerLeft: {
-    flex: 1,
-  },
-  actionBtnLabelTitle: {
-    color: TEXT,
-    fontSize: 16,
-    fontWeight: '800',
-    marginBottom: 2,
-    letterSpacing: 0.5,
-  },
-  actionBtnPriceText: {
-    color: TEXT,
-    fontSize: 12,
-    fontWeight: '500',
-    fontVariant: ['tabular-nums'],
-    opacity: 0.9,
-  },
-  actionChevron: {
-    opacity: 0.8,
-  },
-  actionSpacer: {
-    width: 12,
-  },
-  lotSelectorBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(41, 98, 255, 0.08)',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(41, 98, 255, 0.15)',
-  },
-  lotStepperBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lotLabelText: {
-    color: '#94A3B8',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  lotValueText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  avatarWrap: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#2962FF', overflow: 'visible', position: 'relative' },
-  avatarImg: { width: 36, height: 36, borderRadius: 18 },
-  avatarDot: { position: 'absolute', bottom: 0, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#089981', borderWidth: 2, borderColor: '#040609' },
-  fullscreenExitBtn: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 100,
-  },
-  chartOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(5, 8, 16, 0.85)',
-  },
-  overlayText: {
-    color: TEXT_MUTED,
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 12,
-  },
-  overlaySubText: {
-    color: 'rgba(142, 154, 175, 0.6)',
-    fontSize: 12,
-    marginTop: 4,
-  },
-});
+function makeStyles(T: ThemeColors, isDark: boolean) {
+  const APP_BG = T.bg; // #F4F7FB in Light, deep dark in Dark
+  const CARD_BG = T.glass2; // #FFFFFF in Light
+  const CHART_HEADER_BG = T.glass2; // Header is a main card, therefore glass2
+  const CHART_HEADER_BORDER = T.border;
+  const CHART_CANVAS_BG = T.bgSecondary; // #FFFFFF in Light
+  const BOTTOM_AREA_BG = T.bgSecondary;
+  const BLUE = T.trading.buy.primary;
+  const RED = T.trading.sell.primary;
+  const GREEN = isDark ? '#22C55E' : T.up; // Use theme up color
+  const GRID = T.borderSubtle;
+  const TEXT = T.text;
+  const TEXT_MUTED = T.textMuted;
+  const BTN_BG = T.glass1; // Buttons are recessed/interactive, use glass1
+  const PILL_BG = T.glass1; // Pills are recessed, use glass1
 
+  return StyleSheet.create({
+    screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
+    topHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 12,
+    },
+    headerSpacer: {
+      flex: 1,
+      alignItems: 'flex-start',
+    },
+    headerSpacerRight: {
+      alignItems: 'flex-end',
+    },
+    menuBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: isDark ? T.glass1 : '#FFFFFF',
+      borderWidth: 1,
+      borderColor: isDark ? T.border : '#E2E8F0',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    accountBadgeGroup: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    accountBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      borderWidth: 1,
+      gap: 8,
+    },
+    badgeDemo: {
+      backgroundColor: isDark ? 'rgba(0, 230, 118, 0.08)' : '#DCFCE7',
+      borderColor: isDark ? 'rgba(0, 230, 118, 0.3)' : '#86EFAC',
+    },
+    badgeLive: {
+      backgroundColor: isDark ? 'rgba(250, 204, 21, 0.08)' : '#FDE047', // Gold background from image
+      borderColor: isDark ? 'rgba(250, 204, 21, 0.3)' : '#FACC15',
+      shadowColor: '#F59E0B',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0 : 0.4,
+      shadowRadius: 10,
+      elevation: isDark ? 0 : 4,
+    },
+    liveIndicatorGlow: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    glowDemo: {
+      backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    },
+    glowLive: {
+      backgroundColor: 'rgba(250, 204, 21, 0.2)',
+    },
+    liveIndicator: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    dotDemo: {
+      backgroundColor: '#00E676',
+    },
+    dotLive: {
+      backgroundColor: isDark ? '#FACC15' : '#713F12',
+    },
+    accountTypeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+    },
+    textDemo: {
+      color: '#00E676',
+    },
+    textLive: {
+      color: isDark ? '#FACC15' : '#713F12', // Deep brown text for the gold badge
+    },
+    balanceContainer: {
+      alignItems: 'flex-end',
+    },
+    balanceLabel: {
+      color: isDark ? '#FFFFFF' : '#64748B',
+      fontSize: 10,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 2,
+    },
+    balanceText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 18,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -0.4,
+    },
+    currencyText: {
+      fontSize: 12,
+      color: isDark ? '#F8FAFC' : '#475569',
+      fontWeight: '800',
+    },
+    card: {
+      flex: 1,
+      backgroundColor: 'transparent',
+    },
+    glassToolbar: {
+      marginHorizontal: 16,
+      borderRadius: 20,
+      backgroundColor: CHART_HEADER_BG,
+      borderWidth: 1,
+      borderColor: CHART_HEADER_BORDER,
+      paddingTop: 12,
+      paddingBottom: 8,
+      marginBottom: 12,
+      shadowColor: isDark ? '#000' : '#64748B',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: isDark ? 0.3 : 0.08,
+      shadowRadius: 24,
+      elevation: 4,
+    },
+    toolbarRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+    },
+    symbolInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    flagStack: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    flagCircle: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      borderWidth: 2,
+      borderColor: CARD_BG,
+    },
+    flagOverlap: {
+      marginLeft: -8,
+    },
+    symbolTextCol: {
+      justifyContent: 'center',
+    },
+    symbolNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    symbolText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 20,
+      fontWeight: '800',
+      letterSpacing: -0.5,
+    },
+    microBadge: {
+      backgroundColor: T.glass2,
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: T.border,
+    },
+    microBadgeText: {
+      color: T.textSub,
+      fontSize: 9,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+    symbolSubText: {
+      color: isDark ? '#FFFFFF' : '#64748B',
+      fontSize: 12,
+      fontWeight: '500',
+      marginTop: 2,
+    },
+    toolbarActions: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    toolbarActionBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FAF6F0',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E8DFD8',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    topCard: {
+      backgroundColor: CARD_BG,
+      borderRadius: 16,
+      marginHorizontal: 16,
+      marginTop: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: CHART_HEADER_BORDER,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 16,
+      elevation: 4,
+    },
+    topCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    symbolSection: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    flagsWrap: {
+      flexDirection: 'row',
+      marginRight: 10,
+    },
+    flagCircle: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      borderWidth: 2,
+      borderColor: '#0B0F19',
+    },
+    flagOverlap: {
+      marginLeft: -10,
+    },
+    symbolNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    symbolText: {
+      color: '#FFFFFF',
+      fontSize: 18,
+      fontWeight: '800',
+      marginRight: 6,
+    },
+    microBadge: {
+      backgroundColor: '#FFFFFF',
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderRadius: 4,
+      marginRight: 6,
+    },
+    microBadgeText: {
+      color: '#000000',
+      fontSize: 9,
+      fontWeight: '800',
+    },
+    symbolSubText: {
+      color: '#94A3B8',
+      fontSize: 12,
+      marginTop: 2,
+    },
+    balanceContainer: {
+      alignItems: 'flex-end',
+    },
+    balanceLabel: {
+      color: '#475569',
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      marginBottom: 2,
+    },
+    balanceText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    currencyText: {
+      color: '#64748B',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    plRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 16,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255,255,255,0.1)',
+    },
+    plInfoGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    plLabel: {
+      color: '#64748B',
+      fontSize: 12,
+      fontWeight: '600',
+      marginRight: 4,
+    },
+    plValue: {
+      color: '#3B82F6',
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    plDivider: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#475569',
+      marginHorizontal: 8,
+    },
+    toolbarActions: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    toolbarActionBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: '#FAF6F0',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chartContainer: {
+      flex: 1,
+      backgroundColor: CHART_CANVAS_BG,
+      borderTopWidth: 1,
+      borderBottomWidth: 1,
+      borderColor: CHART_HEADER_BORDER,
+      position: 'relative',
+    },
+    gestureWrap: {
+      flex: 1,
+    },
+    canvas: {
+      flex: 1,
+    },
+    overlayPill: {
+      /* Removed from mockup, but leaving empty class just in case */
+    },
+    overlayPillText: {
+    },
+    xAxis: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 24,
+      flexDirection: 'row',
+    },
+    xTick: {
+      position: 'absolute',
+      color: TEXT_MUTED,
+      fontSize: 13,
+      top: 4,
+    },
+    axisLabelY: {
+      position: 'absolute',
+      right: 8,
+      color: TEXT_MUTED,
+      fontSize: 13,
+    },
+    priceTagWrap: {
+      position: 'absolute',
+      right: 0,
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderTopLeftRadius: 4,
+      borderBottomLeftRadius: 4,
+    },
+    priceTagText: {
+      color: isDark ? '#fff' : '#0F172A',
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    crosshairText: {
+      color: isDark ? '#E2E8F0' : '#475569',
+      fontSize: 12,
+    },
+    bottomArea: {
+      backgroundColor: BOTTOM_AREA_BG,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 16,
+    },
+    timeframesRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 8,
+      gap: 12,
+    },
+    tfBtn: {
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    tfBtnActive: {
+      borderBottomColor: isDark ? '#fff' : '#0F172A',
+    },
+    tfText: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    tfTextActive: {
+      color: isDark ? '#fff' : '#0F172A',
+      fontWeight: '800',
+    },
+    segmentedControl: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? '#1E293B' : '#E2E8F0',
+      marginBottom: 16,
+    },
+    segmentBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      alignItems: 'center',
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    segmentBtnActive: {
+      borderBottomColor: isDark ? '#FFFFFF' : '#0F172A',
+    },
+    segmentText: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.5,
+    },
+    segmentTextActive: {
+      color: isDark ? '#fff' : '#0F172A',
+      fontWeight: '800',
+    },
+    sentimentLabelsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    sentimentLabelSell: {
+      color: RED,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    sentimentLabelBuy: {
+      color: BLUE,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    sentimentBarRow: {
+      flexDirection: 'row',
+      height: 4,
+      marginBottom: 12,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    sentimentHalf: {
+      height: '100%',
+    },
+    sentimentSell: {
+      backgroundColor: RED,
+    },
+    sentimentBuy: {
+      backgroundColor: BLUE,
+    },
+    tradeControlsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    actionBtn: {
+      flex: 1,
+      height: 52,
+      borderRadius: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+    },
+    actionBtnSell: {
+      backgroundColor: isDark ? 'rgba(255, 42, 85, 0.1)' : '#FCE7F3',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 42, 85, 0.25)' : '#FBCFE8',
+      shadowColor: '#FF2A55',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.15,
+      shadowRadius: 10,
+      elevation: isDark ? 2 : 0,
+    },
+    actionBtnBuy: {
+      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.1)' : '#F1F5F9',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(41, 98, 255, 0.25)' : '#E2E8F0',
+      shadowColor: '#2962FF',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.15,
+      shadowRadius: 10,
+      elevation: isDark ? 2 : 0,
+    },
+    actionBtnInnerLeft: {
+      flex: 1,
+    },
+    actionBtnLabelTitle: {
+      color: isDark ? TEXT : '#0F172A',
+      fontSize: 16,
+      fontWeight: '800',
+      marginBottom: 2,
+      letterSpacing: 0.5,
+    },
+    actionBtnLabelSell: {
+      color: isDark ? TEXT : '#9F1239',
+    },
+    actionBtnLabelBuy: {
+      color: isDark ? TEXT : '#1E3A8A',
+    },
+    actionBtnPriceText: {
+      color: isDark ? TEXT : '#475569',
+      fontSize: 12,
+      fontWeight: '500',
+      fontVariant: ['tabular-nums'],
+      opacity: 0.9,
+    },
+    actionChevron: {
+      opacity: 0.8,
+    },
+    actionSpacer: {
+      width: 12,
+    },
+    lotSelectorBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.08)' : '#F1F5F9',
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(41, 98, 255, 0.15)' : '#E2E8F0',
+    },
+    lotStepperBtn: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'transparent' : '#E2E8F0',
+      borderRadius: 8,
+    },
+    lotLabelText: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    lotValueText: {
+      color: isDark ? '#fff' : '#0F172A',
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    avatarWrap: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#2962FF', overflow: 'visible', position: 'relative' },
+    avatarImg: { width: 36, height: 36, borderRadius: 18 },
+    avatarDot: { position: 'absolute', bottom: 0, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#089981', borderWidth: 2, borderColor: '#040609' },
+    fullscreenExitBtn: {
+      position: 'absolute',
+      top: 12,
+      right: 12,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 100,
+    },
+    chartOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(5, 8, 16, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+    },
+    overlayText: {
+      color: isDark ? TEXT_MUTED : '#475569',
+      fontSize: 14,
+      fontWeight: '600',
+      marginTop: 12,
+    },
+    overlaySubText: {
+      color: isDark ? 'rgba(142, 154, 175, 0.6)' : '#94A3B8',
+      fontSize: 12,
+      marginTop: 4,
+    },
+  });
+}

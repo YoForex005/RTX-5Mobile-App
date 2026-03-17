@@ -4,7 +4,8 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { findPositionById } from './tradeFlow';
 
 export function ModifyPositionScreen() {
@@ -12,6 +13,8 @@ export function ModifyPositionScreen() {
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   const position = useMemo(
     () => findPositionById(positionId) ?? positions[0],
@@ -57,6 +60,8 @@ function Field({
   onChangeText: (next: string) => void;
   placeholder: string;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -64,7 +69,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={G.textMuted}
+        placeholderTextColor={T.textMuted}
         keyboardType='numeric'
         style={styles.input}
       />
@@ -72,19 +77,19 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: G.text,
+    color: T.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
   },
   formCard: {
@@ -93,49 +98,49 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: T.border,
+    backgroundColor: T.glass1,
     gap: spacing.md,
   },
   fieldWrap: {
     gap: 6,
   },
   fieldLabel: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   input: {
-    backgroundColor: G.glass2,
+    backgroundColor: T.glass2,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: T.border,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    color: G.text,
+    color: T.text,
     fontSize: 15,
   },
   success: {
     marginHorizontal: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: G.upGlow,
-    backgroundColor: G.upGlow,
+    borderColor: T.upGlow,
+    backgroundColor: T.upGlow,
     padding: spacing.md,
   },
   successText: {
-    color: G.up,
+    color: T.up,
     fontSize: 13,
   },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: G.accent,
+    backgroundColor: T.accent,
     alignItems: 'center',
     paddingVertical: 12,
   },
   submitText: {
-    color: G.text,
+    color: T.text,
     fontSize: 15,
     fontWeight: '700',
   },

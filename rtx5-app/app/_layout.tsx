@@ -9,7 +9,6 @@ import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
-import { useWebSocketConnection } from '../src/query/websocket';
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
@@ -43,7 +42,6 @@ function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: str
 function InnerLayout() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  useWebSocketConnection();
 
   return (
     <>

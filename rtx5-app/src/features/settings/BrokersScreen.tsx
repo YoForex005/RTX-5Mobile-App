@@ -14,8 +14,9 @@ import {
 } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { brokers } from '../../mock/tradingData';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
 
 type BrokerFilter = 'all' | 'popular' | 'regulated';
 
@@ -152,6 +153,8 @@ export function BrokersScreen() {
   const [filter, setFilter] = useState<BrokerFilter>('all');
   const [selectedBroker, setSelectedBroker] = useState<BrokerRecord | null>(null);
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   const brokerRecords = useMemo<BrokerRecord[]>(
     () =>
@@ -217,7 +220,7 @@ export function BrokersScreen() {
             <TextInput
               style={styles.search}
               placeholder='Enter company or server name'
-              placeholderTextColor={G.textMuted}
+              placeholderTextColor={T.textMuted}
               value={search}
               onChangeText={setSearch}
             />
@@ -370,6 +373,8 @@ function FilterPill({
   active: boolean;
   onPress: () => void;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <Pressable
       style={({ pressed }) => [
@@ -391,6 +396,8 @@ function MetaBadge({
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={styles.metaBadge}>
       <Ionicons name={icon} size={11} color='#7e97bc' />
@@ -408,6 +415,8 @@ function BrokerLogo({
   failed: boolean;
   onError: (domain: string) => void;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   if (!broker) {
     return <View style={styles.logoFallback} />;
   }
@@ -439,6 +448,8 @@ function DetailStat({
   label: string;
   value: string;
 }) {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={styles.detailStat}>
       <Text style={styles.detailLabel}>{label}</Text>
@@ -447,7 +458,7 @@ function DetailStat({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   page: {
     flex: 1,
   },
@@ -456,19 +467,19 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: T.border,
+    backgroundColor: T.glass1,
     padding: spacing.md,
   },
   title: {
-    color: G.text,
+    color: T.text,
     fontSize: 31,
     fontWeight: '700',
     textAlign: 'center',
   },
   subtitle: {
     marginTop: 4,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -476,8 +487,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: T.border,
+    backgroundColor: T.glass2,
     minHeight: 44,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -486,7 +497,7 @@ const styles = StyleSheet.create({
   search: {
     flex: 1,
     marginLeft: 7,
-    color: G.text,
+    color: T.text,
     fontSize: 16,
     paddingVertical: 8,
   },
@@ -499,26 +510,26 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: T.border,
+    backgroundColor: T.glass2,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   filterPillActive: {
-    borderColor: G.borderHi,
-    backgroundColor: G.glass3,
+    borderColor: T.borderHi,
+    backgroundColor: T.glass3,
   },
   filterLabel: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   filterLabelActive: {
-    color: G.text,
+    color: T.text,
   },
   resultMeta: {
     marginTop: spacing.sm,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -531,8 +542,8 @@ const styles = StyleSheet.create({
   rowCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: T.border,
+    backgroundColor: T.glass1,
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -543,8 +554,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass1,
+    borderColor: T.border,
+    backgroundColor: T.glass1,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -558,8 +569,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: T.border,
+    backgroundColor: T.glass2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -575,14 +586,14 @@ const styles = StyleSheet.create({
   },
   name: {
     flex: 1,
-    color: G.text,
+    color: T.text,
     fontSize: 19,
     fontWeight: '600',
     paddingRight: 8,
   },
   server: {
     marginTop: 2,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 13,
   },
   metaRow: {
@@ -595,8 +606,8 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: T.border,
+    backgroundColor: T.glass2,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -604,7 +615,7 @@ const styles = StyleSheet.create({
   },
   metaBadgeText: {
     marginLeft: 4,
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 11,
   },
   badge: {
@@ -613,10 +624,10 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeBlue: {
-    backgroundColor: G.accentGlow,
+    backgroundColor: T.accentGlow,
   },
   badgeText: {
-    color: G.accent,
+    color: T.accent,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.4,
@@ -634,7 +645,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     marginTop: 8,
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   modalOverlay: {
@@ -646,8 +657,8 @@ const styles = StyleSheet.create({
   modalCard: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: G.borderHi,
-    backgroundColor: G.glass1,
+    borderColor: T.borderHi,
+    backgroundColor: T.glass1,
     padding: spacing.md,
   },
   modalHeader: {
@@ -659,13 +670,13 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.sm,
   },
   modalTitle: {
-    color: G.text,
+    color: T.text,
     fontSize: 18,
     fontWeight: '700',
   },
   modalSub: {
     marginTop: 2,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
   },
   modalStatsRow: {
@@ -678,27 +689,27 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: G.border,
-    backgroundColor: G.glass2,
+    borderColor: T.border,
+    backgroundColor: T.glass2,
     paddingVertical: 7,
     paddingHorizontal: 8,
   },
   detailLabel: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   detailValue: {
     marginTop: 3,
-    color: G.text,
+    color: T.text,
     fontSize: 12,
     fontWeight: '700',
   },
   primaryButton: {
     marginTop: spacing.md,
     borderRadius: 11,
-    backgroundColor: G.accent,
+    backgroundColor: T.accent,
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -706,7 +717,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     marginLeft: 6,
-    color: G.text,
+    color: T.text,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -714,8 +725,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     borderRadius: 11,
     borderWidth: 1,
-    borderColor: G.borderHi,
-    backgroundColor: G.glass2,
+    borderColor: T.borderHi,
+    backgroundColor: T.glass2,
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -723,7 +734,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     marginLeft: 6,
-    color: G.accent,
+    color: T.accent,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -736,7 +747,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     marginLeft: 5,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 13,
   },
   pressed: {

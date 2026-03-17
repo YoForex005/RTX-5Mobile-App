@@ -4,13 +4,16 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { positions } from '../../mock/tradingData';
 import { spacing } from '../../theme';
-import { G } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
 
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   const sourcePosition = useMemo(
     () => findPositionById(positionId) ?? positions[0],
@@ -82,19 +85,19 @@ export function CloseByScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
   },
   title: {
-    color: G.text,
+    color: T.text,
     fontSize: 24,
     fontWeight: '700',
   },
   subTitle: {
     marginTop: 2,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
   },
   referenceCard: {
@@ -102,19 +105,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     padding: spacing.md,
     borderRadius: 8,
-    backgroundColor: G.glass1,
+    backgroundColor: T.glass1,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: T.border,
   },
   referenceTitle: {
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
   },
   referenceValue: {
     marginTop: 4,
-    color: G.text,
+    color: T.text,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -122,9 +125,9 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
     borderRadius: 10,
-    backgroundColor: G.glass1,
+    backgroundColor: T.glass1,
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: T.border,
     overflow: 'hidden',
   },
   pairRow: {
@@ -134,19 +137,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: G.border,
+    borderBottomColor: T.border,
   },
   pairRowSelected: {
-    backgroundColor: G.glass2,
+    backgroundColor: T.glass2,
   },
   pairTitle: {
-    color: G.text,
+    color: T.text,
     fontSize: 14,
     fontWeight: '600',
   },
   pairMeta: {
     marginTop: 2,
-    color: G.textSub,
+    color: T.textSub,
     fontSize: 12,
   },
   pairPnl: {
@@ -155,14 +158,14 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   positive: {
-    color: G.up,
+    color: T.up,
   },
   negative: {
-    color: G.down,
+    color: T.down,
   },
   emptyText: {
     padding: spacing.md,
-    color: G.textMuted,
+    color: T.textMuted,
     fontSize: 13,
   },
   success: {
@@ -170,19 +173,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: G.upGlow,
-    backgroundColor: G.upGlow,
+    borderColor: T.upGlow,
+    backgroundColor: T.upGlow,
     padding: spacing.md,
   },
   successText: {
-    color: G.up,
+    color: T.up,
     fontSize: 13,
   },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.lg,
     borderRadius: 8,
-    backgroundColor: G.accent,
+    backgroundColor: T.accent,
     alignItems: 'center',
     paddingVertical: 12,
   },
@@ -190,7 +193,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   submitText: {
-    color: G.text,
+    color: T.text,
     fontSize: 15,
     fontWeight: '700',
   },
