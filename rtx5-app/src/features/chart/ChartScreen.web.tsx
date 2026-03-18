@@ -11,6 +11,8 @@ import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
+import { useLiveCandles } from '../../hooks/useLiveCandles';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, LineStyle } from 'lightweight-charts';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -21,6 +23,11 @@ const SYMBOL_FLAGS: Record<string, [string, string]> = {
   USDJPY: ['us', 'jp'], NZDUSD: ['nz', 'us'], USDCAD: ['us', 'ca'],
   EURGBP: ['eu', 'gb'], AUDCAD: ['au', 'ca'], AUDCHF: ['au', 'ch'],
   AUDJPY: ['au', 'jp'],
+};
+
+const SYMBOL_LOGOS: Record<string, string> = {
+  BTCUSD: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  XAUUSD: 'https://assets.coingecko.com/coins/images/10481/small/tether-gold.png',
 };
 
 const SYMBOL_NAMES: Record<string, string> = {
@@ -84,64 +91,170 @@ export function ChartScreen() {
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
   const scrollRef = useRef<ScrollView>(null);
+  const chartContainerRef = useRef<any>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
 
-  // Generate demo candles inline (no API)
-  const candles = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000);
-    const basePrice = chartSymbol.includes('JPY') ? 150.0 : chartSymbol.includes('XAU') ? 2350.0 : chartSymbol.includes('BTC') ? 65000.0 : 1.1000;
-    const arr: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
-    let price = basePrice;
-    for (let i = 0; i < 100; i++) {
-      const o = price;
-      const change = (Math.random() - 0.48) * basePrice * 0.002;
-      const c = o + change;
-      const h = Math.max(o, c) + Math.random() * basePrice * 0.001;
-      const l = Math.min(o, c) - Math.random() * basePrice * 0.001;
-      arr.push({ time: now - (100 - i) * 300, open: o, high: h, low: l, close: c, volume: Math.random() * 100 });
-      price = c;
-    }
-    return arr;
-  }, [chartSymbol, chartTimeframe]);
-  const isLoading = false;
+  const { candles, latestTick } = useLiveCandles(chartSymbol, chartTimeframe);
+  const isLoading = candles.length === 0;
   const isError = false;
 
-  // Auto-scroll to end when candles arrive
+  // Initialize Lightweight Chart
   useEffect(() => {
-    if (candles.length > 0) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    if (!chartContainerRef.current) return;
+
+    const CH_BG = isDark ? '#0B0E14' : '#FFFFFF';
+    const TEXT_MUTED = T.textMuted;
+    const GRID = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+      layout: {
+        background: { type: ColorType.Solid, color: CH_BG },
+        textColor: TEXT_MUTED,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: GRID, style: LineStyle.Solid },
+        horzLines: { color: GRID, style: LineStyle.Solid },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+        },
+        horzLine: {
+          color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+        },
+      },
+      localization: {
+        timeFormatter: (timestamp: number) => {
+          const d = new Date(timestamp * 1000);
+          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        },
+      },
+      timeScale: {
+        borderColor: GRID,
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: number) => {
+          const d = new Date(time * 1000);
+          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        },
+      },
+      rightPriceScale: {
+        borderColor: GRID,
+        autoScale: true,
+      },
+    });
+
+    const UP_COLOR = '#2962FF';
+    const DOWN_COLOR = '#EF5350';
+
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+      upColor: UP_COLOR,
+      downColor: DOWN_COLOR,
+      borderVisible: true,
+      wickUpColor: UP_COLOR,
+      wickDownColor: DOWN_COLOR,
+      borderUpColor: UP_COLOR,
+      borderDownColor: DOWN_COLOR,
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = candlestickSeries;
+
+    chart.subscribeCrosshairMove((param) => {
+      if (legendRef.current) {
+        if (param.time && param.seriesData.get(candlestickSeries)) {
+          const data = param.seriesData.get(candlestickSeries) as any;
+          const isUp = data.close >= data.open;
+          const color = isUp ? UP_COLOR : DOWN_COLOR;
+          legendRef.current.innerHTML = `
+            <div style="font-size: 13px; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">O</span><span style="color: ${color}; margin-right: 12px;">${data.open.toFixed(5)}</span>
+              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">H</span><span style="color: ${color}; margin-right: 12px;">${data.high.toFixed(5)}</span>
+              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">L</span><span style="color: ${color}; margin-right: 12px;">${data.low.toFixed(5)}</span>
+              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">C</span><span style="color: ${color}; margin-right: 12px;">${data.close.toFixed(5)}</span>
+            </div>
+          `;
+        } else {
+          legendRef.current.innerHTML = '';
+        }
+      }
+    });
+
+    const handleResize = () => {
+      chart.applyOptions({
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED]);
+
+  // Sync Data
+  useEffect(() => {
+    if (seriesRef.current && candles.length > 0) {
+      // Deduplicate by time strictly for lightweight-charts
+      const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
+      // Sort strictly by timestamp
+      uniqueData.sort((a, b) => a.time - b.time);
+      seriesRef.current.setData(uniqueData as any);
     }
-  }, [candles.length]);
+  }, [candles, isDark]);
 
-  const CANDLE_WIDTH = 6;
-  const CANDLE_GAP = 3;
-  const CHART_WIDTH = Math.max(candles.length * (CANDLE_WIDTH + CANDLE_GAP) + 60, chartLayout.width);
+  // Live Tick Sync
+  useEffect(() => {
+    if (seriesRef.current && latestTick) {
+      seriesRef.current.update(latestTick as any);
+    }
+  }, [latestTick, isDark]);
+
   const CHART_HEIGHT = chartLayout.height;
-
-  const min = useMemo(() => Math.min(...candles.map(c => c.low)) * 0.999, [candles]);
-  const max = useMemo(() => Math.max(...candles.map(c => c.high)) * 1.001, [candles]);
-  const range = max - min;
-
-  const getY = (val: number) => {
-    if (range === 0 || CHART_HEIGHT === 0) return 0;
-    return CHART_HEIGHT - ((val - min) / range) * CHART_HEIGHT;
-  };
 
   const handleLayout = (e: LayoutChangeEvent) => {
     setChartLayout({
       width: e.nativeEvent.layout.width,
       height: e.nativeEvent.layout.height,
     });
+    if (chartRef.current && chartContainerRef.current) {
+      chartRef.current.applyOptions({
+        width: e.nativeEvent.layout.width,
+        height: e.nativeEvent.layout.height,
+      });
+    }
   };
 
-  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : 0;
+  const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
-  const displayDecimals = chartSymbol.includes('JPY') ? 3 : chartSymbol.includes('XAU') ? 2 : chartSymbol.includes('BTC') ? 2 : 5;
-  const displaySymbol = chartSymbol.length >= 6 ? `${chartSymbol.slice(0, 3)}/${chartSymbol.slice(3, 6)}` : chartSymbol;
-  const symbolFlags = SYMBOL_FLAGS[chartSymbol] ?? null;
-  const symbolName = SYMBOL_NAMES[chartSymbol] ?? chartSymbol;
-  const symbolCategory = SYMBOL_CATEGORY[chartSymbol] ?? 'FX';
+  
+  // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
+  const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
+
+  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
+  const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
+  const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
+  const symbolCategory = SYMBOL_CATEGORY[baseSymbol] ?? 'FX';
+  const symbolLogo = SYMBOL_LOGOS[baseSymbol] ?? null;
 
   // Dynamic X-axis labels from actual candle timestamps
   const xAxisLabels = useMemo(() => {
@@ -165,9 +278,7 @@ export function ChartScreen() {
     <Screen style={styles.screen}>
       <View style={styles.topHeaderRow}>
         <View style={styles.headerSpacer}>
-          <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-            <Ionicons name="menu" size={28} color={isDark ? '#fff' : '#64748B'} />
-          </Pressable>
+          <View style={{ width: 40, height: 40 }} />
         </View>
         <View style={styles.accountBadgeGroup}>
           <View style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}>
@@ -189,7 +300,7 @@ export function ChartScreen() {
             <LinearGradient
               colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
               start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]}
             />
           )}
           <View style={styles.toolbarRow}>
@@ -200,9 +311,13 @@ export function ChartScreen() {
                     <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[0]}.png` }} style={[styles.flagCircle, { zIndex: 2 }]} />
                     <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[1]}.png` }} style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]} />
                   </>
+                ) : symbolLogo ? (
+                  <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image source={{ uri: symbolLogo }} style={{ width: 18, height: 18, borderRadius: 9 }} />
+                  </View>
                 ) : (
                   <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{chartSymbol.slice(0, 3)}</Text>
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{displaySymbol.slice(0, 3).replace('/', '')}</Text>
                   </View>
                 )}
               </View>
@@ -237,19 +352,43 @@ export function ChartScreen() {
             </View>
             <View style={styles.toolbarActions}>
               <Pressable style={styles.toolbarActionBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
-                <Ionicons name="alarm-outline" size={16} color={isDark ? '#E2E8F0' : '#8B7355'} />
+                <Ionicons name="alarm-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
               <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="expand-outline" size={16} color={isDark ? '#E2E8F0' : '#8B7355'} />
+                <Ionicons name="expand-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
               <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="layers-outline" size={16} color={isDark ? '#E2E8F0' : '#8B7355'} />
+                <Ionicons name="layers-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
             </View>
           </View>
         </View>
 
         <View style={styles.chartContainer} onLayout={handleLayout}>
+          {/* Top Integrated Toolbar (Timeframes, Legend) */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 4, zIndex: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map((tf) => (
+                <Pressable key={tf} onPress={() => setChartTimeframe(tf)}>
+                  <Text style={{ fontSize: 13, fontWeight: chartTimeframe === tf ? '700' : '500', color: chartTimeframe === tf ? BLUE : TEXT_MUTED }}>{tf}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          {/* Floating OHLC Legend */}
+          <div
+            ref={legendRef}
+            style={{
+              position: 'absolute',
+              top: 32,
+              left: 12,
+              zIndex: 20,
+              pointerEvents: 'none',
+              display: 'flex',
+            }}
+          />
+
           {/* Loading Spinner */}
           {isLoading && (
             <View style={styles.chartOverlay}>
@@ -267,95 +406,13 @@ export function ChartScreen() {
             </View>
           )}
 
-          {CHART_HEIGHT > 0 && candles.length > 0 && (
-            <ScrollView
-              ref={scrollRef}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
-            >
-              <View style={{ width: CHART_WIDTH, height: CHART_HEIGHT }}>
-                {/* Grid Lines */}
-                {[0.25, 0.5, 0.75].map(v => (
-                  <View
-                    key={v}
-                    style={[styles.gridLine, { top: CHART_HEIGHT * v, width: CHART_WIDTH }]}
-                  />
-                ))}
-
-                {/* Candles */}
-                {candles.map((c, i) => {
-                  const x = i * (CANDLE_WIDTH + CANDLE_GAP) + 10;
-                  const isUp = c.close >= c.open;
-                  const color = isUp ? BLUE : RED;
-                  const openY = getY(c.open);
-                  const closeY = getY(c.close);
-                  const highY = getY(c.high);
-                  const lowY = getY(c.low);
-                  const topY = Math.min(openY, closeY);
-                  const bodyHeight = Math.max(Math.abs(openY - closeY), 1);
-                  const wickX = x + CANDLE_WIDTH / 2;
-
-                  return (
-                    <View key={i} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: 0, pointerEvents: 'none' }}>
-                      <View style={{
-                        position: 'absolute',
-                        left: wickX,
-                        top: highY,
-                        height: Math.max(lowY - highY, 1),
-                        width: 1,
-                        backgroundColor: color
-                      }} />
-                      <View style={{
-                        position: 'absolute',
-                        left: x,
-                        top: topY,
-                        width: CANDLE_WIDTH,
-                        height: bodyHeight,
-                        backgroundColor: color
-                      }} />
-                    </View>
-                  );
-                })}
-
-                {/* Current Price Line */}
-                <View style={{ position: 'absolute', top: getY(latestBid), left: 0, right: 0, width: CHART_WIDTH, height: 1, backgroundColor: BLUE, opacity: 0.8, borderStyle: 'dashed', borderWidth: 1, borderColor: BLUE }} />
-                <View style={{ position: 'absolute', top: getY(latestAsk), left: 0, right: 0, width: CHART_WIDTH, height: 1, backgroundColor: RED, opacity: 0.8, borderStyle: 'dashed', borderWidth: 1, borderColor: RED }} />
-              </View>
-            </ScrollView>
-          )}
-
-          {CHART_HEIGHT > 0 && candles.length > 0 && (
-            <>
-              <View style={[styles.priceTagWrap, { top: getY(latestBid) - 10, backgroundColor: BLUE }]}>
-                <Text style={styles.priceTagText}>{(latestBid || 0).toFixed(displayDecimals)}</Text>
-              </View>
-              <View style={[styles.priceTagWrap, { top: getY(latestAsk) - 10, backgroundColor: RED }]}>
-                <Text style={styles.priceTagText}>{(latestAsk || 0).toFixed(displayDecimals)}</Text>
-              </View>
-
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.25 - 8 }]}>{(min + range * 0.75 || 0).toFixed(displayDecimals)}</Text>
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.5 - 8 }]}>{(min + range * 0.5 || 0).toFixed(displayDecimals)}</Text>
-              <Text style={[styles.axisLabelY, { top: CHART_HEIGHT * 0.75 - 8 }]}>{(min + range * 0.25 || 0).toFixed(displayDecimals)}</Text>
-            </>
-          )}
-
-          <View style={styles.xAxis}>
-            {candles.length > 0 && xAxisLabels.map((label, i) => (
-              <Text key={i} style={[styles.xTick, { left: label.position }]}>{label.text}</Text>
-            ))}
-          </View>
+          <div 
+            ref={chartContainerRef} 
+            style={{ width: '100%', flex: 1, position: 'relative' }} 
+          />
         </View>
 
         <View style={styles.bottomArea}>
-          <View style={styles.timeframesRow}>
-            {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map((tf) => (
-              <Pressable key={tf} onPress={() => setChartTimeframe(tf)} style={[styles.tfBtn, chartTimeframe === tf && styles.tfBtnActive]}>
-                <Text style={[styles.tfText, chartTimeframe === tf && styles.tfTextActive]}>{tf}</Text>
-              </Pressable>
-            ))}
-          </View>
-
           <View style={styles.segmentedControl}>
             {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
               <Pressable key={tab} style={[styles.segmentBtn, tab === 'POSITIONS' && styles.segmentBtnActive]}>
@@ -475,12 +532,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'flex-end',
     },
     menuBtn: {
-      width: 38,
-      height: 38,
+      width: 40,
+      height: 40,
       borderRadius: 10,
-      backgroundColor: isDark ? T.glass1 : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: isDark ? T.border : '#E2E8F0',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -650,9 +704,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 34,
       height: 34,
       borderRadius: 10,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FAF6F0',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E8DFD8',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -744,8 +795,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     bottomArea: {
       backgroundColor: BOTTOM_AREA_BG,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
       borderTopWidth: 1,
       borderTopColor: isDark ? T.border : '#E2E8F0',
       paddingHorizontal: 16,

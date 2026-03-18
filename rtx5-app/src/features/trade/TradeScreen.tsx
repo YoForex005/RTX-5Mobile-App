@@ -65,30 +65,9 @@ export function TradeScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={(
           <>
-            {/* ── Professional Header ── */}
-            <View style={s.headerGrad}>
-              <View style={s.headerRow}>
-                <Pressable style={s.menuBtn} onPress={() => setSidebarOpen(true)}>
-                  <Ionicons name="menu" size={22} color={T.text} />
-                </Pressable>
-
-                <View style={{ flex: 1 }} />
-
-                <View style={s.headerActions}>
-                  <Pressable style={s.headerIconBtn}>
-                    <Ionicons name="notifications-outline" size={19} color={T.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => router.push('/trade/order-ticket')}
-                    style={({ pressed }) => [s.newOrderHeaderBtn, pressed && s.newOrderHeaderBtnPressed]}
-                  >
-                    <Ionicons name="add" size={15} color="#fff" />
-                    <Text style={s.newOrderHeaderText}>Order</Text>
-                  </Pressable>
-                </View>
-              </View>
+            <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
-
             {/* ── Summary Block ── */}
             <View style={s.summaryBlock}>
               <View style={s.summaryTop}>
@@ -295,7 +274,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     equityLabel: { fontSize: 12, fontWeight: '600' },
     equityValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
     /* Exposure */
-    exposureSection: { marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 20, borderWidth: 1, borderColor: T.border, padding: spacing.md, backgroundColor: cardBg,
+    exposureSection: {
+      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 20, borderWidth: 1, borderColor: T.border, padding: spacing.md, backgroundColor: cardBg,
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4,
     },
     exposureHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },

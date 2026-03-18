@@ -215,35 +215,45 @@ export function QuotesScreen() {
   };
 
   /* Dynamic per-theme values */
-  const menuBtnBg   = isDark ? 'rgba(255,255,255,0.08)' : T.glass1;
-  const menuBtnBdr  = isDark ? 'rgba(255,255,255,0.15)' : T.border;
-  const secBtnBg    = isDark ? 'rgba(255,255,255,0.06)' : T.glass1;
-  const secBtnBdr   = isDark ? 'rgba(255,255,255,0.12)' : T.border;
-  const searchBg    = isDark ? '#0c1018' : T.glass2;
-  const searchBdr   = isDark ? T.border : T.border;
+  const menuBtnBg = isDark ? 'rgba(255,255,255,0.08)' : T.glass1;
+  const menuBtnBdr = isDark ? 'rgba(255,255,255,0.15)' : T.border;
+  const secBtnBg = isDark ? 'rgba(255,255,255,0.06)' : T.glass1;
+  const secBtnBdr = isDark ? 'rgba(255,255,255,0.12)' : T.border;
+  const searchBarStyle: any = isDark ? {
+    backgroundColor: 'rgba(30, 41, 59, 0.55)', // Deep translucent slate glass
+    borderTopColor: 'rgba(255, 255, 255, 0.12)', // Top edge light reflection
+    borderLeftColor: 'rgba(255, 255, 255, 0.06)',
+    borderRightColor: 'rgba(0, 0, 0, 0.2)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.4)', // Bottom shadow sink
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  } : {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+  };
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.bgRoot }}>
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
       <SafeAreaView style={s.safe}>
         <View style={s.screen}>
 
-          {/* ── Header ── */}
-          <View style={s.headerRow}>
-            <Pressable
-              style={[s.menuBtn, { backgroundColor: menuBtnBg, borderColor: menuBtnBdr }]}
-              onPress={() => setSidebarOpen(true)}
-            >
-              <Ionicons name="menu" size={24} color={T.text} />
-            </Pressable>
-            <View style={s.headerRight}>
-              <Pressable style={s.iconBtnPrimary} onPress={() => {}}>
-                <Ionicons name="add" size={22} color="#fff" />
+          {/* ── Inline Header ── */}
+          <View style={{ height: 40, marginTop: 0, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Quotes</Text>
+
+            {/* Float header controls to the right */}
+            <View style={[s.headerRight, { position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }]}>
+              <Pressable style={[s.iconBtnPrimary, { backgroundColor: '#6366F1' }]} onPress={() => { }}>
+                <Ionicons name="add" size={16} color="#fff" />
               </Pressable>
               <Pressable
-                style={[s.iconBtnSecondary, { backgroundColor: secBtnBg, borderColor: secBtnBdr }]}
-                onPress={() => {}}
+                style={[s.iconBtnSecondary, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass1, borderColor: isDark ? 'rgba(255,255,255,0.08)' : T.border }]}
+                onPress={() => { }}
               >
-                <Ionicons name="create-outline" size={19} color={T.textMuted} />
+                <Ionicons name="create-outline" size={14} color={T.textMuted} />
               </Pressable>
             </View>
           </View>
@@ -253,19 +263,19 @@ export function QuotesScreen() {
             <Text style={[s.subLeft, { color: T.textMuted }]}>Last Updated: {gmtClock(updatedAt)} GMT</Text>
             <View style={s.subRight}>
               <Text style={[s.subGrey, { color: T.textMuted }]}>Status: </Text>
-              <Text style={[s.subLive, { color: T.trading.profit }]}>LIVE</Text>
+              <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>LIVE</Text>
             </View>
           </View>
 
           {/* ── Search ── */}
-          <View style={[s.searchBar, { backgroundColor: searchBg, borderColor: searchBdr }]}>
+          <View style={[s.searchBar, searchBarStyle]}>
             <Ionicons name="search" size={20} color={T.textMuted} />
             <TextInput
               value={search}
               onChangeText={setSearch}
-              style={[s.searchInput, { color: T.text }]}
+              style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
               placeholder="Search Assets, Pairs, and Indices..."
-              placeholderTextColor={T.textMuted}
+              placeholderTextColor={isDark ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
               autoCapitalize="characters"
               autoCorrect={false}
             />
@@ -321,12 +331,12 @@ const s = StyleSheet.create({
   /* Header */
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  menuBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  iconBtnPrimary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#4F46E5', shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 0 },
-  iconBtnSecondary: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  iconBtnPrimary: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6, backgroundColor: '#6366F1' },
+  iconBtnSecondary: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
 
   /* Subheader */
-  subheaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 },
+  subheaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, marginBottom: 16 },
   subLeft: { fontSize: 13, fontWeight: '500' },
   subRight: { flexDirection: 'row', alignItems: 'center' },
   subGrey: { fontSize: 13, fontWeight: '500' },
@@ -334,12 +344,11 @@ const s = StyleSheet.create({
 
   /* Search */
   searchBar: {
-    borderWidth: 1, borderRadius: 24, height: 44,
+    borderWidth: 1, borderRadius: 24, height: 48,
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, marginBottom: 20, gap: 10,
-    borderColor: '#E2E8F0', backgroundColor: '#FFFFFF',
   },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '500' },
 
   /* List */
   list: { flex: 1 },

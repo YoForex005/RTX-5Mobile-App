@@ -18,16 +18,12 @@ export function SettingsScreen() {
 
   return (
     <Screen>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── Header ────────────────────────────────────────────── */}
-        <View style={styles.headerRow}>
-          <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-            <Ionicons name="menu" size={24} color={T.text} />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          <Pressable style={styles.searchBtn}>
-            <Ionicons name="search" size={20} color={T.textMuted} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={{ height: 56, marginTop: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Settings</Text>
+          <Pressable style={{ position: 'absolute', right: 16, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="search" size={24} color={T.textMuted} />
           </Pressable>
         </View>
 
@@ -290,7 +286,7 @@ function SettingRow({ icon, color, title, sub, badge, rightElement, T, styles }:
 // ── Styles ──────────────────────────────────────────────────────
 
 const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bgRoot },
+  container: { flex: 1, backgroundColor: T.bg },
   content: { paddingBottom: 100 },
 
   cardShadow: {
@@ -362,7 +358,7 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
   accCompany: { color: themeMode === 'light' ? 'rgba(255,255,255,0.9)' : '#CBD5E1', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   accServer: { color: T.textMuted, fontSize: 12, fontWeight: '500', letterSpacing: 0.1 },
   accServerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
-  accServerDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: themeMode === 'light' ? 'rgba(255,255,255,0.8)' : '#FFFFFF', marginLeft: 14, marginRight: 2 },
+  accServerDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: themeMode === 'light' ? 'rgba(255,255,255,0.6)' : T.textMuted, marginLeft: 14, marginRight: 2 },
 
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },

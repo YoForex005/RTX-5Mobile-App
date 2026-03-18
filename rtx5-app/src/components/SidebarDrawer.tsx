@@ -14,6 +14,7 @@ import { ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../state/userPreferences';
 import { useUIState } from '../state/uiState';
 import { useTheme } from '../theme/useTheme';
+import { useBrokerConfig } from '../query/broker';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -51,6 +52,8 @@ export function SidebarDrawer() {
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const brokerId = useUserPreferences((s) => s.brokerId);
+  const { data: brokerConfig } = useBrokerConfig(brokerId);
   const isDark = themeMode === 'dark';
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -127,7 +130,10 @@ export function SidebarDrawer() {
               {isLoggedIn && accountDetails ? (
                 <View style={ds.profileText}>
                   <Text style={ds.userName} numberOfLines={1}>{accountDetails.name}</Text>
-                  <Text style={ds.accountDetails} numberOfLines={1}>{accountDetails.id} - {accountDetails.server}</Text>
+                  <Text style={ds.accountDetails} numberOfLines={1}>{accountDetails.id} — {brokerConfig?.server_name || accountDetails.server}</Text>
+                  {brokerConfig?.broker_name ? (
+                    <Text style={[ds.accountDetails, { marginTop: 0, marginBottom: 4 }]} numberOfLines={1}>{brokerConfig.broker_name}</Text>
+                  ) : null}
                   <Pressable style={ds.manageBtn} onPress={() => {
                     handleClose();
                     setTimeout(() => router.push('/settings/accounts'), 150);

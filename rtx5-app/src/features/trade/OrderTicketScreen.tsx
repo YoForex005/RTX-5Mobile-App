@@ -173,22 +173,22 @@ export function OrderTicketScreen() {
 
         {/* Risk Management */}
         <Text style={styles.sectionTitle}>RISK MANAGEMENT</Text>
-        <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => setSlEnabled(v => !v)}  T={T} isDark={isDark} styles={styles} />
+        <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => setSlEnabled(v => !v)} T={T} isDark={isDark} styles={styles} />
         <View style={styles.hairline} />
-        <ToggleRow label="Take Profit" icon="analytics-outline" enabled={tpEnabled} onToggle={() => setTpEnabled(v => !v)}  T={T} isDark={isDark} styles={styles} />
+        <ToggleRow label="Take Profit" icon="analytics-outline" enabled={tpEnabled} onToggle={() => setTpEnabled(v => !v)} T={T} isDark={isDark} styles={styles} />
         <View style={styles.hairline} />
-        <ToggleRow label="Trailing Stop" icon="git-commit-outline" enabled={false} onToggle={() => {}}  T={T} isDark={isDark} styles={styles} />
+        <ToggleRow label="Trailing Stop" icon="git-commit-outline" enabled={false} onToggle={() => { }} T={T} isDark={isDark} styles={styles} />
         <View style={styles.hairline} />
 
         {/* Market Data (inline key-value) */}
         <Text style={styles.sectionTitle}>MARKET DATA</Text>
-        <InfoRow label="Fill Policy" value="FOK"  styles={styles} />
+        <InfoRow label="Fill Policy" value="FOK" styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Spread" value={`${spread} pts`}  styles={styles} />
+        <InfoRow label="Spread" value={`${spread} pts`} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Margin" value="-$6.72"  styles={styles} />
+        <InfoRow label="Margin" value="-$6.72" styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Acc. Leverage" value="1:30"  styles={styles} />
+        <InfoRow label="Acc. Leverage" value="1:30" styles={styles} />
         <View style={styles.hairline} />
 
         {/* Depth of Market — compact table */}
@@ -220,8 +220,8 @@ export function OrderTicketScreen() {
 
         {/* Execution Buttons */}
         <View style={styles.execRow}>
-          <Pressable 
-            style={[styles.execBtn, styles.execSell]} 
+          <Pressable
+            style={[styles.execBtn, styles.execSell]}
             onPress={() => handlePlaceOrder('sell')}
             disabled={isOrderPending}
           >
@@ -234,10 +234,10 @@ export function OrderTicketScreen() {
               </>
             )}
           </Pressable>
-          <Pressable 
-             style={[styles.execBtn, styles.execBuy]} 
-             onPress={() => handlePlaceOrder('buy')}
-             disabled={isOrderPending}
+          <Pressable
+            style={[styles.execBtn, styles.execBuy]}
+            onPress={() => handlePlaceOrder('buy')}
+            disabled={isOrderPending}
           >
             {isOrderPending ? (
               <ActivityIndicator color={T.text} />
@@ -315,7 +315,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
   const SUB = T.textSub;
   const DIM = T.textMuted;
   const ACCENT = T.accent;
-  
+
   const SELL_C = T.trading.sell.primary;
   const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
   const BUY_C = T.trading.buy.primary;
@@ -347,7 +347,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     scroll: { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16 },
     sectionTitle: { color: T.textSub, fontSize: 9, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 10, marginBottom: 2 },
-    
+
     flatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
     rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     rowRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -374,7 +374,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     track: { width: 40, height: 22, borderRadius: 11, backgroundColor: isDark ? '#252C3B' : T.border, justifyContent: 'center', paddingHorizontal: 2 },
     trackOn: { backgroundColor: ACCENT },
-    thumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: isDark ? '#A0ABC0' : '#FFFFFF', shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
+    thumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: isDark ? '#A0ABC0' : '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
     thumbOn: { backgroundColor: '#FFFFFF', transform: [{ translateX: 18 }] },
     statusTxt: { color: SUB, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, minWidth: 22 },
 

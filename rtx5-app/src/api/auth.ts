@@ -19,7 +19,7 @@ import { apiClient, API_BASE_URL } from './apiClient';
 
 /** POST /auth/login — request body */
 export interface LoginRequest {
-  username: string;
+  login: number;
   password: string;
   broker_id: string;
 }

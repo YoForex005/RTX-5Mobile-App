@@ -21,6 +21,8 @@ type UserPreferencesState = {
   historyRange: string;
   isDemoAccount: boolean;
   isLoggedIn: boolean;
+  /** Broker ID entered at login — used by GET /broker/config to fetch broker-specific settings */
+  brokerId: string;
   accountDetails: {
     id: string;
     name: string;
@@ -47,6 +49,8 @@ type UserPreferencesState = {
   setOneClickAccepted: (accepted: boolean) => void;
   setHistoryRange: (range: string) => void;
   setIsDemoAccount: (isDemo: boolean) => void;
+  /** Persist the broker_id from the login screen for app-wide broker config access */
+  setBrokerId: (id: string) => void;
 };
 
 export const useUserPreferences = create<UserPreferencesState>()(
@@ -64,6 +68,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       historyRange: 'Last 6 months',
       isDemoAccount: true,
       isLoggedIn: false,
+      brokerId: '',
       accountDetails: null,
       login: (id, name, server, tokens) =>
         set({
@@ -80,7 +85,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
           },
         }),
       logout: () => {
-        set({ isLoggedIn: false, accountDetails: null });
+        // Clear broker context along with auth state on logout
+        set({ isLoggedIn: false, accountDetails: null, brokerId: '' });
       },
       updateTokens: (accessToken, refreshToken, expiresAt) =>
         set((state) => {
@@ -121,6 +127,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
+      setBrokerId: (id) => set({ brokerId: id }),
     }),
     {
       name: 'rtx5-user-preferences-v2',

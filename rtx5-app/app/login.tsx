@@ -1,5 +1,6 @@
 import { Stack, router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,10 +16,19 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { loginAPI } from '../src/api/auth';
+// Broker config API — validates broker_id before login and provides server_name
+import { getBrokerConfig } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/theme/useTheme';
+import { useQueryClient } from '@tanstack/react-query';
+import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
+import { BROKER_CONFIG_KEY } from '../src/query/broker';
 
 export default function LoginScreen() {
   const login = useUserPreferences((s) => s.login);
+  // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
+  // can fetch GET /broker/config with the correct broker context app-wide
+  const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
+  const queryClient = useQueryClient();
 
   const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +41,28 @@ export default function LoginScreen() {
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
 
+  useEffect(() => {
+    // Auto-populate saved credentials if they exist
+    AsyncStorage.getItem('rtx5_saved_login').then((val) => {
+      if (val) {
+        try {
+          const { broker, login: savedAccountId, pass } = JSON.parse(val);
+          if (broker) setBrokerId(broker);
+          if (savedAccountId) setAccountId(savedAccountId);
+          if (pass) setPassword(pass);
+          setSavePassword(true);
+        } catch (e) {
+          // ignore parsing error
+        }
+      }
+    });
+  }, []);
+
   const handleLogin = async () => {
+    if (!brokerId.trim()) {
+      Alert.alert('Error', 'Please enter your Broker ID');
+      return;
+    }
     if (!accountId || !password) {
       Alert.alert('Error', 'Please enter both Login and Password');
       return;
@@ -39,8 +70,18 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
+      // We fetch brokerConfig strictly to get the server_name for the UI.
+      // We do NOT block login if it returns the fallback shape (without broker_id),
+      // because the backend /auth/login will ultimately validate the broker_id.
+      let brokerConfig: any = null;
+      try {
+        brokerConfig = await getBrokerConfig(brokerId.trim());
+      } catch (e) {
+        // Ignore errors, we'll fall back to brokerId if it fails
+      }
+
       const response = await loginAPI({
-        username: accountId.trim(),
+        login: Number(accountId.trim()),
         password,
         broker_id: brokerId.trim(),
       });
@@ -51,13 +92,33 @@ export default function LoginScreen() {
       login(
         String(response.account_login),
         response.username || 'Trader',
-        response.server || brokerId,
+        response.server || brokerConfig?.server_name || brokerId,
         {
           access_token: response.access_token,
           refresh_token: response.refresh_token,
           expires_at: expiresAt,
         }
       );
+
+      // Persist broker_id to Zustand — enables GET /broker/config to resolve
+      // broker-specific settings (branding, currencies, leverage limits, etc.)
+      persistBrokerId(brokerId.trim());
+
+      // ── Invalidate cached queries so fresh data loads for the new session ──
+      // Without this, stale accounts/broker data from a previous login persists
+      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
+      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
+      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+
+      // ── Handle Save Password Option ──────────────────────────────────────
+      if (savePassword) {
+        AsyncStorage.setItem(
+          'rtx5_saved_login',
+          JSON.stringify({ broker: brokerId.trim(), login: accountId.trim(), pass: password })
+        );
+      } else {
+        AsyncStorage.removeItem('rtx5_saved_login');
+      }
 
       if (router.canGoBack()) {
         router.back();
@@ -74,6 +135,19 @@ export default function LoginScreen() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
+      {Platform.OS === 'web' && (
+        // @ts-ignore - Web only CSS injection
+        <style>{`
+          input:-webkit-autofill,
+          input:-webkit-autofill:hover, 
+          input:-webkit-autofill:focus, 
+          input:-webkit-autofill:active {
+              -webkit-box-shadow: 0 0 0 1000px ${T.bg} inset !important;
+              -webkit-text-fill-color: ${T.text} !important;
+              transition: background-color 5000s ease-in-out 0s;
+          }
+        `}</style>
+      )}
       <View style={styles.bg}>
 
 
@@ -113,14 +187,14 @@ export default function LoginScreen() {
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>Broker ID</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={brokerId}
                   onChangeText={setBrokerId}
                   autoCapitalize="none"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
                   underlineColorAndroid="transparent"
-                  importantForAutofill="no-hide-descendants"
+                  importantForAutofill={"no" as any}
                   autoComplete="off"
                   textContentType="none"
                   spellCheck={false}
@@ -128,12 +202,13 @@ export default function LoginScreen() {
                   disableFullscreenUI={true}
                 />
               </View>
+              <View style={styles.fieldDivider} />
 
               {/* Login Field */}
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>Login</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={accountId}
                   onChangeText={setAccountId}
                   autoCapitalize="none"
@@ -141,7 +216,7 @@ export default function LoginScreen() {
                   selectionColor={T.accent}
                   cursorColor={T.accent}
                   underlineColorAndroid="transparent"
-                  importantForAutofill="no-hide-descendants"
+                  importantForAutofill={"no" as any}
                   autoComplete="off"
                   textContentType="none"
                   spellCheck={false}
@@ -149,12 +224,13 @@ export default function LoginScreen() {
                   disableFullscreenUI={true}
                 />
               </View>
+              <View style={styles.fieldDivider} />
 
               {/* Password Field */}
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>Password</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={password}
                   onChangeText={setPassword}
                   autoCapitalize="none"
@@ -162,7 +238,7 @@ export default function LoginScreen() {
                   selectionColor={T.accent}
                   cursorColor={T.accent}
                   underlineColorAndroid="transparent"
-                  importantForAutofill="no-hide-descendants"
+                  importantForAutofill={"no" as any}
                   autoComplete="off"
                   textContentType="none"
                   spellCheck={false}
@@ -173,6 +249,20 @@ export default function LoginScreen() {
                   <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textSub} />
                 </Pressable>
               </View>
+              <View style={styles.fieldDivider} />
+
+              {/* Save Password Checkbox */}
+              <Pressable
+                style={styles.checkboxRow}
+                onPress={() => setSavePassword(!savePassword)}
+              >
+                <Ionicons
+                  name={savePassword ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={savePassword ? T.accent : T.textSub}
+                />
+                <Text style={styles.checkboxText}>Save password</Text>
+              </Pressable>
 
               <Pressable
                 style={({ pressed }) => [
@@ -261,14 +351,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       minHeight: 56,
       paddingVertical: 12,
-      backgroundColor: T.bg, // Aggressive fix for native highlight leaks
+      backgroundColor: 'transparent',
     },
     inputLabel: {
       color: T.text,
       fontSize: 15,
       fontWeight: '500',
       width: 125,
-      backgroundColor: T.bg, // Matches row background
+      backgroundColor: 'transparent',
     },
     input: {
       flex: 1,
@@ -276,26 +366,43 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 16,
       fontWeight: '600',
       padding: 0,
-      paddingHorizontal: 0, // Absolute reset
+      paddingHorizontal: 0,
       margin: 0,
-      height: '100%',
-      backgroundColor: T.bg, // Matches theme to hide highlights
+      height: '100%' as any,
+      backgroundColor: 'transparent',
       borderWidth: 0,
       borderColor: 'transparent',
       borderRadius: 0,
-      // @ts-ignore - web focus ring removal
-      outlineStyle: 'none',
-      // @ts-ignore - additional web focus ring removal
-      outlineWidth: 0,
       shadowOpacity: 0,
       elevation: 0,
+    },
+
+    /* Divider between fields */
+    fieldDivider: {
+      height: 1,
+      backgroundColor: T.border,
+      marginLeft: 0,
     },
 
     /* Eye Icon */
     eyeIconBtn: {
       padding: 8,
       marginRight: -8,
-      backgroundColor: T.bg, // Matches row background
+      backgroundColor: 'transparent',
+    },
+
+    /* Checkbox */
+    checkboxRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 20,
+      marginBottom: 24,
+    },
+    checkboxText: {
+      color: T.text,
+      fontSize: 14,
+      fontWeight: '500',
+      marginLeft: 10,
     },
 
     /* Solid Login Button */

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, Group, Line, Path, Skia, DashPathEffect } from '@shopify/react-native-skia';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -12,6 +12,7 @@ import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
+import { useLiveCandles } from '../../hooks/useLiveCandles';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withDecay, useDerivedValue, runOnJS } from 'react-native-reanimated';
 
@@ -24,6 +25,11 @@ const SYMBOL_FLAGS: Record<string, [string, string]> = {
   USDJPY: ['us', 'jp'], NZDUSD: ['nz', 'us'], USDCAD: ['us', 'ca'],
   EURGBP: ['eu', 'gb'], AUDCAD: ['au', 'ca'], AUDCHF: ['au', 'ch'],
   AUDJPY: ['au', 'jp'],
+};
+
+const SYMBOL_LOGOS: Record<string, string> = {
+  BTCUSD: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  XAUUSD: 'https://assets.coingecko.com/coins/images/10481/small/tether-gold.png',
 };
 
 const SYMBOL_NAMES: Record<string, string> = {
@@ -73,6 +79,7 @@ export function ChartScreen() {
   const CARD_BG = isDark ? '#0B0F19' : T.glass2;
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
+  const GREEN = isDark ? '#22C55E' : T.up;
   const GRID = T.borderSubtle;
   const TEXT = T.text;
   const TEXT_MUTED = T.textMuted;
@@ -86,27 +93,16 @@ export function ChartScreen() {
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [chartType, setChartType] = useState<'candles' | 'bars' | 'line'>('candles');
+  const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
 
-  // Generate demo candles inline (no API)
-  const candles = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000);
-    const basePrice = chartSymbol.includes('JPY') ? 150.0 : chartSymbol.includes('XAU') ? 2350.0 : chartSymbol.includes('BTC') ? 65000.0 : 1.1000;
-    const arr: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
-    let price = basePrice;
-    for (let i = 0; i < 100; i++) {
-      const o = price;
-      const change = (Math.random() - 0.48) * basePrice * 0.002;
-      const c = o + change;
-      const h = Math.max(o, c) + Math.random() * basePrice * 0.001;
-      const l = Math.min(o, c) - Math.random() * basePrice * 0.001;
-      arr.push({ time: now - (100 - i) * 300, open: o, high: h, low: l, close: c, volume: Math.random() * 100 });
-      price = c;
-    }
-    return arr;
-  }, [chartSymbol, chartTimeframe]);
-  const isLoading = false;
+  // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std'
+  const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
+
+  const { candles, latestTick } = useLiveCandles(baseSymbol, chartTimeframe);
+  const isLoading = candles.length === 0;
   const isError = false;
 
   const translateX = useSharedValue(0);
@@ -132,8 +128,8 @@ export function ChartScreen() {
     }
   }, [chartLayout.width, contentWidth]);
 
-  const minVal = useMemo(() => Math.min(...candles.map((c) => c.low)) * 0.999, [candles]);
-  const maxVal = useMemo(() => Math.max(...candles.map((c) => c.high)) * 1.001, [candles]);
+  const minVal = useMemo(() => candles.length > 0 ? Math.min(...candles.map((c) => c.low)) * 0.999 : 0, [candles]);
+  const maxVal = useMemo(() => candles.length > 0 ? Math.max(...candles.map((c) => c.high)) * 1.001 : 0, [candles]);
   const yRange = maxVal - minVal;
 
   const getY = (val: number) => {
@@ -146,6 +142,9 @@ export function ChartScreen() {
     const downWicks = Skia.Path.Make();
     const upBodies = Skia.Path.Make();
     const downBodies = Skia.Path.Make();
+    const upOHLC = Skia.Path.Make();
+    const downOHLC = Skia.Path.Make();
+    const line = Skia.Path.Make();
 
     candles.forEach((c, i) => {
       const x = i * (CANDLE_WIDTH + CANDLE_GAP) + 10;
@@ -162,14 +161,28 @@ export function ChartScreen() {
         upWicks.moveTo(wickX, highY);
         upWicks.lineTo(wickX, lowY);
         upBodies.addRect(Skia.XYWHRect(x, topY, CANDLE_WIDTH, bodyHeight));
+        upOHLC.moveTo(wickX, highY);
+        upOHLC.lineTo(wickX, lowY);
+        upOHLC.moveTo(wickX - 3, openY);
+        upOHLC.lineTo(wickX, openY);
+        upOHLC.moveTo(wickX, closeY);
+        upOHLC.lineTo(wickX + 3, closeY);
       } else {
         downWicks.moveTo(wickX, highY);
         downWicks.lineTo(wickX, lowY);
         downBodies.addRect(Skia.XYWHRect(x, topY, CANDLE_WIDTH, bodyHeight));
+        downOHLC.moveTo(wickX, highY);
+        downOHLC.lineTo(wickX, lowY);
+        downOHLC.moveTo(wickX - 3, openY);
+        downOHLC.lineTo(wickX, openY);
+        downOHLC.moveTo(wickX, closeY);
+        downOHLC.lineTo(wickX + 3, closeY);
       }
+      if (i === 0) line.moveTo(wickX, getY(c.close));
+      else line.lineTo(wickX, getY(c.close));
     });
 
-    return { upWicks, downWicks, upBodies, downBodies };
+    return { upWicks, downWicks, upBodies, downBodies, upOHLC, downOHLC, line };
   }, [candles, CHART_HEIGHT, minVal, maxVal]);
 
   const panGesture = Gesture.Pan()
@@ -287,14 +300,16 @@ export function ChartScreen() {
     }
   });
 
-  const latestClose = candles.length > 0 ? candles[candles.length - 1].close : 0;
+  const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
-  const displayDecimals = chartSymbol.includes('JPY') ? 3 : chartSymbol.includes('XAU') ? 2 : chartSymbol.includes('BTC') ? 2 : 5;
-  const displaySymbol = chartSymbol.length >= 6 ? `${chartSymbol.slice(0, 3)}/${chartSymbol.slice(3, 6)}` : chartSymbol;
-  const symbolFlags = SYMBOL_FLAGS[chartSymbol] ?? null;
-  const symbolName = SYMBOL_NAMES[chartSymbol] ?? chartSymbol;
-  const symbolCategory = SYMBOL_CATEGORY[chartSymbol] ?? 'FX';
+
+  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
+  const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
+  const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
+  const symbolCategory = SYMBOL_CATEGORY[baseSymbol] ?? 'FX';
+  const symbolLogo = SYMBOL_LOGOS[baseSymbol] ?? null;
 
   // Dynamic X-axis labels from actual candle timestamps
   const xAxisLabels = useMemo(() => {
@@ -320,9 +335,7 @@ export function ChartScreen() {
       {!isFullscreen && (
         <View style={styles.topHeaderRow}>
           <View style={styles.headerSpacer}>
-            <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-              <Ionicons name="menu" size={28} color={isDark ? '#fff' : '#64748B'} />
-            </Pressable>
+            <View style={{ width: 40, height: 40 }} />
           </View>
           <View style={styles.accountBadgeGroup}>
             <View style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}>
@@ -345,7 +358,7 @@ export function ChartScreen() {
             <LinearGradient
               colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
               start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]}
             />
           )}
           <View style={styles.toolbarRow}>
@@ -356,9 +369,13 @@ export function ChartScreen() {
                     <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[0]}.png` }} style={[styles.flagCircle, { zIndex: 2 }]} />
                     <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[1]}.png` }} style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]} />
                   </>
+                ) : symbolLogo ? (
+                  <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image source={{ uri: symbolLogo }} style={{ width: 18, height: 18, borderRadius: 9 }} />
+                  </View>
                 ) : (
                   <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{chartSymbol.slice(0, 3)}</Text>
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{displaySymbol.slice(0, 3).replace('/', '')}</Text>
                   </View>
                 )}
               </View>
@@ -392,18 +409,51 @@ export function ChartScreen() {
               <Text style={styles.plValue}>0.00</Text>
             </View>
             <View style={styles.toolbarActions}>
-              <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
-                <Ionicons name="alarm-outline" size={16} color="#8B7355" />
+              <Pressable style={styles.toolbarActionBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
+                <Ionicons name="alarm-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => setIsFullscreen(true)}>
-                <Ionicons name="expand-outline" size={16} color="#8B7355" />
+              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
+                <Ionicons name="expand-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={styles.toolbarActionBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="layers-outline" size={16} color="#8B7355" />
+              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
+                <Ionicons name="layers-outline" size={20} color={TEXT_MUTED} />
               </Pressable>
             </View>
           </View>
         </View>}
+
+        {/* Professional Chart Toolbar */}
+        <View style={styles.proToolbar}>
+          <Pressable style={styles.proToolBtn} onPress={() => setShowChartTypeMenu(true)}>
+            <Ionicons
+              name={chartType === 'candles' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'}
+              size={15}
+              color={BLUE}
+            />
+            <Ionicons name="chevron-down" size={10} color={TEXT_MUTED} />
+          </Pressable>
+          <View style={styles.proToolSep} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.proTfScroll} contentContainerStyle={styles.proTfScrollContent}>
+            {['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'].map((tf) => (
+              <Pressable key={tf} style={[styles.proTfChip, chartTimeframe === tf && styles.proTfChipActive]} onPress={() => setChartTimeframe(tf)}>
+                <Text style={[styles.proTfChipText, chartTimeframe === tf && styles.proTfChipTextActive]}>{tf}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <View style={styles.proToolSep} />
+          <Pressable style={styles.proToolBtn} onPress={() => setMenuOpen(true)}>
+            <Ionicons name="analytics-outline" size={16} color={TEXT_MUTED} />
+          </Pressable>
+          <Pressable style={styles.proToolBtn} onPress={() => Alert.alert('Drawing Tools', 'Trend lines, rectangles and Fibonacci retracements coming soon.')}>
+            <Ionicons name="pencil-outline" size={16} color={TEXT_MUTED} />
+          </Pressable>
+          <Pressable style={styles.proToolBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
+            <Ionicons name="alarm-outline" size={16} color={TEXT_MUTED} />
+          </Pressable>
+          <Pressable style={styles.proToolBtn} onPress={() => setIsFullscreen(!isFullscreen)}>
+            <Ionicons name={isFullscreen ? 'contract-outline' : 'scan-outline'} size={16} color={isFullscreen ? BLUE : TEXT_MUTED} />
+          </Pressable>
+        </View>
 
         <View style={styles.chartContainer} onLayout={handleLayout}>
           {/* Loading Spinner */}
@@ -435,10 +485,23 @@ export function ChartScreen() {
                   <Line p1={{ x: gridLineX3, y: 0 }} p2={{ x: gridLineX3, y: chartLayout.height }} color={GRID} strokeWidth={1} />
 
                   <Group transform={transform}>
-                    <Path path={paths.upWicks} color={GREEN} style="stroke" strokeWidth={1} />
-                    <Path path={paths.upBodies} color={GREEN} />
-                    <Path path={paths.downWicks} color={RED} style="stroke" strokeWidth={1} />
-                    <Path path={paths.downBodies} color={RED} />
+                    {chartType === 'candles' && (
+                      <>
+                        <Path path={paths.upWicks} color={GREEN} style="stroke" strokeWidth={1} />
+                        <Path path={paths.upBodies} color={GREEN} />
+                        <Path path={paths.downWicks} color={RED} style="stroke" strokeWidth={1} />
+                        <Path path={paths.downBodies} color={RED} />
+                      </>
+                    )}
+                    {chartType === 'bars' && (
+                      <>
+                        <Path path={paths.upOHLC} color={GREEN} style="stroke" strokeWidth={1.5} />
+                        <Path path={paths.downOHLC} color={RED} style="stroke" strokeWidth={1.5} />
+                      </>
+                    )}
+                    {chartType === 'line' && (
+                      <Path path={paths.line} color={BLUE} style="stroke" strokeWidth={2} />
+                    )}
 
                     <Line p1={{ x: 0, y: bidPriceY }} p2={{ x: 10000, y: bidPriceY }} color={GREEN} strokeWidth={1} style="stroke">
                       <DashPathEffect intervals={[4, 4]} />
@@ -578,6 +641,17 @@ export function ChartScreen() {
           onPress: () => setChartSymbol(sym),
         }))}
       />
+
+      <ActionSheet
+        visible={showChartTypeMenu}
+        onClose={() => setShowChartTypeMenu(false)}
+        title='Chart Type'
+        actions={[
+          { label: 'Candlestick', onPress: () => setChartType('candles') },
+          { label: 'OHLC Bars', onPress: () => setChartType('bars') },
+          { label: 'Line', onPress: () => setChartType('line') },
+        ]}
+      />
     </Screen>
   );
 }
@@ -619,9 +693,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 40,
       height: 40,
       borderRadius: 10,
-      backgroundColor: isDark ? T.glass1 : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: isDark ? T.border : '#E2E8F0',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -793,100 +864,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 8,
     },
     toolbarActionBtn: {
-      width: 34,
-      height: 34,
-      borderRadius: 10,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FAF6F0',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E8DFD8',
+      width: 32,
+      height: 32,
+      borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    topCard: {
-      backgroundColor: CARD_BG,
-      borderRadius: 16,
-      marginHorizontal: 16,
-      marginTop: 16,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: CHART_HEADER_BORDER,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 16,
-      elevation: 4,
-    },
-    topCardHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    symbolSection: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    flagsWrap: {
-      flexDirection: 'row',
-      marginRight: 10,
-    },
-    flagCircle: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      borderWidth: 2,
-      borderColor: '#0B0F19',
-    },
-    flagOverlap: {
-      marginLeft: -10,
-    },
-    symbolNameRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    symbolText: {
-      color: '#FFFFFF',
-      fontSize: 18,
-      fontWeight: '800',
-      marginRight: 6,
-    },
-    microBadge: {
-      backgroundColor: '#FFFFFF',
-      paddingHorizontal: 4,
-      paddingVertical: 2,
-      borderRadius: 4,
-      marginRight: 6,
-    },
-    microBadgeText: {
-      color: '#000000',
-      fontSize: 9,
-      fontWeight: '800',
-    },
-    symbolSubText: {
-      color: '#94A3B8',
-      fontSize: 12,
-      marginTop: 2,
-    },
-    balanceContainer: {
-      alignItems: 'flex-end',
-    },
-    balanceLabel: {
-      color: '#475569',
-      fontSize: 11,
-      fontWeight: '700',
-      letterSpacing: 0.5,
-      textTransform: 'uppercase',
-      marginBottom: 2,
-    },
-    balanceText: {
-      color: '#FFFFFF',
-      fontSize: 16,
-      fontWeight: '700',
-      fontVariant: ['tabular-nums'],
-    },
-    currencyText: {
-      color: '#64748B',
-      fontSize: 12,
-      fontWeight: '600',
     },
     plRow: {
       flexDirection: 'row',
@@ -920,18 +902,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#475569',
       marginHorizontal: 8,
     },
-    toolbarActions: {
-      flexDirection: 'row',
-      gap: 12,
-    },
-    toolbarActionBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 8,
-      backgroundColor: '#FAF6F0',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
     chartContainer: {
       flex: 1,
       backgroundColor: CHART_CANVAS_BG,
@@ -947,7 +917,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
     },
     overlayPill: {
-      /* Removed from mockup, but leaving empty class just in case */
     },
     overlayPillText: {
     },
@@ -1186,6 +1155,56 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 100,
+    },
+    proToolbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      backgroundColor: isDark ? '#0B0F19' : T.bgSecondary,
+      borderBottomWidth: 1,
+      borderBottomColor: T.border,
+      gap: 2,
+    },
+    proToolSep: {
+      width: 1,
+      height: 18,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0',
+      marginHorizontal: 4,
+    },
+    proToolBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      paddingHorizontal: 6,
+      paddingVertical: 5,
+      borderRadius: 6,
+    },
+    proTfScroll: {
+      flex: 1,
+    },
+    proTfScrollContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      paddingHorizontal: 4,
+    },
+    proTfChip: {
+      paddingHorizontal: 7,
+      paddingVertical: 4,
+      borderRadius: 5,
+    },
+    proTfChipActive: {
+      backgroundColor: BLUE,
+    },
+    proTfChipText: {
+      color: isDark ? '#64748B' : '#94A3B8',
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    proTfChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
     },
     chartOverlay: {
       ...StyleSheet.absoluteFillObject,

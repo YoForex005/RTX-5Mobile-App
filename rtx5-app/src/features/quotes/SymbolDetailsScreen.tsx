@@ -457,8 +457,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     }),
     mp: StyleSheet.create({
       chip: {
-        flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isDark ? 0 : 0.03, shadowRadius: 8, elevation: 0, borderWidth: 1, borderColor: isDark ? 'transparent' : 'rgba(0,0,0,0.03)', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center',
-        borderWidth: 1, borderColor: T.border,
+        flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isDark ? 0 : 0.03, shadowRadius: 8, elevation: 0, borderWidth: 1, borderColor: T.border, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center',
       },
       iconRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
       lbl: { color: T.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '700' },

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCandleHistory } from '../api/candles';
 import { useTradingState, Candle } from '../state/tradingState';
+import { generateMockCandles } from '../mock/candleGenerator';
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
@@ -22,11 +23,20 @@ export function useCandleHistory(symbol: string, timeframe: string) {
   return useQuery({
     queryKey: candleKeys.history(symbol, timeframe),
     queryFn: async () => {
-      const res = await getCandleHistory(symbol, timeframe, 200);
-      // Populate the Zustand store so the chart renders immediately
-      const store = useTradingState.getState();
-      store.setCandleHistory(symbol, timeframe, res.candles);
-      return res.candles;
+      try {
+        const res = await getCandleHistory(symbol, timeframe, 200);
+        // Populate the Zustand store so the chart renders immediately
+        const store = useTradingState.getState();
+        store.setCandleHistory(symbol, timeframe, res.candles);
+        return res.candles;
+      } catch (err) {
+        // Fallback for demo or offline API
+        console.warn(`[API Fallback] Using mock candles for ${symbol}`);
+        const fallbackCandles = generateMockCandles(symbol, timeframe, 200);
+        const store = useTradingState.getState();
+        store.setCandleHistory(symbol, timeframe, fallbackCandles);
+        return fallbackCandles;
+      }
     },
     enabled: !!symbol && !!timeframe,
     staleTime: 30_000,       // 30s — candles update via WS after initial fetch

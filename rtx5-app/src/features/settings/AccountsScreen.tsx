@@ -11,24 +11,41 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
+import { ActionSheet } from '../../components/ActionSheet';
 import { Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+// ── API Integration: fetches live account + broker data for active card ──
+import { useAccounts } from '../../query/accounts';
+import { useBrokerConfig } from '../../query/broker';
 
 export function AccountsScreen() {
   const router = useRouter();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showActionSheet = useUIState((s) => s.showActionSheet);
+  const actionSheet = useUIState((s) => s.actionSheet);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
-  
-  // Fallback values if not logged in
-  const activeAccount = accountDetails || {
-    name: 'Abhishek+Kumar+1',
-    id: '900909494443',
-    server: 'ALFX-Trade',
-  };
 
-  const { data: liveAccount } = { data: { balance: 100000, currency: 'USD' } };
+  // ── GET /accounts — live trading accounts for the authenticated user ──
+  const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
+  const { data: accounts } = useAccounts(isLoggedIn);
+
+  // ── GET /broker/config — broker name and server name ──
+  const brokerId = useUserPreferences((s) => s.brokerId);
+  const { data: brokerConfig } = useBrokerConfig(brokerId);
+
+  // Find the active account by matching the login from Zustand state
+  const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
+  const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+
+  // Extract the 5 essential display values (fallbacks for when API hasn't loaded)
+  const displayName = activeAccount?.name ?? accountDetails?.name ?? '---';
+  const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
+  const displayBalance = activeAccount ? `${fmt.price(activeAccount.balance)} ${activeAccount.currency}` : '--- USD';
+  const displayBrokerName = brokerConfig?.broker_name ?? '---';
+  const displayServerName = brokerConfig?.server_name ?? '---';
+
   const health = { status: 'healthy', version: '1.0.0' };
   const healthError = false;
   const mt5Status = { connected: true };
@@ -63,7 +80,7 @@ export function AccountsScreen() {
       <View style={styles.page}>
         <View style={styles.header}>
           <Pressable style={styles.iconBtn} hitSlop={15} onPress={() => router.back()}>
-            <Ionicons name="menu" size={28} color={T.text} />
+            <Ionicons name="arrow-back" size={28} color={T.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Accounts</Text>
           <View style={styles.headerRight}>
@@ -80,27 +97,28 @@ export function AccountsScreen() {
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Active Account Card */}
+          {/* Active Account Card — data from GET /accounts + GET /broker/config */}
           <View style={styles.activeCardWrap}>
             <View style={styles.activeCard}>
               <View style={styles.contestRibbon}>
                 <Text style={styles.contestText}>Contest</Text>
               </View>
-              
+
               <View style={styles.activeLogoWrap}>
-                 <Ionicons name="flash" size={28} color={T.accent} />
+                <Ionicons name="flash" size={28} color={T.accent} />
               </View>
-              
-              <Text style={styles.activeName}>{activeAccount.name}</Text>
-              <Text style={styles.activeCompany}>ALFX Limited</Text>
-              
-              <Text style={styles.activeServer}>{activeAccount.id} — {activeAccount.server}</Text>
-              <Text style={styles.accessServer}>Access Server 1</Text>
-              
-              <Text style={styles.activeBalance}>
-                {liveAccount ? `${fmt.int(liveAccount.balance)} ${liveAccount.currency}` : '--- USD'}
-              </Text>
-              
+
+              {/* Username — from GET /accounts API */}
+              <Text style={styles.activeName}>{displayName}</Text>
+              {/* Broker name — from GET /broker/config API */}
+              <Text style={styles.activeCompany}>{displayBrokerName}</Text>
+
+              {/* Login ID + Broker server — from GET /accounts + GET /broker/config */}
+              <Text style={styles.activeServer}>{displayLogin} — {displayServerName}</Text>
+
+              {/* Balance — from GET /accounts API */}
+              <Text style={styles.activeBalance}>{displayBalance}</Text>
+
               <View style={styles.activeCardBottom}>
                 <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
                 <Ionicons name="notifications-outline" size={24} color={T.textSub} />
@@ -110,14 +128,14 @@ export function AccountsScreen() {
 
           {/* Connect To List */}
           <Text style={styles.connectToLabel}>Connect to:</Text>
-          
+
           {/* Mock Account 1 */}
           <View style={styles.secondaryCardWrap}>
             <View style={styles.secondaryCard}>
               <View style={styles.demoRibbon}>
                 <Text style={styles.demoText}>Demo</Text>
               </View>
-              
+
               <View style={styles.secondaryHeaderRow}>
                 <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
                   <Text style={styles.secondaryLogoText}>lexy</Text>
@@ -128,13 +146,13 @@ export function AccountsScreen() {
                   <Text style={styles.secondaryServer}>500001 — FlexyMarkets-Server</Text>
                 </View>
               </View>
-              
+
               <Text style={styles.secondaryBalance}>1 024.58</Text>
               <Text style={styles.secondaryCurrency}>USD, last known</Text>
-              
+
               <View style={styles.secondaryCardBottom}>
-                 <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
-                 <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
+                <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
+                <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
               </View>
             </View>
           </View>
@@ -143,12 +161,12 @@ export function AccountsScreen() {
           <View style={[styles.secondaryCardWrap, { marginTop: spacing.md }]}>
             <View style={styles.secondaryCard}>
               <View style={styles.readonlyRibbon}>
-                 <Text style={styles.readonlyText}>Readonly</Text>
+                <Text style={styles.readonlyText}>Readonly</Text>
               </View>
               <View style={styles.demoRibbon}>
                 <Text style={styles.demoText}>Demo</Text>
               </View>
-              
+
               <View style={styles.secondaryHeaderRow}>
                 <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
                   <Text style={styles.secondaryLogoText}>lexy</Text>
@@ -159,13 +177,13 @@ export function AccountsScreen() {
                   <Text style={styles.secondaryServer}>900524 — FlexyMarkets-Server</Text>
                 </View>
               </View>
-              
+
               <Text style={styles.secondaryBalance}>100 000.00</Text>
               <Text style={styles.secondaryCurrency}>USD, last known</Text>
-              
+
               <View style={styles.secondaryCardBottom}>
-                 <Ionicons name="grid-outline" size={24} color={T.textSub} />
-                 <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
+                <Ionicons name="grid-outline" size={24} color={T.textSub} />
+                <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
               </View>
             </View>
           </View>
@@ -179,8 +197,8 @@ export function AccountsScreen() {
                 {health?.status === 'healthy'
                   ? `Gateway: Healthy · v${health.version}`
                   : healthError
-                  ? 'Gateway: Unreachable'
-                  : 'Gateway: Checking...'}
+                    ? 'Gateway: Unreachable'
+                    : 'Gateway: Checking...'}
               </Text>
             </View>
 
@@ -190,8 +208,8 @@ export function AccountsScreen() {
                 {mt5Status?.connected
                   ? `MT5: Connected`
                   : mt5StatusError
-                  ? 'MT5: Disconnected'
-                  : 'MT5: Checking...'}
+                    ? 'MT5: Disconnected'
+                    : 'MT5: Checking...'}
               </Text>
             </View>
           </View>
@@ -210,7 +228,7 @@ export function AccountsScreen() {
             <TouchableWithoutFeedback>
               <View style={styles.modalContent}>
                 <ChangePasswordSheet
-                  loginId={activeAccount.id}
+                  loginId={displayLogin}
                   type={passwordType}
                   onClose={() => setPasswordSheetVisible(false)}
                   onSuccess={() => {
@@ -223,6 +241,14 @@ export function AccountsScreen() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* ActionSheet — rendered locally since this is a Stack route outside (tabs) */}
+      <ActionSheet
+        visible={actionSheet !== null}
+        title={actionSheet?.title}
+        actions={actionSheet?.actions ?? []}
+        onClose={hideActionSheet}
+      />
     </Screen>
   );
 }

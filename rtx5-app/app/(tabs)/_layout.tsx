@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
@@ -18,8 +19,10 @@ const icons = {
 export default function TabsLayout() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
+  const insets = useSafeAreaInsets();
 
   const TAB_BAR_STYLE = {
     backgroundColor: isDark ? '#040609' : '#ffffff',
@@ -56,8 +59,17 @@ export default function TabsLayout() {
         <Tabs.Screen name='settings' options={{ title: 'Settings' }} />
       </Tabs>
 
-      {/* Sidebar overlay – shared across all tabs */}
       <SidebarDrawer />
+
+      <Pressable
+        style={[
+          styles.globalMenuBtn,
+          { top: insets.top + 16 },
+        ]}
+        onPress={() => setSidebarOpen(true)}
+      >
+        <Ionicons name="menu" size={28} color={T.text} />
+      </Pressable>
 
       {/* Action sheet – shared across all tabs, renders inside device frame */}
       <ActionSheet
@@ -72,4 +84,13 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  globalMenuBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
 });

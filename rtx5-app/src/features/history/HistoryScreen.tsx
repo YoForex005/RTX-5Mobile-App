@@ -74,13 +74,9 @@ export function HistoryScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={(
           <>
-            {/* ── Header ── */}
-            <View style={styles.headerRow}>
-              <Pressable style={styles.menuBtn} onPress={() => setSidebarOpen(true)}>
-                <Ionicons name="menu" size={22} color={T.text} />
-              </Pressable>
+            <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>History</Text>
             </View>
-
             {/* ── Account Summary ── */}
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>
             <View style={styles.summaryBlock}>
@@ -213,13 +209,13 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
                 rStyles.sideBadge,
                 isBuy ? { backgroundColor: 'rgba(37,99,235,0.15)' }
                   : isSell ? { backgroundColor: 'rgba(220,38,38,0.12)' }
-                  : { backgroundColor: T.glass2 },
+                    : { backgroundColor: T.glass2 },
               ]}>
                 <Text style={[
                   rStyles.sideText,
                   isBuy ? { color: T.trading.buy.hover }
                     : isSell ? { color: T.trading.sell.hover }
-                    : { color: T.textMuted },
+                      : { color: T.textMuted },
                 ]}>
                   {side}
                 </Text>
@@ -371,9 +367,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     gridLabel: { fontSize: 13, fontWeight: '500' },
     gridValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
-    topBlock: { 
-      marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 20, 
-      borderWidth: 1, borderColor: T.border, 
+    topBlock: {
+      marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 20,
+      borderWidth: 1, borderColor: T.border,
       backgroundColor: cardBg, padding: 6, paddingBottom: 8,
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 },
       shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4,
@@ -382,7 +378,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     iconButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: T.border, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
     segment: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: T.glass1 },
     segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
-    segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1},
+    segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1 },
     segmentText: { fontSize: 13, fontWeight: '700' },
     metricsRow: { marginTop: 14, flexDirection: 'row', marginRight: -6 },
     sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
