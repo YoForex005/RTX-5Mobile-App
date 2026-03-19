@@ -19,6 +19,9 @@ type UserPreferencesState = {
   chartHideAll: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
+  showTradingSignals: boolean;
+  priceSource: 'bid' | 'ask';
+  openOrderMode: 'Regular' | 'Risk calculator' | 'One-click';
   isDemoAccount: boolean;
   isLoggedIn: boolean;
   /** Broker ID entered at login — used by GET /broker/config to fetch broker-specific settings */
@@ -46,6 +49,9 @@ type UserPreferencesState = {
   removeChartDrawing: (drawing: string) => void;
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
+  setShowTradingSignals: (show: boolean) => void;
+  setPriceSource: (source: 'bid' | 'ask') => void;
+  setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
   setHistoryRange: (range: string) => void;
   setIsDemoAccount: (isDemo: boolean) => void;
@@ -64,6 +70,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartDrawings: [],
       chartLockAll: false,
       chartHideAll: false,
+      showTradingSignals: false,
+      priceSource: 'bid',
+      openOrderMode: 'Regular',
       oneClickAccepted: false,
       historyRange: 'Last 6 months',
       isDemoAccount: true,
@@ -124,6 +133,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       },
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
+      setShowTradingSignals: (show) => set({ showTradingSignals: show }),
+      setPriceSource: (source) => set({ priceSource: source }),
+      setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),

@@ -20,6 +20,7 @@ export default function TabsLayout() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const insets = useSafeAreaInsets();
@@ -61,15 +62,17 @@ export default function TabsLayout() {
 
       <SidebarDrawer />
 
-      <Pressable
-        style={[
-          styles.globalMenuBtn,
-          { top: insets.top + 16 },
-        ]}
-        onPress={() => setSidebarOpen(true)}
-      >
-        <Ionicons name="menu" size={28} color={T.text} />
-      </Pressable>
+      {!isChartFullscreen && (
+        <Pressable
+          style={[
+            styles.globalMenuBtn,
+            { top: insets.top + 16 },
+          ]}
+          onPress={() => setSidebarOpen(true)}
+        >
+          <Ionicons name="menu" size={28} color={T.text} />
+        </Pressable>
+      )}
 
       {/* Action sheet – shared across all tabs, renders inside device frame */}
       <ActionSheet

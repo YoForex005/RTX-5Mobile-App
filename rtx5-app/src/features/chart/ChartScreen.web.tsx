@@ -1,9 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
+import {
+  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
+  TvCandles, TvFx, TvGrid4, TvUndo, TvRedo, TvSaveSquare
+} from './components/ChartToolbarIcons';
+import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -12,7 +17,8 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles } from '../../hooks/useLiveCandles';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, LineStyle } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, BarSeries, LineSeries, LineStyle } from 'lightweight-charts';
+import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -83,13 +89,14 @@ export function ChartScreen() {
   const TEXT_MUTED = T.textMuted;
   const BTN_BG = T.glass2;
   const PILL_BG = T.glass1;
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
-  const liveAccount = { balance: 100000, currency: 'USD' };
+  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
+  const liveAccount = accountDetails ?? null;
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
+  const [showSignalDetails, setShowSignalDetails] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const chartContainerRef = useRef<any>(null);
   const legendRef = useRef<HTMLDivElement>(null);
@@ -97,6 +104,14 @@ export function ChartScreen() {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
+  const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'hollow'>('candles');
+  const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const isChartExpanded = useUIState((s) => s.isChartFullscreen);
+  const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
+  const [activeTool, setActiveTool] = useState<string>('crosshair');
+  const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
+
 
   const { candles, latestTick } = useLiveCandles(chartSymbol, chartTimeframe);
   const isLoading = candles.length === 0;
@@ -114,27 +129,27 @@ export function ChartScreen() {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
       layout: {
-        background: { type: ColorType.Solid, color: CH_BG },
-        textColor: TEXT_MUTED,
-        attributionLogo: false,
+        background: { type: ColorType.Solid, color: isDark ? '#131722' : '#FFFFFF' },
+        textColor: isDark ? '#D1D4DC' : '#131722',
+        fontSize: 11,
       },
       grid: {
-        vertLines: { color: GRID, style: LineStyle.Solid },
-        horzLines: { color: GRID, style: LineStyle.Solid },
+        vertLines: { color: isDark ? '#2A2E39' : '#E0E3EB', style: LineStyle.Solid },
+        horzLines: { color: isDark ? '#2A2E39' : '#E0E3EB', style: LineStyle.Solid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+          color: isDark ? '#758696' : '#9598A1',
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+          labelBackgroundColor: isDark ? '#2A2E39' : '#131722',
         },
         horzLine: {
-          color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+          color: isDark ? '#758696' : '#9598A1',
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+          labelBackgroundColor: isDark ? '#2A2E39' : '#131722',
         },
       },
       localization: {
@@ -144,53 +159,60 @@ export function ChartScreen() {
         },
       },
       timeScale: {
-        borderColor: GRID,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number) => {
           const d = new Date(time * 1000);
           return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         },
+        rightOffset: 12,
       },
       rightPriceScale: {
-        borderColor: GRID,
+        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
         autoScale: true,
       },
     });
 
-    const UP_COLOR = '#2962FF';
-    const DOWN_COLOR = '#EF5350';
+    const UP_COLOR = '#089981';
+    const DOWN_COLOR = '#F23645';
 
-    const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: UP_COLOR,
-      downColor: DOWN_COLOR,
-      borderVisible: true,
-      wickUpColor: UP_COLOR,
-      wickDownColor: DOWN_COLOR,
-      borderUpColor: UP_COLOR,
-      borderDownColor: DOWN_COLOR,
-    });
+    let series: ISeriesApi<any>;
+
+    if (chartType === 'candles' || chartType === 'hollow') {
+      series = chart.addSeries(CandlestickSeries, {
+        upColor: chartType === 'hollow' ? 'transparent' : UP_COLOR,
+        downColor: DOWN_COLOR,
+        borderVisible: true,
+        wickUpColor: UP_COLOR,
+        wickDownColor: DOWN_COLOR,
+        borderUpColor: UP_COLOR,
+        borderDownColor: DOWN_COLOR,
+      });
+    } else if (chartType === 'bars') {
+      series = chart.addSeries(BarSeries, {
+        upColor: UP_COLOR,
+        downColor: DOWN_COLOR,
+      });
+    } else {
+      series = chart.addSeries(LineSeries, {
+        color: BLUE,
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
+      });
+    }
 
     chartRef.current = chart;
-    seriesRef.current = candlestickSeries;
+    seriesRef.current = series;
+
+    // Initialize Drawing Tools Manager
+    try {
+      drawingToolsRef.current = new DrawingToolsManager(chart, series as any);
+    } catch (e) { }
 
     chart.subscribeCrosshairMove((param) => {
       if (legendRef.current) {
-        if (param.time && param.seriesData.get(candlestickSeries)) {
-          const data = param.seriesData.get(candlestickSeries) as any;
-          const isUp = data.close >= data.open;
-          const color = isUp ? UP_COLOR : DOWN_COLOR;
-          legendRef.current.innerHTML = `
-            <div style="font-size: 13px; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
-              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">O</span><span style="color: ${color}; margin-right: 12px;">${data.open.toFixed(5)}</span>
-              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">H</span><span style="color: ${color}; margin-right: 12px;">${data.high.toFixed(5)}</span>
-              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">L</span><span style="color: ${color}; margin-right: 12px;">${data.low.toFixed(5)}</span>
-              <span style="color: ${TEXT_MUTED}; margin-right: 8px;">C</span><span style="color: ${color}; margin-right: 12px;">${data.close.toFixed(5)}</span>
-            </div>
-          `;
-        } else {
-          legendRef.current.innerHTML = '';
-        }
+        legendRef.current.innerHTML = '';
       }
     });
 
@@ -205,25 +227,74 @@ export function ChartScreen() {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      try { drawingToolsRef.current?.remove(); } catch (e) { }
+      drawingToolsRef.current = null;
+      chartRef.current = null;
+      seriesRef.current = null;
       chart.remove();
     };
-  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED]);
+  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED, chartType]);
 
   // Sync Data
   useEffect(() => {
     if (seriesRef.current && candles.length > 0) {
-      // Deduplicate by time strictly for lightweight-charts
-      const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-      // Sort strictly by timestamp
-      uniqueData.sort((a, b) => a.time - b.time);
-      seriesRef.current.setData(uniqueData as any);
+      try {
+        // Deduplicate by time strictly for lightweight-charts
+        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
+        // Sort strictly by timestamp
+        uniqueData.sort((a, b) => a.time - b.time);
+        seriesRef.current.setData(uniqueData as any);
+      } catch (e) {
+        // Chart might be disposed
+      }
     }
   }, [candles, isDark]);
+
+  // Trading Signals Overlays
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    const s = seriesRef.current;
+    let lines: any[] = [];
+
+    if (showTradingSignals && candles.length > 0) {
+      const isXau = chartSymbol.includes('XAU');
+      const latestClose = candles[candles.length - 1].close;
+
+      const r1 = isXau ? 4895 : latestClose * 1.002;
+      const r2 = isXau ? 4940 : latestClose * 1.006;
+      const r3 = isXau ? 4975 : latestClose * 1.01;
+      const s1 = isXau ? 4805 : latestClose * 0.998;
+      const s2 = isXau ? 4775 : latestClose * 0.994;
+      const s3 = isXau ? 4740 : latestClose * 0.99;
+
+      lines.push(s.createPriceLine({ price: r1, color: '#3B82F6', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Pivot' }));
+      lines.push(s.createPriceLine({ price: r2, color: '#22C55E', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
+      lines.push(s.createPriceLine({ price: r3, color: '#22C55E', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
+
+      lines.push(s.createPriceLine({ price: s1, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
+      lines.push(s.createPriceLine({ price: s2, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
+      lines.push(s.createPriceLine({ price: s3, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
+
+      const lastCandle = candles[candles.length - 1];
+      if (lastCandle && lastCandle.time) {
+        // v5 markers via addPlugin have been intentionally omitted for compatibility
+        // The Native app uses v4 webview allowing it to still draw setMarkers.
+      }
+    }
+
+    return () => {
+      try {
+        lines.forEach(line => s.removePriceLine(line));
+      } catch (e) { }
+    };
+  }, [showTradingSignals, candles, chartSymbol]);
 
   // Live Tick Sync
   useEffect(() => {
     if (seriesRef.current && latestTick) {
-      seriesRef.current.update(latestTick as any);
+      try {
+        seriesRef.current.update(latestTick as any);
+      } catch (e) { }
     }
   }, [latestTick, isDark]);
 
@@ -245,7 +316,7 @@ export function ChartScreen() {
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
-  
+
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
 
@@ -276,35 +347,25 @@ export function ChartScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={styles.topHeaderRow}>
-        <View style={styles.headerSpacer}>
-          <View style={{ width: 40, height: 40 }} />
-        </View>
-        <View style={styles.accountBadgeGroup}>
-          <View style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}>
-            <View style={[styles.liveIndicatorGlow, isDemoAccount ? styles.glowDemo : styles.glowLive]}>
-              <View style={[styles.liveIndicator, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
+      {!isChartExpanded && (
+        <View style={styles.headerWrapper}>
+          {/* Row 1: Account Badge (hamburger is global from _layout.tsx) */}
+          <View style={styles.topBar}>
+            <View style={{ width: 40 }} />
+            <View style={{ flex: 1 }} />
+            <View style={styles.headerActions}>
+              <View style={[styles.accountDot, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
+              <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
+                {isDemoAccount ? 'DEMO ACCOUNT' : 'LIVE ACCOUNT'}
+              </Text>
             </View>
-            <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
-              {isDemoAccount ? 'DEMO ACCOUNT' : 'REAL ACCOUNT'}
-            </Text>
+            <View style={{ flex: 1 }} />
           </View>
-        </View>
-        <View style={[styles.headerSpacer, styles.headerSpacerRight]} />
-      </View>
 
-      <View style={styles.card}>
-        <View style={styles.glassToolbar}>
-          {/* Blue Radial Glow Background */}
-          {isDark && (
-            <LinearGradient
-              colors={['rgba(37, 99, 235, 0.15)', 'transparent']}
-              start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]}
-            />
-          )}
-          <View style={styles.toolbarRow}>
-            <Pressable style={styles.symbolInfo} onPress={() => setSymbolPickerOpen(true)}>
+          {/* Row 2: Symbol | Price | Balance */}
+          <View style={styles.compactHeader}>
+            {/* Left: Symbol Info */}
+            <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
               <View style={styles.flagStack}>
                 {symbolFlags ? (
                   <>
@@ -312,160 +373,277 @@ export function ChartScreen() {
                     <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[1]}.png` }} style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]} />
                   </>
                 ) : symbolLogo ? (
-                  <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
-                    <Image source={{ uri: symbolLogo }} style={{ width: 18, height: 18, borderRadius: 9 }} />
+                  <View style={[styles.flagCircle, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image source={{ uri: symbolLogo }} style={{ width: 20, height: 20, borderRadius: 10 }} />
                   </View>
                 ) : (
-                  <View style={[styles.flagCircle, { backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }]}>
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{displaySymbol.slice(0, 3).replace('/', '')}</Text>
+                  <View style={[styles.flagCircle, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ color: isDark ? '#fff' : '#0F172A', fontSize: 10, fontWeight: '800' }}>{displaySymbol.slice(0, 3).replace('/', '')}</Text>
                   </View>
                 )}
               </View>
-              <View style={styles.symbolTextCol}>
+              <View>
                 <View style={styles.symbolNameRow}>
                   <Text style={styles.symbolText}>{displaySymbol}</Text>
-                  <View style={styles.microBadge}>
-                    <Text style={styles.microBadgeText}>{symbolCategory}</Text>
+                  <View style={styles.fxBadge}>
+                    <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
                   </View>
-                  <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </View>
                 <Text style={styles.symbolSubText}>{symbolName}</Text>
               </View>
             </Pressable>
-            <View style={styles.balanceContainer}>
-              <Text style={styles.balanceLabel}>Balance</Text>
-              <Text style={styles.balanceText}>
-                {liveAccount ? fmt.int(liveAccount.balance) : '---'} <Text style={styles.currencyText}>{liveAccount ? liveAccount.currency : 'USD'}</Text>
-              </Text>
+
+            {/* Right: Balance + Price + P/L */}
+            <View style={styles.rightSection}>
+              <View style={styles.balanceContainer}>
+                <Text style={styles.balanceLabel}>BALANCE</Text>
+                <Text style={styles.livePriceText}>{latestClose > 0 ? latestClose.toFixed(displayDecimals) : '---'}</Text>
+                {candles.length >= 2 && latestClose > 0 && (() => {
+                  const prevClose = candles[candles.length - 2]?.close ?? latestClose;
+                  const change = latestClose - prevClose;
+                  const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
+                  const isUp = change >= 0;
+                  const clr = isUp ? '#089981' : '#F23645';
+                  return (
+                    <Text style={[styles.priceChangePct, { color: clr }]}>
+                      {isUp ? '+' : ''}{change.toFixed(displayDecimals)} ({isUp ? '+' : ''}{pct.toFixed(2)}%)
+                    </Text>
+                  );
+                })()}
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
+      <View style={styles.card}>
+
+        <View style={styles.chartContainer}>
+          {/* Top Integrated Toolbar (TradingView Exact Style) */}
+          <View style={styles.chartTopToolbar}>
+            <View style={styles.inlineActionGroup}>
+              <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
+              </Pressable>
+              <View style={styles.toolbarSeparator} />
+              <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setShowChartTypeMenu(true)}>
+                <TvCandles color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
+              <View style={styles.toolbarSeparator} />
+              <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setMenuOpen(true)}>
+                <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
+              <Pressable style={{ paddingHorizontal: 4 }}>
+                <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
+              <View style={styles.toolbarSeparator} />
+              <Pressable style={{ paddingHorizontal: 4 }}>
+                <TvUndo color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
+              <Pressable style={{ paddingHorizontal: 4 }}>
+                <TvRedo color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
+
+              <View style={styles.toolbarFlexSpacer} />
+
+
+
+              <View style={styles.toolbarSeparator} />
+              <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8} style={{ paddingHorizontal: 8 }}>
+                <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={isDark ? '#D1D4DC' : '#131722'} />
+              </Pressable>
             </View>
           </View>
 
-          <View style={styles.plRow}>
-            <View style={styles.plInfoGroup}>
-              <Ionicons name="time-outline" size={14} color={TEXT_MUTED} style={{ marginRight: 4 }} />
-              <Text style={styles.plLabel}>Positions :</Text>
-              <Text style={styles.plValue}>0</Text>
-              <View style={styles.plDivider} />
-              <Ionicons name="pie-chart-outline" size={14} color={TEXT_MUTED} style={{ marginRight: 4 }} />
-              <Text style={styles.plLabel}>P&L :</Text>
-              <Text style={styles.plValue}>0.00</Text>
+          <View style={{ flex: 1, flexDirection: 'row' }}>
+            {isChartExpanded && (
+              <ScrollView
+                style={styles.leftToolbar}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.leftToolbarContent}
+              >
+                <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => { setActiveTool('crosshair'); drawingToolsRef.current?.setActiveTool('crosshair'); }}><TvCrosshair color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => { setActiveTool('trendline'); drawingToolsRef.current?.setActiveTool('trendline'); }}><TvTrendLine color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => { setActiveTool('fib'); drawingToolsRef.current?.setActiveTool('fib'); }}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => { setActiveTool('brush'); drawingToolsRef.current?.setActiveTool('brush'); }}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => { setActiveTool('text'); drawingToolsRef.current?.setActiveTool('text'); }}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => { setActiveTool('measure'); drawingToolsRef.current?.setActiveTool('measure'); }}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => { setActiveTool('zoom'); drawingToolsRef.current?.setActiveTool('zoom'); }}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => { setActiveTool('magnet'); drawingToolsRef.current?.setActiveTool('magnet'); }}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
+                <View style={styles.toolSeparator} />
+                <Pressable style={[styles.toolIcon, activeTool === 'pencil' && styles.toolIconActive]} onPress={() => { setActiveTool('pencil'); drawingToolsRef.current?.setActiveTool('pencil'); }}><TvPencil color={activeTool === 'pencil' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'lock' && styles.toolIconActive]} onPress={() => { setActiveTool('lock'); drawingToolsRef.current?.setActiveTool('lock'); }}><TvLock color={activeTool === 'lock' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'hide' && styles.toolIconActive]} onPress={() => { setActiveTool('hide'); drawingToolsRef.current?.setActiveTool('hide'); }}><TvHide color={activeTool === 'hide' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon]} onPress={() => { drawingToolsRef.current?.removeAllDrawings(); setActiveTool('crosshair'); }}><TvTrash color={TEXT_MUTED} /></Pressable>
+                <View style={styles.toolSeparator} />
+                <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => { setActiveTool('layers'); drawingToolsRef.current?.setActiveTool('layers'); }}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
+              </ScrollView>
+            )}
+            <View style={{ flex: 1, position: 'relative' }} onLayout={handleLayout}>
+              <style>{`#tv-attr-logo { display: none !important; }`}</style>
+              {/* Floating OHLC Legend */}
+              <div
+                ref={legendRef}
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 12,
+                  zIndex: 20,
+                  pointerEvents: 'none',
+                  display: 'flex',
+                }}
+              />
+
+              {/* Loading Spinner */}
+              {isLoading && (
+                <View style={styles.chartOverlay}>
+                  <ActivityIndicator size="large" color={BLUE} />
+                  <Text style={styles.overlayText}>Loading chart data...</Text>
+                </View>
+              )}
+
+              {/* Error / Retry */}
+              {isError && !isLoading && (
+                <View style={styles.chartOverlay}>
+                  <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
+                  <Text style={styles.overlayText}>Unable to load chart</Text>
+                  <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+                </View>
+              )}
+
+              <div
+                ref={chartContainerRef}
+                style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
+              />
+
+              <View style={styles.tvLegendContainer} pointerEvents="box-none">
+                {latestBid && candles.length >= 2 && (
+                  <View>
+                    <View style={styles.tvLegendRow}>
+                      <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: latestBid >= candles[candles.length - 2]?.close ? '#089981' : '#F23645' }]}>
+                        {latestBid.toFixed(displayDecimals)} {latestBid >= candles[candles.length - 2]?.close ? '+' : '-'}192.90 (-0.98%)
+                      </Text>
+                    </View>
+                    <View style={[styles.tvLegendRow, { marginTop: 6 }]}>
+                      <Pressable style={styles.tvLegendDropdownBtn}>
+                        <Ionicons name="chevron-down" size={12} color={isDark ? '#D1D4DC' : '#131722'} />
+                        <Text style={styles.tvLegendDropdownText}>4</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 20 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isDark ? '#1E222D' : '#ffffff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 2 }}>
+                  <Ionicons name="refresh" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                </View>
+              </View>
             </View>
-            <View style={styles.toolbarActions}>
-              <Pressable style={styles.toolbarActionBtn} onPress={() => Alert.alert('Price Alert', `Set a price alert for ${chartSymbol}`)}>
-                <Ionicons name="alarm-outline" size={20} color={TEXT_MUTED} />
-              </Pressable>
-              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="expand-outline" size={20} color={TEXT_MUTED} />
-              </Pressable>
-              <Pressable style={styles.toolbarActionBtn} onPress={() => setMenuOpen(true)}>
-                <Ionicons name="layers-outline" size={20} color={TEXT_MUTED} />
-              </Pressable>
+          </View>
+
+          <View style={styles.tvBottomToolbar}>
+            <View style={styles.tvRangesLeft}>
+              {['1d', '5d', '1m', '6m', '1y'].map((range, idx) => (
+                <View key={range} style={[styles.tvRangePill, idx === 0 ? styles.tvRangePillActive : null]}>
+                  <Text style={[styles.tvRangeText, idx === 0 ? styles.tvRangeTextActive : null]}>{range}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.tvRangesRight}>
+              <Text style={styles.tvRangeDropdownText}>Date Range</Text>
+              <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginRight: 8 }} />
+              <Text style={styles.tvRangeTimeText}>{new Date().toLocaleTimeString('en-US', { hour12: false })} (UTC+5:30)</Text>
+              <Text style={styles.tvRangeAutoText}>auto</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.chartContainer} onLayout={handleLayout}>
-          {/* Top Integrated Toolbar (Timeframes, Legend) */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 4, zIndex: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              {['M1', 'M5', 'M15', 'H1', 'H4', 'D1'].map((tf) => (
-                <Pressable key={tf} onPress={() => setChartTimeframe(tf)}>
-                  <Text style={{ fontSize: 13, fontWeight: chartTimeframe === tf ? '700' : '500', color: chartTimeframe === tf ? BLUE : TEXT_MUTED }}>{tf}</Text>
+        {!isChartExpanded && (
+          <View style={styles.bottomArea}>
+            <View style={styles.segmentedControl}>
+              {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
+                <Pressable key={tab} style={[styles.segmentBtn, tab === 'POSITIONS' ? styles.segmentBtnActive : null]}>
+                  <Text style={[styles.segmentText, tab === 'POSITIONS' ? styles.segmentTextActive : null]}>{tab}</Text>
                 </Pressable>
               ))}
             </View>
-          </View>
 
-          {/* Floating OHLC Legend */}
-          <div
-            ref={legendRef}
-            style={{
-              position: 'absolute',
-              top: 32,
-              left: 12,
-              zIndex: 20,
-              pointerEvents: 'none',
-              display: 'flex',
-            }}
-          />
-
-          {/* Loading Spinner */}
-          {isLoading && (
-            <View style={styles.chartOverlay}>
-              <ActivityIndicator size="large" color={BLUE} />
-              <Text style={styles.overlayText}>Loading chart data...</Text>
+            <View style={styles.sentimentLabelsRow}>
+              <Text style={styles.sentimentLabelSell}>32% SELL</Text>
+              <Text style={styles.sentimentLabelBuy}>68% BUY</Text>
             </View>
-          )}
-
-          {/* Error / Retry */}
-          {isError && !isLoading && (
-            <View style={styles.chartOverlay}>
-              <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
-              <Text style={styles.overlayText}>Unable to load chart</Text>
-              <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+            <View style={styles.sentimentBarRow}>
+              <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: 0.32 }]} />
+              <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
             </View>
-          )}
 
-          <div 
-            ref={chartContainerRef} 
-            style={{ width: '100%', flex: 1, position: 'relative' }} 
-          />
-        </View>
-
-        <View style={styles.bottomArea}>
-          <View style={styles.segmentedControl}>
-            {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
-              <Pressable key={tab} style={[styles.segmentBtn, tab === 'POSITIONS' && styles.segmentBtnActive]}>
-                <Text style={[styles.segmentText, tab === 'POSITIONS' && styles.segmentTextActive]}>{tab}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.sentimentLabelsRow}>
-            <Text style={styles.sentimentLabelSell}>32% SELL</Text>
-            <Text style={styles.sentimentLabelBuy}>68% BUY</Text>
-          </View>
-          <View style={styles.sentimentBarRow}>
-            <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: 0.32 }]} />
-            <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
-          </View>
-
-          <View style={styles.tradeControlsRow}>
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnSell]}
-              onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } })}
-            >
-              <View style={styles.actionBtnInnerLeft}>
-                <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
+            <View style={styles.tradeControlsRow}>
+              <Pressable
+                style={[styles.actionBtn, styles.actionBtnSell]}
+                onPress={() => {
+                  try {
+                    if (seriesRef.current && latestAsk) {
+                      seriesRef.current.createPriceLine({
+                        price: latestAsk,
+                        color: '#F23645',
+                        lineWidth: 1,
+                        lineStyle: LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'SELL',
+                      });
+                    }
+                  } catch (e) { }
+                  router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } });
+                }}
+              >
+                <View style={styles.actionBtnHeader}>
+                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
+                  <Ionicons name="chevron-down" size={16} color="#FFF" />
+                </View>
                 <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
-              </View>
-              <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
-            </Pressable>
+              </Pressable>
 
-            <View style={styles.actionSpacer} />
+              <View style={styles.actionSpacer} />
 
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnBuy]}
-              onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } })}
-            >
-              <View style={styles.actionBtnInnerLeft}>
-                <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
+              <Pressable
+                style={[styles.actionBtn, styles.actionBtnBuy]}
+                onPress={() => {
+                  try {
+                    if (seriesRef.current && latestBid) {
+                      seriesRef.current.createPriceLine({
+                        price: latestBid,
+                        color: '#089981',
+                        lineWidth: 1,
+                        lineStyle: LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: 'BUY',
+                      });
+                    }
+                  } catch (e) { }
+                  router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } });
+                }}
+              >
+                <View style={styles.actionBtnHeader}>
+                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
+                  <Ionicons name="chevron-up" size={16} color="#FFF" />
+                </View>
                 <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
-              </View>
-              <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.7)" style={styles.actionChevron} />
-            </Pressable>
-          </View>
+              </Pressable>
+            </View>
 
-          <View style={styles.lotSelectorBar}>
-            <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
-              <Ionicons name="remove" size={18} color={T.textSub} />
-            </Pressable>
-            <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>{(lotSize || 0).toFixed(2)}</Text></Text>
-            <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => +((prev || 0) + 0.01).toFixed(2))}>
-              <Ionicons name="add" size={18} color={T.textSub} />
-            </Pressable>
+            <View style={styles.lotSelectorBar}>
+              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, Number(((prev || 0) - 0.01).toFixed(2))))}>
+                <Ionicons name="remove" size={18} color={T.textSub} />
+              </Pressable>
+              <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>{(lotSize || 0).toFixed(2)}</Text></Text>
+              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Number(((prev || 0) + 0.01).toFixed(2)))}>
+                <Ionicons name="add" size={18} color={T.textSub} />
+              </Pressable>
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       <ActionSheet
@@ -495,84 +673,191 @@ export function ChartScreen() {
           onPress: () => setChartSymbol(sym),
         }))}
       />
+
+      <ActionSheet
+        visible={showChartTypeMenu}
+        onClose={() => setShowChartTypeMenu(false)}
+        title='Chart Type'
+        actions={[
+          { label: 'Candlestick', onPress: () => setChartType('candles') },
+          { label: 'Hollow Candles', onPress: () => setChartType('hollow') },
+          { label: 'OHLC Bars', onPress: () => setChartType('bars') },
+          { label: 'Line', onPress: () => setChartType('line') },
+        ]}
+      />
+
+      <ActionSheet
+        visible={showMoreMenu}
+        onClose={() => setShowMoreMenu(false)}
+        title='Options'
+        actions={[
+          { label: 'Remove from favorites', onPress: () => { setShowMoreMenu(false); } },
+          { label: 'Trading calculator', onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/calculator', params: { symbol: chartSymbol } }); } },
+          { label: 'Analytics', onPress: () => { setShowMoreMenu(false); } },
+          { label: 'Specification', onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/specification', params: { symbol: chartSymbol } }); } },
+        ]}
+      />
+
+      <TradingSignalDetailsModal
+        visible={showSignalDetails}
+        onClose={() => setShowSignalDetails(false)}
+        symbol={chartSymbol}
+      />
     </Screen>
   );
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const APP_BG = T.bg; // #F4F7FB in Light, deep dark in Dark
-  const CARD_BG = T.glass2; // #FFFFFF in Light
-  const CHART_HEADER_BG = T.glass2; // Header is a main card, therefore glass2
-  const CHART_HEADER_BORDER = T.border;
-  const CHART_CANVAS_BG = T.bgSecondary; // #FFFFFF in Light
-  const BOTTOM_AREA_BG = T.bgSecondary;
+  const APP_BG = isDark ? '#090E17' : T.bg;
+  const CHART_CANVAS_BG = isDark ? '#090E17' : T.bgSecondary;
+  const BOTTOM_AREA_BG = isDark ? '#060A14' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
-  const GRID = T.borderSubtle;
-  const TEXT = T.text;
   const TEXT_MUTED = T.textMuted;
-  const BTN_BG = T.glass1; // Buttons are recessed/interactive, use glass1
-  const PILL_BG = T.glass1; // Pills are recessed, use glass1
 
   return StyleSheet.create({
     screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
-    topHeaderRow: {
+
+    /* ── Header Wrapper (2-row) ──────────────────────────────────── */
+    headerWrapper: {
+      backgroundColor: isDark ? '#0B101E' : '#FFFFFF',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+      zIndex: 10,
+    },
+    topBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+      height: 40,
+      marginTop: 16,
+    },
+    hamburgerBtn: {
+      padding: 4,
+      marginLeft: -4,
+    },
+
+    /* ── Compact Header (Row 2) ──────────────────────────────────── */
+    compactHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: 12,
+      paddingHorizontal: 20,
+      paddingTop: 6,
+      paddingBottom: 10,
     },
-    headerSpacer: {
-      flex: 1,
-      alignItems: 'flex-start',
-    },
-    headerSpacerRight: {
-      alignItems: 'flex-end',
-    },
-    menuBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 10,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    accountBadgeGroup: {
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    accountBadge: {
+    symbolSection: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 999,
-      borderWidth: 1,
-      gap: 8,
+      gap: 10,
+      flex: 1,
     },
-    badgeDemo: {
-      backgroundColor: isDark ? 'rgba(0, 230, 118, 0.08)' : '#DCFCE7',
-      borderColor: isDark ? 'rgba(0, 230, 118, 0.3)' : '#86EFAC',
+    flagStack: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
-    badgeLive: {
-      backgroundColor: isDark ? 'rgba(250, 204, 21, 0.08)' : '#FEF3C7',
-      borderColor: isDark ? 'rgba(250, 204, 21, 0.3)' : '#FDE68A',
+    flagCircle: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 2,
+      borderColor: isDark ? '#0B101E' : '#FFFFFF',
     },
-    liveIndicatorGlow: {
-      width: 10,
-      height: 10,
-      borderRadius: 5,
+    flagOverlap: {
+      marginLeft: -10,
+    },
+    symbolNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    symbolText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 20,
+      fontWeight: '800',
+      letterSpacing: -0.3,
+    },
+    fxBadge: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 3,
+    },
+    fxBadgeText: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 9,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+    symbolSubText: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 13,
+      fontWeight: '500',
+      marginTop: 1,
+    },
+
+    /* ── Center: Live Price ──────────────────────────────────────── */
+    priceSection: {
       alignItems: 'center',
       justifyContent: 'center',
+      flex: 1,
     },
-    glowDemo: {
-      backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    livePriceText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 22,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -0.5,
     },
-    glowLive: {
-      backgroundColor: 'rgba(250, 204, 21, 0.2)',
+    priceChangeText: {
+      fontSize: 11,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+      marginTop: 1,
     },
-    liveIndicator: {
+
+    /* ── Right: Price Change ─────────────────────────────────────── */
+    rightSection: {
+      alignItems: 'flex-end',
+      flex: 1,
+    },
+    balanceContainer: {
+      alignItems: 'flex-end',
+    },
+    balanceText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 16,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -0.3,
+    },
+    balanceLabel: {
+      color: isDark ? '#FFFFFF' : '#64748B',
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+      marginBottom: 1,
+    },
+    currencyText: {
+      fontSize: 10,
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontWeight: '700',
+    },
+    priceChangePct: {
+      fontSize: 11,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+      marginTop: 1,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginTop: 3,
+    },
+    accountDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
@@ -581,12 +866,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#00E676',
     },
     dotLive: {
-      backgroundColor: isDark ? '#FACC15' : '#713F12',
+      backgroundColor: isDark ? '#FACC15' : '#D97706',
     },
     accountTypeText: {
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.6,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 0.5,
     },
     textDemo: {
       color: '#00E676',
@@ -594,160 +879,80 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     textLive: {
       color: isDark ? '#FACC15' : '#D97706',
     },
-    balanceContainer: {
-      alignItems: 'flex-end',
-    },
-    balanceLabel: {
-      color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 10,
-      fontWeight: '800',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      marginBottom: 2,
-    },
-    balanceText: {
-      color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 18,
-      fontWeight: '800',
-      fontVariant: ['tabular-nums'],
-      letterSpacing: -0.4,
-    },
-    currencyText: {
-      fontSize: 12,
-      color: isDark ? '#F8FAFC' : '#475569',
-      fontWeight: '800',
-    },
+
+    /* ── Card (main body) ────────────────────────────────────────── */
     card: {
       flex: 1,
       backgroundColor: 'transparent',
     },
-    glassToolbar: {
-      marginHorizontal: 16,
-      borderRadius: 20,
-      backgroundColor: CHART_HEADER_BG,
-      borderWidth: 1,
-      borderColor: CHART_HEADER_BORDER,
-      paddingTop: 12,
-      paddingBottom: 8,
-      marginBottom: 12,
-      shadowColor: isDark ? '#000' : '#64748B',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.3 : 0.08,
-      shadowRadius: 24,
-      elevation: 4,
-    },
-    toolbarRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingBottom: 12,
-    },
-    symbolInfo: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    flagStack: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    flagCircle: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
-      borderWidth: 2,
-      borderColor: CARD_BG,
-    },
-    flagOverlap: {
-      marginLeft: -8,
-    },
-    symbolTextCol: {
-      justifyContent: 'center',
-    },
-    symbolNameRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    symbolText: {
-      color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 20,
-      fontWeight: '800',
-      letterSpacing: -0.5,
-    },
-    microBadge: {
-      backgroundColor: T.glass2,
-      paddingHorizontal: 4,
-      paddingVertical: 2,
-      borderRadius: 4,
-      borderWidth: 1,
-      borderColor: T.border,
-    },
-    microBadgeText: {
-      color: T.textSub,
-      fontSize: 9,
-      fontWeight: '700',
-      letterSpacing: 0.5,
-    },
-    symbolSubText: {
-      color: isDark ? '#FFFFFF' : '#64748B',
-      fontSize: 12,
-      fontWeight: '500',
-      marginTop: 2,
-    },
-    toolbarActions: {
-      flexDirection: 'row',
-      gap: 8,
-    },
-    toolbarActionBtn: {
-      width: 34,
-      height: 34,
-      borderRadius: 10,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    plRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? T.border : '#E2E8F0',
-    },
-    plInfoGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    plLabel: {
-      color: isDark ? 'rgba(255,255,255,0.6)' : '#64748B',
-      fontSize: 12,
-      fontWeight: '800',
-      marginRight: 4,
-    },
-    plValue: {
-      color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 13,
-      fontWeight: '700',
-      fontVariant: ['tabular-nums'],
-      letterSpacing: -0.2,
-    },
-    plDivider: {
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: isDark ? '#FFFFFF' : '#E2E8F0',
-      marginLeft: 20,
-      marginRight: 2,
-    },
     chartContainer: {
       flex: 1,
       backgroundColor: CHART_CANVAS_BG,
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: CHART_HEADER_BORDER,
       position: 'relative',
+    },
+    leftToolbar: {
+      width: 40,
+      minWidth: 40,
+      maxWidth: 40,
+      flexShrink: 0,
+      flexGrow: 0,
+      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
+      borderRightWidth: 1,
+      borderRightColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+    },
+    leftToolbarContent: {
+      alignItems: 'center',
+      paddingVertical: 8,
+      gap: 2,
+    },
+    toolIcon: {
+      width: 30,
+      height: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 5,
+    },
+    toolIconActive: {
+      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.18)' : 'rgba(41, 98, 255, 0.10)',
+      borderRadius: 5,
+    },
+    toolSeparator: {
+      width: 18,
+      height: 1,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      marginVertical: 2,
+    },
+    chartTopToolbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+      zIndex: 10,
+    },
+    inlineActionGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+    },
+    toolbarSeparator: {
+      width: 1,
+      height: 16,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+      marginHorizontal: 10,
+    },
+    toolbarFlexSpacer: {
+      flex: 1,
+    },
+    redBoxIcon: {
+      backgroundColor: RED,
+      width: 24,
+      height: 24,
+      borderRadius: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     gestureWrap: {
       flex: 1,
@@ -794,91 +999,67 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
     },
     bottomArea: {
-      backgroundColor: BOTTOM_AREA_BG,
+      backgroundColor: isDark ? '#060A14' : '#F8FAFC',
+      paddingHorizontal: 14,
+      paddingTop: 10,
+      paddingBottom: 8,
       borderTopWidth: 1,
-      borderTopColor: isDark ? T.border : '#E2E8F0',
-      paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 16,
-    },
-    timeframesRow: {
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingVertical: 8,
-      gap: 12,
-    },
-    tfBtn: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 8,
-    },
-    tfBtnActive: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9',
-    },
-    tfText: {
-      color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 13,
-      fontWeight: '600',
-    },
-    tfTextActive: {
-      color: isDark ? '#fff' : '#0F172A',
+      borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
     segmentedControl: {
       flexDirection: 'row',
-      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.08)' : '#F1F5F9',
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(41, 98, 255, 0.15)' : '#E2E8F0',
-      padding: 4,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+      borderRadius: 8,
+      padding: 3,
       marginBottom: 8,
     },
     segmentBtn: {
       flex: 1,
-      paddingVertical: 8,
+      paddingVertical: 6,
       alignItems: 'center',
-      borderRadius: 8,
+      borderRadius: 6,
     },
     segmentBtnActive: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : '#FFFFFF',
-      shadowColor: isDark ? 'transparent' : '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
+      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)',
     },
     segmentText: {
-      color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 12,
+      color: isDark ? '#475569' : '#94A3B8',
+      fontSize: 11,
       fontWeight: '700',
-      letterSpacing: 0.5,
+      letterSpacing: 0.8,
     },
     segmentTextActive: {
-      color: isDark ? '#fff' : '#0F172A',
+      color: isDark ? '#E2E8F0' : '#0F172A',
+      fontWeight: '800',
     },
     sentimentLabelsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 4,
+      marginBottom: 5,
     },
     sentimentLabelSell: {
       color: RED,
-      fontSize: 11,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.3,
     },
     sentimentLabelBuy: {
       color: BLUE,
-      fontSize: 11,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.3,
     },
     sentimentBarRow: {
       flexDirection: 'row',
-      height: 4,
-      marginBottom: 12,
-      borderRadius: 2,
+      height: 3,
+      marginBottom: 14,
+      borderRadius: 3,
       overflow: 'hidden',
+      gap: 2,
     },
     sentimentHalf: {
       height: '100%',
+      borderRadius: 3,
     },
     sentimentSell: {
       backgroundColor: RED,
@@ -888,100 +1069,89 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     tradeControlsRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       marginBottom: 12,
+      gap: 10,
     },
     actionBtn: {
       flex: 1,
-      height: 52,
-      borderRadius: 12,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
+      borderRadius: 10,
+      padding: 12,
+      paddingVertical: 12,
+      borderWidth: 1,
     },
     actionBtnSell: {
-      backgroundColor: isDark ? 'rgba(255, 42, 85, 0.1)' : '#FCE7F3',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255, 42, 85, 0.25)' : '#FBCFE8',
-      shadowColor: '#FF2A55',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.15,
-      shadowRadius: 10,
+      backgroundColor: isDark ? 'rgba(239, 83, 80, 0.08)' : 'rgba(239, 68, 68, 0.06)',
+      borderColor: isDark ? 'rgba(239, 83, 80, 0.25)' : 'rgba(239, 68, 68, 0.15)',
     },
     actionBtnBuy: {
-      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.1)' : '#F1F5F9',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(41, 98, 255, 0.25)' : '#E2E8F0',
-      shadowColor: '#2962FF',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.15,
-      shadowRadius: 10,
-    },
-    actionBtnInnerLeft: {
-      flex: 1,
-    },
-    actionBtnLabelTitle: {
-      color: isDark ? TEXT : '#0F172A',
-      fontSize: 16,
-      fontWeight: '800',
-      marginBottom: 2,
-      letterSpacing: 0.5,
-    },
-    actionBtnLabelSell: {
-      color: isDark ? TEXT : '#9F1239',
-    },
-    actionBtnLabelBuy: {
-      color: isDark ? TEXT : '#1E3A8A',
-    },
-    actionBtnPriceText: {
-      color: isDark ? TEXT : '#475569',
-      fontSize: 12,
-      fontWeight: '500',
-      fontVariant: ['tabular-nums'],
-      opacity: 0.9,
-    },
-    actionChevron: {
-      opacity: 0.8,
+      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.08)' : 'rgba(59, 130, 246, 0.06)',
+      borderColor: isDark ? 'rgba(41, 98, 255, 0.25)' : 'rgba(59, 130, 246, 0.15)',
     },
     actionSpacer: {
-      width: 12,
+      width: 0,
+    },
+    actionBtnHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    actionBtnLabelTitle: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '900',
+      letterSpacing: 1.2,
+    },
+    actionBtnLabelSell: {
+      color: RED,
+    },
+    actionBtnLabelBuy: {
+      color: BLUE,
+    },
+    actionBtnPriceText: {
+      color: isDark ? 'rgba(255,255,255,0.55)' : TEXT_MUTED,
+      fontSize: 12,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 0.2,
     },
     lotSelectorBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.08)' : '#F1F5F9',
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+      borderRadius: 10,
+      padding: 4,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(41, 98, 255, 0.15)' : '#E2E8F0',
+      borderColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
     lotStepperBtn: {
       width: 40,
-      height: 40,
+      height: 32,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'transparent' : '#E2E8F0',
-      borderRadius: 8,
+      borderRadius: 6,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
     },
     lotLabelText: {
-      color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 14,
-      fontWeight: '500',
+      flex: 1,
+      textAlign: 'center',
+      fontSize: 12,
+      fontWeight: '600',
+      color: isDark ? '#64748B' : TEXT_MUTED,
     },
     lotValueText: {
-      color: isDark ? '#fff' : '#0F172A',
-      fontSize: 16,
-      fontWeight: '700',
+      color: isDark ? '#E2E8F0' : '#0F172A',
+      fontSize: 15,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
     },
     gridLine: {
       position: 'absolute',
       left: 0,
       right: 0,
       height: 1,
-      backgroundColor: GRID,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : T.borderSubtle,
     },
     chartOverlay: {
       ...StyleSheet.absoluteFillObject,
@@ -1000,6 +1170,114 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: isDark ? 'rgba(142, 154, 175, 0.6)' : '#94A3B8',
       fontSize: 12,
       marginTop: 4,
+    },
+    tvLegendContainer: {
+      position: 'absolute',
+      top: 10,
+      left: 14,
+      zIndex: 10,
+      flexDirection: 'column',
+    },
+    tvLegendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    tvLegendSymbolTitle: {
+      color: isDark ? '#D1D4DC' : '#131722',
+      fontSize: 14,
+      fontWeight: '700',
+      letterSpacing: 0,
+    },
+    tvLegendStatusPill: {
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      backgroundColor: isDark ? '#2A2E39' : '#E0E3EB',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tvLegendStatusDot: {
+      width: 6,
+      height: 2,
+      backgroundColor: isDark ? '#D1D4DC' : '#131722',
+    },
+    tvLegendPriceValue: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    tvLegendPriceChange: {
+      fontSize: 13,
+      fontWeight: '500',
+    },
+    tvLegendDropdownBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? '#1E222D' : '#FFFFFF',
+      borderWidth: 1,
+      borderColor: isDark ? '#2A2E39' : '#E2E8F0',
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      height: 22,
+      gap: 4,
+    },
+    tvLegendDropdownText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: isDark ? '#D1D4DC' : '#131722',
+    },
+    tvBottomToolbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: isDark ? '#0F1219' : '#0B0F19',
+      borderTopWidth: 1,
+      borderTopColor: isDark ? '#2A2E39' : '#1E293B',
+    },
+    tvRangesLeft: {
+      flexDirection: 'row',
+      gap: 4,
+    },
+    tvRangePill: {
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+      borderRadius: 4,
+    },
+    tvRangePillActive: {
+      backgroundColor: isDark ? '#1E293B' : '#1E293B',
+    },
+    tvRangeText: {
+      color: isDark ? '#758696' : '#787B86',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    tvRangeTextActive: {
+      color: isDark ? '#F8FAFC' : '#F8FAFC',
+    },
+    tvRangesRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    tvRangeDropdownText: {
+      color: isDark ? '#787B86' : '#787B86',
+      fontSize: 12,
+      fontWeight: '500',
+      marginRight: 2,
+    },
+    tvRangeTimeText: {
+      color: isDark ? '#787B86' : '#787B86',
+      fontSize: 12,
+      fontWeight: '500',
+      marginLeft: 4,
+    },
+    tvRangeAutoText: {
+      color: '#2962FF',
+      fontSize: 12,
+      fontWeight: '600',
+      marginLeft: 8,
     },
   });
 }

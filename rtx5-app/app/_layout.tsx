@@ -64,6 +64,13 @@ function InnerLayout() {
           <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
           <Stack.Screen name='login' options={{ title: 'Login' }} />
           <Stack.Screen name='chart/objects' options={{ title: 'Objects' }} />
+          <Stack.Screen name='chart/settings' options={{ title: 'Settings' }} />
+          <Stack.Screen name='chart/colors' options={{ title: 'Colors' }} />
+          <Stack.Screen name='chart/price-source' options={{ title: 'Price source' }} />
+          <Stack.Screen name='chart/open-order-mode' options={{ title: 'Open order mode' }} />
+          <Stack.Screen name='chart/calculator' options={{ title: 'Calculator' }} />
+          <Stack.Screen name='chart/specification' options={{ title: 'Specification' }} />
+          <Stack.Screen name='chart/menu-order' options={{ title: 'Order of menu items' }} />
           <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />
           <Stack.Screen name='settings/accounts' options={{ title: 'Accounts' }} />
           <Stack.Screen name='settings/mailbox' options={{ title: 'Mailbox' }} />

@@ -11,6 +11,9 @@ type UIState = {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 
+  isChartFullscreen: boolean;
+  setChartFullscreen: (open: boolean) => void;
+
   actionSheet: ActionSheetConfig | null;
   showActionSheet: (config: ActionSheetConfig) => void;
   hideActionSheet: () => void;
@@ -19,6 +22,9 @@ type UIState = {
 export const useUIState = create<UIState>((set) => ({
   sidebarOpen: false,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+  isChartFullscreen: false,
+  setChartFullscreen: (open) => set({ isChartFullscreen: open }),
 
   actionSheet: null,
   showActionSheet: (config) => set({ actionSheet: config }),
