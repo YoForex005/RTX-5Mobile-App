@@ -52,7 +52,7 @@ export function ChartSettingsScreen() {
   };
 
   const CHART_PREFS: NavItem[] = [
-    { label: 'Chart', value: 'Exness' },
+    { label: 'Chart', value: 'RTX5' },
     { label: 'Price source', value: priceSource === 'bid' ? 'Bid price' : 'Ask price', onPress: () => router.push('/chart/price-source') },
     { label: 'Colors', onPress: () => router.push('/chart/colors') },
     { label: 'Open order mode', value: openOrderMode, onPress: () => router.push('/chart/open-order-mode') },

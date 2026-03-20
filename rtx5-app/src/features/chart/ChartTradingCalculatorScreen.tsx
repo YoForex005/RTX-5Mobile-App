@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
 import { Screen } from '../../components/Screen';
@@ -39,6 +39,7 @@ export function ChartTradingCalculatorScreen() {
 
   return (
     <Screen style={styles.screen}>
+      <Stack.Screen options={{ title: `Calculator (${currentSymbol})` }} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Segmented Control */}

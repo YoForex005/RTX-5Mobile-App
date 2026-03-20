@@ -69,6 +69,7 @@ function InnerLayout() {
           <Stack.Screen name='chart/price-source' options={{ title: 'Price source' }} />
           <Stack.Screen name='chart/open-order-mode' options={{ title: 'Open order mode' }} />
           <Stack.Screen name='chart/calculator' options={{ title: 'Calculator' }} />
+          <Stack.Screen name='chart/analytics' options={{ title: 'Analytics' }} />
           <Stack.Screen name='chart/specification' options={{ title: 'Specification' }} />
           <Stack.Screen name='chart/menu-order' options={{ title: 'Order of menu items' }} />
           <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />

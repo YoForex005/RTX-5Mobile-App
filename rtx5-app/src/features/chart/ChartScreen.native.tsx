@@ -1,11 +1,11 @@
-﻿import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
-import { 
-  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers 
+import {
+  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -106,7 +106,7 @@ const CH_HTML = `
         } catch(e) {}
       }
 
-      function initChart(opts, chartType, data) {
+      function initChart(opts, chartType, data, displayDecimals) {
         try {
           if (chart) { chart.remove(); chart = null; series = null; }
 
@@ -115,6 +115,12 @@ const CH_HTML = `
           opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+
+          var priceFormatInfo = {
+             type: 'price',
+             precision: displayDecimals,
+             minMove: 1 / Math.pow(10, displayDecimals)
+          };
 
           chart = LightweightCharts.createChart(document.getElementById('chart'), opts);
 
@@ -127,17 +133,26 @@ const CH_HTML = `
               wickDownColor: DOWN_COLOR,
               borderUpColor: UP_COLOR,
               borderDownColor: DOWN_COLOR,
+              lastValueVisible: true,
+              priceLineVisible: true,
+              priceFormat: priceFormatInfo,
             });
           } else if (chartType === 'bars') {
             series = chart.addSeries(LightweightCharts.BarSeries, {
               upColor: UP_COLOR,
               downColor: DOWN_COLOR,
+              lastValueVisible: true,
+              priceLineVisible: true,
+              priceFormat: priceFormatInfo,
             });
           } else {
             series = chart.addSeries(LightweightCharts.LineSeries, {
               color: UP_COLOR,
               lineWidth: 2,
               crosshairMarkerVisible: true,
+              lastValueVisible: true,
+              priceLineVisible: true,
+              priceFormat: priceFormatInfo,
             });
           }
 
@@ -153,7 +168,9 @@ const CH_HTML = `
 
       function updateTick(tick) {
         try {
-          if (series) series.update(tick);
+          if (series) {
+            series.update(tick);
+          }
         } catch(e) {}
       }
 
@@ -176,6 +193,9 @@ export function ChartScreen() {
   const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, showTradingSignals } = useUserPreferences();
   const liveAccount = { balance: 100000, currency: 'USD' };
 
+  const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
+  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
@@ -197,31 +217,33 @@ export function ChartScreen() {
 
   const chartOptions = useMemo(() => ({
     layout: {
-      background: { color: isDark ? '#0B0E14' : '#FFFFFF' },
-      textColor: TEXT_MUTED,
+      background: { color: isDark ? '#131722' : '#FFFFFF' },
+      textColor: isDark ? '#94A3B8' : '#64748B',
       attributionLogo: false,
+      fontSize: 11,
     },
     grid: {
-      vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' },
-      horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' },
+      vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)' },
+      horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)' },
     },
     crosshair: {
       mode: 0, // Normal
       vertLine: {
-        color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+        color: isDark ? '#475569' : '#94A3B8',
         width: 1,
-        labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+        labelBackgroundColor: isDark ? '#1E293B' : '#334155',
       },
       horzLine: {
-        color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+        color: isDark ? '#475569' : '#94A3B8',
         width: 1,
-        labelBackgroundColor: isDark ? '#1E293B' : '#E2E8F0',
+        labelBackgroundColor: isDark ? '#1E293B' : '#334155',
       },
     },
     timeScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
       timeVisible: true,
       secondsVisible: false,
+      rightOffset: 5,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
@@ -231,23 +253,41 @@ export function ChartScreen() {
 
   const [webViewReady, setWebViewReady] = useState(false);
 
+  const dataSignatureRef = useRef('');
+
   // Sync Data â€” uses injectJavaScript instead of postMessage
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
-      const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-      uniqueData.sort((a, b) => a.time - b.time);
-      const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(uniqueData)}); true;`;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [candles, isDark, chartType, webViewReady]);
+      const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
+      if (dataSignatureRef.current !== sig) {
+        // Deduplicate
+        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
+        uniqueData.sort((a, b) => a.time - b.time);
 
+        let mappedData: any = uniqueData;
+        if (chartType === 'line') {
+          mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
+        }
+
+        const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedData)}, ${displayDecimals}); true;`;
+        webViewRef.current.injectJavaScript(js);
+        dataSignatureRef.current = sig;
+      }
+    }
+  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions]);
+
+  // Live Tick Sync
   // Live Tick Sync
   useEffect(() => {
     if (webViewRef.current && webViewReady && latestTick) {
-      const js = `updateTick(${JSON.stringify(latestTick)}); true;`;
+      let tickToInject: any = latestTick;
+      if (chartType === 'line') {
+        tickToInject = { time: latestTick.time, value: latestTick.close };
+      }
+      const js = `updateTick(${JSON.stringify(tickToInject)}); true;`;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [latestTick, isDark, webViewReady]);
+  }, [latestTick, isDark, webViewReady, chartType]);
 
   // Trading Signals Bridge
   useEffect(() => {
@@ -265,9 +305,6 @@ export function ChartScreen() {
   const latestBid = latestClose;
   const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
 
-  const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
-
-  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
   const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
   const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
@@ -280,25 +317,9 @@ export function ChartScreen() {
         <View style={styles.compactHeader}>
           {/* Left: Symbol Info */}
           <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
-            <View style={styles.flagStack}>
-              {symbolFlags ? (
-                <>
-                  <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[0]}.png` }} style={[styles.flagCircle, { zIndex: 2 }]} />
-                  <Image source={{ uri: `https://flagcdn.com/w160/${symbolFlags[1]}.png` }} style={[styles.flagCircle, styles.flagOverlap, { zIndex: 1 }]} />
-                </>
-              ) : symbolLogo ? (
-                <View style={[styles.flagCircle, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0', alignItems: 'center', justifyContent: 'center' }]}>
-                  <Image source={{ uri: symbolLogo }} style={{ width: 20, height: 20, borderRadius: 10 }} />
-                </View>
-              ) : (
-                <View style={[styles.flagCircle, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0', alignItems: 'center', justifyContent: 'center' }]}>
-                  <Text style={{ color: isDark ? '#fff' : '#0F172A', fontSize: 10, fontWeight: '800' }}>{displaySymbol.slice(0, 3).replace('/', '')}</Text>
-                </View>
-              )}
-            </View>
             <View>
               <View style={styles.symbolNameRow}>
-                <Text style={styles.symbolText}>{displaySymbol}</Text>
+                <Text style={[styles.symbolText, { fontWeight: '700', opacity: 0.9 }]}>{displaySymbol}</Text>
                 <View style={styles.fxBadge}>
                   <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
                 </View>
@@ -327,17 +348,14 @@ export function ChartScreen() {
           {/* Right: Balance + Account */}
           <View style={styles.rightSection}>
             <View style={styles.balanceContainer}>
-              <Text style={styles.balanceLabel}>BALANCE</Text>
-              <Text style={styles.balanceText}>
+              <Text style={styles.balanceLabel}>PRICE</Text>
+              <Text style={[styles.balanceText, { fontWeight: '700', opacity: 0.9 }]}>
                 {liveAccount ? fmt.int(liveAccount.balance) : '---'}
                 <Text style={styles.currencyText}> {liveAccount ? liveAccount.currency : 'USD'}</Text>
               </Text>
             </View>
-            <View style={styles.headerActions}>
-              <View style={[styles.accountDot, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
-              <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
-                {isDemoAccount ? 'DEMO' : 'LIVE'}
-              </Text>
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitleText}>Chart</Text>
             </View>
           </View>
         </View>
@@ -451,7 +469,14 @@ export function ChartScreen() {
           <View style={styles.bottomArea}>
             <View style={styles.segmentedControl}>
               {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
-                <Pressable key={tab} style={[styles.segmentBtn, tab === 'POSITIONS' && styles.segmentBtnActive]}>
+                <Pressable
+                  key={tab}
+                  style={[styles.segmentBtn, tab === 'POSITIONS' && styles.segmentBtnActive]}
+                  onPress={() => {
+                    if (tab === 'HISTORY') router.push('/history');
+                    else router.push('/trade');
+                  }}
+                >
                   <Text style={[styles.segmentText, tab === 'POSITIONS' && styles.segmentTextActive]}>{tab}</Text>
                 </Pressable>
               ))}
@@ -550,10 +575,26 @@ export function ChartScreen() {
         onClose={() => setShowMoreMenu(false)}
         title='Options'
         actions={[
-          { label: 'Remove from favorites', onPress: () => { setShowMoreMenu(false); } },
-          { label: 'Trading calculator', onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/calculator', params: { symbol: chartSymbol } }); } },
-          { label: 'Analytics', onPress: () => { setShowMoreMenu(false); } },
-          { label: 'Specification', onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/specification', params: { symbol: chartSymbol } }); } },
+          {
+            label: 'Remove from favorites',
+            icon: <Ionicons name="star" size={20} color={TEXT_MUTED} />,
+            onPress: () => { setShowMoreMenu(false); }
+          },
+          {
+            label: 'Trading calculator',
+            icon: <Ionicons name="calculator-outline" size={20} color={TEXT_MUTED} />,
+            onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/calculator', params: { symbol: chartSymbol } }); }
+          },
+          {
+            label: 'Analytics',
+            icon: <Ionicons name="analytics-outline" size={20} color={TEXT_MUTED} />,
+            onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/analytics', params: { symbol: chartSymbol } }); }
+          },
+          {
+            label: 'Specification',
+            icon: <Ionicons name="clipboard-outline" size={20} color={TEXT_MUTED} />,
+            onPress: () => { setShowMoreMenu(false); router.push({ pathname: '/chart/specification', params: { symbol: chartSymbol } }); }
+          },
         ]}
       />
     </Screen>
@@ -686,6 +727,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 4,
       marginTop: 3,
     },
+    headerTitleContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 4,
+      marginRight: 10,
+    },
+    headerTitleText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 16,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
     accountDot: {
       width: 6,
       height: 6,
@@ -725,7 +778,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       maxWidth: 44,
       flexShrink: 0,
       flexGrow: 0,
-      backgroundColor: isDark ? '#0B101E' : '#FFFFFF',
+      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
       borderRightWidth: 1,
       borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -755,7 +808,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       paddingHorizontal: 12,
       paddingVertical: 8,
-      backgroundColor: isDark ? '#0B101E' : '#FFFFFF',
+      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -802,7 +855,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     bottomArea: {
-      backgroundColor: BOTTOM_AREA_BG,
+      backgroundColor: isDark ? '#060A14' : '#FFFFFF',
       paddingHorizontal: 14,
       paddingTop: 10,
       paddingBottom: 8,
@@ -811,7 +864,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     segmentedControl: {
       flexDirection: 'row',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F1F5F9',
       borderRadius: 8,
       padding: 3,
       marginBottom: 8,
@@ -823,17 +876,22 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 6,
     },
     segmentBtnActive: {
-      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)',
+      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 2,
+      elevation: 2,
     },
     segmentText: {
-      color: isDark ? '#475569' : '#94A3B8',
-      fontSize: 11,
-      fontWeight: '700',
-      letterSpacing: 0.8,
+      color: isDark ? '#64748B' : '#64748B',
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.5,
     },
     segmentTextActive: {
-      color: isDark ? '#E2E8F0' : '#0F172A',
-      fontWeight: '800',
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontWeight: '700',
     },
     sentimentLabelsRow: {
       flexDirection: 'row',
@@ -883,12 +941,22 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 1,
     },
     actionBtnSell: {
-      backgroundColor: isDark ? 'rgba(239, 83, 80, 0.08)' : 'rgba(239, 68, 68, 0.06)',
-      borderColor: isDark ? 'rgba(239, 83, 80, 0.25)' : 'rgba(239, 68, 68, 0.15)',
+      backgroundColor: RED,
+      borderWidth: 0,
+      shadowColor: RED,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.2,
+      shadowRadius: 8,
+      elevation: 4,
     },
     actionBtnBuy: {
-      backgroundColor: isDark ? 'rgba(41, 98, 255, 0.08)' : 'rgba(59, 130, 246, 0.06)',
-      borderColor: isDark ? 'rgba(41, 98, 255, 0.25)' : 'rgba(59, 130, 246, 0.15)',
+      backgroundColor: BLUE,
+      borderWidth: 0,
+      shadowColor: BLUE,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.2,
+      shadowRadius: 8,
+      elevation: 4,
     },
     actionSpacer: {
       width: 0,
@@ -901,22 +969,21 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     actionBtnLabelTitle: {
       color: '#FFFFFF',
-      fontSize: 14,
-      fontWeight: '900',
-      letterSpacing: 1.2,
+      fontSize: 16,
+      fontWeight: '800',
+      letterSpacing: 1,
     },
     actionBtnLabelSell: {
-      color: RED,
+      color: '#FFFFFF',
     },
     actionBtnLabelBuy: {
-      color: BLUE,
+      color: '#FFFFFF',
     },
     actionBtnPriceText: {
-      color: isDark ? 'rgba(255,255,255,0.55)' : TEXT_MUTED,
-      fontSize: 12,
+      color: 'rgba(255,255,255,0.85)',
+      fontSize: 13,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: 0.2,
     },
     lotSelectorBar: {
       flexDirection: 'row',

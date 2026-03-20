@@ -121,6 +121,8 @@ export type PositionItem = {
   pnl: number;
   swap: number;
   openTime: string;
+  sl?: number;
+  tp?: number;
 };
 
 export const account = {

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, SafeAreaView } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { QuoteItem, quotes as mockQuotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -95,8 +96,8 @@ function QuoteCard({
   const askCaret = askDirection !== 'neutral' ? askDirection : isUp ? 'up' : 'down';
 
   // Elite Fintech Paradigm: Cards on a clean canvas
-  const cardBg = isDark ? '#0f1525' : T.glass2;
-  const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : T.border;
+  const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
+  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
 
   return (
     <Pressable
@@ -111,6 +112,13 @@ function QuoteCard({
       onLongPress={onLongPress}
       delayLongPress={180}
     >
+      {isDark && (
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.03)', 'transparent']}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
+        />
+      )}
       {/* Left accent bar removed to match pure flat aesthetics */}
 
       <View style={sc.cardInner}>
@@ -371,7 +379,7 @@ const sc = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.03,
     shadowRadius: 16,
-    elevation: 0, // Eliminate harsh Android shadow on Light Mode
+    elevation: 0,
   },
   cardShadowDark: {
     shadowColor: '#2563EB',

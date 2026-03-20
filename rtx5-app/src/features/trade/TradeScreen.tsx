@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
+import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { TradePositionRow } from '../../components/TradePositionRow';
@@ -22,11 +23,32 @@ export function TradeScreen() {
   const setSidebarOpen = useUIState((st) => st.setSidebarOpen);
   const showActionSheet = useUIState((st) => st.showActionSheet);
 
+  // ── Pull-to-refresh ─────────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  // ── P/L pulse animation ─────────────────────────────────────────────────
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.82, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
+
   const account = {
     balance: mockAccount.balance, credit: 0, floating: mockAccount.floating, equity: mockAccount.equity,
     margin: mockAccount.margin, freeMargin: mockAccount.freeMargin, marginLevel: mockAccount.marginLevel, currency: mockAccount.currency,
   };
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
+  const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
 
   const showBulkSheet = () => {
     showActionSheet({
@@ -63,74 +85,112 @@ export function TradeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         ListHeaderComponent={(
           <>
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
-            {/* ── Summary Block ── */}
-            <View style={s.summaryBlock}>
+            <View style={[s.summaryBlock, isDark && {
+              backgroundColor: 'rgba(15, 23, 42, 0.7)',
+              shadowColor: '#2563EB',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.08,
+              shadowRadius: 16,
+              elevation: 4,
+            }]}>
               <View style={s.summaryTop}>
-                {isDark && <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(37,99,235,0.08)' }]} />}
                 <View style={s.plSection}>
                   <Text style={[s.summaryLabel, { color: T.text }]}>Unrealized P/L</Text>
                   <View style={s.floatingRow}>
-                    <Text style={[s.floating, account.floating >= 0 ? s.floatingPositive : s.floatingNegative]}>
+                    <Animated.Text style={[s.floating, { color: account.floating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
                       {fmt.pnl(account.floating)}
-                    </Text>
-                    <View style={[s.trendBadge, account.floating >= 0 ? s.trendUp : s.trendDown]}>
-                      <Ionicons
-                        name={account.floating >= 0 ? 'trending-up-outline' : 'trending-down-outline'}
-                        size={18}
-                        color={account.floating >= 0 ? T.up : T.down}
-                      />
-                    </View>
+                    </Animated.Text>
                   </View>
                   <View style={s.plMeta}>
-                    <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.int(account.marginLevel)}%</Text>
+                    <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(account.marginLevel)}%</Text>
                   </View>
                 </View>
                 <View style={s.balanceQuick}>
                   <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>Balance</Text>
-                  <Text style={[s.balanceQuickValue, { color: T.text }]}>{fmt.int(account.balance)}</Text>
+                  <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(account.balance)}</Text>
                   <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency}</Text>
-                  <View style={s.equityRow}>
-                    <Text style={[s.equityLabel, { color: T.textMuted }]}>Equity </Text>
-                    <Text style={[s.equityValue, { color: T.textSub }]}>{fmt.int(account.equity)}</Text>
-                  </View>
+                  {account.credit > 0 && (
+                    <View style={s.equityRow}>
+                      <Text style={[s.equityLabel, { color: T.textMuted }]}>Equity </Text>
+                      <Text style={[s.equityValue, { color: T.textSub }]}>{fmt.int(account.equity)}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
-              <View style={[s.metricsCard, { borderTopColor: T.border }]}>
-                <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: T.border }]}>
-                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: T.border }]}>
-                    <Text style={[s.gridLabel, { color: T.textSub }]}>Margin:</Text>
+              <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
+                <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
+                    </View>
                     <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.margin)}</Text>
                   </View>
                   <View style={s.gridCol}>
-                    <Text style={[s.gridLabel, { color: T.textSub }]}>Free Margin:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
+                    </View>
                     <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.freeMargin)}</Text>
                   </View>
                 </View>
 
                 <View style={s.gridRow}>
-                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: T.border }]}>
-                    <Text style={[s.gridLabel, { color: T.textSub }]}>Margin Level (%):</Text>
+                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
+                    </View>
                     <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.marginLevel)}</Text>
                   </View>
                   <View style={s.gridCol}>
-                    <Text style={[s.gridLabel, { color: T.textSub }]}>Credit:</Text>
-                    <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.credit || 0)}</Text>
+                    {account.credit > 0 ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                          <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
+                        </View>
+                        <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.credit)}</Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                          <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
+                        </View>
+                        <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.equity)}</Text>
+                      </>
+                    )}
                   </View>
                 </View>
               </View>
             </View>
 
             <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
-              <View>
-                <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
-                <Text style={[s.positionsMeta, { color: T.textMuted }]}>
-                  {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
-                </Text>
+              <View style={s.positionsHeaderLeft}>
+                <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
+                <View>
+                  <View style={s.positionsTitleRow}>
+                    <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
+                    {positions.length > 0 && (
+                      <View style={[s.totalPnlBadge, { backgroundColor: totalPnl >= 0 ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }]}>
+                        <Text style={[s.totalPnlText, { color: totalPnl >= 0 ? T.up : T.down }]}>
+                          {fmt.pnl(totalPnl)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[s.positionsMeta, { color: T.textMuted }]}>
+                    {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
+                  </Text>
+                </View>
               </View>
               <Pressable
                 onPress={showBulkSheet}
@@ -148,7 +208,14 @@ export function TradeScreen() {
             onLongPress={showPositionSheet}
           />
         )}
-        ListFooterComponent={(
+        ListEmptyComponent={
+          <View style={s.emptyState}>
+            <Ionicons name="receipt-outline" size={48} color={T.textDimmed} />
+            <Text style={[s.emptyTitle, { color: T.textMuted }]}>No open positions</Text>
+            <Text style={[s.emptySub, { color: T.textDimmed }]}>Your active trades will appear here</Text>
+          </View>
+        }
+        ListFooterComponent={positions.length > 0 ? (
           <>
             <Pressable
               style={({ pressed }) => [
@@ -182,7 +249,7 @@ export function TradeScreen() {
             {/* ── Top Exposures ── */}
 
           </>
-        )}
+        ) : null}
       />
     </Screen>
   );
@@ -194,12 +261,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     list: { flex: 1 },
     listContent: { paddingBottom: spacing.xl + spacing.md },
     summaryBlock: {
-      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 20,
+      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
       backgroundColor: cardBg, borderWidth: 1, borderColor: T.border,
-      shadowColor: isDark ? '#000' : '#64748B',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.3 : 0.08,
-      shadowRadius: 24, elevation: 4, overflow: 'hidden',
+      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
+      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowRadius: isDark ? 16 : 24, elevation: 4, overflow: 'hidden',
     },
     summaryTop: {
       paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2,
@@ -207,30 +274,39 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: 'transparent',
     },
     summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-    floating: { fontSize: 42, fontWeight: '800', letterSpacing: -1, lineHeight: 46, marginTop: 4, fontVariant: ['tabular-nums'] },
+    floating: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5, lineHeight: 28, marginTop: 4, fontVariant: ['tabular-nums'] },
     floatingPositive: { color: T.up },
     floatingNegative: { color: T.down },
     summaryHint: { marginTop: 4, fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: T.glass1, overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    gridLabel: { fontSize: 13, fontWeight: '500' },
-    gridValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
+    gridLabel: { fontSize: 12, fontWeight: '500' },
+    gridValue: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
     positionsHeader: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2,
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1,
     },
+    positionsHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+    positionsAccentBar: { width: 3, height: 32, borderRadius: 2 },
+    positionsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    totalPnlBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+    totalPnlText: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any },
     positionsTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
     positionsMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
     bulkButton: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
+    /* Empty state */
+    emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+    emptyTitle: { fontSize: 16, fontWeight: '700', marginTop: 12 },
+    emptySub: { fontSize: 13, fontWeight: '500', marginTop: 4 },
     bulkButtonText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
     oneClick: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 12, paddingHorizontal: spacing.md,
-      borderRadius: 20, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      shadowColor: isDark ? '#000' : '#64748B',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.3 : 0.08,
-      shadowRadius: 24, elevation: 4,
+      borderRadius: 16, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
+      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowRadius: isDark ? 16 : 24, elevation: 4,
     },
     oneClickTitle: { fontSize: 15, fontWeight: '700' },
     oneClickSub: { fontSize: 12, fontWeight: '500', marginTop: 2 },

@@ -13,7 +13,7 @@ export type CandleParams = {
  * Simulates a live data feed of OHLC candles for the chart.
  * Replaces the hardcoded arrays.
  */
-export function useLiveCandles(symbol: string, timeframe: string, initialCount = 100) {
+export function useLiveCandles(symbol: string, timeframe: string, initialCount = 1000) {
   const [candles, setCandles] = useState<CandleParams[]>([]);
   const [latestTick, setLatestTick] = useState<CandleParams | null>(null);
 

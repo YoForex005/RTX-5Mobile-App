@@ -1,45 +1,358 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useMemo } from 'react';
 
 const presets = ['Today', 'Last week', 'Last month', 'Last 3 months', 'Last 6 months', 'Last year', 'Custom'];
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+type SelectionMode = 'range' | 'single' | 'week';
+
+function getDaysInMonth(year: number, month: number) {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function getFirstDayOfMonth(year: number, month: number) {
+  const day = new Date(year, month, 1).getDay();
+  return day === 0 ? 6 : day - 1; // Monday-first
+}
+
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+function getWeekDates(date: Date): [Date, Date] {
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return [monday, sunday];
+}
+
+function toDateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function formatDate(d: Date): string {
+  return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+}
 
 export function HistoryFilterScreen() {
   const { historyRange, setHistoryRange } = useUserPreferences();
   const T = useTheme();
-  const s = useMemo(() => makeStyles(T), [T]);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('range');
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [isCustom, setIsCustom] = useState(false);
+
+  const [startDate, setStartDate] = useState<string | null>(null);
+  const [endDate, setEndDate] = useState<string | null>(null);
+
+  const today = useMemo(() => {
+    const d = new Date();
+    return toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+  }, []);
+
+  // Compute date range for a preset and apply it
+  const handlePresetPress = (preset: string) => {
+    setHistoryRange(preset);
+    setIsCustom(preset === 'Custom');
+
+    const now = new Date();
+    const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
+    let start = todayKey;
+    let end = todayKey;
+
+    if (preset === 'Today') {
+      start = todayKey;
+      end = todayKey;
+    } else if (preset === 'Last week') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      end = todayKey;
+    } else if (preset === 'Last month') {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 1);
+      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      end = todayKey;
+    } else if (preset === 'Last 3 months') {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 3);
+      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      end = todayKey;
+    } else if (preset === 'Last 6 months') {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 6);
+      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      end = todayKey;
+    } else if (preset === 'Last year') {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - 1);
+      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+      end = todayKey;
+    } else if (preset === 'Custom') {
+      // Don't auto-set dates for custom — let user pick
+      setStartDate(null);
+      setEndDate(null);
+      return;
+    }
+
+    setStartDate(start);
+    setEndDate(end);
+
+    // Navigate calendar to start month
+    const sd = new Date(start);
+    setCalYear(sd.getFullYear());
+    setCalMonth(sd.getMonth());
+  };
+
+  const handleDayPress = useCallback((year: number, month: number, day: number) => {
+    const key = toDateKey(year, month, day);
+    const date = new Date(year, month, day);
+
+    if (selectionMode === 'single') {
+      setStartDate(key);
+      setEndDate(key);
+    } else if (selectionMode === 'week') {
+      const [monday, sunday] = getWeekDates(date);
+      setStartDate(toDateKey(monday.getFullYear(), monday.getMonth(), monday.getDate()));
+      setEndDate(toDateKey(sunday.getFullYear(), sunday.getMonth(), sunday.getDate()));
+    } else {
+      // Range mode
+      if (!startDate || (startDate && endDate)) {
+        setStartDate(key);
+        setEndDate(null);
+      } else {
+        if (key < startDate) {
+          setEndDate(startDate);
+          setStartDate(key);
+        } else {
+          setEndDate(key);
+        }
+      }
+    }
+  }, [selectionMode, startDate, endDate]);
+
+  const isInRange = useCallback((key: string) => {
+    if (!startDate || !endDate) return false;
+    return key >= startDate && key <= endDate;
+  }, [startDate, endDate]);
+
+  const isStart = useCallback((key: string) => key === startDate, [startDate]);
+  const isEnd = useCallback((key: string) => key === endDate, [endDate]);
+
+  const applyCustomRange = () => {
+    if (startDate) {
+      const sDate = new Date(startDate);
+      const eDate = endDate ? new Date(endDate) : sDate;
+      const label = startDate === endDate
+        ? formatDate(sDate)
+        : `${formatDate(sDate)} – ${formatDate(eDate)}`;
+      setHistoryRange(label);
+      setIsCustom(false);
+    }
+  };
+
+  const prevMonth = () => {
+    if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
+    else setCalMonth(calMonth - 1);
+  };
+
+  const nextMonth = () => {
+    if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
+    else setCalMonth(calMonth + 1);
+  };
+
+  // Build calendar grid
+  const calendarGrid = useMemo(() => {
+    const daysInMonth = getDaysInMonth(calYear, calMonth);
+    const firstDay = getFirstDayOfMonth(calYear, calMonth);
+    const rows: (number | null)[][] = [];
+    let currentRow: (number | null)[] = [];
+
+    for (let i = 0; i < firstDay; i++) currentRow.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      currentRow.push(d);
+      if (currentRow.length === 7) {
+        rows.push(currentRow);
+        currentRow = [];
+      }
+    }
+    if (currentRow.length > 0) {
+      while (currentRow.length < 7) currentRow.push(null);
+      rows.push(currentRow);
+    }
+    return rows;
+  }, [calYear, calMonth]);
 
   return (
     <Screen>
-      <Text style={s.title}>History</Text>
-      <View style={s.symbolRow}>
-        <Text style={s.label}>Symbol:</Text>
-        <Text style={s.value}>All symbols</Text>
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <Text style={s.title}>History</Text>
+        <View style={s.symbolRow}>
+          <Text style={s.label}>Symbol:</Text>
+          <Text style={s.value}>All symbols</Text>
+        </View>
 
-      <View style={s.card}>
-        {presets.map((preset) => (
-          <Pressable key={preset} onPress={() => setHistoryRange(preset)} style={s.option}>
-            <Text style={s.optionText}>{preset}</Text>
-            <Text style={s.check}>{historyRange === preset ? '✓' : ''}</Text>
-          </Pressable>
-        ))}
-      </View>
+        <View style={s.card}>
+          {presets.map((preset) => (
+            <Pressable key={preset} onPress={() => handlePresetPress(preset)} style={s.option}>
+              <Text style={s.optionText}>{preset}</Text>
+              <Text style={s.check}>
+          {historyRange === preset || (preset === 'Custom' && isCustom) ? '✓' : ''}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
-      <Pressable style={s.reportBtn}>
-        <Text style={s.reportTitle}>Create a trade report</Text>
-        <Text style={s.reportSub}>{historyRange}</Text>
-      </Pressable>
+        {/* ── Calendar (always visible) ── */}
+        <View style={s.calendarCard}>
+          {/* Mode Selector — only for Custom */}
+          {isCustom && (
+            <View style={s.modeRow}>
+              {(['single', 'range', 'week'] as SelectionMode[]).map((mode) => (
+                <Pressable
+                  key={mode}
+                  style={[s.modePill, selectionMode === mode && s.modePillActive]}
+                  onPress={() => { setSelectionMode(mode); setStartDate(null); setEndDate(null); }}
+                >
+                  <Text style={[s.modePillText, selectionMode === mode && s.modePillTextActive]}>
+                    {mode === 'single' ? 'Single' : mode === 'range' ? 'Range' : 'Week'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* Month Navigation */}
+          <View style={s.monthNav}>
+            <Pressable onPress={prevMonth} hitSlop={12}>
+              <Ionicons name="chevron-back" size={22} color={T.text} />
+            </Pressable>
+            <Text style={s.monthLabel}>{MONTHS[calMonth]} {calYear}</Text>
+            <Pressable onPress={nextMonth} hitSlop={12}>
+              <Ionicons name="chevron-forward" size={22} color={T.text} />
+            </Pressable>
+          </View>
+
+          {/* Day Headers */}
+          <View style={s.dayHeaderRow}>
+            {DAYS.map((d) => (
+              <Text key={d} style={s.dayHeaderText}>{d}</Text>
+            ))}
+          </View>
+
+          {/* Calendar Grid */}
+          {calendarGrid.map((row, rowIdx) => (
+            <View key={rowIdx} style={s.calRow}>
+              {row.map((day, colIdx) => {
+                if (day === null) {
+                  return <View key={colIdx} style={s.calCell} />;
+                }
+
+                const key = toDateKey(calYear, calMonth, day);
+                const isToday = key === today;
+                const selected = isStart(key) || isEnd(key);
+                const inRange = isInRange(key) && !selected;
+                const isRangeStart = isStart(key) && endDate && startDate !== endDate;
+                const isRangeEnd = isEnd(key) && startDate && startDate !== endDate;
+
+                return (
+                  <Pressable
+                    key={colIdx}
+                    style={[
+                      s.calCell,
+                      inRange && s.calCellInRange,
+                      isRangeStart && s.calCellRangeStart,
+                      isRangeEnd && s.calCellRangeEnd,
+                    ]}
+                    onPress={() => isCustom && handleDayPress(calYear, calMonth, day)}
+                  >
+                    <View style={[
+                      s.calDayCircle,
+                      selected && s.calDaySelected,
+                      isToday && !selected && s.calDayToday,
+                    ]}>
+                      <Text style={[
+                        s.calDayText,
+                        selected && s.calDayTextSelected,
+                        isToday && !selected && s.calDayTextToday,
+                        inRange && s.calDayTextInRange,
+                      ]}>
+                        {day}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+
+          {/* Selected Range Display */}
+          {startDate && (
+            <View style={s.selectionInfo}>
+              <Text style={s.selectionLabel}>
+                {!endDate || startDate === endDate
+                  ? formatDate(new Date(startDate))
+                  : `${formatDate(new Date(startDate))}  →  ${formatDate(new Date(endDate!))}`
+                }
+              </Text>
+            </View>
+          )}
+
+          {/* Apply Button — only for Custom */}
+          {isCustom && (
+            <Pressable
+              style={[s.applyBtn, !startDate && { opacity: 0.4 }]}
+              onPress={applyCustomRange}
+              disabled={!startDate}
+            >
+              <Text style={s.applyBtnText}>Apply Custom Range</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <Pressable style={s.reportBtn}>
+          <Text style={s.reportTitle}>Create a trade report</Text>
+          <Text style={s.reportSub}>{historyRange}</Text>
+        </Pressable>
+      </ScrollView>
     </Screen>
   );
 }
 
-function makeStyles(T: ThemeColors) {
+function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
+    backRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: spacing.md,
+      paddingTop: 16,
+      paddingBottom: 4,
+    },
+    backText: {
+      color: T.text,
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: -0.2,
+    },
     title: {
       marginTop: spacing.md,
       textAlign: 'center',
@@ -105,6 +418,167 @@ function makeStyles(T: ThemeColors) {
     reportSub: {
       color: T.textMuted,
       marginTop: 4,
+    },
+
+    /* ── Calendar ── */
+    calendarCard: {
+      marginHorizontal: spacing.md,
+      marginTop: spacing.md,
+      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass1,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: T.border,
+      padding: spacing.md,
+      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
+      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowRadius: isDark ? 16 : 24,
+      elevation: 4,
+    },
+
+    /* Mode pills */
+    modeRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 8,
+      marginBottom: 16,
+    },
+    modePill: {
+      paddingHorizontal: 18,
+      paddingVertical: 7,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: T.border,
+      backgroundColor: 'transparent',
+    },
+    modePillActive: {
+      backgroundColor: T.accent,
+      borderColor: T.accent,
+    },
+    modePillText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: isDark ? 'rgba(148,163,184,0.7)' : T.textSub,
+      letterSpacing: 0.3,
+    },
+    modePillTextActive: {
+      color: '#FFFFFF',
+    },
+
+    /* Month nav */
+    monthNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+      paddingHorizontal: 4,
+    },
+    monthLabel: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: T.text,
+      letterSpacing: -0.3,
+    },
+
+    /* Day header */
+    dayHeaderRow: {
+      flexDirection: 'row',
+      marginBottom: 6,
+    },
+    dayHeaderText: {
+      flex: 1,
+      textAlign: 'center',
+      fontSize: 12,
+      fontWeight: '600',
+      color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted,
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+    },
+
+    /* Calendar grid */
+    calRow: {
+      flexDirection: 'row',
+    },
+    calCell: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 2,
+    },
+    calCellInRange: {
+      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)',
+    },
+    calCellRangeStart: {
+      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)',
+      borderTopLeftRadius: 20,
+      borderBottomLeftRadius: 20,
+    },
+    calCellRangeEnd: {
+      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)',
+      borderTopRightRadius: 20,
+      borderBottomRightRadius: 20,
+    },
+
+    /* Day circle */
+    calDayCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    calDaySelected: {
+      backgroundColor: T.accent,
+    },
+    calDayToday: {
+      borderWidth: 1.5,
+      borderColor: T.accent,
+    },
+    calDayText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: T.text,
+      fontVariant: ['tabular-nums'],
+    },
+    calDayTextSelected: {
+      color: '#FFFFFF',
+      fontWeight: '800',
+    },
+    calDayTextToday: {
+      color: T.accent,
+      fontWeight: '800',
+    },
+    calDayTextInRange: {
+      color: T.accent,
+      fontWeight: '700',
+    },
+
+    /* Selection info */
+    selectionInfo: {
+      marginTop: 12,
+      alignItems: 'center',
+    },
+    selectionLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: T.textSub,
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 0.2,
+    },
+
+    /* Apply button */
+    applyBtn: {
+      marginTop: 12,
+      backgroundColor: T.accent,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    applyBtnText: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
   });
 }

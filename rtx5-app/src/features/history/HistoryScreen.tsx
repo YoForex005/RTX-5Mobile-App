@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { historyDeals, historyOrders, historyPositions, account as mockAccount } from '../../mock/tradingData';
@@ -81,45 +82,62 @@ export function HistoryScreen() {
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>
             <View style={styles.summaryBlock}>
               <View style={styles.summaryTop}>
-                {isDark && <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(37,99,235,0.08)' }]} />}
                 <Text style={[styles.summaryLabel, { color: T.text }]}>Balance</Text>
                 <View style={styles.floatingRow}>
-                  <Text style={[styles.floating, { color: T.text }]}>
+                  <Text style={[styles.floating, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>
                     {fmt.int(accountSummary.balance)}
                   </Text>
                   <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {accountSummary.currency}</Text>
                 </View>
               </View>
-              <View style={[styles.metricsCard, { borderTopColor: T.border }]}>
-                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: T.border }]}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: T.border }]}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Account ID:</Text>
+              <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="scan-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{String(accountDetails?.id ?? '—')}</Text>
                   </View>
                   <View style={styles.gridCol}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Deposit:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="arrow-down-circle-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Deposit:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{fmt.int(deposit)}</Text>
                   </View>
                 </View>
 
-                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: T.border }]}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: T.border }]}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Closed P/L:</Text>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="pulse-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{fmt.pnl(accountSummary.profit)}</Text>
                   </View>
                   <View style={styles.gridCol}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Swap:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="git-compare-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{fmt.int(0)}</Text>
                   </View>
                 </View>
 
                 <View style={styles.gridRow}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: T.border }]}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Commission:</Text>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="options-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{fmt.int(0)}</Text>
                   </View>
                   <View style={styles.gridCol}>
-                    <Text style={[styles.gridLabel, { color: T.textSub }]}>Range:</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="hourglass-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                      <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
+                    </View>
                     <Text style={[styles.gridValue, { color: T.text }]}>{historyRange}</Text>
                   </View>
                 </View>
@@ -193,11 +211,12 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
     <View style={[
       rStyles.rowCard,
       {
-        backgroundColor: cardBg,
+        backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg,
         borderColor: T.border,
         borderLeftColor: isBuy ? T.trading.buy.primary : isSell ? T.trading.sell.primary : T.border,
       },
       !isDark && rStyles.cardShadowLight,
+      isDark && rStyles.cardShadowDark,
     ]}>
       <Text style={[rStyles.cornerId, { color: T.textMuted }]}>#{extractTicket(item.id)}</Text>
       <View style={rStyles.rowBody}>
@@ -317,9 +336,16 @@ const rStyles = StyleSheet.create({
   rowCard: {
     marginHorizontal: spacing.md, marginTop: spacing.sm,
     paddingTop: 18, paddingBottom: 10, paddingHorizontal: spacing.md,
-    borderRadius: 7, borderWidth: 1, borderLeftWidth: 2,
+    borderRadius: 16, borderWidth: 1, borderLeftWidth: 2,
   },
   cardShadowLight: { shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
+  cardShadowDark: {
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
   cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
   rowBody: { width: '100%' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -352,27 +378,32 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     menuBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
     accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
-      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 20,
-      backgroundColor: cardBg, borderWidth: 1, borderColor: T.border,
-      shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4, overflow: 'hidden',
+      marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
+      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, borderWidth: 1, borderColor: T.border,
+      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
+      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowRadius: isDark ? 16 : 24, elevation: 4,
+      overflow: 'hidden',
     },
     summaryTop: { paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
     summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
     floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
     floating: { fontSize: 28, fontWeight: '800', letterSpacing: -1, lineHeight: 34, marginTop: 4, fontVariant: ['tabular-nums'] },
     balanceQuickCurrency: { fontSize: 28, fontWeight: '800' },
-    metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: T.glass1, overflow: 'hidden' },
+    metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     gridLabel: { fontSize: 13, fontWeight: '500' },
     gridValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
     topBlock: {
-      marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 20,
+      marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
       borderWidth: 1, borderColor: T.border,
-      backgroundColor: cardBg, padding: 6, paddingBottom: 8,
-      shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4,
+      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, padding: 6, paddingBottom: 8,
+      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowOffset: { width: 0, height: isDark ? 4 : 8 },
+      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowRadius: isDark ? 16 : 24, elevation: 4,
     },
     topControlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
     iconButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: T.border, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },

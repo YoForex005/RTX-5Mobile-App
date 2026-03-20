@@ -7,7 +7,7 @@ import { useUserPreferences } from '../state/userPreferences';
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
-  actions: Array<{ label: string; danger?: boolean; onPress?: () => void }>;
+  actions: Array<{ label: string; danger?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
 };
 
@@ -50,10 +50,13 @@ export function ActionSheet({ visible, title, actions, onClose }: ActionSheetPro
                   pressed && styles.actionPressed,
                 ]}
               >
-                <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
-                  {action.label}
-                </Text>
-                <Text style={styles.chevron}>›</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {action.icon && <View style={{ width: 24, marginRight: 12, alignItems: 'center' }}>{action.icon}</View>}
+                  <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
+                    {action.label}
+                  </Text>
+                </View>
+                {!action.icon && <Text style={styles.chevron}>›</Text>}
               </Pressable>
             ))}
           </ScrollView>

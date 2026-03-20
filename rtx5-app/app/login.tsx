@@ -380,7 +380,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     /* Divider between fields */
     fieldDivider: {
       height: 1,
-      backgroundColor: T.border,
+      backgroundColor: isDark ? T.border : T.borderMedium,
       marginLeft: 0,
     },
 
