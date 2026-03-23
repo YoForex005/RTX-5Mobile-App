@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { wsService } from '../api/ws/socket';
+import { quotesWsService } from '../api/ws/quotesSocket';
 import { useTradingState, Candle } from '../state/tradingState';
+import { quotes as mockQuotes } from '../mock/tradingData';
 
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
 
@@ -36,26 +38,28 @@ export function useWebSocketConnection() {
  * when the specific symbols it cares about update.
  */
 export function useMarketData(symbols: string[] = []) {
-  const quotes = useTradingState(state => state.quotes);
+  // Subscribe to tickCount (a plain number) — React 19 + Zustand 5 can't miss a
+  // primitive change, so this guarantees a re-render on every single server tick.
+  useTradingState(state => state.tickCount);
+  // Read the latest quotes directly from the store on each render triggered above.
+  const quotes = useTradingState.getState().quotes;
 
   useEffect(() => {
-    // Susbcribe to requested symbols
-    symbols.forEach(symbol => {
-      wsService.subscribe(`quotes.${symbol}`);
-    });
+    quotesWsService.connect();
+    quotesWsService.setSubscriptions(symbols);
 
-    // Cleanup subscriptions on unmount or deps change
     return () => {
-      symbols.forEach(symbol => {
-        wsService.unsubscribe(`quotes.${symbol}`);
-      });
+      quotesWsService.unsubscribe(symbols);
     };
   }, [JSON.stringify(symbols)]);
 
-  // Optionally filter the global quote state to only return the requested symbols
   if (symbols.length === 0) return quotes;
   return symbols.reduce((acc, sym) => {
-    if (quotes[sym]) acc[sym] = quotes[sym];
+    const mock = mockQuotes.find((m) => m.symbol === sym);
+    const live = quotes[sym];
+    if (live || mock) {
+      acc[sym] = { ...(mock || {}), ...(live || {}) };
+    }
     return acc;
   }, {} as Record<string, any>);
 }

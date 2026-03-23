@@ -25,71 +25,71 @@ export function useLiveCandles(symbol: string, timeframe: string, initialCount =
     const isGold = symbol.includes('XAU');
     const isJpy = symbol.includes('JPY');
     const basePrice = isCrypto ? 65000 : isGold ? 2350 : isJpy ? 150 : 1.1000;
-    
-    // Generate historical
+
+    // Generate massive historical and future data block to simulate infinite scrolling
     const now = Math.floor(Date.now() / 1000);
-    // Align "now" to a 10 second block so simulation is clean
     const alignedNow = now - (now % 60);
-    
     const scale = isCrypto ? 10 : isGold ? 0.5 : isJpy ? 0.05 : 0.0005;
 
-    const history: CandleParams[] = [];
+    const dataBlock: CandleParams[] = [];
     let price = basePrice;
-    
-    // Assume 1 minute candles for simulation
-    for (let i = initialCount; i >= 0; i--) {
+
+    // 10000 candles in the past, up to present, then 10000 in the future
+    for (let i = -10000; i <= 10000; i++) {
       const open = price;
       const vol = (Math.random() - 0.45) * scale * 2;
       const close = open + vol;
       const high = Math.max(open, close) + Math.random() * scale;
       const low = Math.min(open, close) - Math.random() * scale;
-      history.push({
-        time: alignedNow - (i * 60),
-        open, high, low, close
+      // Volume perfectly correlates to structural magnitude of the candle size
+      const volume = Math.floor((Math.abs(close - open) / scale) * 2000) + Math.floor(Math.random() * 500) + 100;
+
+      dataBlock.push({
+        time: alignedNow + (i * 60),
+        open, high, low, close, volume
       });
       price = close;
     }
-    
+
     if (!unmounted) {
-      setCandles(history);
-      setLatestTick(history[history.length - 1]);
+      setCandles(dataBlock);
+      // Let the live tick update the 'current' candle conceptually, though we have future ones.
+      // We'll just update the candle exactly at 'now'.
+      const currentIdx = dataBlock.findIndex(c => c.time === alignedNow);
+      if (currentIdx !== -1) {
+        setLatestTick(dataBlock[currentIdx]);
+      }
     }
 
-    // Simulate live ticking
+    // Simulate live ticking on the 'now' candle, creating moving illusion
     const interval = setInterval(() => {
       const currentNow = Math.floor(Date.now() / 1000);
-      
+      const currentAlignedNow = currentNow - (currentNow % 60);
+
       setCandles(prev => {
         if (prev.length === 0) return prev;
-        const lastCandle = { ...prev[prev.length - 1] };
+
+        // Find the candle that corresponds to the CURRENT time and update it
+        const currentIdx = prev.findIndex(c => c.time === currentAlignedNow);
+        if (currentIdx === -1) return prev;
+
+        const targetCandle = { ...prev[currentIdx] };
+
+        const tickChange = (Math.random() - 0.5) * scale * 0.5;
+        targetCandle.close = targetCandle.close + tickChange;
+        if (targetCandle.close > targetCandle.high) targetCandle.high = targetCandle.close;
+        if (targetCandle.close < targetCandle.low) targetCandle.low = targetCandle.close;
         
-        // If we crossed a minute boundary, spawn a new candle
-        if (currentNow >= lastCandle.time + 60) {
-          const newOpen = lastCandle.close;
-          const newCandle = {
-            time: lastCandle.time + 60,
-            open: newOpen,
-            high: newOpen,
-            low: newOpen,
-            close: newOpen
-          };
-          setLatestTick(newCandle);
-          return [...prev, newCandle];
-        } else {
-          // Update the current candle with a random tick
-          const tickChange = (Math.random() - 0.5) * scale * 0.5;
-          lastCandle.close = lastCandle.close + tickChange;
-          if (lastCandle.close > lastCandle.high) lastCandle.high = lastCandle.close;
-          if (lastCandle.close < lastCandle.low) lastCandle.low = lastCandle.close;
-          
-          setLatestTick({ ...lastCandle });
-          
-          const newList = [...prev];
-          newList[newList.length - 1] = lastCandle;
-          return newList;
-        }
+        // Dynamically shrink or grow volume directly tied to the new candle height
+        targetCandle.volume = Math.floor((Math.abs(targetCandle.close - targetCandle.open) / scale) * 2000) + Math.floor(Math.random() * 500) + 100;
+
+        setLatestTick({ ...targetCandle });
+
+        const newList = [...prev];
+        newList[currentIdx] = targetCandle;
+        return newList;
       });
-    }, 1000); // 1 tick per second
+    }, 1000);
 
     return () => {
       unmounted = true;

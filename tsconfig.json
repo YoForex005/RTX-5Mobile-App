@@ -1,6 +1,11 @@
 {
-  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
-  }
+    "types": []
+  },
+  "files": [],
+  "references": [
+    {
+      "path": "./rtx5-app"
+    }
+  ]
 }

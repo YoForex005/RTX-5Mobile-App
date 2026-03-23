@@ -5,7 +5,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
-  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers
+  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
+  TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -63,6 +64,7 @@ const CH_HTML = `
     <script>
       var chart = null;
       var series = null;
+      var volumeSeries = null;
       var signalLines = [];
       var UP_COLOR = '#26A69A';
       var DOWN_COLOR = '#EF5350';
@@ -89,26 +91,21 @@ const CH_HTML = `
             signalLines.push(series.createPriceLine({ price: s1, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
             signalLines.push(series.createPriceLine({ price: s2, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
             signalLines.push(series.createPriceLine({ price: s3, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-
-            if (lastTime) {
-              series.setMarkers([{
-                time: lastTime,
-                position: 'aboveBar',
-                color: '#EF4444',
-                shape: 'arrowDown',
-                text: 'Signal',
-                size: 2,
-              }]);
-            }
-          } else {
-            series.setMarkers([]);
           }
         } catch(e) {}
       }
 
-      function initChart(opts, chartType, data, displayDecimals) {
+      function setChartMarkers(markers) {
         try {
-          if (chart) { chart.remove(); chart = null; series = null; }
+          if (series) {
+            series.setMarkers(markers || []);
+          }
+        } catch(e) {}
+      }
+
+      function initChart(opts, chartType, data, displayDecimals, isExpanded) {
+        try {
+          if (chart) { chart.remove(); chart = null; series = null; volumeSeries = null; }
 
           opts.layout.background = { type: 'solid', color: opts.layout.background.color };
           opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
@@ -156,8 +153,28 @@ const CH_HTML = `
             });
           }
 
+          volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+            color: '#26a69a',
+            priceFormat: { type: 'volume' },
+            priceScaleId: '',
+          });
+          chart.priceScale('').applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 }
+          });
+
           if (data && data.length > 0) {
             series.setData(data);
+            if (volumeSeries) {
+              var volData = data.map(function(d) {
+                var isGreen = d.close >= d.open;
+                return {
+                  time: d.time,
+                  value: d.volume || 0,
+                  color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+                };
+              });
+              volumeSeries.setData(volData);
+            }
             chart.timeScale().fitContent();
           }
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'CHART_READY'}));
@@ -170,6 +187,14 @@ const CH_HTML = `
         try {
           if (series) {
             series.update(tick);
+          }
+          if (volumeSeries && tick) {
+            var isGreen = tick.close >= tick.open;
+            volumeSeries.update({
+               time: tick.time,
+               value: tick.volume || 0,
+               color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+            });
           }
         } catch(e) {}
       }
@@ -244,10 +269,14 @@ export function ChartScreen() {
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 5,
+      shiftVisibleRangeOnNewBar: true,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
       autoScale: true,
+      scaleMargins: {
+        bottom: 0.25,
+      },
     },
   }), [isDark, TEXT_MUTED]);
 
@@ -269,14 +298,13 @@ export function ChartScreen() {
           mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
         }
 
-        const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedData)}, ${displayDecimals}); true;`;
+        const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedData)}, ${displayDecimals}, true); true;`;
         webViewRef.current.injectJavaScript(js);
         dataSignatureRef.current = sig;
       }
     }
   }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions]);
 
-  // Live Tick Sync
   // Live Tick Sync
   useEffect(() => {
     if (webViewRef.current && webViewReady && latestTick) {
@@ -295,11 +323,50 @@ export function ChartScreen() {
       const lastClose = latestTick?.close ?? (candles.length > 0 ? candles[candles.length - 1].close : 0);
       const lastTime = candles.length > 0 ? candles[candles.length - 1].time : null;
       webViewRef.current.injectJavaScript(`
-        window.setTradingSignals(${showTradingSignals}, '${chartSymbol}', ${lastClose}, ${lastTime});
         true;
       `);
     }
   }, [showTradingSignals, webViewReady, chartSymbol, latestTick, candles]);
+
+  // Patterns / Markers Bridge
+  useEffect(() => {
+    if (webViewReady && webViewRef.current) {
+      let markers: any[] = [];
+
+      if (activeTool === 'patterns' && candles.length > 0) {
+        // Deduplicate
+        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
+        
+        uniqueData.forEach((candle) => {
+          const isGreen = candle.close > candle.open;
+          const isRed = candle.open > candle.close;
+          const body = Math.abs(candle.close - candle.open);
+          const upperShadow = candle.high - Math.max(candle.open, candle.close);
+          const lowerShadow = Math.min(candle.open, candle.close) - candle.low;
+
+          if (isGreen && lowerShadow > body * 1.5 && upperShadow < body * 0.5) {
+            markers.push({ time: candle.time, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'L.Lower', size: 1 });
+          } else if (isRed && upperShadow > body * 1.5 && lowerShadow < body * 0.5) {
+            markers.push({ time: candle.time, position: 'aboveBar', color: '#F23645', shape: 'arrowDown', text: 'L.Upper', size: 1 });
+          }
+        });
+      }
+
+      if (showTradingSignals && candles.length > 0 && activeTool !== 'patterns') {
+        const lastTime = candles[candles.length - 1].time;
+        if (lastTime) {
+          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'Signal', size: 2 });
+        }
+      }
+
+      webViewRef.current.injectJavaScript(`
+        if (typeof setChartMarkers === 'function') {
+          setChartMarkers(${JSON.stringify(markers)});
+        }
+        true;
+      `);
+    }
+  }, [activeTool, showTradingSignals, candles, webViewReady]);
 
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
@@ -364,23 +431,33 @@ export function ChartScreen() {
       <View style={styles.card}>
         <View style={styles.chartContainer}>
           <View style={styles.chartTopToolbar}>
-            <View style={styles.inlineActionGroup}>
-              <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setTfOpen(true)} hitSlop={8}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: BLUE }}>{chartTimeframe}</Text>
-                <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
-              </Pressable>
-              <View style={styles.toolbarSeparator} />
-              <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
-                <Ionicons name={chartType === 'candles' || chartType === 'hollow' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'} size={18} color={TEXT_MUTED} />
-                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
-              </Pressable>
-              <View style={styles.toolbarSeparator} />
-              <Pressable onPress={() => setMenuOpen(true)} hitSlop={8}>
-                <Ionicons name="analytics-outline" size={18} color={TEXT_MUTED} />
-              </Pressable>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 16, gap: 4 }]}>
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
+                </Pressable>
+                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setSymbolPickerOpen(true)}>
+                  <Ionicons name="add-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
+                </Pressable>
+                <View style={styles.toolbarSeparator} />
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: BLUE }}>{chartTimeframe}</Text>
+                  <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                </Pressable>
+                <View style={styles.toolbarSeparator} />
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
+                  <Ionicons name={chartType === 'candles' || chartType === 'hollow' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'} size={18} color={TEXT_MUTED} />
+                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                </Pressable>
+                <View style={styles.toolbarSeparator} />
+                <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+                  <Ionicons name="analytics-outline" size={18} color={TEXT_MUTED} />
+                </Pressable>
+              </View>
+            </ScrollView>
 
-              <View style={styles.toolbarFlexSpacer} />
-
+            {/* Right section fixed on screen */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {showTradingSignals && (
                 <Pressable onPress={() => setShowSignalDetails(true)} hitSlop={8}>
                   <View style={styles.redBoxIcon}>
@@ -388,16 +465,16 @@ export function ChartScreen() {
                   </View>
                 </Pressable>
               )}
-              <Pressable onPress={() => router.push('/chart/objects')} hitSlop={8} style={{ marginLeft: 8 }}>
+              <Pressable onPress={() => router.push('/chart/objects')} hitSlop={8}>
                 <Ionicons name="pencil-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8} style={{ marginHorizontal: 8 }}>
+              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8}>
                 <Ionicons name="settings-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
               <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
                 <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable onPress={() => setShowMoreMenu(true)} style={{ marginLeft: 8, marginRight: 8 }} hitSlop={8}>
+              <Pressable onPress={() => setShowMoreMenu(true)} hitSlop={8}>
                 <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
               </Pressable>
             </View>
@@ -415,15 +492,20 @@ export function ChartScreen() {
                 <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => setActiveTool('fib')}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => setActiveTool('brush')}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => setActiveTool('text')}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => setActiveTool('patterns')}><TvPatterns color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => setActiveTool('prediction')}><TvPrediction color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => setActiveTool('pitchfork')}><TvPitchfork color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => setActiveTool('smiley')}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
+                <View style={styles.toolSeparator} />
                 <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => setActiveTool('measure')}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => setActiveTool('zoom')}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => setActiveTool('magnet')}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'pencil' && styles.toolIconActive]} onPress={() => setActiveTool('pencil')}><TvPencil color={activeTool === 'pencil' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => setActiveTool('magnet')}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'stay_in_drawing_mode' && styles.toolIconActive]} onPress={() => setActiveTool('stay_in_drawing_mode')}><TvStayInDrawingMode color={activeTool === 'stay_in_drawing_mode' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'lock' && styles.toolIconActive]} onPress={() => setActiveTool('lock')}><TvLock color={activeTool === 'lock' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'hide' && styles.toolIconActive]} onPress={() => setActiveTool('hide')}><TvHide color={activeTool === 'hide' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'trash' && styles.toolIconActive]} onPress={() => setActiveTool('trash')}><TvTrash color={activeTool === 'trash' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
+                <Pressable style={[styles.toolIcon, activeTool === 'trash' && styles.toolIconActive]} onPress={() => setActiveTool('trash')}><TvTrash color={activeTool === 'trash' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => setActiveTool('layers')}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
               </ScrollView>
             )}
@@ -773,9 +855,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       position: 'relative',
     },
     leftToolbar: {
-      width: 44,
-      minWidth: 44,
-      maxWidth: 44,
+      width: 54,
+      minWidth: 54,
+      maxWidth: 54,
       flexShrink: 0,
       flexGrow: 0,
       backgroundColor: isDark ? '#080C16' : '#F8FAFC',
@@ -785,11 +867,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     leftToolbarContent: {
       alignItems: 'center',
       paddingVertical: 12,
-      gap: 16,
+      gap: 4,
     },
     toolIcon: {
-      width: 32,
-      height: 32,
+      width: 40,
+      height: 40,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: 6,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
@@ -41,6 +42,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   const styles = useMemo(() => makeStyles(T), [T]);
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const onSubmit = async (data: PasswordFormValues) => {
     setIsPending(true);
@@ -63,7 +65,7 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-      style={styles.container}
+      style={[styles.container, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}
     >
       <View style={styles.sheetHeader}>
         <Text style={styles.title}>Change {type === 'master' ? 'Master' : 'Investor'} Password</Text>

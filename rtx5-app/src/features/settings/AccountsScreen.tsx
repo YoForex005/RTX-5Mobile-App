@@ -57,6 +57,7 @@ export function AccountsScreen() {
 
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
+  const [successMessage, setSuccessMessage] = React.useState('');
 
   const openPasswordSheet = (type: 'master' | 'investor') => {
     setPasswordType(type);
@@ -217,30 +218,41 @@ export function AccountsScreen() {
         </ScrollView>
       </View>
 
-      <Modal
-        visible={passwordSheetVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setPasswordSheetVisible(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setPasswordSheetVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContent}>
-                <ChangePasswordSheet
-                  loginId={displayLogin}
-                  type={passwordType}
-                  onClose={() => setPasswordSheetVisible(false)}
-                  onSuccess={() => {
-                    setPasswordSheetVisible(false);
-                    Alert.alert('Success', `Your ${passwordType} password has been changed successfully.`);
-                  }}
-                />
-              </View>
-            </TouchableWithoutFeedback>
+      {passwordSheetVisible && (
+        <View style={styles.modalOverlay} pointerEvents="box-none">
+          {/* Background tap to close */}
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPasswordSheetVisible(false)} />
+          
+          <View style={styles.modalContent}>
+            <ChangePasswordSheet
+              loginId={displayLogin}
+              type={passwordType}
+              onClose={() => setPasswordSheetVisible(false)}
+              onSuccess={() => {
+                setPasswordSheetVisible(false);
+                setSuccessMessage(`${passwordType === 'master' ? 'Master' : 'Investor'} password change successfully`);
+              }}
+            />
           </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+        </View>
+      )}
+
+      {/* Success Modal */}
+      {!!successMessage && (
+        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setSuccessMessage('')} />
+          <View style={styles.successModal}>
+            <View style={styles.successIconBox}>
+              <Ionicons name="checkmark" size={32} color="#fff" />
+            </View>
+            <Text style={styles.successTitle}>Success</Text>
+            <Text style={styles.successDesc}>{successMessage}</Text>
+            <Pressable style={styles.successBtn} onPress={() => setSuccessMessage('')}>
+              <Text style={styles.successBtnText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {/* ActionSheet — rendered locally since this is a Stack route outside (tabs) */}
       <ActionSheet
@@ -259,12 +271,59 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     backgroundColor: T.bgRoot,
   },
   modalOverlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end',
+    zIndex: 999,
+    elevation: 999,
   },
   modalContent: {
     width: '100%',
+  },
+  successModal: {
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: T.glass2,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.borderMedium,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 12,
+  },
+  successIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#34C759',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  successTitle: {
+    color: T.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  successDesc: {
+    color: T.textSub,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  successBtn: {
+    backgroundColor: T.accent,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  successBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     flexDirection: 'row',

@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, SafeAreaView } from 'react-native';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
+import { Animated, FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, SafeAreaView, Modal, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { QuoteItem, quotes as mockQuotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { useMarketData } from '../../query/websocket';
+import { quotesWsService } from '../../api/ws/quotesSocket';
+import { useTradingState } from '../../state/tradingState';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
+import { useMarketSymbols } from '../../query/market';
 
 /* ───── Helpers ───── */
 
@@ -21,7 +23,7 @@ const CURRENCY_TO_COUNTRY: Record<string, string> = {
 const flagUrl = (cc: string) => `https://flagcdn.com/w80/${cc}.png`;
 
 function CurrencyFlags({ symbol, cardBg }: { symbol: string; cardBg: string }) {
-  const core = symbol.replace(/m$/i, '');
+  const core = symbol;
   if (core.length < 6) return null;
   const base = CURRENCY_TO_COUNTRY[core.slice(0, 3)];
   const quote = CURRENCY_TO_COUNTRY[core.slice(3, 6)];
@@ -43,7 +45,7 @@ const sf = StyleSheet.create({
 const digitsFor = (item: QuoteItem) =>
   item.digits ?? (item.bid >= 100 ? 3 : item.bid >= 10 ? 4 : 5);
 
-const pairLabel = (symbol: string) => symbol.replace(/m$/i, '');
+const pairLabel = (symbol: string) => symbol;
 
 const volumeLabel = (volume?: number) => {
   if (!volume) return '--';
@@ -57,26 +59,31 @@ const gmtClock = (d: Date) =>
 /* ───── QuoteCard ───── */
 
 function QuoteCard({
-  item,
+  symbol,
   T,
   isDark,
   onPress,
   onLongPress,
 }: {
-  item: QuoteItem;
+  symbol: string;
   T: ThemeColors;
   isDark: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const liveItem = useTradingState((state) => state.quotes[symbol]);
+  
+  const noData = liveItem === undefined;
+  const item: any = liveItem || { symbol, bid: 0, ask: 0, changePct: 0, spread: 0, volume: 0, digits: 5 };
+
   const isUp = item.changePct >= 0;
   const POSITIVE = T.trading.profit;
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
-  const pillBgColor = isUp ? POSITIVE : NEGATIVE;
+  const pillBgColor = noData ? T.border : (isUp ? POSITIVE : NEGATIVE);
 
   const d = digitsFor(item);
-  const symbol = pairLabel(item.symbol);
+  const displaySymbol = pairLabel(item.symbol);
   const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
 
   const bidDirection = item.prevBid
@@ -86,14 +93,16 @@ function QuoteCard({
     ? item.ask > item.prevAsk ? 'up' : item.ask < item.prevAsk ? 'down' : 'neutral'
     : 'neutral';
 
-  const bidColor = bidDirection === 'up' ? POSITIVE : bidDirection === 'down' ? NEGATIVE : color;
-  const askColor = askDirection === 'up' ? POSITIVE : askDirection === 'down' ? NEGATIVE : color;
+  const bidColor = noData ? T.textMuted : (bidDirection === 'up' ? POSITIVE : bidDirection === 'down' ? NEGATIVE : color);
+  const askColor = noData ? T.textMuted : (askDirection === 'up' ? POSITIVE : askDirection === 'down' ? NEGATIVE : color);
 
-  const showBidCaret = bidDirection !== 'neutral' || !item.prevBid;
-  const showAskCaret = askDirection !== 'neutral' || !item.prevAsk;
+  const showBidCaret = !noData && (bidDirection !== 'neutral' || !item.prevBid);
+  const showAskCaret = !noData && (askDirection !== 'neutral' || !item.prevAsk);
 
   const bidCaret = bidDirection !== 'neutral' ? bidDirection : isUp ? 'up' : 'down';
   const askCaret = askDirection !== 'neutral' ? askDirection : isUp ? 'up' : 'down';
+
+  // ── Flash animation removed per user request ──────────────────────────
 
   // Elite Fintech Paradigm: Cards on a clean canvas
   const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
@@ -127,9 +136,9 @@ function QuoteCard({
           {/* Row 1: Flags + Symbol + % pill */}
           <View style={sc.cardRow1}>
             <CurrencyFlags symbol={item.symbol} cardBg={cardBg} />
-            <Text style={[sc.symbolText, { color: T.text }]}>{symbol}</Text>
+            <Text style={[sc.symbolText, { color: T.text }]}>{displaySymbol}</Text>
             <View style={[sc.changePill, { backgroundColor: pillBgColor }]}>
-              <Text style={[sc.changePillText, { color: '#FFFFFF' }]}>{pct}</Text>
+              <Text style={[sc.changePillText, { color: noData ? T.textMuted : '#FFFFFF' }]}>{noData ? '--' : pct}</Text>
             </View>
           </View>
           {/* Row 2: Vol · Spread */}
@@ -159,7 +168,7 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: bidColor }]}>{(item.bid || 0).toFixed(d)}</Text>
+            <Text style={[sc.priceValue, { color: bidColor }]}>{noData ? '--' : (item.bid || 0).toFixed(d)}</Text>
           </View>
 
           {/* ASK */}
@@ -175,11 +184,116 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: askColor }]}>{(item.ask || 0).toFixed(d)}</Text>
+            <Text style={[sc.priceValue, { color: askColor }]}>{noData ? '--' : (item.ask || 0).toFixed(d)}</Text>
           </View>
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }: any) {
+  const { data: apiSymbols, isLoading } = useMarketSymbols();
+  const [query, setQuery] = useState('');
+  
+  const available = useMemo(() => {
+    const all = apiSymbols || [];
+    const q = query.trim().toLowerCase();
+    
+    // Exact match for case-insensitive symbols
+    const existingBases = new Set(
+      (existingSymbols || []).map((s: string) => s.toLowerCase())
+    );
+
+    return all.filter(sym => {
+      const baseSym = sym.toLowerCase();
+      return !existingBases.has(baseSym) && baseSym.includes(q);
+    });
+  }, [query, existingSymbols, apiSymbols]);
+
+  if (!visible) return null;
+
+  const content = (
+    <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.4)', justifyContent: 'flex-end', alignItems: 'center' }}>
+      <View style={{ width: '100%', maxWidth: Platform.OS === 'web' ? 430 : '100%', height: '80%', backgroundColor: T.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: T.text }}>Add Asset</Text>
+          <Pressable onPress={onClose}><Ionicons name="close" size={24} color={T.text} /></Pressable>
+        </View>
+        <View style={[s.searchBar, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : T.border, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#fff' }]}>
+           <Ionicons name="search" size={20} color={T.textMuted} />
+           <TextInput 
+             value={query} onChangeText={setQuery} 
+             placeholder={isLoading ? "Loading assets..." : "Search available assets..."} 
+             placeholderTextColor={T.textMuted}
+             style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
+             autoCapitalize="characters"
+           />
+        </View>
+        <FlatList
+           data={available}
+           keyExtractor={sym => sym}
+           renderItem={({item: sym}) => (
+             <Pressable onPress={() => onAdd(sym)} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <CurrencyFlags symbol={sym} cardBg="transparent" />
+                  <View>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>{sym}</Text>
+                    <Text style={{ fontSize: 12, color: T.textMuted }}>Forex</Text>
+                  </View>
+                </View>
+                <Ionicons name="add-circle" size={26} color={T.trading.profit} />
+             </Pressable>
+           )}
+           ListEmptyComponent={<Text style={{ textAlign: 'center', color: T.textMuted, marginTop: 40, fontSize: 15 }}>{isLoading ? "Fetching markets..." : "No matching assets available."}</Text>}
+        />
+      </View>
+    </View>
+  );
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      {content}
+    </Modal>
+  );
+}
+
+function TickCounter({ T }: { T: ThemeColors }) {
+  const [tps, setTps] = useState(0);
+  const tickCountRef = useRef(useTradingState.getState().tickCount);
+
+  useEffect(() => {
+    const unsub = useTradingState.subscribe((state) => {
+      tickCountRef.current = state.tickCount;
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    let lastTicks = tickCountRef.current;
+    const interval = setInterval(() => {
+      const current = tickCountRef.current;
+      setTps(current - lastTicks);
+      lastTicks = current;
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <View style={s.subRight}>
+      <Text style={[s.subGrey, { color: T.textMuted }]}>Speed: </Text>
+      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>{tps} tps  </Text>
+      <Text style={[s.subGrey, { color: T.textMuted }]}>Status: </Text>
+      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>LIVE</Text>
+    </View>
   );
 }
 
@@ -191,6 +305,7 @@ export function QuotesScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
 
   const quoteSymbols = useUserPreferences((st) => st.quoteSymbols);
+  const addQuoteSymbol = useUserPreferences((st) => st.addQuoteSymbol);
   const removeQuoteSymbol = useUserPreferences((st) => st.removeQuoteSymbol);
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
@@ -198,6 +313,7 @@ export function QuotesScreen() {
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const [search, setSearch] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(new Date());
 
   /* 1-second clock tick */
@@ -206,16 +322,19 @@ export function QuotesScreen() {
     return () => clearInterval(id);
   }, []);
 
-  /* Real-time WebSocket feed */
-  const liveQuotesMap = useMarketData(quoteSymbols);
+  /* Real-time WebSocket feed subscriptions (bypasses UI re-renders) */
+  useEffect(() => {
+    quotesWsService.connect();
+    quotesWsService.setSubscriptions(quoteSymbols);
+    return () => {
+      quotesWsService.unsubscribe(quoteSymbols);
+    };
+  }, [JSON.stringify(quoteSymbols)]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const mapped = quoteSymbols
-      .map((sym) => liveQuotesMap[sym] || mockQuotes.find((m) => m.symbol === sym) || null)
-      .filter((i) => i !== null) as QuoteItem[];
-    return mapped.filter((i) => i.symbol.toLowerCase().includes(q));
-  }, [liveQuotesMap, quoteSymbols, search]);
+    return quoteSymbols.filter((sym) => sym.toLowerCase().includes(q));
+  }, [quoteSymbols, search]);
 
   const goDetail = (sym: string) => {
     setChartSymbol(sym);
@@ -254,7 +373,7 @@ export function QuotesScreen() {
 
             {/* Float header controls to the right */}
             <View style={[s.headerRight, { position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }]}>
-              <Pressable style={[s.iconBtnPrimary, { backgroundColor: '#6366F1' }]} onPress={() => { }}>
+              <Pressable style={[s.iconBtnPrimary, { backgroundColor: '#6366F1' }]} onPress={() => setShowAddModal(true)}>
                 <Ionicons name="add" size={16} color="#fff" />
               </Pressable>
               <Pressable
@@ -269,10 +388,7 @@ export function QuotesScreen() {
           {/* ── Subheader ── */}
           <View style={s.subheaderRow}>
             <Text style={[s.subLeft, { color: T.textMuted }]}>Last Updated: {gmtClock(updatedAt)} GMT</Text>
-            <View style={s.subRight}>
-              <Text style={[s.subGrey, { color: T.textMuted }]}>Status: </Text>
-              <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>LIVE</Text>
-            </View>
+            <TickCounter T={T} />
           </View>
 
           {/* ── Search ── */}
@@ -297,19 +413,20 @@ export function QuotesScreen() {
           {/* ── List ── */}
           <FlatList
             data={filtered}
-            keyExtractor={(i) => i.symbol}
-            renderItem={({ item }) => (
+            keyExtractor={(sym) => sym}
+            extraData={filtered}
+            renderItem={({ item: sym }) => (
               <QuoteCard
-                item={item}
+                symbol={sym}
                 T={T}
                 isDark={isDark}
-                onPress={() => goDetail(item.symbol)}
+                onPress={() => goDetail(sym)}
                 onLongPress={() => showActionSheet({
-                  title: item.symbol,
+                  title: sym,
                   actions: [
-                    { label: 'Chart', onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
-                    { label: 'Details', onPress: () => goDetail(item.symbol) },
-                    { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(item.symbol) },
+                    { label: 'Chart', onPress: () => { setChartSymbol(sym); router.push('/(tabs)/chart'); } },
+                    { label: 'Details', onPress: () => goDetail(sym) },
+                    { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(sym) },
                   ],
                 })}
               />
@@ -323,9 +440,21 @@ export function QuotesScreen() {
               </View>
             }
           />
-
         </View>
       </SafeAreaView>
+
+      {/* ── Add Modal (Moved out of padding scope so Web absolute overlay works) ── */}
+      <AddSymbolModal 
+         visible={showAddModal} 
+         onClose={() => setShowAddModal(false)} 
+         onAdd={(sym: string) => { 
+            addQuoteSymbol(sym); 
+            setShowAddModal(false); 
+         }} 
+         T={T} 
+         isDark={isDark} 
+         existingSymbols={quoteSymbols} 
+      />
     </View>
   );
 }
@@ -403,6 +532,7 @@ const sc = StyleSheet.create({
   statDot: { width: 4, height: 4, borderRadius: 2, marginLeft: 6, marginRight: 3 },
   pricesRow: { flexDirection: 'row', gap: 14, alignItems: 'center' },
   priceBlock: { alignItems: 'flex-end' },
+  flashOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 4, opacity: 0 },
   labelWithTick: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   priceLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   priceValue: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'right' },

@@ -36,6 +36,7 @@ export default function LoginScreen() {
   const [savePassword, setSavePassword] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [brokerId, setBrokerId] = useState('');
+  const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
   const { themeMode } = useUserPreferences();
   const T = useTheme();
   const isDark = themeMode === 'dark';
@@ -58,13 +59,24 @@ export default function LoginScreen() {
     });
   }, []);
 
+  const handleModalClose = () => {
+    if (modalState.type === 'success') {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/');
+      }
+    }
+    setModalState(prev => ({ ...prev, visible: false }));
+  };
+
   const handleLogin = async () => {
     if (!brokerId.trim()) {
-      Alert.alert('Error', 'Please enter your Broker ID');
+      setModalState({ visible: true, type: 'error', title: 'Error', message: 'Please enter your Broker ID' });
       return;
     }
     if (!accountId || !password) {
-      Alert.alert('Error', 'Please enter both Login and Password');
+      setModalState({ visible: true, type: 'error', title: 'Error', message: 'Please enter both Login ID and Password' });
       return;
     }
 
@@ -120,13 +132,10 @@ export default function LoginScreen() {
         AsyncStorage.removeItem('rtx5_saved_login');
       }
 
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace('/');
-      }
+      setModalState({ visible: true, type: 'success', title: 'Success', message: 'Login successful' });
+      
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+      setModalState({ visible: true, type: 'error', title: 'Login Failed', message: error.message || 'Invalid credentials' });
     } finally {
       setIsLoading(false);
     }
@@ -204,9 +213,9 @@ export default function LoginScreen() {
               </View>
               <View style={styles.fieldDivider} />
 
-              {/* Login Field */}
+              {/* Login ID Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Login</Text>
+                <Text style={styles.inputLabel}>Login ID</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={accountId}
@@ -278,10 +287,34 @@ export default function LoginScreen() {
                   <Text style={styles.loginBtnText}>LOGIN</Text>
                 )}
               </Pressable>
+
+              <View style={styles.registerPromptContainer}>
+                <Text style={styles.registerPromptText}>Don't have an account? </Text>
+                <Pressable onPress={() => router.push('/register')} disabled={isLoading} hitSlop={10}>
+                  <Text style={styles.registerLinkText}>Register</Text>
+                </Pressable>
+              </View>
             </View>
 
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Success/Error Modal Overlay */}
+        {modalState.visible && (
+          <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+            <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
+            <View style={styles.successModal}>
+              <View style={[styles.successIconBox, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]}>
+                <Ionicons name={modalState.type === 'success' ? 'checkmark' : 'close'} size={32} color="#fff" />
+              </View>
+              <Text style={styles.successTitle}>{modalState.title}</Text>
+              <Text style={styles.successDesc}>{modalState.message}</Text>
+              <Pressable style={[styles.successBtn, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]} onPress={handleModalClose}>
+                <Text style={styles.successBtnText}>OK</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </View>
     </>
   );
@@ -428,6 +461,76 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 16,
       fontWeight: '700',
       letterSpacing: 0.5,
+    },
+
+    /* Register Link */
+    registerPromptContainer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginTop: 24,
+    },
+    registerPromptText: {
+      color: T.textSub,
+      fontSize: 14,
+    },
+    registerLinkText: {
+      color: T.accent,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+
+    /* Success / Error Modal */
+    modalOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      justifyContent: 'center',
+      zIndex: 999,
+      elevation: 999,
+    },
+    successModal: {
+      width: '85%',
+      maxWidth: 340,
+      backgroundColor: T.glass2,
+      borderRadius: 24,
+      padding: 24,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: T.borderMedium,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 12,
+    },
+    successIconBox: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: '#34C759',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    successTitle: {
+      color: T.text,
+      fontSize: 20,
+      fontWeight: '700',
+      marginBottom: 8,
+    },
+    successDesc: {
+      color: T.textSub,
+      fontSize: 14,
+      textAlign: 'center',
+      marginBottom: 24,
+      lineHeight: 20,
+    },
+    successBtn: {
+      backgroundColor: T.accent,
+      width: '100%',
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    successBtnText: {
+      color: '#fff',
+      fontSize: 16,
+      fontWeight: '600',
     },
   });
 }

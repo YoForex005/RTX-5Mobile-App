@@ -23,6 +23,7 @@ export type AccountSummary = {
 
 type TradingState = {
   quotes: Record<string, QuoteItem>;
+  tickCount: number; // Primitive counter — increments on every live tick for reliable React 19 re-renders
   account: AccountSummary | null;
   candles: Record<string, Candle[]>; // Keyed by "Symbol.Timeframe" e.g. "EURUSD.H1"
 
@@ -34,6 +35,7 @@ type TradingState = {
 
 export const useTradingState = create<TradingState>((set) => ({
   quotes: {},
+  tickCount: 0,
   account: null,
   candles: {},
 
