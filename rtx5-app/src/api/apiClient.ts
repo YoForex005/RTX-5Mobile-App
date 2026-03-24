@@ -43,13 +43,20 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
   
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+    headers.set('X-API-Key', token);
   }
   
-  // Set default content type if not provided
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+  // Set default content type only for requests with a body (POST, PUT, PATCH)
+  // GET requests MUST NOT have Content-Type — nginx/servers may reject them
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData) && options.body) {
     headers.set('Content-Type', 'application/json');
+  }
+  
+  // Always set Accept header and disable caching for fresh data
+  if (!headers.has('accept')) {
     headers.set('accept', 'application/json');
   }
+  headers.set('Cache-Control', 'no-cache');
 
   const config: RequestInit = {
     ...options,
@@ -69,6 +76,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
         .then((newToken) => {
           // Retry original request with new token
           headers.set('Authorization', `Bearer ${newToken}`);
+          headers.set('X-API-Key', String(newToken));
           return fetch(url, { ...config, headers, _retry: true } as ApiClientRequestInit);
         })
         .catch((err) => Promise.reject(err));
@@ -111,6 +119,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       // Retry original request with fresh access token
       const retryHeaders = new Headers(originalRequest.headers);
       retryHeaders.set('Authorization', `Bearer ${refreshData.access_token}`);
+      retryHeaders.set('X-API-Key', refreshData.access_token);
       originalRequest.headers = retryHeaders;
       
       processQueue(null, refreshData.access_token);

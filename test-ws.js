@@ -1,20 +1,27 @@
+const WebSocket = require('ws');
+
 const ws = new WebSocket('ws://69.197.178.27/ws/feed');
 
-ws.onopen = function () {
-  console.log('Connected to ws://69.197.178.27/ws/feed');
-  const msg = {"type":"subscribe","symbols":["EURUSD","GBPUSD","USDJPY","XAUUSD","BTCUSD","ETHUSD","USOIL"]};
+ws.on('open', () => {
+  console.log('Connected to WS');
+  const msg = { type: 'subscribe_candles', symbol: 'XAUUSD', tf: '1m' };
+  console.log('Sending:', msg);
   ws.send(JSON.stringify(msg));
-  console.log('Sent:', msg);
-};
+});
 
-ws.onmessage = function (event) {
-  console.log('Received payload type:', typeof event.data);
-  console.log('Received:', event.data.toString());
-};
+ws.on('message', (data) => {
+  console.log('Received payload:', data.toString());
+  // close after first message to not hang
+  setTimeout(() => process.exit(0), 1000);
+});
 
-ws.onerror = function (error) {
-  console.error('Error:', error);
-};
+ws.on('error', (err) => {
+  console.error('WS Error:', err);
+  process.exit(1);
+});
 
-// close after 30s
-setTimeout(() => { ws.close(); process.exit(0); }, 30000);
+// timeout just in case it hangs
+setTimeout(() => {
+  console.log('Timeout reached');
+  process.exit(0);
+}, 5000);

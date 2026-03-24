@@ -45,3 +45,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 ## Exit Criteria
 - Trading UI flows are functionally complete with no blocking defects.
 
+## Progress Notes
+- 2026-03-24: Fixed trade-flow account resolution so open positions, close, and modify actions no longer depend on `liveAccountState.login` being hydrated before the Trade tab loads.
+- 2026-03-24: Hardened the order/position flow to refresh using the resolved MT5 login after buy, sell, close, and modify actions, matching the live `/api/v2/orders` and `/api/v2/positions/{login}` contract.
+

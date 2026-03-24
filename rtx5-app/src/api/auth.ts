@@ -19,7 +19,7 @@ import { apiClient, API_BASE_URL } from './apiClient';
 
 /** POST /auth/login — request body */
 export interface LoginRequest {
-  login: number;
+  username: string;
   password: string;
   broker_id: string;
 }
@@ -56,6 +56,10 @@ export interface AuthResponse {
   account_login: number; // account login number returned by V2
   username: string;
   server?: string;      // Note: backend may not always return server directly in V2
+  broker_id?: string;
+  expires_at?: number;
+  role?: string;
+  user_id?: number;
 }
 
 

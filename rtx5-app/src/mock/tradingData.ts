@@ -123,6 +123,7 @@ export type PositionItem = {
   openTime: string;
   sl?: number;
   tp?: number;
+  clientCreatedAt?: number;
 };
 
 export const account = {

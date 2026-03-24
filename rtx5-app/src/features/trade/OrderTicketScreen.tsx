@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
+import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
+import { ordersApi } from '../../api/orders';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
 
@@ -45,15 +48,134 @@ export function OrderTicketScreen() {
   const BID = 1.1042;
   const ASK = 1.1044;
 
-  const [isOrderPending, setIsOrderPending] = useState(false);
+  const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
 
-  const handlePlaceOrder = (side: 'buy' | 'sell') => {
-    setIsOrderPending(true);
-    setTimeout(() => {
-      setIsOrderPending(false);
-      Alert.alert('Success', `Market ${side} order placed for ${symbol}`);
+  const syncOpenedPosition = async (login: string, ticketId?: number) => {
+    const maxAttempts = 15;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      await usePositionsState.getState().refreshPositions(login);
+
+      if (!ticketId) return;
+
+      const exists = usePositionsState.getState().positions.some(
+        (position) => String(position.id) === String(ticketId)
+      );
+
+      if (exists) return;
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  };
+
+  const handlePlaceOrder = async (side: 'buy' | 'sell') => {
+    if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
+      Alert.alert('Authentication Error', 'You must be logged into a valid trading account to place orders.');
+      return;
+    }
+
+    const tradingLogin = resolveTradingLogin();
+    if (!tradingLogin) {
+      Alert.alert('Account Error', 'Unable to resolve the active trading account login.');
+      return;
+    }
+
+    const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
+    const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
+
+    if (BLOCKED_SYMBOLS.includes(symbol)) {
+      Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol}.`);
+      return;
+    }
+
+    if (!ALLOWED_SYMBOLS.includes(symbol)) {
+      Alert.alert('Trade Not Permitted', `${symbol} is not currently in the allowed trading list.`);
+      return;
+    }
+
+    setPendingSide(side);
+    try {
+      // Live API Integration: POST /api/v2/orders
+      // Places a market order via the centralized ordersApi.
+      // Rate limited: 60 requests/min per account.
+      // Routed through ordersApi → apiClient which handles:
+      //   • Automatic Bearer token injection from Zustand state
+      //   • 401 token refresh loops (cyclic refresh_token renewal)
+      //   • DB transaction atomicity on the server side
+      //   • Rejection on zero/negative market prices
+      //   • SL/TP validation against current market price
+      const data = await ordersApi.placeMarketOrder({
+        login: tradingLogin,
+        symbol: symbol,
+        side: side,
+        volume: volume,
+        price_sl: 0, // TP/SL dynamic numerical inputs deferred to Phase 4
+        price_tp: 0, // TP/SL dynamic numerical inputs deferred to Phase 4
+        comment: 'RTX5 Mobile Order',
+        trailing_stop: 0,
+        trailing_step: 0,
+        magic: 0,
+      });
+
+      if (['rejected', 'failed', 'error'].includes(data.status?.toLowerCase())) {
+        Alert.alert('Order Rejected', data.comment || `Server returned status: ${data.status}`);
+        return;
+      }
+
+      const positionTicket = data.position_ticket ?? data.order_ticket;
+
+      // OPTIMISTIC UPDATE: Add position to state immediately so it renders without delay
+      const state = usePositionsState.getState();
+      const newPos = {
+        id: String(positionTicket || Math.floor(Math.random() * 10000000)),
+        symbol: symbol,
+        side: side,
+        volume: volume,
+        openPrice: data.price || (side === 'buy' ? ASK : BID),
+        currentPrice: data.price || (side === 'buy' ? ASK : BID),
+        pnl: 0,
+        swap: 0,
+        openTime: new Date().toISOString(),
+        sl: 0,
+        tp: 0,
+        clientCreatedAt: Date.now(),
+      };
+      
+      // prepend the new position
+      state.setPositions([newPos, ...state.positions]);
+
+      // Refresh positions state from server in the background
+      const mt5Login = resolveTradingLoginString();
+      if (mt5Login) {
+        void syncOpenedPosition(mt5Login, positionTicket);
+      }
+      Alert.alert('Order Executed', `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol}.\nTicket: #${positionTicket}`);
       router.back();
-    }, 600);
+    } catch (error: any) {
+      // Handle specific server rejections from the API layer
+      const status = error?.response?.status;
+      const errData = error?.response?.data || {};
+      switch (status) {
+        case 400:
+          Alert.alert('Order Rejected', errData.message || 'Invalid parameters or market closed.');
+          break;
+        case 401:
+          Alert.alert('Session Expired', 'Your trading session has expired. Please log in again.');
+          break;
+        case 429:
+          const retryStr = error?.response?.headers?.['retry-after'];
+          const seconds = parseInt(retryStr, 10);
+          const msg = !isNaN(seconds) 
+            ? `Too many requests. Please wait ${seconds} seconds before placing another order.`
+            : 'Too many requests. Please wait a moment before placing another order.';
+          Alert.alert('Rate Limited', msg);
+          break;
+        default:
+          Alert.alert('Execution Failed', errData.message || 'Failed to reach the trading server.');
+      }
+    } finally {
+      setPendingSide(null);
+    }
   };
 
   const adj = (delta: number) =>
@@ -66,9 +188,9 @@ export function OrderTicketScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* ── Compact Header ─────────────────────────────────────────── */}
-      <View style={[styles.header, { paddingTop: insets.top + 32 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={18} color={T.text} />
+      <View style={[styles.header, { paddingTop: insets.top + 24, zIndex: 10 }]}>
+        <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={22} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
           <Text style={styles.hSymbol}>{symbol}</Text>
@@ -223,9 +345,9 @@ export function OrderTicketScreen() {
           <Pressable
             style={[styles.execBtn, styles.execSell]}
             onPress={() => handlePlaceOrder('sell')}
-            disabled={isOrderPending}
+            disabled={pendingSide !== null}
           >
-            {isOrderPending ? (
+            {pendingSide === 'sell' ? (
               <ActivityIndicator color={T.text} />
             ) : (
               <>
@@ -237,9 +359,9 @@ export function OrderTicketScreen() {
           <Pressable
             style={[styles.execBtn, styles.execBuy]}
             onPress={() => handlePlaceOrder('buy')}
-            disabled={isOrderPending}
+            disabled={pendingSide !== null}
           >
-            {isOrderPending ? (
+            {pendingSide === 'buy' ? (
               <ActivityIndicator color={T.text} />
             ) : (
               <>
@@ -323,8 +445,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: BG },
-    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 14 },
-    backBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: ELEVATED, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 14, zIndex: 10 },
+    backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: ELEVATED, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
     hCenter: { flex: 1, alignItems: 'center' },
     hSymbol: { color: WHITE, fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
     livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: BUY_BG },

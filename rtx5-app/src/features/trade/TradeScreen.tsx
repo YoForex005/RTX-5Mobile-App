@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { TradePositionRow } from '../../components/TradePositionRow';
-import { PositionItem, positions, account as mockAccount } from '../../mock/tradingData';
+import { PositionItem } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useLiveAccountState } from '../../state/liveAccountState';
+import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -19,16 +22,44 @@ export function TradeScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const { oneClickAccepted, setChartSymbol, accountDetails, isDemoAccount } = useUserPreferences();
+  const { oneClickAccepted, setChartSymbol } = useUserPreferences();
   const setSidebarOpen = useUIState((st) => st.setSidebarOpen);
   const showActionSheet = useUIState((st) => st.showActionSheet);
 
-  // ── Pull-to-refresh ─────────────────────────────────────────────────────
+  // ── Pull-to-refresh & Live Fetch ────────────────────────────────────────
+  const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState();
   const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(() => {
+  const resolvedLogin = resolveTradingLogin();
+
+  const fetchPositions = useCallback(async () => {
+    const mt5Login = resolveTradingLogin();
+    if (!mt5Login) return;
+
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    try {
+      await refreshPositions(String(mt5Login));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshPositions]);
+
+  const onRefresh = useCallback(() => {
+    fetchPositions();
+  }, [fetchPositions]);
+
+  useEffect(() => {
+    if (resolvedLogin) {
+      fetchPositions();
+    }
+  }, [resolvedLogin, fetchPositions]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchPositions();
+      const iv = setInterval(fetchPositions, 5000);
+      return () => clearInterval(iv);
+    }, [fetchPositions])
+  );
 
   // ── P/L pulse animation ─────────────────────────────────────────────────
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -43,9 +74,10 @@ export function TradeScreen() {
     return () => loop.stop();
   }, [pulseAnim]);
 
+  const liveAcc = useLiveAccountState();
   const account = {
-    balance: mockAccount.balance, credit: 0, floating: mockAccount.floating, equity: mockAccount.equity,
-    margin: mockAccount.margin, freeMargin: mockAccount.freeMargin, marginLevel: mockAccount.marginLevel, currency: mockAccount.currency,
+    balance: liveAcc.balance || 0, credit: 0, floating: liveAcc.floating || 0, equity: liveAcc.equity || 0,
+    margin: liveAcc.margin || 0, freeMargin: liveAcc.margin_free || 0, marginLevel: liveAcc.margin_level || 0, currency: 'USD',
   };
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
   const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
@@ -131,14 +163,14 @@ export function TradeScreen() {
                       <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
                     </View>
-                    <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.margin)}</Text>
+                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.margin)}</Text>
                   </View>
                   <View style={s.gridCol}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
                     </View>
-                    <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.freeMargin)}</Text>
+                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.freeMargin)}</Text>
                   </View>
                 </View>
 
@@ -148,7 +180,7 @@ export function TradeScreen() {
                       <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
                     </View>
-                    <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.marginLevel)}</Text>
+                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.marginLevel)}</Text>
                   </View>
                   <View style={s.gridCol}>
                     {account.credit > 0 ? (
@@ -157,7 +189,7 @@ export function TradeScreen() {
                           <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                           <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
                         </View>
-                        <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.credit)}</Text>
+                        <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.credit)}</Text>
                       </>
                     ) : (
                       <>
@@ -165,7 +197,7 @@ export function TradeScreen() {
                           <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                           <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
                         </View>
-                        <Text style={[s.gridValue, { color: T.text }]}>{fmt.int(account.equity)}</Text>
+                        <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.equity)}</Text>
                       </>
                     )}
                   </View>
@@ -211,8 +243,16 @@ export function TradeScreen() {
         ListEmptyComponent={
           <View style={s.emptyState}>
             <Ionicons name="receipt-outline" size={48} color={T.textDimmed} />
-            <Text style={[s.emptyTitle, { color: T.textMuted }]}>No open positions</Text>
-            <Text style={[s.emptySub, { color: T.textDimmed }]}>Your active trades will appear here</Text>
+            <Text style={[s.emptyTitle, { color: T.textMuted }]}>
+              {isLoading ? 'Loading positions...' : 'No open positions'}
+            </Text>
+            <Text style={[s.emptySub, { color: T.textDimmed }]}>
+              {lastError
+                ? `Account ${lastFetchLogin ?? resolvedLogin ?? 'unknown'}: ${lastError}`
+                : resolvedLogin
+                  ? `Account ${resolvedLogin}: your active trades will appear here`
+                  : 'Waiting for active trading account'}
+            </Text>
           </View>
         }
         ListFooterComponent={positions.length > 0 ? (

@@ -86,12 +86,16 @@ export type OrderTicketInput = {
 };
 
 export type OrderSubmissionResult = {
-  orderId: string;
-  status: "accepted" | "rejected" | "filled" | "partial";
-  filledVolume: number;
-  avgPrice?: number;
-  message?: string;
-  serverTime: string; // ISO datetime
+  order_ticket: number;
+  position_ticket: number;
+  symbol: string;
+  side: "buy" | "sell";
+  volume: number;
+  price: number;
+  commission: number;
+  status: string;
+  action: string;
+  time: number; // Unix timestamp
 };
 
 export type HistoryFilter = {

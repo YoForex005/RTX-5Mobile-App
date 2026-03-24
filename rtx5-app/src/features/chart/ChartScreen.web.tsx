@@ -16,11 +16,112 @@ import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useLiveCandles } from '../../hooks/useLiveCandles';
+import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { useLiveAccountState } from '../../state/liveAccountState';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, BarSeries, LineSeries, LineStyle, HistogramSeries } from 'lightweight-charts';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+
+// Micro-component: isolated 4fps render cycle, 0 DOM depth
+const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
+  const latestTick = useLiveTick(symbol);
+  if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  return (
+    <View style={styles.priceSection}>
+      <Text style={{ color: '#94A3B8', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>PRICE</Text>
+      <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
+      {candles.length >= 2 && (() => {
+        const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
+        const change = latestTick.close - prevClose;
+        const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
+        const isUp = change >= 0;
+        return (
+          <Text style={[styles.priceChangePct, { color: isUp ? '#089981' : '#F23645' }]}>
+            {isUp ? '+' : ''}{change.toFixed(displayDecimals)} ({isUp ? '+' : ''}{pct.toFixed(2)}%)
+          </Text>
+        );
+      })()}
+    </View>
+  );
+});
+
+
+
+// Micro-component: isolated 4fps render cycle, 0 DOM depth
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, seriesRef }: any) => {
+  const latestTick = useLiveTick(symbol);
+  const latestClose = latestTick?.close ?? 0;
+  const latestBid = latestClose;
+  const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+
+  return (
+    <View style={styles.tradeControlsRow}>
+      <Pressable
+        style={[styles.actionBtn, styles.actionBtnSell]}
+        onPress={() => {
+          try {
+            if (seriesRef?.current && latestAsk) {
+              seriesRef.current.createPriceLine({
+                price: latestAsk, color: '#F23645', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SELL'
+              });
+            }
+          } catch(e) {}
+          router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'sell' } });
+        }}
+      >
+        <View style={styles.actionBtnHeader}>
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
+          <Ionicons name="chevron-down" size={16} color="#FFF" />
+        </View>
+        <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
+      </Pressable>
+
+      <View style={styles.actionSpacer} />
+
+      <Pressable
+        style={[styles.actionBtn, styles.actionBtnBuy]}
+        onPress={() => {
+          try {
+            if (seriesRef?.current && latestBid) {
+              seriesRef.current.createPriceLine({
+                price: latestBid, color: '#089981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'BUY'
+              });
+            }
+          } catch(e) {}
+          router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'buy' } });
+        }}
+      >
+        <View style={styles.actionBtnHeader}>
+          <Ionicons name="chevron-up" size={16} color="#FFF" />
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
+        </View>
+        <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
+      </Pressable>
+    </View>
+  );
+});
+
+// Micro-component: isolated 4fps render cycle, 0 DOM depth
+const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
+  const latestTick = useLiveTick(symbol);
+  if (!latestTick || candles.length < 2) return null;
+  
+  const latestBid = latestTick.close;
+  const isUp = latestBid >= candles[candles.length - 2]?.close;
+
+  return (
+    <View style={styles.tvLegendContainer} pointerEvents="box-none">
+      <View>
+        <View style={styles.tvLegendRow}>
+          <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: isUp ? '#089981' : '#F23645' }]}>
+            {latestBid.toFixed(displayDecimals)} {isUp ? '+' : '-'}192.90 (-0.98%)
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+});
 
 const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
 
@@ -90,7 +191,7 @@ export function ChartScreen() {
   const BTN_BG = T.glass2;
   const PILL_BG = T.glass1;
   const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
-  const liveAccount = accountDetails ?? null;
+
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
@@ -119,8 +220,16 @@ export function ChartScreen() {
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
 
 
-  const { candles, latestTick } = useLiveCandles(chartSymbol, chartTimeframe);
-  const isLoading = candles.length === 0;
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const [forceHideLoading, setForceHideLoading] = useState(false);
+
+  useEffect(() => {
+    setForceHideLoading(false);
+    const tmr = setTimeout(() => setForceHideLoading(true), 2000);
+    return () => clearTimeout(tmr);
+  }, [chartSymbol, chartTimeframe]);
+
+  const isLoading = candles.length === 0 && !forceHideLoading;
   const isError = false;
 
   // Initialize Lightweight Chart
@@ -335,38 +444,7 @@ export function ChartScreen() {
     }
   }, [candles, isDark, chartSymbol, chartTimeframe, chartType]);
 
-  // Trading Signals Overlays
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const s = seriesRef.current;
-    let lines: any[] = [];
 
-    if (showTradingSignals && candles.length > 0) {
-      const isXau = chartSymbol.includes('XAU');
-      const latestClose = candles[candles.length - 1].close;
-
-      const r1 = isXau ? 4895 : latestClose * 1.002;
-      const r2 = isXau ? 4940 : latestClose * 1.006;
-      const r3 = isXau ? 4975 : latestClose * 1.01;
-      const s1 = isXau ? 4805 : latestClose * 0.998;
-      const s2 = isXau ? 4775 : latestClose * 0.994;
-      const s3 = isXau ? 4740 : latestClose * 0.99;
-
-      lines.push(s.createPriceLine({ price: r1, color: '#3B82F6', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Pivot' }));
-      lines.push(s.createPriceLine({ price: r2, color: '#22C55E', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
-      lines.push(s.createPriceLine({ price: r3, color: '#22C55E', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
-
-      lines.push(s.createPriceLine({ price: s1, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-      lines.push(s.createPriceLine({ price: s2, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-      lines.push(s.createPriceLine({ price: s3, color: '#EF4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-    }
-
-    return () => {
-      try {
-        lines.forEach(line => s.removePriceLine(line));
-      } catch (e) { }
-    };
-  }, [showTradingSignals, candles, chartSymbol]);
 
   // Patterns / Markers Local
   useEffect(() => {
@@ -405,28 +483,66 @@ export function ChartScreen() {
     } catch (e) {}
   }, [activeTool, showTradingSignals, candles]);
 
-  // Live Tick Sync
+  // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
   useEffect(() => {
-    if (seriesRef.current && latestTick) {
-      try {
-        let tickToInject: any = latestTick;
-        if (chartType === 'line') {
-          tickToInject = { time: latestTick.time, value: latestTick.close };
-        }
-        seriesRef.current.update(tickToInject as any);
+    let rAF: number | null = null;
+    let pendingTick: any = null;
+    let lastInjectedTickTime = 0;
 
-        if (volumeSeriesRef.current) {
+    const doInject = () => {
+      rAF = null;
+      if (!pendingTick || !seriesRef.current) return;
+      const tick = pendingTick;
+      pendingTick = null; // Clear queue for next frame
+
+      if (!tick.time) return;
+      if (lastInjectedTickTime && tick.time < lastInjectedTickTime) return; // Drop historically delayed out-of-sequence network packets
+      
+      let tickToInject: any = tick;
+      if (chartType === 'line') {
+        tickToInject = { time: tick.time, value: tick.close };
+      }
+
+      try {
+        seriesRef.current.update(tickToInject);
+        lastInjectedTickTime = tick.time;
+        
+        if (volumeSeriesRef.current && tick) {
+          const isGreen = tick.close >= tick.open;
           volumeSeriesRef.current.update({
-            time: latestTick.time,
-            value: latestTick.volume || 0,
-            color: latestTick.close >= latestTick.open ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
-          } as any);
+            time: tick.time,
+            value: tick.volume || 0,
+            color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+          });
         }
       } catch (e) {
-        // Disposed element catch
+        // Safely swallow series mismatch exceptions
       }
-    }
-  }, [latestTick, chartType]);
+    };
+
+    const handleRawTick = (sym: string, tf: string, incomingCandles: any[]) => {
+      if (sym.toUpperCase() !== chartSymbol.toUpperCase()) return;
+      const tick = incomingCandles[incomingCandles.length - 1];
+      if (!tick) return;
+
+      pendingTick = tick;
+      if (rAF === null) {
+         // Harware-layer 60 FPS alignment preventing JS stringify macro-task queue overloads
+         rAF = requestAnimationFrame(doInject);
+      }
+    };
+
+    import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
+      candlesWsService.addListener(handleRawTick);
+    });
+
+    return () => {
+      if (rAF !== null) cancelAnimationFrame(rAF);
+      import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
+        candlesWsService.removeListener(handleRawTick);
+      });
+    };
+  }, [chartSymbol, chartType]);
 
   const CHART_HEIGHT = chartLayout.height;
 
@@ -443,9 +559,7 @@ export function ChartScreen() {
     }
   };
 
-  const latestClose = latestTick?.close ?? 0;
-  const latestBid = latestClose;
-  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
+
 
   const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
@@ -483,7 +597,6 @@ export function ChartScreen() {
               <Text style={styles.headerTitleText}>Chart</Text>
             </View>
             <View style={{ flex: 1 }} />
-            <View style={{ width: 40 }} />
           </View>
 
           {/* Row 2: Symbol | Price | Balance */}
@@ -504,22 +617,7 @@ export function ChartScreen() {
 
             {/* Right: Balance + Price + P/L */}
             <View style={styles.rightSection}>
-              <View style={styles.balanceContainer}>
-                <Text style={styles.balanceLabel}>PRICE</Text>
-                <Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>{latestClose > 0 ? latestClose.toFixed(displayDecimals) : '---'}</Text>
-                {candles.length >= 2 && latestClose > 0 && (() => {
-                  const prevClose = candles[candles.length - 2]?.close ?? latestClose;
-                  const change = latestClose - prevClose;
-                  const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
-                  const isUp = change >= 0;
-                  const clr = isUp ? '#089981' : '#F23645';
-                  return (
-                    <Text style={[styles.priceChangePct, { color: clr }]}>
-                      {isUp ? '+' : ''}{change.toFixed(displayDecimals)} ({isUp ? '+' : ''}{pct.toFixed(2)}%)
-                    </Text>
-                  );
-                })()}
-              </View>
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
             </View>
           </View>
         </View>
@@ -677,17 +775,7 @@ export function ChartScreen() {
                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
               />
 
-              <View style={styles.tvLegendContainer} pointerEvents="box-none">
-                {latestBid && candles.length >= 2 && (
-                  <View>
-                    <View style={styles.tvLegendRow}>
-                      <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: latestBid >= candles[candles.length - 2]?.close ? '#089981' : '#F23645' }]}>
-                        {latestBid.toFixed(displayDecimals)} {latestBid >= candles[candles.length - 2]?.close ? '+' : '-'}192.90 (-0.98%)
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
+              <LiveTvLegend symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
 
             </View>
           </View>
@@ -735,59 +823,7 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
             </View>
 
-            <View style={styles.tradeControlsRow}>
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnSell]}
-                onPress={() => {
-                  try {
-                    if (seriesRef.current && latestAsk) {
-                      seriesRef.current.createPriceLine({
-                        price: latestAsk,
-                        color: '#F23645',
-                        lineWidth: 1,
-                        lineStyle: LineStyle.Dashed,
-                        axisLabelVisible: true,
-                        title: 'SELL',
-                      });
-                    }
-                  } catch (e) { }
-                  router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } });
-                }}
-              >
-                <View style={styles.actionBtnHeader}>
-                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
-                  <Ionicons name="chevron-down" size={16} color="#FFF" />
-                </View>
-                <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
-              </Pressable>
-
-              <View style={styles.actionSpacer} />
-
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnBuy]}
-                onPress={() => {
-                  try {
-                    if (seriesRef.current && latestBid) {
-                      seriesRef.current.createPriceLine({
-                        price: latestBid,
-                        color: '#089981',
-                        lineWidth: 1,
-                        lineStyle: LineStyle.Dashed,
-                        axisLabelVisible: true,
-                        title: 'BUY',
-                      });
-                    }
-                  } catch (e) { }
-                  router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } });
-                }}
-              >
-                <View style={styles.actionBtnHeader}>
-                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
-                  <Ionicons name="chevron-up" size={16} color="#FFF" />
-                </View>
-                <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
-              </Pressable>
-            </View>
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} seriesRef={seriesRef} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, Number(((prev || 0) - 0.01).toFixed(2))))}>
@@ -977,7 +1013,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 22,
+      fontSize: 32,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
       letterSpacing: -0.5,

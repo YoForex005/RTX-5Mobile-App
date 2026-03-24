@@ -1,8 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, Alert, ActivityIndicator } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { positions } from '../../mock/tradingData';
+import { useUserPreferences } from '../../state/userPreferences';
+import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLoginString } from '../../state/tradingLogin';
+import { positionsApi } from '../../api/positions';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -11,16 +14,27 @@ import { findPositionById, symbolDisplayName } from './tradeFlow';
 
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
+  const { accountDetails } = useUserPreferences();
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
+  const positions = usePositionsState((s) => s.positions);
   const position = useMemo(
-    () => findPositionById(positionId) ?? positions[0],
-    [positionId]
+    () => findPositionById(positions, positionId),
+    [positions, positionId]
   );
+  const resolvedLogin = resolveTradingLoginString();
+
+  useEffect(() => {
+    if (!position && resolvedLogin) {
+      void usePositionsState.getState().refreshPositions(resolvedLogin);
+    }
+  }, [position, resolvedLogin]);
+
+  if (!position) return <Screen><View style={styles.header}><Text style={styles.title}>Loading...</Text></View></Screen>;
 
   return (
     <Screen>
@@ -61,16 +75,53 @@ export function ClosePositionScreen() {
       <Pressable 
         style={[styles.dangerButton, isClosing && { opacity: 0.6 }]} 
         disabled={isClosing}
-        onPress={() => {
-          if (!positionId) return;
+        onPress={async () => {
+          const ticketId = position.id;
+          if (!accountDetails?.credentials?.accessToken) {
+            setCloseError('Authentication Error: Session token missing.');
+            return;
+          }
+
           setIsClosing(true);
-          setTimeout(() => {
-            setIsClosing(false);
+          setCloseError(null);
+          try {
+            // Live API Integration: POST /api/v2/positions/{ticketId}/close
+            // Closes the position by its ticket ID (not account login).
+            // Routed through positionsApi → apiClient which handles:
+            //   • Automatic Bearer token injection from Zustand state
+            //   • 401 token refresh loops (cyclic refresh_token renewal)
+            //   • DB transaction atomicity on the server side
+            //   • Rejection on zero/negative market prices
+            await positionsApi.closePosition(ticketId);
+
+            // Optimistic fast UI update to eliminate replication lag timeout shortcut
+            const state = usePositionsState.getState();
+            state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
             setSubmitted(true);
-            setTimeout(() => {
-              router.back();
-            }, 1500);
-          }, 600);
+            router.back();
+
+            // Background refresh to true up with the server eventually
+            if (resolvedLogin) {
+              state.refreshPositions(resolvedLogin);
+            }
+          } catch (error: any) {
+            const status = error?.response?.status;
+            const data = error?.response?.data || {};
+            if (status === 404) {
+              setCloseError(data.message || 'Position not found.');
+            } else if (status === 429) {
+              const retryStr = error?.response?.headers?.['retry-after'];
+              const seconds = parseInt(retryStr, 10);
+              const waitMsg = !isNaN(seconds) ? ` Wait ${seconds} seconds.` : ' Wait before trying again.';
+              setCloseError(`Rate limited!${waitMsg}`);
+            } else if (status === 400 || status === 401) {
+              setCloseError(data.message || 'Validation or authentication error.');
+            } else {
+              setCloseError(data.message || 'Failed to close position.');
+            }
+          } finally {
+            setIsClosing(false);
+          }
         }}
       >
         {isClosing ? (

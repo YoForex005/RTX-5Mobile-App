@@ -2,6 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
+import { usePositionsState } from '../../state/positionsState';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -14,10 +15,11 @@ export function BulkOperationScreen() {
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
+  const positions = usePositionsState((s) => s.positions);
   const title = bulkModeLabel(mode);
   const affectedPositions = useMemo(
-    () => filterPositionsForBulk(mode),
-    [mode]
+    () => filterPositionsForBulk(positions, mode),
+    [positions, mode]
   );
   const totalPnl = affectedPositions.reduce((sum, position) => sum + position.pnl, 0);
 

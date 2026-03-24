@@ -15,10 +15,72 @@ import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useLiveCandles } from '../../hooks/useLiveCandles';
+import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { useLiveAccountState } from '../../state/liveAccountState';
 import { WebView } from 'react-native-webview';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+
+// Micro-component: isolated 4fps render cycle, 0 DOM depth
+const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
+  const latestTick = useLiveTick(symbol);
+  if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  return (
+    <View style={styles.priceSection}>
+      <Text style={{ color: '#94A3B8', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>PRICE</Text>
+      <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
+      {candles.length >= 2 && (() => {
+        const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
+        const change = latestTick.close - prevClose;
+        const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
+        const isUp = change >= 0;
+        return (
+          <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
+            {isUp ? '+' : ''}{change.toFixed(displayDecimals)}  ({isUp ? '+' : ''}{pct.toFixed(2)}%)
+          </Text>
+        );
+      })()}
+    </View>
+  );
+});
+
+
+
+// Micro-component: isolated 4fps render cycle, 0 DOM depth
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals }: any) => {
+  const latestTick = useLiveTick(symbol);
+  const latestClose = latestTick?.close ?? 0;
+  const latestBid = latestClose;
+  const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+
+  return (
+    <View style={styles.tradeControlsRow}>
+      <Pressable
+        style={[styles.actionBtn, styles.actionBtnSell]}
+        onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'sell' } })}
+      >
+        <View style={styles.actionBtnHeader}>
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
+          <Ionicons name="chevron-down" size={16} color="#FFF" />
+        </View>
+        <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
+      </Pressable>
+
+      <View style={styles.actionSpacer} />
+
+      <Pressable
+        style={[styles.actionBtn, styles.actionBtnBuy]}
+        onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'buy' } })}
+      >
+        <View style={styles.actionBtnHeader}>
+          <Ionicons name="chevron-up" size={16} color="#FFF" />
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
+        </View>
+        <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
+      </Pressable>
+    </View>
+  );
+});
 
 const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
 
@@ -69,31 +131,7 @@ const CH_HTML = `
       var UP_COLOR = '#26A69A';
       var DOWN_COLOR = '#EF5350';
 
-      function setTradingSignals(show, symbol, latestClose, lastTime) {
-        try {
-          if (!series) return;
-          signalLines.forEach(l => series.removePriceLine(l));
-          signalLines = [];
-          
-          if (show && latestClose > 0) {
-            var isXau = symbol.includes('XAU');
-            var r1 = isXau ? 4895 : latestClose * 1.002;
-            var r2 = isXau ? 4940 : latestClose * 1.006;
-            var r3 = isXau ? 4975 : latestClose * 1.01;
-            var s1 = isXau ? 4805 : latestClose * 0.998;
-            var s2 = isXau ? 4775 : latestClose * 0.994;
-            var s3 = isXau ? 4740 : latestClose * 0.99;
 
-            signalLines.push(series.createPriceLine({ price: r1, color: '#3B82F6', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Pivot' }));
-            signalLines.push(series.createPriceLine({ price: r2, color: '#22C55E', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
-            signalLines.push(series.createPriceLine({ price: r3, color: '#22C55E', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Resistance' }));
-            
-            signalLines.push(series.createPriceLine({ price: s1, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-            signalLines.push(series.createPriceLine({ price: s2, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-            signalLines.push(series.createPriceLine({ price: s3, color: '#EF4444', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: 'Support' }));
-          }
-        } catch(e) {}
-      }
 
       function setChartMarkers(markers) {
         try {
@@ -157,6 +195,8 @@ const CH_HTML = `
             color: '#26a69a',
             priceFormat: { type: 'volume' },
             priceScaleId: '',
+            priceLineVisible: false,
+            lastValueVisible: false,
           });
           chart.priceScale('').applyOptions({
             scaleMargins: { top: 0.8, bottom: 0 }
@@ -216,7 +256,7 @@ export function ChartScreen() {
   const TEXT_MUTED = T.textMuted;
 
   const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, showTradingSignals } = useUserPreferences();
-  const liveAccount = { balance: 100000, currency: 'USD' };
+
 
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
   const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
@@ -236,9 +276,14 @@ export function ChartScreen() {
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
-  const { candles, latestTick } = useLiveCandles(chartSymbol, chartTimeframe);
-  const isLoading = candles.length === 0;
-  const isError = false;
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const [forceHideLoading, setForceHideLoading] = useState(false);
+
+  useEffect(() => {
+    setForceHideLoading(false);
+    const tmr = setTimeout(() => setForceHideLoading(true), 2000);
+    return () => clearTimeout(tmr);
+  }, [chartSymbol, chartTimeframe]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -281,6 +326,8 @@ export function ChartScreen() {
   }), [isDark, TEXT_MUTED]);
 
   const [webViewReady, setWebViewReady] = useState(false);
+  const isLoading = candles.length === 0 && !forceHideLoading && !webViewReady;
+  const isError = false;
 
   const dataSignatureRef = useRef('');
 
@@ -305,28 +352,56 @@ export function ChartScreen() {
     }
   }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions]);
 
-  // Live Tick Sync
+  // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
   useEffect(() => {
-    if (webViewRef.current && webViewReady && latestTick) {
-      let tickToInject: any = latestTick;
-      if (chartType === 'line') {
-        tickToInject = { time: latestTick.time, value: latestTick.close };
-      }
-      const js = `updateTick(${JSON.stringify(tickToInject)}); true;`;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [latestTick, isDark, webViewReady, chartType]);
+    let rAF: number | null = null;
+    let pendingTick: any = null;
+    let lastInjectedTickTime = 0;
 
-  // Trading Signals Bridge
-  useEffect(() => {
-    if (webViewReady && webViewRef.current) {
-      const lastClose = latestTick?.close ?? (candles.length > 0 ? candles[candles.length - 1].close : 0);
-      const lastTime = candles.length > 0 ? candles[candles.length - 1].time : null;
-      webViewRef.current.injectJavaScript(`
-        true;
-      `);
-    }
-  }, [showTradingSignals, webViewReady, chartSymbol, latestTick, candles]);
+    const doInject = () => {
+      rAF = null;
+      if (!pendingTick || !webViewRef.current || !webViewReady) return;
+      const tick = pendingTick;
+      pendingTick = null;
+
+      if (!tick.time) return;
+      if (lastInjectedTickTime && tick.time < lastInjectedTickTime) return;
+
+      let tickToInject: any = tick;
+      if (chartType === 'line') {
+        tickToInject = { time: tick.time, value: tick.close };
+      }
+      
+      try {
+        const js = `updateTick(${JSON.stringify(tickToInject)}); true;`;
+        webViewRef.current.injectJavaScript(js);
+        lastInjectedTickTime = tick.time;
+      } catch (e) {}
+    };
+
+    const handleRawTick = (sym: string, tf: string, incomingCandles: any[]) => {
+      if (sym.toUpperCase() !== chartSymbol.toUpperCase()) return;
+      const tick = incomingCandles[incomingCandles.length - 1];
+      if (!tick || !webViewReady) return;
+
+      pendingTick = tick;
+      if (rAF === null) {
+         // Hardware synced frame queuing completely bypasses Javascript Task Queue 30Hz congestion issues
+         rAF = requestAnimationFrame(doInject);
+      }
+    };
+
+    import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
+      candlesWsService.addListener(handleRawTick);
+    });
+
+    return () => {
+      if (rAF !== null) cancelAnimationFrame(rAF);
+      import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
+        candlesWsService.removeListener(handleRawTick);
+      });
+    };
+  }, [chartSymbol, chartType, webViewReady]);
 
   // Patterns / Markers Bridge
   useEffect(() => {
@@ -368,9 +443,7 @@ export function ChartScreen() {
     }
   }, [activeTool, showTradingSignals, candles, webViewReady]);
 
-  const latestClose = latestTick?.close ?? 0;
-  const latestBid = latestClose;
-  const latestAsk = latestClose + (chartSymbol.includes('XAU') ? 0.30 : chartSymbol.includes('BTC') ? 25 : 0.00015);
+
 
   const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
@@ -397,30 +470,10 @@ export function ChartScreen() {
           </Pressable>
 
           {/* Center: Live Price */}
-          <View style={styles.priceSection}>
-            <Text style={styles.livePriceText}>{latestClose > 0 ? latestClose.toFixed(displayDecimals) : '---'}</Text>
-            {candles.length >= 2 && latestClose > 0 && (() => {
-              const prevClose = candles[candles.length - 2]?.close ?? latestClose;
-              const change = latestClose - prevClose;
-              const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
-              const isUp = change >= 0;
-              return (
-                <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
-                  {isUp ? '+' : ''}{change.toFixed(displayDecimals)}  ({isUp ? '+' : ''}{pct.toFixed(2)}%)
-                </Text>
-              );
-            })()}
-          </View>
+          <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
 
           {/* Right: Balance + Account */}
           <View style={styles.rightSection}>
-            <View style={styles.balanceContainer}>
-              <Text style={styles.balanceLabel}>PRICE</Text>
-              <Text style={[styles.balanceText, { fontWeight: '700', opacity: 0.9 }]}>
-                {liveAccount ? fmt.int(liveAccount.balance) : '---'}
-                <Text style={styles.currencyText}> {liveAccount ? liveAccount.currency : 'USD'}</Text>
-              </Text>
-            </View>
             <View style={styles.headerTitleContainer}>
               <Text style={styles.headerTitleText}>Chart</Text>
             </View>
@@ -573,31 +626,7 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
             </View>
 
-            <View style={styles.tradeControlsRow}>
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnSell]}
-                onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'sell' } })}
-              >
-                <View style={styles.actionBtnHeader}>
-                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
-                  <Ionicons name="chevron-down" size={16} color="#FFF" />
-                </View>
-                <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
-              </Pressable>
-
-              <View style={styles.actionSpacer} />
-
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnBuy]}
-                onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol: chartSymbol, side: 'buy' } })}
-              >
-                <View style={styles.actionBtnHeader}>
-                  <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
-                  <Ionicons name="chevron-up" size={16} color="#FFF" />
-                </View>
-                <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
-              </Pressable>
-            </View>
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
@@ -763,7 +792,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 22,
+      fontSize: 32,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
       letterSpacing: -0.5,

@@ -2,7 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { positions } from '../../mock/tradingData';
+import { usePositionsState } from '../../state/positionsState';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -15,14 +15,18 @@ export function CloseByScreen() {
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
+  const positions = usePositionsState((s) => s.positions);
   const sourcePosition = useMemo(
-    () => findPositionById(positionId) ?? positions[0],
-    [positionId]
+    () => findPositionById(positions, positionId),
+    [positions, positionId]
   );
   const candidates = useMemo(
-    () => positionPairCandidates(sourcePosition),
-    [sourcePosition]
+    () => positionPairCandidates(positions, sourcePosition),
+    [positions, sourcePosition]
   );
+
+  if (!sourcePosition) return <Screen><View style={styles.header}><Text style={styles.title}>Loading...</Text></View></Screen>;
+
   const [selectedPairId, setSelectedPairId] = useState(candidates[0]?.id ?? '');
 
   const selectedPair = candidates.find((candidate) => candidate.id === selectedPairId);

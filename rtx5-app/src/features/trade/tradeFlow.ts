@@ -1,6 +1,6 @@
-import { PositionItem, positions } from '../../mock/tradingData';
+import { PositionItem } from '../../mock/tradingData';
 
-export function findPositionById(positionId?: string | string[]) {
+export function findPositionById(positions: PositionItem[], positionId?: string | string[]) {
   if (!positionId) return undefined;
   const normalized = Array.isArray(positionId) ? positionId[0] : positionId;
   return positions.find((position) => position.id === normalized);
@@ -35,7 +35,7 @@ export function bulkModeLabel(mode?: string | string[]) {
   }
 }
 
-export function filterPositionsForBulk(mode?: string | string[]) {
+export function filterPositionsForBulk(positions: PositionItem[], mode?: string | string[]) {
   const normalized = Array.isArray(mode) ? mode[0] : mode;
 
   if (normalized === 'profitable') {
@@ -54,7 +54,7 @@ export function filterPositionsForBulk(mode?: string | string[]) {
   return positions;
 }
 
-export function positionPairCandidates(position?: PositionItem) {
+export function positionPairCandidates(positions: PositionItem[], position?: PositionItem) {
   if (!position) return [];
   return positions.filter((candidate) => candidate.id !== position.id && candidate.symbol === position.symbol);
 }

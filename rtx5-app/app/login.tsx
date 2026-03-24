@@ -93,7 +93,7 @@ export default function LoginScreen() {
       }
 
       const response = await loginAPI({
-        login: Number(accountId.trim()),
+        username: accountId.trim(),
         password,
         broker_id: brokerId.trim(),
       });
