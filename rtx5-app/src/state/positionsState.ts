@@ -41,8 +41,8 @@ function mapPositionToItem(dto: any): PositionItem {
     pnl: (Number(dto.profit) || 0) + (Number(dto.swap) || 0) + (Number(dto.commission) || 0),
     swap: Number(dto.swap) || 0,
     openTime: openTimeStr,
-    sl: dto.price_sl || 0,
-    tp: dto.price_tp || 0,
+    sl: dto.price_sl || dto.sl || 0,
+    tp: dto.price_tp || dto.tp || 0,
   };
 }
 
@@ -52,6 +52,7 @@ type PositionsState = {
   lastFetchLogin: string | null;
   lastError: string | null;
   setPositions: (positions: PositionItem[]) => void;
+  upsertPosition: (dto: any) => void;
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
 
@@ -61,6 +62,30 @@ export const usePositionsState = create<PositionsState>((set) => ({
   lastFetchLogin: null,
   lastError: null,
   setPositions: (positions) => set({ positions }),
+  
+  upsertPosition: (dto: any) => {
+    set((state) => {
+      const newItem = mapPositionToItem(dto);
+      // critically stamp WebSocket trades with a client timestamp so the 
+      // REST polling loop doesn't instantly purge them before the DB catches up!
+      newItem.clientCreatedAt = Date.now();
+      
+      const existsIdx = state.positions.findIndex(p => p.id === newItem.id);
+      let newPositions = [...state.positions];
+      
+      if (existsIdx >= 0) {
+        // Safe update: retain clientCreatedAt to prevent optimistic expiration bugs
+        newPositions[existsIdx] = { ...newItem, clientCreatedAt: state.positions[existsIdx].clientCreatedAt };
+      } else {
+        newPositions = [newItem, ...newPositions];
+      }
+      
+      // Keep sorted newest-first
+      newPositions.sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
+      
+      return { positions: newPositions };
+    });
+  },
 
   /**
    * Fetches open positions from the live trading API and updates state.
@@ -141,8 +166,27 @@ export const usePositionsState = create<PositionsState>((set) => ({
           return isRecent && !existsInFetched;
         });
 
+        // Override mapped properties with optimistic values if recently modified
+        const mergedMapped = mapped.map((m) => {
+          const existing = state.positions.find((p) => p.id === m.id);
+          if (existing?.clientModifiedAt) {
+            const modAgeMs = now - existing.clientModifiedAt;
+            // Retain local client SL/TP bounds for 10 seconds post-modification
+            // to allow the REST replica sequence to sync with MT5
+            if (modAgeMs >= 0 && modAgeMs < 10000) {
+              return { 
+                ...m, 
+                sl: existing.sl, 
+                tp: existing.tp, 
+                clientModifiedAt: existing.clientModifiedAt 
+              };
+            }
+          }
+          return m;
+        });
+
         // Combine and optionally sort by time (newest first)
-        const combined = [...optimisticPositions, ...mapped].sort((a, b) => {
+        const combined = [...optimisticPositions, ...mergedMapped].sort((a, b) => {
           return new Date(b.openTime).getTime() - new Date(a.openTime).getTime();
         });
 

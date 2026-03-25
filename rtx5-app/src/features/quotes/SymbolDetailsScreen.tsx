@@ -247,7 +247,7 @@ export function SymbolDetailsScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <SymbolFlags symbol={symbol} />
               <View style={{ flex: 1, marginLeft: 6 }}>
-                <Text style={s.hero.sym}>{symbol.replace(/m$/i, '')}</Text>
+                <Text style={s.hero.sym}>{symbol.replace(/m$/i, '').replace(/\//g, '')}</Text>
                 <Text style={s.hero.name}>{meta.name}</Text>
               </View>
             </View>

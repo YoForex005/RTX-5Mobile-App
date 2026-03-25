@@ -27,7 +27,7 @@ export interface ExposureResponse {
  * Server: Proxied through the Gateway.
  */
 export async function getExposure(): Promise<ExposureResponse> {
-  const response = await apiClient('/api/v1/exposure');
+  const response = await apiClient('/exposure');
 
   if (!response.ok) {
     let errorMsg = 'Failed to fetch exposure data';

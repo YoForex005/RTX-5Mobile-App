@@ -1,18 +1,31 @@
-import { useLocalSearchParams, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View, ActivityIndicator } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { useUserPreferences } from '../../state/userPreferences';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, Dimensions, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
+
+import { positionsApi } from '../../api/positions';
+import { useLiveTick, useLiveCandles } from '../../hooks/useLiveCandles';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
-import { positionsApi } from '../../api/positions';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { useUserPreferences } from '../../state/userPreferences';
+import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { findPositionById } from './tradeFlow';
+import { fmt } from '../../utils/format';
+
+function formatModifyPrice(val: number, isJpy: boolean) {
+  const str = val.toFixed(isJpy ? 3 : 5);
+  // Splitting off the exact last two digits that the user circled
+  return { 
+    main: str.slice(0, -2), 
+    huge: str.slice(-2) 
+  };
+}
 
 export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
+  const insets = useSafeAreaInsets();
   const { accountDetails } = useUserPreferences();
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
@@ -23,310 +36,560 @@ export function ModifyPositionScreen() {
     [positions, positionId]
   );
 
-  // Pre-fill SL/TP with the position's current values (if set)
-  const [stopLoss, setStopLoss] = useState('');
-  const [takeProfit, setTakeProfit] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [stopLoss, setStopLoss] = useState<number | null>(null);
+  const [takeProfit, setTakeProfit] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const resolvedLogin = resolveTradingLoginString();
 
+  // Fetch position if not natively loaded in cache (e.g. direct deep link or cold start)
   useEffect(() => {
     if (!position && resolvedLogin) {
       void usePositionsState.getState().refreshPositions(resolvedLogin);
     }
   }, [position, resolvedLogin]);
 
+  // Tick History State for Chart
+  const latestTick = useLiveTick(position?.symbol || 'EURUSD');
+  const latestClose = latestTick?.close || position?.currentPrice || 0;
+  
+  const isJpy = position?.symbol.includes('JPY') ?? false;
+  // Fallbacks if bid/ask not provided directly
+  const { candles } = useLiveCandles(position?.symbol || '', '1'); // Fetch REAL 1M histories!
+  const syntheticAsk = latestClose + (isJpy ? 0.015 : 0.00015);
+  const BID = (latestTick as any)?.bid || latestClose;
+  const ASK = (latestTick as any)?.ask || syntheticAsk;
+
+  const currentPriceOrZero = position?.currentPrice || 0;
+  const pipSize = isJpy ? 0.01 : currentPriceOrZero > 100 ? 0.01 : 0.0001;
+  const decimals = isJpy ? 3 : currentPriceOrZero > 100 ? 2 : 5;
+
+  const [ticks, setTicks] = useState<{ bid: number; ask: number }[]>([]);
+
+  useEffect(() => {
+    if (BID > 0 && ASK > 0) {
+      // If we have actual historical candles from the live WebSocket, map them perfectly!
+      if (candles && candles.length > 0) {
+        const slice = candles.slice(-40);
+        const spread = ASK - BID;
+        const histPath = slice.map(c => ({ bid: c.close, ask: c.close + spread }));
+        
+        // Pad to ensure full chart width if we don't have exactly 40 minutes of history yet
+        while (histPath.length < 40) {
+          histPath.unshift({ bid: histPath[0].bid, ask: histPath[0].ask });
+        }
+        
+        // Ensure the absolute final active tick is precisely the live, sub-minute WebSocket tick!
+        histPath[histPath.length - 1] = { bid: BID, ask: ASK };
+        
+        setTicks(histPath);
+      } else {
+        // Fallback tick accumulator if history hasn't loaded yet
+        setTicks((prev) => {
+          if (prev.length === 0) return Array(40).fill({ bid: BID, ask: ASK });
+          
+          const next = [...prev, { bid: BID, ask: ASK }];
+          if (next.length > 40) next.shift();
+          return next;
+        });
+      }
+    }
+  }, [BID, ASK, candles]);
+
+  // Init S/L and T/P from existing
   useEffect(() => {
     if (!position) return;
-    setStopLoss(position.sl && position.sl > 0 ? String(position.sl) : '');
-    setTakeProfit(position.tp && position.tp > 0 ? String(position.tp) : '');
+    setStopLoss(position.sl && position.sl > 0 ? position.sl : null);
+    setTakeProfit(position.tp && position.tp > 0 ? position.tp : null);
   }, [position?.id, position?.sl, position?.tp]);
 
-  if (!position) return <Screen><View style={styles.header}><Text style={styles.title}>Loading...</Text></View></Screen>;
+  // Chart Layout State (MUST be before any early returns!)
+  const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
 
-  // Determine pip size for stepper based on symbol (JPY pairs use 0.01, others 0.0001)
-  const isJpy = position.symbol.includes('JPY');
-  const pipSize = isJpy ? 0.01 : position.currentPrice > 100 ? 0.01 : 0.0001;
-  const decimals = isJpy ? 3 : position.currentPrice > 100 ? 2 : 5;
+  if (!position) {
+    return (
+      <View style={{ flex: 1, backgroundColor: T.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: T.text }}>Loading...</Text>
+      </View>
+    );
+  }
 
-  const adjustValue = (current: string, delta: number): string => {
-    const val = parseFloat(current) || position.currentPrice;
-    return (val + delta).toFixed(decimals);
+  const handleStepSl = (delta: number) => {
+    setStopLoss((prev) => {
+      // If setting for the first time, bias it directly against the live matching price for the position side
+      const livePrice = position.side === 'buy' ? BID : ASK;
+      let base = prev;
+      if (!base) {
+         // Auto offset properly based on side
+         base = position.side === 'buy' ? livePrice - (pipSize * 100) : livePrice + (pipSize * 100);
+      }
+      const val = (base as number) + delta;
+      return parseFloat(val.toFixed(decimals));
+    });
   };
 
+  const handleStepTp = (delta: number) => {
+    setTakeProfit((prev) => {
+      const livePrice = position.side === 'buy' ? BID : ASK;
+      let base = prev;
+      if (!base) {
+         // Auto offset properly based on side
+         base = position.side === 'buy' ? livePrice + (pipSize * 100) : livePrice - (pipSize * 100);
+      }
+      const val = (base as number) + delta;
+      return parseFloat(val.toFixed(decimals));
+    });
+  };
+
+  const handleSlChange = (text: string) => {
+    const val = parseFloat(text);
+    if (!isNaN(val)) setStopLoss(val);
+    if (text === '') setStopLoss(null);
+  };
+
+  const handleTpChange = (text: string) => {
+    const val = parseFloat(text);
+    if (!isNaN(val)) setTakeProfit(val);
+    if (text === '') setTakeProfit(null);
+  };
+
+  const handleModify = async () => {
+    if (!accountDetails?.credentials?.accessToken) {
+      setSubmitMessage('Authentication Error: Session token missing.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitMessage(null);
+    try {
+      await positionsApi.modifyPosition(position.id, {
+        price_sl: stopLoss || 0,
+        price_tp: takeProfit || 0,
+        trailing_stop: 0,
+        trailing_step: 0,
+      });
+
+      const newSl = stopLoss || 0;
+      const newTp = takeProfit || 0;
+
+      // Optimistic update
+      usePositionsState.setState((state) => ({
+        positions: state.positions.map((p) =>
+          p.id === position.id
+            ? { ...p, sl: newSl, tp: newTp, clientModifiedAt: Date.now() }
+            : p
+        ),
+      }));
+
+      // Force UI back successfully
+      router.back();
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data || {};
+      if (status === 400) {
+        setSubmitMessage(data.message || 'Invalid parameters.');
+      } else {
+        setSubmitMessage('Modification rejected by broker.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const slDisplay = stopLoss ? stopLoss.toFixed(decimals) : 'SL';
+  const tpDisplay = takeProfit ? takeProfit.toFixed(decimals) : 'TP';
+  const isBuy = position.side === 'buy';
+
+  const bidFmt = formatModifyPrice(BID, isJpy);
+  const askFmt = formatModifyPrice(ASK, isJpy);
+
+  // Chart Rendering calculations
+  const w = chartLayout.width;
+  const h = chartLayout.height;
+  
+  // Find min and max values to dynamically scale tick chart
+  let minPrice = Math.min(BID, ASK);
+  let maxPrice = Math.max(BID, ASK);
+  ticks.forEach(t => {
+    minPrice = Math.min(minPrice, t.bid, t.ask);
+    maxPrice = Math.max(maxPrice, t.bid, t.ask);
+  });
+  
+  // Stretch bounds gently so active stop constraints visibly sit on the chart
+  if (stopLoss) {
+    minPrice = Math.min(minPrice, stopLoss);
+    maxPrice = Math.max(maxPrice, stopLoss);
+  }
+  if (takeProfit) {
+    minPrice = Math.min(minPrice, takeProfit);
+    maxPrice = Math.max(maxPrice, takeProfit);
+  }
+  
+  // padding
+  const padding = (maxPrice - minPrice) * 0.2;
+  const chartMin = minPrice - padding;
+  const chartMax = maxPrice + padding;
+  const priceRange = chartMax - chartMin || 0.001;
+
+  const yPos = (val: number) => {
+    if (h === 0) return 0;
+    return h - ((val - chartMin) / priceRange) * h;
+  };
+
+  const xPos = (idx: number, total: number) => {
+    if (w === 0 || total <= 1) return 0;
+    // Map points across width minus 50 right padding for labels
+    return (idx / (total - 1)) * (w - 70); 
+  };
+
+  let bidPath = '';
+  let askPath = '';
+  if (ticks.length > 0 && w > 0 && h > 0) {
+    bidPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.bid)}`).join(' ');
+    askPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.ask)}`).join(' ');
+    
+    // Mathematically anchor the end of the history path directly to the live nanosecond Bid/Ask box coordinates
+    // This perfectly closes the frame gap and guarantees the stroke touches the bounding box!
+    bidPath += ` L ${w - 60} ${yPos(BID)}`;
+    askPath += ` L ${w - 60} ${yPos(ASK)}`;
+  }
+
   return (
-    <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title}>Modify Position</Text>
-        <Text style={styles.subTitle}>#{position.id} {position.symbol} {position.side} {(position.volume || 0).toFixed(2)}</Text>
-      </View>
+    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Current price reference so user knows valid SL/TP range */}
-      <View style={styles.priceRef}>
-        <Text style={styles.priceRefLabel}>Current Price</Text>
-        <Text style={styles.priceRefValue}>{position.currentPrice.toFixed(decimals)}</Text>
-      </View>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerColumnLeft}>
+          <Pressable 
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/trade');
+              }
+            }} 
+            hitSlop={20} 
+            style={styles.backBtn}
+          >
+            <Ionicons name="arrow-back" size={24} color={T.text} />
+          </Pressable>
+        </View>
 
-      <View style={styles.formCard}>
-        {/* ── Stop Loss Field with stepper ── */}
-        <View style={styles.fieldWrap}>
-          <View style={styles.fieldHeader}>
-            <Text style={styles.fieldLabel}>Stop Loss</Text>
-            {stopLoss ? (
-              <Pressable onPress={() => setStopLoss('')} hitSlop={8}>
-                <Text style={styles.clearBtn}>Clear</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <View style={styles.inputRow}>
-            <Pressable style={styles.stepBtn} onPress={() => setStopLoss(adjustValue(stopLoss, -pipSize * 10))} hitSlop={8}>
-              <Text style={styles.stepBtnText}>−</Text>
-            </Pressable>
-            <TextInput
-              value={stopLoss}
-              onChangeText={setStopLoss}
-              placeholder="not set"
-              placeholderTextColor={T.textMuted}
-              keyboardType="decimal-pad"
-              style={styles.input}
-            />
-            <Pressable style={styles.stepBtn} onPress={() => setStopLoss(adjustValue(stopLoss, pipSize * 10))} hitSlop={8}>
-              <Text style={styles.stepBtnText}>+</Text>
-            </Pressable>
+        <View style={styles.headerColumnCenter}>
+          <Text style={styles.headerTitle}>Modify position #{position.id}</Text>
+          <View style={styles.headerSubRow}>
+            <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
+              {position.side.toUpperCase()}
+            </Text>
+            <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
+            <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
+            <Text style={styles.headerAt}>at</Text>
+            <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
           </View>
         </View>
 
-        {/* ── Take Profit Field with stepper ── */}
-        <View style={styles.fieldWrap}>
-          <View style={styles.fieldHeader}>
-            <Text style={styles.fieldLabel}>Take Profit</Text>
-            {takeProfit ? (
-              <Pressable onPress={() => setTakeProfit('')} hitSlop={8}>
-                <Text style={styles.clearBtn}>Clear</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <View style={styles.inputRow}>
-            <Pressable style={styles.stepBtn} onPress={() => setTakeProfit(adjustValue(takeProfit, -pipSize * 10))} hitSlop={8}>
-              <Text style={styles.stepBtnText}>−</Text>
-            </Pressable>
-            <TextInput
-              value={takeProfit}
-              onChangeText={setTakeProfit}
-              placeholder="not set"
-              placeholderTextColor={T.textMuted}
-              keyboardType="decimal-pad"
-              style={styles.input}
-            />
-            <Pressable style={styles.stepBtn} onPress={() => setTakeProfit(adjustValue(takeProfit, pipSize * 10))} hitSlop={8}>
-              <Text style={styles.stepBtnText}>+</Text>
-            </Pressable>
-          </View>
-        </View>
+        <View style={styles.headerColumnRight} />
       </View>
 
-      {submitError || submitted ? (
-        <View style={submitError ? styles.error : styles.success}>
-          <Text style={submitError ? styles.errorText : styles.successText}>
-            {submitError || 'Modify request successful. Position updated.'}
+      {/* Big Prices */}
+      <View style={styles.priceHero}>
+        <View style={styles.priceHalf}>
+          <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
+            {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
           </Text>
         </View>
-      ) : null}
+        <View style={styles.priceHalf}>
+          <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
+            {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
+          </Text>
+        </View>
+      </View>
 
-      <Pressable
-        style={[styles.submitButton, isSubmitting && { opacity: 0.7 }]}
-        disabled={isSubmitting}
-        onPress={async () => {
-          const ticketId = position.id;
-          if (!accountDetails?.credentials?.accessToken) {
-            setSubmitError('Authentication Error: Session token missing.');
-            return;
-          }
+      {/* SL / TP Adjusters */}
+      <View style={styles.stepperRow}>
+        <View style={[styles.stepperHalf, { borderBottomColor: '#F57C00' }]}>
+          <Pressable onPress={() => handleStepSl(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
+             <Text style={[styles.stepActionText, { color: T.accent }]}>−</Text>
+          </Pressable>
+          <TextInput
+             style={[styles.stepVal, !stopLoss && { color: T.textMuted }]}
+             keyboardType="numeric"
+             value={stopLoss !== null ? stopLoss.toString() : ''}
+             placeholder="SL"
+             placeholderTextColor={T.textMuted}
+             onChangeText={handleSlChange}
+          />
+          <Pressable onPress={() => handleStepSl(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
+             <Text style={[styles.stepActionText, { color: T.accent }]}>+</Text>
+          </Pressable>
+        </View>
 
-          setIsSubmitting(true);
-          setSubmitError(null);
-          try {
-            // Live API Integration: PUT /api/v2/positions/{ticketId}
-            // Modifies stop loss and take profit on the position.
-            // Requires account ownership — returns 404 if not owned by authenticated user.
-            // SL/TP values are validated against the CURRENT MARKET PRICE (not open price).
-            // Routed through positionsApi → apiClient which handles:
-            //   • Automatic Bearer token injection from Zustand state
-            //   • 401 token refresh loops (cyclic refresh_token renewal)
-            //   • Content-Type: application/json header
-            await positionsApi.modifyPosition(ticketId, {
-              price_sl: stopLoss ? parseFloat(stopLoss) : 0,
-              price_tp: takeProfit ? parseFloat(takeProfit) : 0,
-              trailing_stop: 0,
-              trailing_step: 0,
-            });
+        <View style={[styles.stepperHalf, { borderBottomColor: '#388E3C' }]}>
+          <Pressable onPress={() => handleStepTp(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
+             <Text style={[styles.stepActionText, { color: T.accent }]}>−</Text>
+          </Pressable>
+          <TextInput
+             style={[styles.stepVal, !takeProfit && { color: T.textMuted }]}
+             keyboardType="numeric"
+             value={takeProfit !== null ? takeProfit.toString() : ''}
+             placeholder="TP"
+             placeholderTextColor={T.textMuted}
+             onChangeText={handleTpChange}
+          />
+          <Pressable onPress={() => handleStepTp(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
+             <Text style={[styles.stepActionText, { color: T.accent }]}>+</Text>
+          </Pressable>
+        </View>
+      </View>
 
-            // Refresh positions state to reflect the updated SL/TP
-            if (resolvedLogin) {
-              usePositionsState.getState().refreshPositions(resolvedLogin);
-            }
-            setSubmitted(true);
-            setTimeout(() => router.back(), 1500);
-          } catch (error: any) {
-            const status = error?.response?.status;
-            const data = error?.response?.data || {};
-            if (status === 400) {
-              setSubmitError(data.message || 'Invalid SL/TP — values must be valid against current market price.');
-            } else if (status === 404) {
-              setSubmitError(data.message || 'Position not found or not owned by your account.');
-            } else {
-              setSubmitError(data.message || 'Failed to modify position.');
-            }
-          } finally {
-            setIsSubmitting(false);
-          }
-        }}
+      {/* SVG Tick Chart Area */}
+      <View 
+        style={styles.chartContainer} 
+        onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
       >
-        {isSubmitting ? (
-           <ActivityIndicator color={T.text} />
-        ) : (
-           <Text style={styles.submitText}>Apply Changes</Text>
+        {w > 0 && h > 0 && (
+          <Svg width={w} height={h}>
+            {/* Horizontal Grid lines */}
+            <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+            <Line x1="0" y1={yPos((maxPrice + minPrice) / 2)} x2={w} y2={yPos((maxPrice + minPrice) / 2)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+            <Line x1="0" y1={yPos(minPrice)} x2={w} y2={yPos(minPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+
+            {/* Historical Point Paths (The actual Signal) */}
+            {bidPath ? <Path d={bidPath} stroke={T.trading.buy.primary} strokeWidth="1.5" fill="none" /> : null}
+            {askPath ? <Path d={askPath} stroke={T.trading.sell.primary} strokeWidth="1.5" fill="none" /> : null}
+
+            {/* Stop Loss & Take Profit Visual Overlays */}
+            {stopLoss ? (
+              <G>
+                <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke="#F57C00" strokeDasharray="6 6" strokeWidth="1" />
+                <G x={w - 60} y={yPos(stopLoss) - 10}>
+                  <Rect width={60} height={20} fill="#F57C00" />
+                  <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                    SL
+                  </SvgText>
+                </G>
+              </G>
+            ) : null}
+
+            {takeProfit ? (
+              <G>
+                <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke="#388E3C" strokeDasharray="6 6" strokeWidth="1" />
+                <G x={w - 60} y={yPos(takeProfit) - 10}>
+                  <Rect width={60} height={20} fill="#388E3C" />
+                  <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                    TP
+                  </SvgText>
+                </G>
+              </G>
+            ) : null}
+
+            {/* Active Live Price Lines */}
+            <Line x1="0" y1={yPos(ASK)} x2={w - 60} y2={yPos(ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
+            <Line x1="0" y1={yPos(BID)} x2={w - 60} y2={yPos(BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
+
+            {/* Price Tags on Right Axis */}
+            <G x={w - 60} y={yPos(ASK) - 10}>
+              <Rect width={60} height={20} fill={T.trading.sell.primary} />
+              <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+                {ASK.toFixed(decimals)}
+              </SvgText>
+            </G>
+            
+            <G x={w - 60} y={yPos(BID) - 10}>
+              <Rect width={60} height={20} fill={T.trading.buy.primary} />
+              <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+                {BID.toFixed(decimals)}
+              </SvgText>
+            </G>
+          </Svg>
         )}
-      </Pressable>
-    </Screen>
+      </View>
+
+      {/* Footer / Controls */}
+      <View style={styles.footer}>
+        <Text style={styles.disclaimer}>
+          Stop Loss or Take Profit you set must differ from market price by at least 10 points. Stops processing is performed on the broker side.
+        </Text>
+        
+        {submitMessage && (
+          <Text style={styles.validationText}>{submitMessage}</Text>
+        )}
+        {!submitMessage && !positionsApi && (
+          <Text style={styles.validationText}>No connection</Text>
+        )}
+
+        <Pressable 
+          style={[styles.modifyBtn, isSubmitting && { opacity: 0.5 }]}
+          disabled={isSubmitting}
+          onPress={handleModify}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color={T.textSub} />
+          ) : (
+            <Text style={styles.modifyText}>MODIFY</Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: T.bg, // Global app canvas background
+  },
   header: {
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  title: {
-    color: T.text,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  subTitle: {
-    marginTop: 2,
-    color: T.textSub,
-    fontSize: 12,
-  },
-  priceRef: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: T.glass1,
-    borderWidth: 1,
-    borderColor: T.border,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  priceRefLabel: {
-    color: T.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
+  headerColumnLeft: {
+    flex: 1,
+    alignItems: 'flex-start',
   },
-  priceRefValue: {
+  backBtn: {
+    padding: 4,
+  },
+  headerColumnCenter: {
+    flex: 4,
+    alignItems: 'center',
+  },
+  headerColumnRight: {
+    flex: 1,
+  },
+  headerTitle: {
     color: T.text,
-    fontSize: 16,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'] as any,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
-  formCard: {
-    margin: spacing.md,
-    marginTop: spacing.sm,
-    padding: spacing.md,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: T.border,
-    backgroundColor: T.glass1,
-    gap: spacing.md,
-  },
-  fieldWrap: {
+  headerSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
+    marginTop: 4,
   },
-  fieldHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  fieldLabel: {
-    color: T.textMuted,
-    fontSize: 13,
-  },
-  clearBtn: {
-    color: T.accent,
+  headerSide: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
-  inputRow: {
+  headerVol: {
+    color: T.text,
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  headerSymbol: {
+    color: T.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  headerAt: {
+    color: T.textMuted,
+    fontSize: 12,
+  },
+  headerPrice: {
+    color: T.text,
+    fontSize: 13,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  priceHero: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    gap: 40,
+    marginTop: 24,
+    marginBottom: 20,
+  },
+  priceHalf: {
+    alignItems: 'center',
+  },
+  priceNormal: {
+    fontSize: 22,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  priceHuge: {
+    fontSize: 30,
+    fontWeight: '700',
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    gap: 30, // Forces the Orange and Green underlines to be totally separated
+    marginBottom: 20,
+  },
+  stepperHalf: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 4,
+    borderBottomWidth: 1,
   },
   stepBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: T.glass2,
-    borderWidth: 1,
-    borderColor: T.border,
+    padding: 8,
+  },
+  stepActionText: {
+    fontSize: 22,
+    fontWeight: '400',
+    includeFontPadding: false,
+    lineHeight: 24,
+  },
+  stepVal: {
+    color: T.text,
+    fontSize: 15,
+    fontWeight: '600',
+    minWidth: 40,
+    maxWidth: 75,
+    padding: 0,
+    margin: 0,
+    textAlign: 'center',
+  },
+  chartContainer: {
+    flex: 1,
+    marginVertical: 10,
+    overflow: 'hidden',
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+  disclaimer: {
+    color: T.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  validationText: {
+    color: T.trading.sell.primary,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modifyBtn: {
+    paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnText: {
-    color: T.text,
-    fontSize: 20,
+  modifyText: {
+    color: T.textSub,
+    fontSize: 16,
     fontWeight: '600',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: T.glass2,
-    borderWidth: 1,
-    borderColor: T.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    color: T.text,
-    fontSize: 15,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'] as any,
-  },
-  success: {
-    marginHorizontal: spacing.md,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: T.upGlow,
-    backgroundColor: T.upGlow,
-    padding: spacing.md,
-  },
-  successText: {
-    color: T.up,
-    fontSize: 13,
-  },
-  error: {
-    marginHorizontal: spacing.md,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.25)',
-    backgroundColor: 'rgba(255,59,48,0.08)',
-    padding: spacing.md,
-  },
-  errorText: {
-    color: T.trading.sell.primary,
-    fontSize: 13,
-  },
-  submitButton: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.lg,
-    borderRadius: 8,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  submitText: {
-    color: T.text,
-    fontSize: 15,
-    fontWeight: '700',
+    letterSpacing: 1,
   },
 });

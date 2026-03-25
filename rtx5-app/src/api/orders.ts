@@ -16,25 +16,15 @@ import { apiClient } from './apiClient';
  * The `volume` field is in standard lots (e.g. 0.01 = micro lot).
  */
 export interface PlaceOrderPayload {
-  /** MT5 account login number (e.g. 200074) */
-  login: number;
-  /** Trading symbol (e.g. "EURUSD", "USDJPY", "BTCUSDm") */
+  account_login: number | string;
   symbol: string;
-  /** Order direction */
   side: 'buy' | 'sell';
-  /** Volume in lots (e.g. 0.01) */
   volume: number;
-  /** Stop Loss price — 0 to skip */
   price_sl?: number;
-  /** Take Profit price — 0 to skip */
   price_tp?: number;
-  /** Free-text comment attached to the order */
   comment?: string;
-  /** Trailing stop distance in points — 0 to disable */
   trailing_stop?: number;
-  /** Trailing step in points — 0 to disable */
   trailing_step?: number;
-  /** Expert Advisor magic number — 0 for manual orders */
   magic?: number;
 }
 
@@ -76,15 +66,16 @@ export const ordersApi = {
    * zero or negative prices. SL/TP values are validated against the current
    * market price on the server side.
    *
-   * @param payload - Order parameters (login, symbol, side, volume, etc.)
+   * @param payload - Order parameters (login, symbol, orderType, volume, etc.)
    * @returns PlaceOrderResponse containing the new position details
    *
    * Error responses:
    * - 400: Invalid SL/TP, zero/negative market price, or invalid parameters
+   * - 404: Account not found
    * - 429: Rate limited — check Retry-After header
    */
   placeMarketOrder: async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
-    const response = await apiClient('/orders', {
+    const response = await apiClient(`/orders`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -97,7 +88,21 @@ export const ordersApi = {
       }
       throw { response: { data: errorData, status: response.status, headers } };
     }
-
-    return response.json();
+    const json = await response.json();
+    
+    // Safely unwrap data objects if the backend nests the response
+    if (json && typeof json === 'object') {
+      if (json.data && !Array.isArray(json.data)) {
+        return json.data;
+      }
+      if (json.result && !Array.isArray(json.result)) {
+        return json.result;
+      }
+      // If it's an array wrapper
+      if (Array.isArray(json) && json.length > 0) return json[0];
+      if (Array.isArray(json.data) && json.data.length > 0) return json.data[0];
+    }
+    
+    return json;
   },
 };

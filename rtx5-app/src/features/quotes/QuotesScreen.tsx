@@ -12,6 +12,7 @@ import { useTradingState } from '../../state/tradingState';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMarketSymbols } from '../../query/market';
+import { fmt } from '../../utils/format';
 
 /* ───── Helpers ───── */
 
@@ -45,7 +46,7 @@ const sf = StyleSheet.create({
 const digitsFor = (item: QuoteItem) =>
   item.digits ?? (item.bid >= 100 ? 3 : item.bid >= 10 ? 4 : 5);
 
-const pairLabel = (symbol: string) => symbol;
+const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
 const volumeLabel = (volume?: number) => {
   if (!volume) return '--';
@@ -238,7 +239,7 @@ function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }:
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <CurrencyFlags symbol={sym} cardBg="transparent" />
                   <View>
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>{sym}</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>{fmt.symbol(sym)}</Text>
                     <Text style={{ fontSize: 12, color: T.textMuted }}>Forex</Text>
                   </View>
                 </View>

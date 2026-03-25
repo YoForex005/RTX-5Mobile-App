@@ -52,18 +52,24 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
     headers.set('Content-Type', 'application/json');
   }
   
-  // Always set Accept header and disable caching for fresh data
+  // Always set Accept header
   if (!headers.has('accept')) {
     headers.set('accept', 'application/json');
   }
-  headers.set('Cache-Control', 'no-cache');
 
   const config: RequestInit = {
     ...options,
     headers,
   };
 
-  const url = `${API_BASE_URL}${endpoint}`;
+  let url = `${API_BASE_URL}${endpoint}`;
+  
+  // React Native fetch aggressively caches GET requests. To guarantee live data updates,
+  // we universally append a cache-busting timestamp to all GET operations.
+  if (!config.method || config.method.toUpperCase() === 'GET') {
+    url += url.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
+  }
+
   let response = await fetch(url, config);
 
   // If unauthorized, attempt to refresh

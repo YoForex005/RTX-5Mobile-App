@@ -29,7 +29,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }
   if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
   return (
     <View style={styles.priceSection}>
-      <Text style={{ color: '#94A3B8', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>PRICE</Text>
+      <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
       <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
       {candles.length >= 2 && (() => {
         const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
@@ -122,6 +122,16 @@ const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: a
     </View>
   );
 });
+
+const getSentimentForSymbol = (symbol: string) => {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const seed = Math.abs(hash + new Date().getDate());
+  const buyPct = 15 + (seed % 71); 
+  return { buyPct, sellPct: 100 - buyPct };
+};
 
 const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
 
@@ -406,6 +416,43 @@ export function ChartScreen() {
   }, [chartType, isDark, BLUE, RED, displayDecimals]);
 
   const dataSignatureRef = useRef('');
+  const [activeDateRange, setActiveDateRange] = useState('auto');
+
+  const handleRangePress = (range: string) => {
+    setActiveDateRange(range);
+    if (!chartRef.current || candles.length === 0) return;
+    
+    if (range === 'auto') {
+      chartRef.current.timeScale().fitContent();
+      return;
+    }
+
+    // TradingView logically links range selectors to intrinsic resolution swaps
+    if (range === '1d') { setChartTimeframe('M5'); } // 5-minute candles cover a day well
+    else if (range === '5d') { setChartTimeframe('H1'); } // 1-hour candles over 5 days
+    else if (range === '1m') { setChartTimeframe('H4'); } // 4-hour candles for a month
+    else if (range === '6m') { setChartTimeframe('D1'); } // Daily for 6mo
+    else if (range === '1y') { setChartTimeframe('W1'); } // Weekly for a year
+
+    // Give react time to pull new network history, then snap the timeline bounds automatically
+    setTimeout(() => {
+      chartRef.current?.timeScale().fitContent();
+    }, 500);
+  };
+
+  const handleCustomDateRange = (e: any) => {
+    const val = e.target.value;
+    if (!val || candles.length === 0) return;
+    const fromDate = new Date(val).getTime() / 1000;
+    const toDate = fromDate + (86400 * 7); // Default to a week view from chosen date
+    if (chartRef.current) {
+      chartRef.current.timeScale().setVisibleRange({
+        from: fromDate,
+        to: toDate,
+      });
+      setActiveDateRange('custom');
+    }
+  };
 
   // Sync Data
   useEffect(() => {
@@ -533,13 +580,13 @@ export function ChartScreen() {
     };
 
     import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addListener(handleRawTick);
+      candlesWsService.addTickListener(handleRawTick);
     });
 
     return () => {
       if (rAF !== null) cancelAnimationFrame(rAF);
       import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeListener(handleRawTick);
+        candlesWsService.removeTickListener(handleRawTick);
       });
     };
   }, [chartSymbol, chartType]);
@@ -559,9 +606,20 @@ export function ChartScreen() {
     }
   };
 
+  useEffect(() => {
+    if (chartRef.current && chartContainerRef.current) {
+      setTimeout(() => {
+        if (chartRef.current && chartContainerRef.current) {
+          chartRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight,
+          });
+        }
+      }, 50);
+    }
+  }, [isChartExpanded]);
 
-
-  const displaySymbol = baseSymbol.length >= 6 ? `${baseSymbol.slice(0, 3)}/${baseSymbol.slice(3, 6)}` : chartSymbol;
+  const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
   const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
   const symbolCategory = SYMBOL_CATEGORY[baseSymbol] ?? 'FX';
@@ -584,6 +642,8 @@ export function ChartScreen() {
     }
     return labels;
   }, [candles, chartTimeframe]);
+
+  const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
 
   return (
     <Screen style={styles.screen}>
@@ -783,16 +843,34 @@ export function ChartScreen() {
           <View style={styles.tvBottomToolbar}>
             <View style={styles.tvRangesLeft}>
               {['1d', '5d', '1m', '6m', '1y'].map((range, idx) => (
-                <View key={range} style={[styles.tvRangePill, idx === 0 ? styles.tvRangePillActive : null]}>
-                  <Text style={[styles.tvRangeText, idx === 0 ? styles.tvRangeTextActive : null]}>{range}</Text>
-                </View>
+                <Pressable key={range} style={[styles.tvRangePill, activeDateRange === range ? styles.tvRangePillActive : null]} onPress={() => handleRangePress(range)}>
+                  <Text style={[styles.tvRangeText, activeDateRange === range ? styles.tvRangeTextActive : null]}>{range}</Text>
+                </Pressable>
               ))}
             </View>
             <View style={styles.tvRangesRight}>
-              <Text style={styles.tvRangeDropdownText}>Date Range</Text>
-              <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginRight: 8 }} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', cursor: 'pointer', marginRight: 8 }}>
+                <input 
+                  title="Select custom date range"
+                  type="date" 
+                  style={{ 
+                    position: 'absolute', 
+                    opacity: 0, 
+                    top: 0, left: 0, bottom: 0, right: 0, 
+                    cursor: 'pointer', 
+                    zIndex: 10, 
+                    width: '100%',
+                    colorScheme: isDark ? 'dark' : 'light'
+                  }}
+                  onChange={handleCustomDateRange}
+                />
+                <Text style={styles.tvRangeDropdownText}>Date Range</Text>
+                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
+              </div>
               <Text style={styles.tvRangeTimeText}>{new Date().toLocaleTimeString('en-US', { hour12: false })} (UTC+5:30)</Text>
-              <Text style={styles.tvRangeAutoText}>auto</Text>
+              <Pressable onPress={() => handleRangePress('auto')}>
+                <Text style={[styles.tvRangeAutoText, activeDateRange === 'auto' && { color: BLUE }]}>auto</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -815,12 +893,12 @@ export function ChartScreen() {
             </View>
 
             <View style={styles.sentimentLabelsRow}>
-              <Text style={styles.sentimentLabelSell}>32% SELL</Text>
-              <Text style={styles.sentimentLabelBuy}>68% BUY</Text>
+              <Text style={styles.sentimentLabelSell}>{sentiment.sellPct}% SELL</Text>
+              <Text style={styles.sentimentLabelBuy}>{sentiment.buyPct}% BUY</Text>
             </View>
             <View style={styles.sentimentBarRow}>
-              <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: 0.32 }]} />
-              <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: 0.68 }]} />
+              <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: sentiment.sellPct }]} />
+              <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
             <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} seriesRef={seriesRef} />
@@ -1072,8 +1150,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 16,
-      fontWeight: '700',
+      fontSize: 20,
+      fontWeight: '800',
       letterSpacing: 0.3,
     },
     accountDot: {

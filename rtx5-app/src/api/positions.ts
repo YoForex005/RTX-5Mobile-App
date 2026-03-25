@@ -133,6 +133,7 @@ export const positionsApi = {
    * @returns Array of open Position objects from the live trading server
    */
   getPositions: async (login: number, limit = 50, offset = 0): Promise<Position[]> => {
+    // INTEGRATED: GET /api/v2/positions/{login} - Get open positions for an account
     const url = `/positions/${login}?limit=${limit}&offset=${offset}`;
     console.log('[PositionsAPI] GET', url);
     
@@ -185,6 +186,7 @@ export const positionsApi = {
    * @returns Array of ClosedPosition objects representing the account's trade history
    */
   getPositionHistory: async (login: number, limit = 50, offset = 0): Promise<ClosedPosition[]> => {
+    // INTEGRATED: GET /api/v2/positions/{login}/history - (Fallback history integration)
     const response = await apiClient(
       `/positions/${login}/history?limit=${limit}&offset=${offset}`,
     );
@@ -196,7 +198,13 @@ export const positionsApi = {
       throw { response: { data: errorData, status: response.status, headers } };
     }
 
-    return response.json();
+    const json = await response.json();
+    if (Array.isArray(json)) return json;
+    if (json && typeof json === 'object') {
+      const arr = json.data || json.positions || json.items || json.result || json.history;
+      if (Array.isArray(arr)) return arr;
+    }
+    return [];
   },
 
   /**
@@ -215,9 +223,12 @@ export const positionsApi = {
    * - 404: Position not found
    * - 429: Rate limited — check Retry-After header
    */
-  closePosition: async (ticketId: string | number): Promise<ClosePositionResponse> => {
+  closePosition: async (ticketId: string | number, ticketBy?: string | number): Promise<ClosePositionResponse> => {
+    // INTEGRATED: POST /api/v2/positions/{id}/close - Close a specific position by ticket
+    const body = ticketBy ? JSON.stringify({ ticket_by: Number(ticketBy) }) : undefined;
     const response = await apiClient(`/positions/${ticketId}/close`, {
       method: 'POST',
+      body,
     });
 
     if (!response.ok) {
@@ -242,6 +253,7 @@ export const positionsApi = {
    * @returns Updated position object
    */
   modifyPosition: async (ticketId: string | number, payload: ModifyPositionPayload): Promise<Position> => {
+    // INTEGRATED: PUT /api/v2/positions/{id} - Modify SL/TP of an open position
     const response = await apiClient(`/positions/${ticketId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),

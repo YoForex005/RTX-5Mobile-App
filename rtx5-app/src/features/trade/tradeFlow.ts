@@ -56,5 +56,10 @@ export function filterPositionsForBulk(positions: PositionItem[], mode?: string 
 
 export function positionPairCandidates(positions: PositionItem[], position?: PositionItem) {
   if (!position) return [];
-  return positions.filter((candidate) => candidate.id !== position.id && candidate.symbol === position.symbol);
+  return positions.filter(
+    (candidate) =>
+      candidate.id !== position.id &&
+      candidate.symbol === position.symbol &&
+      candidate.side !== position.side
+  );
 }

@@ -16,6 +16,7 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { useUIState } from '../../state/uiState';
+import { useMarketData } from '../../query/websocket';
 
 export function TradeScreen() {
   const T = useTheme();
@@ -30,6 +31,10 @@ export function TradeScreen() {
   const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState();
   const [refreshing, setRefreshing] = useState(false);
   const resolvedLogin = resolveTradingLogin();
+
+  // Aggregate and globally stream quote data for all active position symbols simultaneously!
+  const activeSymbols = useMemo(() => Array.from(new Set(positions.map(p => p.symbol))), [positions]);
+  useMarketData(activeSymbols);
 
   const fetchPositions = useCallback(async () => {
     const mt5Login = resolveTradingLogin();
@@ -97,7 +102,7 @@ export function TradeScreen() {
 
   const showPositionSheet = (item: PositionItem) => {
     showActionSheet({
-      title: `#${item.id} ${item.symbol} ${item.side} ${(item.volume || 0).toFixed(2)}`,
+      title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
       actions: [
         { label: 'Close position', danger: true, onPress: () => router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }) },
         { label: 'Close By', danger: true, onPress: () => router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }) },

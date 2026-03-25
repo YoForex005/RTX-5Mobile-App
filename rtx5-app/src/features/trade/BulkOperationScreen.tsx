@@ -44,7 +44,7 @@ export function BulkOperationScreen() {
       <View style={styles.previewCard}>
         {affectedPositions.slice(0, 6).map((position) => (
           <View key={position.id} style={styles.previewRow}>
-            <Text style={styles.previewLeft}>#{position.id} {position.symbol} {position.side} {(position.volume || 0).toFixed(2)}</Text>
+            <Text style={styles.previewLeft}>#{position.id} {position.symbol.replace(/\//g, '')} {position.side} {(position.volume || 0).toFixed(2)}</Text>
             <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
           </View>
         ))}

@@ -45,7 +45,7 @@ export function ClosePositionScreen() {
 
       <View style={styles.card}>
         <View style={styles.symbolRow}>
-          <Text style={styles.symbol}>{position.symbol}</Text>
+          <Text style={styles.symbol}>{position.symbol.replace(/\//g, '')}</Text>
           <Text style={[styles.side, position.side === 'buy' ? styles.buy : styles.sell]}>
             {position.side} {(position.volume || 0).toFixed(2)}
           </Text>

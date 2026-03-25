@@ -24,7 +24,7 @@ export interface SendEmailResponse {
  * Use cases: welcome emails, trade confirmations, account statements, security alerts.
  */
 export async function sendEmail(payload: SendEmailRequest): Promise<SendEmailResponse> {
-  const response = await apiClient('/api/v1/email/send', {
+  const response = await apiClient('/email/send', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

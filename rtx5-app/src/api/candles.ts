@@ -24,11 +24,10 @@ export async function getCandleHistory(
   count: number = 200,
 ): Promise<CandleHistoryResponse> {
   const params = new URLSearchParams();
-  params.set('symbol', symbol);
   params.set('timeframe', timeframe);
   params.set('count', String(count));
 
-  const response = await apiClient(`/api/v1/candles?${params.toString()}`);
+  const response = await apiClient(`/candles/${symbol}?${params.toString()}`);
 
   if (!response.ok) {
     let errorMsg = 'Failed to fetch candle history';

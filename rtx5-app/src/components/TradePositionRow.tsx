@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { router } from 'expo-router';
 import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import { fmt } from '../utils/format';
 import { useUserPreferences } from '../state/userPreferences';
+import { useMarketData } from '../query/websocket';
+import { useTradingState } from '../state/tradingState';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -25,6 +28,25 @@ export function TradePositionRow({
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isBuy = item.side === 'buy';
   const [expanded, setExpanded] = useState(false);
+  
+  // Continuously hook into the global multi-symbol WebSocket Quotes stream!
+  // This extracts THIS specific symbol's exact nanosecond ask/bid feed.
+  const quotesStore = useMarketData([item.symbol]);
+  const liveQuote = quotesStore[item.symbol];
+  
+  // Real bids and asks mapping from the raw WebSocket
+  const liveBid = liveQuote?.bid || item.currentPrice;
+  const liveAsk = liveQuote?.ask || liveBid + (item.symbol.includes('JPY') ? 0.015 : 0.00015);
+  
+  // For Buy positions, we close at the Bid price. For Sell positions, we close at the Ask price.
+  const livePrice = isBuy ? liveBid : liveAsk;
+
+  // Calculate live floating P&L using standard FX contract math
+  const isJpy = item.symbol.includes('JPY');
+  const decimals = isJpy ? 3 : 5;
+  const contractSize = isJpy ? 1000 : 100000;
+  const priceDiff = isBuy ? (livePrice - item.openPrice) : (item.openPrice - livePrice);
+  const livePnl = priceDiff * (item.volume || 0.01) * contractSize;
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -36,8 +58,8 @@ export function TradePositionRow({
   const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : T.border;
 
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.row,
         {
           backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
@@ -47,17 +69,19 @@ export function TradePositionRow({
         !isDark && styles.shadowLight,
         isDark && styles.shadowDark,
         selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
-        pressed && !expanded && styles.rowPressed,
       ]}
-      onPress={toggleExpand}
-      onLongPress={() => onLongPress(item)}
-      delayLongPress={160}
     >
       <Text style={[styles.cornerId, { color: T.textMuted }]}>#{item.id}</Text>
-      <View style={styles.body}>
+      
+      <Pressable
+        onPress={toggleExpand}
+        onLongPress={() => onLongPress(item)}
+        delayLongPress={160}
+        style={({ pressed }) => [styles.body, pressed && !expanded && styles.rowPressed]}
+      >
         <View style={styles.headerRow}>
           <View style={styles.symbolLine}>
-            <Text style={[styles.symbol, { color: T.text }]}>{item.symbol}</Text>
+            <Text style={[styles.symbol, { color: T.text }]}>{fmt.symbol(item.symbol)}</Text>
             <View style={[
               styles.sideBadge,
               isBuy
@@ -71,65 +95,69 @@ export function TradePositionRow({
             <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
           </View>
           <View style={styles.rightCol}>
-            <Text style={[styles.pnl, { color: item.pnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-              {fmt.pnl(item.pnl)}
+            <Text style={[styles.pnl, { color: livePnl >= 0 ? T.trading.profit : T.trading.loss }]}>
+              {fmt.pnl(livePnl)}
             </Text>
           </View>
         </View>
 
         <View style={styles.priceRow}>
           <View style={styles.priceLeft}>
-            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice)}</Text>
+            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice, decimals)}</Text>
             <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
-            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.currentPrice)}</Text>
+            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(livePrice, decimals)}</Text>
           </View>
           <Text style={[styles.dateRight, { color: T.textSub }]}>
-            {item.openTime.replace(' ', '   ')}
+            {item.openTime.substring(0, 19).replace('T', '   ')}
           </Text>
         </View>
+      </Pressable>
 
-        {/* ── Expanded Details ── */}
-        {expanded && (
-          <View style={[styles.expandedSection, { borderTopColor: dividerColor }]}>
-            <View style={styles.detailGrid}>
-              <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>S/L</Text>
+    {/* ── Expanded Details ── */}
+      {expanded && (
+        <View style={[styles.expandedSection, { borderTopColor: dividerColor }]}>
+          <View style={styles.detailGrid}>
+            <View style={styles.detailCell}>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>S/L</Text>
+              <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
                 <Text style={[styles.detailValue, { color: item.sl ? T.trading.loss : detailColor }]}>
-                  {item.sl ? fmt.price(item.sl) : '—'}
+                  {item.sl ? fmt.price(item.sl as number, decimals) : '—'}
                 </Text>
-              </View>
-              <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>T/P</Text>
-                <Text style={[styles.detailValue, { color: item.tp ? T.trading.profit : detailColor }]}>
-                  {item.tp ? fmt.price(item.tp) : '—'}
-                </Text>
-              </View>
-              <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Open</Text>
-                <Text style={[styles.detailValue, { color: detailColor }]}>
-                  {fmt.price(item.openPrice)}
-                </Text>
-              </View>
+              </Pressable>
             </View>
-            <View style={styles.detailGrid}>
-              <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Swap</Text>
-                <Text style={[styles.detailValue, { color: item.swap !== 0 ? T.trading.loss : detailColor }]}>
-                  {item.swap.toFixed(2)}
+            <View style={styles.detailCell}>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>T/P</Text>
+              <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
+                <Text style={[styles.detailValue, { color: item.tp ? T.trading.profit : detailColor }]}>
+                  {item.tp ? fmt.price(item.tp as number, decimals) : '—'}
                 </Text>
-              </View>
-              <View style={styles.detailCell}>
-                <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Ticket</Text>
-                <Text style={[styles.detailValue, { color: detailColor }]}>
-                  #{item.id}
-                </Text>
-              </View>
-              <View style={styles.detailCell} />
+              </Pressable>
+            </View>
+            <View style={styles.detailCell}>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>OPEN</Text>
+              <Text style={[styles.detailValue, { color: detailColor }]}>
+                {fmt.price(item.openPrice, decimals)}
+              </Text>
             </View>
           </View>
-        )}
-      </View>
-    </Pressable>
+          <View style={styles.detailGrid}>
+            <View style={styles.detailCell}>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Swap</Text>
+              <Text style={[styles.detailValue, { color: item.swap !== 0 ? T.trading.loss : detailColor }]}>
+                {item.swap.toFixed(2)}
+              </Text>
+            </View>
+            <View style={styles.detailCell}>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Ticket</Text>
+              <Text style={[styles.detailValue, { color: detailColor }]}>
+                #{item.id}
+              </Text>
+            </View>
+            <View style={styles.detailCell} />
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -243,6 +271,28 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.5,
   },
+  slTpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 16,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150,150,150,0.1)',
+  },
+  slTpBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(150,150,150,0.05)',
+  },
+  slTpText: {
+    fontSize: 10,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.3,
+  },
 
   /* ── Expanded Details ── */
   expandedSection: {
@@ -268,5 +318,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+  },
+  modBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: 'rgba(150,150,150,0.08)',
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(150,150,150,0.2)',
+    marginTop: 2,
+  },
+  modBadgeIcon: {
+    fontSize: 12,
+    color: 'rgba(150,150,150,0.8)',
   },
 });

@@ -124,6 +124,7 @@ export type PositionItem = {
   sl?: number;
   tp?: number;
   clientCreatedAt?: number;
+  clientModifiedAt?: number;
 };
 
 export const account = {

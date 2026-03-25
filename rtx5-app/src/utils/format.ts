@@ -5,4 +5,5 @@ export const fmt = {
   int: (value: number) => (value || 0).toLocaleString('en-US'),
   decimal: (value: number, digits = 2) =>
     (value || 0).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }),
+  symbol: (symbol?: string) => (symbol || '').replace(/\//g, ''),
 };

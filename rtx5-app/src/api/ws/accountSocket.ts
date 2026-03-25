@@ -1,5 +1,6 @@
 import { useUserPreferences } from '../../state/userPreferences';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { usePositionsState } from '../../state/positionsState';
 
 /**
  * Singleton service for managing the Live Account WebSocket connection.
@@ -8,7 +9,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 class AccountWebSocketService {
   private static instance: AccountWebSocketService;
   private ws: WebSocket | null = null;
-  private url = 'ws://69.197.178.27:8090/ws/v2';
+  private url = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'ws://69.197.178.27:8090/ws/v2';
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private isConnected = false;
   private reconnectAttempts = 0;
@@ -59,9 +60,31 @@ class AccountWebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data as string);
-          if (payload.channel?.startsWith('account.') && payload.data) {
+          
+          // Legacy check for pure account data
+          if (payload.channel?.startsWith('account.') && payload.data && !payload.event) {
              useLiveAccountState.getState().updateMetrics(payload.data);
           }
+          
+          // Real-time Event Routing
+          if (payload.event === 'position.update' && payload.data) {
+             console.log('[Account WS] Received position.update');
+             // Upsert the position payload securely bypassing the REST replica lag
+             usePositionsState.getState().upsertPosition(payload.data);
+          }
+          
+          if (payload.event === 'order.status' && payload.data) {
+             console.log('[Account WS] Received order.status');
+             const currentLogin = payload.data.login || useUserPreferences.getState().accountDetails?.id;
+             if (currentLogin) {
+                void usePositionsState.getState().refreshPositions(String(currentLogin));
+             }
+          }
+
+          if (payload.event === 'account.snapshot' && payload.data) {
+             useLiveAccountState.getState().updateMetrics(payload.data);
+          }
+
         } catch (e) {
           console.warn('[Account WS] Parse error', e);
         }

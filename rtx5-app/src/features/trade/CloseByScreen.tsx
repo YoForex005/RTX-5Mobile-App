@@ -1,8 +1,11 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { usePositionsState } from '../../state/positionsState';
+import { useUserPreferences } from '../../state/userPreferences';
+import { positionsApi } from '../../api/positions';
+import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -12,10 +15,15 @@ import { findPositionById, positionPairCandidates } from './tradeFlow';
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const { accountDetails } = useUserPreferences();
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const positions = usePositionsState((s) => s.positions);
+  const resolvedLogin = resolveTradingLoginString();
+
   const sourcePosition = useMemo(
     () => findPositionById(positions, positionId),
     [positions, positionId]
@@ -25,11 +33,55 @@ export function CloseByScreen() {
     [positions, sourcePosition]
   );
 
+  const [selectedPairId, setSelectedPairId] = useState<string>('');
+
+  // Auto-select the first candidate if none is selected
+  const activePairId = selectedPairId || candidates[0]?.id || '';
+  const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
+
   if (!sourcePosition) return <Screen><View style={styles.header}><Text style={styles.title}>Loading...</Text></View></Screen>;
 
-  const [selectedPairId, setSelectedPairId] = useState(candidates[0]?.id ?? '');
+  const handleSubmit = async () => {
+    if (!sourcePosition || !selectedPair) return;
+    
+    if (!accountDetails?.credentials?.accessToken) {
+      setCloseError('Authentication Error: Session token missing.');
+      return;
+    }
 
-  const selectedPair = candidates.find((candidate) => candidate.id === selectedPairId);
+    setIsClosing(true);
+    setCloseError(null);
+    try {
+      await positionsApi.closePosition(sourcePosition.id, selectedPair.id);
+
+      const state = usePositionsState.getState();
+      state.setPositions(state.positions.filter(p => 
+        String(p.id) !== String(sourcePosition.id) && String(p.id) !== String(selectedPair.id)
+      ));
+      
+      setSubmitted(true);
+      router.back();
+
+      if (resolvedLogin) {
+        state.refreshPositions(resolvedLogin);
+      }
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data || {};
+      if (status === 404) {
+        setCloseError(data.message || 'Position not found.');
+      } else if (status === 429) {
+        const retryStr = error?.response?.headers?.['retry-after'];
+        const seconds = parseInt(retryStr, 10);
+        const waitMsg = !isNaN(seconds) ? ` Wait ${seconds} seconds.` : ' Wait before trying again.';
+        setCloseError(`Rate limited!${waitMsg}`);
+      } else {
+        setCloseError(data.message || 'Failed to close positions.');
+      }
+    } finally {
+      setIsClosing(false);
+    }
+  };
 
   return (
     <Screen>
@@ -41,7 +93,7 @@ export function CloseByScreen() {
       <View style={styles.referenceCard}>
         <Text style={styles.referenceTitle}>Source Position</Text>
         <Text style={styles.referenceValue}>
-          #{sourcePosition.id} {sourcePosition.symbol} {sourcePosition.side} {(sourcePosition.volume || 0).toFixed(2)}
+          #{sourcePosition.id} {sourcePosition.symbol.replace(/\//g, '')} {sourcePosition.side} {(sourcePosition.volume || 0).toFixed(2)}
         </Text>
       </View>
 
@@ -51,12 +103,12 @@ export function CloseByScreen() {
             key={candidate.id}
             style={[
               styles.pairRow,
-              selectedPairId === candidate.id && styles.pairRowSelected,
+              activePairId === candidate.id && styles.pairRowSelected,
             ]}
             onPress={() => setSelectedPairId(candidate.id)}
           >
             <View>
-              <Text style={styles.pairTitle}>#{candidate.id} {candidate.symbol}</Text>
+              <Text style={styles.pairTitle}>#{candidate.id} {candidate.symbol.replace(/\//g, '')}</Text>
               <Text style={styles.pairMeta}>{candidate.side} {(candidate.volume || 0).toFixed(2)} • {fmt.price(candidate.currentPrice)}</Text>
             </View>
             <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
@@ -69,21 +121,24 @@ export function CloseByScreen() {
         ) : null}
       </View>
 
-      {submitted ? (
-        <View style={styles.success}>
-          <Text style={styles.successText}>
-            Close-by request simulated for #{sourcePosition.id}
-            {selectedPair ? ` and #${selectedPair.id}` : ''}.
+      {closeError || submitted ? (
+        <View style={closeError ? styles.error : styles.success}>
+          <Text style={closeError ? styles.errorText : styles.successText}>
+            {closeError ? closeError : 'Close-by request completed successfully.'}
           </Text>
         </View>
       ) : null}
 
       <Pressable
-        style={[styles.submitButton, (!selectedPairId || candidates.length === 0) && styles.submitDisabled]}
-        disabled={!selectedPairId || candidates.length === 0}
-        onPress={() => setSubmitted(true)}
+        style={[styles.submitButton, (!activePairId || candidates.length === 0 || isClosing) && styles.submitDisabled]}
+        disabled={!activePairId || candidates.length === 0 || isClosing}
+        onPress={handleSubmit}
       >
-        <Text style={styles.submitText}>Send Close By Request</Text>
+        {isClosing ? (
+          <ActivityIndicator color={T.text} />
+        ) : (
+          <Text style={styles.submitText}>Send Close By Request</Text>
+        )}
       </Pressable>
     </Screen>
   );
@@ -183,6 +238,19 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   successText: {
     color: T.up,
+    fontSize: 13,
+  },
+  error: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    padding: spacing.md,
+  },
+  errorText: {
+    color: 'rgb(239, 68, 68)',
     fontSize: 13,
   },
   submitButton: {

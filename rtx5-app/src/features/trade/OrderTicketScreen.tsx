@@ -9,6 +9,7 @@ import { resolveTradingLogin, resolveTradingLoginString } from '../../state/trad
 import { ordersApi } from '../../api/orders';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
+import { useLiveTick } from '../../hooks/useLiveCandles';
 
 const ORDER_TYPES = [
   'Market Execution',
@@ -16,9 +17,6 @@ const ORDER_TYPES = [
   'Buy Stop', 'Sell Stop',
   'Buy Stop Limit', 'Sell Stop Limit',
 ];
-
-const BID = 67022.0;
-const ASK = 67040.0;
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
@@ -44,9 +42,23 @@ export function OrderTicketScreen() {
   const [slEnabled, setSlEnabled] = useState(false);
   const [tpEnabled, setTpEnabled] = useState(false);
 
-  // Mock Pricing (no live API)
-  const BID = 1.1042;
-  const ASK = 1.1044;
+  const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
+
+  const handleModalClose = () => {
+    if (modalState.type === 'success') {
+      router.back();
+    }
+    setModalState(prev => ({ ...prev, visible: false }));
+  };
+
+  // Live WebSocket Pricing
+  const latestTick = useLiveTick(symbol);
+  const latestClose = latestTick?.close || 0;
+  // Compute synthetic BID/ASK if true bid/ask not provided by the socket schema
+  const syntheticAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+  
+  const BID = (latestTick as any)?.bid || latestClose;
+  const ASK = (latestTick as any)?.ask || syntheticAsk;
 
   const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
 
@@ -70,13 +82,13 @@ export function OrderTicketScreen() {
 
   const handlePlaceOrder = async (side: 'buy' | 'sell') => {
     if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
-      Alert.alert('Authentication Error', 'You must be logged into a valid trading account to place orders.');
+      setModalState({ visible: true, type: 'error', title: 'Authentication Error', message: 'You must be logged into a valid trading account to place orders.' });
       return;
     }
 
     const tradingLogin = resolveTradingLogin();
     if (!tradingLogin) {
-      Alert.alert('Account Error', 'Unable to resolve the active trading account login.');
+      setModalState({ visible: true, type: 'error', title: 'Account Error', message: 'Unable to resolve the active trading account login.' });
       return;
     }
 
@@ -84,12 +96,12 @@ export function OrderTicketScreen() {
     const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
 
     if (BLOCKED_SYMBOLS.includes(symbol)) {
-      Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol}.`);
+      setModalState({ visible: true, type: 'error', title: 'Trade Blocked', message: `Trading is explicitly blocked for ${symbol?.replace(/\//g, '')}.` });
       return;
     }
 
     if (!ALLOWED_SYMBOLS.includes(symbol)) {
-      Alert.alert('Trade Not Permitted', `${symbol} is not currently in the allowed trading list.`);
+      setModalState({ visible: true, type: 'error', title: 'Trade Not Permitted', message: `${symbol?.replace(/\//g, '')} is not currently in the allowed trading list.` });
       return;
     }
 
@@ -105,12 +117,12 @@ export function OrderTicketScreen() {
       //   • Rejection on zero/negative market prices
       //   • SL/TP validation against current market price
       const data = await ordersApi.placeMarketOrder({
-        login: tradingLogin,
+        account_login: tradingLogin,
         symbol: symbol,
         side: side,
         volume: volume,
-        price_sl: 0, // TP/SL dynamic numerical inputs deferred to Phase 4
-        price_tp: 0, // TP/SL dynamic numerical inputs deferred to Phase 4
+        price_sl: 0,
+        price_tp: 0,
         comment: 'RTX5 Mobile Order',
         trailing_stop: 0,
         trailing_step: 0,
@@ -118,7 +130,7 @@ export function OrderTicketScreen() {
       });
 
       if (['rejected', 'failed', 'error'].includes(data.status?.toLowerCase())) {
-        Alert.alert('Order Rejected', data.comment || `Server returned status: ${data.status}`);
+        setModalState({ visible: true, type: 'error', title: 'Order Rejected', message: data.comment || `Server returned status: ${data.status}` });
         return;
       }
 
@@ -149,18 +161,17 @@ export function OrderTicketScreen() {
       if (mt5Login) {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
-      Alert.alert('Order Executed', `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol}.\nTicket: #${positionTicket}`);
-      router.back();
+      setModalState({ visible: true, type: 'success', title: 'Order Executed', message: `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}.\nTicket: #${positionTicket}` });
     } catch (error: any) {
       // Handle specific server rejections from the API layer
       const status = error?.response?.status;
       const errData = error?.response?.data || {};
       switch (status) {
         case 400:
-          Alert.alert('Order Rejected', errData.message || 'Invalid parameters or market closed.');
+          setModalState({ visible: true, type: 'error', title: 'Order Rejected', message: errData.message || 'Invalid parameters or market closed.' });
           break;
         case 401:
-          Alert.alert('Session Expired', 'Your trading session has expired. Please log in again.');
+          setModalState({ visible: true, type: 'error', title: 'Session Expired', message: 'Your trading session has expired. Please log in again.' });
           break;
         case 429:
           const retryStr = error?.response?.headers?.['retry-after'];
@@ -168,10 +179,10 @@ export function OrderTicketScreen() {
           const msg = !isNaN(seconds) 
             ? `Too many requests. Please wait ${seconds} seconds before placing another order.`
             : 'Too many requests. Please wait a moment before placing another order.';
-          Alert.alert('Rate Limited', msg);
+          setModalState({ visible: true, type: 'error', title: 'Rate Limited', message: msg });
           break;
         default:
-          Alert.alert('Execution Failed', errData.message || 'Failed to reach the trading server.');
+          setModalState({ visible: true, type: 'error', title: `Execution Failed (${status || 'Local Error'})`, message: errData.message || String(error?.message || error) || 'Failed to reach the trading server.' });
       }
     } finally {
       setPendingSide(null);
@@ -193,7 +204,7 @@ export function OrderTicketScreen() {
           <Ionicons name="chevron-back" size={22} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
-          <Text style={styles.hSymbol}>{symbol}</Text>
+          <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
         </View>
         <View style={styles.livePill}>
           <View style={styles.liveDot} />
@@ -231,6 +242,7 @@ export function OrderTicketScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        delaysContentTouches={false}
       >
         {/* Order Type */}
         <Pressable style={styles.flatRow} onPress={() => setTypeOpen(v => !v)}>
@@ -343,9 +355,14 @@ export function OrderTicketScreen() {
         {/* Execution Buttons */}
         <View style={styles.execRow}>
           <Pressable
-            style={[styles.execBtn, styles.execSell]}
+            style={({ pressed }) => [
+              styles.execBtn,
+              styles.execSell,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+            ]}
             onPress={() => handlePlaceOrder('sell')}
             disabled={pendingSide !== null}
+            delayPressIn={0}
           >
             {pendingSide === 'sell' ? (
               <ActivityIndicator color={T.text} />
@@ -357,9 +374,14 @@ export function OrderTicketScreen() {
             )}
           </Pressable>
           <Pressable
-            style={[styles.execBtn, styles.execBuy]}
+            style={({ pressed }) => [
+              styles.execBtn,
+              styles.execBuy,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+            ]}
             onPress={() => handlePlaceOrder('buy')}
             disabled={pendingSide !== null}
+            delayPressIn={0}
           >
             {pendingSide === 'buy' ? (
               <ActivityIndicator color={T.text} />
@@ -383,6 +405,23 @@ export function OrderTicketScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Success/Error Modal Overlay */}
+      {modalState.visible && (
+        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
+          <View style={styles.successModal}>
+            <View style={[styles.successIconBox, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]}>
+              <Ionicons name={modalState.type === 'success' ? 'checkmark' : 'close'} size={32} color="#fff" />
+            </View>
+            <Text style={styles.successTitle}>{modalState.title}</Text>
+            <Text style={styles.successDesc}>{modalState.message}</Text>
+            <Pressable style={[styles.successBtn, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]} onPress={handleModalClose}>
+              <Text style={styles.successBtnText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -519,5 +558,59 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
+    
+    /* Success / Error Modal */
+    modalOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      justifyContent: 'center',
+      zIndex: 999,
+      elevation: 999,
+    },
+    successModal: {
+      width: '85%',
+      maxWidth: 340,
+      backgroundColor: SURFACE,
+      borderRadius: 24,
+      padding: 24,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: T.border,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 24, elevation: 12,
+    },
+    successIconBox: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: BUY_C,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    successTitle: {
+      color: WHITE,
+      fontSize: 20,
+      fontWeight: '700',
+      marginBottom: 8,
+    },
+    successDesc: {
+      color: SUB,
+      fontSize: 14,
+      textAlign: 'center',
+      marginBottom: 24,
+      lineHeight: 20,
+    },
+    successBtn: {
+      backgroundColor: ACCENT,
+      width: '100%',
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    successBtnText: {
+      color: '#fff',
+      fontSize: 16,
+      fontWeight: '600',
+    },
   });
 }
