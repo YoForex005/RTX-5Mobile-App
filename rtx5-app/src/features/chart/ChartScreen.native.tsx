@@ -10,6 +10,7 @@ import {
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
@@ -17,6 +18,9 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { usePlaceOrderMutation } from '../../query/orders';
+import { usePositionsState } from '../../state/positionsState';
+import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
@@ -47,17 +51,87 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }
 
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals }: any) => {
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize }: any) => {
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
 
+  const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
+
+  const handleTrade = (side: 'buy' | 'sell') => {
+    if (oneClickAccepted) {
+      const tradingLogin = resolveTradingLogin();
+      if (!tradingLogin) {
+        Alert.alert('Error', 'No active trading account resolved.');
+        return;
+      }
+
+      const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
+      const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
+
+      if (BLOCKED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol.replace(/\//g, '')}.`);
+        return;
+      }
+
+      if (!ALLOWED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Not Permitted', `${symbol.replace(/\//g, '')} is not currently in the allowed trading list.`);
+        return;
+      }
+
+      placeOrder(
+        { 
+          account_login: tradingLogin, 
+          symbol, 
+          side, 
+          volume: Number(lotSize),
+          price_sl: 0,
+          price_tp: 0,
+          comment: 'One-Click RTX5 Order',
+          trailing_stop: 0,
+          trailing_step: 0,
+          magic: 0
+        },
+        { 
+          onSuccess: (data: any) => {
+            const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
+            const state = usePositionsState.getState();
+            const newPos = {
+              id: String(positionTicket),
+              symbol: symbol,
+              side: side,
+              volume: Number(lotSize),
+              openPrice: data?.price || (side === 'buy' ? latestAsk : latestBid),
+              currentPrice: side === 'buy' ? latestBid : latestAsk,
+              pnl: 0,
+              swap: 0,
+              openTime: new Date().toISOString(),
+              sl: 0,
+              tp: 0,
+              clientCreatedAt: Date.now(),
+            };
+            state.setPositions([newPos as any, ...state.positions]);
+            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+          },
+          onError: (err: any) => {
+            const msg = err?.response?.data?.message || err?.message || 'Execution error';
+            Alert.alert('Trade Failed', msg);
+          }
+        }
+      );
+    } else {
+      router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+    }
+  };
+
   return (
     <View style={styles.tradeControlsRow}>
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnSell]}
-        onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'sell' } })}
+        style={[styles.actionBtn, styles.actionBtnSell, isPending && { opacity: 0.5 }]}
+        disabled={isPending}
+        onPress={() => handleTrade('sell')}
       >
         <View style={styles.actionBtnHeader}>
           <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
@@ -69,8 +143,9 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals }: any) =
       <View style={styles.actionSpacer} />
 
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnBuy]}
-        onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'buy' } })}
+        style={[styles.actionBtn, styles.actionBtnBuy, isPending && { opacity: 0.5 }]}
+        disabled={isPending}
+        onPress={() => handleTrade('buy')}
       >
         <View style={styles.actionBtnHeader}>
           <Ionicons name="chevron-up" size={16} color="#FFF" />
@@ -138,6 +213,22 @@ const CH_HTML = `
           if (series) {
             series.setMarkers(markers || []);
           }
+        } catch(e) {}
+      }
+
+      function setPriceLines(lines) {
+        try {
+          if (!series) return;
+          if (window._priceLines) {
+             window._priceLines.forEach(function(l) { try{series.removePriceLine(l);}catch(ex){} });
+          }
+          window._priceLines = [];
+          (lines || []).forEach(function(opt) {
+             try {
+               var pl = series.createPriceLine(opt);
+               window._priceLines.push(pl);
+             } catch(ex){}
+          });
         } catch(e) {}
       }
 
@@ -223,6 +314,23 @@ const CH_HTML = `
         }
       }
 
+      function updateChartData(data) {
+        try {
+          if (!series) return;
+          series.setData(data);
+          if (volumeSeries) {
+            var volData = data.map(function(d) {
+              var isGreen = d.close >= d.open;
+              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)' };
+            });
+            volumeSeries.setData(volData);
+          }
+          chart.timeScale().fitContent();
+        } catch(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:'updateChartData: '+e.message}));
+        }
+      }
+
       function updateTick(tick) {
         try {
           if (series) {
@@ -269,9 +377,19 @@ export function ChartScreen() {
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
 
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, showTradingSignals } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
+  const { positions } = usePositionsState();
 
+  const { data: apiSymbols = [] } = useMarketSymbols();
+  const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
 
+  useEffect(() => {
+    if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
+      setChartSymbol(apiSymbols[0]);
+    }
+  }, [apiSymbols, chartSymbol, setChartSymbol]);
+
+  // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
   const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
 
@@ -327,8 +445,10 @@ export function ChartScreen() {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 5,
+      rightOffset: 12,
       shiftVisibleRangeOnNewBar: true,
+      fixLeftEdge: true,
+      fixRightEdge: true,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
@@ -344,29 +464,39 @@ export function ChartScreen() {
   const isError = false;
 
   const dataSignatureRef = useRef('');
+  const lastCandleLengthRef = useRef(0);
 
   // Sync Data â€” uses injectJavaScript instead of postMessage
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
       const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
+      
+      // Sanitization + Deduplication to prevent LightweightCharts fatal crash
+      const sanitized = candles.filter(c => c && typeof c.time === 'number' && !isNaN(c.time) && !isNaN(c.close));
+      const uniqueData = Array.from(new Map(sanitized.map(item => [item.time, item])).values());
+      uniqueData.sort((a, b) => a.time - b.time);
+
+      let mappedData: any = uniqueData;
+      if (chartType === 'line') {
+        mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
+      }
+      
+      const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
+
       if (dataSignatureRef.current !== sig) {
-        // Deduplicate
-        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-        uniqueData.sort((a, b) => a.time - b.time);
-
-        let mappedData: any = uniqueData;
-        if (chartType === 'line') {
-          mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
-        }
-
+        // Full mount / init
         const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedData)}, ${displayDecimals}, true); true;`;
         webViewRef.current.injectJavaScript(js);
         dataSignatureRef.current = sig;
+        lastCandleLengthRef.current = candles.length;
+      } else if (chunkJumped) {
+        // Delayed REST history arrived post-tick, update without destroying UI!
+        const js = `updateChartData(${JSON.stringify(mappedData)}); true;`;
+        webViewRef.current.injectJavaScript(js);
+        lastCandleLengthRef.current = candles.length;
       }
     }
-  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions]); // Live Tick Sync has been moved entirely into the WebView's autonomous V8 DOM WebSocket Engine.
-  // We completely bypass the React Native Bridge to achieve > 60FPS raw metal rendering speed.
-  // No hooks or timeout bottlenecks exist here anymore.
+  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions, displayDecimals]);
 
   // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
   useEffect(() => {
@@ -430,6 +560,26 @@ export function ChartScreen() {
       });
     };
   }, [chartSymbol, chartType, webViewReady]);
+
+  // Positions Bridge (Draws Open Trades)
+  useEffect(() => {
+    if (webViewReady && webViewRef.current) {
+      const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
+      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
+
+      const lines = filteredPositions.map((pos) => ({
+        price: pos.openPrice,
+        color: pos.side === 'buy' ? BLUE : '#EF5350',
+        lineWidth: 1,
+        lineStyle: 1, // 1 = Dashed in LightweightCharts enum (LineStyle.Dashed)
+        axisLabelVisible: true,
+        title: `${pos.side.toUpperCase()} ${pos.volume}`,
+      }));
+
+      const js = `setPriceLines(${JSON.stringify(lines)}); true;`;
+      webViewRef.current.injectJavaScript(js);
+    }
+  }, [positions, chartSymbol, webViewReady, BLUE]);
 
   // Patterns / Markers Bridge
   useEffect(() => {
@@ -660,7 +810,7 @@ declare const CHART_SOURCE: any; // defined below
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
@@ -697,7 +847,7 @@ declare const CHART_SOURCE: any; // defined below
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
-        actions={CHART_SYMBOLS.map((sym) => ({
+        actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
         }))}

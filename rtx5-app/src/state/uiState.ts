@@ -14,6 +14,9 @@ type UIState = {
   isChartFullscreen: boolean;
   setChartFullscreen: (open: boolean) => void;
 
+  isSearchActive: boolean;
+  setSearchActive: (active: boolean) => void;
+
   actionSheet: ActionSheetConfig | null;
   showActionSheet: (config: ActionSheetConfig) => void;
   hideActionSheet: () => void;
@@ -25,6 +28,9 @@ export const useUIState = create<UIState>((set) => ({
 
   isChartFullscreen: false,
   setChartFullscreen: (open) => set({ isChartFullscreen: open }),
+
+  isSearchActive: false,
+  setSearchActive: (active) => set({ isSearchActive: active }),
 
   actionSheet: null,
   showActionSheet: (config) => set({ actionSheet: config }),

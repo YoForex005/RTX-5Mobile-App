@@ -9,8 +9,10 @@ import { historyOrders, account as mockAccount } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
-import { usePositionHistoryQuery } from '../../query/positions';
+import { usePositionHistoryQuery, usePositionsQuery } from '../../query/positions';
 import { useDealsQuery } from '../../query/deals';
+import { useMarketData } from '../../query/websocket';
+import { useLiveAccountState } from '../../state/liveAccountState';
 import { ClosedPosition } from '../../api/positions';
 import { Deal } from '../../api/deals';
 import { spacing } from '../../theme';
@@ -34,19 +36,33 @@ type Tone = 'positive' | 'negative' | 'neutral';
 const TABS: Tab[] = ['Positions', 'Orders', 'Deals'];
 const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume', 'Open Time', 'Close Time', 'Profit'];
 
+function safeTimeStr(timestamp?: number): string {
+  if (!timestamp || isNaN(timestamp)) return '--';
+  try {
+    const d = new Date(timestamp * 1000);
+    if (isNaN(d.getTime())) return '--';
+    return d.toISOString().replace('T', ' ').slice(0, 19);
+  } catch {
+    return '--';
+  }
+}
+
 /**
  * Maps a ClosedPosition DTO from GET /api/v2/positions/{login}/history
  * into the HistoryRow format used by the list renderer.
  */
 function mapClosedPositionToRow(p: ClosedPosition): HistoryRow {
   const priceClose = p.price_close ?? p.price_current ?? 0;
-  const timeStr = new Date(p.time_create * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const timeStr = safeTimeStr(p.time_close || p.time_create);
+  const isJpy = p.symbol?.includes('JPY');
+  const decimals = isJpy ? 3 : 5;
+  const ticketId = p.ticket || (p as any).position_ticket || (p as any).id || (p as any).order_ticket || Math.floor(Math.random() * 1000000);
   return {
-    id: `hp${p.ticket}`,
+    id: `hp${ticketId}`,
     line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)}`,
-    line2: `${p.price_open.toFixed(2)} → ${priceClose.toFixed(2)}`,
+    line2: `${fmt.price(p.price_open, decimals)} → ${fmt.price(priceClose, decimals)}`,
     time: timeStr,
-    profit: p.profit + (p.swap || 0) + (p.commission || 0),
+    profit: (p.profit || 0) + (p.swap || 0) + (p.commission || 0),
   };
 }
 
@@ -57,7 +73,7 @@ function mapClosedPositionToRow(p: ClosedPosition): HistoryRow {
 function mapDealToRow(d: Deal): HistoryRow {
   const direction = d.action === 'deal_buy' ? 'buy' : 'sell';
   const entry = d.entry === 'entry_in' ? 'in' : 'out';
-  const timeStr = new Date(d.time * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const timeStr = safeTimeStr(d.time);
   return {
     id: `hd${d.ticket}`,
     line1: `${d.symbol} ${direction},${entry}`,
@@ -83,18 +99,59 @@ export function HistoryScreen() {
   // GET /api/v2/deals/{login} — deal execution history
   const accountLogin = resolveTradingLogin();
   const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin);
+  const { data: rawPositions = [] } = usePositionsQuery(accountLogin);
   const { data: rawDeals = [] } = useDealsQuery(accountLogin);
 
-  const accountSummary = { balance: mockAccount.balance, profit: mockAccount.floating, currency: mockAccount.currency };
-  const deposit = accountSummary.balance - accountSummary.profit;
+  // Hook into live pricing feed for open positions parity
+  const activeSymbols = useMemo(() => Array.from(new Set(rawPositions.map(p => p.symbol))), [rawPositions]);
+  const quotesStore = useMarketData(activeSymbols);
+
+  const liveAcc = useLiveAccountState();
+  const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
+  const balance = liveAcc.balance || 0;
+  const currency = accountDetails?.currency || 'USD';
+
+  // Calculate actual history summary stats from the raw API payload
+  const closedSwap = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.swap || 0), 0), [rawPositionHistory]);
+  const closedCommission = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.commission || 0), 0), [rawPositionHistory]);
+  const rawClosedProfit = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.profit || 0), 0), [rawPositionHistory]);
+  const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
+  
+  // Approximate initial deposit using current balance & realized PNL
+  const deposit = balance - totalClosedPnl;
 
   const hasLiveData = false;
 
   const baseData = useMemo<HistoryRow[]>(() => {
     if (tab === 'Orders') return historyOrders; // No dedicated orders history endpoint yet
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
-    return rawPositionHistory.map(mapClosedPositionToRow);
-  }, [tab, rawPositionHistory, rawDeals]);
+    
+    // User requested History -> Positions to show Open Positions with live prices ticking
+    const openRows = rawPositions.map((p) => {
+      const liveQuote = quotesStore[p.symbol];
+      const liveBid = liveQuote?.bid || p.currentPrice;
+      const liveAsk = liveQuote?.ask || liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
+      const isBuy = p.side === 'buy';
+      const livePrice = isBuy ? liveBid : liveAsk;
+      
+      const isJpy = p.symbol.includes('JPY');
+      const decimals = isJpy ? 3 : 5;
+      const contractSize = isJpy ? 1000 : 100000;
+      const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
+      const livePnl = priceDiff * (p.volume || 0.01) * contractSize;
+
+      const ts = p.openTime ? new Date(p.openTime).getTime() / 1000 : undefined;
+      return {
+        id: `hpo_${p.id}`,
+        line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)} (Open)`,
+        line2: `${fmt.price(p.openPrice, decimals)} → ${fmt.price(livePrice, decimals)}`,
+        time: safeTimeStr(ts),
+        profit: livePnl,
+      };
+    });
+    
+    return openRows;
+  }, [tab, rawPositions, rawDeals, quotesStore]);
 
   const data = useMemo(() => sortHistoryRows(baseData, sortBy), [baseData, sortBy]);
   const profitRows = useMemo(
@@ -130,9 +187,9 @@ export function HistoryScreen() {
                 <Text style={[styles.summaryLabel, { color: T.text }]}>Balance</Text>
                 <View style={styles.floatingRow}>
                   <Text style={[styles.floating, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>
-                    {fmt.int(accountSummary.balance)}
+                    {fmt.int(balance)}
                   </Text>
-                  <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {accountSummary.currency}</Text>
+                  <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
                 </View>
               </View>
               <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
@@ -142,7 +199,7 @@ export function HistoryScreen() {
                       <Ionicons name="scan-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
                     </View>
-                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{String(accountDetails?.id ?? '—')}</Text>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
                   </View>
                   <View style={styles.gridCol}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -159,14 +216,14 @@ export function HistoryScreen() {
                       <Ionicons name="pulse-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
                     </View>
-                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(accountSummary.profit)}</Text>
+                    <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
                   </View>
                   <View style={styles.gridCol}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="git-compare-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
                     </View>
-                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(0)}</Text>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
                   </View>
                 </View>
 
@@ -176,15 +233,18 @@ export function HistoryScreen() {
                       <Ionicons name="options-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
                     </View>
-                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(0)}</Text>
+                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
                   </View>
-                  <View style={styles.gridCol}>
+                  <Pressable 
+                    style={styles.gridCol}
+                    onPress={() => router.push('/history/filter')}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="hourglass-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
                     </View>
-                    <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{historyRange}</Text>
-                  </View>
+                    <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRange}</Text>
+                  </Pressable>
                 </View>
               </View>
             </View>
@@ -214,7 +274,15 @@ export function HistoryScreen() {
               </View>
 
               <View style={styles.metricsRow}>
-                <MetricPill label='Range' value={historyRange} icon='calendar-outline' tone='neutral' T={T} isDark={isDark} />
+                <MetricPill 
+                  label='Range' 
+                  value={historyRange} 
+                  icon='calendar-outline' 
+                  tone='neutral' 
+                  T={T} 
+                  isDark={isDark} 
+                  onPress={() => router.push('/history/filter')}
+                />
                 <MetricPill
                   label={tab === 'Orders' ? 'Filled' : 'Win Rate'}
                   value={tab === 'Orders' ? `${filledCount} / ${data.length}` : winRate}
@@ -307,15 +375,18 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
 }
 
 function MetricPill({
-  label, value, icon, tone, T, isDark,
+  label, value, icon, tone, T, isDark, onPress,
 }: {
   label: string; value: string;
   icon: keyof typeof Ionicons.glyphMap;
   tone: Tone; T: ThemeColors; isDark: boolean;
+  onPress?: () => void;
 }) {
   const cardBg = T.glass1;
+  const Wrapper = onPress ? Pressable : View;
+  
   return (
-    <View style={[mpS.metricPill, { borderColor: T.border, backgroundColor: cardBg }]}>
+    <Wrapper style={[mpS.metricPill, { borderColor: T.border, backgroundColor: cardBg }]} onPress={onPress}>
       <View style={mpS.metricTop}>
         <Ionicons name={icon} size={12} color={T.textSub} />
         <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
@@ -331,7 +402,7 @@ function MetricPill({
       >
         {value}
       </Text>
-    </View>
+    </Wrapper>
   );
 }
 

@@ -17,5 +17,6 @@ export function useDealsQuery(login: number | undefined) {
     queryKey: ['deals', login],
     queryFn: () => dealsApi.getDeals(login!),
     enabled: !!login,
+    refetchInterval: 5000,
   });
 }

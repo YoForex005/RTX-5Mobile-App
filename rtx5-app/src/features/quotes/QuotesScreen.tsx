@@ -308,10 +308,36 @@ export function QuotesScreen() {
   const quoteSymbols = useUserPreferences((st) => st.quoteSymbols);
   const addQuoteSymbol = useUserPreferences((st) => st.addQuoteSymbol);
   const removeQuoteSymbol = useUserPreferences((st) => st.removeQuoteSymbol);
+  const setQuoteSymbols = useUserPreferences((st) => st.setQuoteSymbols);
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const showActionSheet = useUIState((s) => s.showActionSheet);
+
+  const { data: apiSymbols = [] } = useMarketSymbols();
+
+  // ── Auto-Purge Invalid Symbols ─────────────────────────────────────────────
+  // Cross-references the user's saved wishlist against the live API response.
+  // Instantly deletes missing symbols and auto-populates defaults if empty.
+  useEffect(() => {
+    if (apiSymbols.length > 0) {
+      const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
+      
+      // If mismatch detected (invalid symbols found in user state)
+      if (validSymbols.length < quoteSymbols.length) {
+        if (validSymbols.length === 0) {
+          // If totally empty after purge, take first 5 from the live server
+          setQuoteSymbols(apiSymbols.slice(0, 5));
+        } else {
+          // Otherwise simply strip the invalid ones
+          setQuoteSymbols(validSymbols);
+        }
+      } else if (quoteSymbols.length === 0) {
+        // First boot initialization
+        setQuoteSymbols(apiSymbols.slice(0, 5));
+      }
+    }
+  }, [apiSymbols, quoteSymbols, setQuoteSymbols]);
 
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);

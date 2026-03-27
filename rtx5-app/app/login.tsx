@@ -61,11 +61,7 @@ export default function LoginScreen() {
 
   const handleModalClose = () => {
     if (modalState.type === 'success') {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace('/');
-      }
+      router.replace('/(tabs)/quotes');
     }
     setModalState(prev => ({ ...prev, visible: false }));
   };
@@ -133,9 +129,16 @@ export default function LoginScreen() {
       }
 
       setModalState({ visible: true, type: 'success', title: 'Success', message: 'Login successful' });
+      setTimeout(() => {
+        setModalState(prev => ({ ...prev, visible: false }));
+        router.replace('/(tabs)/quotes');
+      }, 1200);
       
     } catch (error: any) {
       setModalState({ visible: true, type: 'error', title: 'Login Failed', message: error.message || 'Invalid credentials' });
+      setTimeout(() => {
+        setModalState(prev => ({ ...prev, visible: false }));
+      }, 2000);
     } finally {
       setIsLoading(false);
     }
@@ -309,9 +312,6 @@ export default function LoginScreen() {
               </View>
               <Text style={styles.successTitle}>{modalState.title}</Text>
               <Text style={styles.successDesc}>{modalState.message}</Text>
-              <Pressable style={[styles.successBtn, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]} onPress={handleModalClose}>
-                <Text style={styles.successBtnText}>OK</Text>
-              </Pressable>
             </View>
           </View>
         )}

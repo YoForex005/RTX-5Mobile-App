@@ -185,7 +185,7 @@ export const positionsApi = {
    * @param offset  - Pagination offset (default: 0)
    * @returns Array of ClosedPosition objects representing the account's trade history
    */
-  getPositionHistory: async (login: number, limit = 50, offset = 0): Promise<ClosedPosition[]> => {
+  getPositionHistory: async (login: number, limit = 1000, offset = 0): Promise<ClosedPosition[]> => {
     // INTEGRATED: GET /api/v2/positions/{login}/history - (Fallback history integration)
     const response = await apiClient(
       `/positions/${login}/history?limit=${limit}&offset=${offset}`,

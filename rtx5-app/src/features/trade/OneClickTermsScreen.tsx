@@ -31,8 +31,9 @@ export function OneClickTermsScreen() {
         <Switch
           value={oneClickAccepted}
           onValueChange={setOneClickAccepted}
-          trackColor={{ false: T.borderMedium, true: T.trading.buy.primary }}
-          thumbColor={T.text}
+          trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
+          thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
+          {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
         />
         <Text style={styles.accept}>I Accept these Terms and Conditions</Text>
       </View>
@@ -80,7 +81,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   button: {
     margin: spacing.md,
     marginTop: spacing.lg,
-    backgroundColor: T.trading.buy.primary,
+    backgroundColor: '#1D4ED8',
     borderRadius: 8,
     alignItems: 'center',
     paddingVertical: 14,

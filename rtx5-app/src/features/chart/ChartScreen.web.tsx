@@ -11,6 +11,7 @@ import {
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { spacing } from '../../theme';
@@ -18,7 +19,10 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { usePlaceOrderMutation } from '../../query/orders';
+import { useMarketSymbols } from '../../query/market';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, BarSeries, LineSeries, LineStyle, HistogramSeries } from 'lightweight-charts';
+import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
@@ -29,7 +33,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }
   if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
   return (
     <View style={styles.priceSection}>
-      <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
+      <Text style={{ color: '#94A3B8', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
       <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
       {candles.length >= 2 && (() => {
         const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
@@ -49,26 +53,87 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }
 
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, seriesRef }: any) => {
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize }: any) => {
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
 
+  const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
+
+  const handleTrade = (side: 'buy' | 'sell') => {
+    if (oneClickAccepted) {
+      const tradingLogin = resolveTradingLogin();
+      if (!tradingLogin) {
+        Alert.alert('Error', 'No active trading account resolved.');
+        return;
+      }
+
+      const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
+      const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
+
+      if (BLOCKED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol.replace(/\//g, '')}.`);
+        return;
+      }
+
+      if (!ALLOWED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Not Permitted', `${symbol.replace(/\//g, '')} is not currently in the allowed trading list.`);
+        return;
+      }
+
+      placeOrder(
+        {
+          account_login: tradingLogin,
+          symbol,
+          side,
+          volume: Number(lotSize),
+          price_sl: 0,
+          price_tp: 0,
+          comment: 'One-Click RTX5 Order',
+          trailing_stop: 0,
+          trailing_step: 0,
+          magic: 0
+        },
+        {
+          onSuccess: (data: any) => {
+            const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
+            const state = usePositionsState.getState();
+            const newPos = {
+              id: String(positionTicket),
+              symbol: symbol,
+              side: side,
+              volume: Number(lotSize),
+              openPrice: data?.price || (side === 'buy' ? latestAsk : latestBid),
+              currentPrice: side === 'buy' ? latestBid : latestAsk,
+              pnl: 0,
+              swap: 0,
+              openTime: new Date().toISOString(),
+              sl: 0,
+              tp: 0,
+              clientCreatedAt: Date.now(),
+            };
+            state.setPositions([newPos as any, ...state.positions]);
+            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+          },
+          onError: (err: any) => {
+            const msg = err?.response?.data?.message || err?.message || 'Execution error';
+            Alert.alert('Trade Failed', msg);
+          }
+        }
+      );
+    } else {
+      router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+    }
+  };
+
   return (
     <View style={styles.tradeControlsRow}>
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnSell]}
-        onPress={() => {
-          try {
-            if (seriesRef?.current && latestAsk) {
-              seriesRef.current.createPriceLine({
-                price: latestAsk, color: '#F23645', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SELL'
-              });
-            }
-          } catch(e) {}
-          router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'sell' } });
-        }}
+        style={[styles.actionBtn, styles.actionBtnSell, isPending && { opacity: 0.5 }]}
+        disabled={isPending}
+        onPress={() => handleTrade('sell')}
       >
         <View style={styles.actionBtnHeader}>
           <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
@@ -80,17 +145,9 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, seriesRe
       <View style={styles.actionSpacer} />
 
       <Pressable
-        style={[styles.actionBtn, styles.actionBtnBuy]}
-        onPress={() => {
-          try {
-            if (seriesRef?.current && latestBid) {
-              seriesRef.current.createPriceLine({
-                price: latestBid, color: '#089981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'BUY'
-              });
-            }
-          } catch(e) {}
-          router.push({ pathname: '/trade/order-ticket', params: { symbol, side: 'buy' } });
-        }}
+        style={[styles.actionBtn, styles.actionBtnBuy, isPending && { opacity: 0.5 }]}
+        disabled={isPending}
+        onPress={() => handleTrade('buy')}
       >
         <View style={styles.actionBtnHeader}>
           <Ionicons name="chevron-up" size={16} color="#FFF" />
@@ -106,7 +163,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, seriesRe
 const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
   const latestTick = useLiveTick(symbol);
   if (!latestTick || candles.length < 2) return null;
-  
+
   const latestBid = latestTick.close;
   const isUp = latestBid >= candles[candles.length - 2]?.close;
 
@@ -129,8 +186,79 @@ const getSentimentForSymbol = (symbol: string) => {
     hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
   }
   const seed = Math.abs(hash + new Date().getDate());
-  const buyPct = 15 + (seed % 71); 
+  const buyPct = 15 + (seed % 71);
   return { buyPct, sellPct: 100 - buyPct };
+};
+
+const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent }: any) => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  if (!visible) return null;
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const startDay = firstDay === 0 ? 6 : firstDay - 1;
+
+  const handlePrev = (e: any) => { e.stopPropagation(); setCurrentDate(new Date(year, month - 1, 1)); };
+  const handleNext = (e: any) => { e.stopPropagation(); setCurrentDate(new Date(year, month + 1, 1)); };
+
+  const days = [];
+  for (let i = 0; i < startDay; i++) days.push(null);
+  for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+
+  return (
+    <>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998, backgroundColor: 'rgba(0,0,0,0.3)' }} onClick={onClose} />
+      <div style={{
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 9999,
+        backgroundColor: bg,
+        border: `1px solid ${accent}`,
+        padding: 20,
+        borderRadius: 16,
+        width: 300,
+        color: text,
+        boxShadow: '0 12px 48px rgba(0,0,0,0.6)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
+          <Text style={{ color: text, fontWeight: '700', fontSize: 14 }}>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Ionicons name="arrow-up" size={16} color={text} style={{ cursor: 'pointer' }} onClick={handlePrev} />
+            <Ionicons name="arrow-down" size={16} color={text} style={{ cursor: 'pointer' }} onClick={handleNext} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 8, color: accent, fontWeight: '700' }}>
+          {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(d => <div key={d}>{d}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, textAlign: 'center', fontSize: 13 }}>
+          {days.map((d, i) => (
+            <div key={i}
+              onClick={(e) => { e.stopPropagation(); if (d) { onSelectDate(d); onClose(); } }}
+              style={{
+                padding: '6px 0',
+                cursor: d ? 'pointer' : 'default',
+                borderRadius: 6,
+                backgroundColor: d && d.getDate() === new Date().getDate() && d.getMonth() === new Date().getMonth() ? accent : 'transparent',
+                color: d && d.getDate() === new Date().getDate() && d.getMonth() === new Date().getMonth() ? '#FFF' : text,
+                opacity: d ? 1 : 0
+              }}>
+              {d ? d.getDate() : ''}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, fontSize: 13, cursor: 'pointer', fontWeight: '600' }}>
+          <Text style={{ color: accent }} onPress={(e: any) => { e.stopPropagation(); onClose(); }}>Clear</Text>
+          <Text style={{ color: accent }} onPress={(e: any) => { e.stopPropagation(); onSelectDate(new Date()); onClose(); }}>Today</Text>
+        </div>
+      </div>
+    </>
+  );
 };
 
 const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
@@ -211,13 +339,13 @@ export function ChartScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
-  const [lotSize, setLotSize] = useState(0.10);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
+  const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const chartContainerRef = useRef<any>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
 
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
@@ -227,9 +355,19 @@ export function ChartScreen() {
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
+  const [showCalendar, setShowCalendar] = useState(false);
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
 
+  const { data: apiSymbols = [] } = useMarketSymbols();
+  const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
 
+  useEffect(() => {
+    if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
+      setChartSymbol(apiSymbols[0]);
+    }
+  }, [apiSymbols, chartSymbol, setChartSymbol]);
+
+  const [lotSize, setLotSize] = useState<number>(0.10);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
   const [forceHideLoading, setForceHideLoading] = useState(false);
 
@@ -251,8 +389,8 @@ export function ChartScreen() {
     const GRID = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
+      width: chartContainerRef.current.clientWidth - 4,
+      height: chartContainerRef.current.clientHeight - 8,
       layout: {
         background: { type: ColorType.Solid, color: isDark ? '#131722' : '#FFFFFF' },
         textColor: isDark ? '#94A3B8' : '#64748B',
@@ -291,8 +429,10 @@ export function ChartScreen() {
           const d = new Date(time * 1000);
           return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         },
-        rightOffset: 5,
+        rightOffset: 12,
         shiftVisibleRangeOnNewBar: true,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
       rightPriceScale: {
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
@@ -309,8 +449,8 @@ export function ChartScreen() {
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
+          width: chartContainerRef.current.clientWidth - 4,
+          height: chartContainerRef.current.clientHeight - 8,
         });
       }
     };
@@ -348,7 +488,7 @@ export function ChartScreen() {
       try { chart.removeSeries(seriesRef.current); } catch (e) { }
       seriesRef.current = null;
     }
-    
+
     if (volumeSeriesRef.current) {
       try { chart.removeSeries(volumeSeriesRef.current); } catch (e) { }
       volumeSeriesRef.current = null;
@@ -421,7 +561,7 @@ export function ChartScreen() {
   const handleRangePress = (range: string) => {
     setActiveDateRange(range);
     if (!chartRef.current || candles.length === 0) return;
-    
+
     if (range === 'auto') {
       chartRef.current.timeScale().fitContent();
       return;
@@ -447,8 +587,8 @@ export function ChartScreen() {
     const toDate = fromDate + (86400 * 7); // Default to a week view from chosen date
     if (chartRef.current) {
       chartRef.current.timeScale().setVisibleRange({
-        from: fromDate,
-        to: toDate,
+        from: fromDate as any,
+        to: toDate as any,
       });
       setActiveDateRange('custom');
     }
@@ -473,7 +613,7 @@ export function ChartScreen() {
           }
 
           seriesRef.current.setData(mappedData as any);
-          
+
           if (volumeSeriesRef.current) {
             const volData = uniqueData.map(item => ({
               time: item.time,
@@ -491,7 +631,37 @@ export function ChartScreen() {
     }
   }, [candles, isDark, chartSymbol, chartTimeframe, chartType]);
 
+  // Draw Positions as Price Lines
+  const positions = usePositionsState((s) => s.positions);
+  const positionLinesRef = useRef<any[]>([]);
 
+  useEffect(() => {
+    if (!seriesRef.current) return;
+
+    // Clear old price lines
+    positionLinesRef.current.forEach((pl) => {
+      try { seriesRef.current.removePriceLine(pl); } catch (e) { }
+    });
+    positionLinesRef.current = [];
+
+    // Filter positions for current symbol and draw
+    const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
+    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
+
+    filteredPositions.forEach((pos) => {
+      try {
+        const pl = seriesRef.current.createPriceLine({
+          price: pos.openPrice,
+          color: pos.side === 'buy' ? BLUE : RED,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${pos.side.toUpperCase()} ${pos.volume}`,
+        });
+        positionLinesRef.current.push(pl);
+      } catch (e) { }
+    });
+  }, [positions, chartSymbol, BLUE, RED, seriesRef.current]);
 
   // Patterns / Markers Local
   useEffect(() => {
@@ -527,7 +697,7 @@ export function ChartScreen() {
 
       // @ts-ignore
       seriesRef.current.setMarkers(markers);
-    } catch (e) {}
+    } catch (e) { }
   }, [activeTool, showTradingSignals, candles]);
 
   // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
@@ -544,7 +714,7 @@ export function ChartScreen() {
 
       if (!tick.time) return;
       if (lastInjectedTickTime && tick.time < lastInjectedTickTime) return; // Drop historically delayed out-of-sequence network packets
-      
+
       let tickToInject: any = tick;
       if (chartType === 'line') {
         tickToInject = { time: tick.time, value: tick.close };
@@ -553,7 +723,7 @@ export function ChartScreen() {
       try {
         seriesRef.current.update(tickToInject);
         lastInjectedTickTime = tick.time;
-        
+
         if (volumeSeriesRef.current && tick) {
           const isGreen = tick.close >= tick.open;
           volumeSeriesRef.current.update({
@@ -574,8 +744,8 @@ export function ChartScreen() {
 
       pendingTick = tick;
       if (rAF === null) {
-         // Harware-layer 60 FPS alignment preventing JS stringify macro-task queue overloads
-         rAF = requestAnimationFrame(doInject);
+        // Harware-layer 60 FPS alignment preventing JS stringify macro-task queue overloads
+        rAF = requestAnimationFrame(doInject);
       }
     };
 
@@ -600,8 +770,8 @@ export function ChartScreen() {
     });
     if (chartRef.current && chartContainerRef.current) {
       chartRef.current.applyOptions({
-        width: e.nativeEvent.layout.width,
-        height: e.nativeEvent.layout.height,
+        width: e.nativeEvent.layout.width - 4,
+        height: e.nativeEvent.layout.height - 8,
       });
     }
   };
@@ -611,8 +781,8 @@ export function ChartScreen() {
       setTimeout(() => {
         if (chartRef.current && chartContainerRef.current) {
           chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight,
+            width: chartContainerRef.current.clientWidth - 4,
+            height: chartContainerRef.current.clientHeight - 8,
           });
         }
       }, 50);
@@ -657,6 +827,7 @@ export function ChartScreen() {
               <Text style={styles.headerTitleText}>Chart</Text>
             </View>
             <View style={{ flex: 1 }} />
+            <View style={{ width: 40 }} />
           </View>
 
           {/* Row 2: Symbol | Price | Balance */}
@@ -708,28 +879,23 @@ export function ChartScreen() {
                 <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setMenuOpen(true)}>
                   <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
-                <Pressable style={{ paddingHorizontal: 4 }}>
+                <View style={styles.toolbarSeparator} />
+                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setShowTemplatesMenu(true)}>
                   <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 4 }}>
-                  <TvUndo color={isDark ? '#D1D4DC' : '#131722'} />
-                </Pressable>
-                <Pressable style={{ paddingHorizontal: 4 }}>
-                  <TvRedo color={isDark ? '#D1D4DC' : '#131722'} />
-                </Pressable>
               </View>
             </ScrollView>
 
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={styles.toolbarSeparator} />
-              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8} style={{ paddingHorizontal: 6 }}>
+
+              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8} style={{ paddingHorizontal: 4 }}>
                 <Ionicons name="settings-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
               </Pressable>
-              <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8} style={{ paddingHorizontal: 6 }}>
+              <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
                 <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={isDark ? '#D1D4DC' : '#131722'} />
               </Pressable>
-              <Pressable onPress={() => setShowMoreMenu(true)} hitSlop={8} style={{ paddingHorizontal: 6 }}>
+              <Pressable onPress={() => setShowMoreMenu(true)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
                 <Ionicons name="ellipsis-vertical" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
               </Pressable>
             </View>
@@ -849,23 +1015,25 @@ export function ChartScreen() {
               ))}
             </View>
             <View style={styles.tvRangesRight}>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', cursor: 'pointer', marginRight: 8 }}>
-                <input 
-                  title="Select custom date range"
-                  type="date" 
-                  style={{ 
-                    position: 'absolute', 
-                    opacity: 0, 
-                    top: 0, left: 0, bottom: 0, right: 0, 
-                    cursor: 'pointer', 
-                    zIndex: 10, 
-                    width: '100%',
-                    colorScheme: isDark ? 'dark' : 'light'
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginRight: 8 }}>
+                <div onClick={() => setShowCalendar(true)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <Text style={styles.tvRangeDropdownText}>Date Range</Text>
+                  <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
+                </div>
+                {/* Custom Overlay */}
+                <CustomDatePicker
+                  visible={showCalendar}
+                  onClose={() => setShowCalendar(false)}
+                  onSelectDate={(d: Date) => {
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    handleCustomDateRange({ target: { value: `${yyyy}-${mm}-${dd}` } } as any);
                   }}
-                  onChange={handleCustomDateRange}
+                  bg={isDark ? '#131722' : '#FFFFFF'}
+                  text={isDark ? '#FFFFFF' : '#0F172A'}
+                  accent={BLUE}
                 />
-                <Text style={styles.tvRangeDropdownText}>Date Range</Text>
-                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
               </div>
               <Text style={styles.tvRangeTimeText}>{new Date().toLocaleTimeString('en-US', { hour12: false })} (UTC+5:30)</Text>
               <Pressable onPress={() => handleRangePress('auto')}>
@@ -901,7 +1069,7 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} seriesRef={seriesRef} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} seriesRef={seriesRef} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, Number(((prev || 0) - 0.01).toFixed(2))))}>
@@ -938,10 +1106,21 @@ export function ChartScreen() {
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
-        actions={CHART_SYMBOLS.map((sym) => ({
+        actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
         }))}
+      />
+
+      <ActionSheet
+        visible={showTemplatesMenu}
+        onClose={() => setShowTemplatesMenu(false)}
+        title='Templates & Layouts'
+        actions={[
+          { label: 'Save Indicator Template', onPress: () => setShowTemplatesMenu(false) },
+          { label: 'Apply Default Template', onPress: () => setShowTemplatesMenu(false) },
+          { label: 'Multi-Chart Layout', onPress: () => setShowTemplatesMenu(false) },
+        ]}
       />
 
       <ActionSheet

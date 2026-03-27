@@ -120,7 +120,7 @@ export function TradePositionRow({
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>S/L</Text>
               <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
-                <Text style={[styles.detailValue, { color: item.sl ? T.trading.loss : detailColor }]}>
+                <Text style={[styles.detailValue, { color: detailColor }]}>
                   {item.sl ? fmt.price(item.sl as number, decimals) : '—'}
                 </Text>
               </Pressable>
@@ -128,7 +128,7 @@ export function TradePositionRow({
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>T/P</Text>
               <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
-                <Text style={[styles.detailValue, { color: item.tp ? T.trading.profit : detailColor }]}>
+                <Text style={[styles.detailValue, { color: detailColor }]}>
                   {item.tp ? fmt.price(item.tp as number, decimals) : '—'}
                 </Text>
               </Pressable>

@@ -89,20 +89,31 @@ export const ordersApi = {
       throw { response: { data: errorData, status: response.status, headers } };
     }
     const json = await response.json();
+    let finalData = json;
     
     // Safely unwrap data objects if the backend nests the response
     if (json && typeof json === 'object') {
       if (json.data && !Array.isArray(json.data)) {
-        return json.data;
+        finalData = json.data;
+      } else if (json.result && !Array.isArray(json.result)) {
+        finalData = json.result;
+      } else if (Array.isArray(json) && json.length > 0) {
+        finalData = json[0];
+      } else if (Array.isArray(json.data) && json.data.length > 0) {
+        finalData = json.data[0];
       }
-      if (json.result && !Array.isArray(json.result)) {
-        return json.result;
-      }
-      // If it's an array wrapper
-      if (Array.isArray(json) && json.length > 0) return json[0];
-      if (Array.isArray(json.data) && json.data.length > 0) return json.data[0];
     }
     
-    return json;
+    // Safety check: The server sometimes returns 200 OK for gracefully rejected trades
+    if (finalData && typeof finalData.status === 'string' && ['rejected', 'failed', 'error'].includes(finalData.status.toLowerCase())) {
+      throw { 
+        response: { 
+          status: 400, 
+          data: { message: finalData.comment || finalData.message || `Order ${finalData.status}` } 
+        } 
+      };
+    }
+    
+    return finalData;
   },
 };

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Switch, TextInput, Keyboard } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -8,28 +8,135 @@ import { fmt } from '../../utils/format';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 
 export function SettingsScreen() {
-  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode } = useUserPreferences();
+  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T, themeMode), [T, themeMode]);
+
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    return () => setSearchActive(false);
+  }, [setSearchActive]);
+
+  const enableSearch = () => {
+    setIsSearching(true);
+    setSearchActive(true);
+    setTimeout(() => searchInputRef.current?.focus(), 100);
+  };
+
+  const disableSearch = () => {
+    setIsSearching(false);
+    setSearchActive(false);
+    setSearchQuery('');
+    Keyboard.dismiss();
+  };
+
+  const SEARCHABLE_ITEMS = useMemo(() => [
+    { title: 'New Account', sub: '', icon: 'person-outline' },
+    { title: 'Mailbox', sub: 'High Importance News', icon: 'mail-outline' },
+    { title: 'News', sub: 'WTI, US-Iran Talks, OPEC+', icon: 'newspaper-outline' },
+    { title: 'Tradays', sub: 'Economic Calendar', icon: 'calendar-outline' },
+    { title: 'Chat & Messages', sub: 'Sign in to MQL5.community', icon: 'chatbubble-outline' },
+    { title: 'Traders Community', sub: '', icon: 'people-outline' },
+    { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline' },
+    { title: 'Theme', sub: 'Light/Dark Mode toggle', icon: 'color-palette-outline' },
+    { title: 'OTP', sub: 'Passcode Generator', icon: 'shield-checkmark-outline' },
+    { title: 'Interface', sub: 'English', icon: 'browsers-outline' },
+    { title: 'Charts', sub: '', icon: 'stats-chart-outline' },
+    { title: 'Journal', sub: '', icon: 'reader-outline' },
+    { title: 'Support', sub: 'Contact our dedicated team', icon: 'help-buoy-outline' },
+    { title: 'Help', sub: 'FAQs & Documentation', icon: 'information-circle-outline' },
+  ], []);
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery) return SEARCHABLE_ITEMS;
+    const q = searchQuery.toLowerCase();
+    return SEARCHABLE_ITEMS.filter(it => it.title.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q));
+  }, [searchQuery, SEARCHABLE_ITEMS]);
+
+  const searchBarStyle: any = themeMode === 'dark' ? {
+    backgroundColor: 'rgba(30, 41, 59, 0.55)', // Deep translucent slate glass
+    borderTopColor: 'rgba(255, 255, 255, 0.12)', // Top edge light reflection
+    borderLeftColor: 'rgba(255, 255, 255, 0.06)',
+    borderRightColor: 'rgba(0, 0, 0, 0.2)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.4)', // Bottom shadow sink
+    borderWidth: 1, borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  } : {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderWidth: 1, borderRadius: 24,
+  };
 
   return (
     <Screen>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={{ height: 56, marginTop: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Settings</Text>
-          <Pressable style={{ position: 'absolute', right: 16, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="search" size={24} color={T.textMuted} />
-          </Pressable>
+        <View style={{ height: 56, marginTop: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
+          {isSearching ? (
+             <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
+                <Ionicons name="search" size={20} color={T.textMuted} />
+                <TextInput 
+                   ref={searchInputRef}
+                   value={searchQuery}
+                   onChangeText={setSearchQuery}
+                   placeholder="Search settings..."
+                   placeholderTextColor={themeMode === 'dark' ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
+                   style={[{ flex: 1, color: T.text, fontSize: 15, fontWeight: '500' }, { outlineStyle: 'none' } as any]}
+                   autoCapitalize="none"
+                   returnKeyType="search"
+                />
+                <Pressable onPress={disableSearch}>
+                   <Ionicons name="close-circle" size={16} color={T.textMuted} />
+                </Pressable>
+             </View>
+          ) : (
+            <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
+              <Pressable onPress={enableSearch} style={{ position: 'absolute', right: 0, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="search" size={24} color={T.textMuted} />
+              </Pressable>
+            </View>
+          )}
         </View>
 
+        {isSearching ? (
+          <View style={{ paddingHorizontal: 16 }}>
+             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
+               {searchResults.length > 0 ? searchResults.map((item, index) => (
+                 <View key={item.title}>
+                   <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={item.title} sub={item.sub} />
+                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
+                 </View>
+               )) : (
+                  <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
+                    <Ionicons name="search-outline" size={48} color={T.borderMedium} />
+                    <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>No settings found matching "{searchQuery}"</Text>
+                  </View>
+               )}
+             </View>
+          </View>
+        ) : (
+          <View>
         {/* ── Main Account Card ─────────────────────────────────── */}
         <Pressable onPress={() => router.push('/settings/accounts')}>
           <View style={[styles.accountCard, styles.cardShadow]}>
+            {/* Top-Left Diagonal Ribbon */}
+            <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
+              <Text style={styles.ribbonText}>{isDemoAccount ? 'Demo' : 'Real'}</Text>
+            </View>
+
             <LinearGradient
               colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#0d1628', '#07101e']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -41,17 +148,6 @@ export function SettingsScreen() {
             <View style={[styles.cardBubbleRight, { backgroundColor: themeMode === 'light' ? '#818CF8' : '#060B18' }]} />
 
             <View style={styles.accTopRow}>
-              <Pressable 
-                onPress={() => setIsDemoAccount(!isDemoAccount)}
-                style={[styles.accountBadge, isDemoAccount ? styles.badgeDemo : styles.badgeLive]}
-              >
-                <View style={[styles.indicatorGlow, isDemoAccount ? styles.glowDemo : styles.glowLive]}>
-                  <View style={[styles.indicatorDot, isDemoAccount ? styles.dotDemo : styles.dotLive]} />
-                </View>
-                <Text style={[styles.accountTypeText, isDemoAccount ? styles.textDemo : styles.textLive]}>
-                  {isDemoAccount ? 'DEMO ACCOUNT' : 'REAL ACCOUNT'}
-                </Text>
-              </Pressable>
               <View style={styles.connectedPill}>
                 <View style={styles.greenDot} />
                 <Text style={styles.connectedText}>Connected</Text>
@@ -66,13 +162,15 @@ export function SettingsScreen() {
             <View style={styles.accDivider} />
 
             <View style={styles.accDetailsWrap}>
-              <Text style={styles.accCompany}>Exness Technologies Ltd</Text>
+              <Text style={styles.accCompany}>RTX-5</Text>
               <View style={styles.accServerRow}>
-                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>#415257556</Text>
+                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                  #{accountDetails?.id || '---'}
+                </Text>
                 <View style={styles.accServerDot} />
-                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>Exness-MT5 Trial 14</Text>
-                <View style={styles.accServerDot} />
-                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>Access Point #6</Text>
+                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                  {accountDetails?.server || 'Server'}
+                </Text>
               </View>
             </View>
 
@@ -80,10 +178,6 @@ export function SettingsScreen() {
               <View style={styles.chip}>
                 <Ionicons name="server-outline" size={12} color="#FFFFFF" />
                 <Text style={[styles.chipText, { color: '#FFFFFF' }]}>MT5</Text>
-              </View>
-              <View style={styles.chip}>
-                <Ionicons name="cloud-done-outline" size={12} color="#FFFFFF" />
-                <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Point #6</Text>
               </View>
               <View style={styles.chip}>
                 <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
@@ -99,7 +193,7 @@ export function SettingsScreen() {
           <View style={styles.metricBlock}>
             <View style={styles.metricTopRow}>
               <View style={styles.metricIconCircle}>
-                <Ionicons name="list" size={18} color="#3B82F6" />
+                <Ionicons name="list" size={18} color="#1D4ED8" />
               </View>
               <Text style={styles.metricLabel}>Quotes</Text>
             </View>
@@ -110,7 +204,7 @@ export function SettingsScreen() {
           <View style={styles.metricBlock}>
             <View style={styles.metricTopRow}>
               <View style={styles.metricIconCircle}>
-                <Ionicons name="analytics" size={18} color="#F59E0B" />
+                <Ionicons name="analytics" size={18} color="#1D4ED8" />
               </View>
               <Text style={styles.metricLabel}>Drawings</Text>
             </View>
@@ -121,18 +215,19 @@ export function SettingsScreen() {
           <View style={styles.metricBlock}>
             <View style={styles.metricTopRow}>
               <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
-                <Ionicons name="flash" size={18} color={oneClickAccepted ? '#10B981' : '#64748B'} />
+                <Ionicons name="flash" size={18} color={oneClickAccepted ? '#3B82F6' : '#64748B'} />
               </View>
               <Text style={styles.metricLabel}>One-Click</Text>
             </View>
             <View style={styles.toggleRow}>
-              <Text style={[styles.toggleText, oneClickAccepted && { color: '#10B981' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
+              <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
               <Switch
                 value={oneClickAccepted}
                 onValueChange={setOneClickAccepted}
-                trackColor={{ false: '#1E293B', true: 'rgba(16,185,129,0.35)' }}
-                thumbColor={oneClickAccepted ? '#10B981' : '#64748B'}
+                trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
+                thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
                 style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
               />
             </View>
           </View>
@@ -141,8 +236,8 @@ export function SettingsScreen() {
         {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
         <Text style={styles.sectionTitle}>ACCOUNT</Text>
         <Pressable style={[styles.singleRowCard, styles.cardShadow]}>
-          <View style={[styles.iconBox, { backgroundColor: 'rgba(34,197,94,0.1)' }]}>
-            <Ionicons name="person-outline" size={20} color="#22C55E" />
+          <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
+            <Ionicons name="person-outline" size={20} color="#1D4ED8" />
           </View>
           <Text style={styles.rowTitleSingle}>New Account</Text>
           <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
@@ -158,12 +253,12 @@ export function SettingsScreen() {
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="newspaper-outline" color="#F59E0B"
+            icon="newspaper-outline" color="#1D4ED8"
             title="News" sub="WTI, US-Iran Talks, OPEC+"
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="calendar-outline" color="#22C55E"
+            icon="calendar-outline" color="#1D4ED8"
             title="Tradays" sub="Economic Calendar"
           />
         </View>
@@ -183,7 +278,7 @@ export function SettingsScreen() {
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="flash-outline" color="#10B981"
+            icon="flash-outline" color="#1D4ED8"
             title="MQL5 Algo Trading"
           />
         </View>
@@ -192,26 +287,27 @@ export function SettingsScreen() {
         <Text style={styles.sectionTitle}>TERMINAL</Text>
         <View style={[styles.groupCard, styles.cardShadow]}>
           <SettingRow T={T} styles={styles}
-            icon="color-palette-outline" color="#F59E0B"
+            icon="color-palette-outline" color="#1D4ED8"
             title="Theme" sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
             rightElement={
               <Switch
                 value={themeMode === 'light'}
                 onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                trackColor={{ false: T.borderMedium, true: 'rgba(245,158,11,0.35)' }}
-                thumbColor={themeMode === 'light' ? '#F59E0B' : T.textMuted}
+                trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
                 style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
               />
             }
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="shield-checkmark-outline" color="#22C55E"
+            icon="shield-checkmark-outline" color="#1D4ED8"
             title="OTP" sub="Passcode Generator"
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="browsers-outline" color="#64748B"
+            icon="browsers-outline" color="#1D4ED8"
             title="Interface" sub="English"
           />
           <View style={styles.dividerInner} />
@@ -221,7 +317,7 @@ export function SettingsScreen() {
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="reader-outline" color="#64748B"
+            icon="reader-outline" color="#1D4ED8"
             title="Journal"
           />
         </View>
@@ -230,12 +326,12 @@ export function SettingsScreen() {
         <Text style={styles.sectionTitle}>SUPPORT & HELP</Text>
         <View style={[styles.groupCard, styles.cardShadow]}>
           <SettingRow T={T} styles={styles}
-            icon="help-buoy-outline" color="#3B82F6"
+            icon="help-buoy-outline" color="#1D4ED8"
             title="Support" sub="Contact our dedicated team"
           />
           <View style={styles.dividerInner} />
           <SettingRow T={T} styles={styles}
-            icon="information-circle-outline" color="#10B981"
+            icon="information-circle-outline" color="#1D4ED8"
             title="Help" sub="FAQs & Documentation"
           />
         </View>
@@ -249,6 +345,9 @@ export function SettingsScreen() {
               <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
           </Pressable>
         </View>
+
+          </View>
+        )}
 
       </ScrollView>
     </Screen>
@@ -329,24 +428,22 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
     position: 'absolute', top: -80, right: -60, width: 200, height: 200,
     borderRadius: 100, opacity: themeMode === 'light' ? 0.15 : 0,
   },
-  accTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  
+  ribbonContainer: {
+    position: 'absolute', top: 18, left: -42, width: 150, height: 26,
+    justifyContent: 'center', alignItems: 'center',
+    transform: [{ rotate: '-45deg' }], zIndex: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
+  },
+  ribbonDemo: { backgroundColor: '#10B981' },
+  ribbonLive: { backgroundColor: '#3B82F6' },
+  ribbonText: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.8 },
 
-  accountBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, gap: 6 },
-  badgeDemo: { backgroundColor: 'rgba(0, 230, 118, 0.12)', borderColor: 'rgba(0, 230, 118, 0.3)' },
-  badgeLive: { backgroundColor: 'rgba(250, 204, 21, 0.12)', borderColor: 'rgba(250, 204, 21, 0.3)' },
-  indicatorGlow: { width: 10, height: 10, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
-  glowDemo: { backgroundColor: 'rgba(0, 230, 118, 0.2)' },
-  glowLive: { backgroundColor: 'rgba(250, 204, 21, 0.2)' },
-  indicatorDot: { width: 6, height: 6, borderRadius: 3 },
-  dotDemo: { backgroundColor: '#00E676' },
-  dotLive: { backgroundColor: '#FACC15' },
-  accountTypeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
-  textDemo: { color: '#00E676' },
-  textLive: { color: '#FACC15' },
+  accTopRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 },
 
-  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(52,211,153,0.08)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(52,211,153,0.2)' },
-  greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399', marginRight: 6 },
-  connectedText: { color: '#34D399', fontSize: 11, fontWeight: '700' },
+  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(59,130,246,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)' },
+  greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6', marginRight: 6 },
+  connectedText: { color: '#3B82F6', fontSize: 11, fontWeight: '700' },
 
   accName: { color: themeMode === 'light' ? '#FFF' : T.text, fontSize: 28, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
   accBalance: { color: '#3b82f6', fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
@@ -403,8 +500,8 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
     justifyContent: 'center',
   },
   metricIconCircleActive: {
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    borderColor: 'rgba(16,185,129,0.25)',
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
   },
   metricLabel: {
     color: T.textMuted,

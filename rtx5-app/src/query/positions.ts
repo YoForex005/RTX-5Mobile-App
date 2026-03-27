@@ -56,6 +56,7 @@ export function usePositionHistoryQuery(login: number | undefined) {
     queryKey: ['positionHistory', login],
     queryFn: () => positionsApi.getPositionHistory(login!),
     enabled: !!login,
+    refetchInterval: 5000,
   });
 }
 

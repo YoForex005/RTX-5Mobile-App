@@ -48,7 +48,7 @@ export const dealsApi = {
    * @param offset  - Pagination offset (default: 0)
    * @returns Array of Deal objects from the account's history
    */
-  getDeals: async (login: number, limit = 50, offset = 0): Promise<Deal[]> => {
+  getDeals: async (login: number, limit = 1000, offset = 0): Promise<Deal[]> => {
     const response = await apiClient(
       `/deals/${login}?limit=${limit}&offset=${offset}`,
     );

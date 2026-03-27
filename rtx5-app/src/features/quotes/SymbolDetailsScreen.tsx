@@ -9,7 +9,10 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
+import { usePlaceOrderMutation } from '../../query/orders';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
+import { Alert } from 'react-native';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const dCol = (c: number, T: ThemeColors) => c > 0 ? T.up : c < 0 ? T.down : T.textMuted;
@@ -176,7 +179,8 @@ function MomentumBar({ pct }: { pct: number }) {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function SymbolDetailsScreen() {
   const { symbol = 'BTCUSDm' } = useLocalSearchParams<{ symbol?: string }>();
-  const { setChartSymbol } = useUserPreferences();
+  const { setChartSymbol, oneClickAccepted } = useUserPreferences();
+  const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [alertOn, setAlertOn] = useState(false);
 
   const T = useTheme();
@@ -197,6 +201,55 @@ export function SymbolDetailsScreen() {
   const ctk = q.tickValue ?? (10 / mid);
   const pts = (((q.bid || 0) - (q.close ?? q.bid ?? 0)) / (pip || 1)).toFixed(0);
   const isUp = q.changePct >= 0;
+
+  const handleTrade = (side: 'buy' | 'sell') => {
+    if (oneClickAccepted) {
+      const tradingLogin = resolveTradingLogin();
+      if (!tradingLogin) {
+        Alert.alert('Error', 'No active trading account resolved.');
+        return;
+      }
+
+      const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
+      const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
+
+      if (BLOCKED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol.replace(/\//g, '')}.`);
+        return;
+      }
+
+      if (!ALLOWED_SYMBOLS.includes(symbol)) {
+        Alert.alert('Trade Not Permitted', `${symbol.replace(/\//g, '')} is not currently in the allowed trading list.`);
+        return;
+      }
+
+      placeOrder(
+        { 
+          account_login: tradingLogin, 
+          symbol, 
+          side, 
+          volume: 0.01, // Using 0.01 micro-lot as safety default for quotes view
+          price_sl: 0,
+          price_tp: 0,
+          comment: 'One-Click RTX5 Order',
+          trailing_stop: 0,
+          trailing_step: 0,
+          magic: 0
+        },
+        { 
+          onSuccess: (data: any) => {
+            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${data?.position_ticket || data?.order_ticket || 'Confirmed'}`);
+          },
+          onError: (err: any) => {
+            const msg = err?.response?.data?.message || err?.message || 'Execution error';
+            Alert.alert('Trade Failed', msg);
+          }
+        }
+      );
+    } else {
+      router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
@@ -283,9 +336,9 @@ export function SymbolDetailsScreen() {
               <Text style={s.ticker.spreadLbl}>SPREAD</Text>
             </View>
 
-            <View style={s.ticker.inner}>
+            <View style={[s.ticker.inner, isPending && { opacity: 0.6 }]}>
               {/* SELL */}
-              <Pressable style={s.ticker.side}>
+              <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('sell')}>
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.down }]}>SELL</Text>
                   <View style={s.ticker.arrowWrap}>
@@ -309,7 +362,7 @@ export function SymbolDetailsScreen() {
               </View>
 
               {/* BUY */}
-              <Pressable style={s.ticker.side}>
+              <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('buy')}>
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.up }]}>BUY</Text>
                   <View style={s.ticker.arrowWrap}>

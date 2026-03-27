@@ -21,6 +21,7 @@ export default function TabsLayout() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
+  const isSearchActive = useUIState((s) => s.isSearchActive);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const insets = useSafeAreaInsets();
@@ -62,7 +63,7 @@ export default function TabsLayout() {
 
       <SidebarDrawer />
 
-      {!isChartFullscreen && (
+      {!isChartFullscreen && !isSearchActive && (
         <Pressable
           style={[
             styles.globalMenuBtn,

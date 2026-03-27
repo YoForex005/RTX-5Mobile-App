@@ -43,6 +43,7 @@ type UserPreferencesState = {
   setThemeMode: (mode: ThemeMode) => void;
   addQuoteSymbol: (symbol: string) => void;
   removeQuoteSymbol: (symbol: string) => void;
+  setQuoteSymbols: (symbols: string[]) => void;
   setChartSymbol: (symbol: string) => void;
   setChartTimeframe: (timeframe: string) => void;
   addChartDrawing: (drawing: string) => void;
@@ -122,6 +123,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       removeQuoteSymbol: (symbol) => {
         set({ quoteSymbols: get().quoteSymbols.filter((item) => item !== symbol) });
       },
+      setQuoteSymbols: (symbols) => set({ quoteSymbols: symbols }),
       setChartSymbol: (symbol) => set({ chartSymbol: symbol }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
       addChartDrawing: (drawing) => {

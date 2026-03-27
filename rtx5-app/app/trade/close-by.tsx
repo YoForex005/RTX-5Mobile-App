@@ -1,5 +1,11 @@
+import { Stack } from 'expo-router';
 import { CloseByScreen } from '../../src/features/trade/CloseByScreen';
 
 export default function CloseByRoute() {
-  return <CloseByScreen />;
+  return (
+    <>
+      <Stack.Screen options={{ headerTitleAlign: 'center' }} />
+      <CloseByScreen />
+    </>
+  );
 }

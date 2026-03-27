@@ -106,6 +106,10 @@ export function OrderTicketScreen() {
     }
 
     setPendingSide(side);
+
+    // Yield control to the UI thread so the ActivityIndicator visually mounts instantly
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     try {
       // Live API Integration: POST /api/v2/orders
       // Places a market order via the centralized ordersApi.
@@ -161,7 +165,10 @@ export function OrderTicketScreen() {
       if (mt5Login) {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
-      setModalState({ visible: true, type: 'success', title: 'Order Executed', message: `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}.\nTicket: #${positionTicket}` });
+      
+      // Auto-pop back to chart without forcing a blocking modal tap
+      Alert.alert('Order Executed', `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}.\nTicket: #${positionTicket}`);
+      router.back();
     } catch (error: any) {
       // Handle specific server rejections from the API layer
       const status = error?.response?.status;
@@ -238,11 +245,10 @@ export function OrderTicketScreen() {
 
       {/* ── Scrollable Form ────────────────────────────────────────── */}
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        style={styles.root}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        delaysContentTouches={false}
       >
         {/* Order Type */}
         <Pressable style={styles.flatRow} onPress={() => setTypeOpen(v => !v)}>
@@ -362,7 +368,6 @@ export function OrderTicketScreen() {
             ]}
             onPress={() => handlePlaceOrder('sell')}
             disabled={pendingSide !== null}
-            delayPressIn={0}
           >
             {pendingSide === 'sell' ? (
               <ActivityIndicator color={T.text} />
@@ -381,7 +386,6 @@ export function OrderTicketScreen() {
             ]}
             onPress={() => handlePlaceOrder('buy')}
             disabled={pendingSide !== null}
-            delayPressIn={0}
           >
             {pendingSide === 'buy' ? (
               <ActivityIndicator color={T.text} />
@@ -399,10 +403,6 @@ export function OrderTicketScreen() {
           <Text style={styles.disclaimerTxt}>
             *Market execution. The executed price may differ from the requested price.
           </Text>
-          <View style={styles.disclaimerIcons}>
-            <Ionicons name="document-text-outline" size={16} color={T.textMuted} />
-            <Ionicons name="information-circle-outline" size={16} color={T.textMuted} />
-          </View>
         </View>
       </ScrollView>
 

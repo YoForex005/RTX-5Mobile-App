@@ -149,6 +149,10 @@ export default function RootLayout() {
                margin_level: acct.marginLevel,
                floating: acct.floatingPnl
             });
+            
+            // Automatically determine if it's a demo or real account based on the backend group name
+            const isDemo = acct.group.toLowerCase().includes('demo');
+            useUserPreferences.getState().setIsDemoAccount(isDemo);
          } catch (e) {
             console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
          }

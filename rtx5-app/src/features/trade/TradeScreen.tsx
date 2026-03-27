@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
@@ -18,6 +18,124 @@ import { fmt } from '../../utils/format';
 import { useUIState } from '../../state/uiState';
 import { useMarketData } from '../../query/websocket';
 
+// ── Live PNL Header Component ─────────────────────────────────────────────
+const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark }: any) => {
+  const activeSymbols = useMemo(() => Array.from(new Set(positions.map((p: any) => p.symbol))) as string[], [positions]);
+  const quotesStore = useMarketData(activeSymbols);
+
+  const dynamicFloating = useMemo(() => {
+    let total = 0;
+    positions.forEach((p: any) => {
+      const liveQuote = quotesStore[p.symbol];
+      const liveBid = liveQuote?.bid || p.currentPrice;
+      const liveAsk = liveQuote?.ask || liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
+      const isBuy = p.side === 'buy';
+      const livePrice = isBuy ? liveBid : liveAsk;
+      
+      const isJpy = p.symbol.includes('JPY');
+      const contractSize = isJpy ? 1000 : 100000;
+      const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
+      const livePnl = priceDiff * (p.volume || 0.01) * contractSize;
+      total += livePnl;
+    });
+    return total;
+  }, [positions, quotesStore]);
+
+  // Use dynamic floating to infer true Equity and Margin Level based on Balance and used Margin.
+  const dynamicEquity = (account.balance || 0) + dynamicFloating;
+  const dynamicMarginLevel = account.margin > 0 ? (dynamicEquity / account.margin) * 100 : 0;
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.82, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
+
+  return (
+    <View style={[s.summaryBlock, isDark && {
+      backgroundColor: 'rgba(15, 23, 42, 0.7)',
+      shadowColor: '#2563EB',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+      elevation: 4,
+    }]}>
+      <View style={s.summaryTop}>
+        <View style={s.plSection}>
+          <Text style={[s.summaryLabel, { color: T.text }]}>UNREALIZED P/L</Text>
+          <View style={s.floatingRow}>
+            <Animated.Text style={[s.floating, { color: dynamicFloating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
+              {fmt.pnl(dynamicFloating)}
+            </Animated.Text>
+          </View>
+          <View style={s.plMeta}>
+            <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(dynamicMarginLevel)}%</Text>
+          </View>
+        </View>
+        <View style={s.balanceQuick}>
+          <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>BALANCE</Text>
+          <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(account.balance)}</Text>
+          <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency}</Text>
+        </View>
+      </View>
+
+      <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
+        <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+          <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
+            </View>
+            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(account.margin, 3)}</Text>
+          </View>
+          <View style={s.gridCol}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
+            </View>
+            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(account.freeMargin, 3)}</Text>
+          </View>
+        </View>
+
+        <View style={s.gridRow}>
+          <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
+            </View>
+            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(dynamicMarginLevel, 3)}</Text>
+          </View>
+          <View style={s.gridCol}>
+            {account.credit > 0 ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                  <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
+                </View>
+                <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.credit)}</Text>
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                  <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
+                </View>
+                <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(dynamicEquity)}</Text>
+              </>
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+});
+
 export function TradeScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -31,10 +149,6 @@ export function TradeScreen() {
   const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState();
   const [refreshing, setRefreshing] = useState(false);
   const resolvedLogin = resolveTradingLogin();
-
-  // Aggregate and globally stream quote data for all active position symbols simultaneously!
-  const activeSymbols = useMemo(() => Array.from(new Set(positions.map(p => p.symbol))), [positions]);
-  useMarketData(activeSymbols);
 
   const fetchPositions = useCallback(async () => {
     const mt5Login = resolveTradingLogin();
@@ -66,18 +180,7 @@ export function TradeScreen() {
     }, [fetchPositions])
   );
 
-  // ── P/L pulse animation ─────────────────────────────────────────────────
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.82, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulseAnim]);
+  // pulseAnim has been moved to LiveUnrealizedPnLHeader
 
   const liveAcc = useLiveAccountState();
   const account = {
@@ -129,86 +232,8 @@ export function TradeScreen() {
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
-            <View style={[s.summaryBlock, isDark && {
-              backgroundColor: 'rgba(15, 23, 42, 0.7)',
-              shadowColor: '#2563EB',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.08,
-              shadowRadius: 16,
-              elevation: 4,
-            }]}>
-              <View style={s.summaryTop}>
-                <View style={s.plSection}>
-                  <Text style={[s.summaryLabel, { color: T.text }]}>Unrealized P/L</Text>
-                  <View style={s.floatingRow}>
-                    <Animated.Text style={[s.floating, { color: account.floating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
-                      {fmt.pnl(account.floating)}
-                    </Animated.Text>
-                  </View>
-                  <View style={s.plMeta}>
-                    <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(account.marginLevel)}%</Text>
-                  </View>
-                </View>
-                <View style={s.balanceQuick}>
-                  <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>Balance</Text>
-                  <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(account.balance)}</Text>
-                  <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency}</Text>
-                  {account.credit > 0 && (
-                    <View style={s.equityRow}>
-                      <Text style={[s.equityLabel, { color: T.textMuted }]}>Equity </Text>
-                      <Text style={[s.equityValue, { color: T.textSub }]}>{fmt.int(account.equity)}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-              <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
-                <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
-                    </View>
-                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.margin)}</Text>
-                  </View>
-                  <View style={s.gridCol}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
-                    </View>
-                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.freeMargin)}</Text>
-                  </View>
-                </View>
-
-                <View style={s.gridRow}>
-                  <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                      <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
-                    </View>
-                    <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.marginLevel)}</Text>
-                  </View>
-                  <View style={s.gridCol}>
-                    {account.credit > 0 ? (
-                      <>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                          <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
-                        </View>
-                        <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.credit)}</Text>
-                      </>
-                    ) : (
-                      <>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                          <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
-                        </View>
-                        <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.equity)}</Text>
-                      </>
-                    )}
-                  </View>
-                </View>
-              </View>
-            </View>
+            
+            <LiveUnrealizedPnLHeader positions={positions} account={account} s={s} T={T} isDark={isDark} />
 
             <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
               <View style={s.positionsHeaderLeft}>
@@ -262,34 +287,6 @@ export function TradeScreen() {
         }
         ListFooterComponent={positions.length > 0 ? (
           <>
-            <Pressable
-              style={({ pressed }) => [
-                s.oneClick,
-                { backgroundColor: T.glass2, borderColor: T.border },
-                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-              ]}
-              onPress={() => router.push('/trade/one-click-terms')}
-            >
-              <View>
-                <Text style={[s.oneClickTitle, { color: T.text }]}>One Click Trading</Text>
-                <Text style={[s.oneClickSub, { color: T.textMuted }]}>
-                  {oneClickAccepted ? 'Enabled' : 'Disabled'}
-                </Text>
-              </View>
-              <View style={[
-                s.statusPill,
-                oneClickAccepted
-                  ? { borderColor: T.upGlow, backgroundColor: T.upGlow }
-                  : { borderColor: T.downGlow, backgroundColor: T.downGlow },
-              ]}>
-                <Text style={[
-                  s.statusPillText,
-                  oneClickAccepted ? { color: T.up } : { color: T.down },
-                ]}>
-                  {oneClickAccepted ? 'ACTIVE' : 'SETUP'}
-                </Text>
-              </View>
-            </Pressable>
 
             {/* ── Top Exposures ── */}
 
