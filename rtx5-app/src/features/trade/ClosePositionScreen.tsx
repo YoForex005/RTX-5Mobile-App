@@ -1,3 +1,10 @@
+/**
+ * Trade Feature UI: ClosePositionScreen
+ * 
+ * Interface for partially or fully closing a single specific active position. 
+ * Allows users to adjust the exact volume to close.
+ */
+
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, Alert, ActivityIndicator } from 'react-native';

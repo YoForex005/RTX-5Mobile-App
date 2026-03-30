@@ -1,3 +1,11 @@
+/**
+ * Live Market Candlestick Connector Hook
+ * 
+ * Acts as the bridge between standard React Query hooks and the 
+ * high-frequency `CandlesWebSocketService`. 
+ * It manages the transition from historical REST data into active streaming.
+ */
+
 import { useState, useEffect, useRef } from 'react';
 import { candlesWsService } from '../api/ws/candlesSocket';
 
@@ -38,7 +46,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
             setCandles([...pendingCandlesRef.current]);
           }
           flushTimeoutRef.current = null;
-        }, 150); 
+        }, 150);
       }
     };
 
@@ -71,15 +79,15 @@ export function useLiveTick(symbol: string) {
       if (unmounted) return;
       if (incomingSymbol.toUpperCase() !== symbol.toUpperCase()) return;
       if (mutatedCandles.length > 0) {
-         pendingTickRef.current = mutatedCandles[mutatedCandles.length - 1];
-         if (!flushTimeoutRef.current) {
-           flushTimeoutRef.current = setTimeout(() => {
-             if (!unmounted && pendingTickRef.current) {
-               setTick({ ...pendingTickRef.current });
-             }
-             flushTimeoutRef.current = null;
-           }, 150);
-         }
+        pendingTickRef.current = mutatedCandles[mutatedCandles.length - 1];
+        if (!flushTimeoutRef.current) {
+          flushTimeoutRef.current = setTimeout(() => {
+            if (!unmounted && pendingTickRef.current) {
+              setTick({ ...pendingTickRef.current });
+            }
+            flushTimeoutRef.current = null;
+          }, 150);
+        }
       }
     };
 

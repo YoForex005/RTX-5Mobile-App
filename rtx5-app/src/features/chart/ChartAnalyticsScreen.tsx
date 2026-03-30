@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartAnalyticsScreen
+ * 
+ * Renders the advanced analytics panel providing fundamental data, news feeds,
+ * high market volatility (HMR) periods, and performance metrics for the active pair.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import React, { useMemo } from 'react';

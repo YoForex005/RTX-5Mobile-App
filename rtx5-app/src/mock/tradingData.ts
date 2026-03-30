@@ -1,3 +1,7 @@
+/**
+ * Core module: tradingData.ts
+ */
+
 export type QuoteItem = {
   symbol: string;
   bid: number;

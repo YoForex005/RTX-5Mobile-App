@@ -1,3 +1,11 @@
+/**
+ * Lightweight-Charts Plugin: Rectangle (Fib/Zone) Primitive
+ * 
+ * A compound ISeriesPrimitive implementation rendering semi-transparent boundary 
+ * zones on the chart. Includes logic for projecting shaded segments onto the 
+ * X (Time) and Y (Price) axis scales simultaneously.
+ */
+
 import { CanvasRenderingTarget2D } from 'fancy-canvas';
 import {
 	Coordinate,

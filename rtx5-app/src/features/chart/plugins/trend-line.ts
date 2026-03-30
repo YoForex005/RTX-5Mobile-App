@@ -1,3 +1,11 @@
+/**
+ * Lightweight-Charts Plugin: Trend-Line Primitive
+ * 
+ * Implements an interactive point-to-point vector line natively injected into the 
+ * canvas rendering cycle. Calculates the exact bitmap coordinate bounds for 
+ * hardware-accelerated drawing.
+ */
+
 import { BitmapCoordinatesRenderingScope, CanvasRenderingTarget2D } from 'fancy-canvas';
 import {
 	AutoscaleInfo,

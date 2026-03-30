@@ -1,3 +1,10 @@
+/**
+ * Historical Candlestick Data API (V2)
+ * 
+ * Fetches paginated OHLCV (Open, High, Low, Close, Volume) data
+ * required to render the initial state of the Lightweight Charts.
+ */
+
 import { apiClient } from './apiClient';
 import { Candle } from '../state/tradingState';
 

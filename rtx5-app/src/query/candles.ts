@@ -1,3 +1,7 @@
+/**
+ * Core module: candles.ts
+ */
+
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCandleHistory } from '../api/candles';
 import { useTradingState, Candle } from '../state/tradingState';

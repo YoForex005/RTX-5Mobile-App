@@ -1,3 +1,7 @@
+/**
+ * Core module: orders.ts
+ */
+
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ordersApi, PlaceOrderPayload } from '../api/orders';
 import { usePositionsState } from '../state/positionsState';

@@ -1,3 +1,7 @@
+/**
+ * Core module: account.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getAccountSummary, AccountSummary } from '../api/account';
 

@@ -1,3 +1,10 @@
+/**
+ * History Feature UI: HistoryFilterScreen
+ * 
+ * Provides an interactive calendar and preset toggle interface for explicitly
+ * defining the time window of historical trades to pull from the backend.
+ */
+
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';

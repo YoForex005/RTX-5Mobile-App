@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { quotes } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';

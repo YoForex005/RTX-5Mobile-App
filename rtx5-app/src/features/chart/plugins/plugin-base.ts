@@ -1,3 +1,11 @@
+/**
+ * Lightweight-Charts Plugin: Object Base Class
+ * 
+ * Abstract class acting as the foundational template for all Custom Series Primitives.
+ * Handles the boilerplate lifecycle of attaching/detaching to the chart API and 
+ * broadcasting DataChangedScope sync events.
+ */
+
 import {
 	DataChangedScope,
 	IChartApi,

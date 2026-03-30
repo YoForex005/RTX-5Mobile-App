@@ -1,3 +1,10 @@
+/**
+ * Portfolio Analytics & Equity History API (V2)
+ * 
+ * Fetches time-series data representing the account's historical
+ * equity curve for rendering performance charts.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Single equity data point from GET /api/account/equity-history */

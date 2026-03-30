@@ -1,0 +1,47 @@
+# RTX-5 Mobile Application - Frontend Architecture & Smoothness Report
+
+After conducting a deep, rigorous analysis of the frontend codebase (ignoring the backend API integrations), I have identified several architectural issues. If left unpatched, these issues will prevent the application from achieving the "Microsoft/Google" level of premium smoothness and could lead to crashes, battery drain, or severe lag in a production environment.
+
+Below is the categorized list of problems currently present in the frontend code:
+
+---
+
+## 1. Performance & "Smoothness" Bottlenecks (UI Lag)
+
+*   **Excessive Re-renders from High-Frequency Data:**
+    In screens like `TradeScreen.tsx`, the UI is bound directly to the live WebSocket using hooks like `useMarketData(activeSymbols)`. When the market is volatile, quotes can tick 10 to 20 times per second. Because the React state updates on every single tick, the entire Trade screen re-renders 20 times a second. This will cause severe frame drops, making the app feel slow and the scrolling stutter. 
+    *Solution:* High-frequency streaming data must be throttled (using debounce) or bound directly to minimal UI components (using Reanimated shared values) so the whole screen doesn't re-render.
+*   **Unoptimized Massive Lists:**
+    The `FlatList` used in `TradeScreen.tsx` (and `HistoryScreen.tsx`) does not utilize vital performance properties like `initialNumToRender`, `maxToRenderPerBatch`, or `windowSize`. 
+    *Solution:* If a trader has 300 open positions, scrolling will heavily lag on older phones. These props must be added to recycle memory aggressively, which is how big tech apps feel so smooth.
+
+## 2. Crash Resilience & Stability (White Screen of Death)
+
+*   **No Global Error Boundaries:**
+    In the root `_layout.tsx`, the app is missing a React `<ErrorBoundary>`. 
+    *Solution:* In professional apps, if a single variable is missing (e.g., a chart fails to load a specific candle), an Error Boundary catches the crash and displays a graceful "Something went wrong" offline placeholder. Without this, your app will instantly crash to the phone's home screen.
+*   **Offline Battery Drain (WebSocket Infinite Reconnects):**
+    In `socket.ts`, if the user loses cell service (e.g., drives into a tunnel), the WebSocket aggressively enters a reconnection loop using exponential backoff. However, it never stops trying. 
+    *Solution:* Without integrating `React Native NetInfo` to detect when the internet is actually fully disconnected, the app will endlessly burn the phone's CPU and battery trying to reconnect in the background.
+
+## 3. Critical Frontend Security Flaws
+
+*   **Tokens Stored in Plaintext XML:**
+    In `src/state/userPreferences.ts`, the user's highly sensitive authentication tokens and `accountDetails` are saved into `@react-native-async-storage/async-storage`. 
+    *Solution:* This is a critical vulnerability. Industry-standard apps use `expo-secure-store` which relies on the military-grade encryption built into the Apple Keychain and Android Keystore. `AsyncStorage` is completely unencrypted.
+*   **Missing Biometric Timeouts:**
+    There is no global `AppState` listener checking if the app has been in the background for more than 5 minutes. 
+    *Solution:* A financial app must blur the screen in the app-switcher and force FaceID/Fingerprint authentication when brought back to the foreground to protect the trader's balance.
+
+## 4. UI/UX Functionality Bugs
+
+*   **Silent Font Loading Failures:**
+    In `_layout.tsx`, if the `Ionicons` font fails to download or cache over a weak network, the app just throws a silent `catch` warning instead of showing a fallback icon or retrying. 
+    *Solution:* The user will be left with dozens of broken "X" boxes instead of functional chart icons.
+*   **Memory Leaks in Chart Subscriptions:**
+    While `useLiveCandles.ts` does throttle data nicely, there are potential race conditions on unmounts. If a user rapidly taps between different symbols on the Quotes page, React may queue multiple parallel WebSocket subscriptions because the `useEffect` cleanup fires too late, leading to overlapping data feeds.
+
+---
+
+### Summary
+To achieve true Enterprise-level polish, we must immediately tackle the **FlatList lag**, implement **Error Boundaries**, switch to the **SecureStore**, and protect the user's **Battery** when they lose cellular coverage.

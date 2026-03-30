@@ -1,3 +1,10 @@
+/**
+ * Platform Email Dispatch API (V2)
+ * 
+ * Proxies SMTP requests through the gateway for sending trade
+ * confirmations and welcome emails directly to the user.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Request body for POST /api/v1/email/send */

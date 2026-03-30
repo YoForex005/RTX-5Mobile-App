@@ -1,3 +1,10 @@
+/**
+ * Live Market Account Summary DTOs & Service (V2)
+ * 
+ * Provides polling/fetch endpoints for core equity and margin metrics.
+ * Note: High-frequency equivalents of this data are streamed via `accountSocket.ts`.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Raw API response from GET /api/account/summary */

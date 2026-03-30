@@ -1,3 +1,10 @@
+/**
+ * Offline Mock Candlestick Hook
+ * 
+ * Generates deterministically random candlestick data for UI testing
+ * or fallback scenarios when the live WebSocket feed is unavailable.
+ */
+
 import { useEffect } from 'react';
 import { useTradingState } from '../state/tradingState';
 

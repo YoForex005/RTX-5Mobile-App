@@ -1,3 +1,10 @@
+/**
+ * Trade Feature UI: ModifyPositionScreen
+ * 
+ * Screen used to adjust the Stop Loss (SL) and Take Profit (TP) parameters
+ * of an already active position or pending order.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';

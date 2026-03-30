@@ -1,3 +1,12 @@
+/**
+ * Optimized list item rendering an individual Open Position.
+ * 
+ * Architectural Note: 
+ * This component intentionally hooks its own `useMarketData([item.symbol])` listener.
+ * This pattern ensures that when a high-frequency WebSocket tick arrives for "EURUSD", 
+ * ONLY the specific `TradePositionRow` instances holding EURUSD will re-render,
+ * bypassing a full `<FlatList>` re-render entirely.
+ */
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { router } from 'expo-router';

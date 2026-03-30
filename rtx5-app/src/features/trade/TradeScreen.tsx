@@ -1,3 +1,14 @@
+/**
+ * Main active trading overview screen (aka the 'Trade' tab).
+ * 
+ * Displays:
+ * 1. Global account summary (balance, equity, margin) derived from the real-time WebSocket.
+ * 2. Flat list of all Open Positions and Pending Orders.
+ * 3. Individual P&L per trade, plus aggregate floating P&L.
+ * 
+ * It relies on `usePositionsState` for synchronous, optimistic UI updates to ensure 
+ * lightning-fast feedback when order states change locally without waiting for server-side replica sync.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
@@ -227,10 +238,14 @@ export function TradeScreen() {
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
         onRefresh={onRefresh}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
         ListHeaderComponent={(
           <>
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
             
             <LiveUnrealizedPnLHeader positions={positions} account={account} s={s} T={T} isDark={isDark} />

@@ -1,3 +1,7 @@
+/**
+ * Core module: equityHistory.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getEquityHistory, EquityHistoryResponse } from '../api/equityHistory';
 

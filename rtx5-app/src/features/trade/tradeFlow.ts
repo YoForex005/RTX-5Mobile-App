@@ -1,3 +1,11 @@
+/**
+ * Trade Feature Utilities: tradeFlow
+ * 
+ * Provides helper functions for managing and filtering trade positions,
+ * resolving display names for symbols, and retrieving potential hedge
+ * candidates for "Close By" operations.
+ */
+
 import { PositionItem } from '../../mock/tradingData';
 
 export function findPositionById(positions: PositionItem[], positionId?: string | string[]) {

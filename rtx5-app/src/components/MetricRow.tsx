@@ -1,3 +1,7 @@
+/**
+ * Reusable React Native UI component: MetricRow.
+ */
+
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';

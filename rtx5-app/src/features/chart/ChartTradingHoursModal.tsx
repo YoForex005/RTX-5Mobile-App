@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartTradingHoursModal
+ * 
+ * Displays the specific open and close market sessions for the active symbol,
+ * factoring in the user's localized time zone.
+ */
+
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

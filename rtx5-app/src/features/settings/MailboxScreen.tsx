@@ -1,3 +1,10 @@
+/**
+ * Settings Feature UI: MailboxScreen
+ * 
+ * In-app messaging center displaying system notifications, margin call warnings,
+ * broker announcements, and administrative alerts.
+ */
+
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { spacing } from '../../theme';

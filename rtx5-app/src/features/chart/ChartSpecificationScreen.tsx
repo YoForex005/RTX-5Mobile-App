@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartSpecificationScreen
+ * 
+ * Displays strict financial meta-data about the active symbol including 
+ * lot sizing, pip value, margin requirements, and swap rates for long/short.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useMemo } from 'react';

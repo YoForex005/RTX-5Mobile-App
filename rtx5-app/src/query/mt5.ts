@@ -1,3 +1,7 @@
+/**
+ * Core module: mt5.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getMt5Status, getMt5Groups, MT5StatusResponse, MT5GroupsResponse } from '../api/mt5';
 

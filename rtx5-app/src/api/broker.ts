@@ -1,3 +1,10 @@
+/**
+ * White-Label Broker Configuration API (V2)
+ * 
+ * Dynamically resolves the branding, URLs, feature flags, and max leverage settings
+ * based on the user's specific broker tenant. This configures the entire UI theme.
+ */
+
 import { apiClient } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════

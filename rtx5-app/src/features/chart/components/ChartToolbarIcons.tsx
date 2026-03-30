@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartToolbarIcons
+ * 
+ * A collection of reusable, scalable SVG vector icons specifically designed
+ * for the various drawing tools and indicators in the chart's sidebar toolbar.
+ */
+
 import React from 'react';
 import Svg, { Path, Circle, Rect, Line, Polyline, G } from 'react-native-svg';
 

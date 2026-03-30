@@ -1,5 +1,13 @@
+/**
+ * Core module: quotesSocket.ts
+ */
+
 import { useTradingState } from '../../state/tradingState';
 
+/**
+ * High-frequency WebSocket service delivering minimal-latency Bid/Ask quote ticks.
+ * Syncs directly into a Zustand store, aggregating batches via requestAnimationFrame for performance.
+ */
 export class QuotesWebSocketService {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
@@ -26,6 +34,9 @@ export class QuotesWebSocketService {
     return this.isConnected;
   }
 
+  /**
+   * Dispatches the initial connection sequence and applies auto-reconnect logic.
+   */
   public connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
@@ -80,6 +91,11 @@ export class QuotesWebSocketService {
     }
   }
 
+  /**
+   * Subscribes to tick updates for a batch of symbols.
+   * Does not overwrite existing active symbols.
+   * @param symbols - Array of strings (e.g., ['EURUSD', 'BTCUSD'])
+   */
   public subscribe(symbols: string[]): void {
     let changed = false;
     for (const sym of symbols) {
@@ -102,6 +118,10 @@ export class QuotesWebSocketService {
     if (changed && this.isConnected) this.sendSubscription();
   }
 
+  /**
+   * Exact override for the active symbol subscription list.
+   * Triggers an immediate diff sync over the active socket.
+   */
   public setSubscriptions(symbols: string[]): void {
     this.activeSymbols = new Set(symbols);
     if (this.isConnected) this.sendSubscription();

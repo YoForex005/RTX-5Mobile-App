@@ -1,3 +1,11 @@
+/**
+ * Trade Feature UI: OrderTicketScreen
+ * 
+ * Core order entry interface. Provides an interactive ticket configured for 
+ * both Market Execution and Pending Orders, integrating live pricing from
+ * quotes Websocket and immediate order submission to the trading backend.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';

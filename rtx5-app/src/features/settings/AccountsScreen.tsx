@@ -1,3 +1,11 @@
+/**
+ * Settings Feature UI: AccountsScreen
+ * 
+ * Central hub for managing multiple trading accounts. Displays the active 
+ * connection status (live ping/health), balances across connected accounts,
+ * and handles credential management (passwords, QR codes).
+ */
+
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -11,6 +19,7 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
+import { QRCodeSheet } from './QRCodeSheet';
 import { ActionSheet } from '../../components/ActionSheet';
 import { Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
 // ── API Integration: fetches live account + broker data for active card ──
@@ -39,6 +48,9 @@ export function AccountsScreen() {
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
 
+  // Filter out the active account to render the other connected accounts
+  const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
+
   // Extract the 5 essential display values (fallbacks for when API hasn't loaded)
   const displayName = activeAccount?.name ?? accountDetails?.name ?? '---';
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
@@ -58,6 +70,13 @@ export function AccountsScreen() {
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
   const [successMessage, setSuccessMessage] = React.useState('');
+  const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
+  const [qrData, setQRData] = React.useState('');
+
+  const openQRSheet = (loginId: string) => {
+    setQRData(loginId);
+    setQRSheetVisible(true);
+  };
 
   const openPasswordSheet = (type: 'master' | 'investor') => {
     setPasswordType(type);
@@ -121,73 +140,61 @@ export function AccountsScreen() {
               <Text style={styles.activeBalance}>{displayBalance}</Text>
 
               <View style={styles.activeCardBottom}>
-                <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
+                <Pressable onPress={() => openQRSheet(displayLogin)} hitSlop={15}>
+                  <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
+                </Pressable>
                 <Ionicons name="notifications-outline" size={24} color={T.textSub} />
               </View>
             </View>
           </View>
 
           {/* Connect To List */}
-          <Text style={styles.connectToLabel}>Connect to:</Text>
+          {otherAccounts.length > 0 && (
+            <Text style={styles.connectToLabel}>Connect to:</Text>
+          )}
 
-          {/* Mock Account 1 */}
-          <View style={styles.secondaryCardWrap}>
-            <View style={styles.secondaryCard}>
-              <View style={styles.demoRibbon}>
-                <Text style={styles.demoText}>Demo</Text>
-              </View>
+          {otherAccounts.map((account) => {
+            const isDemo = account.group?.toLowerCase().includes('demo') || true; // Fallback logic as per original UI
+            const isReadonly = account.leverage === 0; // Simple heuristic or property if available
+            
+            return (
+              <View key={account.login} style={[styles.secondaryCardWrap, { marginTop: spacing.md }]}>
+                <View style={styles.secondaryCard}>
+                  {isReadonly && (
+                    <View style={styles.readonlyRibbon}>
+                      <Text style={styles.readonlyText}>Readonly</Text>
+                    </View>
+                  )}
+                  {isDemo && (
+                    <View style={styles.demoRibbon}>
+                      <Text style={styles.demoText}>Demo</Text>
+                    </View>
+                  )}
 
-              <View style={styles.secondaryHeaderRow}>
-                <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
-                  <Text style={styles.secondaryLogoText}>lexy</Text>
-                </View>
-                <View style={styles.secondaryInfoWrap}>
-                  <Text style={styles.secondaryName}>Abhishek Kumar</Text>
-                  <Text style={styles.secondaryCompany}>Flexy Markets Limited</Text>
-                  <Text style={styles.secondaryServer}>500001 — FlexyMarkets-Server</Text>
-                </View>
-              </View>
+                  <View style={styles.secondaryHeaderRow}>
+                    <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
+                      <Text style={styles.secondaryLogoText}>lexy</Text>
+                    </View>
+                    <View style={styles.secondaryInfoWrap}>
+                      <Text style={styles.secondaryName}>{account.name || `Account ${account.login}`}</Text>
+                      <Text style={styles.secondaryCompany}>{displayBrokerName}</Text>
+                      <Text style={styles.secondaryServer}>{account.login} — {displayServerName}</Text>
+                    </View>
+                  </View>
 
-              <Text style={styles.secondaryBalance}>1 024.58</Text>
-              <Text style={styles.secondaryCurrency}>USD, last known</Text>
+                  <Text style={styles.secondaryBalance}>{fmt.price(account.balance)}</Text>
+                  <Text style={styles.secondaryCurrency}>{account.currency}, last known</Text>
 
-              <View style={styles.secondaryCardBottom}>
-                <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
-                <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
-              </View>
-            </View>
-          </View>
-
-          {/* Mock Account 2 (Readonly) */}
-          <View style={[styles.secondaryCardWrap, { marginTop: spacing.md }]}>
-            <View style={styles.secondaryCard}>
-              <View style={styles.readonlyRibbon}>
-                <Text style={styles.readonlyText}>Readonly</Text>
-              </View>
-              <View style={styles.demoRibbon}>
-                <Text style={styles.demoText}>Demo</Text>
-              </View>
-
-              <View style={styles.secondaryHeaderRow}>
-                <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
-                  <Text style={styles.secondaryLogoText}>lexy</Text>
-                </View>
-                <View style={styles.secondaryInfoWrap}>
-                  <Text style={styles.secondaryName}>Sid Saw</Text>
-                  <Text style={styles.secondaryCompany}>Flexy Markets Limited</Text>
-                  <Text style={styles.secondaryServer}>900524 — FlexyMarkets-Server</Text>
+                  <View style={styles.secondaryCardBottom}>
+                    <Pressable onPress={() => openQRSheet(String(account.login))} hitSlop={15}>
+                      <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
+                    </Pressable>
+                    <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
+                  </View>
                 </View>
               </View>
-
-              <Text style={styles.secondaryBalance}>100 000.00</Text>
-              <Text style={styles.secondaryCurrency}>USD, last known</Text>
-
-              <View style={styles.secondaryCardBottom}>
-                <Ionicons name="grid-outline" size={24} color={T.textSub} />
-                <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
-              </View>
-            </View>
-          </View>
+            );
+          })}
 
           {/* Server Status */}
           {/* API INTEGRATION: GET /api/mt5/status */}
@@ -233,6 +240,15 @@ export function AccountsScreen() {
                 setSuccessMessage(`${passwordType === 'master' ? 'Master' : 'Investor'} password change successfully`);
               }}
             />
+          </View>
+        </View>
+      )}
+
+      {qrSheetVisible && (
+        <View style={styles.modalOverlay} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setQRSheetVisible(false)} />
+          <View style={styles.modalContent}>
+            <QRCodeSheet data={qrData} onClose={() => setQRSheetVisible(false)} />
           </View>
         </View>
       )}

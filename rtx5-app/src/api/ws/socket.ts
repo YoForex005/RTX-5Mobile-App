@@ -1,4 +1,9 @@
+/**
+ * Core module: socket.ts
+ */
+
 import { useTradingState } from '../../state/tradingState';
+import NetInfo from '@react-native-community/netinfo';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
@@ -14,6 +19,11 @@ type CandleHistoryRequest = {
 
 type WsMessage = SubscriptionMessage | CandleHistoryRequest | { type: 'ping' | 'get_channels' };
 
+/**
+ * (Legacy) General purpose WebSocket service that manages multi-channel subscriptions.
+ * Modern implementations have split into dedicated high-throughput services 
+ * (QuotesWebSocketService, CandlesWebSocketService, etc.).
+ */
 export class WebSocketService {
   private static instance: WebSocketService;
   private ws: WebSocket | null = null;
@@ -22,6 +32,7 @@ export class WebSocketService {
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
   private isConnected = false;
+  private netInfoUnsubscribe: (() => void) | null = null;
   
   // Track active subscriptions so we can resubscribe on reconnect
   private activeSubscriptions: Set<string> = new Set();
@@ -39,6 +50,9 @@ export class WebSocketService {
     return this.isConnected;
   }
 
+  /**
+   * Dispatches the initial connection sequence and restores active channels if reconnecting.
+   */
   public connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return; // Already connecting or connected
@@ -83,6 +97,9 @@ export class WebSocketService {
     }
   }
 
+  /**
+   * Gracefully tears down the connection and clears all active subscription state locally.
+   */
   public disconnect(): void {
     if (this.ws) {
       this.activeSubscriptions.clear();
@@ -112,7 +129,11 @@ export class WebSocketService {
 
   /**
    * Request historical candle data via WebSocket.
-   * The server should respond with a `candle_history` message.
+   * The server responds asynchronously with a `candle_history` message routed to the store.
+   * 
+   * @param symbol - The symbol (e.g. 'EURUSD')
+   * @param timeframe - The timeframe period (e.g. 'H1')
+   * @param count - The number of historical bars to request (default: 200)
    */
   public requestCandleHistory(symbol: string, timeframe: string, count: number = 200): void {
     this.send({
@@ -130,15 +151,36 @@ export class WebSocketService {
   }
 
   private attemptReconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('[WebSocket] Max reconnect attempts reached.');
+      return;
+    }
+
+    NetInfo.fetch().then((state) => {
+      if (state.isConnected === false) {
+        console.log('[WebSocket] Network offline. Pausing reconnect attempts.');
+        if (!this.netInfoUnsubscribe) {
+          this.netInfoUnsubscribe = NetInfo.addEventListener(newState => {
+            if (newState.isConnected) {
+              console.log('[WebSocket] Network restored. Resuming connection...');
+              if (this.netInfoUnsubscribe) {
+                this.netInfoUnsubscribe();
+                this.netInfoUnsubscribe = null;
+              }
+              this.connect();
+            }
+          });
+        }
+        return;
+      }
+
       this.reconnectAttempts++;
       const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
       console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms... Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       setTimeout(() => this.connect(), delay);
-    } else {
-      console.error('[WebSocket] Max reconnect attempts reached.');
-    }
+    });
   }
+
 
   // ─── Message Routing ────────────────────────────────────────────────────────
 

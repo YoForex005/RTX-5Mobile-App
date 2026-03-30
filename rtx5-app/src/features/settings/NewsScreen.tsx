@@ -1,3 +1,10 @@
+/**
+ * Settings Feature UI: NewsScreen
+ * 
+ * Renders categorized real-time market news headlines, sourced from external
+ * financial feeds (e.g. FXStreet) directly into the application.
+ */
+
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { newsItems } from '../../mock/tradingData';

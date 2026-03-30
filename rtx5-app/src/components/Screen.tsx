@@ -1,3 +1,7 @@
+/**
+ * Reusable React Native UI component: Screen.
+ */
+
 import { PropsWithChildren } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
 import { useTheme } from '../theme/useTheme';

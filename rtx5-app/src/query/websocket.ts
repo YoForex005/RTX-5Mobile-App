@@ -1,3 +1,7 @@
+/**
+ * Core module: websocket.ts
+ */
+
 import React, { useEffect } from 'react';
 
 import { wsService } from '../api/ws/socket';
@@ -72,10 +76,10 @@ export function useLiveAccount(accountId: string) {
 
   useEffect(() => {
     if (!accountId) return;
-    
+
     const channel = `account.${accountId}`;
     wsService.subscribe(channel);
-    
+
     return () => {
       wsService.unsubscribe(channel);
     };

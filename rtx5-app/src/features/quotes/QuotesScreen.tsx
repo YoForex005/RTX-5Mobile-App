@@ -1,3 +1,13 @@
+/**
+ * Quotes Watchlist Screen (aka 'Quotes' tab).
+ * 
+ * Provides a real-time table/list view of financial instruments customized locally by the user.
+ * 
+ * Key Features:
+ * - Dynamic sub-rendering via fast-list to handle 100+ ticker updates reliably without lag.
+ * - Deep integrations with `QuotesWebSocketService` for hardware-accelerated ticking.
+ * - Supports List (Simple, Advanced) and Table (Grid) view modes, persisted to local storage.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useMemo, useState } from 'react';
@@ -193,6 +203,50 @@ function QuoteCard({
   );
 }
 
+function EditQuoteRow({
+  symbol,
+  index,
+  total,
+  T,
+  isDark,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: {
+  symbol: string;
+  index: number;
+  total: number;
+  T: ThemeColors;
+  isDark: boolean;
+  onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
+  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
+
+  return (
+    <View style={[sc.card, { backgroundColor: cardBg, borderColor: cardBorder, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Pressable onPress={onRemove} style={{ padding: 4 }}>
+          <Ionicons name="remove-circle" size={24} color={T.down} />
+        </Pressable>
+        <CurrencyFlags symbol={symbol} cardBg={cardBg} />
+        <Text style={[sc.symbolText, { color: T.text }]}>{fmt.symbol(symbol)}</Text>
+      </View>
+      
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <Pressable onPress={onMoveUp} disabled={index === 0} style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}>
+          <Ionicons name="chevron-up-circle-outline" size={30} color={T.textSub} />
+        </Pressable>
+        <Pressable onPress={onMoveDown} disabled={index === total - 1} style={{ opacity: index === total - 1 ? 0.3 : 1, padding: 4 }}>
+          <Ionicons name="chevron-down-circle-outline" size={30} color={T.textSub} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }: any) {
   const { data: apiSymbols, isLoading } = useMarketSymbols();
   const [query, setQuery] = useState('');
@@ -341,7 +395,20 @@ export function QuotesScreen() {
 
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(new Date());
+
+  const toggleEditMode = () => {
+    if (!isEditing) setSearch('');
+    setIsEditing(!isEditing);
+  };
+
+  const moveQuote = (fromIndex: number, toIndex: number) => {
+    const newQueue = [...quoteSymbols];
+    const element = newQueue.splice(fromIndex, 1)[0];
+    newQueue.splice(toIndex, 0, element);
+    setQuoteSymbols(newQueue);
+  };
 
   /* 1-second clock tick */
   useEffect(() => {
@@ -396,7 +463,7 @@ export function QuotesScreen() {
 
           {/* ── Inline Header ── */}
           <View style={{ height: 40, marginTop: 0, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Quotes</Text>
+            <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>Quotes</Text>
 
             {/* Float header controls to the right */}
             <View style={[s.headerRight, { position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }]}>
@@ -405,9 +472,9 @@ export function QuotesScreen() {
               </Pressable>
               <Pressable
                 style={[s.iconBtnSecondary, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass1, borderColor: isDark ? 'rgba(255,255,255,0.08)' : T.border }]}
-                onPress={() => { }}
+                onPress={toggleEditMode}
               >
-                <Ionicons name="create-outline" size={14} color={T.textMuted} />
+                <Ionicons name={isEditing ? "checkmark-done" : "create-outline"} size={16} color={isEditing ? T.trading.profit : T.textMuted} />
               </Pressable>
             </View>
           </View>
@@ -441,23 +508,41 @@ export function QuotesScreen() {
           <FlatList
             data={filtered}
             keyExtractor={(sym) => sym}
-            extraData={filtered}
-            renderItem={({ item: sym }) => (
-              <QuoteCard
-                symbol={sym}
-                T={T}
-                isDark={isDark}
-                onPress={() => goDetail(sym)}
-                onLongPress={() => showActionSheet({
-                  title: sym,
-                  actions: [
-                    { label: 'Chart', onPress: () => { setChartSymbol(sym); router.push('/(tabs)/chart'); } },
-                    { label: 'Details', onPress: () => goDetail(sym) },
-                    { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(sym) },
-                  ],
-                })}
-              />
-            )}
+            extraData={isEditing}
+            renderItem={({ item: sym, index }) => {
+              if (isEditing) {
+                const globalIndex = quoteSymbols.indexOf(sym);
+                return (
+                  <EditQuoteRow
+                    symbol={sym}
+                    index={globalIndex}
+                    total={quoteSymbols.length}
+                    T={T}
+                    isDark={isDark}
+                    onRemove={() => removeQuoteSymbol(sym)}
+                    onMoveUp={() => moveQuote(globalIndex, globalIndex - 1)}
+                    onMoveDown={() => moveQuote(globalIndex, globalIndex + 1)}
+                  />
+                );
+              }
+              
+              return (
+                <QuoteCard
+                  symbol={sym}
+                  T={T}
+                  isDark={isDark}
+                  onPress={() => goDetail(sym)}
+                  onLongPress={() => showActionSheet({
+                    title: sym,
+                    actions: [
+                      { label: 'Chart', onPress: () => { setChartSymbol(sym); router.push('/(tabs)/chart'); } },
+                      { label: 'Details', onPress: () => goDetail(sym) },
+                      { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(sym) },
+                    ],
+                  })}
+                />
+              );
+            }}
             style={s.list}
             contentContainerStyle={s.listPad}
             showsVerticalScrollIndicator={false}

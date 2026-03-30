@@ -1,3 +1,10 @@
+/**
+ * Trading Positions & History API (V2)
+ * 
+ * Handles reading the active open positions and the closed position history
+ * for the authenticated account. Used by the Trade and History tabs.
+ */
+
 import { API_BASE_URL, apiClient } from './apiClient';
 import { useUserPreferences } from '../state/userPreferences';
 

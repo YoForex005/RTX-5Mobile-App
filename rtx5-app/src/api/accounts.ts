@@ -1,3 +1,10 @@
+/**
+ * Trading Accounts Management API (V2)
+ * 
+ * Fetches and models the list of trading accounts mapped to a single authenticated User.
+ * Provides normalization mappers converting backend snake_case to UI camelCase formats.
+ */
+
 import { apiClient } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════

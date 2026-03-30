@@ -1,3 +1,10 @@
+/**
+ * Financial Transactions API (V2)
+ * 
+ * Fetches non-trading balance operations like Deposits, Withdrawals,
+ * and internal transfers using pagination.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Single transaction from GET /api/account/transactions */

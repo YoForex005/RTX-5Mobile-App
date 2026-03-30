@@ -1,3 +1,7 @@
+/**
+ * Core module: deals.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { dealsApi } from '../api/deals';
 

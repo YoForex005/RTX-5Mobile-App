@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartSettingsScreen
+ * 
+ * Provides global chart configuration options, such as showing/hiding volume,
+ * OHLC values, or toggling between light/dark themes natively within the chart.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';

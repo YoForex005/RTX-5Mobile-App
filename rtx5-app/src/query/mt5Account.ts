@@ -1,3 +1,7 @@
+/**
+ * Core module: mt5Account.ts
+ */
+
 import { useMutation } from '@tanstack/react-query';
 import {
   createMT5Account,

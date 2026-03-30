@@ -1,3 +1,10 @@
+/**
+ * Historical trade record timeline (aka 'History' tab).
+ * 
+ * Displays closed positions, executed orders, and balance operations spanning 
+ * user-defined time periods (e.g. Last Month, Last 6 Months).
+ * Calculates and visualizes realized PL, Swaps, Commission, and Net Balance evolution.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -175,10 +182,14 @@ export function HistoryScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
         ListHeaderComponent={(
           <>
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>History</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>History</Text>
             </View>
             {/* ── Account Summary ── */}
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>

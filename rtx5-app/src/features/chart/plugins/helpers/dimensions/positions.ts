@@ -1,3 +1,11 @@
+/**
+ * Lightweight-Charts Plugin Helper: Positions
+ * 
+ * Mathematical utilities ensuring sharp sub-pixel rendering. Computes crisp 
+ * device-pixel boundaries for continuous vector shapes (lines/boxes) to avoid 
+ * blurry anti-aliased artifacts on high-DPI (Retina) mobile screens.
+ */
+
 import { BitmapPositionLength } from './common';
 
 function centreOffset(lineBitmapWidth: number): number {

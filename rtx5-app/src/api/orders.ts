@@ -1,3 +1,10 @@
+/**
+ * Market Order Execution API (V2)
+ * 
+ * Issues POST requests to open new market orders. Note that it includes robust
+ * error handling specific to trading (e.g., catching rejected trades mapping to 200 OK).
+ */
+
 import { apiClient } from './apiClient';
 
 // ─────────────────────────────────────────────────────────────────────────────

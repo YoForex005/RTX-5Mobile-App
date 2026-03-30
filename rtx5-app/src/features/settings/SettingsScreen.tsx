@@ -1,3 +1,9 @@
+/**
+ * Core User Preferences & Account Settings Screen (aka 'Settings' tab).
+ * 
+ * Manages local user configurations (Theme, Trading defaults, API connection states)
+ * and handles secure authentication workflows (Login/Logout/Disconnect).
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View, Switch, TextInput, Keyboard } from 'react-native';
@@ -103,7 +109,7 @@ export function SettingsScreen() {
              </View>
           ) : (
             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
               <Pressable onPress={enableSearch} style={{ position: 'absolute', right: 0, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="search" size={24} color={T.textMuted} />
               </Pressable>

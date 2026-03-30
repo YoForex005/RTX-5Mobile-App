@@ -1,3 +1,7 @@
+/**
+ * Reusable React Native UI component: SectionHeader.
+ */
+
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { spacing } from '../theme';

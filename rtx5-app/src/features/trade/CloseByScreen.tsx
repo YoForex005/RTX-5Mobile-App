@@ -1,3 +1,10 @@
+/**
+ * Trade Feature UI: CloseByScreen
+ * 
+ * Allows users to close an open position by merging it with a contrasting opposite
+ * position (e.g. hedging) to save on spread costs.
+ */
+
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';

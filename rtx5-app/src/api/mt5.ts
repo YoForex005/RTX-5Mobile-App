@@ -1,3 +1,10 @@
+/**
+ * C++ MT5 Bridge Status & Groups API (V2)
+ * 
+ * Fetches the connection status between the Node.js backend and the MT5 C++ Server,
+ * and fetches the list of available registration groups (e.g. demo/live).
+ */
+
 import { apiClient } from './apiClient';
 
 /** Response from GET /api/mt5/status */

@@ -1,3 +1,15 @@
+/**
+ * Core Charting Interface for Web
+ * 
+ * This component represents the primary technical analysis interface for the browser.
+ * It directly integrates TradingView's lightweight-charts library onto a native DOM element.
+ * 
+ * Key Architecture:
+ * - Real-time Data: Subscribes directly to WebSocket feeds (candlesSocket/quotesSocket) bypassing React render cycles.
+ * - Hardware Acceleration: Uses requestAnimationFrame (rAF) queues for injecting ticks directly into the canvas.
+ * - Micro-Components: Isolated components (like LivePriceHeader) to prevent full DOM tree re-renders on every price tick.
+ * - Drawing Manager: Bridges native interaction onto the chart canvas.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -30,19 +42,21 @@ const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
   const latestTick = useLiveTick(symbol);
-  if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  if (!latestTick || typeof latestTick.close !== 'number') return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
   return (
     <View style={styles.priceSection}>
       <Text style={{ color: '#94A3B8', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
-      <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
-      {candles.length >= 2 && (() => {
-        const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
+      <Text style={styles.livePriceText}>{(latestTick.close || 0).toFixed(displayDecimals)}</Text>
+      {(() => {
+        if (!candles) return null;
+        const fallbackClose = (typeof latestTick.open === 'number' ? latestTick.open : latestTick.close);
+        const prevClose = candles?.length >= 2 ? (candles[candles.length - 2]?.close ?? fallbackClose) : fallbackClose;
         const change = latestTick.close - prevClose;
         const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
         const isUp = change >= 0;
         return (
           <Text style={[styles.priceChangePct, { color: isUp ? '#089981' : '#F23645' }]}>
-            {isUp ? '+' : ''}{change.toFixed(displayDecimals)} ({isUp ? '+' : ''}{pct.toFixed(2)}%)
+            {isUp ? '+' : ''}{(change || 0).toFixed(displayDecimals)} ({isUp ? '+' : ''}{(pct || 0).toFixed(2)}%)
           </Text>
         );
       })()}
@@ -162,17 +176,17 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
   const latestTick = useLiveTick(symbol);
-  if (!latestTick || candles.length < 2) return null;
+  if (!latestTick || typeof latestTick.close !== 'number' || !candles || candles.length < 2) return null;
 
-  const latestBid = latestTick.close;
-  const isUp = latestBid >= candles[candles.length - 2]?.close;
+  const latestBid = latestTick.close || 0;
+  const isUp = latestBid >= (candles[candles.length - 2]?.close ?? latestBid);
 
   return (
     <View style={styles.tvLegendContainer} pointerEvents="box-none">
       <View>
         <View style={styles.tvLegendRow}>
           <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: isUp ? '#089981' : '#F23645' }]}>
-            {latestBid.toFixed(displayDecimals)} {isUp ? '+' : '-'}192.90 (-0.98%)
+            {(latestBid || 0).toFixed(displayDecimals)} {isUp ? '+' : '-'}192.90 (-0.98%)
           </Text>
         </View>
       </View>
@@ -393,7 +407,7 @@ export function ChartScreen() {
       height: chartContainerRef.current.clientHeight - 8,
       layout: {
         background: { type: ColorType.Solid, color: isDark ? '#131722' : '#FFFFFF' },
-        textColor: isDark ? '#94A3B8' : '#64748B',
+        textColor: isDark ? '#F1F5F9' : '#0F172A',
         fontSize: 11,
       },
       grid: {
@@ -430,9 +444,10 @@ export function ChartScreen() {
           return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         },
         rightOffset: 12,
+        barSpacing: 10,
         shiftVisibleRangeOnNewBar: true,
-        fixLeftEdge: true,
-        fixRightEdge: true,
+        fixLeftEdge: false,
+        fixRightEdge: false,
       },
       rightPriceScale: {
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
@@ -449,8 +464,8 @@ export function ChartScreen() {
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth - 4,
-          height: chartContainerRef.current.clientHeight - 8,
+          width: Math.max(0, chartContainerRef.current.clientWidth - 4),
+          height: Math.max(0, chartContainerRef.current.clientHeight - 8),
         });
       }
     };
@@ -538,10 +553,11 @@ export function ChartScreen() {
     volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
       priceFormat: { type: 'volume' },
-      priceScaleId: '',
+      priceScaleId: 'volume',
     });
-    chart.priceScale('').applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.9, bottom: 0 },
+      visible: false,
     });
 
     chart.subscribeCrosshairMove((param) => {
@@ -618,7 +634,7 @@ export function ChartScreen() {
             const volData = uniqueData.map(item => ({
               time: item.time,
               value: item.volume || 0,
-              color: item.close >= item.open ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+              color: item.close >= item.open ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
             }));
             volumeSeriesRef.current.setData(volData as any);
           }
@@ -646,7 +662,8 @@ export function ChartScreen() {
 
     // Filter positions for current symbol and draw
     const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
+    // Only show the most recent position to prevent cluttering the y-axis
+    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[symbolPositions.length - 1]] : [];
 
     filteredPositions.forEach((pos) => {
       try {
@@ -770,8 +787,8 @@ export function ChartScreen() {
     });
     if (chartRef.current && chartContainerRef.current) {
       chartRef.current.applyOptions({
-        width: e.nativeEvent.layout.width - 4,
-        height: e.nativeEvent.layout.height - 8,
+        width: Math.max(0, e.nativeEvent.layout.width - 4),
+        height: Math.max(0, e.nativeEvent.layout.height - 8),
       });
     }
   };
@@ -781,8 +798,8 @@ export function ChartScreen() {
       setTimeout(() => {
         if (chartRef.current && chartContainerRef.current) {
           chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth - 4,
-            height: chartContainerRef.current.clientHeight - 8,
+            width: Math.max(0, chartContainerRef.current.clientWidth - 4),
+            height: Math.max(0, chartContainerRef.current.clientHeight - 8),
           });
         }
       }, 50);
@@ -860,45 +877,67 @@ export function ChartScreen() {
           {/* Top Integrated Toolbar (TradingView Exact Style) */}
           <View style={styles.chartTopToolbar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 16 }]}>
-                <Pressable style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center' }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
-                </Pressable>
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setSymbolPickerOpen(true)}>
-                  <Ionicons name="add-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
-                </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16 }}>
+                {/* 1: Symbol & Add */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Pressable onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+                    <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setSymbolPickerOpen(true)}>
+                    <Ionicons name="add-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                  </Pressable>
+                </View>
+
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setTfOpen(true)} hitSlop={8}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
+
+                {/* 3: Timeframe */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                  <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
                 </Pressable>
+
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setShowChartTypeMenu(true)}>
+
+                {/* 4: Candles Type */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowChartTypeMenu(true)}>
                   <TvCandles color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
+
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setMenuOpen(true)}>
+
+                {/* 5: FX / Indicators */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setMenuOpen(true)}>
                   <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
+
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setShowTemplatesMenu(true)}>
+
+                {/* 6: Grid/Templates */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowTemplatesMenu(true)}>
                   <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
+
                 <View style={styles.toolbarSeparator} />
+
+                {/* 7: Settings */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
+                  <Ionicons name="settings-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                </Pressable>
+
+                <View style={styles.toolbarSeparator} />
+
+                {/* 8: Expand */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
+                  <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                </Pressable>
+
+                <View style={styles.toolbarSeparator} />
+
+                {/* 9: More */}
+                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
+                  <Ionicons name="ellipsis-vertical" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                </Pressable>
               </View>
             </ScrollView>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-
-              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8} style={{ paddingHorizontal: 4 }}>
-                <Ionicons name="settings-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
-              </Pressable>
-              <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
-                <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={isDark ? '#D1D4DC' : '#131722'} />
-              </Pressable>
-              <Pressable onPress={() => setShowMoreMenu(true)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
-                <Ionicons name="ellipsis-vertical" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
-              </Pressable>
-            </View>
           </View>
 
           <View style={{ flex: 1, flexDirection: 'row' }}>
@@ -1008,11 +1047,28 @@ export function ChartScreen() {
 
           <View style={styles.tvBottomToolbar}>
             <View style={styles.tvRangesLeft}>
-              {['1d', '5d', '1m', '6m', '1y'].map((range, idx) => (
-                <Pressable key={range} style={[styles.tvRangePill, activeDateRange === range ? styles.tvRangePillActive : null]} onPress={() => handleRangePress(range)}>
-                  <Text style={[styles.tvRangeText, activeDateRange === range ? styles.tvRangeTextActive : null]}>{range}</Text>
-                </Pressable>
-              ))}
+              <select
+                value={['1d', '5d', '1m', '6m', '1y'].includes(activeDateRange) ? activeDateRange : 'auto'}
+                onChange={(e) => handleRangePress(e.target.value)}
+                style={{
+                  backgroundColor: 'transparent',
+                  color: '#787B86',
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: '500',
+                  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  paddingLeft: 4,
+                }}
+              >
+                <option value="auto" hidden style={{ color: '#000' }}>Time Range</option>
+                <option value="1d" style={{ color: '#000' }}>1 Day</option>
+                <option value="5d" style={{ color: '#000' }}>5 Days</option>
+                <option value="1m" style={{ color: '#000' }}>1 Month</option>
+                <option value="6m" style={{ color: '#000' }}>6 Months</option>
+                <option value="1y" style={{ color: '#000' }}>1 Year</option>
+              </select>
             </View>
             <View style={styles.tvRangesRight}>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginRight: 8 }}>
@@ -1106,6 +1162,7 @@ export function ChartScreen() {
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
+        searchable
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
@@ -1209,14 +1266,16 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 20,
-      paddingTop: 6,
-      paddingBottom: 10,
+      paddingTop: 0,
+      paddingBottom: 6,
+      marginTop: -4,
     },
     symbolSection: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
       flex: 1,
+      marginTop: -8,
     },
     flagStack: {
       flexDirection: 'row',
@@ -1239,9 +1298,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     symbolText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 20,
+      fontSize: 17,
       fontWeight: '800',
-      letterSpacing: -0.3,
+      letterSpacing: 0.3,
     },
     fxBadge: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
@@ -1270,7 +1329,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 32,
+      fontSize: 17,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
       letterSpacing: -0.5,
@@ -1325,7 +1384,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitleContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 2,
     },
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
@@ -1402,7 +1460,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 10,
-      paddingVertical: 6,
+      height: 32,
       backgroundColor: isDark ? '#080C16' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
@@ -1417,7 +1475,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 1,
       height: 16,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      marginHorizontal: 10,
+      //space betweeen icon and
+      marginHorizontal: 8,
     },
     toolbarFlexSpacer: {
       flex: 1,
@@ -1477,8 +1536,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     bottomArea: {
       backgroundColor: isDark ? '#060A14' : '#FFFFFF',
       paddingHorizontal: 14,
-      paddingTop: 10,
-      paddingBottom: 8,
+      paddingTop: 12,
+      paddingBottom: 10,
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
@@ -1486,12 +1545,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F1F5F9',
       borderRadius: 8,
-      padding: 3,
-      marginBottom: 8,
+      padding: 1,
+      marginBottom: 4,
     },
     segmentBtn: {
       flex: 1,
-      paddingVertical: 6,
+      paddingVertical: 4,
       alignItems: 'center',
       borderRadius: 6,
     },
@@ -1516,7 +1575,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sentimentLabelsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 5,
+      marginBottom: 0,
     },
     sentimentLabelSell: {
       color: RED,
@@ -1532,8 +1591,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     sentimentBarRow: {
       flexDirection: 'row',
-      height: 3,
-      marginBottom: 14,
+      height: 2,
+      marginBottom: 4,
       borderRadius: 3,
       overflow: 'hidden',
       gap: 2,
@@ -1550,33 +1609,23 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     tradeControlsRow: {
       flexDirection: 'row',
-      marginBottom: 12,
-      gap: 10,
+      marginBottom: 10,
+      gap: 12,
     },
     actionBtn: {
       flex: 1,
       borderRadius: 10,
-      padding: 12,
-      paddingVertical: 12,
+      padding: 4,
+      paddingVertical: 4,
       borderWidth: 1,
     },
     actionBtnSell: {
       backgroundColor: RED,
       borderWidth: 0,
-      shadowColor: RED,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.3 : 0.2,
-      shadowRadius: 8,
-      elevation: 4,
     },
     actionBtnBuy: {
       backgroundColor: BLUE,
       borderWidth: 0,
-      shadowColor: BLUE,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.3 : 0.2,
-      shadowRadius: 8,
-      elevation: 4,
     },
     actionSpacer: {
       width: 0,
@@ -1585,7 +1634,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 4,
+      marginBottom: 0,
     },
     actionBtnLabelTitle: {
       color: '#FFFFFF',
@@ -1611,13 +1660,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
       borderRadius: 10,
-      padding: 4,
+      padding: 2,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
     lotStepperBtn: {
       width: 40,
-      height: 32,
+      height: 20,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: 6,
@@ -1631,7 +1680,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     lotValueText: {
       color: isDark ? '#E2E8F0' : '#0F172A',
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
     },
@@ -1720,7 +1769,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingVertical: 4,
       backgroundColor: isDark ? '#0F1219' : '#F8FAFC',
       borderTopWidth: 1,
       borderTopColor: isDark ? '#2A2E39' : '#E5E7EB',
@@ -1765,8 +1814,29 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tvRangeAutoText: {
       color: '#2962FF',
       fontSize: 12,
-      fontWeight: '600',
+      fontWeight: '500',
       marginLeft: 8,
     },
   });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

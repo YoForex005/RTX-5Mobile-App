@@ -1,3 +1,10 @@
+/**
+ * Deal Execution History API (V2)
+ * 
+ * Retrieves individual atomic execution records (entries and exits)
+ * that make up trading positions. Maps backend DTOs to UI models.
+ */
+
 import { apiClient } from './apiClient';
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,3 +1,11 @@
+/**
+ * Lightweight-Charts Plugin: Vertical Line Primitive
+ * 
+ * Renders a fixed absolute-time Y-Axis marker spanning across all price levels.
+ * Often used to demark specific historical news events, session boundaries, 
+ * or trade execution timestamps.
+ */
+
 import { CanvasRenderingTarget2D } from 'fancy-canvas';
 import {
 	Coordinate,

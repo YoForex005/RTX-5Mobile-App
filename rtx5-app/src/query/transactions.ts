@@ -1,3 +1,7 @@
+/**
+ * Core module: transactions.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getTransactions, TransactionsResponse } from '../api/transactions';
 

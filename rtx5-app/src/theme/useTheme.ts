@@ -1,3 +1,7 @@
+/**
+ * Global theming utility and design-system configuration: useTheme.
+ */
+
 import { useMemo } from 'react';
 import { GDark, GLight, ThemeColors } from './glass';
 import { useUserPreferences } from '../state/userPreferences';

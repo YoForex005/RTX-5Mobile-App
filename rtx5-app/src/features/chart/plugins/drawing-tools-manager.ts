@@ -1,3 +1,12 @@
+/**
+ * Lightweight-Charts Plugin: Drawing Tools Manager
+ * 
+ * Orchestrates user-driven charting primitives (Trendlines, Rectangles, VertLines) 
+ * by safely listening to canvas click events, resolving price coordinates, and 
+ * attaching/detaching the chosen plugins on the fly. Guaranteed to maintain 
+ * single-active-tool concurrency.
+ */
+
 import {
 	IChartApi,
 	ISeriesApi,

@@ -1,3 +1,10 @@
+/**
+ * Gateway Health Check Service (V2)
+ * 
+ * Defines the ping interval logic to ensure the Node JS Backend system
+ * is alive. Not used for MT5 connection checks.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Response from GET /health */

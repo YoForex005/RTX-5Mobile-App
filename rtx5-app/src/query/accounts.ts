@@ -1,3 +1,7 @@
+/**
+ * Core module: accounts.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getAccounts, getAccountById, TradingAccount, AccountsApiError } from '../api/accounts';
 

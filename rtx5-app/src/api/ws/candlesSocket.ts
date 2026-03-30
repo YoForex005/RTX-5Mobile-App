@@ -1,3 +1,7 @@
+/**
+ * Core module: candlesSocket.ts
+ */
+
 import { CandleParams } from '../../hooks/useLiveCandles';
 import { useUserPreferences } from '../../state/userPreferences';
 
@@ -10,6 +14,10 @@ type CandleSubscription = {
 type TickListener = (symbol: string, tf: string, mutatedCandles: CandleParams[]) => void;
 type ArrayListener = (symbol: string, tf: string, allCandles: CandleParams[]) => void;
 
+/**
+ * Dedicated WebSocket service for streaming real-time candlestick (OHLCV) updates.
+ * Provides nanosecond-latency bridging directly into the lightweight-charts instances.
+ */
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
   private ws: WebSocket | null = null;
@@ -40,6 +48,10 @@ export class CandlesWebSocketService {
     return CandlesWebSocketService.instance;
   }
 
+  /**
+   * Initializes the WebSocket connection for the candle feed.
+   * Automatically re-establishes active subscriptions on successful connection.
+   */
   public connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
@@ -115,6 +127,13 @@ export class CandlesWebSocketService {
     }
   }
 
+  /**
+   * Requests a live subscription for a given symbol and timeframe.
+   * Internally manages fetching initial historical data before piping live updates.
+   * 
+   * @param symbol - The market symbol (e.g. 'EURUSD')
+   * @param tf - The timeframe interval (e.g. 'M1', 'H1', 'D1')
+   */
   public subscribe(symbol: string, tf: string): void {
     if (this.activeSubscription?.symbol === symbol && this.activeSubscription?.tf === tf) {
       if (!this.isHistoryLoading && this.candleCache.length > 0) {

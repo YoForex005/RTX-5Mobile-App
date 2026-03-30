@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: TradingSignalDetailsModal
+ * 
+ * A modal that expands on "Trading Central" analytic signals, detailing
+ * specific intraday resistance/support levels and their associated price pivot points.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Image, ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';

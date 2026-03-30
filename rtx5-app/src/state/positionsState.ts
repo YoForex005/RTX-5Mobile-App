@@ -1,3 +1,7 @@
+/**
+ * Core module: positionsState.ts
+ */
+
 import { create } from 'zustand';
 import { PositionItem } from '../mock/tradingData';
 import { positionsApi, Position } from '../api/positions';

@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartTradingCalculatorScreen
+ * 
+ * Provides a mini-calculator overlay to estimate profit/loss and margin requirements
+ * based on entry price, stop-loss, take-profit, and leverage before placing a trade.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import React, { useMemo, useState } from 'react';

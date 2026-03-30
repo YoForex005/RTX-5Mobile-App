@@ -1,3 +1,10 @@
+/**
+ * Settings Feature UI: ChangePasswordSheet
+ * 
+ * Secure form component handling the rotation of either the Master or Investor 
+ * (read-only) account passwords directly coordinating with the trading server.
+ */
+
 import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';

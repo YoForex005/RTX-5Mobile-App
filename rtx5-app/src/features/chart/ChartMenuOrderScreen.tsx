@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartMenuOrderScreen
+ * 
+ * Settings panel allowing users to customize the Quick Access menu ordering
+ * for chart tools (e.g. price alerts, calculators).
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';

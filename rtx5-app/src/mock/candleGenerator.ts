@@ -1,3 +1,7 @@
+/**
+ * Core module: candleGenerator.ts
+ */
+
 export function generateMockCandles(symbol: string, timeframe: string, count: number = 200) {
   const now = Math.floor(Date.now() / 1000);
   let basePrice = 1.1000;

@@ -9,6 +9,7 @@ import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
+import { ErrorBoundary } from '../src/components/ErrorBoundary';
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
@@ -55,7 +56,7 @@ function InnerLayout() {
           }}
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
-          <Stack.Screen name='quotes/details' options={{ title: 'Quote Details' }} />
+          <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
           <Stack.Screen name='trade/order-ticket' options={{ title: 'Trade' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: 'One Click Trading' }} />
           <Stack.Screen name='trade/close-position' options={{ title: 'Close Position' }} />
@@ -165,9 +166,11 @@ export default function RootLayout() {
   }, [isLoggedIn, accountDetails?.id]);
 
   return (
-    <AppProviders>
-      <InnerLayout />
-    </AppProviders>
+    <ErrorBoundary>
+      <AppProviders>
+        <InnerLayout />
+      </AppProviders>
+    </ErrorBoundary>
   );
 }
 

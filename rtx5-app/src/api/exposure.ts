@@ -1,3 +1,10 @@
+/**
+ * Symbol Exposure & Risk API (V2)
+ * 
+ * Retrieves aggregate client volume and net exposure for specific
+ * currencies and indices. Used for risk dashboard rendering.
+ */
+
 import { apiClient } from './apiClient';
 
 /** Single exposure item from GET /api/v1/exposure */

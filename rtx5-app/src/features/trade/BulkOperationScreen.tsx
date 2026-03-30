@@ -1,3 +1,10 @@
+/**
+ * Trade Feature UI: BulkOperationScreen
+ * 
+ * Provides an interface to execute bulk actions on multiple open positions simultaneously
+ * such as "Close all profitable", "Close all losing", or "Close all".
+ */
+
 import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';

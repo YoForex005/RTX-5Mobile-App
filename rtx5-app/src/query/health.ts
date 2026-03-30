@@ -1,3 +1,7 @@
+/**
+ * Core module: health.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getHealth, HealthResponse } from '../api/health';
 

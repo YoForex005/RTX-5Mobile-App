@@ -1,24 +1,42 @@
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+/**
+ * Global reusable ActionSheet component.
+ * 
+ * Provides a native-feeling bottom sheet overlay for contextual actions.
+ * Highly configurable and typically controlled via the global `useUIState` store
+ * rather than local component state.
+ */
+import React, { useState, useEffect } from 'react';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme, ThemeColors } from '../theme/useTheme';
 import { useUserPreferences } from '../state/userPreferences';
-
 
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
   actions: Array<{ label: string; danger?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
+  searchable?: boolean;
 };
 
-export function ActionSheet({ visible, title, actions, onClose }: ActionSheetProps) {
+export function ActionSheet({ visible, title, actions, onClose, searchable }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
   const { themeMode } = useUserPreferences();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    if (visible) setQuery('');
+  }, [visible]);
 
   if (!visible) return null;
+
+  const filteredActions = searchable && query.trim()
+    ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
+    : actions;
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
@@ -30,13 +48,27 @@ export function ActionSheet({ visible, title, actions, onClose }: ActionSheetPro
         {/* Sheet */}
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          {title ? <Text style={styles.title}>{title}</Text> : null}
+          {title ? <Text style={styles.title}>{title}</Text> : <View style={{ height: 16 }} />}
+          {searchable && (
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
+              <TextInput
+                style={[styles.searchInput, { outlineStyle: 'none' } as any]}
+                placeholder="Search symbol..."
+                placeholderTextColor={T.textMuted}
+                value={query}
+                onChangeText={setQuery}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            </View>
+          )}
           <ScrollView
             style={styles.actionsScroll}
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
-            {actions.map((action, index) => (
+            {filteredActions.map((action, index) => (
               <Pressable
                 key={action.label}
                 onPress={() => {
@@ -114,6 +146,25 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderBottomWidth: 1,
       color: T.textSub,
       borderBottomColor: T.border,
+      marginBottom: 12,
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+      marginHorizontal: 16,
+      marginBottom: 12,
+      paddingHorizontal: 12,
+      height: 40,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: T.border,
+    },
+    searchInput: {
+      flex: 1,
+      color: T.text,
+      fontSize: 15,
+      height: '100%',
     },
     actionsScroll: {
       maxHeight: SCREEN_HEIGHT * 0.55,

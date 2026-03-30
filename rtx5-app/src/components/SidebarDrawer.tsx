@@ -1,3 +1,7 @@
+/**
+ * Reusable React Native UI component: SidebarDrawer.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useMemo } from 'react';

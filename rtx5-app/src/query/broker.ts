@@ -1,3 +1,7 @@
+/**
+ * Core module: broker.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { getBrokerConfig, BrokerConfigResponse, BrokerConfigError } from '../api/broker';
 

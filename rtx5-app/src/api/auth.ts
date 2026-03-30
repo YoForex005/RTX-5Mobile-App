@@ -1,3 +1,10 @@
+/**
+ * Authentication API Service (V2)
+ * 
+ * Manages user identity, registration, and session token generation against the Backend.
+ * Tokens fetched here are stored by Zustand and intercepted by `apiClient.ts`.
+ */
+
 import { apiClient, API_BASE_URL } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════

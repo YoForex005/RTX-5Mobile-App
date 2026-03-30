@@ -1,3 +1,7 @@
+/**
+ * Core module: email.ts
+ */
+
 import { useMutation } from '@tanstack/react-query';
 import { sendEmail, SendEmailRequest, SendEmailResponse } from '../api/email';
 

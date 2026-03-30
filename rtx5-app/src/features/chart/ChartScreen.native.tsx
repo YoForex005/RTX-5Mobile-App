@@ -1,3 +1,15 @@
+/**
+ * Core Charting Interface for iOS/Android
+ * 
+ * This component provides high-performance charting for mobile devices using a WebView bridge.
+ * It strictly decouples heavy data crunching from the React Native JS thread.
+ * 
+ * Key Architecture:
+ * - WebView Bridge: Injects tradingview lightweight-charts HTML/JS into an isolated web view context.
+ * - Zero-Latency Streams: Pipes WebSocket ticks directly into the WebView using injectJavaScript() and requestAnimationFrame, 
+ *   bypassing the React Native bridge's slow JSON serialization.
+ * - Micro-Components: Extracts fast-updating UI (like the live price pill) into memoized blocks isolated from the main layout.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,19 +40,21 @@ const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
   const latestTick = useLiveTick(symbol);
-  if (!latestTick) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  if (!latestTick || typeof latestTick.close !== 'number') return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
   return (
     <View style={styles.priceSection}>
       <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
-      <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
-      {candles.length >= 2 && (() => {
-        const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
+      <Text style={styles.livePriceText}>{(latestTick.close || 0).toFixed(displayDecimals)}</Text>
+      {(() => {
+        if (!candles) return null;
+        const fallbackClose = (typeof latestTick.open === 'number' ? latestTick.open : latestTick.close);
+        const prevClose = candles?.length >= 2 ? (candles[candles.length - 2]?.close ?? fallbackClose) : fallbackClose;
         const change = latestTick.close - prevClose;
         const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
         const isUp = change >= 0;
         return (
           <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
-            {isUp ? '+' : ''}{change.toFixed(displayDecimals)}  ({isUp ? '+' : ''}{pct.toFixed(2)}%)
+            {isUp ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({isUp ? '+' : ''}{(pct || 0).toFixed(2)}%)
           </Text>
         );
       })()}
@@ -82,10 +96,10 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
       }
 
       placeOrder(
-        { 
-          account_login: tradingLogin, 
-          symbol, 
-          side, 
+        {
+          account_login: tradingLogin,
+          symbol,
+          side,
           volume: Number(lotSize),
           price_sl: 0,
           price_tp: 0,
@@ -94,7 +108,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           trailing_step: 0,
           magic: 0
         },
-        { 
+        {
           onSuccess: (data: any) => {
             const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
             const state = usePositionsState.getState();
@@ -285,12 +299,13 @@ const CH_HTML = `
           volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
             color: '#26a69a',
             priceFormat: { type: 'volume' },
-            priceScaleId: '',
+            priceScaleId: 'volume',
             priceLineVisible: false,
             lastValueVisible: false,
           });
-          chart.priceScale('').applyOptions({
-            scaleMargins: { top: 0.8, bottom: 0 }
+          chart.priceScale('volume').applyOptions({
+            scaleMargins: { top: 0.9, bottom: 0 },
+            visible: false,
           });
 
           if (data && data.length > 0) {
@@ -301,12 +316,11 @@ const CH_HTML = `
                 return {
                   time: d.time,
                   value: d.volume || 0,
-                  color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+                  color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
                 };
               });
               volumeSeries.setData(volData);
             }
-            chart.timeScale().fitContent();
           }
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'CHART_READY'}));
         } catch(e) {
@@ -321,11 +335,10 @@ const CH_HTML = `
           if (volumeSeries) {
             var volData = data.map(function(d) {
               var isGreen = d.close >= d.open;
-              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)' };
+              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)' };
             });
             volumeSeries.setData(volData);
           }
-          chart.timeScale().fitContent();
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:'updateChartData: '+e.message}));
         }
@@ -341,7 +354,7 @@ const CH_HTML = `
             volumeSeries.update({
                time: tick.time,
                value: tick.volume || 0,
-               color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
+               color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
             });
           }
         } catch(e) {
@@ -361,7 +374,7 @@ const getSentimentForSymbol = (symbol: string) => {
     hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
   }
   const seed = Math.abs(hash + new Date().getDate());
-  const buyPct = 15 + (seed % 71); 
+  const buyPct = 15 + (seed % 71);
   return { buyPct, sellPct: 100 - buyPct };
 };
 
@@ -446,9 +459,10 @@ export function ChartScreen() {
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 12,
+      barSpacing: 10,
       shiftVisibleRangeOnNewBar: true,
-      fixLeftEdge: true,
-      fixRightEdge: true,
+      fixLeftEdge: false,
+      fixRightEdge: false,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
@@ -470,7 +484,7 @@ export function ChartScreen() {
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
       const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
-      
+
       // Sanitization + Deduplication to prevent LightweightCharts fatal crash
       const sanitized = candles.filter(c => c && typeof c.time === 'number' && !isNaN(c.time) && !isNaN(c.close));
       const uniqueData = Array.from(new Map(sanitized.map(item => [item.time, item])).values());
@@ -480,7 +494,7 @@ export function ChartScreen() {
       if (chartType === 'line') {
         mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
       }
-      
+
       const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
 
       if (dataSignatureRef.current !== sig) {
@@ -510,42 +524,42 @@ export function ChartScreen() {
       if (!incomingCandles || incomingCandles.length === 0 || !webViewReady) return;
 
       incomingCandles.forEach(incomingTick => {
-          const existingIdx = pendingTicks.findIndex(t => t.time === incomingTick.time);
-          if (existingIdx !== -1) {
-             pendingTicks[existingIdx] = incomingTick;
-          } else {
-             pendingTicks.push(incomingTick);
-          }
+        const existingIdx = pendingTicks.findIndex(t => t.time === incomingTick.time);
+        if (existingIdx !== -1) {
+          pendingTicks[existingIdx] = incomingTick;
+        } else {
+          pendingTicks.push(incomingTick);
+        }
       });
-      
+
       if (rAF === null) {
-         // Pure native 60fps UI injection, completely unthrottled
-         rAF = requestAnimationFrame(() => {
-           rAF = null;
-           if (!webViewRef.current || !webViewReady || pendingTicks.length === 0) return;
-           
-           const ticks = [...pendingTicks];
-           pendingTicks.length = 0;
+        // Pure native 60fps UI injection, completely unthrottled
+        rAF = requestAnimationFrame(() => {
+          rAF = null;
+          if (!webViewRef.current || !webViewReady || pendingTicks.length === 0) return;
 
-           let js = '';
-           for (const tick of ticks) {
-              if (!tick.time) continue;
-              if (lastInjectedTickTime && tick.time < lastInjectedTickTime) continue;
+          const ticks = [...pendingTicks];
+          pendingTicks.length = 0;
 
-              let tickToInject: any = tick;
-              if (chartType === 'line') {
-                tickToInject = { time: tick.time, value: tick.close };
-              }
-              js += `updateTick(${JSON.stringify(tickToInject)});`;
-              lastInjectedTickTime = tick.time;
-           }
+          let js = '';
+          for (const tick of ticks) {
+            if (!tick.time) continue;
+            if (lastInjectedTickTime && tick.time < lastInjectedTickTime) continue;
 
-           if (js.length > 0) {
-              try {
-                webViewRef.current.injectJavaScript(js + ' true;');
-              } catch (e) {}
-           }
-         });
+            let tickToInject: any = tick;
+            if (chartType === 'line') {
+              tickToInject = { time: tick.time, value: tick.close };
+            }
+            js += `updateTick(${JSON.stringify(tickToInject)});`;
+            lastInjectedTickTime = tick.time;
+          }
+
+          if (js.length > 0) {
+            try {
+              webViewRef.current.injectJavaScript(js + ' true;');
+            } catch (e) { }
+          }
+        });
       }
     };
 
@@ -565,7 +579,8 @@ export function ChartScreen() {
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
       const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
+      // Only show the most recent position to prevent cluttering the y-axis
+      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[symbolPositions.length - 1]] : [];
 
       const lines = filteredPositions.map((pos) => ({
         price: pos.openPrice,
@@ -589,7 +604,7 @@ export function ChartScreen() {
       if (activeTool === 'patterns' && candles.length > 0) {
         // Deduplicate
         const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-        
+
         uniqueData.forEach((candle) => {
           const isGreen = candle.close > candle.open;
           const isRed = candle.open > candle.close;
@@ -758,7 +773,7 @@ export function ChartScreen() {
                 </View>
               )}
 
-declare const CHART_SOURCE: any; // defined below
+              declare const CHART_SOURCE: any; // defined below
 
               <WebView
                 ref={webViewRef}
@@ -847,6 +862,7 @@ declare const CHART_SOURCE: any; // defined below
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
+        searchable
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
@@ -913,7 +929,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 14,
-      paddingVertical: 10,
+      paddingTop: 2,
+      paddingBottom: 6,
+      marginTop: -4,
       backgroundColor: isDark ? '#0B101E' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
@@ -923,6 +941,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: 10,
       flex: 1,
+      marginTop: -8,
     },
     flagStack: {
       flexDirection: 'row',
@@ -945,9 +964,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     symbolText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '800',
-      letterSpacing: -0.3,
+      letterSpacing: 0.3,
     },
     fxBadge: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
@@ -976,7 +995,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 32,
+      fontSize: 17,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
       letterSpacing: -0.5,
@@ -1025,7 +1044,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitleContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 4,
       marginRight: 10,
     },
     headerTitleText: {
@@ -1152,8 +1170,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     bottomArea: {
       backgroundColor: isDark ? '#060A14' : '#FFFFFF',
       paddingHorizontal: 14,
-      paddingTop: 10,
-      paddingBottom: 8,
+      paddingTop: 4,
+      paddingBottom: 0,
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
@@ -1161,12 +1179,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F1F5F9',
       borderRadius: 8,
-      padding: 3,
-      marginBottom: 8,
+      padding: 1,
+      marginBottom: 4,
     },
     segmentBtn: {
       flex: 1,
-      paddingVertical: 6,
+      paddingVertical: 4,
       alignItems: 'center',
       borderRadius: 6,
     },
@@ -1191,7 +1209,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sentimentLabelsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 5,
+      marginBottom: 0,
     },
     sentimentLabelSell: {
       color: RED,
@@ -1207,8 +1225,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     sentimentBarRow: {
       flexDirection: 'row',
-      height: 3,
-      marginBottom: 12,
+      height: 2,
+      marginBottom: 4,
       borderRadius: 3,
       overflow: 'hidden',
       gap: 2,
@@ -1225,14 +1243,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     tradeControlsRow: {
       flexDirection: 'row',
-      marginBottom: 10,
-      gap: 10,
+      marginBottom: 4,
+      gap: 6,
     },
     actionBtn: {
       flex: 1,
       borderRadius: 10,
-      padding: 12,
-      paddingVertical: 12,
+      padding: 6,
+      paddingVertical: 6,
       borderWidth: 1,
     },
     actionBtnSell: {

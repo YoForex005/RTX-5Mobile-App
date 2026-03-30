@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ObjectsScreen
+ * 
+ * Manages user-drawn chart objects. Allows locking/unlocking, showing/hiding,
+ * and deleting stored persistent chart drawings (like trendlines and fib retracements).
+ */
+
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';

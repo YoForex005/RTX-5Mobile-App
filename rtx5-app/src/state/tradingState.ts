@@ -1,37 +1,70 @@
+/**
+ * Core module: tradingState.ts
+ */
+
 import { create } from 'zustand';
 import { QuoteItem } from '../mock/tradingData';
 
+/** Represents a single financial timeframe segment (a candlestick). */
 export type Candle = {
+  /** Unix timestamp (in seconds) representing the start of the timeframe period */
   time: number;
+  /** Price at the moment the candle opened */
   open: number;
+  /** Highest price reached during the timeframe */
   high: number;
+  /** Lowest price reached during the timeframe */
   low: number;
+  /** Price at the moment the candle closed (or current price if active) */
   close: number;
+  /** Total traded volume (or tick count) during the timeframe */
   volume: number;
 };
 
+/** High-level overview of the trading account's equity and margin usage. */
 export type AccountSummary = {
+  /** Unrealized profit or loss across all open positions */
   floating: number;
+  /** Base currency code for the account (e.g., 'USD', 'EUR') */
   currency: string;
+  /** Settled cash balance excluding open positions */
   balance: number;
+  /** Total value of the account (balance + floating PnL) */
   equity: number;
+  /** Margin funds locked by open positions */
   margin: number;
+  /** Available margin funds for opening new positions */
   freeMargin: number;
+  /** Margin health indicator (equity / margin * 100) */
   marginLevel: number;
+  /** Optional credit or bonus funds provided by the broker */
   credit?: number;
 };
 
+/**
+ * Global Zustand store managing real-time market data (quotes and candles) 
+ * and generic account summaries.
+ */
 type TradingState = {
+  /** Dictionary of live quotes keyed by symbol (e.g., 'EURUSD') */
   quotes: Record<string, QuoteItem>;
-  tickCount: number; // Primitive counter — increments on every live tick for reliable React 19 re-renders
+  /** Primitive counter — increments on every live tick for reliable React 19 re-renders */
+  tickCount: number; 
+  /** Current account summary snapshot */
   account: AccountSummary | null;
-  candles: Record<string, Candle[]>; // Keyed by "Symbol.Timeframe" e.g. "EURUSD.H1"
+  /** Dictionary of historic/live candles Keyed by "Symbol.Timeframe" e.g. "EURUSD.H1" */
+  candles: Record<string, Candle[]>; 
 
+  /** Updates or merges quote data for a specific symbol */
   setQuote: (symbol: string, data: Partial<QuoteItem>) => void;
+  /** Updates the overall account summary */
   setAccount: (data: Partial<AccountSummary>) => void;
+  /** Completely replaces the candle history list for a specific symbol/timeframe pair */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
+  /** Appends a new candle or updates the terminal (active) candle in real-time */
   updateCandle: (symbol: string, timeframe: string, candle: Candle) => void;
 };
+
 
 export const useTradingState = create<TradingState>((set) => ({
   quotes: {},

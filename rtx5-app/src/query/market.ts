@@ -1,3 +1,7 @@
+/**
+ * Core module: market.ts
+ */
+
 import { useQuery } from '@tanstack/react-query';
 
 export function useMarketSymbols() {

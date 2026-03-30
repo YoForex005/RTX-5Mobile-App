@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartOpenOrderModeScreen
+ * 
+ * Allows users to toggle their preferred order entry mode directly from the chart:
+ * Regular, Risk Calculator, or One-Click trading.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';

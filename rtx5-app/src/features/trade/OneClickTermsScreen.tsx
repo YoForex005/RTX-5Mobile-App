@@ -1,3 +1,10 @@
+/**
+ * Trade Feature UI: OneClickTermsScreen
+ * 
+ * Disclaimer and terms acceptance screen for enabling "One-Click Trading"
+ * which bypasses the standard confirmation prompts for faster execution.
+ */
+
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';

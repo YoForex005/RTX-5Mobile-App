@@ -1,3 +1,14 @@
+/**
+ * Core HTTP Interceptor & API Client
+ * 
+ * Centralized fetch wrapper responsible for communicating with the V2 REST Backend.
+ * It automatically injects the `Authorization: Bearer` JWT into all outbound requests.
+ * Most importantly, it manages a robust cyclic Token Refresh Queue: if a request fails 
+ * with a 401 Unauthorized, it pauses all inflight requests, silent-renews the tokens 
+ * in the background using the refresh token, and replays the failed initial requests 
+ * without logging the user out or dropping data.
+ */
+
 import { useUserPreferences } from '../state/userPreferences';
 
 // V2 API base URL

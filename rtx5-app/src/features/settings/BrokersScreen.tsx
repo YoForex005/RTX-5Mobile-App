@@ -1,3 +1,11 @@
+/**
+ * Settings Feature UI: BrokersScreen
+ * 
+ * A searchable directory of supported brokers, allowing users to browse 
+ * broker profiles, verify regulation status, and initiate a new Live or Demo 
+ * connection routing to the Accounts screen.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';

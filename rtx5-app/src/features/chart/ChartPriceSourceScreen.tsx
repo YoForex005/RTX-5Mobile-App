@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartPriceSourceScreen
+ * 
+ * Preferences screen to define whether the primary chart line renders the Bid
+ * or the Ask price stream from the WebSocket.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';

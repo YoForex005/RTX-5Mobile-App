@@ -1,3 +1,10 @@
+/**
+ * Chart Feature UI: ChartColorsScreen
+ * 
+ * Provides an interface for customizing the colors of diverse chart components
+ * including candlesticks, hollow candles, bars, and line graphs.
+ */
+
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';

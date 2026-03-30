@@ -1,3 +1,7 @@
+/**
+ * Core module: accountSocket.ts
+ */
+
 import { useUserPreferences } from '../../state/userPreferences';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
@@ -24,6 +28,10 @@ class AccountWebSocketService {
     return AccountWebSocketService.instance;
   }
 
+  /**
+   * Initializes the WebSocket connection to the account feed.
+   * If already connected or connecting, this is a no-op.
+   */
   public connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
@@ -108,6 +116,10 @@ class AccountWebSocketService {
     }
   }
 
+  /**
+   * Forcefully closes the connection, clears active heartbeat intervals, 
+   * and resets the live account state to zeros.
+   */
   public disconnect(): void {
     if (this.ws) {
       this.stopHeartbeat();
