@@ -46,11 +46,9 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }
   return (
     <View style={styles.priceSection}>
       <Text style={{ color: '#94A3B8', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
-      <Text style={styles.livePriceText}>{(latestTick.close || 0).toFixed(displayDecimals)}</Text>
-      {(() => {
-        if (!candles) return null;
-        const fallbackClose = (typeof latestTick.open === 'number' ? latestTick.open : latestTick.close);
-        const prevClose = candles?.length >= 2 ? (candles[candles.length - 2]?.close ?? fallbackClose) : fallbackClose;
+      <Text style={styles.livePriceText}>{latestTick.close.toFixed(displayDecimals)}</Text>
+      {candles.length >= 2 && (() => {
+        const prevClose = candles[candles.length - 2]?.close ?? latestTick.close;
         const change = latestTick.close - prevClose;
         const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
         const isUp = change >= 0;
@@ -176,10 +174,10 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
   const latestTick = useLiveTick(symbol);
-  if (!latestTick || typeof latestTick.close !== 'number' || !candles || candles.length < 2) return null;
+  if (!latestTick || candles.length < 2) return null;
 
-  const latestBid = latestTick.close || 0;
-  const isUp = latestBid >= (candles[candles.length - 2]?.close ?? latestBid);
+  const latestBid = latestTick.close;
+  const isUp = latestBid >= candles[candles.length - 2]?.close;
 
   return (
     <View style={styles.tvLegendContainer} pointerEvents="box-none">
@@ -311,6 +309,24 @@ const mapTf = (tf: string) => {
   return tf;
 };
 
+const normalizeTimeframe = (timeframe: string) => {
+  const tf = timeframe.trim().toUpperCase();
+  const aliases: Record<string, string> = {
+    '1M': 'M1',
+    '5M': 'M5',
+    '15M': 'M15',
+    '30M': 'M30',
+    '1H': 'H1',
+    '4H': 'H4',
+    '1D': 'D1',
+    '1W': 'W1',
+    '1MO': 'MN',
+    MN: 'MN',
+  };
+
+  return aliases[tf] ?? tf;
+};
+
 /** Format a Unix timestamp into a short time label for the x-axis */
 const formatXLabel = (time: number, tf: string): string => {
   const d = new Date(time * 1000);
@@ -320,6 +336,12 @@ const formatXLabel = (time: number, tf: string): string => {
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
+};
+
+const getLastCandleSignature = (candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume?: number }>) => {
+  const candle = candles[candles.length - 1];
+  if (!candle) return '';
+  return `${candle.time}:${candle.open}:${candle.high}:${candle.low}:${candle.close}:${candle.volume ?? 0}`;
 };
 
 
@@ -361,6 +383,8 @@ export function ChartScreen() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const lastCandleLengthRef = useRef(0);
+  const lastRenderedCandleSignatureRef = useRef('');
 
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'hollow'>('candles');
@@ -444,10 +468,10 @@ export function ChartScreen() {
           return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         },
         rightOffset: 12,
-        barSpacing: 10,
+        barSpacing: 4,
         shiftVisibleRangeOnNewBar: true,
-        fixLeftEdge: false,
-        fixRightEdge: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
       rightPriceScale: {
         borderColor: isDark ? '#2A2E39' : '#E0E3EB',
@@ -614,7 +638,13 @@ export function ChartScreen() {
   useEffect(() => {
     if (seriesRef.current && candles.length > 0) {
       const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
-      if (dataSignatureRef.current !== sig) {
+      const lastCandleSignature = getLastCandleSignature(candles);
+      const shouldReloadSeries =
+        dataSignatureRef.current !== sig ||
+        candles.length !== lastCandleLengthRef.current ||
+        lastCandleSignature !== lastRenderedCandleSignatureRef.current;
+
+      if (shouldReloadSeries) {
         try {
           // Deduplicate by time strictly for lightweight-charts
           const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
@@ -640,6 +670,8 @@ export function ChartScreen() {
           }
 
           dataSignatureRef.current = sig;
+          lastCandleLengthRef.current = candles.length;
+          lastRenderedCandleSignatureRef.current = lastCandleSignature;
         } catch (e) {
           // Chart might be disposed
         }
@@ -662,8 +694,7 @@ export function ChartScreen() {
 
     // Filter positions for current symbol and draw
     const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-    // Only show the most recent position to prevent cluttering the y-axis
-    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[symbolPositions.length - 1]] : [];
+    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
 
     filteredPositions.forEach((pos) => {
       try {
@@ -756,6 +787,7 @@ export function ChartScreen() {
 
     const handleRawTick = (sym: string, tf: string, incomingCandles: any[]) => {
       if (sym.toUpperCase() !== chartSymbol.toUpperCase()) return;
+      if (normalizeTimeframe(tf) !== normalizeTimeframe(chartTimeframe)) return;
       const tick = incomingCandles[incomingCandles.length - 1];
       if (!tick) return;
 
@@ -776,7 +808,7 @@ export function ChartScreen() {
         candlesWsService.removeTickListener(handleRawTick);
       });
     };
-  }, [chartSymbol, chartType]);
+  }, [chartSymbol, chartTimeframe, chartType]);
 
   const CHART_HEIGHT = chartLayout.height;
 
@@ -908,7 +940,6 @@ export function ChartScreen() {
                 <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setMenuOpen(true)}>
                   <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
-
                 <View style={styles.toolbarSeparator} />
 
                 {/* 6: Grid/Templates */}
@@ -1162,7 +1193,6 @@ export function ChartScreen() {
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
-        searchable
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),

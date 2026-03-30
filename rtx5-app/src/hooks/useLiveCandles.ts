@@ -18,6 +18,24 @@ export type CandleParams = {
   volume?: number;
 };
 
+const normalizeTimeframe = (timeframe: string) => {
+  const tf = timeframe.trim().toUpperCase();
+  const aliases: Record<string, string> = {
+    '1M': 'M1',
+    '5M': 'M5',
+    '15M': 'M15',
+    '30M': 'M30',
+    '1H': 'H1',
+    '4H': 'H4',
+    '1D': 'D1',
+    '1W': 'W1',
+    '1MO': 'MN',
+    MN: 'MN',
+  };
+
+  return aliases[tf] ?? tf;
+};
+
 /**
  * Provides live OHLC candles by subscribing to the unified WebSocket/REST feed.
  * Natively throttles React rerender to exactly 1 per minute/period to avoid freezing ChartScreen.
@@ -37,8 +55,9 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     const handleArrayUpdate = (incomingSymbol: string, incomingTf: string, fullArray: CandleParams[]) => {
       if (unmounted) return;
       if (incomingSymbol.toUpperCase() !== symbol.toUpperCase()) return;
+      if (normalizeTimeframe(incomingTf) !== normalizeTimeframe(timeframe)) return;
 
-      // Throttle array updates to prevent UI unresponsiveness, especially during initialization
+      // Keep UI updates near-real-time without flooding React on bursty feeds.
       pendingCandlesRef.current = fullArray;
       if (!flushTimeoutRef.current) {
         flushTimeoutRef.current = setTimeout(() => {
@@ -46,7 +65,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
             setCandles([...pendingCandlesRef.current]);
           }
           flushTimeoutRef.current = null;
-        }, 150);
+        }, 16);
       }
     };
 
@@ -67,7 +86,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
  * Highly optimized decoupled micro-hook strictly for standalone price UI components (e.g. flashing text labels).
  * Guaranteed to run isolated from ChartScreen DOM depth, preventing memory leaks over hour-long trading runs.
  */
-export function useLiveTick(symbol: string) {
+export function useLiveTick(symbol: string, timeframe?: string) {
   const [tick, setTick] = useState<CandleParams | null>(null);
   const pendingTickRef = useRef<CandleParams | null>(null);
   const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,6 +97,7 @@ export function useLiveTick(symbol: string) {
     const handleTick = (incomingSymbol: string, incomingTf: string, mutatedCandles: CandleParams[]) => {
       if (unmounted) return;
       if (incomingSymbol.toUpperCase() !== symbol.toUpperCase()) return;
+      if (timeframe && normalizeTimeframe(incomingTf) !== normalizeTimeframe(timeframe)) return;
       if (mutatedCandles.length > 0) {
         pendingTickRef.current = mutatedCandles[mutatedCandles.length - 1];
         if (!flushTimeoutRef.current) {
@@ -86,7 +106,7 @@ export function useLiveTick(symbol: string) {
               setTick({ ...pendingTickRef.current });
             }
             flushTimeoutRef.current = null;
-          }, 150);
+          }, 16);
         }
       }
     };
@@ -97,7 +117,7 @@ export function useLiveTick(symbol: string) {
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       candlesWsService.removeTickListener(handleTick);
     };
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   return tick;
 }

@@ -43,19 +43,23 @@ export function TradePositionRow({
   const quotesStore = useMarketData([item.symbol]);
   const liveQuote = quotesStore[item.symbol];
   
-  // Real bids and asks mapping from the raw WebSocket
-  const liveBid = liveQuote?.bid || item.currentPrice;
-  const liveAsk = liveQuote?.ask || liveBid + (item.symbol.includes('JPY') ? 0.015 : 0.00015);
+  // Real bids and asks mapping from the raw WebSocket, with extreme defensive fallback chains
+  const fallbackBid = typeof item.currentPrice === 'number' && !isNaN(item.currentPrice) ? item.currentPrice : item.openPrice;
+  const liveBid = typeof liveQuote?.bid === 'number' && !isNaN(liveQuote.bid) ? liveQuote.bid : fallbackBid;
+  
+  const fallbackAsk = liveBid + (item.symbol.includes('JPY') ? 0.015 : 0.00015);
+  const liveAsk = typeof liveQuote?.ask === 'number' && !isNaN(liveQuote.ask) ? liveQuote.ask : fallbackAsk;
   
   // For Buy positions, we close at the Bid price. For Sell positions, we close at the Ask price.
-  const livePrice = isBuy ? liveBid : liveAsk;
+  const rawLivePrice = isBuy ? liveBid : liveAsk;
+  const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : item.openPrice;
 
-  // Calculate live floating P&L using standard FX contract math
+  // Calculate live floating P&L using standard FX contract math safely
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5;
   const contractSize = isJpy ? 1000 : 100000;
   const priceDiff = isBuy ? (livePrice - item.openPrice) : (item.openPrice - livePrice);
-  const livePnl = priceDiff * (item.volume || 0.01) * contractSize;
+  const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (item.volume || 0.01) * contractSize) : 0;
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -112,9 +116,13 @@ export function TradePositionRow({
 
         <View style={styles.priceRow}>
           <View style={styles.priceLeft}>
-            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(item.openPrice, decimals)}</Text>
+            <Text style={[styles.price, { color: T.textSub }]}>
+              {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
+            </Text>
             <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
-            <Text style={[styles.price, { color: T.textSub }]}>{fmt.price(livePrice, decimals)}</Text>
+            <Text style={[styles.price, { color: T.textSub }]}>
+              {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
+            </Text>
           </View>
           <Text style={[styles.dateRight, { color: T.textSub }]}>
             {item.openTime.substring(0, 19).replace('T', '   ')}

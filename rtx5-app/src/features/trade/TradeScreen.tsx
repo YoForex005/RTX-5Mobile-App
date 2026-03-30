@@ -21,6 +21,7 @@ import { PositionItem } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
+import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
@@ -30,7 +31,7 @@ import { useUIState } from '../../state/uiState';
 import { useMarketData } from '../../query/websocket';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
-const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark }: any) => {
+const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
   const activeSymbols = useMemo(() => Array.from(new Set(positions.map((p: any) => p.symbol))) as string[], [positions]);
   const quotesStore = useMarketData(activeSymbols);
 
@@ -38,23 +39,28 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark }
     let total = 0;
     positions.forEach((p: any) => {
       const liveQuote = quotesStore[p.symbol];
-      const liveBid = liveQuote?.bid || p.currentPrice;
-      const liveAsk = liveQuote?.ask || liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
+      const fallbackBid = typeof p.currentPrice === 'number' && !isNaN(p.currentPrice) ? p.currentPrice : p.openPrice;
+      const liveBid = typeof liveQuote?.bid === 'number' && !isNaN(liveQuote.bid) ? liveQuote.bid : fallbackBid;
+      const fallbackAsk = liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
+      const liveAsk = typeof liveQuote?.ask === 'number' && !isNaN(liveQuote.ask) ? liveQuote.ask : fallbackAsk;
       const isBuy = p.side === 'buy';
-      const livePrice = isBuy ? liveBid : liveAsk;
+      const rawLivePrice = isBuy ? liveBid : liveAsk;
+      const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : p.openPrice;
       
       const isJpy = p.symbol.includes('JPY');
       const contractSize = isJpy ? 1000 : 100000;
       const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
-      const livePnl = priceDiff * (p.volume || 0.01) * contractSize;
-      total += livePnl;
+      const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (p.volume || 0.01) * contractSize) : 0;
+      if (Number.isFinite(livePnl)) total += livePnl;
     });
     return total;
   }, [positions, quotesStore]);
 
   // Use dynamic floating to infer true Equity and Margin Level based on Balance and used Margin.
-  const dynamicEquity = (account.balance || 0) + dynamicFloating;
-  const dynamicMarginLevel = account.margin > 0 ? (dynamicEquity / account.margin) * 100 : 0;
+  const safeBalance = Number.isFinite(account.balance) ? account.balance : 0;
+  const safeMargin = Number.isFinite(account.margin) ? account.margin : 0;
+  const dynamicEquity = safeBalance + dynamicFloating;
+  const dynamicMarginLevel = safeMargin > 0 ? (dynamicEquity / safeMargin) * 100 : 0;
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -69,81 +75,116 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark }
   }, [pulseAnim]);
 
   return (
-    <View style={[s.summaryBlock, isDark && {
-      backgroundColor: 'rgba(15, 23, 42, 0.7)',
-      shadowColor: '#2563EB',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 16,
-      elevation: 4,
-    }]}>
-      <View style={s.summaryTop}>
-        <View style={s.plSection}>
-          <Text style={[s.summaryLabel, { color: T.text }]}>UNREALIZED P/L</Text>
-          <View style={s.floatingRow}>
-            <Animated.Text style={[s.floating, { color: dynamicFloating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
-              {fmt.pnl(dynamicFloating)}
-            </Animated.Text>
-          </View>
-          <View style={s.plMeta}>
-            <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(dynamicMarginLevel)}%</Text>
-          </View>
-        </View>
-        <View style={s.balanceQuick}>
-          <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>BALANCE</Text>
-          <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(account.balance)}</Text>
-          <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency}</Text>
-        </View>
-      </View>
-
-      <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
-        <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-          <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
+    <>
+      <View style={[s.summaryBlock, isDark && {
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        shadowColor: '#2563EB',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        elevation: 4,
+      }]}>
+        <View style={s.summaryTop}>
+          <View style={s.plSection}>
+            <Text style={[s.summaryLabel, { color: T.text }]}>UNREALIZED P/L</Text>
+            <View style={s.floatingRow}>
+              <Animated.Text style={[s.floating, { color: dynamicFloating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
+                {fmt.pnl(dynamicFloating)}
+              </Animated.Text>
             </View>
-            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(account.margin, 3)}</Text>
-          </View>
-          <View style={s.gridCol}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
+            <View style={s.plMeta}>
+              <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(dynamicMarginLevel)}%</Text>
             </View>
-            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(account.freeMargin, 3)}</Text>
+          </View>
+          <View style={s.balanceQuick}>
+            <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>BALANCE</Text>
+            <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(safeBalance)}</Text>
+            <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency || 'USD'}</Text>
           </View>
         </View>
 
-        <View style={s.gridRow}>
-          <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-              <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
+        <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
+          <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+            <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
+              </View>
+              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
+                {fmt.decimal(safeMargin, 3)}
+              </Text>
             </View>
-            <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(dynamicMarginLevel, 3)}</Text>
+            <View style={s.gridCol}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
+              </View>
+              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
+                {fmt.decimal(Number.isFinite(account.freeMargin) ? account.freeMargin : 0, 3)}
+              </Text>
+            </View>
           </View>
-          <View style={s.gridCol}>
-            {account.credit > 0 ? (
-              <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                  <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
-                </View>
-                <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(account.credit)}</Text>
-              </>
-            ) : (
-              <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                  <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
-                </View>
-                <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(dynamicEquity)}</Text>
-              </>
-            )}
+
+          <View style={s.gridRow}>
+            <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
+              </View>
+              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(dynamicMarginLevel, 3)}</Text>
+            </View>
+            <View style={s.gridCol}>
+              {account.credit > 0 ? (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                    <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
+                  </View>
+                  <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
+                    {fmt.int(Number.isFinite(account.credit) ? account.credit : 0)}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
+                    <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
+                  </View>
+                  <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(dynamicEquity)}</Text>
+                </>
+              )}
+            </View>
           </View>
         </View>
       </View>
-    </View>
+
+      <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
+        <View style={s.positionsHeaderLeft}>
+          <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
+          <View>
+            <View style={s.positionsTitleRow}>
+              <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
+              {positions.length > 0 && (
+                <View style={[s.totalPnlBadge, { backgroundColor: dynamicFloating >= 0 ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }]}>
+                  <Text style={[s.totalPnlText, { color: dynamicFloating >= 0 ? T.up : T.down }]}>
+                    {fmt.pnl(dynamicFloating)}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={[s.positionsMeta, { color: T.textMuted }]}>
+              {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={onBulkPress}
+          style={({ pressed }) => [s.bulkButton, { borderColor: T.border, backgroundColor: T.glass1 }, pressed && { backgroundColor: T.glass3 }]}
+        >
+          <Text style={[s.bulkButtonText, { color: T.textMuted }]}>Bulk</Text>
+        </Pressable>
+      </View>
+    </>
   );
 });
 
@@ -191,15 +232,19 @@ export function TradeScreen() {
     }, [fetchPositions])
   );
 
-  // pulseAnim has been moved to LiveUnrealizedPnLHeader
-
+    const tradingAccount = useTradingState((state: any) => state.account);
   const liveAcc = useLiveAccountState();
   const account = {
-    balance: liveAcc.balance || 0, credit: 0, floating: liveAcc.floating || 0, equity: liveAcc.equity || 0,
-    margin: liveAcc.margin || 0, freeMargin: liveAcc.margin_free || 0, marginLevel: liveAcc.margin_level || 0, currency: 'USD',
+    balance: liveAcc.balance || 0, 
+    credit: tradingAccount?.credit || 0, 
+    floating: liveAcc.floating || 0, 
+    equity: liveAcc.equity || 0,
+    margin: liveAcc.margin || 0, 
+    freeMargin: liveAcc.margin_free || 0, 
+    marginLevel: liveAcc.margin_level || 0, 
+    currency: tradingAccount?.currency || 'USD',
   };
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
-  const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
 
   const showBulkSheet = () => {
     showActionSheet({
@@ -245,37 +290,18 @@ export function TradeScreen() {
         ListHeaderComponent={(
           <>
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>Trade</Text>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
             
-            <LiveUnrealizedPnLHeader positions={positions} account={account} s={s} T={T} isDark={isDark} />
-
-            <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
-              <View style={s.positionsHeaderLeft}>
-                <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
-                <View>
-                  <View style={s.positionsTitleRow}>
-                    <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
-                    {positions.length > 0 && (
-                      <View style={[s.totalPnlBadge, { backgroundColor: totalPnl >= 0 ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }]}>
-                        <Text style={[s.totalPnlText, { color: totalPnl >= 0 ? T.up : T.down }]}>
-                          {fmt.pnl(totalPnl)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[s.positionsMeta, { color: T.textMuted }]}>
-                    {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={showBulkSheet}
-                style={({ pressed }) => [s.bulkButton, { borderColor: T.border, backgroundColor: T.glass1 }, pressed && { backgroundColor: T.glass3 }]}
-              >
-                <Text style={[s.bulkButtonText, { color: T.textMuted }]}>Bulk</Text>
-              </Pressable>
-            </View>
+            <LiveUnrealizedPnLHeader 
+               positions={positions} 
+               account={account} 
+               s={s} 
+               T={T} 
+               isDark={isDark} 
+               totalVolume={totalVolume} 
+               onBulkPress={showBulkSheet}
+            />
           </>
         )}
         renderItem={({ item }) => (

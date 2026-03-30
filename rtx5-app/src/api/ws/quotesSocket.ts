@@ -3,6 +3,7 @@
  */
 
 import { useTradingState } from '../../state/tradingState';
+import { AppState, NativeEventSubscription } from 'react-native';
 
 /**
  * High-frequency WebSocket service delivering minimal-latency Bid/Ask quote ticks.
@@ -19,9 +20,35 @@ export class QuotesWebSocketService {
 
   private activeSymbols: Set<string> = new Set();
   private pendingUpdates: Map<string, any> = new Map();
-  private flushTimer: number | null = null;
+  private flushTimer: NodeJS.Timeout | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private appStateSubscription: NativeEventSubscription | null = null;
+  private lastMessageAt: number = Date.now();
+  private watchdogInterval: NodeJS.Timeout | null = null;
 
-  private constructor() {}
+  private constructor() {
+    this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('[Quotes WS] App wake up detected. Reconnecting feed...');
+        this.triggerInvisibleReconnect();
+      }
+    });
+  }
+
+  private triggerInvisibleReconnect() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.stopHeartbeat();
+    this.stopWatchdog();
+    setTimeout(() => {
+      this.reconnectAttempts = 0;
+      this.connect();
+    }, 500);
+  }
 
   public static getInstance(): QuotesWebSocketService {
     if (!QuotesWebSocketService.instance) {
@@ -49,6 +76,11 @@ export class QuotesWebSocketService {
         console.log('[Quotes WS] Connected to', this.url);
         this.isConnected = true;
         this.reconnectAttempts = 0;
+        this.lastMessageAt = Date.now();
+        
+        this.startHeartbeat();
+        this.startWatchdog();
+
         if (this.activeSymbols.size > 0) {
           this.sendSubscription();
         }
@@ -56,8 +88,8 @@ export class QuotesWebSocketService {
 
       this.ws.onmessage = (event) => {
         try {
+          this.lastMessageAt = Date.now();
           const payload = JSON.parse(event.data as string);
-          // Apply ticks IMMEDIATELY — zero buffering, zero delay
           this.applyPayload(payload);
         } catch (e) {
           console.warn('[Quotes WS] Parse error', e);
@@ -66,6 +98,8 @@ export class QuotesWebSocketService {
 
       this.ws.onclose = () => {
         console.log('[Quotes WS] Closed');
+        this.stopHeartbeat();
+        this.stopWatchdog();
         this.isConnected = false;
         this.ws = null;
         this.cancelFlush();
@@ -83,11 +117,50 @@ export class QuotesWebSocketService {
 
   public disconnect(): void {
     this.cancelFlush();
+    this.stopHeartbeat();
+    this.stopWatchdog();
     if (this.ws) {
       this.activeSymbols.clear();
       this.ws.close();
       this.ws = null;
       this.isConnected = false;
+    }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdogInterval = setInterval(() => {
+      if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.activeSymbols.size === 0) return;
+      
+      const staleFor = Date.now() - this.lastMessageAt;
+      if (staleFor > 35000) {
+        console.warn(`[Quotes WS] Silent TCP drop detected (${Math.round(staleFor/1000)}s). Healing invisibly...`);
+        this.triggerInvisibleReconnect();
+      }
+    }, 10000);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
     }
   }
 
@@ -167,7 +240,7 @@ export class QuotesWebSocketService {
     }
 
     if (hasUpdates) {
-      this.flushUpdates();
+      this.scheduleFlush();
     }
   }
 
@@ -180,12 +253,18 @@ export class QuotesWebSocketService {
   }
 
   private scheduleFlush(): void {
-    // No-op: we now flush synchronously in applyPayload for nanosecond latency
+    if (!this.flushTimer) {
+      // Throttle updates to roughly 60FPS to prevent JS thread locking
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = null;
+        this.flushUpdates();
+      }, 16);
+    }
   }
 
   private cancelFlush(): void {
     if (this.flushTimer !== null) {
-      cancelAnimationFrame(this.flushTimer);
+      clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     this.pendingUpdates.clear();

@@ -116,14 +116,14 @@ export function HistoryScreen() {
   const liveAcc = useLiveAccountState();
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
   const balance = liveAcc.balance || 0;
-  const currency = accountDetails?.currency || 'USD';
+  const currency = 'USD';
 
   // Calculate actual history summary stats from the raw API payload
   const closedSwap = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.swap || 0), 0), [rawPositionHistory]);
   const closedCommission = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.commission || 0), 0), [rawPositionHistory]);
   const rawClosedProfit = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.profit || 0), 0), [rawPositionHistory]);
   const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
-  
+
   // Approximate initial deposit using current balance & realized PNL
   const deposit = balance - totalClosedPnl;
 
@@ -132,7 +132,7 @@ export function HistoryScreen() {
   const baseData = useMemo<HistoryRow[]>(() => {
     if (tab === 'Orders') return historyOrders; // No dedicated orders history endpoint yet
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
-    
+
     // User requested History -> Positions to show Open Positions with live prices ticking
     const openRows = rawPositions.map((p) => {
       const liveQuote = quotesStore[p.symbol];
@@ -140,7 +140,7 @@ export function HistoryScreen() {
       const liveAsk = liveQuote?.ask || liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
       const isBuy = p.side === 'buy';
       const livePrice = isBuy ? liveBid : liveAsk;
-      
+
       const isJpy = p.symbol.includes('JPY');
       const decimals = isJpy ? 3 : 5;
       const contractSize = isJpy ? 1000 : 100000;
@@ -156,7 +156,7 @@ export function HistoryScreen() {
         profit: livePnl,
       };
     });
-    
+
     return openRows;
   }, [tab, rawPositions, rawDeals, quotesStore]);
 
@@ -203,9 +203,9 @@ export function HistoryScreen() {
                   <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
                 </View>
               </View>
-              <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
-                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+              <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="scan-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
@@ -221,8 +221,8 @@ export function HistoryScreen() {
                   </View>
                 </View>
 
-                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="pulse-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
@@ -239,14 +239,14 @@ export function HistoryScreen() {
                 </View>
 
                 <View style={styles.gridRow}>
-                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+                  <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="options-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
                   </View>
-                  <Pressable 
+                  <Pressable
                     style={styles.gridCol}
                     onPress={() => router.push('/history/filter')}
                   >
@@ -264,7 +264,7 @@ export function HistoryScreen() {
             <View style={styles.topBlock}>
               <View style={styles.topControlsRow}>
                 <Pressable style={styles.iconButton} onPress={() => showActionSheet({ title: 'Sort By', actions: SORT_OPTIONS.map((option) => ({ label: option === sortBy ? `${option} ✓` : option, onPress: () => setSortBy(option) })) })}>
-                  <Ionicons name='swap-vertical-outline' size={17} color={T.textSub} />
+                  <Ionicons name='swap-vertical-outline' size={20} color={T.text} />
                 </Pressable>
 
                 <View style={styles.segment}>
@@ -280,18 +280,18 @@ export function HistoryScreen() {
                 </View>
 
                 <Pressable style={styles.iconButton} onPress={() => router.push('/history/filter')}>
-                  <Ionicons name='time-outline' size={17} color={T.textSub} />
+                  <Ionicons name='time-outline' size={20} color={T.text} />
                 </Pressable>
               </View>
 
               <View style={styles.metricsRow}>
-                <MetricPill 
-                  label='Range' 
-                  value={historyRange} 
-                  icon='calendar-outline' 
-                  tone='neutral' 
-                  T={T} 
-                  isDark={isDark} 
+                <MetricPill
+                  label='Range'
+                  value={historyRange}
+                  icon='calendar-outline'
+                  tone='neutral'
+                  T={T}
+                  isDark={isDark}
                   onPress={() => router.push('/history/filter')}
                 />
                 <MetricPill
@@ -336,23 +336,20 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
       rStyles.rowCard,
       {
         backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg,
-        borderColor: T.border,
-        borderLeftColor: isBuy ? T.trading.buy.primary : isSell ? T.trading.sell.primary : T.border,
+        borderColor: isDark ? T.border : T.borderSubtle,
       },
       !isDark && rStyles.cardShadowLight,
       isDark && rStyles.cardShadowDark,
     ]}>
-      <Text style={[rStyles.cornerId, { color: T.textMuted }]}>#{extractTicket(item.id)}</Text>
       <View style={rStyles.rowBody}>
+        <Text style={[rStyles.rowIdText, { color: T.textMuted }]}>#{extractTicket(item.id)}</Text>
         <View style={rStyles.rowTop}>
           <View style={rStyles.symbolLine}>
             <Text style={[rStyles.symbolText, { color: T.text }]}>{symbol}</Text>
             {side ? (
               <View style={[
                 rStyles.sideBadge,
-                isBuy ? { backgroundColor: 'rgba(37,99,235,0.15)' }
-                  : isSell ? { backgroundColor: 'rgba(220,38,38,0.12)' }
-                    : { backgroundColor: T.glass2 },
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : T.glass1 },
               ]}>
                 <Text style={[
                   rStyles.sideText,
@@ -377,7 +374,15 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
           </View>
         </View>
         <View style={rStyles.priceRow}>
-          <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2}</Text>
+          {item.line2.includes('→') ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2.split('→')[0].trim()}</Text>
+              <Ionicons name="arrow-forward" size={14} color={T.textMuted} />
+              <Text style={[rStyles.priceTrack, { color: T.text, fontWeight: '700' }]}>{item.line2.split('→')[1].trim()}</Text>
+            </View>
+          ) : (
+            <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2}</Text>
+          )}
           <Text style={[rStyles.timeText, { color: T.textMuted }]}>{item.time}</Text>
         </View>
       </View>
@@ -395,9 +400,9 @@ function MetricPill({
 }) {
   const cardBg = T.glass1;
   const Wrapper = onPress ? Pressable : View;
-  
+
   return (
-    <Wrapper style={[mpS.metricPill, { borderColor: T.border, backgroundColor: cardBg }]} onPress={onPress}>
+    <Wrapper style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]} onPress={onPress}>
       <View style={mpS.metricTop}>
         <Ionicons name={icon} size={12} color={T.textSub} />
         <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
@@ -462,10 +467,10 @@ function sortHistoryRows(rows: HistoryRow[], sortBy: SortBy) {
 const rStyles = StyleSheet.create({
   rowCard: {
     marginHorizontal: spacing.md, marginTop: spacing.sm,
-    paddingTop: 18, paddingBottom: 10, paddingHorizontal: spacing.md,
-    borderRadius: 16, borderWidth: 1, borderLeftWidth: 2,
+    paddingTop: 12, paddingBottom: 10, paddingHorizontal: spacing.md,
+    borderRadius: 16, borderWidth: 1,
   },
-  cardShadowLight: { shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
+  cardShadowLight: { shadowColor: '#0F172A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 1 },
   cardShadowDark: {
     shadowColor: '#2563EB',
     shadowOffset: { width: 0, height: 4 },
@@ -473,7 +478,7 @@ const rStyles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
+  rowIdText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5, marginBottom: 4 },
   rowBody: { width: '100%' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
@@ -490,10 +495,10 @@ const rStyles = StyleSheet.create({
 });
 
 const mpS = StyleSheet.create({
-  metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6, marginRight: spacing.sm },
-  metricTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 6, marginRight: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  metricTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   metricLabel: { marginLeft: 4, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
-  metricValue: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  metricValue: { fontSize: 15, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
 });
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
@@ -506,15 +511,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, borderWidth: 1, borderColor: T.border,
-      shadowColor: isDark ? '#2563EB' : '#64748B',
+      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
+      shadowColor: isDark ? '#2563EB' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
-      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowOpacity: isDark ? 0.08 : 0.04,
       shadowRadius: isDark ? 16 : 24, elevation: 4,
       overflow: 'hidden',
     },
     summaryTop: { paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
-    summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+    summaryLabel: { fontSize: 24, fontWeight: '800', letterSpacing: -1, marginTop: 4 },
     floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
     floating: { fontSize: 28, fontWeight: '800', letterSpacing: -1, lineHeight: 34, marginTop: 4, fontVariant: ['tabular-nums'] },
     balanceQuickCurrency: { fontSize: 28, fontWeight: '800' },
@@ -525,15 +530,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     gridValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
-      borderWidth: 1, borderColor: T.border,
+      borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
       backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, padding: 6, paddingBottom: 8,
-      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowColor: isDark ? '#2563EB' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
-      shadowOpacity: isDark ? 0.08 : 0.08,
+      shadowOpacity: isDark ? 0.08 : 0.04,
       shadowRadius: isDark ? 16 : 24, elevation: 4,
     },
     topControlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
-    iconButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: T.border, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    iconButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
     segment: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: T.glass1 },
     segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
     segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1 },

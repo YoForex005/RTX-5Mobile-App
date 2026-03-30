@@ -13,7 +13,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image, AppState } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
@@ -335,10 +335,11 @@ const CH_HTML = `
           if (volumeSeries) {
             var volData = data.map(function(d) {
               var isGreen = d.close >= d.open;
-              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)' };
+              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)' };
             });
             volumeSeries.setData(volData);
           }
+          // chart.timeScale().fitContent(); // Removed to prevent few candles from stretching to massive widths
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:'updateChartData: '+e.message}));
         }
@@ -458,11 +459,11 @@ export function ChartScreen() {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 12,
-      barSpacing: 10,
+      rightOffset: 16,
+      barSpacing: 2,
       shiftVisibleRangeOnNewBar: true,
-      fixLeftEdge: false,
-      fixRightEdge: false,
+      fixLeftEdge: true,
+      fixRightEdge: true,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
@@ -484,7 +485,6 @@ export function ChartScreen() {
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
       const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
-
       // Sanitization + Deduplication to prevent LightweightCharts fatal crash
       const sanitized = candles.filter(c => c && typeof c.time === 'number' && !isNaN(c.time) && !isNaN(c.close));
       const uniqueData = Array.from(new Map(sanitized.map(item => [item.time, item])).values());
@@ -494,7 +494,6 @@ export function ChartScreen() {
       if (chartType === 'line') {
         mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
       }
-
       const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
 
       if (dataSignatureRef.current !== sig) {
@@ -531,6 +530,13 @@ export function ChartScreen() {
           pendingTicks.push(incomingTick);
         }
       });
+
+      const now = Date.now();
+      if (rAF !== null && now - lastInjectedTickTime > 1000) {
+        console.warn('[ChartScreen] rAF locked for >1s. Force clearing buffer lock.');
+        cancelAnimationFrame(rAF);
+        rAF = null;
+      }
 
       if (rAF === null) {
         // Pure native 60fps UI injection, completely unthrottled
@@ -579,8 +585,7 @@ export function ChartScreen() {
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
       const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-      // Only show the most recent position to prevent cluttering the y-axis
-      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[symbolPositions.length - 1]] : [];
+      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
 
       const lines = filteredPositions.map((pos) => ({
         price: pos.openPrice,
@@ -784,6 +789,16 @@ export function ChartScreen() {
                 showsHorizontalScrollIndicator={false}
                 originWhitelist={['*']}
                 javaScriptEnabled={true}
+                onContentProcessDidTerminate={() => {
+                  console.warn('[CHART WEBVIEW] iOS background process terminated. Reloading chart strictly.');
+                  setWebViewReady(false);
+                  webViewRef.current?.reload();
+                }}
+                onRenderProcessGone={() => {
+                  console.warn('[CHART WEBVIEW] Android render process gone. Reloading chart strictly.');
+                  setWebViewReady(false);
+                  webViewRef.current?.reload();
+                }}
                 onMessage={(event) => {
                   try {
                     const msg = JSON.parse(event.nativeEvent.data);
@@ -862,7 +877,6 @@ export function ChartScreen() {
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
-        searchable
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),

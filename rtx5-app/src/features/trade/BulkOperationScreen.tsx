@@ -5,11 +5,12 @@
  * such as "Close all profitable", "Close all losing", or "Close all".
  */
 
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { usePositionsState } from '../../state/positionsState';
+import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -19,8 +20,9 @@ import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
 export function BulkOperationScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [submitted, setSubmitted] = useState(false);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
   const title = bulkModeLabel(mode);
@@ -36,23 +38,35 @@ export function BulkOperationScreen() {
 
   return (
     <Screen>
+      <Stack.Screen options={{ title: 'Bulk Operations', headerTitleAlign: 'center' }} />
       <View style={styles.header}>
-        <Text style={styles.title}>Bulk Operations</Text>
-        <Text style={styles.subTitle}>{title}</Text>
+        <Text style={styles.title}>{title}</Text>
       </View>
 
       <View style={styles.summaryCard}>
-        <Row label='Affected Positions' value={String(affectedPositions.length)} />
-        <Row label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} />
-        <Row label='Active Exposures' value={String(activeExposures.length)} />
-        <Row label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} />
+        <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
+        <Row border label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
+        <Row border label='Active Exposures' value={String(activeExposures.length)} isDark={isDark} T={T} />
+        <Row border label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
       </View>
 
       <View style={styles.previewCard}>
-        {affectedPositions.slice(0, 6).map((position) => (
-          <View key={position.id} style={styles.previewRow}>
-            <Text style={styles.previewLeft}>#{position.id} {position.symbol.replace(/\//g, '')} {position.side} {(position.volume || 0).toFixed(2)}</Text>
-            <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
+        {affectedPositions.slice(0, 6).map((position, i) => (
+          <View key={position.id} style={[styles.previewRow, i !== 0 && styles.previewRowBorder]}>
+            <View style={{ flex: 1 }}>
+               <Text style={[styles.rowIdText, { color: T.textMuted }]}>#{position.id}</Text>
+               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.symbolText, { color: T.text }]}>{position.symbol.replace(/\//g, '')}</Text>
+                  <Text style={[
+                     styles.sideText, 
+                     position.side === 'buy' ? { color: T.trading.buy.hover } : { color: T.trading.sell.hover }
+                  ]}>{position.side}</Text>
+                  <Text style={[styles.volumeText, { color: T.textMuted }]}>{(position.volume || 0).toFixed(2)}</Text>
+               </View>
+            </View>
+            <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+               <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
+            </View>
           </View>
         ))}
         {affectedPositions.length === 0 ? (
@@ -82,99 +96,142 @@ function Row({
   value,
   danger = false,
   positive = false,
+  border = false,
+  isDark,
+  T,
 }: {
   label: string;
   value: string;
   danger?: boolean;
   positive?: boolean;
+  border?: boolean;
+  isDark: boolean;
+  T: ThemeColors;
 }) {
-  const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={[styles.summaryValue, danger && styles.danger, positive && styles.positive]}>{value}</Text>
+    <View style={[styles.summaryRow, border && styles.summaryRowBorder]}>
+      <Text style={[styles.summaryLabel, { color: T.textMuted }]}>{label}</Text>
+      <Text style={[styles.summaryValue, { color: T.text }, danger && styles.danger, positive && styles.positive]}>{value}</Text>
     </View>
   );
 }
 
-const makeStyles = (T: ThemeColors) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
   },
   title: {
-    color: T.text,
-    fontSize: 24,
-    fontWeight: '700',
+    color: T.textSub,
+    fontSize: 15,
+    fontWeight: '600',
   },
   subTitle: {
-    marginTop: 2,
-    color: T.textMuted,
-    fontSize: 12,
+    marginTop: 4,
+    color: T.textSub,
+    fontSize: 14,
+    fontWeight: '500',
   },
   summaryCard: {
-    margin: spacing.md,
+    marginHorizontal: spacing.md,
     marginTop: spacing.sm,
+    marginBottom: spacing.md,
     padding: spacing.md,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: T.borderMedium,
-    backgroundColor: T.glass2,
-    gap: 10,
+    borderColor: isDark ? T.border : T.borderSubtle,
+    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
+    shadowColor: isDark ? '#2563EB' : '#0F172A',
+    shadowOffset: { width: 0, height: isDark ? 4 : 4 },
+    shadowOpacity: isDark ? 0.08 : 0.03,
+    shadowRadius: isDark ? 16 : 10,
+    elevation: 4,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 10,
+  },
+  summaryRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
   },
   summaryLabel: {
-    color: T.textMuted,
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '600',
   },
   summaryValue: {
-    color: T.text,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     fontVariant: ['tabular-nums'],
+    letterSpacing: -0.5,
   },
   previewCard: {
     marginHorizontal: spacing.md,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: T.borderMedium,
-    backgroundColor: T.glass1,
+    borderColor: isDark ? T.border : T.borderSubtle,
+    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
+    shadowColor: isDark ? '#2563EB' : '#0F172A',
+    shadowOffset: { width: 0, height: isDark ? 4 : 4 },
+    shadowOpacity: isDark ? 0.08 : 0.03,
+    shadowRadius: isDark ? 16 : 10,
+    elevation: 4,
     overflow: 'hidden',
   },
   previewRow: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: T.borderMedium,
+    paddingVertical: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.sm,
   },
-  previewLeft: {
-    color: T.textSub,
-    fontSize: 12,
-    flex: 1,
+  previewRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+  },
+  rowIdText: { 
+    fontSize: 11, 
+    fontWeight: '800', 
+    fontVariant: ['tabular-nums'], 
+    letterSpacing: 0.5, 
+    marginBottom: 4 
+  },
+  symbolText: { 
+    fontSize: 15, 
+    fontWeight: '700', 
+    textTransform: 'uppercase', 
+    letterSpacing: 0.5 
+  },
+  sideText: { 
+    fontSize: 12, 
+    fontWeight: '800', 
+    textTransform: 'lowercase', 
+    letterSpacing: 0.3 
+  },
+  volumeText: { 
+    fontSize: 13, 
+    fontWeight: '700' 
   },
   previewRight: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   emptyText: {
-    padding: spacing.md,
+    padding: spacing.xl,
+    textAlign: 'center',
     color: T.textMuted,
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '500',
   },
   success: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(74,222,128,0.25)',
     backgroundColor: 'rgba(74,222,128,0.08)',
@@ -183,22 +240,31 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   successText: {
     color: T.trading.profit,
     fontSize: 13,
+    fontWeight: '600',
   },
   executeButton: {
     marginHorizontal: spacing.md,
-    marginTop: spacing.lg,
-    borderRadius: 8,
-    backgroundColor: T.trading.sell.primary,
+    marginTop: spacing.xl,
+    borderRadius: 12,
+    backgroundColor: '#DC2626', // Pure bright red instead of T.trading.sell.primary which might be dark
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 4,
   },
   executeDisabled: {
     opacity: 0.4,
+    shadowOpacity: 0,
   },
   executeText: {
-    color: T.text,
-    fontSize: 15,
-    fontWeight: '700',
+    color: '#FFFFFF', // Force stark white for explosive contrast against red
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   danger: {
     color: T.trading.loss,

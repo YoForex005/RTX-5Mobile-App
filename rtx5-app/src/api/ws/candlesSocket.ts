@@ -4,6 +4,7 @@
 
 import { CandleParams } from '../../hooks/useLiveCandles';
 import { useUserPreferences } from '../../state/userPreferences';
+import { AppState, NativeEventSubscription } from 'react-native';
 
 
 type CandleSubscription = {
@@ -38,8 +39,33 @@ export class CandlesWebSocketService {
   private fetchController: AbortController | null = null;
 
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private appStateSubscription: NativeEventSubscription | null = null;
+  private lastMessageAt: number = Date.now();
+  private watchdogInterval: NodeJS.Timeout | null = null;
 
-  private constructor() { }
+  private constructor() {
+    this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('[Candles WS] App wake up detected. Reconnecting feed...');
+        this.triggerInvisibleReconnect();
+      }
+    });
+  }
+
+  private triggerInvisibleReconnect() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.stopHeartbeat();
+    this.stopWatchdog();
+    setTimeout(() => {
+      this.reconnectAttempts = 0;
+      this.connect();
+    }, 500);
+  }
 
   public static getInstance(): CandlesWebSocketService {
     if (!CandlesWebSocketService.instance) {
@@ -64,8 +90,10 @@ export class CandlesWebSocketService {
         console.log('[Candles WS] Connected to', this.url);
         this.isConnected = true;
         this.reconnectAttempts = 0;
+        this.lastMessageAt = Date.now();
 
         this.startHeartbeat();
+        this.startWatchdog();
 
         if (this.activeSubscription) {
           this.fetchHistoryAndSubscribe(this.activeSubscription.symbol, this.activeSubscription.tf);
@@ -74,6 +102,7 @@ export class CandlesWebSocketService {
 
       this.ws.onmessage = (event) => {
         try {
+          this.lastMessageAt = Date.now();
           const payload = JSON.parse(event.data as string);
           this.handlePayload(payload);
         } catch (e) {
@@ -84,6 +113,7 @@ export class CandlesWebSocketService {
       this.ws.onclose = () => {
         console.log('[Candles WS] Closed');
         this.stopHeartbeat();
+        this.stopWatchdog();
         this.isConnected = false;
         this.ws = null;
         this.attemptReconnect();
@@ -105,6 +135,7 @@ export class CandlesWebSocketService {
       this.isHistoryLoading = false;
       this.queuedWsTicks = [];
       this.stopHeartbeat();
+      this.stopWatchdog();
       this.ws.close();
       this.ws = null;
       this.isConnected = false;
@@ -127,6 +158,27 @@ export class CandlesWebSocketService {
     }
   }
 
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdogInterval = setInterval(() => {
+      if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
+      if (!this.activeSubscription) return;
+      
+      const staleFor = Date.now() - this.lastMessageAt;
+      if (staleFor > 35000) {
+        console.warn(`[Candles WS] Silent TCP drop detected (${Math.round(staleFor/1000)}s). Healing invisibly...`);
+        this.triggerInvisibleReconnect();
+      }
+    }, 10000);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
+  }
+
   /**
    * Requests a live subscription for a given symbol and timeframe.
    * Internally manages fetching initial historical data before piping live updates.
@@ -135,7 +187,9 @@ export class CandlesWebSocketService {
    * @param tf - The timeframe interval (e.g. 'M1', 'H1', 'D1')
    */
   public subscribe(symbol: string, tf: string): void {
-    if (this.activeSubscription?.symbol === symbol && this.activeSubscription?.tf === tf) {
+    const isNew = this.activeSubscription?.symbol !== symbol || this.activeSubscription?.tf !== tf;
+    
+    if (!isNew) {
       if (!this.isHistoryLoading && this.candleCache.length > 0) {
         this.notifyArrayListeners(symbol, tf, this.candleCache);
       }
@@ -143,6 +197,12 @@ export class CandlesWebSocketService {
     }
 
     this.activeSubscription = { symbol, tf };
+    
+    // Clear cache IMMEDIATELY so the chart goes blank when heavily switching symbols,
+    // but NEVER during an invisible auto-reconnect
+    this.candleCache = [];
+    this.queuedWsTicks = [];
+    this.notifyArrayListeners(symbol, tf, this.candleCache);
 
     if (this.isConnected) {
       this.fetchHistoryAndSubscribe(symbol, tf);
@@ -201,12 +261,12 @@ export class CandlesWebSocketService {
 
     this.fetchController = new AbortController();
     this.isHistoryLoading = false;
-    this.candleCache = [];
-    this.queuedWsTicks = [];
+    
+    // CRITICAL: We do NOT clear candleCache here!
+    // If we reconnect silently in the background, this preserves the current chart.
 
     // Subscribe to WS instantly to receive historical data array followed by live ticks natively
     this.sendSubscription();
-    this.notifyArrayListeners(symbol, tf, this.candleCache);
   }
 
   private sendSubscription(): void {
@@ -275,6 +335,8 @@ export class CandlesWebSocketService {
     const mergedCandlesToEmit: CandleParams[] = [];
     let arrayLengthChanged = false;
 
+    let needsSort = false;
+
     incomingCandles.forEach(incoming => {
       if (this.candleCache.length === 0) {
         this.candleCache.push(incoming);
@@ -296,7 +358,6 @@ export class CandlesWebSocketService {
         mergedCandlesToEmit.push(updatedLastCandle);
       } else if (incoming.time > lastCandle.time) {
         this.candleCache.push(incoming);
-        if (this.candleCache.length > 2500) this.candleCache.shift();
         mergedCandlesToEmit.push(incoming);
         arrayLengthChanged = true;
       } else {
@@ -314,12 +375,20 @@ export class CandlesWebSocketService {
           mergedCandlesToEmit.push(updatedExistingCandle);
         } else {
           this.candleCache.push(incoming);
-          this.candleCache.sort((a, b) => a.time - b.time);
+          needsSort = true;
           mergedCandlesToEmit.push(incoming);
           arrayLengthChanged = true;
         }
       }
     });
+
+    if (needsSort) {
+      this.candleCache.sort((a, b) => a.time - b.time);
+    }
+    if (this.candleCache.length > 2500) {
+      this.candleCache = this.candleCache.slice(-2500);
+      arrayLengthChanged = true;
+    }
 
     if (mergedCandlesToEmit.length > 0) {
       this.tickListeners.forEach((listener) => listener(symbol, tf, mergedCandlesToEmit));

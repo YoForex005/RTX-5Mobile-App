@@ -13,6 +13,7 @@ import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { positionsApi } from '../../api/positions';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
+import { useTradingState } from '../../state/tradingState';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -30,6 +31,14 @@ export function CloseByScreen() {
 
   const positions = usePositionsState((s) => s.positions);
   const resolvedLogin = resolveTradingLoginString();
+  const quotes = useTradingState((s) => s.quotes);
+
+  const getLivePrice = (p: any) => {
+    if (!p) return 0;
+    const q = quotes[p.symbol];
+    if (!q) return p.currentPrice || p.openPrice;
+    return p.side === 'buy' ? q.bid : q.ask;
+  };
 
   const sourcePosition = useMemo(
     () => findPositionById(positions, positionId),
@@ -97,21 +106,19 @@ export function CloseByScreen() {
       </View>
 
       <View style={styles.referenceCard}>
-        <Text style={styles.referenceTitle}>Source Position</Text>
-        <View style={{ marginTop: 2 }}>
-          <View style={styles.pairTopRow}>
-            <Text style={styles.pairTicket}>#{sourcePosition.id}</Text>
-            <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
-          </View>
-          <View style={styles.pairBottomRow}>
-            <View style={[styles.sideBadge, sourcePosition.side === 'buy' ? styles.sideBadgeBuy : styles.sideBadgeSell]}>
-              <Text style={[styles.sideText, sourcePosition.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-                {sourcePosition.side}
-              </Text>
-            </View>
-            <Text style={styles.pairMeta}>{(sourcePosition.volume || 0).toFixed(2)}</Text>
+        <Text style={styles.referenceTitle}>SOURCE POSITION</Text>
+        <View style={styles.separator} />
+        <View style={styles.pairTopRow}>
+          <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
+          <Text style={styles.pairTicket}>#{sourcePosition.id}</Text>
+        </View>
+        <View style={styles.pairBottomRow}>
+          <Text style={[styles.sideText, sourcePosition.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
+            {sourcePosition.side.toUpperCase()} {(sourcePosition.volume || 0).toFixed(2)}
+          </Text>
+          <View style={styles.priceContainer}>
             <Text style={styles.pairDivider}>•</Text>
-            <Text style={styles.pairPrice}>{fmt.price(sourcePosition.openPrice)}</Text>
+            <Text style={styles.pairPrice}>{fmt.price(getLivePrice(sourcePosition))}</Text>
           </View>
         </View>
       </View>
@@ -128,18 +135,17 @@ export function CloseByScreen() {
           >
             <View>
               <View style={styles.pairTopRow}>
-                <Text style={styles.pairTicket}>#{candidate.id}</Text>
                 <Text style={styles.pairSymbol}>{candidate.symbol.replace(/\//g, '')}</Text>
+                <Text style={styles.pairTicket}>#{candidate.id}</Text>
               </View>
               <View style={styles.pairBottomRow}>
-                <View style={[styles.sideBadge, candidate.side === 'buy' ? styles.sideBadgeBuy : styles.sideBadgeSell]}>
-                  <Text style={[styles.sideText, candidate.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-                    {candidate.side}
-                  </Text>
+                <Text style={[styles.sideText, candidate.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
+                  {candidate.side.toUpperCase()} {(candidate.volume || 0).toFixed(2)}
+                </Text>
+                <View style={styles.priceContainer}>
+                  <Text style={styles.pairDivider}>•</Text>
+                  <Text style={styles.pairPrice}>{fmt.price(getLivePrice(candidate))}</Text>
                 </View>
-                <Text style={styles.pairMeta}>{(candidate.volume || 0).toFixed(2)}</Text>
-                <Text style={styles.pairDivider}>•</Text>
-                <Text style={styles.pairPrice}>{fmt.price(candidate.currentPrice)}</Text>
               </View>
             </View>
             <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
@@ -181,36 +187,36 @@ export function CloseByScreen() {
 
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
   header: {
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   subTitle: {
     color: T.textSub,
     fontSize: 14,
     textAlign: 'center',
+    fontWeight: '600',
   },
   referenceCard: {
     marginHorizontal: spacing.md,
     marginVertical: spacing.md,
     padding: spacing.md,
-    borderRadius: 12,
-    backgroundColor: T.glass1, // Keeps it theme consistent while modern
+    borderRadius: 16,
+    backgroundColor: T.glass2,
     borderWidth: 1,
-    borderColor: T.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 3,
+    borderColor: T.borderMedium,
   },
   referenceTitle: {
-    color: T.textMuted,
+    color: T.textSub,
     fontSize: 12,
-    textTransform: 'uppercase',
     letterSpacing: 0.8,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 8,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: T.borderSubtle,
+    marginBottom: 12,
   },
   sourceDetailsRow: {
     flexDirection: 'row',
@@ -218,30 +224,23 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     gap: 8,
   },
   sourceTicket: {
-    color: T.textMuted,
+    color: T.textSub,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   sourceSymbol: {
     color: T.text,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   sourceVolume: {
     color: T.text,
     fontSize: 15,
     fontWeight: '500',
   },
-  sideBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  sideBadgeBuy: { backgroundColor: 'rgba(59, 130, 246, 0.15)' },
-  sideBadgeSell: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
-  sideText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  sideTextBuy: { color: '#3B82F6' },
-  sideTextSell: { color: '#EF4444' },
+  sideText: { fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  sideTextBuy: { color: T.trading.buy.primary },
+  sideTextSell: { color: T.trading.sell.primary },
 
   candidateContainer: {
     paddingHorizontal: spacing.md,
@@ -253,27 +252,23 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: T.glass1,
+    borderRadius: 16,
+    backgroundColor: T.glass2,
     borderWidth: 1,
-    borderColor: T.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    borderColor: T.borderMedium,
   },
   pairCardSelected: {
-    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-    borderColor: 'rgba(59, 130, 246, 0.5)',
+    backgroundColor: T.accentGlow,
+    borderColor: T.accent,
   },
-  pairTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  pairTicket: { color: T.textMuted, fontSize: 12 },
-  pairSymbol: { color: T.text, fontSize: 14, fontWeight: '700' },
+  pairTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  pairTicket: { color: T.textSub, fontSize: 13, fontWeight: '600' },
+  pairSymbol: { color: T.text, fontSize: 16, fontWeight: '700', letterSpacing: -0.3 },
   pairBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  priceContainer: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   pairMeta: { color: T.textSub, fontSize: 13, fontWeight: '500' },
-  pairDivider: { color: T.textMuted, fontSize: 13 },
-  pairPrice: { color: T.text, fontSize: 13, fontVariant: ['tabular-nums'] },
+  pairDivider: { color: T.textMuted, fontSize: 13, fontWeight: '600', marginRight: 2 },
+  pairPrice: { color: T.text, fontSize: 14, fontVariant: ['tabular-nums'], fontWeight: '600' },
   
   pairPnl: {
     fontSize: 16,
@@ -281,10 +276,10 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   positive: {
-    color: T.up,
+    color: T.trading.profit,
   },
   negative: {
-    color: T.down,
+    color: T.trading.loss,
   },
   emptyText: {
     padding: spacing.md,
@@ -297,12 +292,12 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     marginTop: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: T.upGlow,
-    backgroundColor: T.upGlow,
+    borderColor: 'rgba(74,222,128,0.25)',
+    backgroundColor: 'rgba(74,222,128,0.08)',
     padding: spacing.md,
   },
   successText: {
-    color: T.up,
+    color: T.trading.profit,
     fontSize: 13,
   },
   error: {
@@ -315,30 +310,25 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
   },
   errorText: {
-    color: 'rgb(239, 68, 68)',
+    color: T.trading.loss,
     fontSize: 13,
   },
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.xl,
     borderRadius: 12, 
-    backgroundColor: '#3B82F6', 
+    backgroundColor: T.accent, 
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 14,
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
   },
   submitDisabled: {
     opacity: 0.45,
-    shadowOpacity: 0,
-    elevation: 0,
   },
   submitText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });
