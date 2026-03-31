@@ -109,7 +109,7 @@ export function SettingsScreen() {
              </View>
           ) : (
             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
               <Pressable onPress={enableSearch} style={{ position: 'absolute', right: 0, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="search" size={24} color={T.textMuted} />
               </Pressable>
@@ -412,7 +412,7 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.borderMedium,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: T.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  headerTitle: { color: T.text, fontSize: 18, fontWeight: '600' },
   headerSub: { color: T.textSub, fontSize: 13, fontWeight: '500', marginTop: 2 },
   searchBtn: {
     width: 40, height: 40, borderRadius: 10, backgroundColor: T.glass1,
@@ -447,7 +447,7 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
 
   accTopRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 },
 
-  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(59,130,246,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)' },
+  connectedPill: { flexDirection: 'row', alignItems: 'center' },
   greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6', marginRight: 6 },
   connectedText: { color: '#3B82F6', fontSize: 11, fontWeight: '700' },
 

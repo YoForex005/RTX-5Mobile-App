@@ -352,8 +352,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   headerTitle: {
     color: T.text,
-    fontSize: 20,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '600',
     flex: 1,
     marginLeft: 16,
   },

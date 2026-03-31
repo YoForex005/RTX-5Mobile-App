@@ -377,18 +377,17 @@ export function QuotesScreen() {
     if (apiSymbols.length > 0) {
       const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
       
-      // If mismatch detected (invalid symbols found in user state)
+      const defaultSet = ['GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'US30'];
+      const resolvedDefaults = defaultSet.filter((sym) => apiSymbols.includes(sym));
+      
       if (validSymbols.length < quoteSymbols.length) {
         if (validSymbols.length === 0) {
-          // If totally empty after purge, take first 5 from the live server
-          setQuoteSymbols(apiSymbols.slice(0, 5));
+          setQuoteSymbols(resolvedDefaults.length > 0 ? resolvedDefaults : apiSymbols.slice(0, 5));
         } else {
-          // Otherwise simply strip the invalid ones
           setQuoteSymbols(validSymbols);
         }
       } else if (quoteSymbols.length === 0) {
-        // First boot initialization
-        setQuoteSymbols(apiSymbols.slice(0, 5));
+        setQuoteSymbols(resolvedDefaults.length > 0 ? resolvedDefaults : apiSymbols.slice(0, 5));
       }
     }
   }, [apiSymbols, quoteSymbols, setQuoteSymbols]);
@@ -463,18 +462,18 @@ export function QuotesScreen() {
 
           {/* ── Inline Header ── */}
           <View style={{ height: 40, marginTop: 0, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-            <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>Quotes</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Quotes</Text>
 
             {/* Float header controls to the right */}
             <View style={[s.headerRight, { position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }]}>
-              <Pressable style={[s.iconBtnPrimary, { backgroundColor: '#6366F1' }]} onPress={() => setShowAddModal(true)}>
+              <Pressable style={[s.iconBtnPrimary, { backgroundColor: T.trading.buy.primary }]} onPress={() => setShowAddModal(true)}>
                 <Ionicons name="add" size={16} color="#fff" />
               </Pressable>
               <Pressable
-                style={[s.iconBtnSecondary, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass1, borderColor: isDark ? 'rgba(255,255,255,0.08)' : T.border }]}
+                style={[s.iconBtnPrimary, { backgroundColor: T.trading.buy.primary }]}
                 onPress={toggleEditMode}
               >
-                <Ionicons name={isEditing ? "checkmark-done" : "create-outline"} size={16} color={isEditing ? T.trading.profit : T.textMuted} />
+                <Ionicons name={isEditing ? "checkmark-done" : "create-outline"} size={16} color="#fff" />
               </Pressable>
             </View>
           </View>
@@ -537,7 +536,7 @@ export function QuotesScreen() {
                     actions: [
                       { label: 'Chart', onPress: () => { setChartSymbol(sym); router.push('/(tabs)/chart'); } },
                       { label: 'Details', onPress: () => goDetail(sym) },
-                      { label: 'Remove', danger: true, onPress: () => removeQuoteSymbol(sym) },
+                      { label: 'Hide', danger: true, onPress: () => removeQuoteSymbol(sym) },
                     ],
                   })}
                 />

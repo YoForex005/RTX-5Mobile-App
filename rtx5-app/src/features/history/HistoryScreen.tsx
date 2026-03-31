@@ -189,7 +189,7 @@ export function HistoryScreen() {
         ListHeaderComponent={(
           <>
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: 0.3, color: T.text, textAlign: 'center' }}>History</Text>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>History</Text>
             </View>
             {/* ── Account Summary ── */}
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>

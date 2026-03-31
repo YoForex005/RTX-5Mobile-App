@@ -6,7 +6,7 @@ import { quotes } from '../mock/tradingData';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 
-const defaultSymbols = quotes.map((item) => item.symbol);
+const defaultSymbols = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
 
 type UserPreferencesState = {
   themeMode: ThemeMode;
@@ -17,6 +17,12 @@ type UserPreferencesState = {
   chartDrawings: string[];
   chartLockAll: boolean;
   chartHideAll: boolean;
+  showOpenPositions: boolean;
+  showTpSlStopLimit: boolean;
+  showClosedPositions: boolean;
+  showHmrPeriods: boolean;
+  showPriceAlerts: boolean;
+  showPotentialStopOut: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
   showTradingSignals: boolean;
@@ -50,6 +56,12 @@ type UserPreferencesState = {
   removeChartDrawing: (drawing: string) => void;
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
+  setShowOpenPositions: (show: boolean) => void;
+  setShowTpSlStopLimit: (show: boolean) => void;
+  setShowClosedPositions: (show: boolean) => void;
+  setShowHmrPeriods: (show: boolean) => void;
+  setShowPriceAlerts: (show: boolean) => void;
+  setShowPotentialStopOut: (show: boolean) => void;
   setShowTradingSignals: (show: boolean) => void;
   setPriceSource: (source: 'bid' | 'ask') => void;
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
@@ -71,6 +83,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartDrawings: [],
       chartLockAll: false,
       chartHideAll: false,
+      showOpenPositions: true,
+      showTpSlStopLimit: true,
+      showClosedPositions: false,
+      showHmrPeriods: true,
+      showPriceAlerts: true,
+      showPotentialStopOut: true,
       showTradingSignals: false,
       priceSource: 'bid',
       openOrderMode: 'Regular',
@@ -135,6 +153,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
       },
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
+      setShowOpenPositions: (show) => set({ showOpenPositions: show }),
+      setShowTpSlStopLimit: (show) => set({ showTpSlStopLimit: show }),
+      setShowClosedPositions: (show) => set({ showClosedPositions: show }),
+      setShowHmrPeriods: (show) => set({ showHmrPeriods: show }),
+      setShowPriceAlerts: (show) => set({ showPriceAlerts: show }),
+      setShowPotentialStopOut: (show) => set({ showPotentialStopOut: show }),
       setShowTradingSignals: (show) => set({ showTradingSignals: show }),
       setPriceSource: (source) => set({ priceSource: source }),
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),

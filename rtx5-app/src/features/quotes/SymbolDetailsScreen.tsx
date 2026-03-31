@@ -6,11 +6,14 @@ import { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { quotes } from '../../mock/tradingData';
+import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { usePlaceOrderMutation } from '../../query/orders';
+import { useInstrumentMeta } from '../../query/instruments';
+import { useCandleHistory } from '../../query/candles';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
 import { Alert } from 'react-native';
@@ -83,18 +86,21 @@ function Section({ title, icon, children }: { title: string; icon: keyof typeof 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const sec = useMemo(() => makeStyles(T, isDark).sec, [T, isDark]);
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <View style={sec.card}>
-      <LinearGradient colors={isDark ? ['rgba(59,130,246,0.06)', 'rgba(59,130,246,0)'] : ['rgba(0,0,0,0.02)', 'rgba(0,0,0,0)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sec.headerGrad}>
-        <View style={sec.iconBox}>
-          <Ionicons name={icon} size={13} color={isDark ? "#60A5FA" : T.trading.buy.primary} />
-        </View>
-        <Text style={sec.title}>{title}</Text>
-        <View style={{ flex: 1 }} />
-        <Ionicons name="chevron-down" size={14} color={T.textMuted} />
-      </LinearGradient>
-      {children}
+      <Pressable onPress={() => setExpanded(e => !e)}>
+        <LinearGradient colors={isDark ? ['rgba(59,130,246,0.06)', 'rgba(59,130,246,0)'] : ['rgba(0,0,0,0.02)', 'rgba(0,0,0,0)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sec.headerGrad}>
+          <View style={sec.iconBox}>
+            <Ionicons name={icon} size={13} color={isDark ? "#60A5FA" : T.trading.buy.primary} />
+          </View>
+          <Text style={sec.title}>{title}</Text>
+          <View style={{ flex: 1 }} />
+          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={14} color={T.textMuted} />
+        </LinearGradient>
+      </Pressable>
+      {expanded && children}
     </View>
   );
 }
@@ -143,19 +149,32 @@ function RangeBar({ pos, color }: { pos: number; color: string }) {
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
         style={[rangeB.fill, { width: `${pos}%` as any }]}
       />
-      <View style={[rangeB.knob, { left: `${pos}%` as any, borderColor: color, shadowColor: color, shadowOpacity: 0.8, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }]} />
+      <View style={[rangeB.knob, { left: `${pos}%` as any, borderColor: color, shadowColor: color, shadowOpacity: 0.15, shadowRadius: 2, shadowOffset: { width: 0, height: 0 } }]} />
     </View>
   );
 }
 
 // ─── Momentum Indicator ──────────────────────────────────────────────────────
-function MomentumBar({ pct }: { pct: number }) {
+function MomentumBar({ q }: { q: any }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const mom = useMemo(() => makeStyles(T, isDark).mom, [T, isDark]);
 
-  const buyPct = Math.max(10, Math.min(90, 50 + pct * 10));
-  const sellPct = 100 - buyPct;
+  const { buyPct, sellPct } = useMemo(() => {
+    const dynHigh = Math.max(q.high || 0, q.bid, q.ask);
+    const dynLow = Math.min(q.low || Infinity, q.bid, q.ask);
+    const rng = dynHigh - dynLow;
+
+    if (rng <= 0 || dynLow === Infinity) return { buyPct: 50, sellPct: 50 };
+
+    const mid = (q.bid + q.ask) / 2;
+    // Calculate buying pressure based on daily position, constrained nicely
+    let b = Math.round(((mid - dynLow) / rng) * 100);
+    b = Math.max(12, Math.min(88, b));
+
+    return { buyPct: b, sellPct: 100 - b };
+  }, [q.bid, q.ask, q.high, q.low]);
+
   return (
     <View style={mom.container}>
       <View style={mom.header}>
@@ -184,24 +203,100 @@ export function SymbolDetailsScreen() {
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [alertOn, setAlertOn] = useState(false);
 
+  // Subscribe to live tick data for this symbol
+  const liveQuotes = useMarketData([symbol]);
+
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const q = useMemo(() => quotes.find(i => i.symbol === symbol) ?? quotes[0], [symbol]);
-  const meta = useMemo(() => getMeta(symbol), [symbol]);
+  const { data: remoteMeta } = useInstrumentMeta(symbol);
+
+  const q = useMemo(() => {
+    const live = liveQuotes[symbol];
+    const mock = quotes.find(i => i.symbol === symbol) ?? quotes[0];
+    const base = { ...mock, ...live } as any;
+    if (remoteMeta) {
+      base.contractSize = remoteMeta.contractSize ?? base.contractSize;
+      base.minVolume = remoteMeta.minVolume ?? base.minVolume;
+      base.maxVolume = remoteMeta.maxVolume ?? base.maxVolume;
+      base.stepVolume = remoteMeta.stepVolume ?? base.stepVolume;
+      base.tickSize = remoteMeta.tickSize ?? base.tickSize;
+      base.marginInitial = remoteMeta.marginInitial ?? base.marginInitial;
+      base.marginMaintenance = remoteMeta.marginMaintenance ?? base.marginMaintenance;
+      base.swapLong = remoteMeta.swapLong ?? base.swapLong;
+      base.swapShort = remoteMeta.swapShort ?? base.swapShort;
+      base.baseCurrency = remoteMeta.baseCurrency ?? base.baseCurrency;
+      base.profitCurrency = remoteMeta.profitCurrency ?? base.profitCurrency;
+    }
+    return base;
+  }, [liveQuotes, symbol, remoteMeta]);
+
+  const meta = useMemo(() => {
+    const localMeta = getMeta(symbol);
+    if (!remoteMeta) return localMeta;
+    return {
+      ...localMeta,
+      category: remoteMeta.category ?? localMeta.category,
+      sector: remoteMeta.sector ?? localMeta.sector,
+      spreadMode: remoteMeta.spreadMode ?? localMeta.spreadMode,
+      stopsLevel: remoteMeta.stopsLevel !== undefined ? String(remoteMeta.stopsLevel) : localMeta.stopsLevel,
+      calculation: remoteMeta.calculation ?? localMeta.calculation,
+      chartMode: remoteMeta.chartMode ?? localMeta.chartMode,
+      sessions: remoteMeta.sessions ?? localMeta.sessions,
+    };
+  }, [symbol, remoteMeta]);
+
+  // ─── Fetch Tru Daily Range from Candles API ──────────────────────────
+  const { data: d1Candles } = useCandleHistory(symbol, 'D1');
 
   const d = q.digits ?? (q.bid >= 100 ? 2 : q.bid >= 10 ? 3 : 4);
   const col = dCol(q.changePct, T);
-  const mid = (q.bid + q.ask) / 2;
-  const rng = q.high - q.low;
-  const rPct = q.low > 0 ? (rng / q.low) * 100 : 0;
-  const vol = rng > 0 ? Math.min(100, Math.max(0, ((mid - q.low) / rng) * 100)) : 50;
+  const mid = ((q.bid || 0) + (q.ask || 0)) / 2;
+
+  const dynHigh = useMemo(() => {
+    let baseHigh = q.high || 0;
+    if (d1Candles && d1Candles.length > 0) {
+      baseHigh = d1Candles[d1Candles.length - 1].high;
+    }
+    return Math.max(baseHigh, q.bid || 0, q.ask || 0);
+  }, [q.high, q.bid, q.ask, d1Candles]);
+
+  const dynLow = useMemo(() => {
+    let baseLow = q.low || Infinity;
+    if (d1Candles && d1Candles.length > 0) {
+      baseLow = d1Candles[d1Candles.length - 1].low;
+    }
+    return Math.min(baseLow, q.bid || Infinity, q.ask || Infinity);
+  }, [q.low, q.bid, q.ask, d1Candles]);
+
+  const dynOpen = useMemo(() => {
+    let baseOpen = q.open ?? q.close ?? q.bid ?? 0;
+    if (d1Candles && d1Candles.length > 0) {
+      baseOpen = d1Candles[d1Candles.length - 1].open;
+    }
+    return baseOpen;
+  }, [q.open, q.close, q.bid, d1Candles]);
+
+  const dynVol = useMemo(() => {
+    let baseVol = q.volume ?? 0;
+    if (d1Candles && d1Candles.length > 0) {
+      baseVol = d1Candles[d1Candles.length - 1].volume;
+    }
+    return baseVol;
+  }, [q.volume, d1Candles]);
+
+  const rng = dynHigh - dynLow;
+  const rPct = dynLow > 0 && dynLow !== Infinity ? (rng / dynLow) * 100 : 0;
+  const vol = rng > 0 ? Math.min(100, Math.max(0, ((mid - dynLow) / rng) * 100)) : 50;
   const pip = 1 / Math.pow(10, d);
   const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
   const ctk = q.tickValue ?? (10 / mid);
-  const pts = (((q.bid || 0) - (q.close ?? q.bid ?? 0)) / (pip || 1)).toFixed(0);
+
+  const ptsRaw = ((q.bid || 0) - dynOpen) / (pip || 1);
+  const pts = `${ptsRaw >= 0 ? '+' : ''}${ptsRaw.toFixed(0)}`;
   const isUp = q.changePct >= 0;
+  const isMarketOpen = q.tradeAllowed !== false;
 
   const handleTrade = (side: 'buy' | 'sell') => {
     if (oneClickAccepted) {
@@ -211,24 +306,11 @@ export function SymbolDetailsScreen() {
         return;
       }
 
-      const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
-      const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
-
-      if (BLOCKED_SYMBOLS.includes(symbol)) {
-        Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol.replace(/\//g, '')}.`);
-        return;
-      }
-
-      if (!ALLOWED_SYMBOLS.includes(symbol)) {
-        Alert.alert('Trade Not Permitted', `${symbol.replace(/\//g, '')} is not currently in the allowed trading list.`);
-        return;
-      }
-
       placeOrder(
-        { 
-          account_login: tradingLogin, 
-          symbol, 
-          side, 
+        {
+          account_login: tradingLogin,
+          symbol,
+          side,
           volume: 0.01, // Using 0.01 micro-lot as safety default for quotes view
           price_sl: 0,
           price_tp: 0,
@@ -237,7 +319,7 @@ export function SymbolDetailsScreen() {
           trailing_step: 0,
           magic: 0
         },
-        { 
+        {
           onSuccess: (data: any) => {
             Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${data?.position_ticket || data?.order_ticket || 'Confirmed'}`);
           },
@@ -262,57 +344,34 @@ export function SymbolDetailsScreen() {
         </>
       )}
 
-      {/* ── Sticky Nav ─────────────── */}
-      <View style={s.nav.bar}>
-        <Pressable style={s.nav.back} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={20} color={T.textSub} />
-        </Pressable>
-        <View style={s.nav.center}>
-          <View style={s.nav.liveDot} />
-          <Text style={s.nav.categoryText}>{meta.category}</Text>
-        </View>
-        <View style={s.nav.rightGroup}>
-          <Pressable style={s.nav.iconBtn} onPress={() => setAlertOn(v => !v)}>
-            <Ionicons name={alertOn ? 'notifications' : 'notifications-outline'} size={17} color={alertOn ? '#FACC15' : T.textMuted} />
-          </Pressable>
-          <Pressable style={s.nav.iconBtn}>
-            <Ionicons name="share-outline" size={17} color={T.textMuted} />
-          </Pressable>
-        </View>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 16 }}>
 
         {/* ════ ENTERPRISE HERO SECTION ════ */}
         <View style={s.glassHero.container}>
           {/* Base Blur and Gradient */}
-          {isDark && <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFillObject} />}
+          {isDark && <BlurView intensity={50} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}
           {isDark && (
             <LinearGradient
               colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.01)', 'transparent']}
               start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]}
             />
           )}
           {isDark && <View style={s.glassHero.borderHighlight} />}
-          
+
           {/* 1. SYMBOL HEADER */}
-          <View style={s.glassHero.header}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <SymbolFlags symbol={symbol} />
-              <View style={{ flex: 1, marginLeft: 6 }}>
-                <Text style={s.hero.sym}>{symbol.replace(/m$/i, '').replace(/\//g, '')}</Text>
-                <Text style={s.hero.name}>{meta.name}</Text>
-              </View>
+          <View style={[s.glassHero.header, { alignItems: 'flex-start' }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.hero.sym}>{symbol.replace(/m$/i, '').replace(/\//g, '')}</Text>
+              <Text style={s.hero.name}>{meta.name}</Text>
             </View>
-            <View style={[s.hero.statusBadge, {
-              backgroundColor: q.tradeAllowed ? (isDark ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.12)') : (isDark ? 'rgba(248,113,113,0.1)' : 'rgba(248,113,113,0.12)'),
-              borderColor: q.tradeAllowed ? (isDark ? 'rgba(34,197,94,0.2)' : 'rgba(34,197,94,0.3)') : (isDark ? 'rgba(248,113,113,0.2)' : 'rgba(248,113,113,0.3)')
-            }]}>
-              <View style={[s.hero.statusDot, { backgroundColor: q.tradeAllowed ? T.up : T.down }]} />
-              <Text style={[s.hero.statusTxt, { color: q.tradeAllowed ? T.up : T.down }]}>
-                {q.tradeAllowed ? 'OPEN' : 'CLOSED'}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6, marginRight: -8 }}>
+              <Pressable style={{ paddingHorizontal: 6, paddingVertical: 4 }} onPress={() => setAlertOn(v => !v)}>
+                <Ionicons name={alertOn ? 'notifications' : 'notifications-outline'} size={22} color={alertOn ? '#FACC15' : T.textSub} />
+              </Pressable>
+              <Pressable style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+                <Ionicons name="share-outline" size={22} color={T.textSub} />
+              </Pressable>
             </View>
           </View>
 
@@ -320,11 +379,11 @@ export function SymbolDetailsScreen() {
           <View style={s.glassHero.priceRow}>
             <Text style={[s.glassHero.bigPrice, { color: col }]}>{fmt.price(q.bid, d)}</Text>
             <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
-              <View style={[s.hero.changePill, { backgroundColor: col }]}>
-                <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={12} color={isDark ? "#000" : "#fff"} />
-                <Text style={s.hero.changeTxt}>{sgn(q.changePct)}{(q.changePct || 0).toFixed(2)}%</Text>
+              <View style={s.hero.changePill}>
+                <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={14} color={col} />
+                <Text style={[s.hero.changeTxt, { color: col }]}>{sgn(q.changePct)}{(q.changePct || 0).toFixed(2)}%</Text>
               </View>
-              <Text style={s.glassHero.ptsTxt}>{sgn(q.changePct)}{pts} pts today</Text>
+              <Text style={s.glassHero.ptsTxt}>{pts} pts today</Text>
             </View>
           </View>
 
@@ -333,24 +392,24 @@ export function SymbolDetailsScreen() {
             {isDark && <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFillObject} />}
             {isDark && <LinearGradient colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.2)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />}
             <View style={s.ticker.spreadBadge}>
-              <Text style={s.ticker.spreadVal}>{q.spread}</Text>
+              <Text style={s.ticker.spreadVal}>{parseFloat(Number(q.spread || 0).toFixed(2)).toString()}</Text>
               <Text style={s.ticker.spreadLbl}>SPREAD</Text>
             </View>
 
             <View style={[s.ticker.inner, isPending && { opacity: 0.6 }]}>
               {/* SELL */}
               <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('sell')}>
+                <LinearGradient colors={[isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.down }]}>SELL</Text>
                   <View style={s.ticker.arrowWrap}>
-                    <Ionicons name="caret-down" size={12} color={T.down} style={{ marginTop: 1 }} />
+                    <Ionicons name="caret-down" size={10} color={T.down} style={{ marginTop: 1 }} />
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
                   <Text style={s.ticker.priceBase}>{fmt.price(q.bid, d).slice(0, -2)}</Text>
                   <Text style={[s.ticker.pipHighlight, { color: T.down }]}>{fmt.price(q.bid, d).slice(-2)}</Text>
                 </View>
-                <View style={[s.ticker.accentBar, { backgroundColor: T.down }]} />
               </Pressable>
 
               {/* CENTER DIVIDER */}
@@ -364,38 +423,43 @@ export function SymbolDetailsScreen() {
 
               {/* BUY */}
               <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('buy')}>
+                <LinearGradient colors={[isDark ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.up }]}>BUY</Text>
                   <View style={s.ticker.arrowWrap}>
-                    <Ionicons name="caret-up" size={12} color={T.up} style={{ marginTop: -1 }} />
+                    <Ionicons name="caret-up" size={10} color={T.up} style={{ marginTop: -1 }} />
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
                   <Text style={s.ticker.priceBase}>{fmt.price(q.ask, d).slice(0, -2)}</Text>
                   <Text style={[s.ticker.pipHighlight, { color: T.up }]}>{fmt.price(q.ask, d).slice(-2)}</Text>
                 </View>
-                <View style={[s.ticker.accentBar, { backgroundColor: T.up }]} />
               </Pressable>
             </View>
 
-            <View style={s.ticker.infoStrip}>
+            <View style={[s.ticker.infoStrip, { justifyContent: 'center' }]}>
               <View style={s.ticker.infoItem}>
-                <Ionicons name="swap-horizontal" size={14} color={T.textMuted} />
-                <Text style={s.ticker.infoTxt}>Spread: {q.spread} ({spp} pip)</Text>
-              </View>
-              <View style={s.ticker.infoItem}>
-                <Ionicons name="time-outline" size={14} color={T.textMuted} />
-                <Text style={s.ticker.infoTxt}>Live Data</Text>
+                <View style={[
+                  s.nav.liveDot,
+                  {
+                    marginRight: 2,
+                    backgroundColor: isMarketOpen ? T.up : T.textMuted,
+                    shadowColor: isMarketOpen ? T.up : 'transparent'
+                  }
+                ]} />
+                <Text style={[s.ticker.infoTxt, { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, color: T.textSub }]}>
+                  {isMarketOpen ? 'Live Market Data' : 'Market Closed'}
+                </Text>
               </View>
             </View>
           </View>
 
           {/* 4. METRICS ROW */}
           <View style={s.glassHero.metricsRow}>
-            <MetricPill label="MID" value={fmt.price(mid, d)} accent={col} icon="analytics-outline" />
-            <MetricPill label="OPEN" value={fmt.price(q.open ?? q.bid, d)} icon="time-outline" />
+            <MetricPill label="MID" value={fmt.price(mid, d)} icon="analytics-outline" />
+            <MetricPill label="OPEN" value={fmt.price(dynOpen, d)} icon="time-outline" />
             <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
-            <MetricPill label="VOL" value={(q.volume ?? 0).toLocaleString()} icon="bar-chart-outline" />
+            <MetricPill label="VOL" value={dynVol.toLocaleString()} icon="bar-chart-outline" />
           </View>
 
           {/* 5. DAY RANGE */}
@@ -403,7 +467,7 @@ export function SymbolDetailsScreen() {
             <View style={s.glassHero.rangeTop}>
               <View>
                 <Text style={s.glassHero.rangeLbl}>LOW</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(q.low, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
                 <Text style={s.glassHero.rangeLbl}>DAY RANGE</Text>
@@ -411,7 +475,7 @@ export function SymbolDetailsScreen() {
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={s.glassHero.rangeLbl}>HIGH</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(q.high, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh, d)}</Text>
               </View>
             </View>
             <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>
@@ -420,7 +484,7 @@ export function SymbolDetailsScreen() {
           </View>
 
           {/* 6. SENTIMENT */}
-          <MomentumBar pct={q.changePct} />
+          <MomentumBar q={q} />
 
         </View>
 
@@ -438,7 +502,7 @@ export function SymbolDetailsScreen() {
         </View>
 
         {/* ── Data Sections ────────────── */}
-        <Section title="Contract Specification" icon="document-text-outline">
+        <Section title="Contract Specification" icon="reader-outline">
           <Row label="Contract Size" value={q.contractSize >= 1000 ? `${((q.contractSize || 0) / 1000).toFixed(0)}K units` : String(q.contractSize)} />
           <Row label="Min Volume" value={String(q.minVolume ?? '0.01') + ' lot'} />
           <Row label="Max Volume" value={String(q.maxVolume ?? '500') + ' lots'} />
@@ -447,10 +511,10 @@ export function SymbolDetailsScreen() {
           <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(4)} last />
         </Section>
 
-        <Section title="Pricing & Fees" icon="cash-outline">
+        <Section title="Pricing & Fees" icon="pricetags-outline">
           <Row label="Digits" value={String(d)} />
           <Row label="Spread Mode" value={meta.spreadMode} />
-          <Row label="Current Spread" value={`${q.spread} (${spp} pips)`} />
+          <Row label="Current Spread" value={`${parseFloat(Number(q.spread || 0).toFixed(2)).toString()} (${spp} pips)`} />
           <Row label="Stops Level" value={meta.stopsLevel} />
           <Row label="Margin Initial" value={(q.marginInitial ?? 0).toFixed(2) + '%'} />
           <Row label="Margin Maintenance" value={(q.marginMaintenance ?? 0).toFixed(2) + '%'} />
@@ -505,9 +569,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       title: { color: T.textSub, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
     }),
     rw: StyleSheet.create({
-      row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border },
-      key: { color: T.textSub, fontSize: 13, fontWeight: '500' },
-      val: { color: T.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], maxWidth: '60%', textAlign: 'right' },
+      row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: T.border },
+      key: { color: T.textSub, fontSize: 13, fontWeight: '500', letterSpacing: 0.2 },
+      val: { color: T.text, fontSize: 14, fontWeight: '500', fontVariant: ['tabular-nums'], maxWidth: '65%', textAlign: 'right', letterSpacing: -0.2 },
     }),
     mp: StyleSheet.create({
       chip: {
@@ -556,7 +620,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderHighlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.15)' },
       header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0 },
       priceRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10, gap: 12 },
-      bigPrice: { fontSize: 48, fontWeight: '900', fontVariant: ['tabular-nums'], letterSpacing: -1.5, textShadowColor: isDark ? 'rgba(0,0,0,0.4)' : 'transparent', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
+      bigPrice: { fontSize: 42, fontWeight: '900', fontVariant: ['tabular-nums'], letterSpacing: -1.5, textShadowColor: isDark ? 'rgba(0,0,0,0.4)' : 'transparent', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
       ptsTxt: { color: T.textSub, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], marginTop: 4 },
       metricsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 8 },
       rangeCard: { marginHorizontal: 16, marginBottom: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : T.glass1, borderRadius: 12, borderWidth: 1, borderColor: T.border, paddingVertical: 12 },
@@ -565,13 +629,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       rangeVal: { color: T.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
     }),
     hero: StyleSheet.create({
-      sym: { color: T.text, fontSize: 32, fontWeight: '900', letterSpacing: -1 },
+      sym: { color: T.text, fontSize: 28, fontWeight: '900', letterSpacing: -1 },
       name: { color: T.textSub, fontSize: 14, fontWeight: '500', marginTop: 2 },
-      statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, alignSelf: 'center', marginBottom: 12 },
+      statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', marginBottom: 12 },
       statusDot: { width: 6, height: 6, borderRadius: 3 },
       statusTxt: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
-      changePill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
-      changeTxt: { fontSize: 13, fontWeight: '900', color: isDark ? '#000' : '#fff', fontVariant: ['tabular-nums'] },
+      changePill: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+      changeTxt: { fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] },
     }),
     ticker: StyleSheet.create({
       container: {
@@ -586,21 +650,21 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       },
       spreadVal: { color: T.text, fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] },
       spreadLbl: { color: T.textSub, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-      inner: { flexDirection: 'row', alignItems: 'stretch', paddingTop: 26, paddingBottom: 8 },
-      side: { flex: 1, alignItems: 'center', position: 'relative' },
-      sideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-      sideLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
-      arrowWrap: { width: 18, height: 18, borderRadius: 9, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : T.border, alignItems: 'center', justifyContent: 'center' },
+      inner: { flexDirection: 'row', alignItems: 'stretch' },
+      side: { flex: 1, alignItems: 'center', position: 'relative', paddingTop: 26, paddingBottom: 12 },
+      sideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+      sideLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+      arrowWrap: { width: 16, height: 16, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : T.border, alignItems: 'center', justifyContent: 'center' },
       priceWrap: { flexDirection: 'row', alignItems: 'baseline' },
-      priceBase: { color: T.text, fontSize: 24, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
-      pipHighlight: { fontSize: 32, fontWeight: '900', fontVariant: ['tabular-nums'], letterSpacing: -1 },
-      accentBar: { width: '50%', height: 2, borderRadius: 1, marginTop: 4, opacity: 0.8 },
+      priceBase: { color: T.text, fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+      pipHighlight: { fontSize: 26, fontWeight: '900', fontVariant: ['tabular-nums'], letterSpacing: -1 },
+      accentBar: { width: '80%', height: 3, borderRadius: 1.5, marginTop: 4, opacity: 0.9 },
       dividerCol: { alignItems: 'center', justifyContent: 'center', width: 44, position: 'relative' },
       dividerLine: { width: 1, backgroundColor: T.border, position: 'absolute', top: 0, bottom: 0 },
-      pipBadge: { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : T.glass1, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 6, borderWidth: 1, borderColor: T.border, zIndex: 2, alignItems: 'center' },
-      pipVal: { color: T.text, fontSize: 12, fontWeight: '900', fontVariant: ['tabular-nums'] },
-      pipUnit: { color: T.textMuted, fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
-      infoStrip: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 6, borderTopWidth: 1, borderTopColor: T.border },
+      pipBadge: { backgroundColor: isDark ? 'rgba(255,255,255,0.75)' : '#FFFFFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, zIndex: 2, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1.5 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2, marginTop: 14 },
+      pipVal: { color: isDark ? '#000' : T.text, fontSize: 12, fontWeight: '900', fontVariant: ['tabular-nums'] },
+      pipUnit: { color: isDark ? '#000' : '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
+      infoStrip: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8 },
       infoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
       infoTxt: { color: T.textSub, fontSize: 13, fontWeight: '600' },
     }),

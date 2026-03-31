@@ -34,30 +34,35 @@ import { usePlaceOrderMutation } from '../../query/orders';
 import { usePositionsState } from '../../state/positionsState';
 import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
+import { useMarketData } from '../../query/websocket';
+import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
+const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) => {
   const latestTick = useLiveTick(symbol);
+  const liveQuotes = useMarketData([symbol]);
+  const q = liveQuotes[symbol] || {};
+
   if (!latestTick || typeof latestTick.close !== 'number') return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  
+  const currentPrice = latestTick.close;
+  const changePct = q.changePct ?? 0;
+  // If the backend doesn't explicitly send "change", we can compute it using daily open or close
+  // Assuming q.open or q.close is available. We prefer q.open for daily open if available.
+  const openPrice = q.open ?? q.close ?? currentPrice;
+  const change = q.change !== undefined ? q.change : (currentPrice - openPrice);
+  
+  const isUp = change >= 0;
+
   return (
     <View style={styles.priceSection}>
-      <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2 }}>PRICE</Text>
-      <Text style={styles.livePriceText}>{(latestTick.close || 0).toFixed(displayDecimals)}</Text>
-      {(() => {
-        if (!candles) return null;
-        const fallbackClose = (typeof latestTick.open === 'number' ? latestTick.open : latestTick.close);
-        const prevClose = candles?.length >= 2 ? (candles[candles.length - 2]?.close ?? fallbackClose) : fallbackClose;
-        const change = latestTick.close - prevClose;
-        const pct = prevClose > 0 ? (change / prevClose) * 100 : 0;
-        const isUp = change >= 0;
-        return (
-          <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
-            {isUp ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({isUp ? '+' : ''}{(pct || 0).toFixed(2)}%)
-          </Text>
-        );
-      })()}
+      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2, opacity: 0.9 }]}>PRICE</Text>
+      <Text style={styles.livePriceText}>{(currentPrice || 0).toFixed(displayDecimals)}</Text>
+      <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
+        {change > 0 ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({changePct > 0 ? '+' : ''}{(changePct || 0).toFixed(2)}%)
+      </Text>
     </View>
   );
 });
@@ -72,6 +77,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
   const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const openOrderMode = useUserPreferences((s) => s.openOrderMode);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
 
   const handleTrade = (side: 'buy' | 'sell') => {
@@ -79,19 +85,6 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
         Alert.alert('Error', 'No active trading account resolved.');
-        return;
-      }
-
-      const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
-      const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
-
-      if (BLOCKED_SYMBOLS.includes(symbol)) {
-        Alert.alert('Trade Blocked', `Trading is explicitly blocked for ${symbol.replace(/\//g, '')}.`);
-        return;
-      }
-
-      if (!ALLOWED_SYMBOLS.includes(symbol)) {
-        Alert.alert('Trade Not Permitted', `${symbol.replace(/\//g, '')} is not currently in the allowed trading list.`);
         return;
       }
 
@@ -212,11 +205,13 @@ const CH_HTML = `
 </head>
 <body>
     <div id="chart"></div>
+    <script>\${DRAWING_TOOLS_JS}</script>
     <script>
       var chart = null;
       var series = null;
       var volumeSeries = null;
       var signalLines = [];
+      var drawingTools = null;
       var UP_COLOR = '#26A69A';
       var DOWN_COLOR = '#EF5350';
 
@@ -322,6 +317,11 @@ const CH_HTML = `
               volumeSeries.setData(volData);
             }
           }
+
+          if (window.DrawingToolsManager) {
+            drawingTools = new window.DrawingToolsManager(chart, series);
+          }
+
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'CHART_READY'}));
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:e.message}));
@@ -364,6 +364,12 @@ const CH_HTML = `
       }
 
       window.ReactNativeWebView.postMessage(JSON.stringify({type:'READY'}));
+      function setDrawingTool(toolName) {
+        if (drawingTools) { drawingTools.setActiveTool(toolName); }
+      }
+      function clearDrawings() {
+        if (drawingTools) { drawingTools.removeAllDrawings(); }
+      }
     </script>
 </body>
 </html>
@@ -393,6 +399,8 @@ export function ChartScreen() {
 
   const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
   const { positions } = usePositionsState();
+  const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
+  const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
@@ -415,8 +423,19 @@ export function ChartScreen() {
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
+  const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
 
   const webViewRef = useRef<WebView>(null);
+
+  const handleSetTool = (tool: string) => {
+    setActiveTool(tool);
+    if (tool === 'trash') {
+       webViewRef.current?.injectJavaScript("clearDrawings(); true;");
+    } else {
+       webViewRef.current?.injectJavaScript(`setDrawingTool('${tool}'); true;`);
+    }
+    setShowDrawingToolbar(false);
+  };
 
   const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'hollow'>('candles');
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
@@ -433,7 +452,7 @@ export function ChartScreen() {
 
   const chartOptions = useMemo(() => ({
     layout: {
-      background: { color: isDark ? '#131722' : '#FFFFFF' },
+      background: { color: isDark ? '#000000' : '#FFFFFF' },
       textColor: isDark ? '#94A3B8' : '#64748B',
       attributionLogo: false,
       fontSize: 11,
@@ -460,10 +479,11 @@ export function ChartScreen() {
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 16,
-      barSpacing: 2,
+      barSpacing: 13,
+      minBarSpacing: 3,
       shiftVisibleRangeOnNewBar: true,
-      fixLeftEdge: true,
-      fixRightEdge: true,
+      fixLeftEdge: false,
+      fixRightEdge: false,
     },
     rightPriceScale: {
       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
@@ -584,22 +604,52 @@ export function ChartScreen() {
   // Positions Bridge (Draws Open Trades)
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
+      if (!showOpenPositions) {
+        webViewRef.current.injectJavaScript(`if (typeof setPriceLines === 'function') setPriceLines([]); true;`);
+        return;
+      }
+
       const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
       const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
 
-      const lines = filteredPositions.map((pos) => ({
-        price: pos.openPrice,
-        color: pos.side === 'buy' ? BLUE : '#EF5350',
-        lineWidth: 1,
-        lineStyle: 1, // 1 = Dashed in LightweightCharts enum (LineStyle.Dashed)
-        axisLabelVisible: true,
-        title: `${pos.side.toUpperCase()} ${pos.volume}`,
-      }));
+      const lines = filteredPositions.flatMap((pos) => {
+        const payload = [{
+          price: pos.openPrice,
+          color: pos.side === 'buy' ? BLUE : '#EF5350',
+          lineWidth: 1,
+          lineStyle: 1, // Dashed
+          axisLabelVisible: true,
+          title: `${pos.side.toUpperCase()} ${pos.volume}`,
+        }];
+        if (showTpSlStopLimit) {
+          if (pos.tp && pos.tp > 0) {
+             payload.push({
+               price: pos.tp,
+               color: '#089981',
+               lineWidth: 1,
+               lineStyle: 1,
+               axisLabelVisible: true,
+               title: 'TP'
+             });
+          }
+          if (pos.sl && pos.sl > 0) {
+             payload.push({
+               price: pos.sl,
+               color: '#F23645',
+               lineWidth: 1,
+               lineStyle: 1,
+               axisLabelVisible: true,
+               title: 'SL'
+             });
+          }
+        }
+        return payload;
+      });
 
-      const js = `setPriceLines(${JSON.stringify(lines)}); true;`;
+      const js = `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [positions, chartSymbol, webViewReady, BLUE]);
+  }, [positions, chartSymbol, webViewReady, BLUE, showOpenPositions, showTpSlStopLimit]);
 
   // Patterns / Markers Bridge
   useEffect(() => {
@@ -659,7 +709,7 @@ export function ChartScreen() {
           <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
             <View>
               <View style={styles.symbolNameRow}>
-                <Text style={[styles.symbolText, { fontWeight: '700', opacity: 0.9 }]}>{displaySymbol}</Text>
+                <Text style={[styles.symbolText, { opacity: 0.9 }]}>{displaySymbol}</Text>
                 <View style={styles.fxBadge}>
                   <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
                 </View>
@@ -734,32 +784,32 @@ export function ChartScreen() {
           </View>
 
           <View style={{ flex: 1, flexDirection: 'row' }}>
-            {isChartExpanded && (
+            {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
-                style={styles.leftToolbar}
+                style={[styles.leftToolbar, !isChartExpanded && styles.leftToolbarOverlay]}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.leftToolbarContent}
               >
-                <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => setActiveTool('crosshair')}><TvCrosshair color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => setActiveTool('trendline')}><TvTrendLine color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => setActiveTool('fib')}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => setActiveTool('brush')}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => setActiveTool('text')}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => setActiveTool('patterns')}><TvPatterns color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => setActiveTool('prediction')}><TvPrediction color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => setActiveTool('pitchfork')}><TvPitchfork color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => setActiveTool('smiley')}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => handleSetTool('crosshair')}><TvCrosshair color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => handleSetTool('trendline')}><TvTrendLine color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => handleSetTool('fib')}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => handleSetTool('brush')}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => handleSetTool('text')}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => handleSetTool('patterns')}><TvPatterns color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => handleSetTool('prediction')}><TvPrediction color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => handleSetTool('pitchfork')}><TvPitchfork color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => handleSetTool('smiley')}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => setActiveTool('measure')}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => setActiveTool('zoom')}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => handleSetTool('measure')}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => handleSetTool('zoom')}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => setActiveTool('magnet')}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'stay_in_drawing_mode' && styles.toolIconActive]} onPress={() => setActiveTool('stay_in_drawing_mode')}><TvStayInDrawingMode color={activeTool === 'stay_in_drawing_mode' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'lock' && styles.toolIconActive]} onPress={() => setActiveTool('lock')}><TvLock color={activeTool === 'lock' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'hide' && styles.toolIconActive]} onPress={() => setActiveTool('hide')}><TvHide color={activeTool === 'hide' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => handleSetTool('magnet')}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'stay_in_drawing_mode' && styles.toolIconActive]} onPress={() => handleSetTool('stay_in_drawing_mode')}><TvStayInDrawingMode color={activeTool === 'stay_in_drawing_mode' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'lock' && styles.toolIconActive]} onPress={() => handleSetTool('lock')}><TvLock color={activeTool === 'lock' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'hide' && styles.toolIconActive]} onPress={() => handleSetTool('hide')}><TvHide color={activeTool === 'hide' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'trash' && styles.toolIconActive]} onPress={() => setActiveTool('trash')}><TvTrash color={activeTool === 'trash' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => setActiveTool('layers')}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'trash' && styles.toolIconActive]} onPress={() => handleSetTool('trash')}><TvTrash color={activeTool === 'trash' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => handleSetTool('layers')}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
               </ScrollView>
             )}
             <View style={{ flex: 1, position: 'relative' }}>
@@ -810,6 +860,16 @@ export function ChartScreen() {
                   } catch (e) { }
                 }}
               />
+              <Pressable
+                style={styles.floatingAutoBtn}
+                onPress={() => {
+                  webViewRef.current?.injectJavaScript("try { if(chart && typeof chart.priceScale === 'function') chart.priceScale('right').applyOptions({ autoScale: true }); if (chart && typeof chart.timeScale === 'function') chart.timeScale().scrollToRealTime(); } catch(e){} true;");
+                }}
+              >
+                <Text style={[styles.floatingAutoText, { color: BLUE }]}>A</Text>
+              </Pressable>
+
+
             </View>
           </View>
         </View>
@@ -877,6 +937,7 @@ export function ChartScreen() {
         visible={symbolPickerOpen}
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
+        searchable={true}
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
@@ -946,7 +1007,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 2,
       paddingBottom: 6,
       marginTop: -4,
-      backgroundColor: isDark ? '#0B101E' : '#FFFFFF',
+      backgroundColor: isDark ? '#000000' : '#FFFFFF',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
     },
@@ -979,7 +1040,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     symbolText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     fxBadge: {
@@ -1062,9 +1123,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 20,
-      fontWeight: '800',
-      letterSpacing: 0.3,
+      fontSize: 18,
+      fontWeight: '600',
     },
     accountDot: {
       width: 6,
@@ -1105,7 +1165,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       maxWidth: 54,
       flexShrink: 0,
       flexGrow: 0,
-      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
+      backgroundColor: isDark ? '#000000' : '#F8FAFC',
       borderRightWidth: 1,
       borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -1135,7 +1195,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       paddingHorizontal: 12,
       paddingVertical: 8,
-      backgroundColor: isDark ? '#080C16' : '#F8FAFC',
+      backgroundColor: isDark ? '#000000' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -1179,10 +1239,28 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginTop: 4,
       fontSize: 12,
     },
+    floatingAutoBtn: {
+      position: 'absolute',
+      right: 56,
+      bottom: 24,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      zIndex: 100,
+    },
+    floatingAutoText: {
+      fontSize: 12,
+      fontWeight: '800',
+    },
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     bottomArea: {
-      backgroundColor: isDark ? '#060A14' : '#FFFFFF',
+      backgroundColor: isDark ? '#000000' : '#FFFFFF',
       paddingHorizontal: 14,
       paddingTop: 4,
       paddingBottom: 0,
@@ -1343,6 +1421,37 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
     },
+    leftToolbarOverlay: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 50,
+      height: '100%',
+      backgroundColor: isDark ? 'rgba(0,0,0,0.92)' : 'rgba(255,255,255,0.95)',
+      borderRightWidth: 1,
+      borderRightColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+    },
+    floatingDrawBtn: {
+      position: 'absolute',
+      left: 12,
+      bottom: 30,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 6,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+      zIndex: 40,
+    },
   });
 }
+
 

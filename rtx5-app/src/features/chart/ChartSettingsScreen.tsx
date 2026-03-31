@@ -27,42 +27,40 @@ const SHOW_ON_CHART: ToggleItem[] = [
   { label: 'Potential Stop Out line', key: 'potentialStopOut' },
 ];
 
-const INITIAL_TOGGLES: Record<string, boolean> = {
-  openPositions: true,
-  tpSlStopLimit: true,
-  closedPositions: false,
-  tradingSignals: false,
-  hmrPeriods: true,
-  priceAlerts: true,
-  potentialStopOut: true,
-};
-
 export function ChartSettingsScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const { showTradingSignals, setShowTradingSignals, priceSource, openOrderMode } = useUserPreferences();
+  const prefs = useUserPreferences();
   const [toggles, setToggles] = useState<Record<string, boolean>>({
-    ...INITIAL_TOGGLES,
-    tradingSignals: showTradingSignals,
+    openPositions: prefs.showOpenPositions,
+    tpSlStopLimit: prefs.showTpSlStopLimit,
+    closedPositions: prefs.showClosedPositions,
+    tradingSignals: prefs.showTradingSignals,
+    hmrPeriods: prefs.showHmrPeriods,
+    priceAlerts: prefs.showPriceAlerts,
+    potentialStopOut: prefs.showPotentialStopOut,
   });
 
   const handleToggle = (key: string) => {
-    if (key === 'tradingSignals') {
-      const newState = !toggles.tradingSignals;
-      setShowTradingSignals(newState);
-      setToggles((prev) => ({ ...prev, [key]: newState }));
-      return;
-    }
-    setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
+    const newVal = !toggles[key];
+    setToggles((prev) => ({ ...prev, [key]: newVal }));
+
+    if (key === 'openPositions') prefs.setShowOpenPositions(newVal);
+    if (key === 'tpSlStopLimit') prefs.setShowTpSlStopLimit(newVal);
+    if (key === 'closedPositions') prefs.setShowClosedPositions(newVal);
+    if (key === 'tradingSignals') prefs.setShowTradingSignals(newVal);
+    if (key === 'hmrPeriods') prefs.setShowHmrPeriods(newVal);
+    if (key === 'priceAlerts') prefs.setShowPriceAlerts(newVal);
+    if (key === 'potentialStopOut') prefs.setShowPotentialStopOut(newVal);
   };
 
   const CHART_PREFS: NavItem[] = [
     { label: 'Chart', value: 'RTX5' },
-    { label: 'Price source', value: priceSource === 'bid' ? 'Bid price' : 'Ask price', onPress: () => router.push('/chart/price-source') },
+    { label: 'Price source', value: prefs.priceSource === 'bid' ? 'Bid price' : 'Ask price', onPress: () => router.push('/chart/price-source') },
     { label: 'Colors', onPress: () => router.push('/chart/colors') },
-    { label: 'Open order mode', value: openOrderMode, onPress: () => router.push('/chart/open-order-mode') },
+    { label: 'Open order mode', value: prefs.openOrderMode, onPress: () => router.push('/chart/open-order-mode') },
   ];
 
   const NAVIGATION: NavItem[] = [

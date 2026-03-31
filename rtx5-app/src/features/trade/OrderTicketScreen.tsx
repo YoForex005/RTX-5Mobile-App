@@ -32,7 +32,7 @@ export function OrderTicketScreen() {
   const symbol = routeSymbol || 'EURUSD'; // Fallback so TS is happy and we have a valid symbol
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { accountDetails, themeMode } = useUserPreferences();
+  const { accountDetails, themeMode, oneClickAccepted } = useUserPreferences();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
@@ -97,19 +97,6 @@ export function OrderTicketScreen() {
     const tradingLogin = resolveTradingLogin();
     if (!tradingLogin) {
       setModalState({ visible: true, type: 'error', title: 'Account Error', message: 'Unable to resolve the active trading account login.' });
-      return;
-    }
-
-    const ALLOWED_SYMBOLS = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
-    const BLOCKED_SYMBOLS = ['BCHUSD', 'ADAUSD'];
-
-    if (BLOCKED_SYMBOLS.includes(symbol)) {
-      setModalState({ visible: true, type: 'error', title: 'Trade Blocked', message: `Trading is explicitly blocked for ${symbol?.replace(/\//g, '')}.` });
-      return;
-    }
-
-    if (!ALLOWED_SYMBOLS.includes(symbol)) {
-      setModalState({ visible: true, type: 'error', title: 'Trade Not Permitted', message: `${symbol?.replace(/\//g, '')} is not currently in the allowed trading list.` });
       return;
     }
 
@@ -230,11 +217,17 @@ export function OrderTicketScreen() {
       {/* ── Price Panel (HERO — always visible) ────────────────────── */}
       <View style={styles.pricePanel}>
         {/* SELL side */}
-        <View style={[styles.priceHalf, { backgroundColor: SELL_BG }]}>
+        <Pressable 
+          style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
+          disabled={pendingSide !== null}
+          onPress={() => {
+            if (oneClickAccepted) handlePlaceOrder('sell');
+          }}
+        >
           <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
           <Text style={styles.priceMain}>{fmt.price(BID, 2)}</Text>
           <Text style={styles.priceLabel}>BID</Text>
-        </View>
+        </Pressable>
 
         {/* Spread pillar */}
         <View style={styles.spreadCenter}>
@@ -244,11 +237,17 @@ export function OrderTicketScreen() {
         </View>
 
         {/* BUY side */}
-        <View style={[styles.priceHalf, { backgroundColor: BUY_BG }]}>
+        <Pressable 
+          style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
+          disabled={pendingSide !== null}
+          onPress={() => {
+            if (oneClickAccepted) handlePlaceOrder('buy');
+          }}
+        >
           <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
           <Text style={styles.priceMain}>{fmt.price(ASK, 2)}</Text>
           <Text style={styles.priceLabel}>ASK</Text>
-        </View>
+        </Pressable>
       </View>
 
       {/* ── Scrollable Form ────────────────────────────────────────── */}
