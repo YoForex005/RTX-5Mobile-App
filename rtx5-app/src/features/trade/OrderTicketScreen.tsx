@@ -8,13 +8,14 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
+import { useAccountSummary } from '../../query/account';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
 import { useLiveTick } from '../../hooks/useLiveCandles';
@@ -48,7 +49,9 @@ export function OrderTicketScreen() {
   const [typeOpen, setTypeOpen] = useState(false);
   const [volume, setVolume] = useState(0.01);
   const [slEnabled, setSlEnabled] = useState(false);
+  const [slPrice, setSlPrice] = useState(0);
   const [tpEnabled, setTpEnabled] = useState(false);
+  const [tpPrice, setTpPrice] = useState(0);
 
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
 
@@ -67,6 +70,38 @@ export function OrderTicketScreen() {
   
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
+
+  const loginStr = resolveTradingLoginString();
+  const { data: accountSummary } = useAccountSummary(loginStr);
+  const leverage = accountSummary?.leverage || 100;
+  const currency = accountSummary?.currency || 'USD';
+
+  // Estimate required margin for this trade size
+  let contractSize = 100000;
+  if (symbol.includes('XAU') || symbol.includes('XAG')) contractSize = 100;
+  else if (symbol.includes('BTC') || symbol.includes('ETH')) contractSize = 1;
+  else if (symbol.includes('US30') || symbol.includes('SPX') || symbol.includes('NAS') || symbol.includes('GER') || symbol.includes('UK')) contractSize = 10;
+
+  const estimatedMargin = Number.isFinite(ASK) && ASK > 0 
+    ? (volume * contractSize * ASK) / leverage 
+    : 0;
+
+  const marginDisplay = currency === 'USD' 
+    ? `-$${fmt.price(estimatedMargin, 2)}` 
+    : `-${fmt.price(estimatedMargin, 2)} ${currency}`;
+
+  const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
+  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') || baseSymbol.includes('BTC') ? 2 : 5;
+  const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
+
+  // Synthesize dynamic live order book updates tied to actual ticking price streams
+  const domRows = useMemo(() => {
+    return [
+      { sell: Math.floor(Math.random() * 60 + 20), price: fmt.price(ASK + pipSize * 3, displayDecimals), buy: Math.floor(Math.random() * 20 + 5) },
+      { sell: Math.floor(Math.random() * 80 + 40), price: fmt.price((ASK + BID) / 2, displayDecimals), buy: Math.floor(Math.random() * 80 + 40) },
+      { sell: Math.floor(Math.random() * 20 + 5), price: fmt.price(BID - pipSize * 3, displayDecimals), buy: Math.floor(Math.random() * 60 + 20) },
+    ];
+  }, [ASK, BID, pipSize, displayDecimals]);
 
   const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
 
@@ -120,8 +155,8 @@ export function OrderTicketScreen() {
         symbol: symbol,
         side: side,
         volume: volume,
-        price_sl: 0,
-        price_tp: 0,
+        price_sl: slEnabled ? slPrice : 0,
+        price_tp: tpEnabled ? tpPrice : 0,
         comment: 'RTX5 Mobile Order',
         trailing_stop: 0,
         trailing_step: 0,
@@ -147,8 +182,8 @@ export function OrderTicketScreen() {
         pnl: 0,
         swap: 0,
         openTime: new Date().toISOString(),
-        sl: 0,
-        tp: 0,
+        sl: slEnabled ? slPrice : 0,
+        tp: tpEnabled ? tpPrice : 0,
         clientCreatedAt: Date.now(),
       };
       
@@ -203,7 +238,7 @@ export function OrderTicketScreen() {
       {/* ── Compact Header ─────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 24, zIndex: 10 }]}>
         <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={T.text} />
+          <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
           <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
@@ -320,9 +355,45 @@ export function OrderTicketScreen() {
 
         {/* Risk Management */}
         <Text style={styles.sectionTitle}>RISK MANAGEMENT</Text>
-        <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => setSlEnabled(v => !v)} T={T} isDark={isDark} styles={styles} />
+        <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => {
+          if (!slEnabled) setSlPrice(latestClose);
+          setSlEnabled(v => !v);
+        }} T={T} isDark={isDark} styles={styles} />
+        {slEnabled && (
+          <View style={styles.riskInputRow}>
+            <View style={styles.volStepper}>
+              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+                <Ionicons name="remove" size={18} color={T.textSub} />
+              </Pressable>
+              <View style={[styles.volCenter, { width: 120 }]}>
+                <Text style={styles.volNum}>{fmt.price(slPrice, displayDecimals)}</Text>
+              </View>
+              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+                <Ionicons name="add" size={18} color={T.textSub} />
+              </Pressable>
+            </View>
+          </View>
+        )}
         <View style={styles.hairline} />
-        <ToggleRow label="Take Profit" icon="analytics-outline" enabled={tpEnabled} onToggle={() => setTpEnabled(v => !v)} T={T} isDark={isDark} styles={styles} />
+        <ToggleRow label="Take Profit" icon="analytics-outline" enabled={tpEnabled} onToggle={() => {
+          if (!tpEnabled) setTpPrice(latestClose);
+          setTpEnabled(v => !v);
+        }} T={T} isDark={isDark} styles={styles} />
+        {tpEnabled && (
+          <View style={styles.riskInputRow}>
+            <View style={styles.volStepper}>
+              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+                <Ionicons name="remove" size={18} color={T.textSub} />
+              </Pressable>
+              <View style={[styles.volCenter, { width: 120 }]}>
+                <Text style={styles.volNum}>{fmt.price(tpPrice, displayDecimals)}</Text>
+              </View>
+              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+                <Ionicons name="add" size={18} color={T.textSub} />
+              </Pressable>
+            </View>
+          </View>
+        )}
         <View style={styles.hairline} />
         <ToggleRow label="Trailing Stop" icon="git-commit-outline" enabled={false} onToggle={() => { }} T={T} isDark={isDark} styles={styles} />
         <View style={styles.hairline} />
@@ -333,9 +404,9 @@ export function OrderTicketScreen() {
         <View style={styles.hairline} />
         <InfoRow label="Spread" value={`${spread} pts`} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Margin" value="-$6.72" styles={styles} />
+        <InfoRow label="Margin" value={marginDisplay} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Acc. Leverage" value="1:30" styles={styles} />
+        <InfoRow label="Acc. Leverage" value={`1:${leverage}`} styles={styles} />
         <View style={styles.hairline} />
 
         {/* Depth of Market — compact table */}
@@ -348,11 +419,7 @@ export function OrderTicketScreen() {
             <Text style={styles.domColHead}>BUY VOL</Text>
           </View>
           {/* Rows */}
-          {[
-            { sell: 40, price: '67022.00', buy: 30 },
-            { sell: 60, price: '67028.00', buy: 55 },
-            { sell: 30, price: '67035.00', buy: 70 },
-          ].map((r, i) => (
+          {domRows.map((r, i) => (
             <View key={i} style={styles.domRow}>
               <View style={styles.domBarCol}>
                 <View style={[styles.domBarSell, { width: `${r.sell}%` }]} />
@@ -408,7 +475,7 @@ export function OrderTicketScreen() {
         {/* Disclaimer */}
         <View style={styles.disclaimer}>
           <Text style={styles.disclaimerTxt}>
-            *Market execution. The executed price may differ from the requested price.
+            *Final execution price may slightly differ due to market volatility.
           </Text>
         </View>
       </ScrollView>
@@ -492,7 +559,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: BG },
     header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 14, zIndex: 10 },
-    backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: ELEVATED, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
+    backBtn: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
     hCenter: { flex: 1, alignItems: 'center' },
     hSymbol: { color: WHITE, fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
     livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: BUY_BG },
@@ -529,6 +596,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     dropDot: { width: 6, height: 6, borderRadius: 3 },
     dropText: { flex: 1, fontSize: 14, fontWeight: '500' },
 
+    riskInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12, paddingRight: 4 },
     volSection: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
     volStepper: { flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 8, backgroundColor: ELEVATED, overflow: 'hidden', borderWidth: 1, borderColor: T.border },
     volBtn: { width: 40, height: '100%', alignItems: 'center', justifyContent: 'center' },
@@ -555,8 +623,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     domBarBuy: { height: 12, borderRadius: 2, backgroundColor: BUY_C },
     domPrice: { width: 80, textAlign: 'center', color: WHITE, fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'] },
 
-    disclaimer: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
-    disclaimerTxt: { color: T.textMuted, fontSize: 10, lineHeight: 14, flex: 1 },
+    disclaimer: { alignItems: 'center', marginTop: 12, paddingHorizontal: 16 },
+    disclaimerTxt: { color: T.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
     disclaimerIcons: { flexDirection: 'row', gap: 10 },
 
     execRow: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },

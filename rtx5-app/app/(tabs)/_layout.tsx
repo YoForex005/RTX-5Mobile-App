@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname } from 'expo-router';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
@@ -25,6 +25,10 @@ export default function TabsLayout() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+
+  const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
+  const shouldHideMenu = (isChartFullscreen && isChartTab) || isSearchActive;
 
   const TAB_BAR_STYLE = {
     backgroundColor: isDark ? '#040609' : '#ffffff',
@@ -63,7 +67,7 @@ export default function TabsLayout() {
 
       <SidebarDrawer />
 
-      {!isChartFullscreen && !isSearchActive && (
+      {!shouldHideMenu && (
         <Pressable
           style={[
             styles.globalMenuBtn,

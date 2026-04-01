@@ -26,33 +26,6 @@ import { fmt } from '../../utils/format';
 
 /* ───── Helpers ───── */
 
-const CURRENCY_TO_COUNTRY: Record<string, string> = {
-  EUR: 'eu', USD: 'us', GBP: 'gb', JPY: 'jp',
-  CHF: 'ch', AUD: 'au', NZD: 'nz', CAD: 'ca',
-};
-
-const flagUrl = (cc: string) => `https://flagcdn.com/w80/${cc}.png`;
-
-function CurrencyFlags({ symbol, cardBg }: { symbol: string; cardBg: string }) {
-  const core = symbol;
-  if (core.length < 6) return null;
-  const base = CURRENCY_TO_COUNTRY[core.slice(0, 3)];
-  const quote = CURRENCY_TO_COUNTRY[core.slice(3, 6)];
-  if (!base || !quote) return null;
-  return (
-    <View style={sf.flagsWrap}>
-      <Image source={{ uri: flagUrl(base) }} style={[sf.flagIcon, { borderColor: cardBg }]} />
-      <Image source={{ uri: flagUrl(quote) }} style={[sf.flagIcon, sf.flagOverlap, { borderColor: cardBg }]} />
-    </View>
-  );
-}
-
-const sf = StyleSheet.create({
-  flagsWrap: { flexDirection: 'row', alignItems: 'center' },
-  flagIcon: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5 },
-  flagOverlap: { marginLeft: -6 },
-});
-
 const digitsFor = (item: QuoteItem) =>
   item.digits ?? (item.bid >= 100 ? 3 : item.bid >= 10 ? 4 : 5);
 
@@ -83,8 +56,12 @@ function QuoteCard({
   onLongPress: () => void;
 }) {
   const liveItem = useTradingState((state) => state.quotes[symbol]);
+
+  const noData = liveItem === undefined || !liveItem.bid;
   
-  const noData = liveItem === undefined;
+  // Hide the card completely if no data values are actively streaming for it.
+  if (noData) return null;
+  
   const item: any = liveItem || { symbol, bid: 0, ask: 0, changePct: 0, spread: 0, volume: 0, digits: 5 };
 
   const isUp = item.changePct >= 0;
@@ -146,7 +123,6 @@ function QuoteCard({
         <View style={sc.symbolCol}>
           {/* Row 1: Flags + Symbol + % pill */}
           <View style={sc.cardRow1}>
-            <CurrencyFlags symbol={item.symbol} cardBg={cardBg} />
             <Text style={[sc.symbolText, { color: T.text }]}>{displaySymbol}</Text>
             <View style={[sc.changePill, { backgroundColor: pillBgColor }]}>
               <Text style={[sc.changePillText, { color: noData ? T.textMuted : '#FFFFFF' }]}>{noData ? '--' : pct}</Text>
@@ -231,10 +207,9 @@ function EditQuoteRow({
         <Pressable onPress={onRemove} style={{ padding: 4 }}>
           <Ionicons name="remove-circle" size={24} color={T.down} />
         </Pressable>
-        <CurrencyFlags symbol={symbol} cardBg={cardBg} />
         <Text style={[sc.symbolText, { color: T.text }]}>{fmt.symbol(symbol)}</Text>
       </View>
-      
+
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
         <Pressable onPress={onMoveUp} disabled={index === 0} style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}>
           <Ionicons name="chevron-up-circle-outline" size={30} color={T.textSub} />
@@ -250,11 +225,11 @@ function EditQuoteRow({
 function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }: any) {
   const { data: apiSymbols, isLoading } = useMarketSymbols();
   const [query, setQuery] = useState('');
-  
+
   const available = useMemo(() => {
     const all = apiSymbols || [];
     const q = query.trim().toLowerCase();
-    
+
     // Exact match for case-insensitive symbols
     const existingBases = new Set(
       (existingSymbols || []).map((s: string) => s.toLowerCase())
@@ -276,31 +251,30 @@ function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }:
           <Pressable onPress={onClose}><Ionicons name="close" size={24} color={T.text} /></Pressable>
         </View>
         <View style={[s.searchBar, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : T.border, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#fff' }]}>
-           <Ionicons name="search" size={20} color={T.textMuted} />
-           <TextInput 
-             value={query} onChangeText={setQuery} 
-             placeholder={isLoading ? "Loading assets..." : "Search available assets..."} 
-             placeholderTextColor={T.textMuted}
-             style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
-             autoCapitalize="characters"
-           />
+          <Ionicons name="search" size={20} color={T.textMuted} />
+          <TextInput
+            value={query} onChangeText={setQuery}
+            placeholder={isLoading ? "Loading assets..." : "Search available assets..."}
+            placeholderTextColor={T.textMuted}
+            style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
+            autoCapitalize="characters"
+          />
         </View>
         <FlatList
-           data={available}
-           keyExtractor={sym => sym}
-           renderItem={({item: sym}) => (
-             <Pressable onPress={() => onAdd(sym)} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <CurrencyFlags symbol={sym} cardBg="transparent" />
-                  <View>
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>{fmt.symbol(sym)}</Text>
-                    <Text style={{ fontSize: 12, color: T.textMuted }}>Forex</Text>
-                  </View>
+          data={available}
+          keyExtractor={sym => sym}
+          renderItem={({ item: sym }) => (
+            <Pressable onPress={() => onAdd(sym)} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>{fmt.symbol(sym)}</Text>
+                  <Text style={{ fontSize: 12, color: T.textMuted }}>Forex</Text>
                 </View>
-                <Ionicons name="add-circle" size={26} color={T.trading.profit} />
-             </Pressable>
-           )}
-           ListEmptyComponent={<Text style={{ textAlign: 'center', color: T.textMuted, marginTop: 40, fontSize: 15 }}>{isLoading ? "Fetching markets..." : "No matching assets available."}</Text>}
+              </View>
+              <Ionicons name="add-circle" size={26} color={T.trading.profit} />
+            </Pressable>
+          )}
+          ListEmptyComponent={<Text style={{ textAlign: 'center', color: T.textMuted, marginTop: 40, fontSize: 15 }}>{isLoading ? "Fetching markets..." : "No matching assets available."}</Text>}
         />
       </View>
     </View>
@@ -321,36 +295,7 @@ function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }:
   );
 }
 
-function TickCounter({ T }: { T: ThemeColors }) {
-  const [tps, setTps] = useState(0);
-  const tickCountRef = useRef(useTradingState.getState().tickCount);
 
-  useEffect(() => {
-    const unsub = useTradingState.subscribe((state) => {
-      tickCountRef.current = state.tickCount;
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    let lastTicks = tickCountRef.current;
-    const interval = setInterval(() => {
-      const current = tickCountRef.current;
-      setTps(current - lastTicks);
-      lastTicks = current;
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <View style={s.subRight}>
-      <Text style={[s.subGrey, { color: T.textMuted }]}>Speed: </Text>
-      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>{tps} tps  </Text>
-      <Text style={[s.subGrey, { color: T.textMuted }]}>Status: </Text>
-      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>LIVE</Text>
-    </View>
-  );
-}
 
 /* ───── QuotesScreen ───── */
 
@@ -370,27 +315,46 @@ export function QuotesScreen() {
 
   const { data: apiSymbols = [] } = useMarketSymbols();
 
-  // ── Auto-Purge Invalid Symbols ─────────────────────────────────────────────
-  // Cross-references the user's saved wishlist against the live API response.
-  // Instantly deletes missing symbols and auto-populates defaults if empty.
+  const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
+  const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
+
+  // ── Auto-Purge Invalid Symbols & Initial Population ────────────────────────
   useEffect(() => {
     if (apiSymbols.length > 0) {
-      const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
-      
-      const defaultSet = ['GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'US30'];
-      const resolvedDefaults = defaultSet.filter((sym) => apiSymbols.includes(sym));
-      
-      if (validSymbols.length < quoteSymbols.length) {
-        if (validSymbols.length === 0) {
-          setQuoteSymbols(resolvedDefaults.length > 0 ? resolvedDefaults : apiSymbols.slice(0, 5));
-        } else {
+      if (!hasSetInitialSymbols) {
+        quotesWsService.setSubscriptions(apiSymbols);
+        const timer = setTimeout(() => {
+          const state = useTradingState.getState();
+          const tickingSymbols = Object.keys(state.quotes).filter(sym => !!state.quotes[sym].bid);
+          
+          if (tickingSymbols.length > 0) {
+            setQuoteSymbols(tickingSymbols.slice(0, 8));
+          } else {
+            setQuoteSymbols(apiSymbols.slice(0, 6)); 
+          }
+          setHasSetInitialSymbols(true);
+        }, 2500);
+        return () => clearTimeout(timer);
+      } else {
+        const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
+        if (validSymbols.length < quoteSymbols.length) {
           setQuoteSymbols(validSymbols);
         }
-      } else if (quoteSymbols.length === 0) {
-        setQuoteSymbols(resolvedDefaults.length > 0 ? resolvedDefaults : apiSymbols.slice(0, 5));
       }
     }
-  }, [apiSymbols, quoteSymbols, setQuoteSymbols]);
+  }, [apiSymbols, quoteSymbols, setQuoteSymbols, hasSetInitialSymbols, setHasSetInitialSymbols]);
+
+  // One-time aggressive purge for legacy polluted lists
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const stateQuotes = useTradingState.getState().quotes;
+      const active = quoteSymbols.filter(sym => !!stateQuotes[sym]?.bid);
+      if (active.length > 0 && active.length < quoteSymbols.length) {
+         setQuoteSymbols(active);
+      }
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -415,6 +379,8 @@ export function QuotesScreen() {
     return () => clearInterval(id);
   }, []);
 
+  const activeQuoteSymbols = useActiveSymbols(quoteSymbols);
+
   /* Real-time WebSocket feed subscriptions (bypasses UI re-renders) */
   useEffect(() => {
     quotesWsService.connect();
@@ -422,12 +388,15 @@ export function QuotesScreen() {
     return () => {
       quotesWsService.unsubscribe(quoteSymbols);
     };
-  }, [JSON.stringify(quoteSymbols)]);
+  }, [quoteSymbols]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return quoteSymbols.filter((sym) => sym.toLowerCase().includes(q));
-  }, [quoteSymbols, search]);
+    // Use activeQuoteSymbols for viewing so dead symbols are completely invisible.
+    // Use quoteSymbols for editing so they can still manage their raw list if needed.
+    const sourceList = isEditing ? quoteSymbols : activeQuoteSymbols;
+    return sourceList.filter((sym) => sym.toLowerCase().includes(q));
+  }, [quoteSymbols, activeQuoteSymbols, search, isEditing]);
 
   const goDetail = (sym: string) => {
     setChartSymbol(sym);
@@ -465,16 +434,20 @@ export function QuotesScreen() {
             <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Quotes</Text>
 
             {/* Float header controls to the right */}
-            <View style={[s.headerRight, { position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }]}>
-              <Pressable style={[s.iconBtnPrimary, { backgroundColor: T.trading.buy.primary }]} onPress={() => setShowAddModal(true)}>
-                <Ionicons name="add" size={16} color="#fff" />
-              </Pressable>
-              <Pressable
-                style={[s.iconBtnPrimary, { backgroundColor: T.trading.buy.primary }]}
-                onPress={toggleEditMode}
-              >
-                <Ionicons name={isEditing ? "checkmark-done" : "create-outline"} size={16} color="#fff" />
-              </Pressable>
+            <View style={{ position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }}>
+              <View style={{
+                 flexDirection: 'row', 
+                 alignItems: 'center', 
+                 gap: 18,
+                 paddingRight: 4,
+              }}>
+                <Pressable onPress={() => setShowAddModal(true)} hitSlop={12}>
+                  <Ionicons name="add-outline" size={24} color={isDark ? 'rgba(255, 255, 255, 0.75)' : T.textSub} />
+                </Pressable>
+                <Pressable onPress={toggleEditMode} hitSlop={12}>
+                  <Ionicons name={isEditing ? "checkmark-done-outline" : "pencil-outline"} size={22} color={isDark ? 'rgba(255, 255, 255, 0.75)' : T.textSub} />
+                </Pressable>
+              </View>
             </View>
           </View>
 
@@ -524,7 +497,7 @@ export function QuotesScreen() {
                   />
                 );
               }
-              
+
               return (
                 <QuoteCard
                   symbol={sym}
@@ -555,16 +528,16 @@ export function QuotesScreen() {
       </SafeAreaView>
 
       {/* ── Add Modal (Moved out of padding scope so Web absolute overlay works) ── */}
-      <AddSymbolModal 
-         visible={showAddModal} 
-         onClose={() => setShowAddModal(false)} 
-         onAdd={(sym: string) => { 
-            addQuoteSymbol(sym); 
-            setShowAddModal(false); 
-         }} 
-         T={T} 
-         isDark={isDark} 
-         existingSymbols={quoteSymbols} 
+      <AddSymbolModal
+        visible={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onAdd={(sym: string) => {
+          addQuoteSymbol(sym);
+          setShowAddModal(false);
+        }}
+        T={T}
+        isDark={isDark}
+        existingSymbols={activeQuoteSymbols}
       />
     </View>
   );
@@ -648,3 +621,56 @@ const sc = StyleSheet.create({
   priceLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   priceValue: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'right' },
 });
+
+function TickCounter({ T }: { T: ThemeColors }) {
+  const [tps, setTps] = useState(0);
+  const tickCountRef = useRef(useTradingState.getState().tickCount);
+
+  useEffect(() => {
+    const unsub = useTradingState.subscribe((state) => {
+      tickCountRef.current = state.tickCount;
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    let lastTicks = tickCountRef.current;
+    const interval = setInterval(() => {
+      const current = tickCountRef.current;
+      setTps(current - lastTicks);
+      lastTicks = current;
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <View style={s.subRight}>
+      <Text style={[s.subGrey, { color: T.textMuted }]}>Speed: </Text>
+      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>{tps} tps  </Text>
+      <Text style={[s.subGrey, { color: T.textMuted }]}>Status: </Text>
+      <Text style={[s.subLive, { color: T.trading.profit, transform: [{ translateY: -1 }] }]}>LIVE</Text>
+    </View>
+  );
+}
+
+// Global active symbols tracker to avoid excessive re-renders
+function useActiveSymbols(quoteSymbols: string[]) {
+  const [activeSymbols, setActiveSymbols] = useState<string[]>([]);
+  
+  useEffect(() => {
+    const id = setInterval(() => {
+      const stateQuotes = useTradingState.getState().quotes;
+      const currentActive = quoteSymbols.filter(sym => !!stateQuotes[sym]?.bid);
+      
+      setActiveSymbols(prev => {
+        if (prev.length !== currentActive.length || prev.some((s, i) => s !== currentActive[i])) {
+          return currentActive;
+        }
+        return prev;
+      });
+    }, 1500);
+    return () => clearInterval(id);
+  }, [quoteSymbols]);
+
+  return activeSymbols;
+}

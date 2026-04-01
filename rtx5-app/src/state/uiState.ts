@@ -5,13 +5,13 @@
 import { create } from 'zustand';
 
 /** Represents a single interactive button in an ActionSheet */
-type ActionSheetAction = { 
+type ActionSheetAction = {
   /** Display label for the button */
-  label: string; 
+  label: string;
   /** If true, styles the button as a destructive/danger action */
-  danger?: boolean; 
+  danger?: boolean;
   /** Callback fired when the user taps this action */
-  onPress?: () => void 
+  onPress?: () => void
 };
 
 /** Configuration object for triggering the global ActionSheet component */

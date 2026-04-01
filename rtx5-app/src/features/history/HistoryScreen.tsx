@@ -26,6 +26,7 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
+import { formatBrokerTime } from '../../utils/brokerTime';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -46,9 +47,7 @@ const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume',
 function safeTimeStr(timestamp?: number): string {
   if (!timestamp || isNaN(timestamp)) return '--';
   try {
-    const d = new Date(timestamp * 1000);
-    if (isNaN(d.getTime())) return '--';
-    return d.toISOString().replace('T', ' ').slice(0, 19);
+    return formatBrokerTime(timestamp);
   } catch {
     return '--';
   }
@@ -195,9 +194,9 @@ export function HistoryScreen() {
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>
             <View style={styles.summaryBlock}>
               <View style={styles.summaryTop}>
-                <Text style={[styles.summaryLabel, { color: T.text }]}>Balance</Text>
+                <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
                 <View style={styles.floatingRow}>
-                  <Text style={[styles.floating, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>
+                  <Text style={[styles.floating, { color: T.text, opacity: 0.9 }]}>
                     {fmt.int(balance)}
                   </Text>
                   <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
@@ -508,7 +507,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     listContent: { paddingBottom: spacing.xl + spacing.md },
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
     menuBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
-    accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
+    accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
       backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
@@ -519,10 +518,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       overflow: 'hidden',
     },
     summaryTop: { paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
-    summaryLabel: { fontSize: 24, fontWeight: '800', letterSpacing: -1, marginTop: 4 },
-    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-    floating: { fontSize: 28, fontWeight: '800', letterSpacing: -1, lineHeight: 34, marginTop: 4, fontVariant: ['tabular-nums'] },
-    balanceQuickCurrency: { fontSize: 28, fontWeight: '800' },
+    summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 4 },
+    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+    floating: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 4, fontVariant: ['tabular-nums'] },
+    balanceQuickCurrency: { fontSize: 18, fontWeight: '500' },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -545,7 +544,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     segmentText: { fontSize: 13, fontWeight: '700' },
     metricsRow: { marginTop: 14, flexDirection: 'row', marginRight: -6 },
     sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
-    sectionTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
+    sectionTitle: { fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
     sectionMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
     emptyText: { marginTop: spacing.lg, textAlign: 'center', fontSize: 13 },
   });

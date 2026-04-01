@@ -125,6 +125,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 20,
       paddingTop: 10,
       lineHeight: 18,
+      textAlign: 'center',
     },
   });
 }

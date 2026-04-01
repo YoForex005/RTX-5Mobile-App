@@ -91,22 +91,22 @@ export function SettingsScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={{ height: 56, marginTop: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
           {isSearching ? (
-             <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
-                <Ionicons name="search" size={20} color={T.textMuted} />
-                <TextInput 
-                   ref={searchInputRef}
-                   value={searchQuery}
-                   onChangeText={setSearchQuery}
-                   placeholder="Search settings..."
-                   placeholderTextColor={themeMode === 'dark' ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
-                   style={[{ flex: 1, color: T.text, fontSize: 15, fontWeight: '500' }, { outlineStyle: 'none' } as any]}
-                   autoCapitalize="none"
-                   returnKeyType="search"
-                />
-                <Pressable onPress={disableSearch}>
-                   <Ionicons name="close-circle" size={16} color={T.textMuted} />
-                </Pressable>
-             </View>
+            <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
+              <Ionicons name="search" size={20} color={T.textMuted} />
+              <TextInput
+                ref={searchInputRef}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search settings..."
+                placeholderTextColor={themeMode === 'dark' ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
+                style={[{ flex: 1, color: T.text, fontSize: 15, fontWeight: '500' }, { outlineStyle: 'none' } as any]}
+                autoCapitalize="none"
+                returnKeyType="search"
+              />
+              <Pressable onPress={disableSearch}>
+                <Ionicons name="close-circle" size={16} color={T.textMuted} />
+              </Pressable>
+            </View>
           ) : (
             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
               <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
@@ -119,238 +119,238 @@ export function SettingsScreen() {
 
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }}>
-             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
-               {searchResults.length > 0 ? searchResults.map((item, index) => (
-                 <View key={item.title}>
-                   <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={item.title} sub={item.sub} />
-                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
-                 </View>
-               )) : (
-                  <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
-                    <Ionicons name="search-outline" size={48} color={T.borderMedium} />
-                    <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>No settings found matching "{searchQuery}"</Text>
-                  </View>
-               )}
-             </View>
+            <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
+              {searchResults.length > 0 ? searchResults.map((item, index) => (
+                <View key={item.title}>
+                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={item.title} sub={item.sub} />
+                  {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
+                </View>
+              )) : (
+                <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
+                  <Ionicons name="search-outline" size={48} color={T.borderMedium} />
+                  <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>No settings found matching "{searchQuery}"</Text>
+                </View>
+              )}
+            </View>
           </View>
         ) : (
           <View>
-        {/* ── Main Account Card ─────────────────────────────────── */}
-        <Pressable onPress={() => router.push('/settings/accounts')}>
-          <View style={[styles.accountCard, styles.cardShadow]}>
-            {/* Top-Left Diagonal Ribbon */}
-            <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
-              <Text style={styles.ribbonText}>{isDemoAccount ? 'Demo' : 'Real'}</Text>
-            </View>
+            {/* ── Main Account Card ─────────────────────────────────── */}
+            <Pressable onPress={() => router.push('/settings/accounts')}>
+              <View style={[styles.accountCard, styles.cardShadow]}>
+                {/* Top-Left Diagonal Ribbon */}
+                <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
+                  <Text style={styles.ribbonText}>{isDemoAccount ? 'Demo' : 'Real'}</Text>
+                </View>
 
-            <LinearGradient
-              colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#0d1628', '#07101e']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-            {/* Massive deep indigo circle on top left */}
-            <View style={[styles.cardBubbleLeft, { backgroundColor: themeMode === 'light' ? '#6366F1' : '#0F162A' }]} />
-            {/* Lighter indigo circle on top right (behind Connected) */}
-            <View style={[styles.cardBubbleRight, { backgroundColor: themeMode === 'light' ? '#818CF8' : '#060B18' }]} />
+                <LinearGradient
+                  colors={themeMode === 'light' ? ['#4F46E5', '#3730A3'] : ['#0d1628', '#07101e']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                {/* Massive deep indigo circle on top left */}
+                <View style={[styles.cardBubbleLeft, { backgroundColor: themeMode === 'light' ? '#6366F1' : '#0F162A' }]} />
+                {/* Lighter indigo circle on top right (behind Connected) */}
+                <View style={[styles.cardBubbleRight, { backgroundColor: themeMode === 'light' ? '#818CF8' : '#060B18' }]} />
 
-            <View style={styles.accTopRow}>
-              <View style={styles.connectedPill}>
-                <View style={styles.greenDot} />
-                <Text style={styles.connectedText}>Connected</Text>
-              </View>
-            </View>
+                <View style={styles.accTopRow}>
+                  <View style={styles.connectedPill}>
+                    <View style={styles.greenDot} />
+                    <Text style={styles.connectedText}>Connected</Text>
+                  </View>
+                </View>
 
-            <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>Standard</Text>
-            <Text style={[styles.accBalance, themeMode === 'light' && { color: '#FFFFFF' }]}>
-              119,701.53 <Text style={[styles.accCurrency, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>USD</Text>
-            </Text>
-
-            <View style={styles.accDivider} />
-
-            <View style={styles.accDetailsWrap}>
-              <Text style={styles.accCompany}>RTX-5</Text>
-              <View style={styles.accServerRow}>
-                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
-                  #{accountDetails?.id || '---'}
+                <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>Standard</Text>
+                <Text style={[styles.accBalance, themeMode === 'light' && { color: '#FFFFFF' }]}>
+                  119,701.53 <Text style={[styles.accCurrency, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>USD</Text>
                 </Text>
-                <View style={styles.accServerDot} />
-                <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
-                  {accountDetails?.server || 'Server'}
-                </Text>
+
+                <View style={styles.accDivider} />
+
+                <View style={styles.accDetailsWrap}>
+                  <Text style={styles.accCompany}>RTX-5</Text>
+                  <View style={styles.accServerRow}>
+                    <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                      #{accountDetails?.id || '---'}
+                    </Text>
+                    <View style={styles.accServerDot} />
+                    <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
+                      {accountDetails?.server || 'Server'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.chipRow}>
+                  <View style={styles.chip}>
+                    <Ionicons name="server-outline" size={12} color="#FFFFFF" />
+                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>MT5</Text>
+                  </View>
+                  <View style={styles.chip}>
+                    <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
+                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Secure</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+
+            {/* ── Metrics Row ───────────────────────────────────────── */}
+            <View style={styles.metricsRow}>
+              {/* Quotes Block */}
+              <View style={styles.metricBlock}>
+                <View style={styles.metricTopRow}>
+                  <View style={styles.metricIconCircle}>
+                    <Ionicons name="list" size={18} color="#1D4ED8" />
+                  </View>
+                  <Text style={styles.metricLabel}>Quotes</Text>
+                </View>
+                <Text style={styles.metricValue}>{quoteSymbols?.length || 0}</Text>
+              </View>
+
+              {/* Drawings Block */}
+              <View style={styles.metricBlock}>
+                <View style={styles.metricTopRow}>
+                  <View style={styles.metricIconCircle}>
+                    <Ionicons name="analytics" size={18} color="#1D4ED8" />
+                  </View>
+                  <Text style={styles.metricLabel}>Drawings</Text>
+                </View>
+                <Text style={styles.metricValue}>{chartDrawings?.length || 0}</Text>
+              </View>
+
+              {/* One-Click Block */}
+              <View style={styles.metricBlock}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
+                    <Ionicons name="flash" size={18} color={oneClickAccepted ? '#3B82F6' : '#1D4ED8'} />
+                  </View>
+                  <Text style={styles.metricLabel}>One-Click</Text>
+                </View>
+                <View style={styles.toggleRow}>
+                  <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
+                  <Switch
+                    value={oneClickAccepted}
+                    onValueChange={setOneClickAccepted}
+                    trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
+                    thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
+                    style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                    {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
+                  />
+                </View>
               </View>
             </View>
 
-            <View style={styles.chipRow}>
-              <View style={styles.chip}>
-                <Ionicons name="server-outline" size={12} color="#FFFFFF" />
-                <Text style={[styles.chipText, { color: '#FFFFFF' }]}>MT5</Text>
+            {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
+            <Text style={styles.sectionTitle}>ACCOUNT</Text>
+            <Pressable style={[styles.singleRowCard, styles.cardShadow]}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
+                <Ionicons name="person-outline" size={20} color="#1D4ED8" />
               </View>
-              <View style={styles.chip}>
-                <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
-                <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Secure</Text>
-              </View>
-            </View>
-          </View>
-        </Pressable>
+              <Text style={styles.rowTitleSingle}>New Account</Text>
+              <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
+            </Pressable>
 
-        {/* ── Metrics Row ───────────────────────────────────────── */}
-        <View style={styles.metricsRow}>
-          {/* Quotes Block */}
-          <View style={styles.metricBlock}>
-            <View style={styles.metricTopRow}>
-              <View style={styles.metricIconCircle}>
-                <Ionicons name="list" size={18} color="#1D4ED8" />
-              </View>
-              <Text style={styles.metricLabel}>Quotes</Text>
-            </View>
-            <Text style={styles.metricValue}>108</Text>
-          </View>
 
-          {/* Drawings Block */}
-          <View style={styles.metricBlock}>
-            <View style={styles.metricTopRow}>
-              <View style={styles.metricIconCircle}>
-                <Ionicons name="analytics" size={18} color="#1D4ED8" />
-              </View>
-              <Text style={styles.metricLabel}>Drawings</Text>
-            </View>
-            <Text style={styles.metricValue}>0</Text>
-          </View>
-
-          {/* One-Click Block */}
-          <View style={styles.metricBlock}>
-            <View style={styles.metricTopRow}>
-              <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
-                <Ionicons name="flash" size={18} color={oneClickAccepted ? '#3B82F6' : '#64748B'} />
-              </View>
-              <Text style={styles.metricLabel}>One-Click</Text>
-            </View>
-            <View style={styles.toggleRow}>
-              <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
-              <Switch
-                value={oneClickAccepted}
-                onValueChange={setOneClickAccepted}
-                trackColor={{ false: '#1E293B', true: 'rgba(59, 130, 246, 0.5)' }}
-                thumbColor={oneClickAccepted ? '#3b82f6' : '#f4f3f4'}
-                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: oneClickAccepted ? '#3b82f6' : '#f4f3f4' } as any)}
+            {/* ── MARKET & NEWS SECTION ─────────────────────────────── */}
+            <Text style={styles.sectionTitle}>MARKET & NEWS</Text>
+            <View style={[styles.groupCard, styles.cardShadow]}>
+              <SettingRow T={T} styles={styles}
+                icon="mail-outline" color="#1D4ED8"
+                title="Mailbox" sub="High Importance News"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="newspaper-outline" color="#1D4ED8"
+                title="News" sub="WTI, US-Iran Talks, OPEC+"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="calendar-outline" color="#1D4ED8"
+                title="Tradays" sub="Economic Calendar"
               />
             </View>
-          </View>
-        </View>
 
-        {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>ACCOUNT</Text>
-        <Pressable style={[styles.singleRowCard, styles.cardShadow]}>
-          <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
-            <Ionicons name="person-outline" size={20} color="#1D4ED8" />
-          </View>
-          <Text style={styles.rowTitleSingle}>New Account</Text>
-          <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
-        </Pressable>
-
-
-        {/* ── MARKET & NEWS SECTION ─────────────────────────────── */}
-        <Text style={styles.sectionTitle}>MARKET & NEWS</Text>
-        <View style={[styles.groupCard, styles.cardShadow]}>
-          <SettingRow T={T} styles={styles}
-            icon="mail-outline" color="#1D4ED8"
-            title="Mailbox" sub="High Importance News"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="newspaper-outline" color="#1D4ED8"
-            title="News" sub="WTI, US-Iran Talks, OPEC+"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="calendar-outline" color="#1D4ED8"
-            title="Tradays" sub="Economic Calendar"
-          />
-        </View>
-
-        {/* ── COMMUNITY SECTION ─────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>COMMUNITY</Text>
-        <View style={[styles.groupCard, styles.cardShadow]}>
-          <SettingRow T={T} styles={styles}
-            icon="chatbubble-outline" color="#1D4ED8"
-            title="Chat & Messages" sub="Sign in to MQL5.community"
-            badge="9"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="people-outline" color="#1D4ED8"
-            title="Traders Community"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="flash-outline" color="#1D4ED8"
-            title="MQL5 Algo Trading"
-          />
-        </View>
-
-        {/* ── TERMINAL SECTION (Vertical List) ───────────────────── */}
-        <Text style={styles.sectionTitle}>TERMINAL</Text>
-        <View style={[styles.groupCard, styles.cardShadow]}>
-          <SettingRow T={T} styles={styles}
-            icon="color-palette-outline" color="#1D4ED8"
-            title="Theme" sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
-            rightElement={
-              <Switch
-                value={themeMode === 'light'}
-                onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
-                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+            {/* ── COMMUNITY SECTION ─────────────────────────────────── */}
+            <Text style={styles.sectionTitle}>COMMUNITY</Text>
+            <View style={[styles.groupCard, styles.cardShadow]}>
+              <SettingRow T={T} styles={styles}
+                icon="chatbubble-outline" color="#1D4ED8"
+                title="Chat & Messages" sub="Sign in to MQL5.community"
+                badge="9"
               />
-            }
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="shield-checkmark-outline" color="#1D4ED8"
-            title="OTP" sub="Passcode Generator"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="browsers-outline" color="#1D4ED8"
-            title="Interface" sub="English"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="stats-chart-outline" color="#1D4ED8"
-            title="Charts"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="reader-outline" color="#1D4ED8"
-            title="Journal"
-          />
-        </View>
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="people-outline" color="#1D4ED8"
+                title="Traders Community"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="flash-outline" color="#1D4ED8"
+                title="MQL5 Algo Trading"
+              />
+            </View>
 
-        {/* ── SUPPORT SECTION ───────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>SUPPORT & HELP</Text>
-        <View style={[styles.groupCard, styles.cardShadow]}>
-          <SettingRow T={T} styles={styles}
-            icon="help-buoy-outline" color="#1D4ED8"
-            title="Support" sub="Contact our dedicated team"
-          />
-          <View style={styles.dividerInner} />
-          <SettingRow T={T} styles={styles}
-            icon="information-circle-outline" color="#1D4ED8"
-            title="Help" sub="FAQs & Documentation"
-          />
-        </View>
+            {/* ── TERMINAL SECTION (Vertical List) ───────────────────── */}
+            <Text style={styles.sectionTitle}>TERMINAL</Text>
+            <View style={[styles.groupCard, styles.cardShadow]}>
+              <SettingRow T={T} styles={styles}
+                icon="color-palette-outline" color="#1D4ED8"
+                title="Theme" sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
+                rightElement={
+                  <Switch
+                    value={themeMode === 'light'}
+                    onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                    trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                    thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                    style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                    {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                  />
+                }
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="shield-checkmark-outline" color="#1D4ED8"
+                title="OTP" sub="Passcode Generator"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="browsers-outline" color="#1D4ED8"
+                title="Interface" sub="English"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="stats-chart-outline" color="#1D4ED8"
+                title="Charts"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="reader-outline" color="#1D4ED8"
+                title="Journal"
+              />
+            </View>
 
-        {/* ── LOGOUT SECTION ────────────────────────────────────── */}
-        <View style={styles.logoutContainer}>
-          <Pressable style={styles.singleRowCardLogout}>
-            <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-              </View>
-              <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
-          </Pressable>
-        </View>
+            {/* ── SUPPORT SECTION ───────────────────────────────────── */}
+            <Text style={styles.sectionTitle}>SUPPORT & HELP</Text>
+            <View style={[styles.groupCard, styles.cardShadow]}>
+              <SettingRow T={T} styles={styles}
+                icon="help-buoy-outline" color="#1D4ED8"
+                title="Support" sub="Contact our dedicated team"
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
+                icon="information-circle-outline" color="#1D4ED8"
+                title="Help" sub="FAQs & Documentation"
+              />
+            </View>
+
+            {/* ── LOGOUT SECTION ────────────────────────────────────── */}
+            <View style={styles.logoutContainer}>
+              <Pressable style={styles.singleRowCardLogout}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                  <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                </View>
+                <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
+              </Pressable>
+            </View>
 
           </View>
         )}
@@ -434,7 +434,7 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
     position: 'absolute', top: -80, right: -60, width: 200, height: 200,
     borderRadius: 100, opacity: themeMode === 'light' ? 0.15 : 0,
   },
-  
+
   ribbonContainer: {
     position: 'absolute', top: 18, left: -42, width: 150, height: 26,
     justifyContent: 'center', alignItems: 'center',

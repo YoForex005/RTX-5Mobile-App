@@ -46,7 +46,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
       const isBuy = p.side === 'buy';
       const rawLivePrice = isBuy ? liveBid : liveAsk;
       const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : p.openPrice;
-      
+
       const isJpy = p.symbol.includes('JPY');
       const contractSize = isJpy ? 1000 : 100000;
       const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
@@ -120,7 +120,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                 <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
               </View>
               <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
-                {fmt.decimal(Number.isFinite(account.freeMargin) ? account.freeMargin : 0, 3)}
+                {fmt.decimal(dynamicEquity - safeMargin, 3)}
               </Text>
             </View>
           </View>
@@ -164,13 +164,6 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           <View>
             <View style={s.positionsTitleRow}>
               <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
-              {positions.length > 0 && (
-                <View style={[s.totalPnlBadge, { backgroundColor: dynamicFloating >= 0 ? 'rgba(74,222,128,0.10)' : 'rgba(248,113,113,0.10)' }]}>
-                  <Text style={[s.totalPnlText, { color: dynamicFloating >= 0 ? T.up : T.down }]}>
-                    {fmt.pnl(dynamicFloating)}
-                  </Text>
-                </View>
-              )}
             </View>
             <Text style={[s.positionsMeta, { color: T.textMuted }]}>
               {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
@@ -232,16 +225,16 @@ export function TradeScreen() {
     }, [fetchPositions])
   );
 
-    const tradingAccount = useTradingState((state: any) => state.account);
+  const tradingAccount = useTradingState((state: any) => state.account);
   const liveAcc = useLiveAccountState();
   const account = {
-    balance: liveAcc.balance || 0, 
-    credit: tradingAccount?.credit || 0, 
-    floating: liveAcc.floating || 0, 
+    balance: liveAcc.balance || 0,
+    credit: tradingAccount?.credit || 0,
+    floating: liveAcc.floating || 0,
     equity: liveAcc.equity || 0,
-    margin: liveAcc.margin || 0, 
-    freeMargin: liveAcc.margin_free || 0, 
-    marginLevel: liveAcc.margin_level || 0, 
+    margin: liveAcc.margin || 0,
+    freeMargin: liveAcc.margin_free || 0,
+    marginLevel: liveAcc.margin_level || 0,
     currency: tradingAccount?.currency || 'USD',
   };
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
@@ -292,15 +285,15 @@ export function TradeScreen() {
             <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
             </View>
-            
-            <LiveUnrealizedPnLHeader 
-               positions={positions} 
-               account={account} 
-               s={s} 
-               T={T} 
-               isDark={isDark} 
-               totalVolume={totalVolume} 
-               onBulkPress={showBulkSheet}
+
+            <LiveUnrealizedPnLHeader
+              positions={positions}
+              account={account}
+              s={s}
+              T={T}
+              isDark={isDark}
+              totalVolume={totalVolume}
+              onBulkPress={showBulkSheet}
             />
           </>
         )}
@@ -357,7 +350,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: 'transparent',
     },
     summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-    floating: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5, lineHeight: 28, marginTop: 4, fontVariant: ['tabular-nums'] },
+    floating: { fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5, marginTop: 2 },
     floatingPositive: { color: T.up },
     floatingNegative: { color: T.down },
     summaryHint: { marginTop: 4, fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
@@ -375,7 +368,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     positionsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     totalPnlBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
     totalPnlText: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any },
-    positionsTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
+    positionsTitle: { fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
     positionsMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
     bulkButton: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
     /* Empty state */
@@ -426,8 +419,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     plMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
     /* Balance */
     balanceQuick: { alignItems: 'flex-end', justifyContent: 'center' },
-    balanceQuickLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 },
-    balanceQuickValue: { fontSize: 24, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+    balanceQuickLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
+    balanceQuickValue: { fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5, marginTop: 2 },
     balanceQuickCurrency: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
     equityRow: { flexDirection: 'row', alignItems: 'center' },
     equityLabel: { fontSize: 12, fontWeight: '600' },

@@ -32,6 +32,8 @@ import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLogin as resolveTradingLoginUtil } from '../../state/tradingLogin';
+import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
@@ -46,14 +48,14 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
   const q = liveQuotes[symbol] || {};
 
   if (!latestTick || typeof latestTick.close !== 'number') return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
-  
+
   const currentPrice = latestTick.close;
   const changePct = q.changePct ?? 0;
   // If the backend doesn't explicitly send "change", we can compute it using daily open or close
   // Assuming q.open or q.close is available. We prefer q.open for daily open if available.
   const openPrice = q.open ?? q.close ?? currentPrice;
   const change = q.change !== undefined ? q.change : (currentPrice - openPrice);
-  
+
   const isUp = change >= 0;
 
   return (
@@ -390,6 +392,14 @@ const CHART_SOURCE = { html: CH_HTML };
 export function ChartScreen() {
   const T = useTheme();
   const token = useUserPreferences(s => s.accountDetails?.credentials?.accessToken);
+
+  // Hydrate positions on page refresh
+  const refreshPositions = usePositionsState((s) => s.refreshPositions);
+  useEffect(() => {
+    const login = resolveTradingLoginUtil();
+    if (login) refreshPositions(String(login));
+  }, [refreshPositions]);
+
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -397,7 +407,7 @@ export function ChartScreen() {
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
 
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
   const { positions } = usePositionsState();
   const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
   const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
@@ -430,9 +440,9 @@ export function ChartScreen() {
   const handleSetTool = (tool: string) => {
     setActiveTool(tool);
     if (tool === 'trash') {
-       webViewRef.current?.injectJavaScript("clearDrawings(); true;");
+      webViewRef.current?.injectJavaScript("clearDrawings(); true;");
     } else {
-       webViewRef.current?.injectJavaScript(`setDrawingTool('${tool}'); true;`);
+      webViewRef.current?.injectJavaScript(`setDrawingTool('${tool}'); true;`);
     }
     setShowDrawingToolbar(false);
   };
@@ -602,55 +612,59 @@ export function ChartScreen() {
   }, [chartSymbol, chartType, webViewReady]);
 
   // Positions Bridge (Draws Open Trades)
+  // Positions & Price Lines Bridge
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
-      if (!showOpenPositions) {
-        webViewRef.current.injectJavaScript(`if (typeof setPriceLines === 'function') setPriceLines([]); true;`);
-        return;
+      let lines: any[] = [];
+      const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
+
+      if (symbolPositions.length > 0) {
+        lines = lines.concat(symbolPositions.flatMap((pos) => {
+          const payload = [];
+          if (showOpenPositions) {
+            payload.push({
+              price: pos.openPrice,
+              color: pos.side === 'buy' ? BLUE : '#EF5350',
+              lineWidth: 1,
+              lineStyle: 1, // Dashed
+              axisLabelVisible: true,
+              title: `${pos.side.toUpperCase()} ${pos.volume}`,
+            });
+          }
+          if (showTpSlStopLimit) {
+            if (pos.tp && pos.tp > 0) {
+              payload.push({ price: pos.tp, color: '#089981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'TP' });
+            }
+            if (pos.sl && pos.sl > 0) {
+              payload.push({ price: pos.sl, color: '#F23645', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'SL' });
+            }
+          }
+          return payload;
+        }));
       }
 
-      const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-      const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
+      // Price Alerts Mock
+      if (showPriceAlerts && candles.length > 0) {
+        const currentPrice = candles[candles.length - 1].close;
+        const isJpy = chartSymbol?.includes('JPY');
+        const pip = isJpy ? 0.01 : chartSymbol?.includes('XAU') ? 0.1 : 0.0001;
+        lines.push({ price: currentPrice + (pip * 50), color: '#F59E0B', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Alert' });
+      }
 
-      const lines = filteredPositions.flatMap((pos) => {
-        const payload = [{
-          price: pos.openPrice,
-          color: pos.side === 'buy' ? BLUE : '#EF5350',
-          lineWidth: 1,
-          lineStyle: 1, // Dashed
-          axisLabelVisible: true,
-          title: `${pos.side.toUpperCase()} ${pos.volume}`,
-        }];
-        if (showTpSlStopLimit) {
-          if (pos.tp && pos.tp > 0) {
-             payload.push({
-               price: pos.tp,
-               color: '#089981',
-               lineWidth: 1,
-               lineStyle: 1,
-               axisLabelVisible: true,
-               title: 'TP'
-             });
-          }
-          if (pos.sl && pos.sl > 0) {
-             payload.push({
-               price: pos.sl,
-               color: '#F23645',
-               lineWidth: 1,
-               lineStyle: 1,
-               axisLabelVisible: true,
-               title: 'SL'
-             });
-          }
-        }
-        return payload;
-      });
+      // Potential Stop Out Calculation Mock
+      if (showPotentialStopOut && symbolPositions.length > 0 && candles.length > 0) {
+        const avgEntry = symbolPositions.reduce((sum, p) => sum + p.openPrice, 0) / symbolPositions.length;
+        const worstCaseSide = symbolPositions[0].side; 
+        const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
+        lines.push({ price: mockStopOut, color: '#DC2626', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Stop Out' });
+      }
 
       const js = `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [positions, chartSymbol, webViewReady, BLUE, showOpenPositions, showTpSlStopLimit]);
+  }, [positions, chartSymbol, webViewReady, BLUE, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles]);
 
+  // Patterns / Markers Bridge
   // Patterns / Markers Bridge
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
@@ -678,9 +692,27 @@ export function ChartScreen() {
       if (showTradingSignals && candles.length > 0 && activeTool !== 'patterns') {
         const lastTime = candles[candles.length - 1].time;
         if (lastTime) {
-          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'Signal', size: 2 });
+          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'TS', size: 2 });
         }
       }
+
+      if (showClosedPositions && candles.length > 5) {
+        const mockTime = candles[candles.length - 4].time;
+        if (mockTime) markers.push({ time: mockTime, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'Buy (Closed)', size: 1 });
+      }
+
+      if (showHmrPeriods && candles.length > 10) {
+        const mockTimeLeft = candles[candles.length - 10].time;
+        const mockTimeRight = candles[candles.length - 8].time;
+        if (mockTimeLeft) markers.push({ time: mockTimeLeft, position: 'aboveBar', color: '#F59E0B', shape: 'arrowDown', text: 'HMR', size: 1 });
+        if (mockTimeRight) markers.push({ time: mockTimeRight, position: 'aboveBar', color: '#8B5CF6', shape: 'arrowUp', text: 'HMR', size: 1 });
+      }
+
+      markers.sort((a, b) => {
+        const tA = typeof a.time === 'object' ? a.time.timestamp || 0 : (typeof a.time === 'string' ? new Date(a.time).getTime() : a.time);
+        const tB = typeof b.time === 'object' ? b.time.timestamp || 0 : (typeof b.time === 'string' ? new Date(b.time).getTime() : b.time);
+        return tA - tB;
+      });
 
       webViewRef.current.injectJavaScript(`
         if (typeof setChartMarkers === 'function') {
@@ -689,7 +721,7 @@ export function ChartScreen() {
         true;
       `);
     }
-  }, [activeTool, showTradingSignals, candles, webViewReady]);
+  }, [activeTool, showTradingSignals, showClosedPositions, showHmrPeriods, candles, webViewReady]);
 
 
 
@@ -988,9 +1020,9 @@ export function ChartScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const APP_BG = isDark ? '#090E17' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#090E17' : T.bgSecondary;
-  const BOTTOM_AREA_BG = isDark ? '#060A14' : '#F8FAFC';
+  const APP_BG = isDark ? '#0E1014' : T.bg;
+  const CHART_CANVAS_BG = isDark ? '#0E1014' : T.bgSecondary;
+  const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const TEXT_MUTED = T.textMuted;

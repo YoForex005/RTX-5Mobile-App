@@ -35,7 +35,7 @@ export type QuoteItem = {
 // ─── Symbol Generator Helpers ─────────────────────────────────────────────────
 const rn = (min: number, max: number) => Math.random() * (max - min) + min;
 
-function buildForex(base: string, quote: string, price: number, spreadPips: number, volClass: 'high' | 'medium' | 'low' = 'medium'): QuoteItem {
+function buildForex(base: string, quote: string, price: number, spreadPips: number, volClass: 'high' | 'medium' | 'low' = 'medium', tradeAllowed: boolean = false): QuoteItem {
   const isJpy = quote === 'JPY';
   const digits = isJpy ? 3 : 5;
   const pip = Math.pow(10, -(isJpy ? 2 : 4));
@@ -68,12 +68,12 @@ function buildForex(base: string, quote: string, price: number, spreadPips: numb
     marginMaintenance: 0.5,
     baseCurrency: base,
     profitCurrency: quote,
-    tradeAllowed: true,
+    tradeAllowed,
     volatilityClass: volClass,
   };
 }
 
-function buildCrypto(sym: string, price: number): QuoteItem {
+function buildCrypto(sym: string, price: number, tradeAllowed: boolean = false): QuoteItem {
   const dailyHigh = price * (1 + rn(0.02, 0.05));
   const dailyLow = price * (1 - rn(0.02, 0.05));
   return {
@@ -90,12 +90,12 @@ function buildCrypto(sym: string, price: number): QuoteItem {
     contractSize: 1,
     swapLong: -20,
     swapShort: -20,
-    tradeAllowed: true,
+    tradeAllowed,
     volatilityClass: 'high',
   };
 }
 
-function buildIndexOrMetal(sym: string, price: number, spreadPts: number, volClass: 'high' | 'medium' = 'medium', ptsMultiplier: number = 100): QuoteItem {
+function buildIndexOrMetal(sym: string, price: number, spreadPts: number, volClass: 'high' | 'medium' = 'medium', ptsMultiplier: number = 100, tradeAllowed: boolean = false): QuoteItem {
   return {
     symbol: sym,
     bid: price,
@@ -110,7 +110,7 @@ function buildIndexOrMetal(sym: string, price: number, spreadPts: number, volCla
     contractSize: 10,
     swapLong: -5,
     swapShort: -2,
-    tradeAllowed: true,
+    tradeAllowed,
     volatilityClass: volClass,
   };
 }
@@ -155,14 +155,14 @@ export const positions: PositionItem[] = [
 ];
 
 export const quotes: QuoteItem[] = [
-  // MAJORS
-  buildForex('EUR', 'USD', 1.0856, 1.2),
-  buildForex('GBP', 'USD', 1.2642, 1.5),
-  buildForex('USD', 'JPY', 151.245, 1.6),
-  buildForex('USD', 'CHF', 0.8872, 1.8),
-  buildForex('AUD', 'USD', 0.6543, 1.4),
-  buildForex('NZD', 'USD', 0.5988, 1.6),
-  buildForex('USD', 'CAD', 1.3520, 1.4),
+  // MAJORS (Tradable)
+  buildForex('EUR', 'USD', 1.0856, 1.2, 'medium', true),
+  buildForex('GBP', 'USD', 1.2642, 1.5, 'medium', true),
+  buildForex('USD', 'JPY', 151.245, 1.6, 'medium', true),
+  buildForex('USD', 'CHF', 0.8872, 1.8, 'medium', false),
+  buildForex('AUD', 'USD', 0.6543, 1.4, 'medium', false),
+  buildForex('NZD', 'USD', 0.5988, 1.6, 'medium', false),
+  buildForex('USD', 'CAD', 1.3520, 1.4, 'medium', false),
 
   // MINORS & CROSSES
   buildForex('EUR', 'GBP', 0.8587, 1.8),
@@ -208,15 +208,15 @@ export const quotes: QuoteItem[] = [
   buildForex('USD', 'INR', 83.245, 10, 'low'),
 
   // METALS
-  buildIndexOrMetal('XAUUSD', 2384.50, 0.25, 'high', 100), // Gold
+  buildIndexOrMetal('XAUUSD', 2384.50, 0.25, 'high', 100, true), // Gold
   buildIndexOrMetal('XAUEUR', 2195.40, 0.35, 'high', 100), // Gold EUR
-  buildIndexOrMetal('XAGUSD', 28.45, 0.03, 'medium', 100), // Silver
+  buildIndexOrMetal('XAGUSD', 28.45, 0.03, 'medium', 100, true), // Silver
   buildIndexOrMetal('XPTUSD', 985.20, 1.5, 'medium', 100), // Platinum
   buildIndexOrMetal('XPDUSD', 1055.80, 2.5, 'medium', 100), // Palladium
   buildIndexOrMetal('COPPER', 4.542, 0.015, 'medium', 1000),
 
   // ENERGIES (Oils)
-  buildIndexOrMetal('USOIL', 82.45, 0.03, 'high', 100), // WTI Crude
+  buildIndexOrMetal('USOIL', 82.45, 0.03, 'high', 100, true), // WTI Crude
   buildIndexOrMetal('UKOIL', 86.75, 0.03, 'high', 100), // Brent Crude
   buildIndexOrMetal('NATGAS', 1.845, 0.005, 'high', 1000),
 
@@ -232,7 +232,7 @@ export const quotes: QuoteItem[] = [
   buildIndexOrMetal('HK50', 16845.50, 5.0, 'high', 1), // Hang Seng
 
   // CRYPTO MAJOR
-  buildCrypto('BTCUSD', 65420.50),
+  buildCrypto('BTCUSD', 65420.50, true),
   buildCrypto('ETHUSD', 3450.80),
   buildCrypto('BNBUSD', 594.30),
   buildCrypto('SOLUSD', 185.40),

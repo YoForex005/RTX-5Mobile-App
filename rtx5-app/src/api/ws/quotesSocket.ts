@@ -4,6 +4,10 @@
 
 import { useTradingState } from '../../state/tradingState';
 import { AppState, NativeEventSubscription } from 'react-native';
+import { quotes as mockQuotes } from '../../mock/tradingData';
+
+const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
+
 
 /**
  * High-frequency WebSocket service delivering minimal-latency Bid/Ask quote ticks.
@@ -283,19 +287,34 @@ export class QuotesWebSocketService {
         const bid: number = data.bid;
         const ask: number = data.ask;
         const existing = newQuotes[symbol];
+        const spec = symbolSpecs.get(symbol);
 
         if (!existing) {
-          newQuotes[symbol] = { ...data, symbol } as any;
+          const digits = data.digits ?? spec?.digits ?? 5;
+          const volume = data.volume ?? spec?.volume ?? 0;
+          newQuotes[symbol] = { ...spec, ...data, symbol, digits, volume } as any;
+          
+          if (newQuotes[symbol].ask && newQuotes[symbol].bid) {
+            newQuotes[symbol].spread = (newQuotes[symbol].ask - newQuotes[symbol].bid) * Math.pow(10, digits);
+          }
         } else {
           // Spread ALL fields the server sends (high, low, changePct, volume, t, etc.)
           // then override with our computed values so nothing is silently dropped.
+          const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
+          // Simulate volume increment if the socket feed doesn't stream volume data
+          const simulatedVolBump = data.volume === undefined ? Math.floor(Math.random() * 8) + 1 : 0;
+          const volume = data.volume ?? (existing.volume ? existing.volume + simulatedVolBump : (spec?.volume ?? 0));
+
           newQuotes[symbol] = {
+            ...spec,
             ...existing,
             ...data,
             symbol,
             bid,
             ask,
-            spread: (ask - bid) * Math.pow(10, existing.digits ?? data.digits ?? 5),
+            digits,
+            volume,
+            spread: (ask - bid) * Math.pow(10, digits),
             prevBid: bid !== existing.bid ? existing.bid : existing.prevBid,
             prevAsk: ask !== existing.ask ? existing.ask : existing.prevAsk,
           };

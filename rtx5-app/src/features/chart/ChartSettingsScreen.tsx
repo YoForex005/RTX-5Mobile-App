@@ -33,7 +33,7 @@ export function ChartSettingsScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const prefs = useUserPreferences();
-  const [toggles, setToggles] = useState<Record<string, boolean>>({
+  const tVals = {
     openPositions: prefs.showOpenPositions,
     tpSlStopLimit: prefs.showTpSlStopLimit,
     closedPositions: prefs.showClosedPositions,
@@ -41,12 +41,10 @@ export function ChartSettingsScreen() {
     hmrPeriods: prefs.showHmrPeriods,
     priceAlerts: prefs.showPriceAlerts,
     potentialStopOut: prefs.showPotentialStopOut,
-  });
+  };
 
   const handleToggle = (key: string) => {
-    const newVal = !toggles[key];
-    setToggles((prev) => ({ ...prev, [key]: newVal }));
-
+    const newVal = !tVals[key as keyof typeof tVals];
     if (key === 'openPositions') prefs.setShowOpenPositions(newVal);
     if (key === 'tpSlStopLimit') prefs.setShowTpSlStopLimit(newVal);
     if (key === 'closedPositions') prefs.setShowClosedPositions(newVal);
@@ -78,11 +76,29 @@ export function ChartSettingsScreen() {
             <View key={item.key}>
               <Pressable style={styles.toggleRow} onPress={() => handleToggle(item.key)}>
                 <Text style={styles.rowLabel}>{item.label}</Text>
-                {toggles[item.key] ? (
-                  <Ionicons name="checkmark" size={22} color={isDark ? '#FFFFFF' : '#0F172A'} />
-                ) : null}
+                <Switch
+                  value={tVals[item.key as keyof typeof tVals]}
+                  onValueChange={() => handleToggle(item.key)}
+                  trackColor={{ false: isDark ? '#1E293B' : '#E2E8F0', true: 'rgba(59, 130, 246, 0.5)' }}
+                  thumbColor={tVals[item.key as keyof typeof tVals] ? '#3b82f6' : (isDark ? '#94A3B8' : '#FFFFFF')}
+                  {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: tVals[item.key as keyof typeof tVals] ? '#3b82f6' : (isDark ? '#94A3B8' : '#FFFFFF') } as any)}
+                />
               </Pressable>
               {idx < SHOW_ON_CHART.length - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+
+        {/* NAVIGATION */}
+        <Text style={styles.sectionHeader}>NAVIGATION</Text>
+        <View style={styles.sectionCard}>
+          {NAVIGATION.map((item, idx) => (
+            <View key={item.label}>
+              <Pressable style={styles.navRow} onPress={item.onPress}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Ionicons name="chevron-forward" size={18} color={isDark ? 'rgba(255,255,255,0.3)' : '#CBD5E1'} />
+              </Pressable>
+              {idx < NAVIGATION.length - 1 && <View style={styles.separator} />}
             </View>
           ))}
         </View>
@@ -104,22 +120,8 @@ export function ChartSettingsScreen() {
           ))}
         </View>
         <Text style={styles.sectionFooter}>
-          Chart preferences are applied to all trading accounts and instruments
+          Chart preferences are applied to all trading accounts
         </Text>
-
-        {/* NAVIGATION */}
-        <Text style={styles.sectionHeader}>NAVIGATION</Text>
-        <View style={styles.sectionCard}>
-          {NAVIGATION.map((item, idx) => (
-            <View key={item.label}>
-              <Pressable style={styles.navRow} onPress={item.onPress}>
-                <Text style={styles.rowLabel}>{item.label}</Text>
-                <Ionicons name="chevron-forward" size={18} color={isDark ? 'rgba(255,255,255,0.3)' : '#CBD5E1'} />
-              </Pressable>
-              {idx < NAVIGATION.length - 1 && <View style={styles.separator} />}
-            </View>
-          ))}
-        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -198,6 +200,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 20,
       paddingTop: 10,
       lineHeight: 18,
+      textAlign: 'center',
     },
   });
 }

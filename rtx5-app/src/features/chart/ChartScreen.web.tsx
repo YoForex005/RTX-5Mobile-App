@@ -37,7 +37,7 @@ import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, Crossha
 import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
-
+import { LiveClock } from '../../components/LiveClock';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
@@ -194,7 +194,7 @@ const getSentimentForSymbol = (symbol: string) => {
   return { buyPct, sellPct: 100 - buyPct };
 };
 
-const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent }: any) => {
+const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, borderColor }: any) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   if (!visible) return null;
@@ -223,7 +223,7 @@ const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent }: 
         transform: 'translate(-50%, -50%)',
         zIndex: 9999,
         backgroundColor: bg,
-        border: `1px solid ${accent}`,
+        border: `1px solid ${borderColor || accent}`,
         padding: 20,
         borderRadius: 16,
         width: 300,
@@ -344,11 +344,11 @@ export function ChartScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const APP_BG = isDark ? T.bg : '#FFFFFF';
-  const CARD_BG = isDark ? '#0B0F19' : T.glass2;
-  const CHART_HEADER_BG = isDark ? '#0B101E' : '#FFFFFF';
+  const CARD_BG = isDark ? '#0F1114' : T.glass2;
+  const CHART_HEADER_BG = isDark ? '#101216' : '#FFFFFF';
   const CHART_HEADER_BORDER = isDark ? '#1E293B' : '#E2E8F0';
-  const CHART_CANVAS_BG = isDark ? '#0B101E' : '#FFFFFF';
-  const BOTTOM_AREA_BG = isDark ? '#0B0F19' : '#FFFFFF';
+  const CHART_CANVAS_BG = isDark ? '#101216' : '#FFFFFF';
+  const BOTTOM_AREA_BG = isDark ? '#0F1114' : '#FFFFFF';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const GRID = T.borderSubtle;
@@ -356,7 +356,7 @@ export function ChartScreen() {
   const TEXT_MUTED = T.textMuted;
   const BTN_BG = T.glass2;
   const PILL_BG = T.glass1;
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
 
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
@@ -368,6 +368,13 @@ export function ChartScreen() {
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
+
+  // Hydrate positions on page refresh
+  const refreshPositions = usePositionsState((s) => s.refreshPositions);
+  useEffect(() => {
+    const login = resolveTradingLogin();
+    if (login) refreshPositions(String(login));
+  }, [refreshPositions]);
   const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const chartContainerRef = useRef<any>(null);
@@ -689,51 +696,67 @@ export function ChartScreen() {
     });
     positionLinesRef.current = [];
 
-    if (!showOpenPositions) return;
-
-    // Filter positions for current symbol and draw
     const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-    const filteredPositions = symbolPositions.length > 0 ? [symbolPositions[0]] : [];
 
-    filteredPositions.forEach((pos) => {
+    if (symbolPositions.length > 0) {
+      symbolPositions.forEach((pos) => {
+        try {
+          if (showOpenPositions) {
+            const pl = seriesRef.current.createPriceLine({
+              price: pos.openPrice,
+              color: pos.side === 'buy' ? BLUE : RED,
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: `${pos.side.toUpperCase()} ${pos.volume}`,
+            });
+            positionLinesRef.current.push(pl);
+          }
+
+          if (showTpSlStopLimit) {
+            if (pos.tp && pos.tp > 0) {
+              const tpLine = seriesRef.current.createPriceLine({
+                price: pos.tp, color: '#089981', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TP',
+              });
+              positionLinesRef.current.push(tpLine);
+            }
+            if (pos.sl && pos.sl > 0) {
+              const slLine = seriesRef.current.createPriceLine({
+                price: pos.sl, color: '#F23645', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'SL',
+              });
+              positionLinesRef.current.push(slLine);
+            }
+          }
+        } catch (e) { }
+      });
+    }
+
+    // Price Alerts Mock
+    if (showPriceAlerts && candles.length > 0) {
       try {
-        const pl = seriesRef.current.createPriceLine({
-          price: pos.openPrice,
-          color: pos.side === 'buy' ? BLUE : RED,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `${pos.side.toUpperCase()} ${pos.volume}`,
+        const currentPrice = candles[candles.length - 1].close;
+        const isJpy = chartSymbol?.includes('JPY');
+        const pip = isJpy ? 0.01 : chartSymbol?.includes('XAU') ? 0.1 : 0.0001;
+        const alertLine = seriesRef.current.createPriceLine({
+          price: currentPrice + (pip * 50), color: '#F59E0B', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'Alert',
         });
-        positionLinesRef.current.push(pl);
-
-        if (showTpSlStopLimit) {
-          if (pos.tp && pos.tp > 0) {
-            const tpLine = seriesRef.current.createPriceLine({
-              price: pos.tp,
-              color: '#089981',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: 'TP',
-            });
-            positionLinesRef.current.push(tpLine);
-          }
-          if (pos.sl && pos.sl > 0) {
-            const slLine = seriesRef.current.createPriceLine({
-              price: pos.sl,
-              color: '#F23645',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: 'SL',
-            });
-            positionLinesRef.current.push(slLine);
-          }
-        }
+        positionLinesRef.current.push(alertLine);
       } catch (e) { }
-    });
-  }, [positions, chartSymbol, BLUE, RED, seriesRef.current, showOpenPositions, showTpSlStopLimit]);
+    }
+
+    // Potential Stop Out Calculation Mock
+    if (showPotentialStopOut && symbolPositions.length > 0 && candles.length > 0) {
+      try {
+        const avgEntry = symbolPositions.reduce((sum, p) => sum + p.openPrice, 0) / symbolPositions.length;
+        const worstCaseSide = symbolPositions[0].side; 
+        const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
+        const soLine = seriesRef.current.createPriceLine({
+          price: mockStopOut, color: '#DC2626', lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Stop Out',
+        });
+        positionLinesRef.current.push(soLine);
+      } catch (e) { }
+    }
+  }, [positions, chartSymbol, BLUE, RED, seriesRef.current, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles]);
 
   // Patterns / Markers Local
   useEffect(() => {
@@ -763,14 +786,34 @@ export function ChartScreen() {
       if (showTradingSignals && candles.length > 0 && activeTool !== 'patterns') {
         const lastTime = candles[candles.length - 1].time;
         if (lastTime) {
-          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'Signal', size: 2 });
+          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'TS', size: 2 });
         }
       }
 
+      if (showClosedPositions && candles.length > 5) {
+        const mockTime = candles[candles.length - 4].time;
+        if (mockTime) markers.push({ time: mockTime, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'Buy (Closed)', size: 1 });
+      }
+
+      if (showHmrPeriods && candles.length > 10) {
+        const mockTimeLeft = candles[candles.length - 10].time;
+        const mockTimeRight = candles[candles.length - 8].time;
+        if (mockTimeLeft) markers.push({ time: mockTimeLeft, position: 'aboveBar', color: '#F59E0B', shape: 'arrowDown', text: 'HMR', size: 1 });
+        if (mockTimeRight) markers.push({ time: mockTimeRight, position: 'aboveBar', color: '#8B5CF6', shape: 'arrowUp', text: 'HMR', size: 1 });
+      }
+
+      markers.sort((a, b) => {
+        const tA = typeof a.time === 'object' ? a.time.timestamp || 0 : (typeof a.time === 'string' ? new Date(a.time).getTime() : a.time);
+        const tB = typeof b.time === 'object' ? b.time.timestamp || 0 : (typeof b.time === 'string' ? new Date(b.time).getTime() : b.time);
+        return tA - tB;
+      });
+
       // @ts-ignore
       seriesRef.current.setMarkers(markers);
-    } catch (e) { }
-  }, [activeTool, showTradingSignals, candles]);
+    } catch (e) {
+      console.warn("Error setting chart markers:", e);
+    }
+  }, [activeTool, showTradingSignals, showClosedPositions, showHmrPeriods, candles]);
 
   // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
   useEffect(() => {
@@ -1090,7 +1133,7 @@ export function ChartScreen() {
                 </View>
               )}
 
-                            <div
+              <div
                 ref={chartContainerRef}
                 style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
               />
@@ -1122,12 +1165,12 @@ export function ChartScreen() {
                   paddingLeft: 4,
                 }}
               >
-                <option value="auto" hidden style={{ color: '#000' }}>Time Range</option>
-                <option value="1d" style={{ color: '#000' }}>1 Day</option>
-                <option value="5d" style={{ color: '#000' }}>5 Days</option>
-                <option value="1m" style={{ color: '#000' }}>1 Month</option>
-                <option value="6m" style={{ color: '#000' }}>6 Months</option>
-                <option value="1y" style={{ color: '#000' }}>1 Year</option>
+                <option value="auto" hidden style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>Time Range</option>
+                <option value="1d" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>1 Day</option>
+                <option value="5d" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>5 Days</option>
+                <option value="1m" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>1 Month</option>
+                <option value="6m" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>6 Months</option>
+                <option value="1y" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>1 Year</option>
               </select>
             </View>
             <View style={styles.tvRangesRight}>
@@ -1146,12 +1189,13 @@ export function ChartScreen() {
                     const dd = String(d.getDate()).padStart(2, '0');
                     handleCustomDateRange({ target: { value: `${yyyy}-${mm}-${dd}` } } as any);
                   }}
-                  bg={isDark ? '#131722' : '#FFFFFF'}
+                  bg={isDark ? '#121212' : '#FFFFFF'}
                   text={isDark ? '#FFFFFF' : '#0F172A'}
                   accent={BLUE}
+                  borderColor={isDark ? '#2A2E39' : '#E0E3EB'}
                 />
               </div>
-              <Text style={styles.tvRangeTimeText}>{new Date().toLocaleTimeString('en-US', { hour12: false })} (UTC+5:30)</Text>
+              <LiveClock style={styles.tvRangeTimeText} suffix="(UTC+5:30)" />
               <Pressable onPress={() => handleRangePress('auto')}>
                 <Text style={[styles.tvRangeAutoText, activeDateRange === 'auto' && { color: BLUE }]}>auto</Text>
               </Pressable>
@@ -1290,9 +1334,9 @@ export function ChartScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const APP_BG = isDark ? '#090E17' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#090E17' : T.bgSecondary;
-  const BOTTOM_AREA_BG = isDark ? '#060A14' : '#F8FAFC';
+  const APP_BG = isDark ? '#0E1014' : T.bg;
+  const CHART_CANVAS_BG = isDark ? '#0E1014' : T.bgSecondary;
+  const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const TEXT_MUTED = T.textMuted;

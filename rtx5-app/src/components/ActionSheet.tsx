@@ -48,7 +48,18 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
         {/* Sheet */}
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          {title ? <Text style={styles.title}>{title}</Text> : <View style={{ height: 16 }} />}
+          {title ? (
+            <View style={styles.titleContainer}>
+              {title.includes(': ') ? (
+                <Text>
+                  <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
+                  <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
+                </Text>
+              ) : (
+                <Text style={styles.titlePrefix}>{title}</Text>
+              )}
+            </View>
+          ) : <View style={{ height: 16 }} />}
           {searchable && (
             <View style={styles.searchContainer}>
               <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
@@ -126,7 +137,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRightWidth: 0,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: T.glass2,
+      backgroundColor: isDark ? '#121212' : '#FFFFFF',
       maxHeight: SCREEN_HEIGHT * 0.70,
     },
     handle: {
@@ -138,15 +149,25 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 2,
       backgroundColor: T.border,
     },
-    title: {
-      textAlign: 'center',
-      fontSize: 12,
-      fontWeight: '600',
+    titleContainer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
       paddingBottom: 12,
       borderBottomWidth: 1,
-      color: T.textSub,
       borderBottomColor: T.border,
       marginBottom: 12,
+    },
+    titlePrefix: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: T.textSub,
+      textAlign: 'center',
+    },
+    titleSuffix: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: T.textSub,
+      textAlign: 'center',
     },
     searchContainer: {
       flexDirection: 'row',
@@ -205,7 +226,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 0,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: T.glass2,
+      backgroundColor: isDark ? '#121212' : '#FFFFFF',
       alignItems: 'center',
       justifyContent: 'center',
     },

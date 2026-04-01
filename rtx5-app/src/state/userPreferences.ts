@@ -6,7 +6,16 @@ import { quotes } from '../mock/tradingData';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 
-const defaultSymbols = ['GBPUSD', 'XAUUSD', 'US30', 'XRPUSD', 'XAGUSD'];
+export type ChartColorsConfig = {
+  candlesUptrend: string;
+  candlesDowntrend: string;
+  hollowBody: string;
+  barsUptrend: string;
+  barsDowntrend: string;
+  lineBody: string;
+};
+
+const defaultSymbols: string[] = [];
 
 type UserPreferencesState = {
   themeMode: ThemeMode;
@@ -30,6 +39,7 @@ type UserPreferencesState = {
   openOrderMode: 'Regular' | 'Risk calculator' | 'One-click';
   isDemoAccount: boolean;
   isLoggedIn: boolean;
+  hasSetInitialSymbols: boolean;
   /** Broker ID entered at login — used by GET /broker/config to fetch broker-specific settings */
   brokerId: string;
   accountDetails: {
@@ -42,6 +52,8 @@ type UserPreferencesState = {
       expiresAt: string;
     };
   } | null;
+  chartColors: ChartColorsConfig;
+
   login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }) => void;
   logout: () => void;
   updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;
@@ -70,6 +82,8 @@ type UserPreferencesState = {
   setIsDemoAccount: (isDemo: boolean) => void;
   /** Persist the broker_id from the login screen for app-wide broker config access */
   setBrokerId: (id: string) => void;
+  setHasSetInitialSymbols: (hasSet: boolean) => void;
+  setChartColor: (key: keyof ChartColorsConfig, color: string) => void;
 };
 
 export const useUserPreferences = create<UserPreferencesState>()(
@@ -96,8 +110,17 @@ export const useUserPreferences = create<UserPreferencesState>()(
       historyRange: 'Last 6 months',
       isDemoAccount: true,
       isLoggedIn: false,
+      hasSetInitialSymbols: false,
       brokerId: '',
       accountDetails: null,
+      chartColors: {
+        candlesUptrend: '#2962FF',
+        candlesDowntrend: '#EF5350',
+        hollowBody: '#1E293B',
+        barsUptrend: '#2962FF',
+        barsDowntrend: '#EF5350',
+        lineBody: '#1E293B',
+      },
       login: (id, name, server, tokens) =>
         set({
           isLoggedIn: true,
@@ -166,6 +189,11 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setHistoryRange: (range) => set({ historyRange: range }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
+      setHasSetInitialSymbols: (hasSet) => set({ hasSetInitialSymbols: hasSet }),
+      setChartColor: (key, color) =>
+        set((state) => ({
+          chartColors: { ...state.chartColors, [key]: color },
+        })),
     }),
     {
       name: 'rtx5-user-preferences-v2',

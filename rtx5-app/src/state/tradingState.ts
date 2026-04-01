@@ -3,7 +3,10 @@
  */
 
 import { create } from 'zustand';
-import { QuoteItem } from '../mock/tradingData';
+import { QuoteItem, quotes as mockQuotes } from '../mock/tradingData';
+
+const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
+
 
 /** Represents a single financial timeframe segment (a candlestick). */
 export type Candle = {
@@ -75,15 +78,25 @@ export const useTradingState = create<TradingState>((set) => ({
   setQuote: (symbol, data) =>
     set((state) => {
       const existing = state.quotes[symbol];
+      const spec = symbolSpecs.get(symbol);
+
       if (!existing) {
         // We only want to patch existing full quotes or require the caller to provide enough data
         // For our simplified WebSocket ticks, it usually just sends { symbol, bid, ask }
         // We will merge it. Note: the actual app structure might require `QuoteItem` to be fully formed.
         // If a new quote ticks we haven't seen, we'll cast it to `QuoteItem`.
+        const digits = data.digits ?? spec?.digits ?? 5;
+        const volume = data.volume ?? spec?.volume ?? 0;
+        const newQuote = { ...spec, ...data, symbol, digits, volume } as QuoteItem;
+        
+        if (newQuote.ask && newQuote.bid) {
+          newQuote.spread = (newQuote.ask - newQuote.bid) * Math.pow(10, digits);
+        }
+
         return {
           quotes: {
             ...state.quotes,
-            [symbol]: { ...data, symbol } as QuoteItem,
+            [symbol]: newQuote,
           },
         };
       }
@@ -95,14 +108,21 @@ export const useTradingState = create<TradingState>((set) => ({
       const prevBidState = incomingBid && incomingBid !== existing.bid ? existing.bid : existing.prevBid;
       const prevAskState = incomingAsk && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
+      const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
+      const simulatedVolBump = data.volume === undefined ? Math.floor(Math.random() * 8) + 1 : 0;
+      const volume = data.volume ?? (existing.volume ? existing.volume + simulatedVolBump : (spec?.volume ?? 0));
+
       return {
         quotes: {
           ...state.quotes,
           [symbol]: {
+            ...spec,
             ...existing,
             ...data,
+            digits,
+            volume,
             // Automatically calculate spread if bid/ask provided
-            spread: (data.ask && data.bid) ? (data.ask - data.bid) * Math.pow(10, existing.digits ?? 5) : existing.spread,
+            spread: (data.ask && data.bid) ? (data.ask - data.bid) * Math.pow(10, digits) : existing.spread,
             // Track previous prices
             prevBid: prevBidState,
             prevAsk: prevAskState,

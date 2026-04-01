@@ -14,6 +14,7 @@ import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import { fmt } from '../utils/format';
+import { formatBrokerTime } from '../utils/brokerTime';
 import { useUserPreferences } from '../state/userPreferences';
 import { useMarketData } from '../query/websocket';
 import { useTradingState } from '../state/tradingState';
@@ -125,9 +126,24 @@ export function TradePositionRow({
             </Text>
           </View>
           <Text style={[styles.dateRight, { color: T.textSub }]}>
-            {item.openTime.substring(0, 19).replace('T', '   ')}
+            {formatBrokerTime(item.openTime).replace(' ', '   ')}
           </Text>
         </View>
+
+        {(!!item.sl || !!item.tp) && (
+          <View style={styles.slTpRow}>
+            {!!item.sl && (
+              <View style={styles.slTpBadge}>
+                <Text style={[styles.slTpText, { color: '#F57C00' }]}>SL {fmt.price(item.sl as number, decimals)}</Text>
+              </View>
+            )}
+            {!!item.tp && (
+              <View style={styles.slTpBadge}>
+                <Text style={[styles.slTpText, { color: '#388E3C' }]}>TP {fmt.price(item.tp as number, decimals)}</Text>
+              </View>
+            )}
+          </View>
+        )}
       </Pressable>
 
     {/* ── Expanded Details ── */}
@@ -135,18 +151,10 @@ export function TradePositionRow({
         <View style={[styles.expandedSection, { borderTopColor: dividerColor }]}>
           <View style={styles.detailGrid}>
             <View style={styles.detailCell}>
-              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>S/L</Text>
+              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
               <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
-                <Text style={[styles.detailValue, { color: detailColor }]}>
-                  {item.sl ? fmt.price(item.sl as number, decimals) : '—'}
-                </Text>
-              </Pressable>
-            </View>
-            <View style={styles.detailCell}>
-              <Text style={[styles.detailLabel, { color: detailLabelColor }]}>T/P</Text>
-              <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
-                <Text style={[styles.detailValue, { color: detailColor }]}>
-                  {item.tp ? fmt.price(item.tp as number, decimals) : '—'}
+                <Text style={[styles.detailValue, { color: T.accent }]}>
+                  Modify
                 </Text>
               </Pressable>
             </View>
@@ -156,20 +164,21 @@ export function TradePositionRow({
                 {fmt.price(item.openPrice, decimals)}
               </Text>
             </View>
-          </View>
-          <View style={styles.detailGrid}>
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Swap</Text>
               <Text style={[styles.detailValue, { color: item.swap !== 0 ? T.trading.loss : detailColor }]}>
                 {item.swap.toFixed(2)}
               </Text>
             </View>
+          </View>
+          <View style={styles.detailGrid}>
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Ticket</Text>
               <Text style={[styles.detailValue, { color: detailColor }]}>
                 #{item.id}
               </Text>
             </View>
+            <View style={styles.detailCell} />
             <View style={styles.detailCell} />
           </View>
         </View>

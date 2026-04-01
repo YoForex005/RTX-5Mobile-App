@@ -1,9 +1,9 @@
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect, useCallback } from 'react';
-import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -42,6 +42,7 @@ function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: str
 function InnerLayout() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const router = useRouter();
 
   return (
     <>
@@ -52,6 +53,21 @@ function InnerLayout() {
             headerStyle: { backgroundColor: T.bg },
             headerTintColor: T.text,
             contentStyle: { backgroundColor: T.bg },
+            headerLeft: (props) => {
+              if (props.canGoBack) {
+                return (
+                  <Pressable onPress={() => router.back()} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, marginRight: 16 }}>
+                    <Ionicons name="arrow-back" size={26} color={T.text} />
+                  </Pressable>
+                );
+              }
+
+              return (
+                <Pressable onPress={() => router.replace('/')} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, marginRight: 16 }}>
+                  <Ionicons name="arrow-back" size={26} color={T.text} />
+                </Pressable>
+              );
+            }
           }}
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
@@ -62,7 +78,7 @@ function InnerLayout() {
           <Stack.Screen name='trade/close-by' options={{ title: 'Close By' }} />
           <Stack.Screen name='trade/modify-position' options={{ title: 'Modify Position' }} />
           <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
-          <Stack.Screen name='login' options={{ title: 'Login' }} />
+          <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
           <Stack.Screen name='chart/objects' options={{ title: 'Objects' }} />
           <Stack.Screen name='chart/settings' options={{ title: 'Settings' }} />
           <Stack.Screen name='chart/colors' options={{ title: 'Colors' }} />
