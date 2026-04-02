@@ -7,6 +7,7 @@
 
 import { apiClient } from './apiClient';
 import { Candle } from '../state/tradingState';
+import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 
 /** Response shape from GET /api/v1/candles */
 export interface CandleHistoryResponse {
@@ -28,13 +29,16 @@ export interface CandleHistoryResponse {
 export async function getCandleHistory(
   symbol: string,
   timeframe: string,
-  count: number = 200,
+  count: number = DEFAULT_CANDLE_HISTORY_LIMIT,
+  signal?: AbortSignal,
 ): Promise<CandleHistoryResponse> {
+  const requestedSymbol = normalizeSymbol(symbol);
+  const requestedTimeframe = normalizeTimeframe(timeframe);
   const params = new URLSearchParams();
-  params.set('timeframe', timeframe);
-  params.set('count', String(count));
+  params.set('timeframe', requestedTimeframe);
+  params.set('limit', String(count));
 
-  const response = await apiClient(`/candles/${symbol}?${params.toString()}`);
+  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal });
 
   if (!response.ok) {
     let errorMsg = 'Failed to fetch candle history';
@@ -47,5 +51,16 @@ export async function getCandleHistory(
     throw new Error(`API Error ${response.status}: ${errorMsg}`);
   }
 
-  return response.json();
+  const payload = await response.json();
+  const normalizedCandles = normalizeCandleSeries(
+    Array.isArray(payload?.candles) ? payload.candles : [],
+    payload?.timeframe ?? requestedTimeframe,
+  );
+
+  return {
+    symbol: requestedSymbol,
+    timeframe: normalizeTimeframe(payload?.timeframe ?? requestedTimeframe),
+    count: normalizedCandles.length,
+    candles: normalizedCandles,
+  };
 }

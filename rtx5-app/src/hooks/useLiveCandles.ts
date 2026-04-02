@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { candlesWsService } from '../api/ws/candlesSocket';
+import { normalizeTimeframe } from '../domain/candles';
 
 export type CandleParams = {
   time: number; // unix timestamp in seconds
@@ -16,24 +17,6 @@ export type CandleParams = {
   low: number;
   close: number;
   volume?: number;
-};
-
-const normalizeTimeframe = (timeframe: string) => {
-  const tf = timeframe.trim().toUpperCase();
-  const aliases: Record<string, string> = {
-    '1M': 'M1',
-    '5M': 'M5',
-    '15M': 'M15',
-    '30M': 'M30',
-    '1H': 'H1',
-    '4H': 'H4',
-    '1D': 'D1',
-    '1W': 'W1',
-    '1MO': 'MN',
-    MN: 'MN',
-  };
-
-  return aliases[tf] ?? tf;
 };
 
 /**

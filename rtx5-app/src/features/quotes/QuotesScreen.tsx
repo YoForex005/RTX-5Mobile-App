@@ -26,8 +26,7 @@ import { fmt } from '../../utils/format';
 
 /* ───── Helpers ───── */
 
-const digitsFor = (item: QuoteItem) =>
-  item.digits ?? (item.bid >= 100 ? 3 : item.bid >= 10 ? 4 : 5);
+const digitsFor = (item: QuoteItem) => 2;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
@@ -155,7 +154,7 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: bidColor }]}>{noData ? '--' : (item.bid || 0).toFixed(d)}</Text>
+            <Text style={[sc.priceValue, { color: bidColor }]}>{noData ? '--' : (item.bid || 0).toFixed(2)}</Text>
           </View>
 
           {/* ASK */}
@@ -171,7 +170,7 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: askColor }]}>{noData ? '--' : (item.ask || 0).toFixed(d)}</Text>
+            <Text style={[sc.priceValue, { color: askColor }]}>{noData ? '--' : (item.ask || 0).toFixed(2)}</Text>
           </View>
         </View>
       </View>

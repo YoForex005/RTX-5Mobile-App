@@ -21,8 +21,8 @@ import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { findPositionById } from './tradeFlow';
 import { fmt } from '../../utils/format';
 
-function formatModifyPrice(val: number, isJpy: boolean) {
-  const str = val.toFixed(isJpy ? 3 : 5);
+function formatModifyPrice(val: number) {
+  const str = val.toFixed(2);
   // Splitting off the exact last two digits that the user circled
   return { 
     main: str.slice(0, -2), 
@@ -69,7 +69,7 @@ export function ModifyPositionScreen() {
 
   const currentPriceOrZero = position?.currentPrice || 0;
   const pipSize = isJpy ? 0.01 : currentPriceOrZero > 100 ? 0.01 : 0.0001;
-  const decimals = isJpy ? 3 : currentPriceOrZero > 100 ? 2 : 5;
+  const decimals = 2;
 
   const [ticks, setTicks] = useState<{ bid: number; ask: number }[]>([]);
 
@@ -207,8 +207,8 @@ export function ModifyPositionScreen() {
   const tpDisplay = takeProfit ? takeProfit.toFixed(decimals) : 'TP';
   const isBuy = position.side === 'buy';
 
-  const bidFmt = formatModifyPrice(BID, isJpy);
-  const askFmt = formatModifyPrice(ASK, isJpy);
+  const bidFmt = formatModifyPrice(BID);
+  const askFmt = formatModifyPrice(ASK);
 
   // Chart Rendering calculations
   const w = chartLayout.width;

@@ -92,7 +92,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       themeMode: 'dark' as ThemeMode,
       quoteSymbols: defaultSymbols,
       quoteViewMode: 'list',
-      chartSymbol: 'BTCUSD',
+      chartSymbol: 'GBPUSD',
       chartTimeframe: 'H1',
       chartDrawings: [],
       chartLockAll: false,

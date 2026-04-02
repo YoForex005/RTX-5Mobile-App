@@ -87,19 +87,19 @@ export function OrderTicketScreen() {
     : 0;
 
   const marginDisplay = currency === 'USD' 
-    ? `-$${fmt.price(estimatedMargin, 2)}` 
-    : `-${fmt.price(estimatedMargin, 2)} ${currency}`;
+    ? `-$${fmt.price(estimatedMargin)}` 
+    : `-${fmt.price(estimatedMargin)} ${currency}`;
 
   const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
-  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') || baseSymbol.includes('BTC') ? 2 : 5;
+  const displayDecimals = 2;
   const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
 
   // Synthesize dynamic live order book updates tied to actual ticking price streams
   const domRows = useMemo(() => {
     return [
-      { sell: Math.floor(Math.random() * 60 + 20), price: fmt.price(ASK + pipSize * 3, displayDecimals), buy: Math.floor(Math.random() * 20 + 5) },
-      { sell: Math.floor(Math.random() * 80 + 40), price: fmt.price((ASK + BID) / 2, displayDecimals), buy: Math.floor(Math.random() * 80 + 40) },
-      { sell: Math.floor(Math.random() * 20 + 5), price: fmt.price(BID - pipSize * 3, displayDecimals), buy: Math.floor(Math.random() * 60 + 20) },
+      { sell: Math.floor(Math.random() * 60 + 20), price: fmt.price(ASK + pipSize * 3), buy: Math.floor(Math.random() * 20 + 5) },
+      { sell: Math.floor(Math.random() * 80 + 40), price: fmt.price((ASK + BID) / 2), buy: Math.floor(Math.random() * 80 + 40) },
+      { sell: Math.floor(Math.random() * 20 + 5), price: fmt.price(BID - pipSize * 3), buy: Math.floor(Math.random() * 60 + 20) },
     ];
   }, [ASK, BID, pipSize, displayDecimals]);
 
@@ -260,7 +260,7 @@ export function OrderTicketScreen() {
           }}
         >
           <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
-          <Text style={styles.priceMain}>{fmt.price(BID, 2)}</Text>
+          <Text style={styles.priceMain}>{fmt.price(BID)}</Text>
           <Text style={styles.priceLabel}>BID</Text>
         </Pressable>
 
@@ -280,7 +280,7 @@ export function OrderTicketScreen() {
           }}
         >
           <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
-          <Text style={styles.priceMain}>{fmt.price(ASK, 2)}</Text>
+          <Text style={styles.priceMain}>{fmt.price(ASK)}</Text>
           <Text style={styles.priceLabel}>ASK</Text>
         </Pressable>
       </View>
@@ -366,7 +366,7 @@ export function OrderTicketScreen() {
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
               <View style={[styles.volCenter, { width: 120 }]}>
-                <Text style={styles.volNum}>{fmt.price(slPrice, displayDecimals)}</Text>
+                <Text style={styles.volNum}>{fmt.price(slPrice)}</Text>
               </View>
               <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
                 <Ionicons name="add" size={18} color={T.textSub} />
@@ -386,7 +386,7 @@ export function OrderTicketScreen() {
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
               <View style={[styles.volCenter, { width: 120 }]}>
-                <Text style={styles.volNum}>{fmt.price(tpPrice, displayDecimals)}</Text>
+                <Text style={styles.volNum}>{fmt.price(tpPrice)}</Text>
               </View>
               <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
                 <Ionicons name="add" size={18} color={T.textSub} />

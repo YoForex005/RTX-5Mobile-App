@@ -38,6 +38,7 @@ import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
+import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -510,6 +511,11 @@ export function ChartScreen() {
 
   const dataSignatureRef = useRef('');
   const lastCandleLengthRef = useRef(0);
+  const candlesRef = useRef(candles);
+
+  useEffect(() => {
+    candlesRef.current = candles;
+  }, [candles]);
 
   // Sync Data â€” uses injectJavaScript instead of postMessage
   useEffect(() => {
@@ -541,75 +547,114 @@ export function ChartScreen() {
     }
   }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions, displayDecimals]);
 
-  // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
+  // Canonical Candle Stream Sync
   useEffect(() => {
     let rAF: number | null = null;
-    let throttleTimer: NodeJS.Timeout | null = null;
-    const pendingTicks: any[] = [];
-    let lastInjectedTickTime = 0;
+    const pendingEvents: CandleStreamEvent[] = [];
 
-    const handleRawTick = (sym: string, tf: string, incomingCandles: any[]) => {
-      if (sym.toUpperCase() !== chartSymbol.toUpperCase()) return;
-      if (!incomingCandles || incomingCandles.length === 0 || !webViewReady) return;
+    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
+      const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
+      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
+      uniqueData.sort((a, b) => a.time - b.time);
 
-      incomingCandles.forEach(incomingTick => {
-        const existingIdx = pendingTicks.findIndex(t => t.time === incomingTick.time);
-        if (existingIdx !== -1) {
-          pendingTicks[existingIdx] = incomingTick;
-        } else {
-          pendingTicks.push(incomingTick);
-        }
-      });
-
-      const now = Date.now();
-      if (rAF !== null && now - lastInjectedTickTime > 1000) {
-        console.warn('[ChartScreen] rAF locked for >1s. Force clearing buffer lock.');
-        cancelAnimationFrame(rAF);
-        rAF = null;
+      if (chartType === 'line') {
+        return uniqueData.map((item) => ({
+          time: item.time,
+          value: item.close,
+          open: item.open,
+          close: item.close,
+          volume: item.volume,
+        }));
       }
 
+      return uniqueData;
+    };
+
+    const resyncChartFromMergedCandles = () => {
+      if (!webViewRef.current || !webViewReady) return;
+      const mappedData = buildMappedData(candlesRef.current);
+
+      try {
+        webViewRef.current.injectJavaScript(`updateChartData(${JSON.stringify(mappedData)}); true;`);
+        lastCandleLengthRef.current = candlesRef.current.length;
+      } catch (_error) {}
+    };
+
+    const flushEvents = () => {
+      rAF = null;
+      if (!webViewRef.current || !webViewReady || pendingEvents.length === 0) return;
+
+      const events = [...pendingEvents];
+      pendingEvents.length = 0;
+
+      let js = '';
+      let rejectedUpdate = false;
+
+      for (const event of events) {
+        if (event.type === 'resync_required') {
+          rejectedUpdate = true;
+          continue;
+        }
+
+        if (event.type === 'full_sync') {
+          js += `updateChartData(${JSON.stringify(buildMappedData(event.candles))});`;
+          lastCandleLengthRef.current = event.candles.length;
+          continue;
+        }
+
+        const candle = event.candle;
+        if (!isStructurallyValidCandle(candle)) {
+          rejectedUpdate = true;
+          continue;
+        }
+
+        let tickToInject: any = candle;
+        if (chartType === 'line') {
+          tickToInject = {
+            time: candle.time,
+            value: candle.close,
+            open: candle.open,
+            close: candle.close,
+            volume: candle.volume,
+          };
+        }
+
+        js += `updateTick(${JSON.stringify(tickToInject)});`;
+      }
+
+      if (js.length > 0) {
+        try {
+          webViewRef.current.injectJavaScript(js + ' true;');
+        } catch (_error) {}
+      }
+
+      if (rejectedUpdate) {
+        resyncChartFromMergedCandles();
+      }
+    };
+
+    const handleStreamEvent = (event: CandleStreamEvent) => {
+      if (event.symbol.toUpperCase() !== chartSymbol.toUpperCase()) return;
+      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(chartTimeframe)) return;
+      if (!webViewReady) return;
+
+      pendingEvents.push(event);
       if (rAF === null) {
-        // Pure native 60fps UI injection, completely unthrottled
-        rAF = requestAnimationFrame(() => {
-          rAF = null;
-          if (!webViewRef.current || !webViewReady || pendingTicks.length === 0) return;
-
-          const ticks = [...pendingTicks];
-          pendingTicks.length = 0;
-
-          let js = '';
-          for (const tick of ticks) {
-            if (!tick.time) continue;
-            if (lastInjectedTickTime && tick.time < lastInjectedTickTime) continue;
-
-            let tickToInject: any = tick;
-            if (chartType === 'line') {
-              tickToInject = { time: tick.time, value: tick.close };
-            }
-            js += `updateTick(${JSON.stringify(tickToInject)});`;
-            lastInjectedTickTime = tick.time;
-          }
-
-          if (js.length > 0) {
-            try {
-              webViewRef.current.injectJavaScript(js + ' true;');
-            } catch (e) { }
-          }
-        });
+        rAF = requestAnimationFrame(flushEvents);
       }
     };
 
     import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addTickListener(handleRawTick);
+      candlesWsService.addStreamListener(handleStreamEvent);
     });
 
     return () => {
       if (rAF !== null) cancelAnimationFrame(rAF);
       import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeTickListener(handleRawTick);
+        candlesWsService.removeStreamListener(handleStreamEvent);
       });
     };
-  }, [chartSymbol, chartType, webViewReady]);
+  }, [chartSymbol, chartTimeframe, chartType, webViewReady]);
 
   // Positions Bridge (Draws Open Trades)
   // Positions & Price Lines Bridge

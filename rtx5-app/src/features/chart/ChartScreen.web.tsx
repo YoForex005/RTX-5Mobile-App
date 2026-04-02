@@ -38,6 +38,7 @@ import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
+import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
@@ -301,24 +302,6 @@ const mapTf = (tf: string) => {
   return tf;
 };
 
-const normalizeTimeframe = (timeframe: string) => {
-  const tf = timeframe.trim().toUpperCase();
-  const aliases: Record<string, string> = {
-    '1M': 'M1',
-    '5M': 'M5',
-    '15M': 'M15',
-    '30M': 'M30',
-    '1H': 'H1',
-    '4H': 'H4',
-    '1D': 'D1',
-    '1W': 'W1',
-    '1MO': 'MN',
-    MN: 'MN',
-  };
-
-  return aliases[tf] ?? tf;
-};
-
 /** Format a Unix timestamp into a short time label for the x-axis */
 const formatXLabel = (time: number, tf: string): string => {
   const d = new Date(time * 1000);
@@ -407,7 +390,12 @@ export function ChartScreen() {
 
   const [lotSize, setLotSize] = useState<number>(0.10);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const candlesRef = useRef(candles);
   const [forceHideLoading, setForceHideLoading] = useState(false);
+
+  useEffect(() => {
+    candlesRef.current = candles;
+  }, [candles]);
 
   useEffect(() => {
     setForceHideLoading(false);
@@ -815,64 +803,124 @@ export function ChartScreen() {
     }
   }, [activeTool, showTradingSignals, showClosedPositions, showHmrPeriods, candles]);
 
-  // Live Tick Sync (Zero Latency Direct WebSocket Injection & rAF 60Hz Throttle)
+  // Canonical Candle Stream Sync
   useEffect(() => {
     let rAF: number | null = null;
-    let pendingTick: any = null;
-    let lastInjectedTickTime = 0;
+    const pendingEvents: CandleStreamEvent[] = [];
 
-    const doInject = () => {
-      rAF = null;
-      if (!pendingTick || !seriesRef.current) return;
-      const tick = pendingTick;
-      pendingTick = null; // Clear queue for next frame
+    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
+      const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
+      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
+      uniqueData.sort((a, b) => a.time - b.time);
 
-      if (!tick.time) return;
-      if (lastInjectedTickTime && tick.time < lastInjectedTickTime) return; // Drop historically delayed out-of-sequence network packets
-
-      let tickToInject: any = tick;
       if (chartType === 'line') {
-        tickToInject = { time: tick.time, value: tick.close };
+        return uniqueData.map((item) => ({
+          time: item.time,
+          value: item.close,
+          open: item.open,
+          close: item.close,
+          volume: item.volume,
+        }));
       }
 
-      try {
-        seriesRef.current.update(tickToInject);
-        lastInjectedTickTime = tick.time;
+      return uniqueData;
+    };
 
-        if (volumeSeriesRef.current && tick) {
-          const isGreen = tick.close >= tick.open;
-          volumeSeriesRef.current.update({
-            time: tick.time,
-            value: tick.volume || 0,
-            color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)'
-          });
+    const syncSeriesFromCandles = (sourceCandles: typeof candlesRef.current = candlesRef.current) => {
+      if (!seriesRef.current) return;
+
+      const mappedData = buildMappedData(sourceCandles);
+      seriesRef.current.setData(mappedData as any);
+
+      if (volumeSeriesRef.current) {
+        const volData = sourceCandles
+          .filter((c) => isStructurallyValidCandle(c))
+          .map((item) => ({
+            time: item.time,
+            value: item.volume || 0,
+            color: item.close >= item.open ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)',
+          }));
+        volumeSeriesRef.current.setData(volData as any);
+      }
+
+      lastCandleLengthRef.current = sourceCandles.length;
+      lastRenderedCandleSignatureRef.current = getLastCandleSignature(sourceCandles);
+    };
+
+    const flushEvents = () => {
+      rAF = null;
+      if (!seriesRef.current || pendingEvents.length === 0) return;
+
+      const events = [...pendingEvents];
+      pendingEvents.length = 0;
+      let rejectedUpdate = false;
+
+      for (const event of events) {
+        if (event.type === 'resync_required') {
+          rejectedUpdate = true;
+          continue;
         }
-      } catch (e) {
-        // Safely swallow series mismatch exceptions
+
+        if (event.type === 'full_sync') {
+          syncSeriesFromCandles(event.candles);
+          continue;
+        }
+
+        const candle = event.candle;
+        if (!isStructurallyValidCandle(candle)) {
+          rejectedUpdate = true;
+          continue;
+        }
+
+        let tickToInject: any = candle;
+        if (chartType === 'line') {
+          tickToInject = {
+            time: candle.time,
+            value: candle.close,
+            open: candle.open,
+            close: candle.close,
+            volume: candle.volume,
+          };
+        }
+
+        try {
+          seriesRef.current.update(tickToInject);
+          if (volumeSeriesRef.current) {
+            volumeSeriesRef.current.update({
+              time: candle.time,
+              value: candle.volume || 0,
+              color: candle.close >= candle.open ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)',
+            } as any);
+          }
+          lastRenderedCandleSignatureRef.current = getLastCandleSignature(candlesRef.current);
+        } catch (_error) {
+          rejectedUpdate = true;
+        }
+      }
+
+      if (rejectedUpdate) {
+        syncSeriesFromCandles(candlesRef.current);
       }
     };
 
-    const handleRawTick = (sym: string, tf: string, incomingCandles: any[]) => {
-      if (sym.toUpperCase() !== chartSymbol.toUpperCase()) return;
-      if (normalizeTimeframe(tf) !== normalizeTimeframe(chartTimeframe)) return;
-      const tick = incomingCandles[incomingCandles.length - 1];
-      if (!tick) return;
+    const handleStreamEvent = (event: CandleStreamEvent) => {
+      if (event.symbol.toUpperCase() !== chartSymbol.toUpperCase()) return;
+      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(chartTimeframe)) return;
 
-      pendingTick = tick;
+      pendingEvents.push(event);
       if (rAF === null) {
-        // Harware-layer 60 FPS alignment preventing JS stringify macro-task queue overloads
-        rAF = requestAnimationFrame(doInject);
+        rAF = requestAnimationFrame(flushEvents);
       }
     };
 
     import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addTickListener(handleRawTick);
+      candlesWsService.addStreamListener(handleStreamEvent);
     });
 
     return () => {
       if (rAF !== null) cancelAnimationFrame(rAF);
       import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeTickListener(handleRawTick);
+        candlesWsService.removeStreamListener(handleStreamEvent);
       });
     };
   }, [chartSymbol, chartTimeframe, chartType]);

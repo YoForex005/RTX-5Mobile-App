@@ -250,7 +250,7 @@ export function SymbolDetailsScreen() {
   // ─── Fetch Tru Daily Range from Candles API ──────────────────────────
   const { data: d1Candles } = useCandleHistory(symbol, 'D1');
 
-  const d = q.digits ?? (q.bid >= 100 ? 2 : q.bid >= 10 ? 3 : 4);
+  const d = 2;
   const col = dCol(q.changePct, T);
   const mid = ((q.bid || 0) + (q.ask || 0)) / 2;
 
@@ -377,7 +377,7 @@ export function SymbolDetailsScreen() {
 
           {/* 2. LIVE PRICE */}
           <View style={s.glassHero.priceRow}>
-            <Text style={[s.glassHero.bigPrice, { color: col }]}>{fmt.price(q.bid, d)}</Text>
+            <Text style={[s.glassHero.bigPrice, { color: col }]}>{fmt.price(q.bid)}</Text>
             <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
               <View style={s.hero.changePill}>
                 <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={14} color={col} />
@@ -407,8 +407,8 @@ export function SymbolDetailsScreen() {
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
-                  <Text style={s.ticker.priceBase}>{fmt.price(q.bid, d).slice(0, -2)}</Text>
-                  <Text style={[s.ticker.pipHighlight, { color: T.down }]}>{fmt.price(q.bid, d).slice(-2)}</Text>
+                  <Text style={s.ticker.priceBase}>{fmt.price(q.bid).slice(0, -2)}</Text>
+                  <Text style={[s.ticker.pipHighlight, { color: T.down }]}>{fmt.price(q.bid).slice(-2)}</Text>
                 </View>
               </Pressable>
 
@@ -431,8 +431,8 @@ export function SymbolDetailsScreen() {
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
-                  <Text style={s.ticker.priceBase}>{fmt.price(q.ask, d).slice(0, -2)}</Text>
-                  <Text style={[s.ticker.pipHighlight, { color: T.up }]}>{fmt.price(q.ask, d).slice(-2)}</Text>
+                  <Text style={s.ticker.priceBase}>{fmt.price(q.ask).slice(0, -2)}</Text>
+                  <Text style={[s.ticker.pipHighlight, { color: T.up }]}>{fmt.price(q.ask).slice(-2)}</Text>
                 </View>
               </Pressable>
             </View>
@@ -456,9 +456,9 @@ export function SymbolDetailsScreen() {
 
           {/* 4. METRICS ROW */}
           <View style={s.glassHero.metricsRow}>
-            <MetricPill label="MID" value={fmt.price(mid, d)} icon="analytics-outline" />
-            <MetricPill label="OPEN" value={fmt.price(dynOpen, d)} icon="time-outline" />
-            <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
+            <MetricPill label="MID" value={fmt.price(mid)} icon="analytics-outline" />
+            <MetricPill label="OPEN" value={fmt.price(dynOpen)} icon="time-outline" />
+            <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask)} icon="calendar-outline" />
             <MetricPill label="VOL" value={dynVol.toLocaleString()} icon="bar-chart-outline" />
           </View>
 
@@ -467,7 +467,7 @@ export function SymbolDetailsScreen() {
             <View style={s.glassHero.rangeTop}>
               <View>
                 <Text style={s.glassHero.rangeLbl}>LOW</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid)}</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
                 <Text style={s.glassHero.rangeLbl}>DAY RANGE</Text>
@@ -475,7 +475,7 @@ export function SymbolDetailsScreen() {
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={s.glassHero.rangeLbl}>HIGH</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh, d)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh)}</Text>
               </View>
             </View>
             <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>
@@ -508,7 +508,7 @@ export function SymbolDetailsScreen() {
           <Row label="Max Volume" value={String(q.maxVolume ?? '500') + ' lots'} />
           <Row label="Lot Step" value={String(q.stepVolume ?? '0.01')} />
           <Row label="Tick Size" value={String(q.tickSize ?? pip)} />
-          <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(4)} last />
+          <Row label="Tick Value" value={'$' + (ctk || 0).toFixed(2)} last />
         </Section>
 
         <Section title="Pricing & Fees" icon="pricetags-outline">

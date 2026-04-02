@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCandleHistory } from '../api/candles';
 import { useTradingState, Candle } from '../state/tradingState';
 import { generateMockCandles } from '../mock/candleGenerator';
+import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
@@ -23,26 +24,28 @@ export const candleKeys = {
  */
 export function useCandleHistory(symbol: string, timeframe: string) {
   const queryClient = useQueryClient();
+  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
 
   return useQuery({
-    queryKey: candleKeys.history(symbol, timeframe),
+    queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe),
     queryFn: async () => {
       try {
-        const res = await getCandleHistory(symbol, timeframe, 200);
+        const res = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
         // Populate the Zustand store so the chart renders immediately
         const store = useTradingState.getState();
-        store.setCandleHistory(symbol, timeframe, res.candles);
+        store.setCandleHistory(normalizedSymbol, normalizedTimeframe, res.candles);
         return res.candles;
       } catch (err) {
         // Fallback for demo or offline API
-        console.warn(`[API Fallback] Using mock candles for ${symbol}`);
-        const fallbackCandles = generateMockCandles(symbol, timeframe, 200);
+        console.warn(`[API Fallback] Using mock candles for ${normalizedSymbol}`);
+        const fallbackCandles = generateMockCandles(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
         const store = useTradingState.getState();
-        store.setCandleHistory(symbol, timeframe, fallbackCandles);
+        store.setCandleHistory(normalizedSymbol, normalizedTimeframe, fallbackCandles);
         return fallbackCandles;
       }
     },
-    enabled: !!symbol && !!timeframe,
+    enabled: !!normalizedSymbol && !!normalizedTimeframe,
     staleTime: 30_000,       // 30s — candles update via WS after initial fetch
     gcTime: 5 * 60_000,      // 5 min garbage collection
     retry: 2,
