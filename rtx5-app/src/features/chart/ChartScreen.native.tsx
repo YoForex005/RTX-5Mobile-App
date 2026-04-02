@@ -521,14 +521,19 @@ export function ChartScreen() {
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
       const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
-      // Sanitization + Deduplication to prevent LightweightCharts fatal crash
-      const sanitized = candles.filter(c => c && typeof c.time === 'number' && !isNaN(c.time) && !isNaN(c.close));
-      const uniqueData = Array.from(new Map(sanitized.map(item => [item.time, item])).values());
+      const sanitized = candles.filter((c) => isStructurallyValidCandle(c));
+      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
       uniqueData.sort((a, b) => a.time - b.time);
 
       let mappedData: any = uniqueData;
       if (chartType === 'line') {
-        mappedData = uniqueData.map(item => ({ time: item.time, value: item.close }));
+        mappedData = uniqueData.map((item) => ({
+          time: item.time,
+          value: item.close,
+          open: item.open,
+          close: item.close,
+          volume: item.volume,
+        }));
       }
       const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
 
@@ -620,6 +625,9 @@ export function ChartScreen() {
         }
 
         js += `updateTick(${JSON.stringify(tickToInject)});`;
+        if (event.type === 'append') {
+          lastCandleLengthRef.current += 1;
+        }
       }
 
       if (js.length > 0) {

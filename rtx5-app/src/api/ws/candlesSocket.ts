@@ -6,11 +6,15 @@ import { AppState, NativeEventSubscription } from 'react-native';
 import { Candle } from '../../state/tradingState';
 import { getCandleHistory } from '../candles';
 import {
+  buildFlatGapCandles,
   CandleStreamEvent,
   DEFAULT_CANDLE_HISTORY_LIMIT,
+  getBucketGapCount,
+  getCurrentBucketTime,
   getExpectedNextCandleTime,
   isBucketAlignedCandle,
   isStructurallyValidCandle,
+  isWithinLiveBucketHorizon,
   mergeCandleUpdate,
   normalizeCandle,
   normalizeSymbol,
@@ -33,6 +37,11 @@ type StreamListener = (event: CandleStreamEvent) => void;
  */
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
+  private static readonly MAX_AUTO_GAP_FILL_CANDLES = 5;
+  // The initial REST->live handoff must be at least as strict as steady-state updates.
+  // Larger rebuilds create detached probe candles when history is stale.
+  private static readonly MAX_INITIAL_HANDOFF_GAP_FILL_CANDLES = 5;
+  private static readonly MAX_ACCEPTABLE_HISTORY_STALENESS_CANDLES = 5;
 
   private ws: WebSocket | null = null;
   private url = process.env.EXPO_PUBLIC_CANDLES_WS_URL || 'ws://69.197.178.27/ws/feed';
@@ -51,6 +60,9 @@ export class CandlesWebSocketService {
   private isHistoryLoading = false;
   private queuedWsTicks: Candle[] = [];
   private fetchController: AbortController | null = null;
+  private hasLiveEdgeForSubscription = false;
+  private hasSeededHistoryForSubscription = false;
+  private hasStaleHistoryForSubscription = false;
 
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
@@ -132,6 +144,9 @@ export class CandlesWebSocketService {
       this.candleCache = [];
       this.isHistoryLoading = false;
       this.queuedWsTicks = [];
+      this.hasLiveEdgeForSubscription = false;
+      this.hasSeededHistoryForSubscription = false;
+      this.hasStaleHistoryForSubscription = false;
       this.stopHeartbeat();
       this.stopWatchdog();
       this.ws.close();
@@ -148,6 +163,11 @@ export class CandlesWebSocketService {
       normalizeTimeframe(this.activeSubscription?.tf ?? '') !== normalizedTimeframe;
 
     if (!isNew) {
+      if (!this.isHistoryLoading && !this.hasSeededHistoryForSubscription) {
+        this.fetchHistoryAndSubscribe(normalizedSymbol, normalizedTimeframe, 'history_seed');
+        return;
+      }
+
       if (!this.isHistoryLoading) {
         this.emitFullSync(normalizedSymbol, normalizedTimeframe, 'history_seed');
       }
@@ -161,6 +181,9 @@ export class CandlesWebSocketService {
     this.candleCache = [];
     this.queuedWsTicks = [];
     this.isHistoryLoading = false;
+    this.hasLiveEdgeForSubscription = false;
+    this.hasSeededHistoryForSubscription = false;
+    this.hasStaleHistoryForSubscription = false;
 
     this.emitFullSync(normalizedSymbol, normalizedTimeframe, 'subscription_change');
 
@@ -178,6 +201,9 @@ export class CandlesWebSocketService {
     this.candleCache = [];
     this.queuedWsTicks = [];
     this.isHistoryLoading = false;
+    this.hasLiveEdgeForSubscription = false;
+    this.hasSeededHistoryForSubscription = false;
+    this.hasStaleHistoryForSubscription = false;
   }
 
   public addTickListener(listener: TickListener): void {
@@ -278,6 +304,12 @@ export class CandlesWebSocketService {
     }
   }
 
+  private logPipeline(event: string, details: Record<string, unknown>) {
+    try {
+      console.log(`[Candles WS] ${event}`, details);
+    } catch (_error) {}
+  }
+
   private matchesActiveSubscription(symbol: string, tf: string): boolean {
     if (!this.activeSubscription) return false;
 
@@ -340,10 +372,19 @@ export class CandlesWebSocketService {
       tf: normalizedTimeframe,
       reason,
     });
+    this.logPipeline('resync_required', {
+      symbol: normalizedSymbol,
+      tf: normalizedTimeframe,
+      reason,
+      cacheSize: this.candleCache.length,
+      lastCacheTime: this.candleCache[this.candleCache.length - 1]?.time ?? null,
+    });
 
     if (this.resyncTimer || this.isHistoryLoading) {
       return;
     }
+
+    const delayMs = reason.startsWith('history_stale') ? 5000 : 50;
 
     this.resyncTimer = setTimeout(() => {
       this.resyncTimer = null;
@@ -351,7 +392,7 @@ export class CandlesWebSocketService {
         return;
       }
       this.fetchHistoryAndSubscribe(normalizedSymbol, normalizedTimeframe, 'resync');
-    }, 50);
+    }, delayMs);
   }
 
   private fetchHistoryAndSubscribe(symbol: string, tf: string, reason: 'history_seed' | 'resync'): void {
@@ -370,6 +411,14 @@ export class CandlesWebSocketService {
     const controller = this.fetchController;
     this.isHistoryLoading = true;
     this.queuedWsTicks = [];
+    this.hasLiveEdgeForSubscription = false;
+    this.hasSeededHistoryForSubscription = false;
+    this.hasStaleHistoryForSubscription = false;
+    this.logPipeline('history_fetch_start', {
+      symbol: normalizedSymbol,
+      tf: normalizedTimeframe,
+      reason,
+    });
 
     this.sendSubscription(normalizedSymbol, normalizedTimeframe);
 
@@ -378,10 +427,49 @@ export class CandlesWebSocketService {
         if (controller.signal.aborted) return;
         if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) return;
 
-        this.candleCache = sortAndDedupeCandles(history.candles);
-        this.isHistoryLoading = false;
+        const normalizedHistory = sortAndDedupeCandles(history.candles);
+        const latestHistoryCandle = normalizedHistory[normalizedHistory.length - 1];
+        const currentBucketTime = getCurrentBucketTime(normalizedTimeframe);
+        const historyGapCount = latestHistoryCandle
+          ? getBucketGapCount(latestHistoryCandle.time, currentBucketTime, normalizedTimeframe)
+          : 0;
+        const historyIsStale =
+          !!latestHistoryCandle &&
+          historyGapCount > CandlesWebSocketService.MAX_ACCEPTABLE_HISTORY_STALENESS_CANDLES;
 
-        this.emitFullSync(normalizedSymbol, normalizedTimeframe, reason);
+        this.candleCache = normalizedHistory;
+        this.isHistoryLoading = false;
+        this.hasLiveEdgeForSubscription = false;
+        this.hasSeededHistoryForSubscription = this.candleCache.length > 0;
+        this.hasStaleHistoryForSubscription = historyIsStale;
+
+        if (this.candleCache.length > 0) {
+          this.logPipeline('history_fetch_success', {
+            symbol: normalizedSymbol,
+            tf: normalizedTimeframe,
+            reason,
+            count: this.candleCache.length,
+            latestHistoryTime: latestHistoryCandle?.time ?? null,
+            currentBucketTime,
+            historyGapCount,
+            accepted: true,
+            stale: historyIsStale,
+          });
+          this.emitFullSync(normalizedSymbol, normalizedTimeframe, reason);
+        }
+
+        if (historyIsStale) {
+          this.logPipeline('history_fetch_stale_blocked', {
+            symbol: normalizedSymbol,
+            tf: normalizedTimeframe,
+            reason,
+            latestHistoryTime: latestHistoryCandle?.time ?? null,
+            currentBucketTime,
+            historyGapCount,
+            accepted: true,
+          });
+          this.requestResync(normalizedSymbol, normalizedTimeframe, 'history_stale');
+        }
 
         if (this.queuedWsTicks.length > 0) {
           const queuedTicks = sortAndDedupeCandles(this.queuedWsTicks);
@@ -394,6 +482,15 @@ export class CandlesWebSocketService {
 
         console.warn('[Candles WS] History fetch failed, continuing with live stream only:', error);
         this.isHistoryLoading = false;
+        this.hasLiveEdgeForSubscription = false;
+        this.hasSeededHistoryForSubscription = false;
+        this.hasStaleHistoryForSubscription = false;
+        this.logPipeline('history_fetch_failed', {
+          symbol: normalizedSymbol,
+          tf: normalizedTimeframe,
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
         this.emitStreamEvent({
           type: 'resync_required',
           symbol: normalizedSymbol,
@@ -515,11 +612,24 @@ export class CandlesWebSocketService {
         continue;
       }
 
+      if (this.hasStaleHistoryForSubscription && !this.hasLiveEdgeForSubscription) {
+        this.logPipeline('live_handoff_blocked_by_stale_history', {
+          symbol: normalizedSymbol,
+          tf: normalizedTimeframe,
+          incomingTime: incoming.time,
+          latestHistoryTime: this.candleCache[this.candleCache.length - 1]?.time ?? null,
+        });
+        this.requestResync(normalizedSymbol, normalizedTimeframe, 'history_stale_live_handoff_blocked');
+        continue;
+      }
+
       if (this.candleCache.length === 0) {
         this.candleCache = [incoming];
         cacheChanged = true;
         shouldFullSync = true;
         fullSyncReason = 'resync';
+        this.hasLiveEdgeForSubscription = true;
+        this.hasStaleHistoryForSubscription = false;
         continue;
       }
 
@@ -540,6 +650,14 @@ export class CandlesWebSocketService {
           tf: normalizedTimeframe,
           candle: merged,
         });
+        this.logPipeline('replace_last', {
+          symbol: normalizedSymbol,
+          tf: normalizedTimeframe,
+          candleTime: merged.time,
+          lastCacheTime: lastCandle.time,
+        });
+        this.hasLiveEdgeForSubscription = true;
+        this.hasStaleHistoryForSubscription = false;
         continue;
       }
 
@@ -554,10 +672,88 @@ export class CandlesWebSocketService {
           tf: normalizedTimeframe,
           candle: incoming,
         });
+        this.logPipeline('append', {
+          symbol: normalizedSymbol,
+          tf: normalizedTimeframe,
+          candleTime: incoming.time,
+          previousTime: lastCandle.time,
+          gapCandles: 0,
+        });
+        this.hasLiveEdgeForSubscription = true;
+        this.hasStaleHistoryForSubscription = false;
         continue;
       }
 
       if (incoming.time > expectedNextTime) {
+        if (isWithinLiveBucketHorizon(incoming.time, normalizedTimeframe)) {
+          const gapFillCandles = buildFlatGapCandles(lastCandle, incoming.time, normalizedTimeframe);
+
+          if (
+            !this.hasLiveEdgeForSubscription &&
+            gapFillCandles.length <= CandlesWebSocketService.MAX_INITIAL_HANDOFF_GAP_FILL_CANDLES
+          ) {
+            this.candleCache.push(...gapFillCandles, incoming);
+            cacheChanged = true;
+            shouldFullSync = true;
+            fullSyncReason = 'resync';
+            this.logPipeline('initial_handoff_rebuild', {
+              symbol: normalizedSymbol,
+              tf: normalizedTimeframe,
+              incomingTime: incoming.time,
+              lastHistoryTime: lastCandle.time,
+              gapCandles: gapFillCandles.length,
+              action: 'full_sync',
+            });
+            this.hasLiveEdgeForSubscription = true;
+            this.hasStaleHistoryForSubscription = false;
+            continue;
+          }
+
+          if (!this.hasLiveEdgeForSubscription) {
+            this.logPipeline('initial_handoff_blocked', {
+              symbol: normalizedSymbol,
+              tf: normalizedTimeframe,
+              incomingTime: incoming.time,
+              lastHistoryTime: lastCandle.time,
+              gapCandles: gapFillCandles.length,
+              action: 'resync_required',
+            });
+            this.requestResync(normalizedSymbol, normalizedTimeframe, 'history_stale_live_handoff_blocked');
+            continue;
+          }
+
+          if (gapFillCandles.length <= CandlesWebSocketService.MAX_AUTO_GAP_FILL_CANDLES) {
+            for (const filler of gapFillCandles) {
+              this.candleCache.push(filler);
+              canonicalEvents.push({
+                type: 'append',
+                symbol: normalizedSymbol,
+                tf: normalizedTimeframe,
+                candle: filler,
+              });
+            }
+
+            this.candleCache.push(incoming);
+            cacheChanged = true;
+            canonicalEvents.push({
+              type: 'append',
+              symbol: normalizedSymbol,
+              tf: normalizedTimeframe,
+              candle: incoming,
+            });
+            this.logPipeline('append_with_gap_fill', {
+              symbol: normalizedSymbol,
+              tf: normalizedTimeframe,
+              incomingTime: incoming.time,
+              previousTime: lastCandle.time,
+              gapCandles: gapFillCandles.length,
+            });
+            this.hasLiveEdgeForSubscription = true;
+            this.hasStaleHistoryForSubscription = false;
+            continue;
+          }
+        }
+
         this.requestResync(normalizedSymbol, normalizedTimeframe, 'unexpected_time_gap');
         continue;
       }

@@ -6,6 +6,7 @@ export type QuoteItem = {
   symbol: string;
   bid: number;
   ask: number;
+  lastTickAt?: number;
   prevBid?: number;
   prevAsk?: number;
   changePct: number;

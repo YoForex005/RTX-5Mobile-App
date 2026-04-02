@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { candlesWsService } from '../api/ws/candlesSocket';
 import { normalizeTimeframe } from '../domain/candles';
+import { useUserPreferences } from '../state/userPreferences';
 
 export type CandleParams = {
   time: number; // unix timestamp in seconds
@@ -27,6 +28,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   const [candles, setCandles] = useState<CandleParams[]>([]);
   const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingCandlesRef = useRef<CandleParams[] | null>(null);
+  const accessToken = useUserPreferences((state) => state.accountDetails?.credentials?.accessToken);
 
   useEffect(() => {
     let unmounted = false;
@@ -53,14 +55,16 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     };
 
     candlesWsService.addArrayListener(handleArrayUpdate);
-    candlesWsService.subscribe(symbol, timeframe);
+    if (symbol && timeframe) {
+      candlesWsService.subscribe(symbol, timeframe);
+    }
 
     return () => {
       unmounted = true;
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       candlesWsService.removeArrayListener(handleArrayUpdate);
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, accessToken]);
 
   return { candles };
 }

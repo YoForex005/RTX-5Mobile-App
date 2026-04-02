@@ -288,11 +288,12 @@ export class QuotesWebSocketService {
         const ask: number = data.ask;
         const existing = newQuotes[symbol];
         const spec = symbolSpecs.get(symbol);
+        const lastTickAt = Date.now();
 
         if (!existing) {
           const digits = data.digits ?? spec?.digits ?? 5;
           const volume = data.volume ?? spec?.volume ?? 0;
-          newQuotes[symbol] = { ...spec, ...data, symbol, digits, volume } as any;
+          newQuotes[symbol] = { ...spec, ...data, symbol, digits, volume, lastTickAt } as any;
           
           if (newQuotes[symbol].ask && newQuotes[symbol].bid) {
             newQuotes[symbol].spread = (newQuotes[symbol].ask - newQuotes[symbol].bid) * Math.pow(10, digits);
@@ -314,6 +315,7 @@ export class QuotesWebSocketService {
             ask,
             digits,
             volume,
+            lastTickAt,
             spread: (ask - bid) * Math.pow(10, digits),
             prevBid: bid !== existing.bid ? existing.bid : existing.prevBid,
             prevAsk: ask !== existing.ask ? existing.ask : existing.prevAsk,

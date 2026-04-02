@@ -31,7 +31,12 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 ## Acceptance Checklist
 - [ ] No third-party logo is rendered on chart surface.
 - [ ] Timeframe switching and object tools match parity behavior.
-- [ ] Interaction remains responsive under active updates.
+- [x] Interaction remains responsive under active updates.
+
+## Progress Notes
+- Chart bootstrap now hydrates candle history from `/api/v2/candles/GBPUSD` with `limit=500` before live websocket merging.
+- Candle normalization was added to prevent broken bars caused by unsorted timestamps, duplicate periods, or invalid OHLC bounds.
+- Live candle recovery was hardened so a validated realtime candle can advance the active series even when REST history reconnects behind the current bucket; bounded flat gap-fill handles short drift, and stale-history handoff now rebuilds the missing timestamp chain into a canonical full sync instead of appending a detached live candle.
 
 ## Test Checklist
 - [ ] Unit: candle transforms and viewport math.

@@ -105,20 +105,36 @@ export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: s
 export const normalizeCandle = (input: Record<string, unknown>, timeframe: string): Candle | null => {
   const time = normalizeTimeValue(input.time ?? input.timestamp ?? input.ts ?? input.t, timeframe);
   const close = toFiniteNumber(input.close ?? input.c ?? input.price ?? input.p);
-  const open = toFiniteNumber(input.open ?? input.o ?? input.close ?? input.c ?? input.price ?? input.p);
-  const high = toFiniteNumber(input.high ?? input.h ?? input.close ?? input.c ?? input.price ?? input.p);
-  const low = toFiniteNumber(input.low ?? input.l ?? input.close ?? input.c ?? input.price ?? input.p);
+  const explicitOpen = toFiniteNumber(input.open ?? input.o);
+  const explicitHigh = toFiniteNumber(input.high ?? input.h);
+  const explicitLow = toFiniteNumber(input.low ?? input.l);
   const volume = toFiniteNumber(input.volume ?? input.v) ?? 0;
 
-  if (time === null || open === null || high === null || low === null || close === null) {
+  if (time === null || close === null) {
+    return null;
+  }
+
+  const open = explicitOpen ?? close;
+  const high = explicitHigh ?? Math.max(open, close);
+  const low = explicitLow ?? Math.min(open, close);
+
+  if (explicitHigh !== null && explicitHigh < Math.max(open, close)) {
+    return null;
+  }
+
+  if (explicitLow !== null && explicitLow > Math.min(open, close)) {
+    return null;
+  }
+
+  if (explicitHigh !== null && explicitLow !== null && explicitHigh < explicitLow) {
     return null;
   }
 
   const candle: Candle = {
     time,
     open,
-    high: Math.max(open, high, low, close),
-    low: Math.min(open, high, low, close),
+    high,
+    low,
     close,
     volume: Math.max(volume, 0),
   };
@@ -171,4 +187,46 @@ export const normalizeCandleSeries = (candles: unknown[], timeframe: string): Ca
 
 export const getExpectedNextCandleTime = (lastTime: number, timeframe: string): number => {
   return lastTime + getTimeframeSeconds(timeframe);
+};
+
+export const getCurrentBucketTime = (timeframe: string, nowInSeconds: number = Math.floor(Date.now() / 1000)): number => {
+  return alignTimeToBucket(nowInSeconds, timeframe);
+};
+
+export const isWithinLiveBucketHorizon = (
+  candleTime: number,
+  timeframe: string,
+  nowInSeconds: number = Math.floor(Date.now() / 1000),
+): boolean => {
+  const currentBucket = getCurrentBucketTime(timeframe, nowInSeconds);
+  return candleTime <= currentBucket + getTimeframeSeconds(timeframe);
+};
+
+export const buildFlatGapCandles = (
+  lastCandle: Candle,
+  incomingTime: number,
+  timeframe: string,
+): Candle[] => {
+  const candles: Candle[] = [];
+  let nextTime = getExpectedNextCandleTime(lastCandle.time, timeframe);
+
+  while (nextTime < incomingTime) {
+    candles.push({
+      time: nextTime,
+      open: lastCandle.close,
+      high: lastCandle.close,
+      low: lastCandle.close,
+      close: lastCandle.close,
+      volume: 0,
+    });
+    nextTime = getExpectedNextCandleTime(nextTime, timeframe);
+  }
+
+  return candles;
+};
+
+export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: string): number => {
+  const intervalSeconds = getTimeframeSeconds(timeframe);
+  if (toTime <= fromTime) return 0;
+  return Math.floor((toTime - fromTime) / intervalSeconds);
 };

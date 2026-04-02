@@ -87,7 +87,10 @@ export const useTradingState = create<TradingState>((set) => ({
         // If a new quote ticks we haven't seen, we'll cast it to `QuoteItem`.
         const digits = data.digits ?? spec?.digits ?? 5;
         const volume = data.volume ?? spec?.volume ?? 0;
-        const newQuote = { ...spec, ...data, symbol, digits, volume } as QuoteItem;
+        const lastTickAt =
+          data.lastTickAt ??
+          (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : undefined);
+        const newQuote = { ...spec, ...data, symbol, digits, volume, lastTickAt } as QuoteItem;
         
         if (newQuote.ask && newQuote.bid) {
           newQuote.spread = (newQuote.ask - newQuote.bid) * Math.pow(10, digits);
@@ -111,6 +114,9 @@ export const useTradingState = create<TradingState>((set) => ({
       const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
       const simulatedVolBump = data.volume === undefined ? Math.floor(Math.random() * 8) + 1 : 0;
       const volume = data.volume ?? (existing.volume ? existing.volume + simulatedVolBump : (spec?.volume ?? 0));
+      const lastTickAt =
+        data.lastTickAt ??
+        (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing.lastTickAt);
 
       return {
         quotes: {
@@ -121,6 +127,7 @@ export const useTradingState = create<TradingState>((set) => ({
             ...data,
             digits,
             volume,
+            lastTickAt,
             // Automatically calculate spread if bid/ask provided
             spread: (data.ask && data.bid) ? (data.ask - data.bid) * Math.pow(10, digits) : existing.spread,
             // Track previous prices

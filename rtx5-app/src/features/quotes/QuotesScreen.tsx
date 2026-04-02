@@ -26,6 +26,15 @@ import { fmt } from '../../utils/format';
 
 /* ───── Helpers ───── */
 
+const LIVE_SYMBOL_STALE_MS = 45_000;
+
+const hasFreshLiveQuote = (quote: QuoteItem | undefined, now = Date.now()) =>
+  !!quote &&
+  Number.isFinite(quote.bid) &&
+  Number.isFinite(quote.ask) &&
+  Number.isFinite(quote.lastTickAt) &&
+  now - (quote.lastTickAt ?? 0) <= LIVE_SYMBOL_STALE_MS;
+
 const digitsFor = (item: QuoteItem) => 2;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
@@ -56,7 +65,7 @@ function QuoteCard({
 }) {
   const liveItem = useTradingState((state) => state.quotes[symbol]);
 
-  const noData = liveItem === undefined || !liveItem.bid;
+  const noData = !hasFreshLiveQuote(liveItem);
   
   // Hide the card completely if no data values are actively streaming for it.
   if (noData) return null;
@@ -321,19 +330,8 @@ export function QuotesScreen() {
   useEffect(() => {
     if (apiSymbols.length > 0) {
       if (!hasSetInitialSymbols) {
-        quotesWsService.setSubscriptions(apiSymbols);
-        const timer = setTimeout(() => {
-          const state = useTradingState.getState();
-          const tickingSymbols = Object.keys(state.quotes).filter(sym => !!state.quotes[sym].bid);
-          
-          if (tickingSymbols.length > 0) {
-            setQuoteSymbols(tickingSymbols.slice(0, 8));
-          } else {
-            setQuoteSymbols(apiSymbols.slice(0, 6)); 
-          }
-          setHasSetInitialSymbols(true);
-        }, 2500);
-        return () => clearTimeout(timer);
+        setQuoteSymbols(apiSymbols);
+        setHasSetInitialSymbols(true);
       } else {
         const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
         if (validSymbols.length < quoteSymbols.length) {
@@ -343,22 +341,14 @@ export function QuotesScreen() {
     }
   }, [apiSymbols, quoteSymbols, setQuoteSymbols, hasSetInitialSymbols, setHasSetInitialSymbols]);
 
-  // One-time aggressive purge for legacy polluted lists
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const stateQuotes = useTradingState.getState().quotes;
-      const active = quoteSymbols.filter(sym => !!stateQuotes[sym]?.bid);
-      if (active.length > 0 && active.length < quoteSymbols.length) {
-         setQuoteSymbols(active);
-      }
-    }, 4500);
-    return () => clearTimeout(timer);
-  }, []);
-
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(new Date());
+  const trackedSymbols = useMemo(
+    () => (apiSymbols.length > 0 ? apiSymbols : quoteSymbols),
+    [apiSymbols, quoteSymbols],
+  );
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -378,21 +368,22 @@ export function QuotesScreen() {
     return () => clearInterval(id);
   }, []);
 
-  const activeQuoteSymbols = useActiveSymbols(quoteSymbols);
+  const activeQuoteSymbols = useActiveSymbols(trackedSymbols);
 
   /* Real-time WebSocket feed subscriptions (bypasses UI re-renders) */
   useEffect(() => {
     quotesWsService.connect();
-    quotesWsService.setSubscriptions(quoteSymbols);
+    quotesWsService.setSubscriptions(trackedSymbols);
     return () => {
-      quotesWsService.unsubscribe(quoteSymbols);
+      quotesWsService.unsubscribe(trackedSymbols);
     };
-  }, [quoteSymbols]);
+  }, [trackedSymbols]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     // Use activeQuoteSymbols for viewing so dead symbols are completely invisible.
-    // Use quoteSymbols for editing so they can still manage their raw list if needed.
+    // Keep edit mode bound to the persisted manual list to avoid reordering
+    // symbols that only exist in the status-backed live universe.
     const sourceList = isEditing ? quoteSymbols : activeQuoteSymbols;
     return sourceList.filter((sym) => sym.toLowerCase().includes(q));
   }, [quoteSymbols, activeQuoteSymbols, search, isEditing]);
@@ -659,7 +650,11 @@ function useActiveSymbols(quoteSymbols: string[]) {
   useEffect(() => {
     const id = setInterval(() => {
       const stateQuotes = useTradingState.getState().quotes;
-      const currentActive = quoteSymbols.filter(sym => !!stateQuotes[sym]?.bid);
+      const now = Date.now();
+      const currentActive = quoteSymbols.filter((sym) => {
+        const quote = stateQuotes[sym];
+        return hasFreshLiveQuote(quote, now);
+      });
       
       setActiveSymbols(prev => {
         if (prev.length !== currentActive.length || prev.some((s, i) => s !== currentActive[i])) {
@@ -667,7 +662,7 @@ function useActiveSymbols(quoteSymbols: string[]) {
         }
         return prev;
       });
-    }, 1500);
+    }, 1000);
     return () => clearInterval(id);
   }, [quoteSymbols]);
 

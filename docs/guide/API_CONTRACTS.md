@@ -136,6 +136,11 @@ export type FeatureFlags = {
 | `/v1/history` | GET | HistoryDTO | `HistoryFilter` driven view models |
 | `/v1/flags/mobile` | GET | FeatureFlagsDTO | `FeatureFlags` |
 
+## Temporary Chart History Integration Note
+- Chart history is currently hydrated from `GET /api/v2/candles/GBPUSD?timeframe={tf}&limit=500`.
+- Returned candle arrays are normalized client-side before rendering: ascending time order, one candle per timestamp, and OHLC bounds repaired so `high >= max(open, close)` and `low <= min(open, close)`.
+- Live websocket candle updates continue after the REST bootstrap and are merged onto the normalized cache by timestamp.
+
 ## WebSocket Event Contracts
 | Event | Payload | Handling |
 |---|---|---|
