@@ -266,8 +266,10 @@ export function ModifyPositionScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.headerColumnLeft}>
+      <View style={[styles.header, { paddingTop: insets.top + 40 }]}>
+        
+        {/* Absolute Centered Top Line */}
+        <View style={styles.headerTopRow}>
           <Pressable 
             onPress={() => {
               if (router.canGoBack()) {
@@ -281,32 +283,38 @@ export function ModifyPositionScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
+
+          <Text numberOfLines={1} adjustsFontSizeToFit style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.headerActionLabel}>MODIFY POSITION</Text>
+            <Text style={styles.headerDot}>  •  </Text>
+            <Text style={styles.headerTicketLabel}>#{position.id}</Text>
+          </Text>
         </View>
 
-        <View style={styles.headerColumnCenter}>
-          <Text style={styles.headerTitle}>Modify position #{position.id}</Text>
-          <View style={styles.headerSubRow}>
-            <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
-              {position.side.toUpperCase()}
-            </Text>
-            <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
-            <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
-            <Text style={styles.headerAt}>at</Text>
-            <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
-          </View>
+        {/* Payload Line */}
+        <View style={styles.headerSubRow}>
+          <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
+            {position.side.toUpperCase()}
+          </Text>
+          <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
+          <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
+          <Text style={styles.headerAt}>at</Text>
+          <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
         </View>
 
-        <View style={styles.headerColumnRight} />
       </View>
 
       {/* Big Prices */}
       <View style={styles.priceHero}>
-        <View style={styles.priceHalf}>
+        <View style={styles.priceCard}>
+          <Text style={styles.priceLabel}>BID</Text>
           <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
             {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
           </Text>
         </View>
-        <View style={styles.priceHalf}>
+        <View style={styles.priceCardDivider} />
+        <View style={styles.priceCard}>
+          <Text style={styles.priceLabel}>ASK</Text>
           <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
             {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
           </Text>
@@ -315,37 +323,43 @@ export function ModifyPositionScreen() {
 
       {/* SL / TP Adjusters */}
       <View style={styles.stepperRow}>
-        <View style={[styles.stepperHalf, { borderBottomColor: '#F57C00' }]}>
+        <View style={[styles.stepperCard, { borderColor: 'rgba(245, 124, 0, 0.3)', backgroundColor: 'rgba(245, 124, 0, 0.05)' }]}>
           <Pressable onPress={() => handleStepSl(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Text style={[styles.stepActionText, { color: T.accent }]}>−</Text>
+             <Ionicons name="remove-circle-outline" size={24} color="#F57C00" />
           </Pressable>
-          <TextInput
-             style={[styles.stepVal, !stopLoss && { color: T.textMuted }]}
-             keyboardType="numeric"
-             value={stopLoss !== null ? stopLoss.toString() : ''}
-             placeholder="SL"
-             placeholderTextColor={T.textMuted}
-             onChangeText={handleSlChange}
-          />
+          <View style={styles.stepInputWrap}>
+            <Text style={styles.stepperLabel}>Stop Loss</Text>
+            <TextInput
+               style={[styles.stepVal, !stopLoss && { color: T.textMuted }]}
+               keyboardType="numeric"
+               value={stopLoss !== null ? stopLoss.toString() : ''}
+               placeholder="Not Set"
+               placeholderTextColor={T.textMuted}
+               onChangeText={handleSlChange}
+            />
+          </View>
           <Pressable onPress={() => handleStepSl(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Text style={[styles.stepActionText, { color: T.accent }]}>+</Text>
+             <Ionicons name="add-circle-outline" size={24} color="#F57C00" />
           </Pressable>
         </View>
 
-        <View style={[styles.stepperHalf, { borderBottomColor: '#388E3C' }]}>
+        <View style={[styles.stepperCard, { borderColor: 'rgba(56, 142, 60, 0.3)', backgroundColor: 'rgba(56, 142, 60, 0.05)' }]}>
           <Pressable onPress={() => handleStepTp(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Text style={[styles.stepActionText, { color: T.accent }]}>−</Text>
+             <Ionicons name="remove-circle-outline" size={24} color="#388E3C" />
           </Pressable>
-          <TextInput
-             style={[styles.stepVal, !takeProfit && { color: T.textMuted }]}
-             keyboardType="numeric"
-             value={takeProfit !== null ? takeProfit.toString() : ''}
-             placeholder="TP"
-             placeholderTextColor={T.textMuted}
-             onChangeText={handleTpChange}
-          />
+          <View style={styles.stepInputWrap}>
+            <Text style={styles.stepperLabel}>Take Profit</Text>
+            <TextInput
+               style={[styles.stepVal, !takeProfit && { color: T.textMuted }]}
+               keyboardType="numeric"
+               value={takeProfit !== null ? takeProfit.toString() : ''}
+               placeholder="Not Set"
+               placeholderTextColor={T.textMuted}
+               onChangeText={handleTpChange}
+            />
+          </View>
           <Pressable onPress={() => handleStepTp(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Text style={[styles.stepActionText, { color: T.accent }]}>+</Text>
+             <Ionicons name="add-circle-outline" size={24} color="#388E3C" />
           </Pressable>
         </View>
       </View>
@@ -415,9 +429,12 @@ export function ModifyPositionScreen() {
 
       {/* Footer / Controls */}
       <View style={styles.footer}>
-        <Text style={styles.disclaimer}>
-          Stop Loss or Take Profit you set must differ from market price by at least 10 points. Stops processing is performed on the broker side.
-        </Text>
+        <View style={styles.disclaimerBox}>
+          <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
+          <Text style={styles.disclaimer}>
+            SL/TP must be at least 10 points away from the market price. Orders are executed by the broker.
+          </Text>
+        </View>
         
         {submitMessage && (
           <Text style={styles.validationText}>{submitMessage}</Text>
@@ -427,14 +444,19 @@ export function ModifyPositionScreen() {
         )}
 
         <Pressable 
-          style={[styles.modifyBtn, isSubmitting && { opacity: 0.5 }]}
+          style={({ pressed }) => [
+            styles.modifyBtn,
+            { backgroundColor: T.accent },
+            pressed && { opacity: 0.8 },
+            isSubmitting && { opacity: 0.5 }
+          ]}
           disabled={isSubmitting}
           onPress={handleModify}
         >
           {isSubmitting ? (
-            <ActivityIndicator color={T.textSub} />
+            <ActivityIndicator color="#FFF" />
           ) : (
-            <Text style={styles.modifyText}>MODIFY</Text>
+            <Text style={styles.modifyText}>MODIFY POSITION</Text>
           )}
         </Pressable>
       </View>
@@ -448,32 +470,38 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     backgroundColor: T.bg, // Global app canvas background
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingBottom: 16,
+    alignItems: 'center', // Centers everything below the top row
   },
-  headerColumnLeft: {
-    flex: 1,
-    alignItems: 'flex-start',
+  headerTopRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 12,
+    marginBottom: 4,
   },
   backBtn: {
     padding: 4,
+    zIndex: 10,
   },
-  headerColumnCenter: {
-    flex: 4,
-    alignItems: 'center',
-  },
-  headerColumnRight: {
-    flex: 1,
-  },
-  headerTitle: {
+  headerActionLabel: {
     color: T.text,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    letterSpacing: 0.3,
-    textAlign: 'center',
+    letterSpacing: 1.2,
+  },
+  headerDot: {
+    color: T.textMuted,
+    fontSize: 18,
+  },
+  headerTicketLabel: {
+    color: T.text,
+    fontSize: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 1,
   },
   headerSubRow: {
     flexDirection: 'row',
@@ -483,28 +511,28 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     marginTop: 4,
   },
   headerSide: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
   headerVol: {
     color: T.text,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   headerSymbol: {
     color: T.text,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
   },
   headerAt: {
     color: T.textMuted,
-    fontSize: 12,
+    fontSize: 14,
   },
   headerPrice: {
     color: T.text,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
@@ -512,51 +540,79 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 40,
-    marginTop: 24,
-    marginBottom: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    marginHorizontal: 16,
+    borderRadius: 16,
+    paddingVertical: 10,
+    marginTop: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  priceHalf: {
+  priceCard: {
+    flex: 1,
     alignItems: 'center',
   },
+  priceCardDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  priceLabel: {
+    color: T.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: -8,
+    includeFontPadding: false,
+  },
   priceNormal: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+    includeFontPadding: false,
   },
   priceHuge: {
-    fontSize: 30,
-    fontWeight: '700',
+    fontSize: 34,
+    fontWeight: '800',
   },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginHorizontal: 16,
-    gap: 30, // Forces the Orange and Green underlines to be totally separated
+    gap: 10,
     marginBottom: 20,
   },
-  stepperHalf: {
+  stepperCard: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 4,
-    borderBottomWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   stepBtn: {
-    padding: 8,
+    padding: 4,
   },
-  stepActionText: {
-    fontSize: 22,
-    fontWeight: '400',
-    includeFontPadding: false,
-    lineHeight: 24,
+  stepInputWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: T.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
   },
   stepVal: {
     color: T.text,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     minWidth: 40,
     maxWidth: 75,
     padding: 0,
@@ -573,30 +629,50 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
+  disclaimerBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(148, 163, 184, 0.08)',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.1)',
+  },
+  disclaimerIcon: {
+    marginRight: 8,
+  },
   disclaimer: {
+    flexShrink: 1,
     color: T.textMuted,
     fontSize: 12,
     textAlign: 'center',
-    lineHeight: 16,
-    marginBottom: 20,
-    paddingHorizontal: 10,
+    lineHeight: 18,
+    fontWeight: '500',
   },
   validationText: {
     color: T.trading.sell.primary,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 20,
   },
   modifyBtn: {
-    paddingVertical: 16,
+    paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 16,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
   },
   modifyText: {
-    color: T.textSub,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 1,
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 1.2,
   },
 });
