@@ -37,6 +37,11 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - Chart bootstrap now hydrates candle history from `/api/v2/candles/GBPUSD` with `limit=500` before live websocket merging.
 - Candle normalization was added to prevent broken bars caused by unsorted timestamps, duplicate periods, or invalid OHLC bounds.
 - Live candle recovery was hardened so a validated realtime candle can advance the active series even when REST history reconnects behind the current bucket; bounded flat gap-fill handles short drift, and stale-history handoff now rebuilds the missing timestamp chain into a canonical full sync instead of appending a detached live candle.
+- Stale REST history is now blocked from seeding the renderer cache; when the history tail is too old, the service waits for a safe live/resync handoff instead of drawing a detached candle gap.
+- Fullscreen chart mode now presents the drawing tools as a vertical left-side overlay rail on both native and web, with draw-manager rebinds after chart reload and clear actions so tools remain usable through fullscreen transitions.
+- Chart settings now expose a tabbed properties screen with MT-style Show and Colors controls backed by persisted display/color preferences; the live chart consumes those settings for grid, volume, ticker/OHLC overlay, quick-trade controls, bid/ask price lines, trade overlays, and themeable chart colors.
+- Chart properties layout was refreshed for mobile with a prominent live-preview hero, realtime bid/ask/spread chips, and tighter responsive spacing in the Common/Show/Colors controls to support parity-oriented settings work.
+- Chart color edits now propagate through one persisted preference path so manual hex edits and picker changes update the properties preview and the live chart renderer consistently, including hollow-body chart colors.
 
 ## Test Checklist
 - [ ] Unit: candle transforms and viewport math.

@@ -173,15 +173,26 @@ export class DrawingToolsManager {
 	private _vertLineTool: VertLineDrawingTool;
 	private _activeTool: string = 'crosshair';
 
-	constructor(chart: IChartApi, series: ISeriesApi<SeriesType>) {
-		this._trendLineTool = new TrendLineDrawingTool(chart, series);
+	constructor(
+		chart: IChartApi,
+		series: ISeriesApi<SeriesType>,
+		options: { showObjectDescriptions?: boolean } = {}
+	) {
+		const showObjectDescriptions = options.showObjectDescriptions ?? true;
+
+		this._trendLineTool = new TrendLineDrawingTool(chart, series, {
+			showLabels: showObjectDescriptions,
+		});
 		this._rectTool = new RectangleDrawingTool(chart, series, {
 			fillColor: 'rgba(59, 130, 246, 0.25)',
 			previewFillColor: 'rgba(59, 130, 246, 0.1)',
 			labelColor: '#3B82F6',
 			labelTextColor: '#FFFFFF',
+			showLabels: showObjectDescriptions,
 		});
-		this._vertLineTool = new VertLineDrawingTool(chart, series);
+		this._vertLineTool = new VertLineDrawingTool(chart, series, {
+			showLabel: showObjectDescriptions,
+		});
 	}
 
 	setActiveTool(tool: string) {

@@ -5,14 +5,113 @@ import { quotes } from '../mock/tradingData';
 
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
+export type ChartColorScheme = 'green_on_black' | 'black_on_white' | 'yellow_on_black' | 'custom';
 
 export type ChartColorsConfig = {
+  background: string;
+  foreground: string;
+  grid: string;
   candlesUptrend: string;
   candlesDowntrend: string;
   hollowBody: string;
   barsUptrend: string;
   barsDowntrend: string;
   lineBody: string;
+  tradeOpen?: string;
+  tradeTpSl?: string;
+  tradeStopOut?: string;
+};
+
+export type ChartDisplaySettings = {
+  showTicker: boolean;
+  showOHLC: boolean;
+  showQuickTradingButtons: boolean;
+  showBidPriceLine: boolean;
+  showAskPriceLine: boolean;
+  showLastPriceLine: boolean;
+  showPeriodSeparators: boolean;
+  showGrid: boolean;
+  showTickVolumes: boolean;
+  showRealVolumes: boolean;
+  showObjectDescriptions: boolean;
+  showTradeLevels: boolean;
+  showTradeHistory: boolean;
+};
+
+export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custom'>, { label: string; colors: ChartColorsConfig }> = {
+  green_on_black: {
+    label: 'Green on Black',
+    colors: {
+      background: '#0E0E12',
+      foreground: '#FFFFFF',
+      grid: 'rgba(255,255,255,0.15)',
+      candlesUptrend: '#10B981',
+      candlesDowntrend: '#EF4444',
+      hollowBody: '#0E0E12',
+      barsUptrend: '#10B981',
+      barsDowntrend: '#EF4444',
+      lineBody: '#10B981',
+    },
+  },
+  black_on_white: {
+    label: 'Black on White',
+    colors: {
+      background: '#FFFFFF',
+      foreground: '#0F172A',
+      grid: 'rgba(15,23,42,0.12)',
+      candlesUptrend: '#2563EB',
+      candlesDowntrend: '#EF4444',
+      hollowBody: '#FFFFFF',
+      barsUptrend: '#2563EB',
+      barsDowntrend: '#EF4444',
+      lineBody: '#2563EB',
+    },
+  },
+  yellow_on_black: {
+    label: 'Yellow on Black',
+    colors: {
+      background: '#0E0E12',
+      foreground: '#FFFFFF',
+      grid: 'rgba(255,255,255,0.15)',
+      candlesUptrend: '#FACC15',
+      candlesDowntrend: '#F59E0B',
+      hollowBody: '#0E0E12',
+      barsUptrend: '#FACC15',
+      barsDowntrend: '#F59E0B',
+      lineBody: '#FACC15',
+    },
+  },
+};
+
+export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
+  background: '#000000',
+  foreground: '#94A3B8',
+  grid: 'rgba(255,255,255,0.04)',
+  candlesUptrend: '#2962FF',
+  candlesDowntrend: '#EF5350',
+  hollowBody: '#1E293B',
+  barsUptrend: '#2962FF',
+  barsDowntrend: '#EF5350',
+  lineBody: '#2962FF',
+  tradeOpen: '#2962FF',
+  tradeTpSl: '#089981',
+  tradeStopOut: '#DC2626',
+};
+
+export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
+  showTicker: true,
+  showOHLC: false,
+  showQuickTradingButtons: true,
+  showBidPriceLine: true,
+  showAskPriceLine: false,
+  showLastPriceLine: false,
+  showPeriodSeparators: false,
+  showGrid: true,
+  showTickVolumes: true,
+  showRealVolumes: false,
+  showObjectDescriptions: false,
+  showTradeLevels: true,
+  showTradeHistory: true,
 };
 
 const defaultSymbols: string[] = [];
@@ -52,7 +151,9 @@ type UserPreferencesState = {
       expiresAt: string;
     };
   } | null;
+  chartColorScheme: ChartColorScheme;
   chartColors: ChartColorsConfig;
+  chartDisplay: ChartDisplaySettings;
 
   login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }) => void;
   logout: () => void;
@@ -83,7 +184,9 @@ type UserPreferencesState = {
   /** Persist the broker_id from the login screen for app-wide broker config access */
   setBrokerId: (id: string) => void;
   setHasSetInitialSymbols: (hasSet: boolean) => void;
+  setChartColorScheme: (scheme: ChartColorScheme) => void;
   setChartColor: (key: keyof ChartColorsConfig, color: string) => void;
+  setChartDisplaySetting: <K extends keyof ChartDisplaySettings>(key: K, value: ChartDisplaySettings[K]) => void;
 };
 
 export const useUserPreferences = create<UserPreferencesState>()(
@@ -113,14 +216,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       hasSetInitialSymbols: false,
       brokerId: '',
       accountDetails: null,
-      chartColors: {
-        candlesUptrend: '#2962FF',
-        candlesDowntrend: '#EF5350',
-        hollowBody: '#1E293B',
-        barsUptrend: '#2962FF',
-        barsDowntrend: '#EF5350',
-        lineBody: '#1E293B',
-      },
+      chartColorScheme: 'custom',
+      chartColors: DEFAULT_CHART_COLORS,
+      chartDisplay: DEFAULT_CHART_DISPLAY_SETTINGS,
       login: (id, name, server, tokens) =>
         set({
           isLoggedIn: true,
@@ -190,14 +288,50 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
       setHasSetInitialSymbols: (hasSet) => set({ hasSetInitialSymbols: hasSet }),
+      setChartColorScheme: (scheme) =>
+        set((state) => {
+          if (scheme === 'custom') {
+            return { chartColorScheme: scheme };
+          }
+
+          return {
+            chartColorScheme: scheme,
+            chartColors: { ...CHART_COLOR_SCHEME_PRESETS[scheme].colors },
+          };
+        }),
       setChartColor: (key, color) =>
         set((state) => ({
+          chartColorScheme: 'custom',
           chartColors: { ...state.chartColors, [key]: color },
+        })),
+      setChartDisplaySetting: (key, value) =>
+        set((state) => ({
+          chartDisplay: { ...state.chartDisplay, [key]: value },
         })),
     }),
     {
       name: 'rtx5-user-preferences-v2',
+      version: 3,
       storage: createJSONStorage(() => AsyncStorage),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
+          chartColors?: Partial<ChartColorsConfig>;
+          chartDisplay?: Partial<ChartDisplaySettings>;
+        };
+
+        return {
+          ...state,
+          chartColorScheme: state.chartColorScheme ?? 'custom',
+          chartColors: {
+            ...DEFAULT_CHART_COLORS,
+            ...(state.chartColors ?? {}),
+          },
+          chartDisplay: {
+            ...DEFAULT_CHART_DISPLAY_SETTINGS,
+            ...(state.chartDisplay ?? {}),
+          },
+        } as UserPreferencesState;
+      },
     }
   )
 );

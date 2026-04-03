@@ -76,7 +76,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
   return (
     <>
-      <View style={[s.summaryBlock, isDark && {
+      <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }, isDark && {
         backgroundColor: 'rgba(15, 23, 42, 0.7)',
         shadowColor: '#2563EB',
         shadowOffset: { width: 0, height: 4 },
@@ -84,76 +84,84 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
         shadowRadius: 16,
         elevation: 4,
       }]}>
-        <View style={s.summaryTop}>
-          <View style={s.plSection}>
-            <Text style={[s.summaryLabel, { color: T.text }]}>UNREALIZED P/L</Text>
-            <View style={s.floatingRow}>
-              <Animated.Text style={[s.floating, { color: dynamicFloating >= 0 ? T.up : T.down, opacity: pulseAnim }]}>
-                {fmt.pnl(dynamicFloating)}
-              </Animated.Text>
-            </View>
-            <View style={s.plMeta}>
-              <Text style={[s.summaryHint, { color: T.textSub }]}>Margin level {fmt.decimal(dynamicMarginLevel)}%</Text>
-            </View>
+        <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+          {/* The Hero: Unrealized P/L */}
+          <View style={{ alignItems: 'flex-start', marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+              Floating P/L
+            </Text>
+            <Animated.Text 
+              style={{ 
+                fontSize: 24, 
+                fontWeight: '700', 
+                color: dynamicFloating >= 0 ? T.up : T.down, 
+                opacity: pulseAnim, 
+                marginTop: 2, 
+                letterSpacing: -0.2, 
+                fontVariant: ['tabular-nums'],
+                marginLeft: 0
+              }}>
+              {fmt.pnl(dynamicFloating)}
+            </Animated.Text>
           </View>
-          <View style={s.balanceQuick}>
-            <Text style={[s.balanceQuickLabel, { color: T.textSub }]}>BALANCE</Text>
-            <Text style={[s.balanceQuickValue, { color: T.text, opacity: 0.9, fontWeight: '700' }]}>{fmt.int(safeBalance)}</Text>
-            <Text style={[s.balanceQuickCurrency, { color: T.textSub }]}>{account.currency || 'USD'}</Text>
-          </View>
-        </View>
+          
+          {/* Horizontal rows for each metric */}
+          <View style={{ gap: 8 }}>
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                 Balance <Text style={{fontSize: 10, color: T.textFaint}}>({account.currency || 'USD'})</Text>
+               </Text>
+               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                 {fmt.decimal(safeBalance)}
+               </Text>
+             </View>
 
-        <View style={[s.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.border, backgroundColor: 'transparent' }]}>
-          <View style={[s.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-            <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="lock-closed-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin:</Text>
-              </View>
-              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
-                {fmt.decimal(safeMargin, 3)}
-              </Text>
-            </View>
-            <View style={s.gridCol}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="lock-open-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Free Margin:</Text>
-              </View>
-              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
-                {fmt.decimal(dynamicEquity - safeMargin, 3)}
-              </Text>
-            </View>
-          </View>
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                 Equity
+               </Text>
+               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                 {fmt.decimal(dynamicEquity)}
+               </Text>
+             </View>
 
-          <View style={s.gridRow}>
-            <View style={[s.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="speedometer-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Margin Level:</Text>
-              </View>
-              <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.decimal(dynamicMarginLevel, 3)}</Text>
-            </View>
-            <View style={s.gridCol}>
-              {account.credit > 0 ? (
-                <>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="card-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                    <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Credit:</Text>
-                  </View>
-                  <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>
-                    {fmt.int(Number.isFinite(account.credit) ? account.credit : 0)}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="briefcase-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
-                    <Text style={[s.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Equity:</Text>
-                  </View>
-                  <Text style={[s.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(dynamicEquity)}</Text>
-                </>
-              )}
-            </View>
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                 Margin
+               </Text>
+               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                 {fmt.decimal(safeMargin)}
+               </Text>
+             </View>
+
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                 Free Margin
+               </Text>
+               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                 {fmt.decimal(dynamicEquity - safeMargin)}
+               </Text>
+             </View>
+
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                 Margin Level
+               </Text>
+               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                 {fmt.decimal(dynamicMarginLevel)}%
+               </Text>
+             </View>
+
+             {account.credit > 0 && (
+               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                 <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                   Credit
+                 </Text>
+                 <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                   {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
+                 </Text>
+               </View>
+             )}
           </View>
         </View>
       </View>

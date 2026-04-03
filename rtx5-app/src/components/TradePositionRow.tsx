@@ -57,7 +57,7 @@ export function TradePositionRow({
 
   // Calculate live floating P&L using standard FX contract math safely
   const isJpy = item.symbol.includes('JPY');
-  const decimals = isJpy ? 3 : 5;
+  const decimals = 2; // Enforce strict 2-decimal global rule
   const contractSize = isJpy ? 1000 : 100000;
   const priceDiff = isBuy ? (livePrice - item.openPrice) : (item.openPrice - livePrice);
   const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (item.volume || 0.01) * contractSize) : 0;
@@ -134,12 +134,12 @@ export function TradePositionRow({
           <View style={styles.slTpRow}>
             {!!item.sl && (
               <View style={styles.slTpBadge}>
-                <Text style={[styles.slTpText, { color: '#F57C00' }]}>SL {fmt.price(item.sl as number, decimals)}</Text>
+                <Text style={[styles.slTpText, { color: '#F57C00' }]}>SL {fmt.price(item.sl as number)}</Text>
               </View>
             )}
             {!!item.tp && (
               <View style={styles.slTpBadge}>
-                <Text style={[styles.slTpText, { color: '#388E3C' }]}>TP {fmt.price(item.tp as number, decimals)}</Text>
+                <Text style={[styles.slTpText, { color: '#388E3C' }]}>TP {fmt.price(item.tp as number)}</Text>
               </View>
             )}
           </View>
@@ -161,7 +161,7 @@ export function TradePositionRow({
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>OPEN</Text>
               <Text style={[styles.detailValue, { color: detailColor }]}>
-                {fmt.price(item.openPrice, decimals)}
+                {fmt.price(item.openPrice)}
               </Text>
             </View>
             <View style={styles.detailCell}>

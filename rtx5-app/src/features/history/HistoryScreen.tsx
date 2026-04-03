@@ -66,7 +66,7 @@ function mapClosedPositionToRow(p: ClosedPosition): HistoryRow {
   return {
     id: `hp${ticketId}`,
     line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)}`,
-    line2: `${fmt.price(p.price_open, decimals)} → ${fmt.price(priceClose, decimals)}`,
+    line2: `${fmt.price(p.price_open)} → ${fmt.price(priceClose)}`,
     time: timeStr,
     profit: (p.profit || 0) + (p.swap || 0) + (p.commission || 0),
   };
@@ -150,7 +150,7 @@ export function HistoryScreen() {
       return {
         id: `hpo_${p.id}`,
         line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)} (Open)`,
-        line2: `${fmt.price(p.openPrice, decimals)} → ${fmt.price(livePrice, decimals)}`,
+        line2: `${fmt.price(p.openPrice)} → ${fmt.price(livePrice)}`,
         time: safeTimeStr(ts),
         profit: livePnl,
       };
@@ -206,14 +206,12 @@ export function HistoryScreen() {
                 <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                   <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="scan-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
                   </View>
                   <View style={styles.gridCol}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="arrow-down-circle-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Deposit:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
@@ -223,14 +221,12 @@ export function HistoryScreen() {
                 <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                   <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="pulse-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
                   </View>
                   <View style={styles.gridCol}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="git-compare-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
@@ -240,7 +236,6 @@ export function HistoryScreen() {
                 <View style={styles.gridRow}>
                   <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="options-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
@@ -250,7 +245,6 @@ export function HistoryScreen() {
                     onPress={() => router.push('/history/filter')}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="hourglass-outline" size={13} color={isDark ? 'rgba(148,163,184,0.45)' : T.textMuted} />
                       <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
                     </View>
                     <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRange}</Text>

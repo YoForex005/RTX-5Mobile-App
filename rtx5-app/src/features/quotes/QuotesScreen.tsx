@@ -76,7 +76,7 @@ function QuoteCard({
   const POSITIVE = T.trading.profit;
   const NEGATIVE = T.trading.loss;
   const color = isUp ? POSITIVE : NEGATIVE;
-  const pillBgColor = noData ? T.border : (isUp ? POSITIVE : NEGATIVE);
+  const pillBgColor = 'transparent';
 
   const d = digitsFor(item);
   const displaySymbol = pairLabel(item.symbol);
@@ -133,7 +133,7 @@ function QuoteCard({
           <View style={sc.cardRow1}>
             <Text style={[sc.symbolText, { color: T.text }]}>{displaySymbol}</Text>
             <View style={[sc.changePill, { backgroundColor: pillBgColor }]}>
-              <Text style={[sc.changePillText, { color: noData ? T.textMuted : '#FFFFFF' }]}>{noData ? '--' : pct}</Text>
+              <Text style={[sc.changePillText, { color: noData ? T.textMuted : color }]}>{noData ? '--' : pct}</Text>
             </View>
           </View>
           {/* Row 2: Vol · Spread */}
@@ -597,7 +597,7 @@ const sc = StyleSheet.create({
   symbolCol: { flex: 1 },
   cardRow1: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   symbolText: { fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
-  changePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  changePill: { paddingVertical: 2, marginLeft: -2 },
   changePillText: { fontSize: 11, fontWeight: '700' },
   cardRow2: { flexDirection: 'row', alignItems: 'center' },
   volText: { fontSize: 12, fontWeight: '600' },

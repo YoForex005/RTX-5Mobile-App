@@ -133,7 +133,7 @@ export default function RegisterScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Broker Registration</Text>
+          <Text style={styles.headerTitle}>Demo Account</Text>
         </View>
 
         <KeyboardAvoidingView
@@ -144,7 +144,7 @@ export default function RegisterScreen() {
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>Register a new trading account</Text>
+              <Text style={styles.sectionTitle}>Register a new demo account</Text>
             </View>
 
             {/* ── Form Body ── */}
@@ -250,22 +250,9 @@ export default function RegisterScreen() {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.registerBtnText}>REGISTER & LOGIN</Text>
+                  <Text style={styles.registerBtnText}>REGISTER</Text>
                 )}
               </Pressable>
-
-              <View style={styles.loginPromptContainer}>
-                <Text style={styles.loginPromptText}>Already have an account? </Text>
-                <Pressable onPress={() => {
-                  if (router.canGoBack()) {
-                    router.back();
-                  } else {
-                    router.replace('/login');
-                  }
-                }} disabled={isLoading} hitSlop={10}>
-                  <Text style={styles.loginLinkText}>Login</Text>
-                </Pressable>
-              </View>
             </View>
 
           </ScrollView>

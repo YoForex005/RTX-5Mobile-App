@@ -437,25 +437,27 @@ export class CandlesWebSocketService {
           !!latestHistoryCandle &&
           historyGapCount > CandlesWebSocketService.MAX_ACCEPTABLE_HISTORY_STALENESS_CANDLES;
 
-        this.candleCache = normalizedHistory;
+        this.candleCache = historyIsStale ? [] : normalizedHistory;
         this.isHistoryLoading = false;
         this.hasLiveEdgeForSubscription = false;
         this.hasSeededHistoryForSubscription = this.candleCache.length > 0;
         this.hasStaleHistoryForSubscription = historyIsStale;
 
-        if (this.candleCache.length > 0) {
+        if (normalizedHistory.length > 0) {
           this.logPipeline('history_fetch_success', {
             symbol: normalizedSymbol,
             tf: normalizedTimeframe,
             reason,
-            count: this.candleCache.length,
+            count: normalizedHistory.length,
             latestHistoryTime: latestHistoryCandle?.time ?? null,
             currentBucketTime,
             historyGapCount,
-            accepted: true,
+            accepted: !historyIsStale,
             stale: historyIsStale,
           });
-          this.emitFullSync(normalizedSymbol, normalizedTimeframe, reason);
+          if (!historyIsStale) {
+            this.emitFullSync(normalizedSymbol, normalizedTimeframe, reason);
+          }
         }
 
         if (historyIsStale) {
@@ -466,7 +468,7 @@ export class CandlesWebSocketService {
             latestHistoryTime: latestHistoryCandle?.time ?? null,
             currentBucketTime,
             historyGapCount,
-            accepted: true,
+            accepted: false,
           });
           this.requestResync(normalizedSymbol, normalizedTimeframe, 'history_stale');
         }
@@ -612,7 +614,11 @@ export class CandlesWebSocketService {
         continue;
       }
 
-      if (this.hasStaleHistoryForSubscription && !this.hasLiveEdgeForSubscription) {
+      if (
+        this.hasStaleHistoryForSubscription &&
+        !this.hasLiveEdgeForSubscription &&
+        this.candleCache.length > 0
+      ) {
         this.logPipeline('live_handoff_blocked_by_stale_history', {
           symbol: normalizedSymbol,
           tf: normalizedTimeframe,

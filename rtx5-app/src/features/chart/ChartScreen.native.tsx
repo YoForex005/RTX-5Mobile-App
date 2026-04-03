@@ -215,7 +215,7 @@ const CH_HTML = `
       var volumeSeries = null;
       var signalLines = [];
       var drawingTools = null;
-      var UP_COLOR = '#26A69A';
+      var UP_COLOR = '#2962FF';
       var DOWN_COLOR = '#EF5350';
 
 
@@ -253,6 +253,20 @@ const CH_HTML = `
           opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+          window._chartType = chartType;
+
+          var customCols = opts.customColors;
+          var UP_CANDLE = customCols ? customCols.candlesUptrend : UP_COLOR;
+          var DOWN_CANDLE = customCols ? customCols.candlesDowntrend : DOWN_COLOR;
+          var HOLLOW_BODY = customCols ? customCols.hollowBody : 'transparent';
+          var UP_BAR = customCols ? customCols.barsUptrend : UP_COLOR;
+          var DOWN_BAR = customCols ? customCols.barsDowntrend : DOWN_COLOR;
+          var LINE_C = customCols ? customCols.lineBody : UP_COLOR;
+          window._customColors = customCols || {};
+
+          if (opts.customColors) {
+            delete opts.customColors;
+          }
 
           var priceFormatInfo = {
              type: 'price',
@@ -264,28 +278,28 @@ const CH_HTML = `
 
           if (chartType === 'candles' || chartType === 'hollow') {
             series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-              upColor: chartType === 'hollow' ? 'transparent' : UP_COLOR,
-              downColor: DOWN_COLOR,
+              upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
+              downColor: DOWN_CANDLE,
               borderVisible: true,
-              wickUpColor: UP_COLOR,
-              wickDownColor: DOWN_COLOR,
-              borderUpColor: UP_COLOR,
-              borderDownColor: DOWN_COLOR,
+              wickUpColor: UP_CANDLE,
+              wickDownColor: DOWN_CANDLE,
+              borderUpColor: UP_CANDLE,
+              borderDownColor: DOWN_CANDLE,
               lastValueVisible: true,
               priceLineVisible: true,
               priceFormat: priceFormatInfo,
             });
           } else if (chartType === 'bars') {
             series = chart.addSeries(LightweightCharts.BarSeries, {
-              upColor: UP_COLOR,
-              downColor: DOWN_COLOR,
+              upColor: UP_BAR,
+              downColor: DOWN_BAR,
               lastValueVisible: true,
               priceLineVisible: true,
               priceFormat: priceFormatInfo,
             });
           } else {
             series = chart.addSeries(LightweightCharts.LineSeries, {
-              color: UP_COLOR,
+              color: LINE_C,
               lineWidth: 2,
               crosshairMarkerVisible: true,
               lastValueVisible: true,
@@ -366,6 +380,57 @@ const CH_HTML = `
         }
       }
 
+      function updateChartAppearance(opts) {
+        if (!chart) return;
+        try {
+          var customCols = opts.customColors;
+          var chartType = window._chartType || 'candles';
+          if (opts.customColors) {
+            delete opts.customColors; // Lightweight Charts strictly validates options and will crash if we pass unknown fields
+          }
+
+          opts.layout.background = { type: 'solid', color: opts.layout.background.color };
+          opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
+          opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
+          opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
+          opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+
+          chart.applyOptions(opts);
+
+          if (series) {
+            var UP_CANDLE = customCols ? customCols.candlesUptrend : '#2962FF';
+            var DOWN_CANDLE = customCols ? customCols.candlesDowntrend : '#EF5350';
+            var HOLLOW_BODY = customCols ? customCols.hollowBody : 'transparent';
+            var UP_BAR = customCols ? customCols.barsUptrend : '#2962FF';
+            var DOWN_BAR = customCols ? customCols.barsDowntrend : '#EF5350';
+            var LINE_C = customCols ? customCols.lineBody : '#2962FF';
+            window._customColors = customCols || {};
+
+            if (chartType === 'candles' || chartType === 'hollow') {
+              series.applyOptions({
+                upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
+                downColor: DOWN_CANDLE,
+                wickUpColor: UP_CANDLE,
+                wickDownColor: DOWN_CANDLE,
+                borderUpColor: UP_CANDLE,
+                borderDownColor: DOWN_CANDLE,
+              });
+            } else if (chartType === 'bars') {
+              series.applyOptions({
+                upColor: UP_BAR,
+                downColor: DOWN_BAR,
+              });
+            } else {
+              series.applyOptions({
+                color: LINE_C,
+              });
+            }
+          }
+        } catch(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'updateChartAppearance failed: ' + e.message }));
+        }
+      }
+      
       window.ReactNativeWebView.postMessage(JSON.stringify({type:'READY'}));
       function setDrawingTool(toolName) {
         if (drawingTools) { drawingTools.setActiveTool(toolName); }
@@ -404,11 +469,10 @@ export function ChartScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const APP_BG = isDark ? T.bg : '#FFFFFF';
+  const { chartSymbol, chartTimeframe, chartColors, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
+  const APP_BG = chartColors?.background || (isDark ? T.bg : '#FFFFFF');
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
-
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
   const { positions } = usePositionsState();
   const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
   const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
@@ -463,30 +527,29 @@ export function ChartScreen() {
 
   const chartOptions = useMemo(() => ({
     layout: {
-      background: { color: isDark ? '#000000' : '#FFFFFF' },
-      textColor: isDark ? '#94A3B8' : '#64748B',
-      attributionLogo: false,
+      background: { color: chartColors?.background || (isDark ? '#000000' : '#FFFFFF') },
+      textColor: chartColors?.foreground || (isDark ? '#94A3B8' : '#64748B'),
       fontSize: 11,
     },
     grid: {
-      vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)' },
-      horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)' },
+      vertLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)') },
+      horzLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)') },
     },
     crosshair: {
       mode: 0, // Normal
       vertLine: {
-        color: isDark ? '#475569' : '#94A3B8',
+        color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
         width: 1,
-        labelBackgroundColor: isDark ? '#1E293B' : '#334155',
+        labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
       },
       horzLine: {
-        color: isDark ? '#475569' : '#94A3B8',
+        color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
         width: 1,
-        labelBackgroundColor: isDark ? '#1E293B' : '#334155',
+        labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
       },
     },
     timeScale: {
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+      borderColor: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 16,
@@ -497,13 +560,21 @@ export function ChartScreen() {
       fixRightEdge: false,
     },
     rightPriceScale: {
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+      borderColor: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
       autoScale: true,
       scaleMargins: {
         bottom: 0.25,
       },
     },
-  }), [isDark, TEXT_MUTED]);
+    customColors: {
+      candlesUptrend: chartColors?.candlesUptrend || '#2962FF',
+      candlesDowntrend: chartColors?.candlesDowntrend || '#EF5350',
+      hollowBody: chartColors?.hollowBody || 'transparent',
+      barsUptrend: chartColors?.barsUptrend || '#2962FF',
+      barsDowntrend: chartColors?.barsDowntrend || '#EF5350',
+      lineBody: chartColors?.lineBody || '#2962FF',
+    }
+  }), [isDark, chartColors, TEXT_MUTED]);
 
   const [webViewReady, setWebViewReady] = useState(false);
   const isLoading = candles.length === 0 && !forceHideLoading && !webViewReady;
@@ -520,7 +591,7 @@ export function ChartScreen() {
   // Sync Data â€” uses injectJavaScript instead of postMessage
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
-      const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
+      const sig = `${chartSymbol}-${chartTimeframe}-${chartType}`;
       const sanitized = candles.filter((c) => isStructurallyValidCandle(c));
       const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
       uniqueData.sort((a, b) => a.time - b.time);
@@ -550,7 +621,29 @@ export function ChartScreen() {
         lastCandleLengthRef.current = candles.length;
       }
     }
-  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, chartOptions, displayDecimals]);
+  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, displayDecimals]);
+
+  const prevOptionsRef = useRef('');
+  useEffect(() => {
+    if (!webViewRef.current || !webViewReady) return;
+    const strOpts = JSON.stringify(chartOptions);
+    if (prevOptionsRef.current !== strOpts) {
+      prevOptionsRef.current = strOpts;
+      const js = `
+        try {
+          if (typeof updateChartAppearance === 'function') {
+            updateChartAppearance(${strOpts});
+          } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'updateChartAppearance function missing!' }));
+          }
+        } catch (err) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Bridge error: ' + err.message }));
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(js);
+    }
+  }, [chartOptions, webViewReady]);
 
   // Canonical Candle Stream Sync
   useEffect(() => {
@@ -677,7 +770,7 @@ export function ChartScreen() {
           if (showOpenPositions) {
             payload.push({
               price: pos.openPrice,
-              color: pos.side === 'buy' ? BLUE : '#EF5350',
+              color: pos.side === 'buy' ? (chartColors?.tradeOpen || '#2962FF') : '#EF5350',
               lineWidth: 1,
               lineStyle: 1, // Dashed
               axisLabelVisible: true,
@@ -686,10 +779,10 @@ export function ChartScreen() {
           }
           if (showTpSlStopLimit) {
             if (pos.tp && pos.tp > 0) {
-              payload.push({ price: pos.tp, color: '#089981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'TP' });
+              payload.push({ price: pos.tp, color: chartColors?.tradeTpSl || '#089981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'TP' });
             }
             if (pos.sl && pos.sl > 0) {
-              payload.push({ price: pos.sl, color: '#F23645', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'SL' });
+              payload.push({ price: pos.sl, color: chartColors?.tradeTpSl || '#F23645', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'SL' });
             }
           }
           return payload;
@@ -709,13 +802,13 @@ export function ChartScreen() {
         const avgEntry = symbolPositions.reduce((sum, p) => sum + p.openPrice, 0) / symbolPositions.length;
         const worstCaseSide = symbolPositions[0].side; 
         const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
-        lines.push({ price: mockStopOut, color: '#DC2626', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Stop Out' });
+        lines.push({ price: mockStopOut, color: chartColors?.tradeStopOut || '#DC2626', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Stop Out' });
       }
 
       const js = `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [positions, chartSymbol, webViewReady, BLUE, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles]);
+  }, [positions, chartSymbol, webViewReady, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles, chartColors]);
 
   // Patterns / Markers Bridge
   // Patterns / Markers Bridge
@@ -941,6 +1034,7 @@ export function ChartScreen() {
                       setWebViewReady(true);
                     } else if (msg.type === 'ERROR') {
                       console.log('[CHART WEBVIEW ERROR]', msg.message, msg.tick);
+                      Alert.alert('Chart Error Pipeline', msg.message);
                     }
                   } catch (e) { }
                 }}

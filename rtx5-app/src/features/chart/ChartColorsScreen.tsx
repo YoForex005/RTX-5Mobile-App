@@ -6,7 +6,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Modal } from 'react-native';
 import { ScrollView, StyleSheet, Text, View, Pressable, Platform } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useTheme } from '../../theme/useTheme';
@@ -49,7 +50,26 @@ export function ChartColorsScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const chartColors = useUserPreferences((s) => s.chartColors);
+  const router = require('expo-router').useRouter();
+  
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const [activeKey, setActiveKey] = useState<keyof ChartColorsConfig | null>(null);
+  const setChartColor = useUserPreferences((s) => s.setChartColor);
+
+  const PRESET_COLORS = [
+    '#2962FF', '#EF5350', '#26A69A', '#F59E0B', '#8B5CF6', 
+    '#EC4899', '#14B8A6', '#1E293B', '#F8FAFC', '#FFFFFF', '#000000',
+    'transparent'
+  ];
+
+  const handleSelectColor = (color: string) => {
+    if (activeKey) {
+      setChartColor(activeKey, color);
+      setActiveKey(null);
+    }
+  };
+
 
   return (
     <Screen style={styles.screen}>
@@ -62,7 +82,7 @@ export function ChartColorsScreen() {
             <View style={[styles.sectionCard, styles.cardShadow]}>
               {section.items.map((item, idx) => (
                 <View key={item.label}>
-                  <Pressable
+                  <Pressable onPress={() => setActiveKey(item.keyId)}
                     style={({ pressed }) => [
                       styles.colorRow,
                       pressed && { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }
@@ -75,7 +95,7 @@ export function ChartColorsScreen() {
 
                     {/* Right: Hex Code & Color Swatch */}
                     <View style={styles.rowRight}>
-                      <Text style={styles.hexText}>{chartColors[item.keyId].toUpperCase()}</Text>
+                      <Text style={styles.hexText}>{chartColors[item.keyId]?.toUpperCase() || 'TRANSPARENT'}</Text>
                       <View style={styles.colorSwatchWrap}>
                         <View style={[styles.colorSwatch, { backgroundColor: chartColors[item.keyId] }]} />
                         <View style={styles.colorSwatchHighlight} />
@@ -91,7 +111,36 @@ export function ChartColorsScreen() {
         ))}
         <View style={{ height: 60 }} />
       </ScrollView>
+    
+      
+      
+      <Modal transparent visible={!!activeKey} animationType="slide" onRequestClose={() => setActiveKey(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setActiveKey(null)}>
+          <Pressable style={{ backgroundColor: isDark ? '#1E293B' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>Select Color</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+              {PRESET_COLORS.map(c => (
+                <Pressable
+                  key={c}
+                  onPress={() => handleSelectColor(c)}
+                  style={{
+                    width: 42, height: 42, borderRadius: 21, backgroundColor: c,
+                    borderWidth: c === 'transparent' ? 1 : 2,
+                    borderColor: c === 'transparent' ? (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)') : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'),
+                    alignItems: 'center', justifyContent: 'center',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {c === 'transparent' && <View style={{ width: 60, height: 2, backgroundColor: '#EF5350', transform: [{ rotate: '45deg' }] }} />}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
     </Screen>
+
   );
 }
 
@@ -105,7 +154,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
     },
     scrollContent: {
-      paddingBottom: 40,
+      paddingBottom: 48,
     },
     sectionHeaderRow: {
       flexDirection: 'row',

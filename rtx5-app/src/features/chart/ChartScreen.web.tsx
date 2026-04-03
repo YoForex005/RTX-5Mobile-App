@@ -319,6 +319,14 @@ const getLastCandleSignature = (candles: Array<{ time: number; open: number; hig
   return `${candle.time}:${candle.open}:${candle.high}:${candle.low}:${candle.close}:${candle.volume ?? 0}`;
 };
 
+const getSafeChartDimensions = (width: number, height: number) => ({
+  width: Math.max(1, Math.floor(width)),
+  height: Math.max(1, Math.floor(height)),
+});
+
+const getContainerChartDimensions = (container: { clientWidth: number; clientHeight: number }) =>
+  getSafeChartDimensions(container.clientWidth - 4, container.clientHeight - 8);
+
 
 
 export function ChartScreen() {
@@ -326,11 +334,11 @@ export function ChartScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const APP_BG = isDark ? T.bg : '#FFFFFF';
+  const APP_BG = useUserPreferences((s) => s.chartColors?.background) || (isDark ? T.bg : '#FFFFFF');
   const CARD_BG = isDark ? '#0F1114' : T.glass2;
   const CHART_HEADER_BG = isDark ? '#101216' : '#FFFFFF';
   const CHART_HEADER_BORDER = isDark ? '#1E293B' : '#E2E8F0';
-  const CHART_CANVAS_BG = isDark ? '#101216' : '#FFFFFF';
+  const CHART_CANVAS_BG = useUserPreferences((s) => s.chartColors?.background) || (isDark ? '#101216' : '#FFFFFF');
   const BOTTOM_AREA_BG = isDark ? '#0F1114' : '#FFFFFF';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
@@ -339,7 +347,7 @@ export function ChartScreen() {
   const TEXT_MUTED = T.textMuted;
   const BTN_BG = T.glass2;
   const PILL_BG = T.glass1;
-  const { chartSymbol, chartTimeframe, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, chartColors, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
 
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
@@ -414,31 +422,33 @@ export function ChartScreen() {
     const TEXT_MUTED = T.textMuted;
     const GRID = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
+    const initialDimensions = getContainerChartDimensions(chartContainerRef.current);
+
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth - 4,
-      height: chartContainerRef.current.clientHeight - 8,
+      width: initialDimensions.width,
+      height: initialDimensions.height,
       layout: {
-        background: { type: ColorType.Solid, color: isDark ? '#000000' : '#FFFFFF' },
-        textColor: isDark ? '#F1F5F9' : '#0F172A',
+        background: { type: ColorType.Solid, color: chartColors?.background || (isDark ? '#000000' : '#FFFFFF') },
+        textColor: chartColors?.foreground || (isDark ? '#F1F5F9' : '#0F172A'),
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)', style: LineStyle.Solid },
-        horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)', style: LineStyle.Solid },
+        vertLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)'), style: LineStyle.Solid },
+        horzLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)'), style: LineStyle.Solid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: isDark ? '#475569' : '#94A3B8',
+          color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: isDark ? '#1E293B' : '#334155',
+          labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
         },
         horzLine: {
-          color: isDark ? '#475569' : '#94A3B8',
+          color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: isDark ? '#1E293B' : '#334155',
+          labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
         },
       },
       localization: {
@@ -448,7 +458,7 @@ export function ChartScreen() {
         },
       },
       timeScale: {
-        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        borderColor: chartColors?.grid || (isDark ? '#2A2E39' : '#E0E3EB'),
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number) => {
@@ -463,7 +473,7 @@ export function ChartScreen() {
         fixRightEdge: false,
       },
       rightPriceScale: {
-        borderColor: isDark ? '#2A2E39' : '#E0E3EB',
+        borderColor: chartColors?.grid || (isDark ? '#2A2E39' : '#E0E3EB'),
         autoScale: true,
         scaleMargins: {
           bottom: 0.25,
@@ -476,10 +486,7 @@ export function ChartScreen() {
 
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: Math.max(0, chartContainerRef.current.clientWidth - 4),
-          height: Math.max(0, chartContainerRef.current.clientHeight - 8),
-        });
+        chartRef.current.applyOptions(getContainerChartDimensions(chartContainerRef.current));
       }
     };
 
@@ -496,15 +503,19 @@ export function ChartScreen() {
       try { chart.remove(); } catch (e) { }
       chartRef.current = null;
     };
-  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED, displayDecimals]);
+  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED, displayDecimals, chartColors]);
 
   // Series Initialization & Swap
   useEffect(() => {
     if (!chartRef.current) return;
     const chart = chartRef.current;
 
-    const UP_COLOR = '#089981';
-    const DOWN_COLOR = '#F23645';
+    const UP_COLOR = chartColors?.candlesUptrend || '#2962FF';
+    const DOWN_COLOR = chartColors?.candlesDowntrend || '#EF5350';
+    const HOLLOW_BODY = chartColors?.hollowBody || 'transparent';
+    const BAR_UP_COLOR = chartColors?.barsUptrend || '#2962FF';
+    const BAR_DOWN_COLOR = chartColors?.barsDowntrend || '#EF5350';
+    const LINE_COLOR = chartColors?.lineBody || BLUE;
 
     const priceFormatInfo = {
       type: 'price' as const,
@@ -526,7 +537,7 @@ export function ChartScreen() {
 
     if (chartType === 'candles' || chartType === 'hollow') {
       series = chart.addSeries(CandlestickSeries, {
-        upColor: chartType === 'hollow' ? 'transparent' : UP_COLOR,
+        upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_COLOR,
         downColor: DOWN_COLOR,
         borderVisible: true,
         wickUpColor: UP_COLOR,
@@ -539,15 +550,15 @@ export function ChartScreen() {
       });
     } else if (chartType === 'bars') {
       series = chart.addSeries(BarSeries, {
-        upColor: UP_COLOR,
-        downColor: DOWN_COLOR,
+        upColor: BAR_UP_COLOR,
+        downColor: BAR_DOWN_COLOR,
         lastValueVisible: true,
         priceLineVisible: true,
         priceFormat: priceFormatInfo,
       });
     } else {
       series = chart.addSeries(LineSeries, {
-        color: BLUE,
+        color: LINE_COLOR,
         lineWidth: 2,
         crosshairMarkerVisible: true,
         lastValueVisible: true,
@@ -582,7 +593,7 @@ export function ChartScreen() {
     // Force data sync to reload
     dataSignatureRef.current = '';
 
-  }, [chartType, isDark, BLUE, RED, displayDecimals]);
+  }, [chartType, isDark, BLUE, RED, displayDecimals, chartColors]);
 
   const dataSignatureRef = useRef('');
   const [activeDateRange, setActiveDateRange] = useState('auto');
@@ -697,7 +708,7 @@ export function ChartScreen() {
           if (showOpenPositions) {
             const pl = seriesRef.current.createPriceLine({
               price: pos.openPrice,
-              color: pos.side === 'buy' ? BLUE : RED,
+              color: pos.side === 'buy' ? (chartColors?.tradeOpen || '#2962FF') : RED,
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               axisLabelVisible: true,
@@ -709,13 +720,13 @@ export function ChartScreen() {
           if (showTpSlStopLimit) {
             if (pos.tp && pos.tp > 0) {
               const tpLine = seriesRef.current.createPriceLine({
-                price: pos.tp, color: '#089981', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TP',
+                price: pos.tp, color: chartColors?.tradeTpSl || '#089981', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TP',
               });
               positionLinesRef.current.push(tpLine);
             }
             if (pos.sl && pos.sl > 0) {
               const slLine = seriesRef.current.createPriceLine({
-                price: pos.sl, color: '#F23645', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'SL',
+                price: pos.sl, color: chartColors?.tradeTpSl || '#F23645', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'SL',
               });
               positionLinesRef.current.push(slLine);
             }
@@ -744,12 +755,12 @@ export function ChartScreen() {
         const worstCaseSide = symbolPositions[0].side; 
         const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
         const soLine = seriesRef.current.createPriceLine({
-          price: mockStopOut, color: '#DC2626', lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Stop Out',
+          price: mockStopOut, color: chartColors?.tradeStopOut || '#DC2626', lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Stop Out',
         });
         positionLinesRef.current.push(soLine);
       } catch (e) { }
     }
-  }, [positions, chartSymbol, BLUE, RED, seriesRef.current, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles]);
+  }, [positions, chartSymbol, BLUE, RED, seriesRef.current, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles, chartColors]);
 
   // Patterns / Markers Local
   useEffect(() => {
@@ -941,10 +952,7 @@ export function ChartScreen() {
       height: e.nativeEvent.layout.height,
     });
     if (chartRef.current && chartContainerRef.current) {
-      chartRef.current.applyOptions({
-        width: Math.max(0, e.nativeEvent.layout.width - 4),
-        height: Math.max(0, e.nativeEvent.layout.height - 8),
-      });
+      chartRef.current.applyOptions(getSafeChartDimensions(e.nativeEvent.layout.width - 4, e.nativeEvent.layout.height - 8));
     }
   };
 
@@ -952,10 +960,7 @@ export function ChartScreen() {
     if (chartRef.current && chartContainerRef.current) {
       setTimeout(() => {
         if (chartRef.current && chartContainerRef.current) {
-          chartRef.current.applyOptions({
-            width: Math.max(0, chartContainerRef.current.clientWidth - 4),
-            height: Math.max(0, chartContainerRef.current.clientHeight - 8),
-          });
+          chartRef.current.applyOptions(getContainerChartDimensions(chartContainerRef.current));
         }
       }, 50);
     }

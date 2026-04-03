@@ -1,0 +1,193 @@
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import React, { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Screen } from '../../components/Screen';
+import { useUserPreferences } from '../../state/userPreferences';
+import { ThemeColors } from '../../theme/glass';
+import { useTheme } from '../../theme/useTheme';
+
+type ToggleItem = { label: string; key: string };
+type NavItem = { label: string; value?: string; onPress?: () => void };
+
+const SHOW_ON_CHART: ToggleItem[] = [
+  { label: 'Open positions', key: 'openPositions' },
+  { label: 'TP / SL / Stop / Limit', key: 'tpSlStopLimit' },
+  { label: 'Closed positions', key: 'closedPositions' },
+  { label: 'Trading signals', key: 'tradingSignals' },
+  { label: 'HMR periods', key: 'hmrPeriods' },
+  { label: 'Price alerts', key: 'priceAlerts' },
+  { label: 'Potential Stop Out line', key: 'potentialStopOut' },
+];
+
+export function ChartPreferencesScreen() {
+  const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const prefs = useUserPreferences();
+  const values = {
+    openPositions: prefs.showOpenPositions,
+    tpSlStopLimit: prefs.showTpSlStopLimit,
+    closedPositions: prefs.showClosedPositions,
+    tradingSignals: prefs.showTradingSignals,
+    hmrPeriods: prefs.showHmrPeriods,
+    priceAlerts: prefs.showPriceAlerts,
+    potentialStopOut: prefs.showPotentialStopOut,
+  };
+
+  const handleToggle = (key: string) => {
+    const next = !values[key as keyof typeof values];
+    if (key === 'openPositions') prefs.setShowOpenPositions(next);
+    if (key === 'tpSlStopLimit') prefs.setShowTpSlStopLimit(next);
+    if (key === 'closedPositions') prefs.setShowClosedPositions(next);
+    if (key === 'tradingSignals') prefs.setShowTradingSignals(next);
+    if (key === 'hmrPeriods') prefs.setShowHmrPeriods(next);
+    if (key === 'priceAlerts') prefs.setShowPriceAlerts(next);
+    if (key === 'potentialStopOut') prefs.setShowPotentialStopOut(next);
+  };
+
+  const chartPrefs: NavItem[] = [
+    { label: 'Chart', value: 'RTX5' },
+    { label: 'Price source', value: prefs.priceSource === 'bid' ? 'Bid price' : 'Ask price', onPress: () => router.push('/chart/price-source') },
+    { label: 'Colors', onPress: () => router.push('/chart/colors') },
+    { label: 'Open order mode', value: prefs.openOrderMode, onPress: () => router.push('/chart/open-order-mode') },
+  ];
+
+  const navigation: NavItem[] = [
+    { label: 'Order of menu items', onPress: () => router.push('/chart/menu-order') },
+  ];
+
+  return (
+    <Screen style={styles.screen}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Text style={styles.sectionHeader}>SHOW ON CHART</Text>
+        <View style={styles.sectionCard}>
+          {SHOW_ON_CHART.map((item, idx) => (
+            <View key={item.key}>
+              <Pressable style={styles.toggleRow} onPress={() => handleToggle(item.key)}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Switch
+                  value={values[item.key as keyof typeof values]}
+                  onValueChange={() => handleToggle(item.key)}
+                  trackColor={{ false: isDark ? '#1E293B' : '#E2E8F0', true: 'rgba(59, 130, 246, 0.5)' }}
+                  thumbColor={values[item.key as keyof typeof values] ? '#3b82f6' : (isDark ? '#94A3B8' : '#FFFFFF')}
+                  {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: values[item.key as keyof typeof values] ? '#3b82f6' : (isDark ? '#94A3B8' : '#FFFFFF') } as any)}
+                />
+              </Pressable>
+              {idx < SHOW_ON_CHART.length - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionHeader}>NAVIGATION</Text>
+        <View style={styles.sectionCard}>
+          {navigation.map((item, idx) => (
+            <View key={item.label}>
+              <Pressable style={styles.navRow} onPress={item.onPress}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Ionicons name="chevron-forward" size={18} color={isDark ? 'rgba(255,255,255,0.3)' : '#CBD5E1'} />
+              </Pressable>
+              {idx < navigation.length - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionHeader}>CHART PREFERENCES</Text>
+        <View style={styles.sectionCard}>
+          {chartPrefs.map((item, idx) => (
+            <View key={item.label}>
+              <Pressable style={styles.navRow} onPress={item.onPress}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <View style={styles.navRight}>
+                  {item.value && <Text style={styles.navValue}>{item.value}</Text>}
+                  <Ionicons name="chevron-forward" size={18} color={isDark ? 'rgba(255,255,255,0.3)' : '#CBD5E1'} />
+                </View>
+              </Pressable>
+              {idx < chartPrefs.length - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionFooter}>Chart preferences are applied to all trading accounts</Text>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </Screen>
+  );
+}
+
+function makeStyles(T: ThemeColors, isDark: boolean) {
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: isDark ? T.bg : '#F1F5F9',
+      paddingHorizontal: 0,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    scrollContent: {
+      paddingBottom: 40,
+    },
+    sectionHeader: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: isDark ? 'rgba(255,255,255,0.45)' : '#64748B',
+      letterSpacing: 0.8,
+      paddingHorizontal: 20,
+      paddingTop: 28,
+      paddingBottom: 10,
+    },
+    sectionCard: {
+      backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+      marginHorizontal: 16,
+      borderRadius: 14,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
+    },
+    toggleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      minHeight: 50,
+    },
+    navRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      minHeight: 50,
+    },
+    rowLabel: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: isDark ? '#F1F5F9' : '#0F172A',
+    },
+    navRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    navValue: {
+      fontSize: 15,
+      fontWeight: '400',
+      color: isDark ? 'rgba(255,255,255,0.5)' : '#64748B',
+    },
+    separator: {
+      height: 1,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+      marginLeft: 16,
+    },
+    sectionFooter: {
+      fontSize: 13,
+      color: isDark ? 'rgba(255,255,255,0.35)' : '#94A3B8',
+      paddingHorizontal: 20,
+      paddingTop: 10,
+      lineHeight: 18,
+      textAlign: 'center',
+    },
+  });
+}
