@@ -11,7 +11,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useMemo, useState } from 'react';
-import { Animated, FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, SafeAreaView, Modal, Platform } from 'react-native';
+import { Animated, FlatList, Pressable, StyleSheet, Text, TextInput, View, Image, Modal, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { QuoteItem, quotes as mockQuotes } from '../../mock/tradingData';
@@ -23,6 +24,7 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMarketSymbols } from '../../query/market';
 import { fmt } from '../../utils/format';
+import { AppHeader } from '../../components/AppHeader';
 
 /* ───── Helpers ───── */
 
@@ -66,10 +68,23 @@ function QuoteCard({
   const liveItem = useTradingState((state) => state.quotes[symbol]);
 
   const noData = !hasFreshLiveQuote(liveItem);
-  
+
   // Hide the card completely if no data values are actively streaming for it.
-  if (noData) return null;
-  
+  if (noData) {
+    const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
+    const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
+
+    return (
+      <View style={[sc.card, { height: 74, paddingVertical: 0, paddingLeft: 24, justifyContent: 'center', backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.textMuted, marginRight: 8, opacity: 0.5 }} />
+          <Text style={{ color: T.text, fontSize: 16, fontWeight: '700' }} numberOfLines={1} adjustsFontSizeToFit>{pairLabel(symbol)}</Text>
+          <Text style={{ color: T.textMuted, fontSize: 13, marginLeft: 'auto', fontStyle: 'italic' }}>Connecting...</Text>
+        </View>
+      </View>
+    );
+  }
+
   const item: any = liveItem || { symbol, bid: 0, ask: 0, changePct: 0, spread: 0, volume: 0, digits: 5 };
 
   const isUp = item.changePct >= 0;
@@ -119,7 +134,7 @@ function QuoteCard({
     >
       {isDark && (
         <LinearGradient
-          colors={['rgba(255, 255, 255, 0.03)', 'transparent']}
+          colors={['rgba(255, 255, 255, 0.03)', 'rgba(255, 255, 255, 0)']}
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
           style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
         />
@@ -131,18 +146,18 @@ function QuoteCard({
         <View style={sc.symbolCol}>
           {/* Row 1: Flags + Symbol + % pill */}
           <View style={sc.cardRow1}>
-            <Text style={[sc.symbolText, { color: T.text }]}>{displaySymbol}</Text>
+            <Text style={[sc.symbolText, { color: T.text }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
             <View style={[sc.changePill, { backgroundColor: pillBgColor }]}>
               <Text style={[sc.changePillText, { color: noData ? T.textMuted : color }]}>{noData ? '--' : pct}</Text>
             </View>
           </View>
           {/* Row 2: Vol · Spread */}
           <View style={sc.cardRow2}>
-            <Text style={[sc.volText, { color: T.textSub }]}>
+            <Text style={[sc.volText, { color: T.textSub, flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>
               Vol <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
             </Text>
             <View style={[sc.statDot, { backgroundColor: T.textMuted }]} />
-            <Text style={[sc.spreadText, { color: T.textSub }]}>
+            <Text style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>
               Spread <Text style={[sc.statValue, { color: T.text }]}>{(item.spread || 0).toFixed(1)}</Text>
             </Text>
           </View>
@@ -163,7 +178,7 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: bidColor }]}>{noData ? '--' : (item.bid || 0).toFixed(2)}</Text>
+            <Text style={[sc.priceValue, { color: bidColor }]} numberOfLines={1} adjustsFontSizeToFit>{noData ? '--' : (item.bid || 0).toFixed(2)}</Text>
           </View>
 
           {/* ASK */}
@@ -179,7 +194,7 @@ function QuoteCard({
                 />
               )}
             </View>
-            <Text style={[sc.priceValue, { color: askColor }]}>{noData ? '--' : (item.ask || 0).toFixed(2)}</Text>
+            <Text style={[sc.priceValue, { color: askColor }]} numberOfLines={1} adjustsFontSizeToFit>{noData ? '--' : (item.ask || 0).toFixed(2)}</Text>
           </View>
         </View>
       </View>
@@ -310,6 +325,7 @@ function AddSymbolModal({ visible, onClose, onAdd, T, isDark, existingSymbols }:
 export function QuotesScreen() {
   const router = useRouter();
   const T = useTheme();
+  const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
 
   const quoteSymbols = useUserPreferences((st) => st.quoteSymbols);
@@ -345,10 +361,7 @@ export function QuotesScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(new Date());
-  const trackedSymbols = useMemo(
-    () => (apiSymbols.length > 0 ? apiSymbols : quoteSymbols),
-    [apiSymbols, quoteSymbols],
-  );
+  const trackedSymbols = quoteSymbols;
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -416,21 +429,15 @@ export function QuotesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      <SafeAreaView style={s.safe}>
-        <View style={s.screen}>
+      <View style={s.safe}>
+        <View style={[s.screen, { paddingTop: 0 }]}>
 
-          {/* ── Inline Header ── */}
-          <View style={{ height: 40, marginTop: 0, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Quotes</Text>
-
-            {/* Float header controls to the right */}
-            <View style={{ position: 'absolute', right: 0, height: '100%', justifyContent: 'center' }}>
-              <View style={{
-                 flexDirection: 'row', 
-                 alignItems: 'center', 
-                 gap: 18,
-                 paddingRight: 4,
-              }}>
+          {/* ── Standard AppHeader ── */}
+          <AppHeader
+            title="Quotes"
+            noBorder
+            rightActions={
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, paddingRight: 4 }}>
                 <Pressable onPress={() => setShowAddModal(true)} hitSlop={12}>
                   <Ionicons name="add-outline" size={24} color={isDark ? 'rgba(255, 255, 255, 0.75)' : T.textSub} />
                 </Pressable>
@@ -438,9 +445,8 @@ export function QuotesScreen() {
                   <Ionicons name={isEditing ? "checkmark-done-outline" : "pencil-outline"} size={22} color={isDark ? 'rgba(255, 255, 255, 0.75)' : T.textSub} />
                 </Pressable>
               </View>
-            </View>
-          </View>
-
+            }
+          />
           {/* ── Subheader ── */}
           <View style={s.subheaderRow}>
             <Text style={[s.subLeft, { color: T.textMuted }]}>Last Updated: {gmtClock(updatedAt)} GMT</Text>
@@ -515,7 +521,7 @@ export function QuotesScreen() {
             }
           />
         </View>
-      </SafeAreaView>
+      </View>
 
       {/* ── Add Modal (Moved out of padding scope so Web absolute overlay works) ── */}
       <AddSymbolModal
@@ -527,7 +533,7 @@ export function QuotesScreen() {
         }}
         T={T}
         isDark={isDark}
-        existingSymbols={activeQuoteSymbols}
+        existingSymbols={quoteSymbols}
       />
     </View>
   );
@@ -563,7 +569,7 @@ const s = StyleSheet.create({
 
   /* List */
   list: { flex: 1 },
-  listPad: { paddingBottom: 100 },
+  listPad: { paddingBottom: 24 },
   emptyWrap: { paddingTop: 48, alignItems: 'center' },
   emptyText: { fontSize: 16, fontWeight: '500' },
 });
@@ -589,7 +595,7 @@ const sc = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 16,
-    elevation: 4,
+    elevation: 0,
   },
   cardPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   accentBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, borderTopLeftRadius: 12, borderBottomLeftRadius: 12 },
@@ -646,7 +652,7 @@ function TickCounter({ T }: { T: ThemeColors }) {
 // Global active symbols tracker to avoid excessive re-renders
 function useActiveSymbols(quoteSymbols: string[]) {
   const [activeSymbols, setActiveSymbols] = useState<string[]>([]);
-  
+
   useEffect(() => {
     const id = setInterval(() => {
       const stateQuotes = useTradingState.getState().quotes;
@@ -655,7 +661,7 @@ function useActiveSymbols(quoteSymbols: string[]) {
         const quote = stateQuotes[sym];
         return hasFreshLiveQuote(quote, now);
       });
-      
+
       setActiveSymbols(prev => {
         if (prev.length !== currentActive.length || prev.some((s, i) => s !== currentActive[i])) {
           return currentActive;

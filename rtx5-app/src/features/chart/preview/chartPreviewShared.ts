@@ -1,0 +1,121 @@
+import { isStructurallyValidCandle } from '../../../domain/candles';
+import { ChartColorsConfig } from '../../../state/userPreferences';
+import { mapCandlesToRTX5CustomCandlestickData } from '../rendering/customCandlestickSeries';
+
+export type PreviewChartType = 'candles' | 'bars' | 'line' | 'hollow';
+
+export type PreviewSourceCandle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+};
+
+export const getPreviewDisplayDecimals = (symbol: string) => {
+  const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
+  if (baseSymbol.includes('JPY')) return 3;
+  if (baseSymbol.includes('XAU') || baseSymbol.includes('BTC')) return 2;
+  return 5;
+};
+
+export const withAlpha = (color: string | undefined, alpha: number): string => {
+  if (!color) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+
+  const trimmed = color.trim();
+
+  if (trimmed.startsWith('rgba(')) {
+    const parts = trimmed.slice(5, -1).split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    }
+  }
+
+  if (trimmed.startsWith('rgb(')) {
+    const parts = trimmed.slice(4, -1).split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    }
+  }
+
+  let hex = trimmed.replace('#', '');
+  if (hex.length === 3) {
+    hex = hex.split('').map((char) => char + char).join('');
+  }
+
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  return trimmed;
+};
+
+export const buildVolumeDatum = (
+  candle: Pick<PreviewSourceCandle, 'time' | 'open' | 'close' | 'volume'>,
+  colors: Pick<ChartColorsConfig, 'candlesUptrend' | 'candlesDowntrend'>,
+  isActive: boolean = false,
+  minValue?: number,
+) => {
+  const rawValue = Math.max(Number(candle.volume ?? 0), 0);
+  const value = typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue;
+  const baseColor =
+    candle.close >= candle.open ? colors.candlesUptrend : colors.candlesDowntrend;
+
+  return {
+    time: candle.time,
+    value,
+    color: withAlpha(baseColor, isActive ? 0.78 : 0.32),
+  };
+};
+
+export const sanitizePreviewCandles = (candles: PreviewSourceCandle[]) => {
+  const sanitized = candles.filter((candle) => isStructurallyValidCandle(candle));
+  const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
+  uniqueData.sort((a, b) => a.time - b.time);
+  return uniqueData;
+};
+
+export const mapPreviewCandles = (
+  candles: PreviewSourceCandle[],
+  chartType: PreviewChartType,
+  colors: Pick<ChartColorsConfig, 'candlesUptrend' | 'candlesDowntrend'>,
+) => {
+  if (chartType === 'line') {
+    return candles.map((item) => ({
+      time: item.time,
+      value: item.close,
+      open: item.open,
+      close: item.close,
+      volume: item.volume,
+    }));
+  }
+
+  if (chartType === 'candles' || chartType === 'hollow') {
+    return mapCandlesToRTX5CustomCandlestickData({
+      candles,
+      bullishColor: colors.candlesUptrend,
+      bearishColor: colors.candlesDowntrend,
+    });
+  }
+
+  return candles;
+};
+
+export const getLastPreviewCandleSignature = (candles: PreviewSourceCandle[]) => {
+  const last = candles[candles.length - 1];
+  if (!last) return 'empty';
+  return [
+    last.time,
+    last.open,
+    last.high,
+    last.low,
+    last.close,
+    last.volume ?? 0,
+  ].join('|');
+};

@@ -266,7 +266,7 @@ export function ModifyPositionScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 40 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
         
         {/* Absolute Centered Top Line */}
         <View style={styles.headerTopRow}>
@@ -540,14 +540,14 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: T.glass2,
     marginHorizontal: 16,
     borderRadius: 16,
     paddingVertical: 10,
     marginTop: 12,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: T.border,
   },
   priceCard: {
     flex: 1,

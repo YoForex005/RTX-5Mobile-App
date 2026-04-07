@@ -11,8 +11,8 @@
 
 import { useUserPreferences } from '../state/userPreferences';
 
-// V2 API base URL
-export const API_BASE_URL = 'http://69.197.178.27/api/v2';
+// V2 API base URL — resolved from environment variable, falls back to direct IP
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://69.197.178.27/api/v2';
 
 // Queue for pending requests while refreshing token
 let isRefreshing = false;

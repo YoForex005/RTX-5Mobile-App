@@ -1,11 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { quotes } from '../mock/tradingData';
-
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 export type ChartColorScheme = 'green_on_black' | 'black_on_white' | 'yellow_on_black' | 'custom';
+export type ChartVisualType = 'candles' | 'bars' | 'line' | 'hollow';
 
 export type ChartColorsConfig = {
   background: string;
@@ -98,6 +97,72 @@ export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
   tradeStopOut: '#DC2626',
 };
 
+type StructuralChartColors = Pick<ChartColorsConfig, 'background' | 'foreground' | 'grid' | 'hollowBody'>;
+
+const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
+  background: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
+  foreground: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
+  grid: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.grid,
+  hollowBody: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody,
+};
+
+const DARK_THEME_CHART_FALLBACKS: StructuralChartColors = {
+  background: '#000000',
+  foreground: DEFAULT_CHART_COLORS.foreground,
+  grid: DEFAULT_CHART_COLORS.grid,
+  hollowBody: '#000000',
+};
+
+const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>> = {
+  background: new Set([
+    DEFAULT_CHART_COLORS.background,
+    CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background,
+    CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
+    CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.background,
+  ]),
+  foreground: new Set([
+    DEFAULT_CHART_COLORS.foreground,
+    CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.foreground,
+    CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
+    CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.foreground,
+  ]),
+  grid: new Set([
+    DEFAULT_CHART_COLORS.grid,
+    CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.grid,
+    CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.grid,
+    CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.grid,
+  ]),
+  hollowBody: new Set([
+    DEFAULT_CHART_COLORS.hollowBody,
+    CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody,
+    CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody,
+    CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.hollowBody,
+  ]),
+};
+
+export function resolveChartColorsForTheme(
+  chartColors: Partial<ChartColorsConfig> | undefined,
+  chartColorScheme: ChartColorScheme | undefined,
+  isDark: boolean,
+): ChartColorsConfig {
+  const mergedColors: ChartColorsConfig = {
+    ...DEFAULT_CHART_COLORS,
+    ...(chartColors ?? {}),
+  };
+
+  const resolvedColors = { ...mergedColors };
+  const themeStructuralColors = isDark ? DARK_THEME_CHART_FALLBACKS : LIGHT_THEME_CHART_FALLBACKS;
+  const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
+
+  (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
+    if (forceThemeStructure || BUILTIN_STRUCTURAL_VALUES[key].has(mergedColors[key])) {
+      resolvedColors[key] = themeStructuralColors[key];
+    }
+  });
+
+  return resolvedColors;
+}
+
 export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   showTicker: true,
   showOHLC: false,
@@ -116,12 +181,55 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
 
 const defaultSymbols: string[] = [];
 
+const DEFAULT_SHOW_ON_CHART_FLAGS = {
+  showOpenPositions: false,
+  showTpSlStopLimit: false,
+  showClosedPositions: false,
+  showHmrPeriods: false,
+  showPriceAlerts: false,
+  showPotentialStopOut: false,
+  showTradingSignals: false,
+} as const;
+
+const LEGACY_SHOW_ON_CHART_DEFAULTS = {
+  showOpenPositions: true,
+  showTpSlStopLimit: true,
+  showClosedPositions: false,
+  showHmrPeriods: true,
+  showPriceAlerts: true,
+  showPotentialStopOut: true,
+  showTradingSignals: false,
+} as const;
+
+const hasLegacyShowOnChartDefaults = (
+  state: Partial<
+    Pick<
+      UserPreferencesState,
+      | 'showOpenPositions'
+      | 'showTpSlStopLimit'
+      | 'showClosedPositions'
+      | 'showHmrPeriods'
+      | 'showPriceAlerts'
+      | 'showPotentialStopOut'
+      | 'showTradingSignals'
+    >
+  >,
+) =>
+  state.showOpenPositions === LEGACY_SHOW_ON_CHART_DEFAULTS.showOpenPositions &&
+  state.showTpSlStopLimit === LEGACY_SHOW_ON_CHART_DEFAULTS.showTpSlStopLimit &&
+  state.showClosedPositions === LEGACY_SHOW_ON_CHART_DEFAULTS.showClosedPositions &&
+  state.showHmrPeriods === LEGACY_SHOW_ON_CHART_DEFAULTS.showHmrPeriods &&
+  state.showPriceAlerts === LEGACY_SHOW_ON_CHART_DEFAULTS.showPriceAlerts &&
+  state.showPotentialStopOut === LEGACY_SHOW_ON_CHART_DEFAULTS.showPotentialStopOut &&
+  state.showTradingSignals === LEGACY_SHOW_ON_CHART_DEFAULTS.showTradingSignals;
+
 type UserPreferencesState = {
   themeMode: ThemeMode;
   quoteSymbols: string[];
   quoteViewMode: QuoteViewMode;
   chartSymbol: string;
   chartTimeframe: string;
+  chartVisualType: ChartVisualType;
   chartDrawings: string[];
   chartLockAll: boolean;
   chartHideAll: boolean;
@@ -165,8 +273,10 @@ type UserPreferencesState = {
   setQuoteSymbols: (symbols: string[]) => void;
   setChartSymbol: (symbol: string) => void;
   setChartTimeframe: (timeframe: string) => void;
+  setChartVisualType: (chartType: ChartVisualType) => void;
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
+  setChartDrawings: (drawings: string[]) => void;
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
   setShowOpenPositions: (show: boolean) => void;
@@ -197,16 +307,17 @@ export const useUserPreferences = create<UserPreferencesState>()(
       quoteViewMode: 'list',
       chartSymbol: 'GBPUSD',
       chartTimeframe: 'H1',
+      chartVisualType: 'candles',
       chartDrawings: [],
       chartLockAll: false,
       chartHideAll: false,
-      showOpenPositions: true,
-      showTpSlStopLimit: true,
-      showClosedPositions: false,
-      showHmrPeriods: true,
-      showPriceAlerts: true,
-      showPotentialStopOut: true,
-      showTradingSignals: false,
+      showOpenPositions: DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions,
+      showTpSlStopLimit: DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit,
+      showClosedPositions: DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions,
+      showHmrPeriods: DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods,
+      showPriceAlerts: DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts,
+      showPotentialStopOut: DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut,
+      showTradingSignals: DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals,
       priceSource: 'bid',
       openOrderMode: 'Regular',
       oneClickAccepted: false,
@@ -265,6 +376,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setQuoteSymbols: (symbols) => set({ quoteSymbols: symbols }),
       setChartSymbol: (symbol) => set({ chartSymbol: symbol }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
+      setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       addChartDrawing: (drawing) => {
         const list = get().chartDrawings;
         set({ chartDrawings: [...list, drawing] });
@@ -272,6 +384,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       removeChartDrawing: (drawing) => {
         set({ chartDrawings: get().chartDrawings.filter((item) => item !== drawing) });
       },
+      setChartDrawings: (drawings) => set({ chartDrawings: drawings }),
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
       setShowOpenPositions: (show) => set({ showOpenPositions: show }),
@@ -311,16 +424,39 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => AsyncStorage),
-      migrate: (persistedState) => {
+      migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
           chartColors?: Partial<ChartColorsConfig>;
           chartDisplay?: Partial<ChartDisplaySettings>;
         };
+        const shouldResetLegacyShowOnChartFlags = (version ?? 0) < 4 && hasLegacyShowOnChartDefaults(state);
 
         return {
           ...state,
+          showOpenPositions: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions
+            : (state.showOpenPositions ?? DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions),
+          showTpSlStopLimit: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit
+            : (state.showTpSlStopLimit ?? DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit),
+          showClosedPositions: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions
+            : (state.showClosedPositions ?? DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions),
+          showHmrPeriods: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods
+            : (state.showHmrPeriods ?? DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods),
+          showPriceAlerts: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts
+            : (state.showPriceAlerts ?? DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts),
+          showPotentialStopOut: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut
+            : (state.showPotentialStopOut ?? DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut),
+          showTradingSignals: shouldResetLegacyShowOnChartFlags
+            ? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals
+            : (state.showTradingSignals ?? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals),
+          chartVisualType: state.chartVisualType ?? 'candles',
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {
             ...DEFAULT_CHART_COLORS,

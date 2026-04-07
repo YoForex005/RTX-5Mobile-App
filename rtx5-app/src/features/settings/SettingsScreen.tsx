@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View, Switch, TextInput, Keyboard } from 'react-native';
 import { Screen } from '../../components/Screen';
+import { AppHeader } from '../../components/AppHeader';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
@@ -15,6 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { Alert } from 'react-native';
+import { QRScannerModal } from '../../components/QRScannerModal';
 
 export function SettingsScreen() {
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences();
@@ -25,6 +28,7 @@ export function SettingsScreen() {
 
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -54,6 +58,7 @@ export function SettingsScreen() {
     { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline' },
     { title: 'Theme', sub: 'Light/Dark Mode toggle', icon: 'color-palette-outline' },
     { title: 'OTP', sub: 'Passcode Generator', icon: 'shield-checkmark-outline' },
+    { title: 'QR Scanner', sub: 'Scan to connect or log in', icon: 'qr-code-outline' },
     { title: 'Interface', sub: 'English', icon: 'browsers-outline' },
     { title: 'Charts', sub: '', icon: 'stats-chart-outline' },
     { title: 'Journal', sub: '', icon: 'reader-outline' },
@@ -89,8 +94,9 @@ export function SettingsScreen() {
     <Screen>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={{ height: 56, marginTop: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
-          {isSearching ? (
+        {isSearching ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+            <AppHeader title="Settings" noBorder />
             <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
               <Ionicons name="search" size={20} color={T.textMuted} />
               <TextInput
@@ -107,15 +113,18 @@ export function SettingsScreen() {
                 <Ionicons name="close-circle" size={16} color={T.textMuted} />
               </Pressable>
             </View>
-          ) : (
-            <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center', flex: 1 }}>Settings</Text>
-              <Pressable onPress={enableSearch} style={{ position: 'absolute', right: 0, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="search" size={24} color={T.textMuted} />
+          </View>
+        ) : (
+          <AppHeader
+            title="Settings"
+            noBorder
+            rightActions={
+              <Pressable onPress={enableSearch} hitSlop={12}>
+                <Ionicons name="search" size={22} color={T.textMuted} />
               </Pressable>
-            </View>
-          )}
-        </View>
+            }
+          />
+        )}
 
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -241,7 +250,7 @@ export function SettingsScreen() {
 
             {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
             <Text style={styles.sectionTitle}>ACCOUNT</Text>
-            <Pressable style={[styles.singleRowCard, styles.cardShadow]}>
+            <Pressable style={[styles.singleRowCard, styles.cardShadow]} onPress={() => router.push('/register')}>
               <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
                 <Ionicons name="person-outline" size={20} color="#1D4ED8" />
               </View>
@@ -266,6 +275,7 @@ export function SettingsScreen() {
               <SettingRow T={T} styles={styles}
                 icon="calendar-outline" color="#1D4ED8"
                 title="Tradays" sub="Economic Calendar"
+                onPress={() => router.push('/settings/economic-calendar')}
               />
             </View>
 
@@ -313,6 +323,12 @@ export function SettingsScreen() {
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
+                icon="qr-code-outline" color="#1D4ED8"
+                title="QR Scanner" sub="Scan code to connect"
+                onPress={() => setShowScanner(true)}
+              />
+              <View style={styles.dividerInner} />
+              <SettingRow T={T} styles={styles}
                 icon="browsers-outline" color="#1D4ED8"
                 title="Interface" sub="English"
               />
@@ -320,6 +336,7 @@ export function SettingsScreen() {
               <SettingRow T={T} styles={styles}
                 icon="stats-chart-outline" color="#1D4ED8"
                 title="Charts"
+                onPress={() => router.push('/settings/charts')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
@@ -356,15 +373,27 @@ export function SettingsScreen() {
         )}
 
       </ScrollView>
+
+      <QRScannerModal 
+        visible={showScanner} 
+        onClose={() => setShowScanner(false)} 
+        onScan={(data) => {
+          setShowScanner(false);
+          // Small delay before alert to ensure modal closes smoothly first
+          setTimeout(() => {
+            Alert.alert('Scanned Success', data);
+          }, 300);
+        }} 
+      />
     </Screen>
   );
 }
 
 // ── Shared Row Component ────────────────────────────────────────
 
-function SettingRow({ icon, color, title, sub, badge, rightElement, T, styles }: { icon: any, color: string, title: string, sub?: string, badge?: string, rightElement?: React.ReactNode, T: ThemeColors, styles: any }) {
+function SettingRow({ icon, color, title, sub, badge, rightElement, onPress, T, styles }: { icon: any, color: string, title: string, sub?: string, badge?: string, rightElement?: React.ReactNode, onPress?: () => void, T: ThemeColors, styles: any }) {
   return (
-    <Pressable style={styles.row}>
+    <Pressable style={styles.row} onPress={onPress}>
       <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
         <Ionicons name={icon} size={20} color={color} />
       </View>

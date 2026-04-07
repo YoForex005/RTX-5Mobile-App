@@ -111,7 +111,7 @@ export class QuotesWebSocketService {
       };
 
       this.ws.onerror = (error) => {
-        console.error('[Quotes WS] Error', error);
+        console.warn('[Quotes WS] Connection error (will auto-reconnect)');
       };
     } catch (e) {
       console.error('[Quotes WS] Connection failed', e);

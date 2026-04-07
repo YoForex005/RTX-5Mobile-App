@@ -7,33 +7,45 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, Pressable } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View, Image, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { spacing } from '../../theme';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle } from 'react-native-svg';
+import { useMarketData } from '../../query/websocket';
+import { useLiveCandles } from '../../hooks/useLiveCandles';
 
-const PERFORMANCE_DATA = [
-  { label: 'Hour', change: -0.03, isDown: true, active: true },
-  { label: 'Today', change: -0.20, isDown: true },
-  { label: 'Week', change: 0.43, isDown: false },
-  { label: 'Month', change: -1.73, isDown: true },
-  { label: 'Year', change: 5.88, isDown: false },
-];
+// Performance periods — labels only; values computed dynamically from candle data
+const PERF_LABELS = ['Hour', 'Today', 'Week', 'Month', 'Year'] as const;
+const PERF_CANDLE_COUNTS: Record<string, number> = { Hour: 60, Today: 1440, Week: 10080, Month: 43200, Year: 525600 };
 
 const HMR_PERIODS = [
   { time: '23:25 - 23 Mar, 03:35', desc: 'Max Leverage 1:200 | ECB Cipollone Speech | Fed Chair...' },
   { time: '23 Mar, 17:00 - 18:01', desc: 'Max Leverage 1:200 | Chicago Fed National Activity Index' },
   { time: '23 Mar, 17:45 - 18:01', desc: 'Max Leverage 1:200 | Chicago Fed National Activity Index' },
+  { time: '24 Mar, 09:00 - 10:01', desc: 'Max Leverage 1:200 | German Manufacturing PMI' },
+  { time: '24 Mar, 14:30 - 15:01', desc: 'Max Leverage 1:200 | US Durable Goods Orders' },
+  { time: '25 Mar, 12:00 - 13:01', desc: 'Max Leverage 1:200 | UK CPI YoY' },
 ];
 
+const HMR_PREVIEW_COUNT = 3;
+
 const UPCOMING_EVENTS = [
-  { title: 'PPI YoY', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM \u2013 In 1 hour' },
-  { title: 'PPI MoM', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM \u2013 In 1 hour' },
-  { title: 'Balance of Trade', flag: 'https://flagcdn.com/w40/it.png', countryCode: 'IT', impact: 3, time: '2:30 PM \u2013 In 3 hours' },
+  { title: 'PPI YoY', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM – In 1 hour' },
+  { title: 'PPI MoM', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM – In 1 hour' },
+  { title: 'Balance of Trade', flag: 'https://flagcdn.com/w40/it.png', countryCode: 'IT', impact: 3, time: '2:30 PM – In 3 hours' },
+  { title: 'Consumer Confidence', flag: 'https://flagcdn.com/w40/us.png', countryCode: 'US', impact: 2, time: '4:00 PM – In 5 hours' },
+  { title: 'Retail Sales MoM', flag: 'https://flagcdn.com/w40/gb.png', countryCode: 'GB', impact: 2, time: '7:00 AM – Tomorrow' },
+  { title: 'GDP QoQ', flag: 'https://flagcdn.com/w40/jp.png', countryCode: 'JP', impact: 3, time: '11:50 PM – In 12 hours' },
 ];
+
+const EVENTS_PREVIEW_COUNT = 3;
 
 const LATEST_NEWS = [
   {
@@ -51,21 +63,39 @@ const LATEST_NEWS = [
     pair: 'EUR/USD', change: -0.20, time: '11 hours ago',
     image: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=100'
   },
+  {
+    title: 'Gold prices climb as weaker USD pushes haven demand',
+    pair: 'XAU/USD', change: 0.45, time: '14 hours ago',
+    image: 'https://images.unsplash.com/photo-1610375461246-83df859d849d?w=100'
+  },
+  {
+    title: 'GBP/USD steadies near 1.32 as UK data boosts recovery outlook',
+    pair: 'GBP/USD', change: 0.12, time: '16 hours ago',
+    image: 'https://images.unsplash.com/photo-1579532537598-459ecdaf39cc?w=100'
+  },
 ];
 
-// Mock Trade/History records payload (Replace this with real hooked API data later)
-const MOCK_CHART_HISTORY = [
-  { time: '10:20', price: 1.15550 },
-  { time: '10:30', price: 1.15570 },
-  { time: '10:45', price: 1.15540 },
-  { time: '10:55', price: 1.15612 }, // MAX
-  { time: '11:05', price: 1.15540 },
-  { time: '11:13', price: 1.15560 },
-  { time: '11:19', price: 1.15536 }, // MIN
-  { time: '11:25', price: 1.15555 },
-  { time: '11:35', price: 1.15570 },
-  { time: '11:45', price: 1.15580 }  // CURRENT
+const NEWS_PREVIEW_COUNT = 3;
+
+const SIGNAL_DETAILS = [
+  { label: 'Entry Zone', value: '1.1540 – 1.1560' },
+  { label: 'Target 1', value: '1.1620' },
+  { label: 'Target 2', value: '1.1680' },
+  { label: 'Stop Loss', value: '1.1490' },
+  { label: 'Risk/Reward', value: '1 : 2.4' },
+  { label: 'Confidence', value: 'Medium-High' },
 ];
+
+// Helper: format unix timestamp to HH:MM
+function formatTime(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+// Helper: get decimal precision for symbol
+function getDecimals(sym: string): number {
+  return sym.toUpperCase().includes('JPY') ? 3 : 5;
+}
 
 // Converts a raw array of x,y coordinates into a mathematically smoothed SVG path
 function generateSmoothPath(points: { x: number, y: number }[]) {
@@ -87,30 +117,82 @@ export function ChartAnalyticsScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const currentSymbol = symbol || 'EUR/USD';
+  const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
+  const decimals = getDecimals(currentSymbol);
 
-  // Compute smooth chart path dynamically from the history data
+  // ── Live WebSocket Price ──────────────────────────────────────────
+  const liveQuotes = useMarketData([currentSymbol]);
+  const liveQuote = liveQuotes[currentSymbol];
+  const livePrice = liveQuote?.bid ?? 0;
+
+  // ── Live Candles (OHLC) from WebSocket ────────────────────────────
+  const { candles } = useLiveCandles(currentSymbol, chartTimeframe);
+
+  // ── Daily Range data from candles ─────────────────────────────────
+  const rangeData = useMemo(() => {
+    if (candles.length === 0) return { low: 0, high: 0, open: 0, current: 0, points: [] as { time: string; price: number }[] };
+    const closes = candles.map(c => c.close);
+    const low = Math.min(...candles.map(c => c.low));
+    const high = Math.max(...candles.map(c => c.high));
+    const open = candles[0].open;
+    const current = candles[candles.length - 1].close;
+    // Sample last 20 candles for sparkline
+    const sample = candles.slice(-20);
+    const points = sample.map(c => ({ time: formatTime(c.time), price: c.close }));
+    return { low, high, open, current, points };
+  }, [candles]);
+
+  // ── Performance Snapshot from candle history ──────────────────────
+  const performanceData = useMemo(() => {
+    const current = rangeData.current || livePrice;
+    if (!current || candles.length === 0) {
+      return PERF_LABELS.map((label, i) => ({ label, change: 0, isDown: false, active: i === 0 }));
+    }
+    return PERF_LABELS.map((label, i) => {
+      const lookback = Math.min(PERF_CANDLE_COUNTS[label], candles.length);
+      const pastCandle = candles[Math.max(0, candles.length - lookback)];
+      const pastPrice = pastCandle?.close || current;
+      const change = pastPrice !== 0 ? ((current - pastPrice) / pastPrice) * 100 : 0;
+      return { label, change: Math.round(change * 100) / 100, isDown: change < 0, active: i === 0 };
+    });
+  }, [candles, rangeData.current, livePrice]);
+
+  // Expand/collapse state for each section
+  const [hmrExpanded, setHmrExpanded] = useState(false);
+  const [signalExpanded, setSignalExpanded] = useState(false);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
+  const [newsExpanded, setNewsExpanded] = useState(false);
+  const [activePerf, setActivePerf] = useState(0);
+
+  const toggleSection = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setter(prev => !prev);
+  };
+
+  // ── Sparkline SVG from dynamic range points ──────────────────────
   const sparkLineData = useMemo(() => {
-    const data = MOCK_CHART_HISTORY;
-    const minPrice = Math.min(...data.map(d => d.price));
-    const maxPrice = Math.max(...data.map(d => d.price));
+    const data = rangeData.points;
+    if (data.length < 2) return { path: '', maxNode: { x: 0, y: 0 }, minNode: { x: 0, y: 0 }, maxIndex: 0, minIndex: 0 };
+    const prices = data.map(d => d.price);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
     const prange = maxPrice - minPrice || 1;
 
-    // Scale X 0-100, Y 5-30 (leaving visual padding top and bottom)
     const points = data.map((d, i) => ({
       x: (i / (data.length - 1)) * 100,
       y: 35 - ((d.price - minPrice) / prange) * 30
     }));
 
-    const maxIndex = data.findIndex(d => d.price === maxPrice);
-    const minIndex = data.findIndex(d => d.price === minPrice);
+    const maxIndex = prices.indexOf(maxPrice);
+    const minIndex = prices.indexOf(minPrice);
 
     return {
       path: generateSmoothPath(points),
-      maxNode: points[maxIndex],
-      minNode: points[minIndex],
+      maxNode: points[maxIndex] || { x: 0, y: 0 },
+      minNode: points[minIndex] || { x: 0, y: 0 },
       maxIndex, minIndex
     };
-  }, []);
+  }, [rangeData.points]);
 
   return (
     <Screen style={styles.screen}>
@@ -123,75 +205,113 @@ export function ChartAnalyticsScreen() {
               <Ionicons name="arrow-back" size={26} color={T.text} />
             </Pressable>
           ),
-          headerStyle: { backgroundColor: isDark ? '#121212' : T.bg },
+          headerStyle: { backgroundColor: isDark ? '#000000' : T.bg },
           headerTitleStyle: { color: T.text, fontSize: 18, fontWeight: '700' },
           headerShadowVisible: false,
         }} 
       />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-        {/* Performance Block */}
+        {/* Performance Block — Dynamic from candle data */}
         <View style={styles.card}>
           <Text style={styles.cardHeader}>Performance Snapshot</Text>
           <View style={styles.perfBlock}>
-            {PERFORMANCE_DATA.map((item, i) => (
-              <View key={i} style={[styles.perfItem, item.active && styles.perfItemActive]}>
-                <Text style={[styles.perfLabel, item.active && styles.perfLabelActive]}>{item.label}</Text>
+            {performanceData.map((item, i) => (
+              <Pressable key={i} style={[styles.perfItem, activePerf === i && styles.perfItemActive]} onPress={() => setActivePerf(i)}>
+                <Text style={[styles.perfLabel, activePerf === i && styles.perfLabelActive]}>{item.label}</Text>
                 <View style={styles.perfChangeRow}>
                   <Ionicons name={item.isDown ? 'arrow-down' : 'arrow-up'} size={10} color={item.isDown ? T.trading.sell.primary : T.trading.buy.primary} />
                   <Text style={item.isDown ? styles.perfValRed : styles.perfValBlue}>
                     {Math.abs(item.change).toFixed(2)}%
                   </Text>
                 </View>
-              </View>
+              </Pressable>
             ))}
           </View>
         </View>
 
-        {/* Dynamic Sparkline Section mapped from History Data */}
+        {/* Daily Range — Modern Professional Design */}
         <View style={styles.card}>
-          <Text style={styles.cardHeader}>Daily Range</Text>
-          <View style={styles.sparklineSection}>
-            <View style={styles.sparkCanvasWrapper}>
+          <View style={styles.rangeHeaderRow}>
+            <Text style={styles.cardHeader}>Daily Range</Text>
+            <View style={styles.rangeLivePill}>
+              <View style={styles.rangeLiveDot} />
+              <Text style={styles.rangeLiveText}>LIVE</Text>
+            </View>
+          </View>
 
+          {/* Current Price Hero */}
+          <View style={styles.rangeCurrentRow}>
+            <Text style={styles.rangeCurrentPrice}>
+              {(livePrice || rangeData.current).toFixed(decimals)}
+            </Text>
+            <View style={styles.rangeCurrentBadge}>
+              <Text style={styles.rangeCurrentBadgeText}>Current</Text>
+            </View>
+          </View>
+
+          {/* Range Bar Visualization */}
+          <View style={styles.rangeBarSection}>
+            {/* Labels Row */}
+            <View style={styles.rangeLabelsRow}>
+              <Text style={styles.rangeLabelLow}>LOW</Text>
+              <Text style={styles.rangeLabelHigh}>HIGH</Text>
+            </View>
+            
+            {/* Price Values Row */}
+            <View style={styles.rangePricesRow}>
+              <Text style={styles.rangePriceLow}>
+                {rangeData.low.toFixed(decimals)}
+              </Text>
+              <Text style={styles.rangePriceHigh}>
+                {rangeData.high.toFixed(decimals)}
+              </Text>
+            </View>
+
+            {/* Progress Bar */}
+            <View style={styles.rangeBarTrack}>
+              <View style={[styles.rangeBarFill, { 
+                width: `${rangeData.high !== rangeData.low ? ((rangeData.current - rangeData.low) / (rangeData.high - rangeData.low)) * 100 : 50}%` 
+              }]} />
+              <View style={[styles.rangeBarThumb, {
+                left: `${rangeData.high !== rangeData.low ? ((rangeData.current - rangeData.low) / (rangeData.high - rangeData.low)) * 100 : 50}%`
+              }]} />
+            </View>
+
+            {/* Sparkline Curve */}
+            <View style={styles.rangeSparklineWrap}>
               <Svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
                 <Defs>
-                  <LinearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={T.trading.buy.primary} stopOpacity="0.4" />
+                  <LinearGradient id="rangeGlow" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor={T.trading.buy.primary} stopOpacity="0.25" />
                     <Stop offset="1" stopColor={T.trading.buy.primary} stopOpacity="0" />
                   </LinearGradient>
                 </Defs>
-
-                {/* Curve Fill */}
-                <Path d={`${sparkLineData.path} L100,40 L0,40 Z`} fill="url(#glow)" />
-                {/* Core Curve */}
-                <Path d={sparkLineData.path} fill="none" stroke={T.trading.buy.primary} strokeWidth="2" />
-
-                {/* Glowing Nodes at exact Peaks and Valleys */}
-                <Circle cx={sparkLineData.maxNode.x} cy={sparkLineData.maxNode.y} r="2" fill={isDark ? '#FFF' : '#000'} stroke={T.trading.buy.hover} strokeWidth="1" />
-                <Circle cx={sparkLineData.minNode.x} cy={sparkLineData.minNode.y} r="2" fill={isDark ? '#FFF' : '#000'} stroke={T.trading.sell.primary} strokeWidth="1" />
+                <Path d={`${sparkLineData.path} L100,40 L0,40 Z`} fill="url(#rangeGlow)" />
+                <Path d={sparkLineData.path} fill="none" stroke={T.trading.buy.primary} strokeWidth="1.5" strokeLinecap="round" />
+                <Circle cx={sparkLineData.maxNode.x} cy={sparkLineData.maxNode.y} r="2.5" fill={T.trading.buy.primary} stroke="rgba(255,255,255,0.3)" strokeWidth="0.8" />
+                <Circle cx={sparkLineData.minNode.x} cy={sparkLineData.minNode.y} r="2.5" fill={T.trading.sell.primary} stroke="rgba(255,255,255,0.3)" strokeWidth="0.8" />
               </Svg>
-
-              {/* Precise Absolute Tooltips based exactly on data coords - Max Peak */}
-              <View style={[styles.tooltipPill, { left: `${sparkLineData.maxNode.x}%`, top: '-5%', transform: [{ translateX: -40 }] }]}>
-                <Text style={styles.tooltipPillText}>max {MOCK_CHART_HISTORY[sparkLineData.maxIndex].price}  ({MOCK_CHART_HISTORY[sparkLineData.maxIndex].time})</Text>
-                <View style={styles.tooltipTriangleDown} />
-              </View>
-
-              {/* Precise Absolute Tooltips based exactly on data coords - Min Valley */}
-              <View style={[styles.tooltipPill, { left: `${sparkLineData.minNode.x}%`, top: '75%', transform: [{ translateX: -40 }] }]}>
-                <View style={styles.tooltipTriangleUp} />
-                <Text style={styles.tooltipPillText}>min {MOCK_CHART_HISTORY[sparkLineData.minIndex].price}  ({MOCK_CHART_HISTORY[sparkLineData.minIndex].time})</Text>
-              </View>
-
-              <View style={styles.sparkCurrentPrice}>
-                <Text style={styles.sparkCurrentPriceText}>{MOCK_CHART_HISTORY[MOCK_CHART_HISTORY.length - 1].price}</Text>
-              </View>
             </View>
+          </View>
 
-            <View style={styles.sparklineXAxis}>
-              <Text style={styles.sparkTime}>{MOCK_CHART_HISTORY[0].time}</Text>
-              <Text style={styles.sparkTime}>{MOCK_CHART_HISTORY[MOCK_CHART_HISTORY.length - 1].time}</Text>
+          {/* Time Range & Stats Grid */}
+          <View style={styles.rangeStatsRow}>
+            <View style={styles.rangeStatItem}>
+              <Text style={styles.rangeStatLabel}>Open</Text>
+              <Text style={styles.rangeStatValue}>{rangeData.open.toFixed(decimals)}</Text>
+            </View>
+            <View style={styles.rangeStatDivider} />
+            <View style={styles.rangeStatItem}>
+              <Text style={styles.rangeStatLabel}>Spread</Text>
+              <Text style={styles.rangeStatValue}>
+                {liveQuote?.spread?.toFixed(1) ?? ((rangeData.high - rangeData.low) * (decimals === 3 ? 1000 : 100000)).toFixed(1)} pts
+              </Text>
+            </View>
+            <View style={styles.rangeStatDivider} />
+            <View style={styles.rangeStatItem}>
+              <Text style={styles.rangeStatLabel}>Time</Text>
+              <Text style={styles.rangeStatValue}>{rangeData.points.length > 0 ? `${rangeData.points[0].time} – ${rangeData.points[rangeData.points.length - 1].time}` : '--'}</Text>
             </View>
           </View>
         </View>
@@ -203,7 +323,7 @@ export function ChartAnalyticsScreen() {
             <Ionicons name="information-circle-outline" size={20} color={T.textMuted} />
           </View>
           <View style={styles.listContainer}>
-            {HMR_PERIODS.map((item, i) => (
+            {(hmrExpanded ? HMR_PERIODS : HMR_PERIODS.slice(0, HMR_PREVIEW_COUNT)).map((item, i) => (
               <React.Fragment key={i}>
                 <View style={[styles.listItem, i !== 0 && styles.divider]}>
                   <View style={styles.listTexts}>
@@ -214,9 +334,14 @@ export function ChartAnalyticsScreen() {
                 </View>
               </React.Fragment>
             ))}
-            <Pressable style={styles.linkBtn}>
-              <Text style={styles.linkText}>View All Periods</Text>
-            </Pressable>
+            {HMR_PERIODS.length > HMR_PREVIEW_COUNT && (
+              <Pressable style={styles.linkBtn} onPress={() => toggleSection(setHmrExpanded)}>
+                <View style={styles.linkRow}>
+                  <Text style={styles.linkText}>{hmrExpanded ? 'Show Less' : 'View All Periods'}</Text>
+                  <Ionicons name={hmrExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
+                </View>
+              </Pressable>
+            )}
           </View>
         </View>
 
@@ -233,8 +358,21 @@ export function ChartAnalyticsScreen() {
             </View>
             <Text style={styles.signalTitle}>Intraday: consolidation.</Text>
             <Text style={styles.signalDesc}>MT: the bias remains bullish.</Text>
-            <Pressable style={styles.linkBtn}>
-              <Text style={styles.linkText}>Full Signal Report</Text>
+            {signalExpanded && (
+              <View style={styles.signalDetailsGrid}>
+                {SIGNAL_DETAILS.map((detail, i) => (
+                  <View key={detail.label} style={[styles.signalDetailRow, i !== 0 && styles.divider]}>
+                    <Text style={styles.signalDetailLabel}>{detail.label}</Text>
+                    <Text style={styles.signalDetailValue}>{detail.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Pressable style={styles.linkBtn} onPress={() => toggleSection(setSignalExpanded)}>
+              <View style={styles.linkRow}>
+                <Text style={styles.linkText}>{signalExpanded ? 'Show Less' : 'Full Signal Report'}</Text>
+                <Ionicons name={signalExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
+              </View>
             </Pressable>
           </View>
         </View>
@@ -243,7 +381,7 @@ export function ChartAnalyticsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardHeader}>Upcoming Events</Text>
           <View style={styles.listContainer}>
-            {UPCOMING_EVENTS.map((item, i) => (
+            {(eventsExpanded ? UPCOMING_EVENTS : UPCOMING_EVENTS.slice(0, EVENTS_PREVIEW_COUNT)).map((item, i) => (
               <React.Fragment key={i}>
                 <View style={[styles.eventItem, i !== 0 && styles.divider]}>
                   <Image source={{ uri: item.flag }} style={styles.flagIcon} />
@@ -262,9 +400,14 @@ export function ChartAnalyticsScreen() {
                 </View>
               </React.Fragment>
             ))}
-            <Pressable style={styles.linkBtn}>
-              <Text style={styles.linkText}>Economic Calendar</Text>
-            </Pressable>
+            {UPCOMING_EVENTS.length > EVENTS_PREVIEW_COUNT && (
+              <Pressable style={styles.linkBtn} onPress={() => toggleSection(setEventsExpanded)}>
+                <View style={styles.linkRow}>
+                  <Text style={styles.linkText}>{eventsExpanded ? 'Show Less' : 'Economic Calendar'}</Text>
+                  <Ionicons name={eventsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
+                </View>
+              </Pressable>
+            )}
           </View>
         </View>
 
@@ -272,7 +415,7 @@ export function ChartAnalyticsScreen() {
         <View style={[styles.card, { marginBottom: 40 }]}>
           <Text style={styles.cardHeader}>Latest News</Text>
           <View style={styles.listContainer}>
-            {LATEST_NEWS.map((item, i) => (
+            {(newsExpanded ? LATEST_NEWS : LATEST_NEWS.slice(0, NEWS_PREVIEW_COUNT)).map((item, i) => (
               <React.Fragment key={i}>
                 <View style={[styles.newsItem, i !== 0 && styles.divider]}>
                   <Image source={{ uri: item.image }} style={styles.newsImage} />
@@ -280,17 +423,22 @@ export function ChartAnalyticsScreen() {
                     <Text style={styles.newsTitle} numberOfLines={2}>{item.title}</Text>
                     <View style={styles.newsMetaRow}>
                       <Text style={styles.newsPair}>{item.pair}</Text>
-                      <Ionicons name="arrow-down" size={10} color={T.trading.sell.primary} />
-                      <Text style={styles.newsChange}>{Math.abs(item.change).toFixed(2)}%</Text>
+                      <Ionicons name={item.change >= 0 ? 'arrow-up' : 'arrow-down'} size={10} color={item.change >= 0 ? T.trading.buy.primary : T.trading.sell.primary} />
+                      <Text style={[styles.newsChange, item.change >= 0 && { color: T.trading.buy.primary }]}>{Math.abs(item.change).toFixed(2)}%</Text>
                       <Text style={styles.newsTime}>{item.time}</Text>
                     </View>
                   </View>
                 </View>
               </React.Fragment>
             ))}
-            <Pressable style={styles.linkBtn}>
-              <Text style={styles.linkText}>More Updates</Text>
-            </Pressable>
+            {LATEST_NEWS.length > NEWS_PREVIEW_COUNT && (
+              <Pressable style={styles.linkBtn} onPress={() => toggleSection(setNewsExpanded)}>
+                <View style={styles.linkRow}>
+                  <Text style={styles.linkText}>{newsExpanded ? 'Show Less' : 'More Updates'}</Text>
+                  <Ionicons name={newsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
+                </View>
+              </Pressable>
+            )}
           </View>
         </View>
 
@@ -300,10 +448,12 @@ export function ChartAnalyticsScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
+  const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
+
   return StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: isDark ? '#121212' : T.bg, // Strict match to History pattern
+      backgroundColor: isDark ? '#000000' : T.bg,
     },
     scrollContent: {
       paddingTop: spacing.md,
@@ -315,7 +465,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 16,
       borderWidth: 1,
       borderColor: isDark ? T.border : T.borderSubtle,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
+      backgroundColor: cardBg,
       shadowColor: isDark ? '#2563EB' : '#0F172A',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: isDark ? 0.08 : 0.03,
@@ -384,88 +534,170 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontVariant: ['tabular-nums'],
     },
 
-    // SVG GRAPH STYLES
-    sparklineSection: {
-      height: 140,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : T.glass1,
-      borderRadius: 12,
-      padding: spacing.sm,
-      position: 'relative',
-    },
-    sparkCanvasWrapper: {
-      flex: 1,
-      position: 'relative',
-    },
-    tooltipPill: {
-      position: 'absolute',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: isDark ? 'rgba(255,255,255,0.15)' : T.borderSubtle,
-      alignItems: 'center',
-      zIndex: 10,
-    },
-    tooltipPillText: {
-      color: T.textSub,
-      fontSize: 11,
-      fontWeight: '600',
-      fontVariant: ['tabular-nums'],
-    },
-    tooltipTriangleDown: {
-      position: 'absolute',
-      bottom: -4,
-      width: 0,
-      height: 0,
-      borderLeftWidth: 5,
-      borderRightWidth: 5,
-      borderTopWidth: 5,
-      borderStyle: 'solid',
-      backgroundColor: 'transparent',
-      borderLeftColor: 'transparent',
-      borderRightColor: 'transparent',
-      borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-    },
-    tooltipTriangleUp: {
-      position: 'absolute',
-      top: -4,
-      width: 0,
-      height: 0,
-      borderLeftWidth: 5,
-      borderRightWidth: 5,
-      borderBottomWidth: 5,
-      borderStyle: 'solid',
-      backgroundColor: 'transparent',
-      borderLeftColor: 'transparent',
-      borderRightColor: 'transparent',
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-    },
-    sparkCurrentPrice: {
-      position: 'absolute',
-      left: 12,
-      top: '50%',
-      transform: [{ translateY: -12 }],
-    },
-    sparkCurrentPriceText: {
-      color: T.text,
-      fontSize: 18,
-      fontWeight: '800',
-      fontVariant: ['tabular-nums'],
-      letterSpacing: -0.5,
-    },
-    sparklineXAxis: {
-      position: 'absolute',
-      bottom: 8,
-      left: 12,
-      right: 12,
+    // ── Daily Range — Modern Design ──────────────────────────────────────
+    rangeHeaderRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
     },
-    sparkTime: {
-      color: T.textMuted,
+    rangeLivePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)',
+    },
+    rangeLiveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#22C55E',
+    },
+    rangeLiveText: {
+      color: '#22C55E',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.8,
+    },
+    rangeCurrentRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 10,
+      marginBottom: 18,
+    },
+    rangeCurrentPrice: {
+      color: T.text,
+      fontSize: 28,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -1,
+    },
+    rangeCurrentBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
+    },
+    rangeCurrentBadgeText: {
+      color: T.trading.buy.primary,
       fontSize: 11,
-      fontWeight: '600',
+      fontWeight: '700',
+    },
+
+    // Range bar
+    rangeBarSection: {
+      marginBottom: 16,
+    },
+    rangeLabelsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    rangeLabelLow: {
+      color: T.trading.sell.primary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.2,
+    },
+    rangeLabelHigh: {
+      color: T.trading.buy.primary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.2,
+    },
+    rangePricesRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 10,
+    },
+    rangePriceLow: {
+      color: T.textSub,
+      fontSize: 14,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    rangePriceHigh: {
+      color: T.textSub,
+      fontSize: 14,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    rangeBarTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      position: 'relative',
+      overflow: 'visible',
+      marginBottom: 16,
+    },
+    rangeBarFill: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: T.trading.buy.primary,
+    },
+    rangeBarThumb: {
+      position: 'absolute',
+      top: -5,
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      backgroundColor: T.trading.buy.primary,
+      borderWidth: 3,
+      borderColor: isDark ? '#000000' : '#FFFFFF',
+      marginLeft: -8,
+      shadowColor: T.trading.buy.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4,
+      shadowRadius: 6,
+      elevation: 4,
+    },
+
+    // Sparkline inside range
+    rangeSparklineWrap: {
+      height: 64,
+      borderRadius: 10,
+      overflow: 'hidden',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+    },
+
+    // Stats grid
+    rangeStatsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderTopWidth: 1,
+      borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+      paddingTop: 14,
+    },
+    rangeStatItem: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    rangeStatDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    },
+    rangeStatLabel: {
+      color: T.textMuted,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    rangeStatValue: {
+      color: T.textSub,
+      fontSize: 12,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
 
     listContainer: {
@@ -509,6 +741,37 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       letterSpacing: 0.5,
       textTransform: 'uppercase',
+    },
+    linkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    signalDetailsGrid: {
+      marginTop: 16,
+      borderRadius: 12,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+      paddingHorizontal: 14,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    },
+    signalDetailRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    signalDetailLabel: {
+      color: T.textMuted,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    signalDetailValue: {
+      color: T.text,
+      fontSize: 14,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
     signalsContainer: {
       paddingBottom: 4,
@@ -644,3 +907,4 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
+

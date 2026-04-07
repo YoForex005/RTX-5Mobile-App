@@ -16,6 +16,7 @@ import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-nat
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
+import { AppHeader } from '../../components/AppHeader';
 import { TradePositionRow } from '../../components/TradePositionRow';
 import { PositionItem } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -111,6 +112,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                  Balance <Text style={{fontSize: 10, color: T.textFaint}}>({account.currency || 'USD'})</Text>
                </Text>
+               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                  {fmt.decimal(safeBalance)}
                </Text>
@@ -120,6 +126,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                  Equity
                </Text>
+               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                  {fmt.decimal(dynamicEquity)}
                </Text>
@@ -129,6 +140,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                  Margin
                </Text>
+               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                  {fmt.decimal(safeMargin)}
                </Text>
@@ -138,6 +154,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                  Free Margin
                </Text>
+               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                  {fmt.decimal(dynamicEquity - safeMargin)}
                </Text>
@@ -147,6 +168,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                  Margin Level
                </Text>
+               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                  {fmt.decimal(dynamicMarginLevel)}%
                </Text>
@@ -157,6 +183,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                  <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                    Credit
                  </Text>
+                 <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
+                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                   ....................................................................................................
+                 </Text>
+               </View>
                  <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
                    {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
                  </Text>
@@ -228,8 +259,6 @@ export function TradeScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchPositions();
-      const iv = setInterval(fetchPositions, 5000);
-      return () => clearInterval(iv);
     }, [fetchPositions])
   );
 
@@ -290,9 +319,7 @@ export function TradeScreen() {
         removeClippedSubviews={true}
         ListHeaderComponent={(
           <>
-            <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>Trade</Text>
-            </View>
+            <AppHeader title="Trade" noBorder />
 
             <LiveUnrealizedPnLHeader
               positions={positions}

@@ -140,6 +140,7 @@ export type FeatureFlags = {
 - Chart history is currently hydrated from `GET /api/v2/candles/GBPUSD?timeframe={tf}&limit=500`.
 - Returned candle arrays are normalized client-side before rendering: ascending time order, one candle per timestamp, and OHLC bounds repaired so `high >= max(open, close)` and `low <= min(open, close)`.
 - Live websocket candle updates continue after the REST bootstrap and are merged onto the normalized cache by timestamp.
+- The frontend keeps the normalized REST snapshot and validates the initial history-to-live handoff against the first websocket candle, not the device clock alone, to tolerate backend feeds whose candle timeline lags local UTC but remains internally consistent.
 
 ## WebSocket Event Contracts
 | Event | Payload | Handling |

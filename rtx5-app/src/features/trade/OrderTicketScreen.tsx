@@ -8,7 +8,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -95,11 +95,18 @@ export function OrderTicketScreen() {
   const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
 
   // Synthesize dynamic live order book updates tied to actual ticking price streams
+  // Seed DOM simulation values once so they don't strobe with every tick
+  const domSeed = useRef({
+    v1s: Math.floor(Math.random() * 60 + 20), v1b: Math.floor(Math.random() * 20 + 5),
+    v2s: Math.floor(Math.random() * 80 + 40), v2b: Math.floor(Math.random() * 80 + 40),
+    v3s: Math.floor(Math.random() * 20 + 5), v3b: Math.floor(Math.random() * 60 + 20),
+  });
+
   const domRows = useMemo(() => {
     return [
-      { sell: Math.floor(Math.random() * 60 + 20), price: fmt.price(ASK + pipSize * 3), buy: Math.floor(Math.random() * 20 + 5) },
-      { sell: Math.floor(Math.random() * 80 + 40), price: fmt.price((ASK + BID) / 2), buy: Math.floor(Math.random() * 80 + 40) },
-      { sell: Math.floor(Math.random() * 20 + 5), price: fmt.price(BID - pipSize * 3), buy: Math.floor(Math.random() * 60 + 20) },
+      { sell: domSeed.current.v1s, price: fmt.price(ASK + pipSize * 3), buy: domSeed.current.v1b },
+      { sell: domSeed.current.v2s, price: fmt.price((ASK + BID) / 2), buy: domSeed.current.v2b },
+      { sell: domSeed.current.v3s, price: fmt.price(BID - pipSize * 3), buy: domSeed.current.v3b },
     ];
   }, [ASK, BID, pipSize, displayDecimals]);
 

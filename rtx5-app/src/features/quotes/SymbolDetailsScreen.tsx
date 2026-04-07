@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { quotes } from '../../mock/tradingData';
 import { useMarketData } from '../../query/websocket';
@@ -203,6 +203,7 @@ export function SymbolDetailsScreen() {
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [alertOn, setAlertOn] = useState(false);
 
+
   // Subscribe to live tick data for this symbol
   const liveQuotes = useMarketData([symbol]);
 
@@ -298,6 +299,34 @@ export function SymbolDetailsScreen() {
   const isUp = q.changePct >= 0;
   const isMarketOpen = q.tradeAllowed !== false;
 
+  const handleShare = async () => {
+    try {
+      const displayName = symbol.replace(/m$/i, '').replace(/\//g, '');
+      const bidPrice = fmt.price(q.bid);
+      const askPrice = fmt.price(q.ask);
+      const changePct = (q.changePct || 0).toFixed(2);
+      const changeSign = q.changePct >= 0 ? '+' : '';
+      const spreadVal = parseFloat(Number(q.spread || 0).toFixed(2)).toString();
+
+      const message = [
+        `📊 ${displayName}`,
+        ``,
+        `💰 Bid: ${bidPrice}  |  Ask: ${askPrice}`,
+        `📈 Change: ${changeSign}${changePct}%`,
+        `📉 Spread: ${spreadVal}`,
+        ``,
+        `Shared from RTX5 Trading App`,
+      ].join('\n');
+
+      await Share.share({
+        message,
+        title: `${displayName} - Live Quote`,
+      });
+    } catch (_err) {
+      // User cancelled or share failed silently
+    }
+  };
+
   const handleTrade = (side: 'buy' | 'sell') => {
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
@@ -344,7 +373,7 @@ export function SymbolDetailsScreen() {
         </>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 16 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: Math.max(useSafeAreaInsets().top, 16) }}>
 
         {/* ════ ENTERPRISE HERO SECTION ════ */}
         <View style={s.glassHero.container}>
@@ -369,7 +398,7 @@ export function SymbolDetailsScreen() {
               <Pressable style={{ paddingHorizontal: 6, paddingVertical: 4 }} onPress={() => setAlertOn(v => !v)}>
                 <Ionicons name={alertOn ? 'notifications' : 'notifications-outline'} size={22} color={alertOn ? '#FACC15' : T.textSub} />
               </Pressable>
-              <Pressable style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+              <Pressable style={{ paddingHorizontal: 6, paddingVertical: 4 }} onPress={handleShare}>
                 <Ionicons name="share-outline" size={22} color={T.textSub} />
               </Pressable>
             </View>

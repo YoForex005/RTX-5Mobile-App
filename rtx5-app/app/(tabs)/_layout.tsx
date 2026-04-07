@@ -30,13 +30,17 @@ export default function TabsLayout() {
   const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
   const shouldHideMenu = (isChartFullscreen && isChartTab) || isSearchActive;
 
+  // Tab bar height adapts to the device's bottom inset (home indicator / pill)
+  // Base: 56dp icon+label zone + real bottom inset + 2dp breathing room
+  const tabBarHeight = 56 + insets.bottom + 2;
+
   const TAB_BAR_STYLE = {
     backgroundColor: isDark ? '#040609' : '#ffffff',
     borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.05)',
     borderTopWidth: 1,
-    height: 74,
+    height: tabBarHeight,
     paddingTop: 8,
-    paddingBottom: 8,
+    paddingBottom: Math.max(insets.bottom, 8),
   };
 
   return (
@@ -92,6 +96,13 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  /**
+   * Global menu button — fixed 40×40 tap target, 16dp from left edge.
+   * Total reserved left gutter = 16 (margin) + 40 (button) = 56dp.
+   * AppHeader.tsx uses MENU_BTN_GUTTER = 56 to match this exactly.
+   * `top` is set inline as `insets.top + 16` so it never overlaps the
+   * status bar on any device.
+   */
   globalMenuBtn: {
     position: 'absolute',
     left: 16,

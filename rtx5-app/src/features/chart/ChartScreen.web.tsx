@@ -22,7 +22,7 @@ import {
 } from './components/ChartToolbarIcons';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../components/Screen';
-import { useUserPreferences } from '../../state/userPreferences';
+import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
@@ -33,13 +33,90 @@ import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { useMarketSymbols } from '../../query/market';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, BarSeries, LineSeries, LineStyle, HistogramSeries } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, ColorType, CrosshairMode, BarSeries, LineSeries, LineStyle, HistogramSeries } from 'lightweight-charts';
 import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
 import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import {
+  buildRTX5CustomCandlestickSeriesOptions,
+  createRTX5CustomCandlestickPaneView,
+  mapCandlesToRTX5CustomCandlestickData,
+} from './rendering/customCandlestickSeries';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+
+type VolumeSourceCandle = {
+  time: number;
+  open: number;
+  close: number;
+  volume?: number;
+};
+
+const withAlpha = (color: string | undefined, alpha: number): string => {
+  if (!color) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+
+  const trimmed = color.trim();
+
+  if (trimmed.startsWith('rgba(')) {
+    const parts = trimmed.slice(5, -1).split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    }
+  }
+
+  if (trimmed.startsWith('rgb(')) {
+    const parts = trimmed.slice(4, -1).split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    }
+  }
+
+  let hex = trimmed.replace('#', '');
+  if (hex.length === 3) {
+    hex = hex.split('').map((char) => char + char).join('');
+  }
+
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  return trimmed;
+};
+
+const getVolumeBarColor = (
+  candle: Pick<VolumeSourceCandle, 'open' | 'close'>,
+  colors: { candlesUptrend?: string; candlesDowntrend?: string } | null | undefined,
+  isActive: boolean = false,
+): string => {
+  const baseColor =
+    candle.close >= candle.open
+      ? colors?.candlesUptrend ?? '#2962FF'
+      : colors?.candlesDowntrend ?? '#EF5350';
+
+  return withAlpha(baseColor, isActive ? 0.78 : 0.32);
+};
+
+const buildVolumeDatum = (
+  candle: VolumeSourceCandle,
+  colors: { candlesUptrend?: string; candlesDowntrend?: string } | null | undefined,
+  isActive: boolean = false,
+  minValue?: number,
+) => {
+  const rawValue = Math.max(Number(candle.volume ?? 0), 0);
+  const value = typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue;
+
+  return {
+    time: candle.time,
+    value,
+    color: getVolumeBarColor(candle, colors, isActive),
+  };
+};
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) => {
@@ -334,20 +411,15 @@ export function ChartScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const APP_BG = useUserPreferences((s) => s.chartColors?.background) || (isDark ? T.bg : '#FFFFFF');
-  const CARD_BG = isDark ? '#0F1114' : T.glass2;
-  const CHART_HEADER_BG = isDark ? '#101216' : '#FFFFFF';
-  const CHART_HEADER_BORDER = isDark ? '#1E293B' : '#E2E8F0';
-  const CHART_CANVAS_BG = useUserPreferences((s) => s.chartColors?.background) || (isDark ? '#101216' : '#FFFFFF');
-  const BOTTOM_AREA_BG = isDark ? '#0F1114' : '#FFFFFF';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
-  const GRID = T.borderSubtle;
-  const TEXT = T.text;
   const TEXT_MUTED = T.textMuted;
-  const BTN_BG = T.glass2;
-  const PILL_BG = T.glass1;
-  const { chartSymbol, chartTimeframe, chartColors, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, chartVisualType, chartColors, chartColorScheme, chartDisplay, setChartTimeframe, setChartVisualType, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
+  const resolvedChartColors = useMemo(
+    () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
+    [chartColors, chartColorScheme, isDark],
+  );
+  const showTradeLevels = chartDisplay.showTradeLevels;
 
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
@@ -373,11 +445,12 @@ export function ChartScreen() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const lastVolumePointRef = useRef<{ time: number; value: number } | null>(null);
   const lastCandleLengthRef = useRef(0);
   const lastRenderedCandleSignatureRef = useRef('');
 
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
-  const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'hollow'>('candles');
+  const chartType = chartVisualType;
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
@@ -386,6 +459,7 @@ export function ChartScreen() {
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
+  const [overlayRevision, setOverlayRevision] = useState(0);
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
@@ -398,6 +472,7 @@ export function ChartScreen() {
 
   const [lotSize, setLotSize] = useState<number>(0.10);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const candlesRef = useRef(candles);
   const [forceHideLoading, setForceHideLoading] = useState(false);
 
@@ -418,9 +493,6 @@ export function ChartScreen() {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const CH_BG = isDark ? '#0B0E14' : '#FFFFFF';
-    const TEXT_MUTED = T.textMuted;
-    const GRID = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
     const initialDimensions = getContainerChartDimensions(chartContainerRef.current);
 
@@ -428,27 +500,27 @@ export function ChartScreen() {
       width: initialDimensions.width,
       height: initialDimensions.height,
       layout: {
-        background: { type: ColorType.Solid, color: chartColors?.background || (isDark ? '#000000' : '#FFFFFF') },
-        textColor: chartColors?.foreground || (isDark ? '#F1F5F9' : '#0F172A'),
+        background: { type: ColorType.Solid, color: resolvedChartColors.background },
+        textColor: resolvedChartColors.foreground,
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)'), style: LineStyle.Solid },
-        horzLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)'), style: LineStyle.Solid },
+        vertLines: { color: resolvedChartColors.grid, style: LineStyle.Solid },
+        horzLines: { color: resolvedChartColors.grid, style: LineStyle.Solid },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
+          color: resolvedChartColors.foreground,
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
+          labelBackgroundColor: resolvedChartColors.foreground,
         },
         horzLine: {
-          color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
+          color: resolvedChartColors.foreground,
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
+          labelBackgroundColor: resolvedChartColors.foreground,
         },
       },
       localization: {
@@ -458,7 +530,7 @@ export function ChartScreen() {
         },
       },
       timeScale: {
-        borderColor: chartColors?.grid || (isDark ? '#2A2E39' : '#E0E3EB'),
+        borderColor: resolvedChartColors.grid,
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number) => {
@@ -473,9 +545,10 @@ export function ChartScreen() {
         fixRightEdge: false,
       },
       rightPriceScale: {
-        borderColor: chartColors?.grid || (isDark ? '#2A2E39' : '#E0E3EB'),
+        borderColor: resolvedChartColors.grid,
         autoScale: true,
         scaleMargins: {
+          top: 0.08,
           bottom: 0.25,
         },
       },
@@ -503,19 +576,19 @@ export function ChartScreen() {
       try { chart.remove(); } catch (e) { }
       chartRef.current = null;
     };
-  }, [isDark, T.bgSecondary, T.textMuted, T.borderSubtle, BLUE, RED, displayDecimals, chartColors]);
+  }, [isDark, BLUE, RED, displayDecimals, resolvedChartColors]);
 
   // Series Initialization & Swap
   useEffect(() => {
     if (!chartRef.current) return;
     const chart = chartRef.current;
 
-    const UP_COLOR = chartColors?.candlesUptrend || '#2962FF';
-    const DOWN_COLOR = chartColors?.candlesDowntrend || '#EF5350';
-    const HOLLOW_BODY = chartColors?.hollowBody || 'transparent';
-    const BAR_UP_COLOR = chartColors?.barsUptrend || '#2962FF';
-    const BAR_DOWN_COLOR = chartColors?.barsDowntrend || '#EF5350';
-    const LINE_COLOR = chartColors?.lineBody || BLUE;
+    const UP_COLOR = resolvedChartColors.candlesUptrend;
+    const DOWN_COLOR = resolvedChartColors.candlesDowntrend;
+    const HOLLOW_BODY = resolvedChartColors.hollowBody;
+    const BAR_UP_COLOR = resolvedChartColors.barsUptrend;
+    const BAR_DOWN_COLOR = resolvedChartColors.barsDowntrend;
+    const LINE_COLOR = resolvedChartColors.lineBody || BLUE;
 
     const priceFormatInfo = {
       type: 'price' as const,
@@ -536,18 +609,20 @@ export function ChartScreen() {
     let series: ISeriesApi<any>;
 
     if (chartType === 'candles' || chartType === 'hollow') {
-      series = chart.addSeries(CandlestickSeries, {
-        upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_COLOR,
-        downColor: DOWN_COLOR,
-        borderVisible: true,
-        wickUpColor: UP_COLOR,
-        wickDownColor: DOWN_COLOR,
-        borderUpColor: UP_COLOR,
-        borderDownColor: DOWN_COLOR,
-        lastValueVisible: true,
-        priceLineVisible: true,
-        priceFormat: priceFormatInfo,
-      });
+      series = chart.addCustomSeries(
+        createRTX5CustomCandlestickPaneView(),
+        buildRTX5CustomCandlestickSeriesOptions({
+          bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_COLOR,
+          bodyDownColor: DOWN_COLOR,
+          borderUpColor: UP_COLOR,
+          borderDownColor: DOWN_COLOR,
+          wickUpColor: UP_COLOR,
+          wickDownColor: DOWN_COLOR,
+          lastValueVisible: true,
+          priceLineVisible: true,
+          priceFormat: priceFormatInfo,
+        }) as any,
+      );
     } else if (chartType === 'bars') {
       series = chart.addSeries(BarSeries, {
         upColor: BAR_UP_COLOR,
@@ -575,14 +650,17 @@ export function ChartScreen() {
     } catch (e) { }
 
     volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
-      color: '#26a69a',
+      color: withAlpha(UP_COLOR, 0.32),
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
+      priceLineVisible: false,
+      lastValueVisible: false,
     });
     chart.priceScale('volume').applyOptions({
-      scaleMargins: { top: 0.9, bottom: 0 },
+      scaleMargins: { top: 0.84, bottom: 0.02 },
       visible: false,
     });
+    lastVolumePointRef.current = null;
 
     chart.subscribeCrosshairMove((param) => {
       if (legendRef.current) {
@@ -593,7 +671,10 @@ export function ChartScreen() {
     // Force data sync to reload
     dataSignatureRef.current = '';
 
-  }, [chartType, isDark, BLUE, RED, displayDecimals, chartColors]);
+    // Force overlay effects (price lines + markers) to re-run with the new series
+    setOverlayRevision((prev) => prev + 1);
+
+  }, [chartType, isDark, BLUE, RED, displayDecimals, resolvedChartColors]);
 
   const dataSignatureRef = useRef('');
   const [activeDateRange, setActiveDateRange] = useState('auto');
@@ -638,7 +719,7 @@ export function ChartScreen() {
   // Sync Data
   useEffect(() => {
     if (seriesRef.current && candles.length > 0) {
-      const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}`;
+      const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}-${chartColorsSignature}`;
       const lastCandleSignature = getLastCandleSignature(candles);
       const shouldReloadSeries =
         dataSignatureRef.current !== sig ||
@@ -652,27 +733,34 @@ export function ChartScreen() {
           uniqueData.sort((a, b) => a.time - b.time);
 
           let mappedData;
-          if (chartType === 'line') {
-            mappedData = uniqueData.map((item) => ({
-              time: item.time,
-              value: item.close,
-              open: item.open,
-              close: item.close,
-              volume: item.volume,
-            }));
-          } else {
-            mappedData = uniqueData;
-          }
+            if (chartType === 'line') {
+              mappedData = uniqueData.map((item) => ({
+                time: item.time,
+                value: item.close,
+                open: item.open,
+                close: item.close,
+                volume: item.volume,
+              }));
+            } else if (chartType === 'candles' || chartType === 'hollow') {
+              mappedData = mapCandlesToRTX5CustomCandlestickData({
+                candles: uniqueData,
+                bullishColor: resolvedChartColors.candlesUptrend,
+                bearishColor: resolvedChartColors.candlesDowntrend,
+              });
+            } else {
+              mappedData = uniqueData;
+            }
 
           seriesRef.current.setData(mappedData as any);
 
           if (volumeSeriesRef.current) {
-            const volData = uniqueData.map(item => ({
-              time: item.time,
-              value: item.volume || 0,
-              color: item.close >= item.open ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
-            }));
+            const volData = uniqueData.map((item, index) =>
+              buildVolumeDatum(item, resolvedChartColors, index === uniqueData.length - 1),
+            );
             volumeSeriesRef.current.setData(volData as any);
+            lastVolumePointRef.current = volData.length > 0
+              ? { time: volData[volData.length - 1].time, value: volData[volData.length - 1].value }
+              : null;
           }
 
           dataSignatureRef.current = sig;
@@ -683,7 +771,7 @@ export function ChartScreen() {
         }
       }
     }
-  }, [candles, isDark, chartSymbol, chartTimeframe, chartType]);
+  }, [candles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
   // Draw Positions as Price Lines
   const positions = usePositionsState((s) => s.positions);
@@ -702,13 +790,13 @@ export function ChartScreen() {
 
     const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
 
-    if (symbolPositions.length > 0) {
+    if (showTradeLevels && symbolPositions.length > 0) {
       symbolPositions.forEach((pos) => {
         try {
           if (showOpenPositions) {
             const pl = seriesRef.current.createPriceLine({
               price: pos.openPrice,
-              color: pos.side === 'buy' ? (chartColors?.tradeOpen || '#2962FF') : RED,
+              color: pos.side === 'buy' ? (resolvedChartColors.tradeOpen || '#2962FF') : RED,
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               axisLabelVisible: true,
@@ -720,55 +808,39 @@ export function ChartScreen() {
           if (showTpSlStopLimit) {
             if (pos.tp && pos.tp > 0) {
               const tpLine = seriesRef.current.createPriceLine({
-                price: pos.tp, color: chartColors?.tradeTpSl || '#089981', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TP',
+                price: pos.tp,
+                color: resolvedChartColors.tradeTpSl || '#089981',
+                lineWidth: 1,
+                lineStyle: LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'TP',
               });
               positionLinesRef.current.push(tpLine);
             }
+
             if (pos.sl && pos.sl > 0) {
               const slLine = seriesRef.current.createPriceLine({
-                price: pos.sl, color: chartColors?.tradeTpSl || '#F23645', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'SL',
+                price: pos.sl,
+                color: resolvedChartColors.tradeTpSl || '#F23645',
+                lineWidth: 1,
+                lineStyle: LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'SL',
               });
               positionLinesRef.current.push(slLine);
             }
           }
-        } catch (e) { }
+        } catch (e) {
+          console.warn('[ChartOverlay] Error creating position lines:', e);
+        }
       });
     }
-
-    // Price Alerts Mock
-    if (showPriceAlerts && candles.length > 0) {
-      try {
-        const currentPrice = candles[candles.length - 1].close;
-        const isJpy = chartSymbol?.includes('JPY');
-        const pip = isJpy ? 0.01 : chartSymbol?.includes('XAU') ? 0.1 : 0.0001;
-        const alertLine = seriesRef.current.createPriceLine({
-          price: currentPrice + (pip * 50), color: '#F59E0B', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'Alert',
-        });
-        positionLinesRef.current.push(alertLine);
-      } catch (e) { }
-    }
-
-    // Potential Stop Out Calculation Mock
-    if (showPotentialStopOut && symbolPositions.length > 0 && candles.length > 0) {
-      try {
-        const avgEntry = symbolPositions.reduce((sum, p) => sum + p.openPrice, 0) / symbolPositions.length;
-        const worstCaseSide = symbolPositions[0].side; 
-        const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
-        const soLine = seriesRef.current.createPriceLine({
-          price: mockStopOut, color: chartColors?.tradeStopOut || '#DC2626', lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Stop Out',
-        });
-        positionLinesRef.current.push(soLine);
-      } catch (e) { }
-    }
-  }, [positions, chartSymbol, BLUE, RED, seriesRef.current, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles, chartColors]);
+  }, [positions, chartSymbol, BLUE, RED, overlayRevision, showOpenPositions, showTpSlStopLimit, resolvedChartColors, showTradeLevels]);
 
   // Patterns / Markers Local
   useEffect(() => {
     if (!seriesRef.current) return;
     try {
-      // @ts-ignore: bypass type checker for v4 legacy method
-      if (typeof seriesRef.current.setMarkers !== 'function') return;
-
       let markers: any[] = [];
       if (activeTool === 'patterns' && candles.length > 0) {
         const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
@@ -787,47 +859,36 @@ export function ChartScreen() {
         });
       }
 
-      if (showTradingSignals && candles.length > 0 && activeTool !== 'patterns') {
-        const lastTime = candles[candles.length - 1].time;
-        if (lastTime) {
-          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'TS', size: 2 });
-        }
-      }
-
-      if (showClosedPositions && candles.length > 5) {
-        const mockTime = candles[candles.length - 4].time;
-        if (mockTime) markers.push({ time: mockTime, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'Buy (Closed)', size: 1 });
-      }
-
-      if (showHmrPeriods && candles.length > 10) {
-        const mockTimeLeft = candles[candles.length - 10].time;
-        const mockTimeRight = candles[candles.length - 8].time;
-        if (mockTimeLeft) markers.push({ time: mockTimeLeft, position: 'aboveBar', color: '#F59E0B', shape: 'arrowDown', text: 'HMR', size: 1 });
-        if (mockTimeRight) markers.push({ time: mockTimeRight, position: 'aboveBar', color: '#8B5CF6', shape: 'arrowUp', text: 'HMR', size: 1 });
-      }
-
       markers.sort((a, b) => {
-        const tA = typeof a.time === 'object' ? a.time.timestamp || 0 : (typeof a.time === 'string' ? new Date(a.time).getTime() : a.time);
-        const tB = typeof b.time === 'object' ? b.time.timestamp || 0 : (typeof b.time === 'string' ? new Date(b.time).getTime() : b.time);
+        const tA = typeof a.time === 'number' ? a.time : 0;
+        const tB = typeof b.time === 'number' ? b.time : 0;
         return tA - tB;
       });
 
-      // @ts-ignore
-      seriesRef.current.setMarkers(markers);
+      // @ts-ignore: setMarkers available on series in lightweight-charts
+      if (typeof seriesRef.current.setMarkers === 'function') {
+        // @ts-ignore
+        seriesRef.current.setMarkers(markers);
+      }
     } catch (e) {
-      console.warn("Error setting chart markers:", e);
+      console.warn('[ChartOverlay] Error setting chart markers:', e);
     }
-  }, [activeTool, showTradingSignals, showClosedPositions, showHmrPeriods, candles]);
+  }, [activeTool, candles, overlayRevision]);
 
   // Canonical Candle Stream Sync
   useEffect(() => {
     let rAF: number | null = null;
     const pendingEvents: CandleStreamEvent[] = [];
 
-    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
+    const getRenderableCandles = (sourceCandles: typeof candlesRef.current) => {
       const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
       const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
       uniqueData.sort((a, b) => a.time - b.time);
+      return uniqueData;
+    };
+
+    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
+      const uniqueData = getRenderableCandles(sourceCandles);
 
       if (chartType === 'line') {
         return uniqueData.map((item) => ({
@@ -839,24 +900,32 @@ export function ChartScreen() {
         }));
       }
 
+      if (chartType === 'candles' || chartType === 'hollow') {
+        return mapCandlesToRTX5CustomCandlestickData({
+          candles: uniqueData,
+          bullishColor: resolvedChartColors.candlesUptrend,
+          bearishColor: resolvedChartColors.candlesDowntrend,
+        });
+      }
+
       return uniqueData;
     };
 
     const syncSeriesFromCandles = (sourceCandles: typeof candlesRef.current = candlesRef.current) => {
       if (!seriesRef.current) return;
 
+      const uniqueData = getRenderableCandles(sourceCandles);
       const mappedData = buildMappedData(sourceCandles);
       seriesRef.current.setData(mappedData as any);
 
       if (volumeSeriesRef.current) {
-        const volData = sourceCandles
-          .filter((c) => isStructurallyValidCandle(c))
-          .map((item) => ({
-            time: item.time,
-            value: item.volume || 0,
-            color: item.close >= item.open ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)',
-          }));
+        const volData = uniqueData.map((item, index) =>
+          buildVolumeDatum(item, resolvedChartColors, index === uniqueData.length - 1),
+        );
         volumeSeriesRef.current.setData(volData as any);
+        lastVolumePointRef.current = volData.length > 0
+          ? { time: volData[volData.length - 1].time, value: volData[volData.length - 1].value }
+          : null;
       }
 
       lastCandleLengthRef.current = sourceCandles.length;
@@ -897,16 +966,24 @@ export function ChartScreen() {
             close: candle.close,
             volume: candle.volume,
           };
+        } else if (chartType === 'candles' || chartType === 'hollow') {
+          tickToInject = mapCandlesToRTX5CustomCandlestickData({
+            candles: [candle],
+            bullishColor: resolvedChartColors.candlesUptrend,
+            bearishColor: resolvedChartColors.candlesDowntrend,
+          })[0];
         }
 
         try {
           seriesRef.current.update(tickToInject);
           if (volumeSeriesRef.current) {
-            volumeSeriesRef.current.update({
-              time: candle.time,
-              value: candle.volume || 0,
-              color: candle.close >= candle.open ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)',
-            } as any);
+            const previousLiveVolume =
+              lastVolumePointRef.current?.time === candle.time
+                ? lastVolumePointRef.current.value
+                : undefined;
+            const volumePoint = buildVolumeDatum(candle, resolvedChartColors, true, previousLiveVolume);
+            volumeSeriesRef.current.update(volumePoint as any);
+            lastVolumePointRef.current = { time: volumePoint.time, value: volumePoint.value };
           }
           if (event.type === 'append') {
             lastCandleLengthRef.current += 1;
@@ -942,7 +1019,7 @@ export function ChartScreen() {
         candlesWsService.removeStreamListener(handleStreamEvent);
       });
     };
-  }, [chartSymbol, chartTimeframe, chartType]);
+  }, [chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
   const CHART_HEIGHT = chartLayout.height;
 
@@ -1350,10 +1427,10 @@ export function ChartScreen() {
         onClose={() => setShowChartTypeMenu(false)}
         title='Chart Type'
         actions={[
-          { label: 'Candlestick', onPress: () => setChartType('candles') },
-          { label: 'Hollow Candles', onPress: () => setChartType('hollow') },
-          { label: 'OHLC Bars', onPress: () => setChartType('bars') },
-          { label: 'Line', onPress: () => setChartType('line') },
+          { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
+          { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
+          { label: 'OHLC Bars', onPress: () => setChartVisualType('bars') },
+          { label: 'Line', onPress: () => setChartVisualType('line') },
         ]}
       />
 
@@ -1396,7 +1473,7 @@ export function ChartScreen() {
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const APP_BG = isDark ? '#0E1014' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#0E1014' : T.bgSecondary;
+  const CHART_CANVAS_BG = isDark ? '#000000' : '#FFFFFF';
   const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;

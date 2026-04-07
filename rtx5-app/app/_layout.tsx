@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect, useCallback } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
+import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import * as Font from 'expo-font';
@@ -94,6 +95,8 @@ function InnerLayout() {
           <Stack.Screen name='settings/mailbox' options={{ title: 'Mailbox' }} />
           <Stack.Screen name='settings/news' options={{ title: 'News' }} />
           <Stack.Screen name='settings/brokers' options={{ title: 'Brokers' }} />
+          <Stack.Screen name='settings/charts' options={{ title: 'Charts' }} />
+          <Stack.Screen name='settings/economic-calendar' options={{ title: 'Tradays' }} />
         </Stack>
       </WebIPhoneFrame>
     </>
@@ -183,7 +186,9 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
-      <InnerLayout />
+      <ErrorBoundary>
+        <InnerLayout />
+      </ErrorBoundary>
     </AppProviders>
   );
 }

@@ -21,7 +21,8 @@ import {
   TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
-import { useUserPreferences } from '../../state/userPreferences';
+import { AppHeader } from '../../components/AppHeader';
+import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
@@ -38,7 +39,12 @@ import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
+import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
 import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import {
+  mapCandlesToRTX5CustomCandlestickData,
+} from './rendering/customCandlestickSeries';
+import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -62,8 +68,8 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
   return (
     <View style={styles.priceSection}>
       <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2, opacity: 0.9 }]}>PRICE</Text>
-      <Text style={styles.livePriceText}>{(currentPrice || 0).toFixed(displayDecimals)}</Text>
-      <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}>
+      <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>{(currentPrice || 0).toFixed(displayDecimals)}</Text>
+      <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]} numberOfLines={1} adjustsFontSizeToFit>
         {change > 0 ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({changePct > 0 ? '+' : ''}{(changePct || 0).toFixed(2)}%)
       </Text>
     </View>
@@ -147,7 +153,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
           <Ionicons name="chevron-down" size={16} color="#FFF" />
         </View>
-        <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
+        <Text style={styles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
 
       <View style={styles.actionSpacer} />
@@ -161,7 +167,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           <Ionicons name="chevron-up" size={16} color="#FFF" />
           <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
         </View>
-        <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
+        <Text style={styles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
     </View>
   );
@@ -208,7 +214,10 @@ const CH_HTML = `
 </head>
 <body>
     <div id="chart"></div>
+    <script>window.__RTX5_CUSTOM_CANDLE_GEOMETRY_DEBUG = ${__DEV__ ? 'true' : 'false'};</script>
+    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
     <script>\${DRAWING_TOOLS_JS}</script>
+    <script>\${ENHANCED_DRAWING_TOOLS_JS}</script>
     <script>
       var chart = null;
       var series = null;
@@ -217,6 +226,104 @@ const CH_HTML = `
       var drawingTools = null;
       var UP_COLOR = '#2962FF';
       var DOWN_COLOR = '#EF5350';
+      window._lastVolumePoint = null;
+      window._lastChartData = [];
+
+      function hexToRgba(color, alpha) {
+        if (!color) return 'rgba(148, 163, 184, ' + alpha + ')';
+        var trimmed = String(color).trim();
+
+        if (trimmed.indexOf('rgba(') === 0) {
+          var rgbaParts = trimmed.slice(5, -1).split(',').map(function(part) { return part.trim(); });
+          if (rgbaParts.length >= 3) {
+            return 'rgba(' + rgbaParts[0] + ', ' + rgbaParts[1] + ', ' + rgbaParts[2] + ', ' + alpha + ')';
+          }
+        }
+
+        if (trimmed.indexOf('rgb(') === 0) {
+          var rgbParts = trimmed.slice(4, -1).split(',').map(function(part) { return part.trim(); });
+          if (rgbParts.length >= 3) {
+            return 'rgba(' + rgbParts[0] + ', ' + rgbParts[1] + ', ' + rgbParts[2] + ', ' + alpha + ')';
+          }
+        }
+
+        var hex = trimmed.replace('#', '');
+        if (hex.length === 3) {
+          hex = hex.split('').map(function(char) { return char + char; }).join('');
+        }
+
+        if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+          var r = parseInt(hex.slice(0, 2), 16);
+          var g = parseInt(hex.slice(2, 4), 16);
+          var b = parseInt(hex.slice(4, 6), 16);
+          return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+        }
+
+        return trimmed;
+      }
+
+      function getVolumeBarColor(item, isActive) {
+        var customCols = window._customColors || {};
+        var up = customCols.candlesUptrend || UP_COLOR;
+        var down = customCols.candlesDowntrend || DOWN_COLOR;
+        var isGreen = item.close >= item.open;
+        return hexToRgba(isGreen ? up : down, isActive ? 0.78 : 0.32);
+      }
+
+      function buildVolumeDatum(item, isActive, minValue) {
+        var rawValue = Math.max(Number(item && item.volume ? item.volume : 0), 0);
+        var safeValue = typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue;
+        return {
+          time: item.time,
+          value: safeValue,
+          color: getVolumeBarColor(item, isActive)
+        };
+      }
+
+      function syncLastVolumePoint(point) {
+        window._lastVolumePoint = point ? { time: point.time, value: point.value } : null;
+      }
+
+      function upsertLastChartDataPoint(tick) {
+        if (!tick || typeof tick.time !== 'number') return;
+        if (!Array.isArray(window._lastChartData)) {
+          window._lastChartData = [];
+        }
+        var data = window._lastChartData;
+        if (data.length > 0 && data[data.length - 1].time === tick.time) {
+          data[data.length - 1] = tick;
+          return;
+        }
+        data.push(tick);
+      }
+
+      function setVolumeSeriesData(data) {
+        if (!volumeSeries) return;
+        var source = Array.isArray(data) ? data : [];
+        var volData = source.map(function(item, index) {
+          return buildVolumeDatum(item, index === source.length - 1);
+        });
+        volumeSeries.setData(volData);
+        syncLastVolumePoint(volData.length > 0 ? volData[volData.length - 1] : null);
+      }
+
+      function updateVolumeSeriesTick(tick) {
+        if (!volumeSeries || !tick) return;
+        var minValue = window._lastVolumePoint && window._lastVolumePoint.time === tick.time
+          ? window._lastVolumePoint.value
+          : undefined;
+        var point = buildVolumeDatum(tick, true, minValue);
+        volumeSeries.update(point);
+        syncLastVolumePoint(point);
+      }
+
+      function ensureScaleMargins(scaleMargins, fallbackTop, fallbackBottom) {
+        var next = scaleMargins || {};
+        return {
+          top: typeof next.top === 'number' ? next.top : fallbackTop,
+          bottom: typeof next.bottom === 'number' ? next.bottom : fallbackBottom,
+        };
+      }
 
 
 
@@ -246,13 +353,21 @@ const CH_HTML = `
 
       function initChart(opts, chartType, data, displayDecimals, isExpanded) {
         try {
+          if (drawingTools) {
+            try { drawingTools.remove(); } catch (_error) {}
+            drawingTools = null;
+          }
           if (chart) { chart.remove(); chart = null; series = null; volumeSeries = null; }
+          window._lastVolumePoint = null;
+          window._lastChartData = [];
 
           opts.layout.background = { type: 'solid', color: opts.layout.background.color };
           opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
           opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+          opts.rightPriceScale = opts.rightPriceScale || {};
+          opts.rightPriceScale.scaleMargins = ensureScaleMargins(opts.rightPriceScale.scaleMargins, 0.08, 0.25);
           window._chartType = chartType;
 
           var customCols = opts.customColors;
@@ -277,14 +392,16 @@ const CH_HTML = `
           chart = LightweightCharts.createChart(document.getElementById('chart'), opts);
 
           if (chartType === 'candles' || chartType === 'hollow') {
-            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-              upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
-              downColor: DOWN_CANDLE,
-              borderVisible: true,
-              wickUpColor: UP_CANDLE,
-              wickDownColor: DOWN_CANDLE,
+            series = window.addRTX5CustomCandlestickSeries(chart, {
+              bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
+              bodyDownColor: DOWN_CANDLE,
               borderUpColor: UP_CANDLE,
               borderDownColor: DOWN_CANDLE,
+              wickUpColor: UP_CANDLE,
+              wickDownColor: DOWN_CANDLE,
+              borderVisible: true,
+              wickVisible: true,
+              color: UP_CANDLE,
               lastValueVisible: true,
               priceLineVisible: true,
               priceFormat: priceFormatInfo,
@@ -309,30 +426,21 @@ const CH_HTML = `
           }
 
           volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
-            color: '#26a69a',
+            color: hexToRgba(UP_CANDLE, 0.32),
             priceFormat: { type: 'volume' },
             priceScaleId: 'volume',
             priceLineVisible: false,
             lastValueVisible: false,
           });
           chart.priceScale('volume').applyOptions({
-            scaleMargins: { top: 0.9, bottom: 0 },
+            scaleMargins: { top: 0.84, bottom: 0.02 },
             visible: false,
           });
 
           if (data && data.length > 0) {
+            window._lastChartData = data.slice();
             series.setData(data);
-            if (volumeSeries) {
-              var volData = data.map(function(d) {
-                var isGreen = d.close >= d.open;
-                return {
-                  time: d.time,
-                  value: d.volume || 0,
-                  color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
-                };
-              });
-              volumeSeries.setData(volData);
-            }
+            setVolumeSeriesData(window._lastChartData);
           }
 
           if (window.DrawingToolsManager) {
@@ -340,6 +448,19 @@ const CH_HTML = `
           }
 
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'CHART_READY'}));
+
+          // Hide TradingView watermark after chart renders
+          setTimeout(function() {
+            try {
+              var el = document.getElementById('chart');
+              if (el) {
+                var links = el.getElementsByTagName('a');
+                for (var i = links.length - 1; i >= 0; i--) {
+                  links[i].style.display = 'none';
+                }
+              }
+            } catch(e) {}
+          }, 300);
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:e.message}));
         }
@@ -348,14 +469,9 @@ const CH_HTML = `
       function updateChartData(data) {
         try {
           if (!series) return;
+          window._lastChartData = Array.isArray(data) ? data.slice() : [];
           series.setData(data);
-          if (volumeSeries) {
-            var volData = data.map(function(d) {
-              var isGreen = d.close >= d.open;
-              return { time: d.time, value: d.volume || 0, color: isGreen ? 'rgba(8, 153, 129, 0.5)' : 'rgba(242, 54, 69, 0.5)' };
-            });
-            volumeSeries.setData(volData);
-          }
+          setVolumeSeriesData(window._lastChartData);
           // chart.timeScale().fitContent(); // Removed to prevent few candles from stretching to massive widths
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:'updateChartData: '+e.message}));
@@ -364,17 +480,11 @@ const CH_HTML = `
 
       function updateTick(tick) {
         try {
+          upsertLastChartDataPoint(tick);
           if (series) {
             series.update(tick);
           }
-          if (volumeSeries && tick) {
-            var isGreen = tick.close >= tick.open;
-            volumeSeries.update({
-               time: tick.time,
-               value: tick.volume || 0,
-               color: isGreen ? 'rgba(8, 153, 129, 0.12)' : 'rgba(242, 54, 69, 0.12)'
-            });
-          }
+          updateVolumeSeriesTick(tick);
         } catch(e) {
            window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message: 'updateTick: ' + e.message, tick: tick}));
         }
@@ -394,6 +504,8 @@ const CH_HTML = `
           opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
+          opts.rightPriceScale = opts.rightPriceScale || {};
+          opts.rightPriceScale.scaleMargins = ensureScaleMargins(opts.rightPriceScale.scaleMargins, 0.08, 0.25);
 
           chart.applyOptions(opts);
 
@@ -408,12 +520,15 @@ const CH_HTML = `
 
             if (chartType === 'candles' || chartType === 'hollow') {
               series.applyOptions({
-                upColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
-                downColor: DOWN_CANDLE,
+                bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
+                bodyDownColor: DOWN_CANDLE,
+                wickVisible: true,
                 wickUpColor: UP_CANDLE,
                 wickDownColor: DOWN_CANDLE,
                 borderUpColor: UP_CANDLE,
                 borderDownColor: DOWN_CANDLE,
+                borderVisible: true,
+                color: UP_CANDLE,
               });
             } else if (chartType === 'bars') {
               series.applyOptions({
@@ -424,6 +539,15 @@ const CH_HTML = `
               series.applyOptions({
                 color: LINE_C,
               });
+            }
+
+            if (volumeSeries) {
+              volumeSeries.applyOptions({
+                color: hexToRgba(UP_CANDLE, 0.32),
+                priceLineVisible: false,
+                lastValueVisible: false,
+              });
+              setVolumeSeriesData(window._lastChartData);
             }
           }
         } catch(e) {
@@ -437,6 +561,31 @@ const CH_HTML = `
       }
       function clearDrawings() {
         if (drawingTools) { drawingTools.removeAllDrawings(); }
+      }
+      function setDrawingsLocked(locked) {
+        if (drawingTools) { drawingTools.setDrawingsLocked(!!locked); }
+      }
+      function setDrawingsHidden(hidden) {
+        if (drawingTools) { drawingTools.setDrawingsHidden(!!hidden); }
+      }
+      function setStayInDrawingMode(sticky) {
+        if (drawingTools) { drawingTools.setStayInDrawingMode(!!sticky); }
+      }
+      function setMagnetMode(enabled) {
+        if (drawingTools) { drawingTools.setMagnetMode(!!enabled); }
+      }
+      function zoomChart() {
+        if (drawingTools) {
+          drawingTools.zoomToFit();
+          return;
+        }
+        try {
+          if (chart && typeof chart.priceScale === 'function') chart.priceScale('right').applyOptions({ autoScale: true });
+          if (chart && typeof chart.timeScale === 'function') {
+            chart.timeScale().fitContent();
+            chart.timeScale().scrollToRealTime();
+          }
+        } catch (_error) {}
       }
     </script>
 </body>
@@ -469,13 +618,36 @@ export function ChartScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const { chartSymbol, chartTimeframe, chartColors, setChartTimeframe, setChartSymbol, isDemoAccount, accountDetails, showTradingSignals, showClosedPositions, showHmrPeriods, showPriceAlerts, showPotentialStopOut } = useUserPreferences();
-  const APP_BG = chartColors?.background || (isDark ? T.bg : '#FFFFFF');
+  const {
+    chartSymbol,
+    chartTimeframe,
+    chartVisualType,
+    chartColors,
+    chartColorScheme,
+    chartDisplay,
+    setChartTimeframe,
+    setChartVisualType,
+    setChartSymbol,
+    isDemoAccount,
+    accountDetails,
+    showTradingSignals,
+    chartLockAll,
+    chartHideAll,
+    setChartLockAll,
+    setChartHideAll,
+    setChartDrawings,
+  } = useUserPreferences();
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
   const { positions } = usePositionsState();
   const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
   const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
+  const resolvedChartColors = useMemo(
+    () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
+    [chartColors, chartColorScheme, isDark],
+  );
+  const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
+  const showTradeLevels = chartDisplay.showTradeLevels;
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
@@ -499,20 +671,61 @@ export function ChartScreen() {
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
+  const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
+  const [magnetEnabled, setMagnetEnabled] = useState(false);
+  const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
+  const [overlayRevision, setOverlayRevision] = useState(0);
 
   const webViewRef = useRef<WebView>(null);
 
+  const injectChartScript = (script: string) => {
+    webViewRef.current?.injectJavaScript(`${script} true;`);
+  };
+
   const handleSetTool = (tool: string) => {
     setActiveTool(tool);
-    if (tool === 'trash') {
-      webViewRef.current?.injectJavaScript("clearDrawings(); true;");
-    } else {
-      webViewRef.current?.injectJavaScript(`setDrawingTool('${tool}'); true;`);
-    }
+    injectChartScript(`setDrawingTool(${JSON.stringify(tool)});`);
     setShowDrawingToolbar(false);
   };
 
-  const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'hollow'>('candles');
+  const handleClearDrawings = () => {
+    setActiveTool('crosshair');
+    setChartDrawings([]);
+    injectChartScript('clearDrawings();');
+  };
+
+  const handleToggleMagnet = () => {
+    const next = !magnetEnabled;
+    setMagnetEnabled(next);
+    injectChartScript(`setMagnetMode(${next});`);
+  };
+
+  const handleToggleStickyMode = () => {
+    const next = !stickyDrawingMode;
+    setStickyDrawingMode(next);
+    injectChartScript(`setStayInDrawingMode(${next});`);
+  };
+
+  const handleToggleLock = () => {
+    const next = !chartLockAll;
+    setChartLockAll(next);
+    if (next) {
+      setActiveTool('crosshair');
+    }
+    injectChartScript(`setDrawingsLocked(${next});`);
+  };
+
+  const handleToggleHide = () => {
+    const next = !chartHideAll;
+    setChartHideAll(next);
+    injectChartScript(`setDrawingsHidden(${next});`);
+  };
+
+  const handleZoomTool = () => {
+    injectChartScript('zoomChart();');
+  };
+
+  const chartType = chartVisualType;
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
@@ -527,29 +740,29 @@ export function ChartScreen() {
 
   const chartOptions = useMemo(() => ({
     layout: {
-      background: { color: chartColors?.background || (isDark ? '#000000' : '#FFFFFF') },
-      textColor: chartColors?.foreground || (isDark ? '#94A3B8' : '#64748B'),
+      background: { color: resolvedChartColors.background },
+      textColor: resolvedChartColors.foreground,
       fontSize: 11,
     },
     grid: {
-      vertLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)') },
-      horzLines: { color: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)') },
+      vertLines: { color: resolvedChartColors.grid },
+      horzLines: { color: resolvedChartColors.grid },
     },
     crosshair: {
       mode: 0, // Normal
       vertLine: {
-        color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
+        color: resolvedChartColors.foreground,
         width: 1,
-        labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
+        labelBackgroundColor: resolvedChartColors.foreground,
       },
       horzLine: {
-        color: chartColors?.foreground || (isDark ? '#475569' : '#94A3B8'),
+        color: resolvedChartColors.foreground,
         width: 1,
-        labelBackgroundColor: chartColors?.foreground || (isDark ? '#1E293B' : '#334155'),
+        labelBackgroundColor: resolvedChartColors.foreground,
       },
     },
     timeScale: {
-      borderColor: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
+      borderColor: resolvedChartColors.grid,
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 16,
@@ -560,25 +773,38 @@ export function ChartScreen() {
       fixRightEdge: false,
     },
     rightPriceScale: {
-      borderColor: chartColors?.grid || (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
+      borderColor: resolvedChartColors.grid,
       autoScale: true,
       scaleMargins: {
+        top: 0.08,
         bottom: 0.25,
       },
     },
     customColors: {
-      candlesUptrend: chartColors?.candlesUptrend || '#2962FF',
-      candlesDowntrend: chartColors?.candlesDowntrend || '#EF5350',
-      hollowBody: chartColors?.hollowBody || 'transparent',
-      barsUptrend: chartColors?.barsUptrend || '#2962FF',
-      barsDowntrend: chartColors?.barsDowntrend || '#EF5350',
-      lineBody: chartColors?.lineBody || '#2962FF',
+      candlesUptrend: resolvedChartColors.candlesUptrend,
+      candlesDowntrend: resolvedChartColors.candlesDowntrend,
+      hollowBody: resolvedChartColors.hollowBody,
+      barsUptrend: resolvedChartColors.barsUptrend,
+      barsDowntrend: resolvedChartColors.barsDowntrend,
+      lineBody: resolvedChartColors.lineBody,
     }
-  }), [isDark, chartColors, TEXT_MUTED]);
+  }), [resolvedChartColors]);
 
   const [webViewReady, setWebViewReady] = useState(false);
   const isLoading = candles.length === 0 && !forceHideLoading && !webViewReady;
   const isError = false;
+
+  useEffect(() => {
+    if (!webViewReady) return;
+    const bridgedTool = chartLockAll ? 'crosshair' : activeTool;
+    injectChartScript(`
+      setDrawingsLocked(${chartLockAll});
+      setDrawingsHidden(${chartHideAll});
+      setStayInDrawingMode(${stickyDrawingMode});
+      setMagnetMode(${magnetEnabled});
+      setDrawingTool(${JSON.stringify(bridgedTool)});
+    `);
+  }, [webViewReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
 
   const dataSignatureRef = useRef('');
   const lastCandleLengthRef = useRef(0);
@@ -591,7 +817,7 @@ export function ChartScreen() {
   // Sync Data â€” uses injectJavaScript instead of postMessage
   useEffect(() => {
     if (webViewRef.current && webViewReady && candles.length > 0) {
-      const sig = `${chartSymbol}-${chartTimeframe}-${chartType}`;
+      const sig = `${chartSymbol}-${chartTimeframe}-${chartType}-${chartColorsSignature}`;
       const sanitized = candles.filter((c) => isStructurallyValidCandle(c));
       const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
       uniqueData.sort((a, b) => a.time - b.time);
@@ -605,6 +831,14 @@ export function ChartScreen() {
           close: item.close,
           volume: item.volume,
         }));
+      } else if (chartType === 'candles' || chartType === 'hollow') {
+        mappedData = mapCandlesToRTX5CustomCandlestickData({
+          candles: uniqueData,
+          bullishColor: resolvedChartColors.candlesUptrend,
+          bearishColor: resolvedChartColors.candlesDowntrend,
+        });
+      } else {
+        mappedData = uniqueData;
       }
       const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
 
@@ -621,29 +855,7 @@ export function ChartScreen() {
         lastCandleLengthRef.current = candles.length;
       }
     }
-  }, [candles, isDark, chartType, webViewReady, chartSymbol, chartTimeframe, displayDecimals]);
-
-  const prevOptionsRef = useRef('');
-  useEffect(() => {
-    if (!webViewRef.current || !webViewReady) return;
-    const strOpts = JSON.stringify(chartOptions);
-    if (prevOptionsRef.current !== strOpts) {
-      prevOptionsRef.current = strOpts;
-      const js = `
-        try {
-          if (typeof updateChartAppearance === 'function') {
-            updateChartAppearance(${strOpts});
-          } else {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'updateChartAppearance function missing!' }));
-          }
-        } catch (err) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Bridge error: ' + err.message }));
-        }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [chartOptions, webViewReady]);
+  }, [candles, chartType, webViewReady, chartSymbol, chartTimeframe, displayDecimals, chartColorsSignature, chartOptions]);
 
   // Canonical Candle Stream Sync
   useEffect(() => {
@@ -665,6 +877,14 @@ export function ChartScreen() {
         }));
       }
 
+      if (chartType === 'candles' || chartType === 'hollow') {
+        return mapCandlesToRTX5CustomCandlestickData({
+          candles: uniqueData,
+          bullishColor: resolvedChartColors.candlesUptrend,
+          bearishColor: resolvedChartColors.candlesDowntrend,
+        });
+      }
+
       return uniqueData;
     };
 
@@ -675,7 +895,7 @@ export function ChartScreen() {
       try {
         webViewRef.current.injectJavaScript(`updateChartData(${JSON.stringify(mappedData)}); true;`);
         lastCandleLengthRef.current = candlesRef.current.length;
-      } catch (_error) {}
+      } catch (_error) { }
     };
 
     const flushEvents = () => {
@@ -715,6 +935,12 @@ export function ChartScreen() {
             close: candle.close,
             volume: candle.volume,
           };
+        } else if (chartType === 'candles' || chartType === 'hollow') {
+          tickToInject = mapCandlesToRTX5CustomCandlestickData({
+            candles: [candle],
+            bullishColor: resolvedChartColors.candlesUptrend,
+            bearishColor: resolvedChartColors.candlesDowntrend,
+          })[0];
         }
 
         js += `updateTick(${JSON.stringify(tickToInject)});`;
@@ -726,7 +952,7 @@ export function ChartScreen() {
       if (js.length > 0) {
         try {
           webViewRef.current.injectJavaScript(js + ' true;');
-        } catch (_error) {}
+        } catch (_error) { }
       }
 
       if (rejectedUpdate) {
@@ -757,20 +983,19 @@ export function ChartScreen() {
     };
   }, [chartSymbol, chartTimeframe, chartType, webViewReady]);
 
-  // Positions Bridge (Draws Open Trades)
   // Positions & Price Lines Bridge
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
       let lines: any[] = [];
       const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
 
-      if (symbolPositions.length > 0) {
+      if (showTradeLevels && symbolPositions.length > 0) {
         lines = lines.concat(symbolPositions.flatMap((pos) => {
           const payload = [];
           if (showOpenPositions) {
             payload.push({
               price: pos.openPrice,
-              color: pos.side === 'buy' ? (chartColors?.tradeOpen || '#2962FF') : '#EF5350',
+              color: pos.side === 'buy' ? (resolvedChartColors.tradeOpen || '#2962FF') : '#EF5350',
               lineWidth: 1,
               lineStyle: 1, // Dashed
               axisLabelVisible: true,
@@ -779,45 +1004,41 @@ export function ChartScreen() {
           }
           if (showTpSlStopLimit) {
             if (pos.tp && pos.tp > 0) {
-              payload.push({ price: pos.tp, color: chartColors?.tradeTpSl || '#089981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'TP' });
+              payload.push({
+                price: pos.tp,
+                color: resolvedChartColors.tradeTpSl || '#089981',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: 'TP',
+              });
             }
             if (pos.sl && pos.sl > 0) {
-              payload.push({ price: pos.sl, color: chartColors?.tradeTpSl || '#F23645', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'SL' });
+              payload.push({
+                price: pos.sl,
+                color: resolvedChartColors.tradeTpSl || '#F23645',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: 'SL',
+              });
             }
           }
           return payload;
         }));
       }
 
-      // Price Alerts Mock
-      if (showPriceAlerts && candles.length > 0) {
-        const currentPrice = candles[candles.length - 1].close;
-        const isJpy = chartSymbol?.includes('JPY');
-        const pip = isJpy ? 0.01 : chartSymbol?.includes('XAU') ? 0.1 : 0.0001;
-        lines.push({ price: currentPrice + (pip * 50), color: '#F59E0B', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Alert' });
-      }
-
-      // Potential Stop Out Calculation Mock
-      if (showPotentialStopOut && symbolPositions.length > 0 && candles.length > 0) {
-        const avgEntry = symbolPositions.reduce((sum, p) => sum + p.openPrice, 0) / symbolPositions.length;
-        const worstCaseSide = symbolPositions[0].side; 
-        const mockStopOut = worstCaseSide === 'buy' ? avgEntry * 0.995 : avgEntry * 1.005;
-        lines.push({ price: mockStopOut, color: chartColors?.tradeStopOut || '#DC2626', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Stop Out' });
-      }
-
       const js = `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [positions, chartSymbol, webViewReady, showOpenPositions, showTpSlStopLimit, showPriceAlerts, showPotentialStopOut, candles, chartColors]);
+  }, [positions, chartSymbol, webViewReady, overlayRevision, showOpenPositions, showTpSlStopLimit, resolvedChartColors, showTradeLevels]);
 
-  // Patterns / Markers Bridge
   // Patterns / Markers Bridge
   useEffect(() => {
     if (webViewReady && webViewRef.current) {
       let markers: any[] = [];
 
       if (activeTool === 'patterns' && candles.length > 0) {
-        // Deduplicate
         const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
 
         uniqueData.forEach((candle) => {
@@ -835,28 +1056,9 @@ export function ChartScreen() {
         });
       }
 
-      if (showTradingSignals && candles.length > 0 && activeTool !== 'patterns') {
-        const lastTime = candles[candles.length - 1].time;
-        if (lastTime) {
-          markers.push({ time: lastTime, position: 'aboveBar', color: '#EF4444', shape: 'arrowDown', text: 'TS', size: 2 });
-        }
-      }
-
-      if (showClosedPositions && candles.length > 5) {
-        const mockTime = candles[candles.length - 4].time;
-        if (mockTime) markers.push({ time: mockTime, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'Buy (Closed)', size: 1 });
-      }
-
-      if (showHmrPeriods && candles.length > 10) {
-        const mockTimeLeft = candles[candles.length - 10].time;
-        const mockTimeRight = candles[candles.length - 8].time;
-        if (mockTimeLeft) markers.push({ time: mockTimeLeft, position: 'aboveBar', color: '#F59E0B', shape: 'arrowDown', text: 'HMR', size: 1 });
-        if (mockTimeRight) markers.push({ time: mockTimeRight, position: 'aboveBar', color: '#8B5CF6', shape: 'arrowUp', text: 'HMR', size: 1 });
-      }
-
       markers.sort((a, b) => {
-        const tA = typeof a.time === 'object' ? a.time.timestamp || 0 : (typeof a.time === 'string' ? new Date(a.time).getTime() : a.time);
-        const tB = typeof b.time === 'object' ? b.time.timestamp || 0 : (typeof b.time === 'string' ? new Date(b.time).getTime() : b.time);
+        const tA = typeof a.time === 'number' ? a.time : 0;
+        const tB = typeof b.time === 'number' ? b.time : 0;
         return tA - tB;
       });
 
@@ -867,7 +1069,7 @@ export function ChartScreen() {
         true;
       `);
     }
-  }, [activeTool, showTradingSignals, showClosedPositions, showHmrPeriods, candles, webViewReady]);
+  }, [activeTool, candles, webViewReady, overlayRevision]);
 
 
 
@@ -880,30 +1082,28 @@ export function ChartScreen() {
   const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
 
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} noBottomInset>
       {!isChartExpanded && (
-        <View style={styles.compactHeader}>
-          {/* Left: Symbol Info */}
-          <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
-            <View>
-              <View style={styles.symbolNameRow}>
-                <Text style={[styles.symbolText, { opacity: 0.9 }]}>{displaySymbol}</Text>
-                <View style={styles.fxBadge}>
-                  <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
+        <View style={styles.headerWrapper}>
+          <AppHeader title="Chart" noBorder extraTopPad={4} />
+          <View style={styles.compactHeader}>
+            {/* Left: Symbol Info */}
+            <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
+              <View>
+                <View style={styles.symbolNameRow}>
+                  <Text style={[styles.symbolText, { opacity: 0.9 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
+                  <View style={styles.fxBadge}>
+                    <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </View>
-                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                <Text style={styles.symbolSubText} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
               </View>
-              <Text style={styles.symbolSubText}>{symbolName}</Text>
-            </View>
-          </Pressable>
+            </Pressable>
 
-          {/* Center: Live Price */}
-          <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
-
-          {/* Right: Balance + Account */}
-          <View style={styles.rightSection}>
-            <View style={styles.headerTitleContainer}>
-              <Text style={styles.headerTitleText}>Chart</Text>
+            {/* Right: Live Price */}
+            <View style={styles.rightSection}>
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
             </View>
           </View>
         </View>
@@ -913,7 +1113,7 @@ export function ChartScreen() {
         <View style={styles.chartContainer}>
           <View style={styles.chartTopToolbar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 16, gap: 4 }]}>
+              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 16, gap: 8 }]}>
                 <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                 </Pressable>
@@ -938,7 +1138,7 @@ export function ChartScreen() {
             </ScrollView>
 
             {/* Right section fixed on screen */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {showTradingSignals && (
                 <Pressable onPress={() => setShowSignalDetails(true)} hitSlop={8}>
                   <View style={styles.redBoxIcon}>
@@ -960,7 +1160,6 @@ export function ChartScreen() {
               </Pressable>
             </View>
           </View>
-
           <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
@@ -968,6 +1167,9 @@ export function ChartScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.leftToolbarContent}
               >
+                <Pressable style={[styles.toolIcon, styles.toolIconPrimary]} onPress={() => setShowDrawingQuickActions(true)}>
+                  <Ionicons name="add" size={18} color="#FFFFFF" />
+                </Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => handleSetTool('crosshair')}><TvCrosshair color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => handleSetTool('trendline')}><TvTrendLine color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
                 <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => handleSetTool('fib')}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
@@ -979,15 +1181,15 @@ export function ChartScreen() {
                 <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => handleSetTool('smiley')}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
                 <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => handleSetTool('measure')}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'zoom' && styles.toolIconActive]} onPress={() => handleSetTool('zoom')}><TvZoom color={activeTool === 'zoom' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={handleZoomTool}><TvZoom color={TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'magnet' && styles.toolIconActive]} onPress={() => handleSetTool('magnet')}><TvMagnet color={activeTool === 'magnet' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'stay_in_drawing_mode' && styles.toolIconActive]} onPress={() => handleSetTool('stay_in_drawing_mode')}><TvStayInDrawingMode color={activeTool === 'stay_in_drawing_mode' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'lock' && styles.toolIconActive]} onPress={() => handleSetTool('lock')}><TvLock color={activeTool === 'lock' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'hide' && styles.toolIconActive]} onPress={() => handleSetTool('hide')}><TvHide color={activeTool === 'hide' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, magnetEnabled && styles.toolIconActive]} onPress={handleToggleMagnet}><TvMagnet color={magnetEnabled ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, stickyDrawingMode && styles.toolIconActive]} onPress={handleToggleStickyMode}><TvStayInDrawingMode color={stickyDrawingMode ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, chartLockAll && styles.toolIconActive]} onPress={handleToggleLock}><TvLock color={chartLockAll ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, chartHideAll && styles.toolIconActive]} onPress={handleToggleHide}><TvHide color={chartHideAll ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'trash' && styles.toolIconActive]} onPress={() => handleSetTool('trash')}><TvTrash color={activeTool === 'trash' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => handleSetTool('layers')}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={handleClearDrawings}><TvTrash color={TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={() => { setShowDrawingToolbar(false); router.push('/chart/objects'); }}><TvLayers color={TEXT_MUTED} /></Pressable>
               </ScrollView>
             )}
             <View style={{ flex: 1, position: 'relative' }}>
@@ -1032,21 +1234,28 @@ export function ChartScreen() {
                     const msg = JSON.parse(event.nativeEvent.data);
                     if (msg.type === 'READY' || msg.type === 'CHART_READY') {
                       setWebViewReady(true);
+                      // Force overlays to re-draw after chart is (re-)initialized
+                      setOverlayRevision((prev) => prev + 1);
+                    } else if (msg.type === 'DRAWINGS_CHANGED') {
+                      const nextLabels = Array.isArray(msg.drawings)
+                        ? msg.drawings
+                          .map((item: any) => (typeof item?.label === 'string' ? item.label : ''))
+                          .filter(Boolean)
+                        : [];
+                      setChartDrawings(nextLabels);
+                    } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
+                      setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
                     } else if (msg.type === 'ERROR') {
                       console.log('[CHART WEBVIEW ERROR]', msg.message, msg.tick);
+                      if (typeof msg.message === 'string' && msg.message.startsWith('updateChartAppearance failed:')) {
+                        return;
+                      }
                       Alert.alert('Chart Error Pipeline', msg.message);
                     }
                   } catch (e) { }
                 }}
               />
-              <Pressable
-                style={styles.floatingAutoBtn}
-                onPress={() => {
-                  webViewRef.current?.injectJavaScript("try { if(chart && typeof chart.priceScale === 'function') chart.priceScale('right').applyOptions({ autoScale: true }); if (chart && typeof chart.timeScale === 'function') chart.timeScale().scrollToRealTime(); } catch(e){} true;");
-                }}
-              >
-                <Text style={[styles.floatingAutoText, { color: BLUE }]}>A</Text>
-              </Pressable>
+
 
 
             </View>
@@ -1055,6 +1264,22 @@ export function ChartScreen() {
 
         {!isChartExpanded && (
           <View style={styles.bottomArea}>
+            <View style={styles.tvBottomToolbar}>
+              <View style={styles.tvRangesLeft}>
+                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>Time Range</Text>
+                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>Date Range</Text>
+                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
+              </View>
+              <View style={styles.tvRangesRight}>
+                <Text style={[styles.tvRangeAutoText, { transform: [{ translateX: -20 }] }]} numberOfLines={1} adjustsFontSizeToFit>
+                  16:08:55 (UTC+5:30)
+                </Text>
+                <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>auto</Text>
+              </View>
+            </View>
             <View style={styles.segmentedControl}>
               {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
                 <Pressable
@@ -1065,7 +1290,7 @@ export function ChartScreen() {
                     else router.push('/trade');
                   }}
                 >
-                  <Text style={[styles.segmentText, tab === 'POSITIONS' && styles.segmentTextActive]}>{tab}</Text>
+                  <Text style={[styles.segmentText, tab === 'POSITIONS' && styles.segmentTextActive]} numberOfLines={1} adjustsFontSizeToFit>{tab}</Text>
                 </Pressable>
               ))}
             </View>
@@ -1128,10 +1353,27 @@ export function ChartScreen() {
         onClose={() => setShowChartTypeMenu(false)}
         title='Chart Type'
         actions={[
-          { label: 'Candlestick', onPress: () => setChartType('candles') },
-          { label: 'Hollow Candles', onPress: () => setChartType('hollow') },
-          { label: 'OHLC Bars', onPress: () => setChartType('bars') },
-          { label: 'Line', onPress: () => setChartType('line') },
+          { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
+          { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
+          { label: 'OHLC Bars', onPress: () => setChartVisualType('bars') },
+          { label: 'Line', onPress: () => setChartVisualType('line') },
+        ]}
+      />
+
+      <ActionSheet
+        visible={showDrawingQuickActions}
+        onClose={() => setShowDrawingQuickActions(false)}
+        title='Add To Chart'
+        actions={[
+          { label: 'Trend Line', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('trendline'); } },
+          { label: 'Fib Zone', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('fib'); } },
+          { label: 'Highlight Box', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('brush'); } },
+          { label: 'Text Label', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('text'); } },
+          { label: 'Pattern Path', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('patterns'); } },
+          { label: 'Long Position', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('prediction'); } },
+          { label: 'Pitchfork', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('pitchfork'); } },
+          { label: 'Measure Range', onPress: () => { setShowDrawingQuickActions(false); handleSetTool('measure'); } },
+          { label: 'Clear Drawings', danger: true, onPress: () => { setShowDrawingQuickActions(false); handleClearDrawings(); } },
         ]}
       />
 
@@ -1168,7 +1410,7 @@ export function ChartScreen() {
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const APP_BG = isDark ? '#0E1014' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#0E1014' : T.bgSecondary;
+  const CHART_CANVAS_BG = isDark ? '#000000' : '#FFFFFF';
   const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
@@ -1176,26 +1418,43 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
   return StyleSheet.create({
     screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
+    headerWrapper: {
+      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      zIndex: 10,
+    },
+    topBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingLeft: 56,
+      paddingRight: 16,
+      height: 40,
+    },
+    topBarSide: {
+      width: 32,
+    },
 
     /* â”€â”€ Compact Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     compactHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 14,
-      paddingTop: 2,
-      paddingBottom: 6,
-      marginTop: -4,
+      paddingLeft: 16,
+      paddingRight: 16,
+      paddingTop: 0,
+      paddingBottom: 18,
+      minHeight: 48,
+      marginTop: -6,
       backgroundColor: isDark ? '#000000' : '#FFFFFF',
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+      borderBottomWidth: 0,
+      borderBottomColor: 'transparent',
     },
     symbolSection: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
       flex: 1,
-      marginTop: -8,
+      minHeight: 36,
     },
     flagStack: {
       flexDirection: 'row',
@@ -1264,7 +1523,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     /* â”€â”€ Right: Balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     rightSection: {
       alignItems: 'flex-end',
+      justifyContent: 'center',
       flex: 1,
+      transform: [{ translateY: 10 }],
     },
     balanceContainer: {
       alignItems: 'flex-end',
@@ -1296,9 +1557,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginTop: 3,
     },
     headerTitleContainer: {
+      flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 10,
     },
     headerTitleText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
@@ -1360,6 +1621,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
       borderRadius: 6,
     },
+    toolIconPrimary: {
+      backgroundColor: BLUE,
+      marginBottom: 2,
+      shadowColor: BLUE,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 0,
+    },
     toolIconActive: {
       backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)',
     },
@@ -1374,9 +1644,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       paddingHorizontal: 12,
       paddingVertical: 8,
+      marginTop: 16,
       backgroundColor: isDark ? '#000000' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
+      borderTopWidth: 1,
+      borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
     inlineActionGroup: {
       flexDirection: 'row',
@@ -1387,7 +1660,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 1,
       height: 16,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      marginHorizontal: 10,
+      marginHorizontal: 4,
     },
     toolbarFlexSpacer: {
       flex: 1,
@@ -1440,12 +1713,22 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     bottomArea: {
       backgroundColor: isDark ? '#000000' : '#FFFFFF',
-      paddingHorizontal: 14,
-      paddingTop: 4,
+      paddingHorizontal: 8,
+      paddingTop: 8,
       paddingBottom: 0,
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
     },
+    tvBottomToolbar: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingBottom: 8,
+    },
+    tvRangesLeft: { flexDirection: 'row', alignItems: 'center' },
+    tvRangesRight: { flexDirection: 'row', alignItems: 'center' },
+    tvRangeText: { fontSize: 11, fontWeight: '500', color: '#787B86' },
+    tvRangeAutoText: { fontSize: 11, fontWeight: '500', color: '#787B86' },
     segmentedControl: {
       flexDirection: 'row',
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F1F5F9',
@@ -1529,18 +1812,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 0,
       shadowColor: RED,
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.3 : 0.2,
+      shadowOpacity: isDark ? 0 : 0.05,
       shadowRadius: 8,
-      elevation: 4,
+      elevation: 0,
     },
     actionBtnBuy: {
       backgroundColor: BLUE,
       borderWidth: 0,
       shadowColor: BLUE,
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.3 : 0.2,
+      shadowOpacity: isDark ? 0 : 0.05,
       shadowRadius: 8,
-      elevation: 4,
+      elevation: 0,
     },
     actionSpacer: {
       width: 0,

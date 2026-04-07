@@ -1,0 +1,142 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# RTX5 — EAS Build & Deploy Pipeline
+# ═══════════════════════════════════════════════════════════════════════════════
+# Triggers:
+#   - Push to main    → Validates + builds preview
+#   - Push to staging → Validates + builds staging
+#   - Push to release → Validates + builds production
+#   - Pull request    → Validates only (no build)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: RTX5 Build Pipeline
+
+on:
+  push:
+    branches: [main, staging, release]
+  pull_request:
+    branches: [main, staging, release]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  WORKING_DIR: rtx5-app
+
+jobs:
+  # ── Stage 1: Validate ─────────────────────────────────────────────────────
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Install Dependencies
+        run: cd ${{ env.WORKING_DIR }} && npm ci
+
+      - name: TypeScript Check
+        run: cd ${{ env.WORKING_DIR }} && npx tsc --noEmit
+
+      - name: Security Audit
+        run: cd ${{ env.WORKING_DIR }} && npm audit --audit-level=high
+        continue-on-error: true
+
+  # ── Stage 2: Build Preview ────────────────────────────────────────────────
+  build-preview:
+    name: Build Preview
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Dependencies
+        run: cd ${{ env.WORKING_DIR }} && npm ci
+
+      - name: Build (All Platforms)
+        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile preview --non-interactive
+
+  # ── Stage 3: Build Staging ────────────────────────────────────────────────
+  build-staging:
+    name: Build Staging
+    needs: validate
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Dependencies
+        run: cd ${{ env.WORKING_DIR }} && npm ci
+
+      - name: Build (All Platforms)
+        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile staging --non-interactive
+
+  # ── Stage 4: Build Production ─────────────────────────────────────────────
+  build-production:
+    name: Build Production
+    needs: validate
+    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Dependencies
+        run: cd ${{ env.WORKING_DIR }} && npm ci
+
+      - name: Build (All Platforms)
+        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile production --non-interactive

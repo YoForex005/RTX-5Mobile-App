@@ -27,7 +27,7 @@ type WsMessage = SubscriptionMessage | CandleHistoryRequest | { type: 'ping' | '
 export class WebSocketService {
   private static instance: WebSocketService;
   private ws: WebSocket | null = null;
-  private url = 'wss://rtxbackend.tradecopier.org/ws';
+  private url = process.env.EXPO_PUBLIC_WS_URL || 'wss://rtxbackend.tradecopier.org/ws';
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;

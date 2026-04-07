@@ -12,6 +12,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
+import { AppHeader } from '../../components/AppHeader';
 import { historyOrders, account as mockAccount } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -126,8 +127,6 @@ export function HistoryScreen() {
   // Approximate initial deposit using current balance & realized PNL
   const deposit = balance - totalClosedPnl;
 
-  const hasLiveData = false;
-
   const baseData = useMemo<HistoryRow[]>(() => {
     if (tab === 'Orders') return historyOrders; // No dedicated orders history endpoint yet
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
@@ -187,9 +186,7 @@ export function HistoryScreen() {
         removeClippedSubviews={true}
         ListHeaderComponent={(
           <>
-            <View style={{ height: 48, marginTop: 12, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: T.text, textAlign: 'center' }}>History</Text>
-            </View>
+            <AppHeader title="History" noBorder />
             {/* ── Account Summary ── */}
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>
             <View style={styles.summaryBlock}>
@@ -536,7 +533,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
     segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1 },
     segmentText: { fontSize: 13, fontWeight: '700' },
-    metricsRow: { marginTop: 14, flexDirection: 'row', marginRight: -6 },
+    metricsRow: { marginTop: 14, flexDirection: 'row', columnGap: 8 },
     sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
     sectionTitle: { fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
     sectionMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },

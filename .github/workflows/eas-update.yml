@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# RTX5 — OTA Update Pipeline
+# ═══════════════════════════════════════════════════════════════════════════════
+# Push JavaScript/asset changes to devices without a new binary build.
+# Manually triggered with channel selection.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: RTX5 OTA Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Update channel'
+        required: true
+        type: choice
+        options:
+          - preview
+          - staging
+          - production
+      message:
+        description: 'Update message (visible in EAS dashboard)'
+        required: true
+        type: string
+
+env:
+  NODE_VERSION: '20'
+  WORKING_DIR: rtx5-app
+
+jobs:
+  validate:
+    name: Pre-Update Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+      - run: cd ${{ env.WORKING_DIR }} && npm ci
+      - run: cd ${{ env.WORKING_DIR }} && npx tsc --noEmit
+
+  publish-update:
+    name: Publish OTA Update (${{ inputs.channel }})
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - run: cd ${{ env.WORKING_DIR }} && npm ci
+
+      - name: Publish Update
+        run: |
+          cd ${{ env.WORKING_DIR }} && eas update \
+            --channel ${{ inputs.channel }} \
+            --message "${{ inputs.message }}" \
+            --non-interactive

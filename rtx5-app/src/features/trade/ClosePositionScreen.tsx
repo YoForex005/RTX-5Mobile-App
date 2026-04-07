@@ -8,6 +8,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, Alert, ActivityIndicator } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
@@ -92,7 +93,7 @@ export function ClosePositionScreen() {
         </View>
       ) : null}
 
-      <View style={styles.buttonRow}>
+      <View style={[styles.buttonRow, { paddingBottom: Math.max(useSafeAreaInsets().bottom, 16) }]}>
         <Pressable 
           style={[styles.actionButton, styles.closeButton, isClosing && { opacity: 0.6 }]} 
           disabled={isClosing}

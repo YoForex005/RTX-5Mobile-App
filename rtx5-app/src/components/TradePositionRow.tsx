@@ -57,7 +57,7 @@ export function TradePositionRow({
 
   // Calculate live floating P&L using standard FX contract math safely
   const isJpy = item.symbol.includes('JPY');
-  const decimals = 2; // Enforce strict 2-decimal global rule
+  const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
   const contractSize = isJpy ? 1000 : 100000;
   const priceDiff = isBuy ? (livePrice - item.openPrice) : (item.openPrice - livePrice);
   const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (item.volume || 0.01) * contractSize) : 0;

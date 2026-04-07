@@ -15,7 +15,9 @@ class AccountWebSocketService {
   private ws: WebSocket | null = null;
   private url = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'ws://69.197.178.27:8090/ws/v2';
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnected = false;
+  private shouldReconnect = false; // Set false on explicit disconnect() to stop ghost retries
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
 
@@ -29,10 +31,20 @@ class AccountWebSocketService {
   }
 
   /**
-   * Initializes the WebSocket connection to the account feed.
-   * If already connected or connecting, this is a no-op.
+   * Public entry point. Resets backoff state then opens the socket.
+   * Call this on login or explicit reconnect from the layout.
    */
   public connect(): void {
+    this.shouldReconnect = true;
+    this.reconnectAttempts = 0;
+    this._doConnect();
+  }
+
+  /**
+   * Internal: creates the WebSocket and wires all event handlers.
+   * Called by connect() and by the reconnect timer (without resetting attempt count).
+   */
+  private _doConnect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
@@ -40,6 +52,7 @@ class AccountWebSocketService {
     const accountDetails = useUserPreferences.getState().accountDetails;
     if (!accountDetails || !accountDetails.credentials?.accessToken) {
       console.warn('[Account WS] No auth credentials available. Refusing to connect.');
+      this.shouldReconnect = false;
       return;
     }
 
@@ -55,44 +68,43 @@ class AccountWebSocketService {
         // 1. Send Auth immediately
         this.ws?.send(JSON.stringify({
           action: 'auth',
-          token: accountDetails.credentials!.accessToken
+          token: accountDetails.credentials!.accessToken,
         }));
 
         // 2. Send Subscription Channel
         this.ws?.send(JSON.stringify({
           action: 'subscribe',
-          channel: `account.${accountDetails.id}`
+          channel: `account.${accountDetails.id}`,
         }));
       };
 
       this.ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data as string);
-          
-          // Legacy check for pure account data
+
+          // Legacy: pure account data (no event field)
           if (payload.channel?.startsWith('account.') && payload.data && !payload.event) {
-             useLiveAccountState.getState().updateMetrics(payload.data);
+            useLiveAccountState.getState().updateMetrics(payload.data);
           }
-          
+
           // Real-time Event Routing
           if (payload.event === 'position.update' && payload.data) {
-             console.log('[Account WS] Received position.update');
-             // Upsert the position payload securely bypassing the REST replica lag
-             usePositionsState.getState().upsertPosition(payload.data);
+            console.log('[Account WS] Received position.update');
+            usePositionsState.getState().upsertPosition(payload.data);
           }
-          
+
           if (payload.event === 'order.status' && payload.data) {
-             console.log('[Account WS] Received order.status');
-             const currentLogin = payload.data.login || useUserPreferences.getState().accountDetails?.id;
-             if (currentLogin) {
-                void usePositionsState.getState().refreshPositions(String(currentLogin));
-             }
+            console.log('[Account WS] Received order.status');
+            const currentLogin =
+              payload.data.login || useUserPreferences.getState().accountDetails?.id;
+            if (currentLogin) {
+              void usePositionsState.getState().refreshPositions(String(currentLogin));
+            }
           }
 
           if (payload.event === 'account.snapshot' && payload.data) {
-             useLiveAccountState.getState().updateMetrics(payload.data);
+            useLiveAccountState.getState().updateMetrics(payload.data);
           }
-
         } catch (e) {
           console.warn('[Account WS] Parse error', e);
         }
@@ -106,10 +118,13 @@ class AccountWebSocketService {
         this.attemptReconnect();
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[Account WS] Error', error);
+      this.ws.onerror = () => {
+        // Log a clean one-liner instead of dumping the raw Event object
+        const state = this.ws?.readyState ?? -1;
+        console.warn(
+          `[Account WS] Connection error — url: ${this.url} | readyState: ${state}`,
+        );
       };
-
     } catch (e) {
       console.error('[Account WS] Connection initialization failed', e);
       this.attemptReconnect();
@@ -121,6 +136,15 @@ class AccountWebSocketService {
    * and resets the live account state to zeros.
    */
   public disconnect(): void {
+    // Signal that this is an intentional close — stop all pending reconnect timers
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.ws) {
       this.stopHeartbeat();
       this.ws.close();
@@ -131,13 +155,26 @@ class AccountWebSocketService {
   }
 
   private attemptReconnect(): void {
+    // Do NOT reconnect if disconnect() was called explicitly or no credentials exist
+    if (!this.shouldReconnect) return;
+    const accountDetails = useUserPreferences.getState().accountDetails;
+    if (!accountDetails?.credentials?.accessToken) {
+      console.warn('[Account WS] Reconnect cancelled — no valid auth credentials.');
+      this.shouldReconnect = false;
+      return;
+    }
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      const timeout = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000); // Expon backoff
-      console.log(`[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts})`);
-      setTimeout(() => this.connect(), timeout);
+      const timeout = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+      console.log(`[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this._doConnect();
+      }, timeout);
     } else {
-      console.error('[Account WS] Max reconnect attempts reached. Connection failed permanently.');
+      console.warn('[Account WS] Max reconnect attempts reached. Giving up until next login.');
+      this.shouldReconnect = false;
     }
   }
 
