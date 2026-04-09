@@ -232,7 +232,7 @@ export function BrokersScreen() {
               value={search}
               onChangeText={setSearch}
             />
-            {search.length ? (
+            {search.length > 0 ? (
               <Pressable onPress={() => setSearch('')}>
                 <Ionicons name='close-circle' size={18} color='#7f93b2' />
               </Pressable>

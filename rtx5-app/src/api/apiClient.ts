@@ -14,6 +14,63 @@ import { useUserPreferences } from '../state/userPreferences';
 // V2 API base URL — resolved from environment variable, falls back to direct IP
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://69.197.178.27/api/v2';
 
+/**
+ * Decode the broker_id claim out of a JWT access token without any external
+ * dependency. The V2 backend embeds the broker context directly into the
+ * token's payload (e.g. `{ sub, broker_id, exp, ... }`), so we can always
+ * recover the active broker from the token even if the Zustand state lost
+ * its persisted `brokerId` (which happens after a logout, a fresh app
+ * install, or any code path that called `state.logout()` such as a token
+ * refresh failure).
+ *
+ * Returns null if the token is missing, malformed, or doesn't carry a
+ * broker claim. Never throws.
+ */
+export const decodeBrokerIdFromToken = (token: string | undefined | null): string | null => {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // base64url → base64
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    // JS atob is available in RN's JSCore + Hermes since RN 0.71+
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const decoded =
+      typeof atob === 'function'
+        ? atob(padded)
+        : // Node fallback for unit tests
+          Buffer.from(padded, 'base64').toString('utf-8');
+    const claims = JSON.parse(decoded);
+    return (
+      claims.broker_id ||
+      claims.brokerId ||
+      claims.broker ||
+      claims['broker-id'] ||
+      null
+    );
+  } catch (_e) {
+    return null;
+  }
+};
+
+/**
+ * Resolve the active broker ID from any available source:
+ *   1. JWT claim (canonical — set by the backend, can't drift)
+ *   2. Persisted Zustand state (set at login time)
+ *   3. null (caller decides what to do)
+ * The order is intentional: the JWT is always more reliable than the
+ * persisted state because the persisted state can be cleared by logout.
+ */
+export const resolveBrokerId = (): string | null => {
+  const state = useUserPreferences.getState();
+  const token = state.accountDetails?.credentials?.accessToken;
+  const resolved = decodeBrokerIdFromToken(token) || state.brokerId || null;
+  if (!resolved && state.isLoggedIn) {
+    console.warn('[RTX5] resolveBrokerId returned null while logged in — trades will fail with 403. Token broker_id:', decodeBrokerIdFromToken(token), 'State brokerId:', state.brokerId);
+  }
+  return resolved;
+};
+
 // Queue for pending requests while refreshing token
 let isRefreshing = false;
 let failedQueue: Array<{
@@ -48,21 +105,38 @@ interface ApiClientRequestInit extends RequestInit {
 export const apiClient = async (endpoint: string, options: ApiClientRequestInit = {}): Promise<Response> => {
   const state = useUserPreferences.getState();
   const token = state.accountDetails?.credentials?.accessToken;
+  // Resolve broker context from JWT first (always canonical), persisted
+  // state second (can be empty if logged in before persistBrokerId existed).
+  const brokerId = resolveBrokerId();
 
   // Clone headers
   const headers = new Headers(options.headers || {});
-  
+
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
     headers.set('X-API-Key', token);
   }
-  
+
+  // ── BROKER CONTEXT HEADER ─────────────────────────────────────────────
+  // The V2 backend is multi-tenant: every trading request must declare which
+  // broker it belongs to so the server can route the order to the right
+  // MT5 manager. Without this header the server returns:
+  //   403 "Trading is disabled. No broker context found."
+  //
+  // The brokerId is persisted at login time (loginAPI body field) and lives
+  // in Zustand state, so we forward it on every authenticated request.
+  // Sent as both X-Broker-Id and X-Broker-ID for case-insensitive servers.
+  if (brokerId) {
+    headers.set('X-Broker-Id', brokerId);
+    headers.set('X-Broker-ID', brokerId);
+  }
+
   // Set default content type only for requests with a body (POST, PUT, PATCH)
   // GET requests MUST NOT have Content-Type — nginx/servers may reject them
   if (!headers.has('Content-Type') && !(options.body instanceof FormData) && options.body) {
     headers.set('Content-Type', 'application/json');
   }
-  
+
   // Always set Accept header
   if (!headers.has('accept')) {
     headers.set('accept', 'application/json');
@@ -110,11 +184,14 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       }
 
       // Call V2 refresh endpoint directly using pure fetch
+      // The API requires the old access token in the Authorization header
+      // alongside the refresh_token in the body.
       const rs = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'accept': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           refresh_token: refreshToken,
@@ -132,6 +209,15 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
       // Update tokens in Zustand state — cyclic: new refresh_token replaces old
       state.updateTokens(refreshData.access_token, refreshData.refresh_token, expiresAt);
+
+      // ── CRITICAL: Persist broker_id from the refresh response ────────
+      // The V2 backend returns broker_id in the refresh response body, but
+      // the refreshed JWT does NOT contain the broker_id claim (unlike the
+      // login JWT which does). Without this, resolveBrokerId() would return
+      // null after the first token refresh, causing 403 on all trades.
+      if (refreshData.broker_id && !state.brokerId) {
+        state.setBrokerId(refreshData.broker_id);
+      }
 
       // Retry original request with fresh access token
       const retryHeaders = new Headers(originalRequest.headers);

@@ -25,6 +25,7 @@ import { Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 
 // ── API Integration: fetches live account + broker data for active card ──
 import { useAccounts } from '../../query/accounts';
 import { useBrokerConfig } from '../../query/broker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function AccountsScreen() {
   const router = useRouter();
@@ -34,7 +35,8 @@ export function AccountsScreen() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   // ── GET /accounts — live trading accounts for the authenticated user ──
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
@@ -281,7 +283,7 @@ export function AccountsScreen() {
   );
 }
 
-const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSheet.create({
   page: {
     flex: 1,
     backgroundColor: T.bgRoot,
@@ -346,7 +348,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 48,
+    paddingTop: safeTop + 8,
     paddingBottom: 16,
     backgroundColor: T.bgRoot,
   },

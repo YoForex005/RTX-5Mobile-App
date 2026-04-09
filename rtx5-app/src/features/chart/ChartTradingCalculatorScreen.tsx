@@ -6,34 +6,48 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
+import { useInstrumentMeta } from '../../query/instruments';
+import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 
-const MOCK_DATA = {
-  margin: '2.39',
-  commission: '0.00',
-  swap: '-0.62',
-  spread: '0.22',
-  pipValue: '0.01',
-  pl: '10.12',
-  currency: 'USD',
-  marketPrice: '4778.654',
-};
+// Format helpers — return "—" when an input is missing so the UI never shows
+// a misleading hardcoded number.
+const fmtMoney = (n: number | undefined, currency: string) =>
+  n === undefined || !Number.isFinite(n) ? '—' : `${n.toFixed(2)} ${currency}`;
+const fmtPipValue = (n: number | undefined, currency: string) =>
+  n === undefined || !Number.isFinite(n) ? '—' : `${n.toFixed(4)} ${currency}`;
 
 export function ChartTradingCalculatorScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  const currentSymbol = symbol || 'XAU/USD';
+
+  // Real broker meta + live market quote
+  const { data: meta } = useInstrumentMeta(currentSymbol);
+  const liveQuotes = useMarketData([currentSymbol]);
+  const liveQuote = liveQuotes[currentSymbol];
+
+  const liveBid = typeof liveQuote?.bid === 'number' ? liveQuote.bid : undefined;
+  const liveAsk = typeof liveQuote?.ask === 'number' ? liveQuote.ask : undefined;
+  const liveMid = liveBid !== undefined && liveAsk !== undefined
+    ? (liveBid + liveAsk) / 2
+    : (liveBid ?? liveAsk);
+  const profitCurrency = meta?.profitCurrency || 'USD';
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [lotSize, setLotSize] = useState('0.01');
   const [openPrice, setOpenPrice] = useState('');
-  const [closePrice, setClosePrice] = useState('4788.771');
+  const [closePrice, setClosePrice] = useState('');
 
   const adjustLotSize = (amount: number) => {
     setLotSize((prev) => {
@@ -42,12 +56,57 @@ export function ChartTradingCalculatorScreen() {
     });
   };
 
-  const currentSymbol = symbol || 'XAU/USD';
+  // ── Derive every summary value from real inputs ───────────────────────
+  // Resolve effective open/close prices, falling back to live quote.
+  const lots = parseFloat(lotSize) || 0;
+  const effectiveOpen = parseFloat(openPrice) || (side === 'buy' ? liveAsk : liveBid) || liveMid;
+  const effectiveClose = parseFloat(closePrice) || (side === 'buy' ? liveBid : liveAsk) || liveMid;
+  const contractSize = meta?.contractSize ?? 0;
+  const tickValue = meta?.tickValue ?? 0;
+  const pipMultiplier = currentSymbol.includes('JPY') ? 100 : 10000;
+
+  // Standard formulas (broker math, not magic constants):
+  //   Spread (pips)  = (ask - bid) * pipMultiplier
+  //   Pip value      = lots * contractSize * tickSize  (or directly meta.tickValue * lots / pip ratio)
+  //   Margin         = lots * contractSize * openPrice / leverage
+  //   Swap (1 day)   = lots * (swapLong | swapShort)
+  //   P/L            = (close - open) * lots * contractSize  * directionSign
+  const accountLeverage = 2000; // TODO: thread real account leverage when available
+  const directionSign = side === 'buy' ? 1 : -1;
+
+  const spread = liveBid !== undefined && liveAsk !== undefined
+    ? (liveAsk - liveBid) * pipMultiplier
+    : undefined;
+  const pipValue = lots > 0 && contractSize > 0 && tickValue > 0
+    ? lots * tickValue
+    : undefined;
+  const margin = lots > 0 && contractSize > 0 && effectiveOpen
+    ? (lots * contractSize * effectiveOpen) / accountLeverage
+    : undefined;
+  const swapPerDay = lots > 0
+    ? lots * ((side === 'buy' ? meta?.swapLong : meta?.swapShort) ?? NaN)
+    : undefined;
+  const commission = 0; // No commission field in InstrumentMetaDTO; surface 0 explicitly.
+  const profitLoss = lots > 0 && contractSize > 0 && effectiveOpen && effectiveClose
+    ? (effectiveClose - effectiveOpen) * lots * contractSize * directionSign
+    : undefined;
 
   return (
     <Screen style={styles.screen}>
-      <Stack.Screen options={{ title: `Calculator (${currentSymbol})` }} />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
+          </Pressable>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              Calculator · {currentSymbol}
+            </Text>
+          </View>
+          <View style={styles.headerBackBtn} />
+        </View>
+      </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Segmented Control */}
         <View style={styles.segmentContainer}>
@@ -104,7 +163,7 @@ export function ChartTradingCalculatorScreen() {
               value={openPrice}
               onChangeText={setOpenPrice}
               keyboardType="numeric"
-              placeholder={`Market price (${MOCK_DATA.marketPrice})`}
+              placeholder={liveMid ? `Market price (${liveMid.toFixed(meta?.tickSize && meta.tickSize < 0.01 ? 5 : 3)})` : 'Market price'}
               placeholderTextColor={T.textMuted}
             />
             <Pressable style={styles.stepperBtn}>
@@ -139,12 +198,12 @@ export function ChartTradingCalculatorScreen() {
         {/* Summary Table */}
         <View style={styles.summaryTable}>
           {[
-            { label: 'Margin', value: `${MOCK_DATA.margin} ${MOCK_DATA.currency}` },
-            { label: 'Commission', value: `${MOCK_DATA.commission} ${MOCK_DATA.currency}` },
-            { label: 'Swap', value: `${MOCK_DATA.swap} ${MOCK_DATA.currency}` },
-            { label: 'Spread', value: `${MOCK_DATA.spread} ${MOCK_DATA.currency}` },
-            { label: 'Pip Value', value: `${MOCK_DATA.pipValue} ${MOCK_DATA.currency}` },
-            { label: 'P/L', value: `${MOCK_DATA.pl} ${MOCK_DATA.currency}` },
+            { label: 'Margin',     value: fmtMoney(margin, profitCurrency) },
+            { label: 'Commission', value: fmtMoney(commission, profitCurrency) },
+            { label: 'Swap',       value: fmtMoney(swapPerDay, profitCurrency) },
+            { label: 'Spread',     value: spread !== undefined ? `${spread.toFixed(1)} pts` : '—' },
+            { label: 'Pip Value',  value: fmtPipValue(pipValue, profitCurrency) },
+            { label: 'P/L',        value: fmtMoney(profitLoss, profitCurrency) },
           ].map((item, i, arr) => (
             <React.Fragment key={item.label}>
               <View style={styles.summaryRow}>
@@ -163,7 +222,7 @@ export function ChartTradingCalculatorScreen() {
         <View style={styles.footerWarning}>
           <Ionicons name="information-circle-outline" size={24} color={isDark ? T.text : '#000'} style={{ marginTop: 2 }} />
           <Text style={styles.footerWarningText}>
-            Always review the Order Information when placing an order. Order parameters may vary depending on specific conditions.
+            Live preview only. Real margin, swap and P/L are set when your order is filled.
           </Text>
         </View>
 
@@ -175,7 +234,37 @@ export function ChartTradingCalculatorScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? T.bg : '#FFFFFF',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerBackBtn: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    headerTitle: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     scrollContent: {
       padding: 16,

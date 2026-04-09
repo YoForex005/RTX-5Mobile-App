@@ -8,6 +8,7 @@ import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { useTradingState, Candle } from '../state/tradingState';
 import { quotes as mockQuotes } from '../mock/tradingData';
+import { normalizeSymbol } from '../domain/symbols';
 
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
 
@@ -42,6 +43,10 @@ export function useWebSocketConnection() {
  * when the specific symbols it cares about update.
  */
 export function useMarketData(symbols: string[] = []) {
+  const normalizedSymbols = React.useMemo(
+    () => Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))),
+    [JSON.stringify(symbols)],
+  );
   // Subscribe to tickCount (a plain number) — React 19 + Zustand 5 can't miss a
   // primitive change, so this guarantees a re-render on every single server tick.
   useTradingState(state => state.tickCount);
@@ -50,19 +55,20 @@ export function useMarketData(symbols: string[] = []) {
 
   useEffect(() => {
     quotesWsService.connect();
-    quotesWsService.setSubscriptions(symbols);
+    quotesWsService.setSubscriptions(normalizedSymbols);
 
     return () => {
-      quotesWsService.unsubscribe(symbols);
+      quotesWsService.unsubscribe(normalizedSymbols);
     };
-  }, [JSON.stringify(symbols)]);
+  }, [JSON.stringify(normalizedSymbols)]);
 
   if (symbols.length === 0) return quotes;
   return symbols.reduce((acc, sym) => {
-    const mock = mockQuotes.find((m) => m.symbol === sym);
-    const live = quotes[sym];
+    const normalizedSymbol = normalizeSymbol(sym);
+    const mock = mockQuotes.find((m) => normalizeSymbol(m.symbol) === normalizedSymbol);
+    const live = quotes[sym] || quotes[normalizedSymbol];
     if (live || mock) {
-      acc[sym] = { ...(mock || {}), ...(live || {}) };
+      acc[sym] = { ...(mock || {}), ...(live || {}), symbol: normalizedSymbol };
     }
     return acc;
   }, {} as Record<string, any>);

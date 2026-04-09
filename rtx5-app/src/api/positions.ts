@@ -6,6 +6,7 @@
  */
 
 import { API_BASE_URL, apiClient } from './apiClient';
+import { createTradingApiError } from './tradingErrors';
 import { useUserPreferences } from '../state/userPreferences';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ export const positionsApi = {
       console.warn('[PositionsAPI] Error response:', JSON.stringify(errorData));
       const headers: Record<string, string> = {};
       if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw { response: { data: errorData, status: response.status, headers } };
+      throw createTradingApiError(response.status, errorData, headers);
     }
 
     const json = await response.json();
@@ -202,7 +203,7 @@ export const positionsApi = {
       const errorData = await response.json().catch(() => ({}));
       const headers: Record<string, string> = {};
       if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw { response: { data: errorData, status: response.status, headers } };
+      throw createTradingApiError(response.status, errorData, headers);
     }
 
     const json = await response.json();
@@ -242,7 +243,7 @@ export const positionsApi = {
       const errorData = await response.json().catch(() => ({}));
       const headers: Record<string, string> = {};
       if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw { response: { data: errorData, status: response.status, headers } };
+      throw createTradingApiError(response.status, errorData, headers);
     }
 
     return response.json().catch(() => ({} as ClosePositionResponse));
@@ -270,7 +271,7 @@ export const positionsApi = {
       const errorData = await response.json().catch(() => ({}));
       const headers: Record<string, string> = {};
       if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
-      throw { response: { data: errorData, status: response.status, headers } };
+      throw createTradingApiError(response.status, errorData, headers);
     }
 
     return response.json();

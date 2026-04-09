@@ -19,6 +19,8 @@ import { useAccountSummary } from '../../query/account';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
 import { useLiveTick } from '../../hooks/useLiveCandles';
+import { normalizeSymbol } from '../../domain/symbols';
+import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
 const ORDER_TYPES = [
   'Market Execution',
@@ -30,7 +32,7 @@ const ORDER_TYPES = [
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
   const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
-  const symbol = routeSymbol || 'EURUSD'; // Fallback so TS is happy and we have a valid symbol
+  const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { accountDetails, themeMode, oneClickAccepted } = useUserPreferences();
@@ -132,13 +134,21 @@ export function OrderTicketScreen() {
 
   const handlePlaceOrder = async (side: 'buy' | 'sell') => {
     if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
-      setModalState({ visible: true, type: 'error', title: 'Authentication Error', message: 'You must be logged into a valid trading account to place orders.' });
+      const feedback = createFrontendTradingError(
+        'Authentication Error',
+        'The app does not have a valid local trading session. Log in again before placing an order.',
+      );
+      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
       return;
     }
 
     const tradingLogin = resolveTradingLogin();
     if (!tradingLogin) {
-      setModalState({ visible: true, type: 'error', title: 'Account Error', message: 'Unable to resolve the active trading account login.' });
+      const feedback = createFrontendTradingError(
+        'Account Error',
+        'The app could not resolve the active trading account from local state. Select an account and try again.',
+      );
+      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
       return;
     }
 
@@ -157,21 +167,31 @@ export function OrderTicketScreen() {
       //   • DB transaction atomicity on the server side
       //   • Rejection on zero/negative market prices
       //   • SL/TP validation against current market price
+      // Read the broker_id that was persisted at login time. The server
+      // requires this to route the order to the correct MT5 manager — without
+      // it the response is 403 "No broker context found".
+      const brokerIdForOrder = useUserPreferences.getState().brokerId || undefined;
+
+      // Only include SL/TP when explicitly enabled by the user. Sending 0
+      // makes some MT5 bridges interpret it as "set price to zero" and the
+      // backend rejects the insert. Same for trailing_stop/trailing_step/magic.
       const data = await ordersApi.placeMarketOrder({
         account_login: tradingLogin,
+        broker_id: brokerIdForOrder,
         symbol: symbol,
         side: side,
         volume: volume,
-        price_sl: slEnabled ? slPrice : 0,
-        price_tp: tpEnabled ? tpPrice : 0,
+        ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
+        ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: 'RTX5 Mobile Order',
-        trailing_stop: 0,
-        trailing_step: 0,
-        magic: 0,
       });
 
       if (['rejected', 'failed', 'error'].includes(data.status?.toLowerCase())) {
-        setModalState({ visible: true, type: 'error', title: 'Order Rejected', message: data.comment || `Server returned status: ${data.status}` });
+        const feedback = classifyTradingError(
+          { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
+          { action: 'place-order' },
+        );
+        setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
         return;
       }
 
@@ -207,27 +227,8 @@ export function OrderTicketScreen() {
       Alert.alert('Order Executed', `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}.\nTicket: #${positionTicket}`);
       router.back();
     } catch (error: any) {
-      // Handle specific server rejections from the API layer
-      const status = error?.response?.status;
-      const errData = error?.response?.data || {};
-      switch (status) {
-        case 400:
-          setModalState({ visible: true, type: 'error', title: 'Order Rejected', message: errData.message || 'Invalid parameters or market closed.' });
-          break;
-        case 401:
-          setModalState({ visible: true, type: 'error', title: 'Session Expired', message: 'Your trading session has expired. Please log in again.' });
-          break;
-        case 429:
-          const retryStr = error?.response?.headers?.['retry-after'];
-          const seconds = parseInt(retryStr, 10);
-          const msg = !isNaN(seconds) 
-            ? `Too many requests. Please wait ${seconds} seconds before placing another order.`
-            : 'Too many requests. Please wait a moment before placing another order.';
-          setModalState({ visible: true, type: 'error', title: 'Rate Limited', message: msg });
-          break;
-        default:
-          setModalState({ visible: true, type: 'error', title: `Execution Failed (${status || 'Local Error'})`, message: errData.message || String(error?.message || error) || 'Failed to reach the trading server.' });
-      }
+      const feedback = classifyTradingError(error, { action: 'place-order' });
+      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
     } finally {
       setPendingSide(null);
     }

@@ -38,6 +38,7 @@ import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
+import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
 import {
   buildRTX5CustomCandlestickSeriesOptions,
@@ -161,7 +162,11 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
-        Alert.alert('Error', 'No active trading account resolved.');
+        const feedback = createFrontendTradingError(
+          'Account Error',
+          'The app could not resolve the active trading account from local state. Select an account and try again.',
+        );
+        Alert.alert(feedback.title, feedback.message);
         return;
       }
 
@@ -200,8 +205,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
             Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
           },
           onError: (err: any) => {
-            const msg = err?.response?.data?.message || err?.message || 'Execution error';
-            Alert.alert('Trade Failed', msg);
+            const feedback = classifyTradingError(err, { action: 'place-order' });
+            Alert.alert(feedback.title, feedback.message);
           }
         }
       );

@@ -6,66 +6,93 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
+import { useInstrumentMeta } from '../../query/instruments';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
 
-const MOCK_DATA = {
-  minVolume: '0.01',
-  maxVolume: '200',
-  step: '0.01',
-  contractSize: '100',
-  spreadUnits: 'USD',
-  stopLevel: '0.0',
-  swapLong: '-62.0',
-  swapShort: '0.0',
-};
+// Format helpers — show "—" when the broker hasn't returned a value yet so the
+// UI never displays a misleading hardcoded number.
+const fmtNum = (n: number | undefined, decimals = 2) =>
+  n === undefined || n === null || Number.isNaN(n) ? '—' : n.toFixed(decimals);
+const fmtStr = (s: string | undefined) =>
+  s === undefined || s === null || s === '' ? '—' : s;
 
 export function ChartSpecificationScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const [showTradingHoursModal, setShowTradingHoursModal] = React.useState(false);
 
   const currentSymbol = symbol || 'XAU/USD';
+  const { data: meta, isLoading: isMetaLoading } = useInstrumentMeta(currentSymbol);
+
+  const infoRows = [
+    { label: 'Minimum volume, lots', value: fmtNum(meta?.minVolume, 2) },
+    { label: 'Maximum volume, lots', value: fmtNum(meta?.maxVolume, 2) },
+    { label: 'Step',                 value: fmtNum(meta?.stepVolume, 2) },
+    { label: 'Contract size',        value: fmtNum(meta?.contractSize, 0) },
+    { label: 'Spread units',         value: fmtStr(meta?.profitCurrency) },
+    { label: 'Stop level, pips',     value: fmtStr(meta?.stopsLevel) },
+    { label: 'Swap long, pips',      value: fmtNum(meta?.swapLong, 1) },
+    { label: 'Swap short, pips',     value: fmtNum(meta?.swapShort, 1) },
+  ];
 
   return (
     <Screen style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
+          </Pressable>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              Specification · {currentSymbol}
+            </Text>
+          </View>
+          <View style={styles.headerBackBtn} />
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
         {/* Trading Hours Section */}
         <Text style={styles.sectionHeader}>TRADING HOURS</Text>
-        <Pressable style={styles.tradingHoursCard} onPress={() => setShowTradingHoursModal(true)}>
-          <Ionicons name="time-outline" size={24} color={T.text} style={styles.timeIcon} />
+        <Pressable
+          style={({ pressed }) => [styles.tradingHoursCard, pressed && styles.cardPressed]}
+          onPress={() => setShowTradingHoursModal(true)}
+        >
+          <View style={styles.timeIconWrap}>
+            <Ionicons name="time-outline" size={20} color={T.trading.buy.primary} />
+          </View>
           <View style={styles.tradingHoursTextCol}>
-            <Text style={styles.tradingHoursTitle}>Market is open</Text>
+            <View style={styles.tradingHoursTitleRow}>
+              <View style={styles.marketStatusDot} />
+              <Text style={styles.tradingHoursTitle}>Market is open</Text>
+            </View>
             <Text style={styles.tradingHoursSub}>Closes in 13:45:15</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={T.text} />
+          <Ionicons name="chevron-forward" size={18} color={isDark ? '#64748B' : '#94A3B8'} />
         </Pressable>
 
         {/* Info Section */}
-        <Text style={[styles.sectionHeader, { marginTop: 32 }]}>INFO</Text>
-        <View style={styles.infoContainer}>
-          {[
-            { label: 'Minimum volume, lots', value: MOCK_DATA.minVolume },
-            { label: 'Maximum volume, lots', value: MOCK_DATA.maxVolume },
-            { label: 'Step', value: MOCK_DATA.step },
-            { label: 'Contract size', value: MOCK_DATA.contractSize },
-            { label: 'Spread units', value: MOCK_DATA.spreadUnits },
-            { label: 'Stop level, pips', value: MOCK_DATA.stopLevel },
-            { label: 'Swap long, pips', value: MOCK_DATA.swapLong },
-            { label: 'Swap short, pips', value: MOCK_DATA.swapShort },
-          ].map((item, index) => (
-            <View key={item.label} style={[styles.infoRow, index === 0 && { paddingTop: 0 }]}>
-              <Text style={styles.infoLabel}>{item.label}</Text>
-              <Text style={styles.infoValue}>{item.value}</Text>
+        <Text style={[styles.sectionHeader, { marginTop: 24 }]}>INFO</Text>
+        <View style={styles.infoCard}>
+          {infoRows.map((item, index) => (
+            <View key={item.label}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{item.label}</Text>
+                <Text style={styles.infoValue}>{item.value}</Text>
+              </View>
+              {index < infoRows.length - 1 && <View style={styles.infoSeparator} />}
             </View>
           ))}
         </View>
@@ -83,58 +110,134 @@ export function ChartSpecificationScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? T.bg : '#FFFFFF',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerBackBtn: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    headerTitle: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     scrollContent: {
-      padding: 20,
+      paddingTop: 18,
       paddingBottom: 40,
     },
     sectionHeader: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: isDark ? '#94A3B8' : '#94A3B8', // Keeping it a muted gray/silver for section headers
-      letterSpacing: 0.5,
-      marginBottom: 16,
+      fontSize: 11,
+      fontWeight: '800',
+      color: isDark ? '#94A3B8' : '#64748B',
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
+      paddingHorizontal: 20,
+      marginBottom: 10,
     },
+
+    /* Trading Hours card */
     tradingHoursCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: 4,
+      gap: 14,
+      marginHorizontal: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
     },
-    timeIcon: {
-      marginRight: 16,
+    cardPressed: {
+      opacity: 0.85,
+    },
+    timeIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.08)',
     },
     tradingHoursTextCol: {
       flex: 1,
     },
-    tradingHoursTitle: {
-      fontSize: 16,
-      color: T.text,
-      fontWeight: '400',
+    tradingHoursTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
       marginBottom: 2,
     },
-    tradingHoursSub: {
-      fontSize: 14,
-      color: T.textMuted,
+    marketStatusDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: '#22C55E',
     },
-    infoContainer: {
-      // no background or borders, just clean padding layout
+    tradingHoursTitle: {
+      fontSize: 15,
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontWeight: '700',
+    },
+    tradingHoursSub: {
+      fontSize: 12,
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontWeight: '500',
+      fontVariant: ['tabular-nums'],
+    },
+
+    /* Info card */
+    infoCard: {
+      marginHorizontal: 14,
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      overflow: 'hidden',
     },
     infoRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingVertical: 14,
+      paddingHorizontal: 14,
+    },
+    infoSeparator: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      marginLeft: 14,
     },
     infoLabel: {
-      fontSize: 15,
-      color: isDark ? '#CBD5E1' : '#334155', // slightly softer than fully black
-      fontWeight: '400',
+      fontSize: 14,
+      color: isDark ? '#CBD5E1' : '#334155',
+      fontWeight: '500',
     },
     infoValue: {
-      fontSize: 15,
-      color: T.textMuted,
-      fontWeight: '400',
+      fontSize: 14,
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
   });
 }

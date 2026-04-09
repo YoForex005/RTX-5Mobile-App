@@ -7,6 +7,7 @@ import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
 import { useUserPreferences } from '../../src/state/userPreferences';
 import { useTheme } from '../../src/theme/useTheme';
+import { useTranslation } from '../../src/i18n/useTranslation';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -24,6 +25,7 @@ export default function TabsLayout() {
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
@@ -46,9 +48,10 @@ export default function TabsLayout() {
   return (
     <View style={styles.root}>
       <Tabs
+        detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
-          tabBarStyle: TAB_BAR_STYLE,
+          tabBarStyle: shouldHideMenu ? { display: 'none' } : TAB_BAR_STYLE,
           tabBarActiveTintColor: T.accent,
           tabBarInactiveTintColor: isDark ? '#5A6B87' : T.textDimmed,
           tabBarIcon: ({ color, size }) => {
@@ -60,13 +63,28 @@ export default function TabsLayout() {
             marginBottom: 4,
             fontWeight: '600',
           },
+          // Keep every tab's React tree mounted across tab switches so the
+          // WebView (especially the chart) is never paused or detached. The
+          // user expects instant returns to the chart with no reload.
+          freezeOnBlur: false,
+          lazy: false,
         })}
       >
-        <Tabs.Screen name='quotes' options={{ title: 'Quotes' }} />
-        <Tabs.Screen name='chart' options={{ title: 'Chart' }} />
-        <Tabs.Screen name='trade' options={{ title: 'Trade' }} />
-        <Tabs.Screen name='history' options={{ title: 'History' }} />
-        <Tabs.Screen name='settings' options={{ title: 'Settings' }} />
+        <Tabs.Screen name='quotes' options={{ title: t('Quotes') }} />
+        <Tabs.Screen
+          name='chart'
+          options={{
+            title: t('Chart'),
+            // Extra safety on the chart specifically: never freeze, never
+            // unmount, never detach. Even on aggressive Android memory
+            // pressure the WebView stays in the React tree.
+            freezeOnBlur: false,
+            lazy: false,
+          }}
+        />
+        <Tabs.Screen name='trade' options={{ title: t('Trade') }} />
+        <Tabs.Screen name='history' options={{ title: t('History') }} />
+        <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
       </Tabs>
 
       <SidebarDrawer />

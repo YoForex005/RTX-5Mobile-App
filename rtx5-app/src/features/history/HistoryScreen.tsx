@@ -7,8 +7,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
@@ -28,6 +28,7 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
+import { useTranslation } from '../../i18n/useTranslation';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -98,6 +99,7 @@ export function HistoryScreen() {
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const T = useTheme();
+  const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -105,9 +107,19 @@ export function HistoryScreen() {
   // GET /api/v2/positions/{login}/history — closed position history
   // GET /api/v2/deals/{login} — deal execution history
   const accountLogin = resolveTradingLogin();
-  const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin);
-  const { data: rawPositions = [] } = usePositionsQuery(accountLogin);
-  const { data: rawDeals = [] } = useDealsQuery(accountLogin);
+  const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin);
+  const { data: rawPositions = [], refetch: refetchPositions } = usePositionsQuery(accountLogin);
+  const { data: rawDeals = [], refetch: refetchDeals } = useDealsQuery(accountLogin);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetchPositionHistory(), refetchPositions(), refetchDeals()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchPositionHistory, refetchPositions, refetchDeals]);
 
   // Hook into live pricing feed for open positions parity
   const activeSymbols = useMemo(() => Array.from(new Set(rawPositions.map(p => p.symbol))), [rawPositions]);
@@ -173,20 +185,29 @@ export function HistoryScreen() {
   const netTone: Tone = netProfit > 0 ? 'positive' : netProfit < 0 ? 'negative' : 'neutral';
 
   return (
-    <Screen>
+    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <FlatList
         style={styles.list}
         data={data}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${item.id}-${index}`}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         initialNumToRender={15}
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#D1D4DC' : '#131722'}
+            colors={[isDark ? '#D1D4DC' : '#131722']}
+            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+          />
+        }
         ListHeaderComponent={(
           <>
-            <AppHeader title="History" noBorder />
+            <AppHeader title={t('History')} noBorder />
             {/* ── Account Summary ── */}
             <Text style={styles.accountSummaryHeading}>Account Summary</Text>
             <View style={styles.summaryBlock}>
@@ -325,7 +346,7 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
     <View style={[
       rStyles.rowCard,
       {
-        backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg,
+        backgroundColor: isDark ? '#0E141F' : cardBg,
         borderColor: isDark ? T.border : T.borderSubtle,
       },
       !isDark && rStyles.cardShadowLight,
@@ -501,7 +522,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
+      backgroundColor: isDark ? '#0E141F' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
       shadowColor: isDark ? '#2563EB' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.04,
@@ -521,7 +542,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
       borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : cardBg, padding: 6, paddingBottom: 8,
+      backgroundColor: isDark ? '#0E141F' : cardBg, padding: 6, paddingBottom: 8,
       shadowColor: isDark ? '#2563EB' : '#0F172A',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
       shadowOpacity: isDark ? 0.08 : 0.04,

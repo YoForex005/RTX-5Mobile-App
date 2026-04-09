@@ -19,6 +19,11 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
+import {
+  classifyTradingError,
+  createFrontendTradingError,
+  formatTradingErrorFeedback,
+} from '../../api/tradingErrors';
 
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
@@ -61,7 +66,14 @@ export function CloseByScreen() {
     if (!sourcePosition || !selectedPair) return;
     
     if (!accountDetails?.credentials?.accessToken) {
-      setCloseError('Authentication Error: Session token missing.');
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            'Authentication Error',
+            'The app does not have a valid local trading session. Log in again before using Close By.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -82,18 +94,11 @@ export function CloseByScreen() {
         state.refreshPositions(resolvedLogin);
       }
     } catch (error: any) {
-      const status = error?.response?.status;
-      const data = error?.response?.data || {};
-      if (status === 404) {
-        setCloseError(data.message || 'Position not found.');
-      } else if (status === 429) {
-        const retryStr = error?.response?.headers?.['retry-after'];
-        const seconds = parseInt(retryStr, 10);
-        const waitMsg = !isNaN(seconds) ? ` Wait ${seconds} seconds.` : ' Wait before trying again.';
-        setCloseError(`Rate limited!${waitMsg}`);
-      } else {
-        setCloseError(data.message || 'Failed to close positions.');
-      }
+      setCloseError(
+        formatTradingErrorFeedback(
+          classifyTradingError(error, { action: 'close-by' }),
+        ),
+      );
     } finally {
       setIsClosing(false);
     }

@@ -20,6 +20,11 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
+import {
+  classifyTradingError,
+  createFrontendTradingError,
+  formatTradingErrorFeedback,
+} from '../../api/tradingErrors';
 
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
@@ -100,7 +105,14 @@ export function ClosePositionScreen() {
           onPress={async () => {
             const ticketId = position.id;
             if (!accountDetails?.credentials?.accessToken) {
-              setCloseError('Authentication Error: Session token missing.');
+              setCloseError(
+                formatTradingErrorFeedback(
+                  createFrontendTradingError(
+                    'Authentication Error',
+                    'The app does not have a valid local trading session. Log in again before closing a position.',
+                  ),
+                ),
+              );
               return;
             }
 
@@ -127,20 +139,11 @@ export function ClosePositionScreen() {
                 state.refreshPositions(resolvedLogin);
               }
             } catch (error: any) {
-              const status = error?.response?.status;
-              const data = error?.response?.data || {};
-              if (status === 404) {
-                setCloseError(data.message || 'Position not found.');
-              } else if (status === 429) {
-                const retryStr = error?.response?.headers?.['retry-after'];
-                const seconds = parseInt(retryStr, 10);
-                const waitMsg = !isNaN(seconds) ? ` Wait ${seconds} seconds.` : ' Wait before trying again.';
-                setCloseError(`Rate limited!${waitMsg}`);
-              } else if (status === 400 || status === 401) {
-                setCloseError(data.message || 'Validation or authentication error.');
-              } else {
-                setCloseError(data.message || 'Failed to close position.');
-              }
+              setCloseError(
+                formatTradingErrorFeedback(
+                  classifyTradingError(error, { action: 'close-position' }),
+                ),
+              );
             } finally {
               setIsClosing(false);
             }

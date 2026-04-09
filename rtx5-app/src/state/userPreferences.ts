@@ -3,6 +3,21 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
+export type LanguageCode =
+  | 'en'
+  | 'es'
+  | 'pt'
+  | 'fr'
+  | 'de'
+  | 'it'
+  | 'ru'
+  | 'tr'
+  | 'ar'
+  | 'hi'
+  | 'zh'
+  | 'ja'
+  | 'ko'
+  | 'id';
 export type ChartColorScheme = 'green_on_black' | 'black_on_white' | 'yellow_on_black' | 'custom';
 export type ChartVisualType = 'candles' | 'bars' | 'line' | 'hollow';
 
@@ -169,7 +184,12 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   showQuickTradingButtons: true,
   showBidPriceLine: true,
   showAskPriceLine: false,
-  showLastPriceLine: false,
+  // true = show the colored axis label (box) for the last-close price on the
+  // right price scale. This is standard in all professional trading apps
+  // (MT5, TradingView, Dhan). Note: this no longer controls priceLineVisible
+  // on the series — the BID price line is the only horizontal line on the
+  // chart canvas.
+  showLastPriceLine: true,
   showPeriodSeparators: false,
   showGrid: true,
   showTickVolumes: true,
@@ -262,8 +282,10 @@ type UserPreferencesState = {
   chartColorScheme: ChartColorScheme;
   chartColors: ChartColorsConfig;
   chartDisplay: ChartDisplaySettings;
+  language: LanguageCode;
 
-  login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }) => void;
+  setLanguage: (lang: LanguageCode) => void;
+  login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }, brokerId?: string) => void;
   logout: () => void;
   updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;
   setQuoteViewMode: (mode: QuoteViewMode) => void;
@@ -330,9 +352,14 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartColorScheme: 'custom',
       chartColors: DEFAULT_CHART_COLORS,
       chartDisplay: DEFAULT_CHART_DISPLAY_SETTINGS,
-      login: (id, name, server, tokens) =>
-        set({
+      language: 'en' as LanguageCode,
+      setLanguage: (lang) => set({ language: lang }),
+      login: (id, name, server, tokens, brokerId) =>
+        set((state) => ({
           isLoggedIn: true,
+          // Persist brokerId atomically with login to prevent race conditions.
+          // Falls back to existing brokerId if not provided (e.g., for register flow).
+          brokerId: brokerId || state.brokerId || '',
           accountDetails: {
             id,
             name,
@@ -343,10 +370,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
               expiresAt: tokens.expires_at,
             },
           },
-        }),
+        })),
       logout: () => {
-        // Clear broker context along with auth state on logout
-        set({ isLoggedIn: false, accountDetails: null, brokerId: '' });
+        // Clear auth state but preserve brokerId — it's not security-sensitive
+        // and preserving it allows the saved-credentials auto-login flow to
+        // work without requiring the user to re-enter the Broker ID.
+        set({ isLoggedIn: false, accountDetails: null });
       },
       updateTokens: (accessToken, refreshToken, expiresAt) =>
         set((state) => {

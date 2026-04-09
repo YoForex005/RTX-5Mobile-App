@@ -17,6 +17,76 @@ export interface CandleHistoryResponse {
   candles: Candle[];
 }
 
+type ExtractedCandleHistoryPayload = {
+  candles: unknown[];
+  symbol?: string;
+  timeframe?: string;
+};
+
+const asObjectRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+};
+
+const pickFirstArray = (...candidates: unknown[]): unknown[] => {
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+
+  return [];
+};
+
+export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHistoryPayload => {
+  if (Array.isArray(payload)) {
+    return { candles: payload };
+  }
+
+  const record = asObjectRecord(payload);
+  if (!record) {
+    return { candles: [] };
+  }
+
+  const nestedData = asObjectRecord(record.data);
+  const nestedResult = asObjectRecord(record.result);
+  const nestedPayload = asObjectRecord(record.payload);
+
+  return {
+    candles: pickFirstArray(
+      record.candles,
+      record.data,
+      record.items,
+      record.results,
+      record.result,
+      record.payload,
+      record.bars,
+      nestedData?.candles,
+      nestedData?.items,
+      nestedData?.results,
+      nestedData?.bars,
+      nestedResult?.candles,
+      nestedResult?.items,
+      nestedPayload?.candles,
+      nestedPayload?.items,
+    ),
+    symbol:
+      (typeof record.symbol === 'string' ? record.symbol : undefined) ??
+      (typeof nestedData?.symbol === 'string' ? nestedData.symbol : undefined) ??
+      (typeof nestedResult?.symbol === 'string' ? nestedResult.symbol : undefined),
+    timeframe:
+      (typeof record.timeframe === 'string' ? record.timeframe : undefined) ??
+      (typeof record.tf === 'string' ? record.tf : undefined) ??
+      (typeof nestedData?.timeframe === 'string' ? nestedData.timeframe : undefined) ??
+      (typeof nestedData?.tf === 'string' ? nestedData.tf : undefined) ??
+      (typeof nestedResult?.timeframe === 'string' ? nestedResult.timeframe : undefined) ??
+      (typeof nestedResult?.tf === 'string' ? nestedResult.tf : undefined),
+  };
+};
+
 /**
  * Fetches historical candlestick data for a given symbol and timeframe.
  *
@@ -52,14 +122,16 @@ export async function getCandleHistory(
   }
 
   const payload = await response.json();
+  const extractedPayload = extractCandleHistoryPayload(payload);
+  const resolvedTimeframe = normalizeTimeframe(extractedPayload.timeframe ?? requestedTimeframe);
   const normalizedCandles = normalizeCandleSeries(
-    Array.isArray(payload?.candles) ? payload.candles : [],
-    payload?.timeframe ?? requestedTimeframe,
+    extractedPayload.candles,
+    resolvedTimeframe,
   );
 
   return {
-    symbol: requestedSymbol,
-    timeframe: normalizeTimeframe(payload?.timeframe ?? requestedTimeframe),
+    symbol: normalizeSymbol(extractedPayload.symbol ?? requestedSymbol),
+    timeframe: resolvedTimeframe,
     count: normalizedCandles.length,
     candles: normalizedCandles,
   };

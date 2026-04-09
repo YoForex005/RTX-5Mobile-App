@@ -48,4 +48,6 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 ## Progress Notes
 - 2026-03-24: Fixed trade-flow account resolution so open positions, close, and modify actions no longer depend on `liveAccountState.login` being hydrated before the Trade tab loads.
 - 2026-03-24: Hardened the order/position flow to refresh using the resolved MT5 login after buy, sell, close, and modify actions, matching the live `/api/v2/orders` and `/api/v2/positions/{login}` contract.
+- 2026-04-09: Normalized legacy mock-era symbol aliases such as `BTCUSDm` and `XAUUSDm` to the live backend symbols (`BTCUSD`, `XAUUSD`) across order submission, instrument metadata, and symbol-driven quote/detail flows after live verification showed the trading engine only accepts the unsuffixed symbols for active YoForex accounts.
+- 2026-04-09: Centralized trader-tab error classification so order placement, close, close-by, modify, one-click shortcuts, and Trade-tab position refresh now surface whether the failure came from frontend state, API contract/routing, session expiry, rate limiting, or backend/server availability instead of falling back to generic execution errors.
 

@@ -12,7 +12,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image, AppState } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -22,6 +22,7 @@ import {
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
+import { useTranslation } from '../../i18n/useTranslation';
 import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
@@ -205,7 +206,7 @@ const CH_HTML = `
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
@@ -214,379 +215,299 @@ const CH_HTML = `
 </head>
 <body>
     <div id="chart"></div>
-    <script>window.__RTX5_CUSTOM_CANDLE_GEOMETRY_DEBUG = ${__DEV__ ? 'true' : 'false'};</script>
-    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
-    <script>\${DRAWING_TOOLS_JS}</script>
-    <script>\${ENHANCED_DRAWING_TOOLS_JS}</script>
     <script>
+      // ─────────────────────────────────────────────────────────────────
+      //   Minimal, fresh candle pipeline
+      //
+      //   Contract with the React Native host:
+      //     • host calls initChart(opts, chartType, candles, displayDecimals)
+      //         once per (symbol, timeframe, type) change
+      //     • host calls updateChartData(candles) when the merged history+WS
+      //         array reshuffles (e.g. resync, history backfill)
+      //     • host calls updateTick(candle) for every live WS candle event
+      //         (append OR replace_last; the merge is decided by time match)
+      //     • host calls setBidPriceLine(price) for the live BID line
+      //
+      //   We rely on the standard lightweight-charts CandlestickSeries
+      //   (no custom renderer, no bundled JS) to keep the pipeline simple
+      //   and reliable. Wicks and body draw via library defaults — no gap
+      //   artifacts. Pre-existing gaps in the data stay visible.
+      // ─────────────────────────────────────────────────────────────────
       var chart = null;
       var series = null;
       var volumeSeries = null;
-      var signalLines = [];
-      var drawingTools = null;
-      var UP_COLOR = '#2962FF';
-      var DOWN_COLOR = '#EF5350';
-      window._lastVolumePoint = null;
-      window._lastChartData = [];
+      var bidPriceLine = null;
+      var lastBarTime = 0;
+      var seriesType = 'candles';
 
-      function hexToRgba(color, alpha) {
-        if (!color) return 'rgba(148, 163, 184, ' + alpha + ')';
-        var trimmed = String(color).trim();
-
-        if (trimmed.indexOf('rgba(') === 0) {
-          var rgbaParts = trimmed.slice(5, -1).split(',').map(function(part) { return part.trim(); });
-          if (rgbaParts.length >= 3) {
-            return 'rgba(' + rgbaParts[0] + ', ' + rgbaParts[1] + ', ' + rgbaParts[2] + ', ' + alpha + ')';
-          }
-        }
-
-        if (trimmed.indexOf('rgb(') === 0) {
-          var rgbParts = trimmed.slice(4, -1).split(',').map(function(part) { return part.trim(); });
-          if (rgbParts.length >= 3) {
-            return 'rgba(' + rgbParts[0] + ', ' + rgbParts[1] + ', ' + rgbParts[2] + ', ' + alpha + ')';
-          }
-        }
-
-        var hex = trimmed.replace('#', '');
-        if (hex.length === 3) {
-          hex = hex.split('').map(function(char) { return char + char; }).join('');
-        }
-
-        if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-          var r = parseInt(hex.slice(0, 2), 16);
-          var g = parseInt(hex.slice(2, 4), 16);
-          var b = parseInt(hex.slice(4, 6), 16);
-          return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
-        }
-
-        return trimmed;
+      function postReady() {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY' }));
+        } catch (_e) {}
       }
 
-      function getVolumeBarColor(item, isActive) {
-        var customCols = window._customColors || {};
-        var up = customCols.candlesUptrend || UP_COLOR;
-        var down = customCols.candlesDowntrend || DOWN_COLOR;
-        var isGreen = item.close >= item.open;
-        return hexToRgba(isGreen ? up : down, isActive ? 0.78 : 0.32);
+      function postChartReady() {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CHART_READY' }));
+        } catch (_e) {}
       }
 
-      function buildVolumeDatum(item, isActive, minValue) {
-        var rawValue = Math.max(Number(item && item.volume ? item.volume : 0), 0);
-        var safeValue = typeof minValue === 'number' ? Math.max(minValue, rawValue) : rawValue;
+      function postError(where, err) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'ERROR',
+            message: where + ': ' + (err && err.message ? err.message : String(err))
+          }));
+        } catch (_e) {}
+      }
+
+      function makePriceFormat(displayDecimals) {
+        var decimals = (typeof displayDecimals === 'number' && displayDecimals >= 0) ? displayDecimals : 2;
         return {
-          time: item.time,
-          value: safeValue,
-          color: getVolumeBarColor(item, isActive)
+          type: 'price',
+          precision: decimals,
+          minMove: 1 / Math.pow(10, decimals)
         };
       }
 
-      function syncLastVolumePoint(point) {
-        window._lastVolumePoint = point ? { time: point.time, value: point.value } : null;
+      function applyChartLayout(opts) {
+        // Flatten host-supplied opts (background may be { color }) into the
+        // shape lightweight-charts expects.
+        try {
+          if (opts && opts.layout && opts.layout.background && typeof opts.layout.background.color === 'string') {
+            opts.layout.background = { type: 'solid', color: opts.layout.background.color };
+          }
+        } catch (_e) {}
+        return opts || {};
       }
 
-      function upsertLastChartDataPoint(tick) {
-        if (!tick || typeof tick.time !== 'number') return;
-        if (!Array.isArray(window._lastChartData)) {
-          window._lastChartData = [];
+      function pickSeriesColors(opts, chartType) {
+        var c = (opts && opts.customColors) || {};
+        var up = c.candlesUptrend || '#26a69a';
+        var down = c.candlesDowntrend || '#ef5350';
+        var hollowBody = c.hollowBody || 'rgba(0,0,0,0)';
+        if (chartType === 'hollow') {
+          return { up: up, down: down, bodyUp: hollowBody, bodyDown: hollowBody };
         }
-        var data = window._lastChartData;
-        if (data.length > 0 && data[data.length - 1].time === tick.time) {
-          data[data.length - 1] = tick;
-          return;
-        }
-        data.push(tick);
+        return { up: up, down: down, bodyUp: up, bodyDown: down };
       }
 
-      function setVolumeSeriesData(data) {
-        if (!volumeSeries) return;
-        var source = Array.isArray(data) ? data : [];
-        var volData = source.map(function(item, index) {
-          return buildVolumeDatum(item, index === source.length - 1);
-        });
-        volumeSeries.setData(volData);
-        syncLastVolumePoint(volData.length > 0 ? volData[volData.length - 1] : null);
-      }
-
-      function updateVolumeSeriesTick(tick) {
-        if (!volumeSeries || !tick) return;
-        var minValue = window._lastVolumePoint && window._lastVolumePoint.time === tick.time
-          ? window._lastVolumePoint.value
-          : undefined;
-        var point = buildVolumeDatum(tick, true, minValue);
-        volumeSeries.update(point);
-        syncLastVolumePoint(point);
-      }
-
-      function ensureScaleMargins(scaleMargins, fallbackTop, fallbackBottom) {
-        var next = scaleMargins || {};
-        return {
-          top: typeof next.top === 'number' ? next.top : fallbackTop,
-          bottom: typeof next.bottom === 'number' ? next.bottom : fallbackBottom,
-        };
-      }
-
-
-
-      function setChartMarkers(markers) {
+      function initChart(opts, chartType, data, displayDecimals) {
         try {
-          if (series) {
-            series.setMarkers(markers || []);
+          if (chart) {
+            try { chart.remove(); } catch (_e) {}
+            chart = null;
+            series = null;
+            volumeSeries = null;
+            bidPriceLine = null;
           }
-        } catch(e) {}
-      }
+          lastBarTime = 0;
+          seriesType = chartType || 'candles';
 
-      function setPriceLines(lines) {
-        try {
-          if (!series) return;
-          if (window._priceLines) {
-             window._priceLines.forEach(function(l) { try{series.removePriceLine(l);}catch(ex){} });
-          }
-          window._priceLines = [];
-          (lines || []).forEach(function(opt) {
-             try {
-               var pl = series.createPriceLine(opt);
-               window._priceLines.push(pl);
-             } catch(ex){}
-          });
-        } catch(e) {}
-      }
+          var safeOpts = applyChartLayout(opts);
+          var customCols = safeOpts.customColors;
+          if (safeOpts.customColors) { delete safeOpts.customColors; }
 
-      function initChart(opts, chartType, data, displayDecimals, isExpanded) {
-        try {
-          if (drawingTools) {
-            try { drawingTools.remove(); } catch (_error) {}
-            drawingTools = null;
-          }
-          if (chart) { chart.remove(); chart = null; series = null; volumeSeries = null; }
-          window._lastVolumePoint = null;
-          window._lastChartData = [];
+          chart = LightweightCharts.createChart(document.getElementById('chart'), safeOpts);
 
-          opts.layout.background = { type: 'solid', color: opts.layout.background.color };
-          opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
-          opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
-          opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
-          opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
-          opts.rightPriceScale = opts.rightPriceScale || {};
-          opts.rightPriceScale.scaleMargins = ensureScaleMargins(opts.rightPriceScale.scaleMargins, 0.08, 0.25);
-          window._chartType = chartType;
+          var priceFormat = makePriceFormat(displayDecimals);
+          var colors = pickSeriesColors({ customColors: customCols }, seriesType);
 
-          var customCols = opts.customColors;
-          var UP_CANDLE = customCols ? customCols.candlesUptrend : UP_COLOR;
-          var DOWN_CANDLE = customCols ? customCols.candlesDowntrend : DOWN_COLOR;
-          var HOLLOW_BODY = customCols ? customCols.hollowBody : 'transparent';
-          var UP_BAR = customCols ? customCols.barsUptrend : UP_COLOR;
-          var DOWN_BAR = customCols ? customCols.barsDowntrend : DOWN_COLOR;
-          var LINE_C = customCols ? customCols.lineBody : UP_COLOR;
-          window._customColors = customCols || {};
-
-          if (opts.customColors) {
-            delete opts.customColors;
-          }
-
-          var priceFormatInfo = {
-             type: 'price',
-             precision: displayDecimals,
-             minMove: 1 / Math.pow(10, displayDecimals)
-          };
-
-          chart = LightweightCharts.createChart(document.getElementById('chart'), opts);
-
-          if (chartType === 'candles' || chartType === 'hollow') {
-            series = window.addRTX5CustomCandlestickSeries(chart, {
-              bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
-              bodyDownColor: DOWN_CANDLE,
-              borderUpColor: UP_CANDLE,
-              borderDownColor: DOWN_CANDLE,
-              wickUpColor: UP_CANDLE,
-              wickDownColor: DOWN_CANDLE,
-              borderVisible: true,
-              wickVisible: true,
-              color: UP_CANDLE,
+          if (seriesType === 'line') {
+            series = chart.addSeries(LightweightCharts.LineSeries, {
+              color: (customCols && customCols.lineBody) || colors.up,
+              lineWidth: 2,
+              priceFormat: priceFormat,
               lastValueVisible: true,
+              // Dashed horizontal line that tracks the last close across the
+              // chart, plus the colored axis label on the right scale — the
+              // standard "current price marker" you see in MT5 / TradingView.
               priceLineVisible: true,
-              priceFormat: priceFormatInfo,
+              priceLineWidth: 1,
+              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+              priceLineColor: '',
+              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
             });
-          } else if (chartType === 'bars') {
+          } else if (seriesType === 'bars') {
             series = chart.addSeries(LightweightCharts.BarSeries, {
-              upColor: UP_BAR,
-              downColor: DOWN_BAR,
+              upColor: (customCols && customCols.barsUptrend) || colors.up,
+              downColor: (customCols && customCols.barsDowntrend) || colors.down,
+              priceFormat: priceFormat,
               lastValueVisible: true,
+              // Dashed horizontal line that tracks the last close across the
+              // chart, plus the colored axis label on the right scale — the
+              // standard "current price marker" you see in MT5 / TradingView.
               priceLineVisible: true,
-              priceFormat: priceFormatInfo,
+              priceLineWidth: 1,
+              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+              priceLineColor: '',
+              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
             });
           } else {
-            series = chart.addSeries(LightweightCharts.LineSeries, {
-              color: LINE_C,
-              lineWidth: 2,
-              crosshairMarkerVisible: true,
+            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+              upColor: colors.bodyUp,
+              downColor: colors.bodyDown,
+              borderUpColor: colors.up,
+              borderDownColor: colors.down,
+              wickUpColor: colors.up,
+              wickDownColor: colors.down,
+              borderVisible: true,
+              wickVisible: true,
+              priceFormat: priceFormat,
               lastValueVisible: true,
+              // Dashed horizontal line that tracks the last close across the
+              // chart, plus the colored axis label on the right scale — the
+              // standard "current price marker" you see in MT5 / TradingView.
               priceLineVisible: true,
-              priceFormat: priceFormatInfo,
+              priceLineWidth: 1,
+              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+              priceLineColor: '',
+              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
             });
           }
 
-          volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
-            color: hexToRgba(UP_CANDLE, 0.32),
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'volume',
-            priceLineVisible: false,
-            lastValueVisible: false,
-          });
-          chart.priceScale('volume').applyOptions({
-            scaleMargins: { top: 0.84, bottom: 0.02 },
-            visible: false,
-          });
-
           if (data && data.length > 0) {
-            window._lastChartData = data.slice();
-            series.setData(data);
-            setVolumeSeriesData(window._lastChartData);
-          }
-
-          if (window.DrawingToolsManager) {
-            drawingTools = new window.DrawingToolsManager(chart, series);
-          }
-
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'CHART_READY'}));
-
-          // Hide TradingView watermark after chart renders
-          setTimeout(function() {
+            var mapped = mapForSeries(data);
+            series.setData(mapped);
+            lastBarTime = mapped[mapped.length - 1].time;
             try {
-              var el = document.getElementById('chart');
-              if (el) {
-                var links = el.getElementsByTagName('a');
-                for (var i = links.length - 1; i >= 0; i--) {
-                  links[i].style.display = 'none';
-                }
+              chart.timeScale().fitContent();
+              if (typeof chart.timeScale().scrollToRealTime === 'function') {
+                chart.timeScale().scrollToRealTime();
               }
-            } catch(e) {}
-          }, 300);
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:e.message}));
+            } catch (_e) {}
+          }
+
+          postChartReady();
+        } catch (e) {
+          postError('initChart', e);
         }
+      }
+
+      function mapForSeries(data) {
+        if (!data || data.length === 0) return [];
+        if (seriesType === 'line') {
+          var out = new Array(data.length);
+          for (var i = 0; i < data.length; i++) {
+            var c = data[i];
+            out[i] = { time: c.time, value: typeof c.value === 'number' ? c.value : c.close };
+          }
+          return out;
+        }
+        // candles / hollow / bars all share the same OHLC shape
+        var arr = new Array(data.length);
+        for (var j = 0; j < data.length; j++) {
+          var d = data[j];
+          arr[j] = {
+            time: d.time,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+          };
+        }
+        return arr;
       }
 
       function updateChartData(data) {
         try {
-          if (!series) return;
-          window._lastChartData = Array.isArray(data) ? data.slice() : [];
-          series.setData(data);
-          setVolumeSeriesData(window._lastChartData);
-          // chart.timeScale().fitContent(); // Removed to prevent few candles from stretching to massive widths
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message:'updateChartData: '+e.message}));
+          if (!series) {
+            postError('updateChartData', new Error('series not initialized'));
+            return;
+          }
+          var mapped = mapForSeries(data);
+          series.setData(mapped);
+          if (mapped.length > 0) {
+            lastBarTime = mapped[mapped.length - 1].time;
+          }
+        } catch (e) {
+          postError('updateChartData', e);
         }
       }
 
       function updateTick(tick) {
         try {
-          upsertLastChartDataPoint(tick);
-          if (series) {
-            series.update(tick);
+          if (!series || !tick || typeof tick.time !== 'number') return;
+          // Stale tick guard: never update with a bar older than the last
+          // one already on screen — that triggers lightweight-charts'
+          // "Cannot update oldest data" exception.
+          if (tick.time < lastBarTime) return;
+          var bar;
+          if (seriesType === 'line') {
+            bar = { time: tick.time, value: typeof tick.value === 'number' ? tick.value : tick.close };
+          } else {
+            bar = {
+              time: tick.time,
+              open: tick.open,
+              high: tick.high,
+              low: tick.low,
+              close: tick.close,
+            };
           }
-          updateVolumeSeriesTick(tick);
-        } catch(e) {
-           window.ReactNativeWebView.postMessage(JSON.stringify({type:'ERROR',message: 'updateTick: ' + e.message, tick: tick}));
+          series.update(bar);
+          if (tick.time >= lastBarTime) {
+            lastBarTime = tick.time;
+          }
+        } catch (e) {
+          if (typeof e.message === 'string' && e.message.indexOf('Cannot update oldest data') >= 0) {
+            return; // benign race
+          }
+          postError('updateTick', e);
         }
       }
 
-      function updateChartAppearance(opts) {
-        if (!chart) return;
+      function setBidPriceLine(price) {
         try {
-          var customCols = opts.customColors;
-          var chartType = window._chartType || 'candles';
-          if (opts.customColors) {
-            delete opts.customColors; // Lightweight Charts strictly validates options and will crash if we pass unknown fields
+          if (!series || typeof price !== 'number' || !isFinite(price)) return;
+          if (bidPriceLine) {
+            series.removePriceLine(bidPriceLine);
+            bidPriceLine = null;
           }
-
-          opts.layout.background = { type: 'solid', color: opts.layout.background.color };
-          opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
-          opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
-          opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
-          opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
-          opts.rightPriceScale = opts.rightPriceScale || {};
-          opts.rightPriceScale.scaleMargins = ensureScaleMargins(opts.rightPriceScale.scaleMargins, 0.08, 0.25);
-
-          chart.applyOptions(opts);
-
-          if (series) {
-            var UP_CANDLE = customCols ? customCols.candlesUptrend : '#2962FF';
-            var DOWN_CANDLE = customCols ? customCols.candlesDowntrend : '#EF5350';
-            var HOLLOW_BODY = customCols ? customCols.hollowBody : 'transparent';
-            var UP_BAR = customCols ? customCols.barsUptrend : '#2962FF';
-            var DOWN_BAR = customCols ? customCols.barsDowntrend : '#EF5350';
-            var LINE_C = customCols ? customCols.lineBody : '#2962FF';
-            window._customColors = customCols || {};
-
-            if (chartType === 'candles' || chartType === 'hollow') {
-              series.applyOptions({
-                bodyUpColor: chartType === 'hollow' ? HOLLOW_BODY : UP_CANDLE,
-                bodyDownColor: DOWN_CANDLE,
-                wickVisible: true,
-                wickUpColor: UP_CANDLE,
-                wickDownColor: DOWN_CANDLE,
-                borderUpColor: UP_CANDLE,
-                borderDownColor: DOWN_CANDLE,
-                borderVisible: true,
-                color: UP_CANDLE,
-              });
-            } else if (chartType === 'bars') {
-              series.applyOptions({
-                upColor: UP_BAR,
-                downColor: DOWN_BAR,
-              });
-            } else {
-              series.applyOptions({
-                color: LINE_C,
-              });
-            }
-
-            if (volumeSeries) {
-              volumeSeries.applyOptions({
-                color: hexToRgba(UP_CANDLE, 0.32),
-                priceLineVisible: false,
-                lastValueVisible: false,
-              });
-              setVolumeSeriesData(window._lastChartData);
-            }
-          }
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'updateChartAppearance failed: ' + e.message }));
+          bidPriceLine = series.createPriceLine({
+            price: price,
+            color: '#2962FF',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            axisLabelVisible: true,
+            title: 'BID',
+          });
+        } catch (e) {
+          postError('setBidPriceLine', e);
         }
       }
-      
-      window.ReactNativeWebView.postMessage(JSON.stringify({type:'READY'}));
-      function setDrawingTool(toolName) {
-        if (drawingTools) { drawingTools.setActiveTool(toolName); }
-      }
-      function clearDrawings() {
-        if (drawingTools) { drawingTools.removeAllDrawings(); }
-      }
-      function setDrawingsLocked(locked) {
-        if (drawingTools) { drawingTools.setDrawingsLocked(!!locked); }
-      }
-      function setDrawingsHidden(hidden) {
-        if (drawingTools) { drawingTools.setDrawingsHidden(!!hidden); }
-      }
-      function setStayInDrawingMode(sticky) {
-        if (drawingTools) { drawingTools.setStayInDrawingMode(!!sticky); }
-      }
-      function setMagnetMode(enabled) {
-        if (drawingTools) { drawingTools.setMagnetMode(!!enabled); }
-      }
-      function zoomChart() {
-        if (drawingTools) {
-          drawingTools.zoomToFit();
-          return;
-        }
-        try {
-          if (chart && typeof chart.priceScale === 'function') chart.priceScale('right').applyOptions({ autoScale: true });
-          if (chart && typeof chart.timeScale === 'function') {
-            chart.timeScale().fitContent();
-            chart.timeScale().scrollToRealTime();
-          }
-        } catch (_error) {}
-      }
+
+      // Backwards-compat no-ops so any stale call sites from earlier
+      // builds (drawing tools / overlays) silently do nothing instead of
+      // throwing and aborting the script.
+      function setLiveCandleLine() {}
+      function updateChartAppearance() {}
+      function setVolumeSeriesData() {}
+      function setDrawingTool() {}
+      function clearDrawings() {}
+      function setDrawingsLocked() {}
+      function setDrawingsHidden() {}
+      function setStayInDrawingMode() {}
+      function setMagnetMode() {}
+      function zoomChart() {}
+      function updatePositionLines() {}
+
+      window.initChart = initChart;
+      window.updateChartData = updateChartData;
+      window.updateTick = updateTick;
+      window.setBidPriceLine = setBidPriceLine;
+      window.setLiveCandleLine = setLiveCandleLine;
+      window.updateChartAppearance = updateChartAppearance;
+      window.setVolumeSeriesData = setVolumeSeriesData;
+      window.setDrawingTool = setDrawingTool;
+      window.clearDrawings = clearDrawings;
+      window.setDrawingsLocked = setDrawingsLocked;
+      window.setDrawingsHidden = setDrawingsHidden;
+      window.setStayInDrawingMode = setStayInDrawingMode;
+      window.setMagnetMode = setMagnetMode;
+      window.zoomChart = zoomChart;
+      window.updatePositionLines = updatePositionLines;
+
+      postReady();
     </script>
 </body>
 </html>
@@ -606,6 +527,7 @@ const CHART_SOURCE = { html: CH_HTML };
 
 export function ChartScreen() {
   const T = useTheme();
+  const { t } = useTranslation();
   const token = useUserPreferences(s => s.accountDetails?.credentials?.accessToken);
 
   // Hydrate positions on page refresh
@@ -730,7 +652,13 @@ export function ChartScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  useEffect(() => {
+    console.log('[CHART] candles length=', candles.length, 'symbol=', chartSymbol, 'tf=', chartTimeframe);
+  }, [candles.length, chartSymbol, chartTimeframe]);
   const [forceHideLoading, setForceHideLoading] = useState(false);
+  const [chartRetryRevision, setChartRetryRevision] = useState(0);
+  const chartInitializedRef = useRef(false);
+  const chartBootstrapRetryCountRef = useRef(0);
 
   useEffect(() => {
     setForceHideLoading(false);
@@ -742,6 +670,7 @@ export function ChartScreen() {
     layout: {
       background: { color: resolvedChartColors.background },
       textColor: resolvedChartColors.foreground,
+      attributionLogo: false,
       fontSize: 11,
     },
     grid: {
@@ -791,7 +720,12 @@ export function ChartScreen() {
   }), [resolvedChartColors]);
 
   const [webViewReady, setWebViewReady] = useState(false);
-  const isLoading = candles.length === 0 && !forceHideLoading && !webViewReady;
+  const [chartCanvasReady, setChartCanvasReady] = useState(false);
+  // Loading overlay rules:
+  //   • Stay visible while we have no candles (history hasn't arrived).
+  //   • Hide once the WebView has confirmed CHART_READY (canvas mounted),
+  //     so the user can see whatever the chart drew.
+  const isLoading = (!chartCanvasReady || candles.length === 0) && !forceHideLoading;
   const isError = false;
 
   useEffect(() => {
@@ -806,182 +740,171 @@ export function ChartScreen() {
     `);
   }, [webViewReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
 
-  const dataSignatureRef = useRef('');
-  const lastCandleLengthRef = useRef(0);
+  // ─────────────────────────────────────────────────────────────────
+  //   Fresh chart bridge
+  //
+  //   Single source of truth: `candles` from useLiveCandles (history
+  //   seeded by REST + live ticks merged via candlesSocket).
+  //
+  //   Two effects:
+  //     1. Whenever (symbol, timeframe, type) changes OR the merged
+  //        candles array changes after webViewReady, we send a full
+  //        initChart. The WebView's initChart tears down any prior
+  //        chart and rebuilds. Cheap and predictable.
+  //     2. Live WS stream events (append / replace_last) call
+  //        updateTick directly so individual ticks animate without
+  //        rebuilding the whole chart.
+  // ─────────────────────────────────────────────────────────────────
   const candlesRef = useRef(candles);
+  const sigRef = useRef('');
+  const initSentForSigRef = useRef(false);
+
+  const resetChartBridgeState = () => {
+    chartInitializedRef.current = false;
+    chartBootstrapRetryCountRef.current = 0;
+    sigRef.current = '';
+    initSentForSigRef.current = false;
+  };
 
   useEffect(() => {
     candlesRef.current = candles;
   }, [candles]);
 
-  // Sync Data â€” uses injectJavaScript instead of postMessage
-  useEffect(() => {
-    if (webViewRef.current && webViewReady && candles.length > 0) {
-      const sig = `${chartSymbol}-${chartTimeframe}-${chartType}-${chartColorsSignature}`;
-      const sanitized = candles.filter((c) => isStructurallyValidCandle(c));
-      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
-      uniqueData.sort((a, b) => a.time - b.time);
-
-      let mappedData: any = uniqueData;
-      if (chartType === 'line') {
-        mappedData = uniqueData.map((item) => ({
-          time: item.time,
-          value: item.close,
-          open: item.open,
-          close: item.close,
-          volume: item.volume,
-        }));
-      } else if (chartType === 'candles' || chartType === 'hollow') {
-        mappedData = mapCandlesToRTX5CustomCandlestickData({
-          candles: uniqueData,
-          bullishColor: resolvedChartColors.candlesUptrend,
-          bearishColor: resolvedChartColors.candlesDowntrend,
-        });
-      } else {
-        mappedData = uniqueData;
-      }
-      const chunkJumped = Math.abs(candles.length - lastCandleLengthRef.current) > 10;
-
-      if (dataSignatureRef.current !== sig) {
-        // Full mount / init
-        const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mappedData)}, ${displayDecimals}, true); true;`;
-        webViewRef.current.injectJavaScript(js);
-        dataSignatureRef.current = sig;
-        lastCandleLengthRef.current = candles.length;
-      } else if (chunkJumped) {
-        // Delayed REST history arrived post-tick, update without destroying UI!
-        const js = `updateChartData(${JSON.stringify(mappedData)}); true;`;
-        webViewRef.current.injectJavaScript(js);
-        lastCandleLengthRef.current = candles.length;
-      }
+  const buildMappedData = useCallback((sourceCandles: typeof candles) => {
+    const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
+    const uniqueByTime = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
+    uniqueByTime.sort((a, b) => a.time - b.time);
+    if (chartType === 'line') {
+      return uniqueByTime.map((c) => ({ time: c.time, value: c.close }));
     }
-  }, [candles, chartType, webViewReady, chartSymbol, chartTimeframe, displayDecimals, chartColorsSignature, chartOptions]);
+    return uniqueByTime.map((c) => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+  }, [chartType]);
 
-  // Canonical Candle Stream Sync
+  // Effect 1 — initial mount + full re-init on (symbol, tf, type) change.
   useEffect(() => {
+    if (!webViewRef.current || !webViewReady) return;
+    if (candles.length === 0) return;
+
+    const sig = `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${chartColorsSignature}`;
+    // Only re-init when the signature actually changes. We do NOT also gate
+    // on chartInitializedRef.current — that ref only flips when CHART_READY
+    // round-trips back from the WebView, so checking it here would re-fire
+    // initChart on every candle update during the bridge latency window
+    // and thrash the chart.
+    if (sig === sigRef.current && initSentForSigRef.current) {
+      return; // already sent init for this signature
+    }
+
+    const mapped = buildMappedData(candles);
+    if (mapped.length === 0) return;
+
+    const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}); true;`;
+    try {
+      console.log('[CHART] sending initChart', chartSymbol, chartTimeframe, chartType, 'bars=', mapped.length);
+      webViewRef.current.injectJavaScript(js);
+      sigRef.current = sig;
+      initSentForSigRef.current = true;
+    } catch (e) {
+      console.warn('[CHART] initChart inject failed', e);
+    }
+  }, [
+    candles,
+    chartType,
+    webViewReady,
+    chartSymbol,
+    chartTimeframe,
+    displayDecimals,
+    chartColorsSignature,
+    chartOptions,
+    chartRetryRevision,
+    buildMappedData,
+  ]);
+
+  // Effect 2 — live tick stream. Bypasses React state for low latency.
+  useEffect(() => {
+    if (!webViewReady) return;
     let rAF: number | null = null;
-    const pendingEvents: CandleStreamEvent[] = [];
+    const pending: CandleStreamEvent[] = [];
 
-    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
-      const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
-      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
-      uniqueData.sort((a, b) => a.time - b.time);
-
-      if (chartType === 'line') {
-        return uniqueData.map((item) => ({
-          time: item.time,
-          value: item.close,
-          open: item.open,
-          close: item.close,
-          volume: item.volume,
-        }));
-      }
-
-      if (chartType === 'candles' || chartType === 'hollow') {
-        return mapCandlesToRTX5CustomCandlestickData({
-          candles: uniqueData,
-          bullishColor: resolvedChartColors.candlesUptrend,
-          bearishColor: resolvedChartColors.candlesDowntrend,
-        });
-      }
-
-      return uniqueData;
-    };
-
-    const resyncChartFromMergedCandles = () => {
-      if (!webViewRef.current || !webViewReady) return;
-      const mappedData = buildMappedData(candlesRef.current);
-
-      try {
-        webViewRef.current.injectJavaScript(`updateChartData(${JSON.stringify(mappedData)}); true;`);
-        lastCandleLengthRef.current = candlesRef.current.length;
-      } catch (_error) { }
-    };
-
-    const flushEvents = () => {
+    const flush = () => {
       rAF = null;
-      if (!webViewRef.current || !webViewReady || pendingEvents.length === 0) return;
-
-      const events = [...pendingEvents];
-      pendingEvents.length = 0;
+      if (!webViewRef.current || pending.length === 0) return;
+      // Hold ticks back until the WebView has confirmed initChart actually
+      // built the series (CHART_READY round-trip). Sending updateTick
+      // before that races the bridge and the WebView script throws
+      // "series not initialized". Effect 1 will catch us up via the merged
+      // candle array as soon as init completes, so dropping these is safe.
+      if (!chartInitializedRef.current) {
+        pending.length = 0;
+        return;
+      }
+      const events = pending.splice(0, pending.length);
 
       let js = '';
-      let rejectedUpdate = false;
+      let needsResync = false;
 
       for (const event of events) {
         if (event.type === 'resync_required') {
-          rejectedUpdate = true;
+          needsResync = true;
           continue;
         }
-
         if (event.type === 'full_sync') {
           js += `updateChartData(${JSON.stringify(buildMappedData(event.candles))});`;
-          lastCandleLengthRef.current = event.candles.length;
           continue;
         }
+        // append / replace_last
+        const c = (event as any).candle;
+        if (!c || !isStructurallyValidCandle(c)) continue;
+        const tick =
+          chartType === 'line'
+            ? { time: c.time, value: c.close }
+            : { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+        js += `updateTick(${JSON.stringify(tick)});`;
+      }
 
-        const candle = event.candle;
-        if (!isStructurallyValidCandle(candle)) {
-          rejectedUpdate = true;
-          continue;
-        }
-
-        let tickToInject: any = candle;
-        if (chartType === 'line') {
-          tickToInject = {
-            time: candle.time,
-            value: candle.close,
-            open: candle.open,
-            close: candle.close,
-            volume: candle.volume,
-          };
-        } else if (chartType === 'candles' || chartType === 'hollow') {
-          tickToInject = mapCandlesToRTX5CustomCandlestickData({
-            candles: [candle],
-            bullishColor: resolvedChartColors.candlesUptrend,
-            bearishColor: resolvedChartColors.candlesDowntrend,
-          })[0];
-        }
-
-        js += `updateTick(${JSON.stringify(tickToInject)});`;
-        if (event.type === 'append') {
-          lastCandleLengthRef.current += 1;
+      if (needsResync) {
+        const mapped = buildMappedData(candlesRef.current);
+        if (mapped.length > 0) {
+          js += `updateChartData(${JSON.stringify(mapped)});`;
         }
       }
 
       if (js.length > 0) {
         try {
           webViewRef.current.injectJavaScript(js + ' true;');
-        } catch (_error) { }
-      }
-
-      if (rejectedUpdate) {
-        resyncChartFromMergedCandles();
+        } catch (_e) { /* ignore — WebView may have been disposed */ }
       }
     };
 
     const handleStreamEvent = (event: CandleStreamEvent) => {
       if (event.symbol.toUpperCase() !== chartSymbol.toUpperCase()) return;
       if (normalizeTimeframe(event.tf) !== normalizeTimeframe(chartTimeframe)) return;
-      if (!webViewReady) return;
-
-      pendingEvents.push(event);
+      pending.push(event);
       if (rAF === null) {
-        rAF = requestAnimationFrame(flushEvents);
+        rAF = requestAnimationFrame(flush);
       }
     };
 
+    let unsubscribed = false;
+    let unsubscribeFn: (() => void) | null = null;
     import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
+      if (unsubscribed) return;
       candlesWsService.addStreamListener(handleStreamEvent);
+      unsubscribeFn = () => candlesWsService.removeStreamListener(handleStreamEvent);
     });
 
     return () => {
+      unsubscribed = true;
       if (rAF !== null) cancelAnimationFrame(rAF);
-      import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeStreamListener(handleStreamEvent);
-      });
+      if (unsubscribeFn) unsubscribeFn();
     };
-  }, [chartSymbol, chartTimeframe, chartType, webViewReady]);
+  }, [chartSymbol, chartTimeframe, chartType, webViewReady, buildMappedData]);
 
   // Positions & Price Lines Bridge
   useEffect(() => {
@@ -1085,7 +1008,7 @@ export function ChartScreen() {
     <Screen style={styles.screen} noBottomInset>
       {!isChartExpanded && (
         <View style={styles.headerWrapper}>
-          <AppHeader title="Chart" noBorder extraTopPad={4} />
+          <AppHeader title={t('Chart')} noBorder extraTopPad={4} />
           <View style={styles.compactHeader}>
             {/* Left: Symbol Info */}
             <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
@@ -1208,8 +1131,6 @@ export function ChartScreen() {
                 </View>
               )}
 
-              declare const CHART_SOURCE: any; // defined below
-
               <WebView
                 ref={webViewRef}
                 source={CHART_SOURCE}
@@ -1219,21 +1140,37 @@ export function ChartScreen() {
                 showsHorizontalScrollIndicator={false}
                 originWhitelist={['*']}
                 javaScriptEnabled={true}
+                cacheEnabled={false}
+                bounces={false}
+                androidLayerType="hardware"
                 onContentProcessDidTerminate={() => {
                   console.warn('[CHART WEBVIEW] iOS background process terminated. Reloading chart strictly.');
+                  resetChartBridgeState();
                   setWebViewReady(false);
                   webViewRef.current?.reload();
                 }}
                 onRenderProcessGone={() => {
                   console.warn('[CHART WEBVIEW] Android render process gone. Reloading chart strictly.');
+                  resetChartBridgeState();
                   setWebViewReady(false);
                   webViewRef.current?.reload();
                 }}
                 onMessage={(event) => {
                   try {
                     const msg = JSON.parse(event.nativeEvent.data);
-                    if (msg.type === 'READY' || msg.type === 'CHART_READY') {
+                    if (msg.type === 'READY') {
+                      resetChartBridgeState();
                       setWebViewReady(true);
+                      setChartCanvasReady(false);
+                      console.log('[CHART] WebView READY');
+                      // Force overlays to re-draw after chart is (re-)initialized
+                      setOverlayRevision((prev) => prev + 1);
+                    } else if (msg.type === 'CHART_READY') {
+                      chartInitializedRef.current = true;
+                      chartBootstrapRetryCountRef.current = 0;
+                      setWebViewReady(true);
+                      setChartCanvasReady(true);
+                      console.log('[CHART] CHART_READY');
                       // Force overlays to re-draw after chart is (re-)initialized
                       setOverlayRevision((prev) => prev + 1);
                     } else if (msg.type === 'DRAWINGS_CHANGED') {
@@ -1248,6 +1185,13 @@ export function ChartScreen() {
                     } else if (msg.type === 'ERROR') {
                       console.log('[CHART WEBVIEW ERROR]', msg.message, msg.tick);
                       if (typeof msg.message === 'string' && msg.message.startsWith('updateChartAppearance failed:')) {
+                        return;
+                      }
+                      if (!chartInitializedRef.current && chartBootstrapRetryCountRef.current < 2) {
+                        chartBootstrapRetryCountRef.current += 1;
+                        sigRef.current = '';
+                        initSentForSigRef.current = false;
+                        setChartRetryRevision((prev) => prev + 1);
                         return;
                       }
                       Alert.alert('Chart Error Pipeline', msg.message);
@@ -1915,5 +1859,4 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-
 

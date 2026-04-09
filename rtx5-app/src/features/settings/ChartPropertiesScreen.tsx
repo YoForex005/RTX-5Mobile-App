@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-
+import { router, Stack } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -13,6 +13,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-color-picker';
 import { Screen } from '../../components/Screen';
 import { useLiveCandles } from '../../hooks/useLiveCandles';
@@ -49,19 +50,38 @@ const SHOW_FIELDS: Array<{ key: keyof ChartDisplaySettings; label: string }> = [
   { key: 'showRealVolumes', label: 'Show real volumes' },
   { key: 'showObjectDescriptions', label: 'Show object descriptions' },
   { key: 'showTradeLevels', label: 'Show trade levels' },
-  { key: 'showTradeHistory', label: 'Show trade history' },
 ];
 
-const COLOR_FIELDS: Array<{ key: keyof ChartColorsConfig; label: string }> = [
-  { key: 'background', label: 'Background' },
-  { key: 'foreground', label: 'Foreground' },
-  { key: 'grid', label: 'Grid' },
-  { key: 'barsUptrend', label: 'Bar up' },
-  { key: 'barsDowntrend', label: 'Bar down' },
-  { key: 'candlesUptrend', label: 'Bull candle' },
-  { key: 'candlesDowntrend', label: 'Bear candle' },
-  { key: 'hollowBody', label: 'Hollow body' },
-  { key: 'lineBody', label: 'Line chart' },
+type ColorGroup = {
+  title: string;
+  fields: Array<{ key: keyof ChartColorsConfig; label: string; hint?: string }>;
+};
+
+const COLOR_GROUPS: ColorGroup[] = [
+  {
+    title: 'CANVAS',
+    fields: [
+      { key: 'background', label: 'Background',     hint: 'Chart canvas backdrop' },
+      { key: 'foreground', label: 'Axis & labels',  hint: 'Price/time axis text' },
+      { key: 'grid',       label: 'Grid lines',     hint: 'Horizontal & vertical guides' },
+    ],
+  },
+  {
+    title: 'CANDLES',
+    fields: [
+      { key: 'candlesUptrend',   label: 'Bull candle',   hint: 'Body when close ≥ open' },
+      { key: 'candlesDowntrend', label: 'Bear candle',   hint: 'Body when close < open' },
+      { key: 'hollowBody',       label: 'Hollow body',   hint: 'Fill for hollow candles' },
+    ],
+  },
+  {
+    title: 'OTHER CHART TYPES',
+    fields: [
+      { key: 'barsUptrend',   label: 'Bar up',     hint: 'OHLC bars rising' },
+      { key: 'barsDowntrend', label: 'Bar down',   hint: 'OHLC bars falling' },
+      { key: 'lineBody',      label: 'Line chart', hint: 'Close-only line color' },
+    ],
+  },
 ];
 
 const SCHEME_OPTIONS: Array<{ key: ChartColorScheme; label: string }> = [
@@ -94,6 +114,7 @@ const formatQuote = (value?: number, digits = 2) =>
 export function ChartPropertiesScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { width } = useWindowDimensions();
   const isCompact = width < 390;
@@ -206,8 +227,19 @@ export function ChartPropertiesScreen() {
 
   return (
     <Screen style={styles.screen}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
+          </Pressable>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerTitle} numberOfLines={1}>Charts</Text>
+          </View>
+          <View style={styles.headerBackBtn} />
+        </View>
+      </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Properties of {chartSymbol.replace(/\//g, '')},{chartTimeframe}</Text>
 
         <View style={styles.previewCard}>
           <View style={styles.previewHeader}>
@@ -277,37 +309,94 @@ export function ChartPropertiesScreen() {
 
           {activeTab === 'colors' && (
             <View style={styles.panelBody}>
-              <Pressable style={styles.colorRow} onPress={() => setSchemeModalOpen(true)}>
-                <Text style={styles.colorLabel}>Scheme</Text>
-                <View style={styles.colorValueRow}>
-                  <Text style={styles.colorValueText}>{SCHEME_OPTIONS.find((option) => option.key === chartColorScheme)?.label ?? 'Custom'}</Text>
-                  <Ionicons name="chevron-down" size={16} color={T.textMuted} />
-                </View>
-              </Pressable>
-              <View style={styles.separator} />
-              {COLOR_FIELDS.map((item, index) => (
-                <View key={item.key}>
-                  <Pressable style={styles.colorRow} onPress={() => openColorEditor(item.key)}>
-                    <Text style={styles.colorLabel}>{item.label}</Text>
-                    <View style={styles.colorValueRow}>
-                      <View
-                        style={[
-                          styles.colorChip,
-                          {
-                            backgroundColor: isTransparent(resolvedChartColors[item.key]) ? 'transparent' : resolvedChartColors[item.key],
-                            borderColor: isTransparent(resolvedChartColors[item.key])
-                              ? (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.18)')
-                              : 'transparent',
-                          },
-                        ]}
-                      >
-                        {isTransparent(resolvedChartColors[item.key]) && <View style={styles.transparentSlash} />}
+              {/* ── Scheme presets — 2×2 visual grid ─────────────────────── */}
+              <Text style={styles.colorGroupTitle}>SCHEME</Text>
+              <View style={styles.schemeGrid}>
+                {SCHEME_OPTIONS.map((option) => {
+                  const isActive = option.key === chartColorScheme;
+                  const presetColors = option.key === 'custom'
+                    ? null
+                    : CHART_COLOR_SCHEME_PRESETS[option.key].colors;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      onPress={() => setChartColorScheme(option.key)}
+                      style={[styles.schemeTile, isActive && styles.schemeTileActive]}
+                    >
+                      {/* Mini chart preview surface */}
+                      <View style={[
+                        styles.schemePreview,
+                        { backgroundColor: presetColors?.background ?? (isDark ? '#0E141F' : '#F1F5F9') },
+                        isActive && styles.schemePreviewActive,
+                      ]}>
+                        {presetColors ? (
+                          <View style={styles.schemeCandleRow}>
+                            <View style={[styles.schemeMiniWick, { backgroundColor: presetColors.candlesUptrend, height: 26 }]} />
+                            <View style={[styles.schemeMiniBody, { backgroundColor: presetColors.candlesUptrend, height: 14 }]} />
+                            <View style={[styles.schemeMiniGap]} />
+                            <View style={[styles.schemeMiniWick, { backgroundColor: presetColors.candlesDowntrend, height: 22 }]} />
+                            <View style={[styles.schemeMiniBody, { backgroundColor: presetColors.candlesDowntrend, height: 11 }]} />
+                            <View style={[styles.schemeMiniGap]} />
+                            <View style={[styles.schemeMiniWick, { backgroundColor: presetColors.candlesUptrend, height: 18 }]} />
+                            <View style={[styles.schemeMiniBody, { backgroundColor: presetColors.candlesUptrend, height: 9 }]} />
+                          </View>
+                        ) : (
+                          <View style={styles.schemeCustomIconWrap}>
+                            <Ionicons name="color-palette" size={22} color={isDark ? '#94A3B8' : '#64748B'} />
+                          </View>
+                        )}
+                        {isActive && (
+                          <View style={styles.schemeCheckBadge}>
+                            <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                          </View>
+                        )}
                       </View>
-                      <Text style={styles.colorValueText}>{resolvedChartColors[item.key]}</Text>
-                      <Ionicons name="chevron-down" size={16} color={T.textMuted} />
-                    </View>
-                  </Pressable>
-                  {index < COLOR_FIELDS.length - 1 && <View style={styles.separator} />}
+                      {/* Label below the preview */}
+                      <View style={styles.schemeTileFoot}>
+                        <Text style={[styles.schemeTileLabel, isActive && styles.schemeTileLabelActive]} numberOfLines={1}>
+                          {option.label}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* ── Grouped color fields ─────────────────────────────────── */}
+              {COLOR_GROUPS.map((group) => (
+                <View key={group.title} style={styles.colorGroup}>
+                  <Text style={styles.colorGroupTitle}>{group.title}</Text>
+                  <View style={styles.colorGroupCard}>
+                    {group.fields.map((item, index) => (
+                      <View key={item.key}>
+                        <Pressable
+                          style={({ pressed }) => [styles.colorRowPro, pressed && styles.colorRowProPressed]}
+                          onPress={() => openColorEditor(item.key)}
+                        >
+                          <View
+                            style={[
+                              styles.colorChipPro,
+                              {
+                                backgroundColor: isTransparent(resolvedChartColors[item.key]) ? 'transparent' : resolvedChartColors[item.key],
+                                borderColor: isTransparent(resolvedChartColors[item.key])
+                                  ? (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.18)')
+                                  : (isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)'),
+                              },
+                            ]}
+                          >
+                            {isTransparent(resolvedChartColors[item.key]) && <View style={styles.transparentSlash} />}
+                          </View>
+                          <View style={styles.colorRowProText}>
+                            <Text style={styles.colorRowProLabel}>{item.label}</Text>
+                            {item.hint ? <Text style={styles.colorRowProHint}>{item.hint}</Text> : null}
+                          </View>
+                          <Text style={styles.colorRowProHex}>{resolvedChartColors[item.key]}</Text>
+                          <Ionicons name="chevron-forward" size={14} color={isDark ? '#64748B' : '#94A3B8'} />
+                        </Pressable>
+                        {index < group.fields.length - 1 && <View style={styles.colorRowSeparator} />}
+                      </View>
+                    ))}
+                  </View>
                 </View>
               ))}
             </View>
@@ -340,7 +429,7 @@ export function ChartPropertiesScreen() {
           <Pressable style={styles.modalBackdropBottom} onPress={() => applyDraftColor(draftColor)}>
             <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.sheetTitle}>{COLOR_FIELDS.find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
+                <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
 
                 <ColorPicker
                   style={{ width: '100%' }}
@@ -405,7 +494,37 @@ export function ChartPropertiesScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#000000' : '#F4F5F7',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerBackBtn: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    headerTitle: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     scroll: {
       flex: 1,
@@ -423,7 +542,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginBottom: 12,
     },
     previewCard: {
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -481,7 +600,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 14,
       paddingVertical: 10,
       paddingHorizontal: 12,
-      backgroundColor: isDark ? 'rgba(15,23,42,0.72)' : 'rgba(248,250,252,0.94)',
+      backgroundColor: isDark ? '#0E141F' : 'rgba(248,250,252,0.94)',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.12)',
     },
@@ -519,7 +638,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tabsRow: {
       flexDirection: 'row',
       borderRadius: 18,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 8,
@@ -550,7 +669,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: T.trading.buy.primary,
     },
     panel: {
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -662,6 +781,160 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
       marginLeft: 16,
     },
+
+    /* ── Colors tab — premium redesign ────────────────────────────── */
+    schemeGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      paddingHorizontal: 6,
+      paddingTop: 2,
+      paddingBottom: 10,
+    },
+    schemeTile: {
+      width: '50%',
+      paddingHorizontal: 3,
+      paddingVertical: 3,
+    },
+    schemeTileActive: {
+      // Active state handled inside schemePreview/schemeTileLabel
+    },
+    schemePreview: {
+      width: '100%',
+      aspectRatio: 2.4,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)',
+      overflow: 'hidden',
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    schemePreviewActive: {
+      borderColor: '#3B82F6',
+      shadowColor: '#3B82F6',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    schemeCandleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      height: '100%',
+      paddingHorizontal: 2,
+    },
+    schemeMiniWick: {
+      width: 1,
+      borderRadius: 0.5,
+    },
+    schemeMiniBody: {
+      width: 7,
+      borderRadius: 1,
+      marginLeft: -4,
+    },
+    schemeMiniGap: {
+      width: 8,
+    },
+    schemeCustomIconWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    schemeCheckBadge: {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      backgroundColor: '#3B82F6',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.3,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    schemeTileFoot: {
+      paddingTop: 4,
+      alignItems: 'center',
+    },
+    schemeTileLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: isDark ? '#94A3B8' : '#64748B',
+      letterSpacing: 0.2,
+    },
+    schemeTileLabelActive: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+    },
+
+    colorGroup: {
+      marginBottom: 16,
+    },
+    colorGroupTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: isDark ? '#94A3B8' : '#64748B',
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
+      paddingHorizontal: 20,
+      marginBottom: 8,
+    },
+    colorGroupCard: {
+      marginHorizontal: 14,
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
+      overflow: 'hidden',
+    },
+    colorRowPro: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      gap: 12,
+    },
+    colorRowProPressed: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    },
+    colorChipPro: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    colorRowProText: {
+      flex: 1,
+    },
+    colorRowProLabel: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    colorRowProHint: {
+      color: isDark ? '#64748B' : '#94A3B8',
+      fontSize: 11,
+      fontWeight: '500',
+      marginTop: 1,
+    },
+    colorRowProHex: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 12,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 0.2,
+    },
+    colorRowSeparator: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#EEF2F7',
+      marginLeft: 58,
+    },
     modalBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.55)',
@@ -677,7 +950,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
       width: '100%',
       maxWidth: 360,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
       borderRadius: 18,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -702,7 +975,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
       width: '100%',
       maxWidth: 440,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       borderWidth: 1,
@@ -754,7 +1027,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 12,
       paddingVertical: 10,
-      backgroundColor: isDark ? 'rgba(15,23,42,0.72)' : '#F8FAFC',
+      backgroundColor: isDark ? '#0E141F' : '#F8FAFC',
       alignItems: 'center',
     },
     infoCardThird: {
@@ -764,7 +1037,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 4,
       paddingVertical: 8,
-      backgroundColor: isDark ? 'rgba(15,23,42,0.72)' : '#F8FAFC',
+      backgroundColor: isDark ? '#0E141F' : '#F8FAFC',
       alignItems: 'center',
     },
     infoLabel: {

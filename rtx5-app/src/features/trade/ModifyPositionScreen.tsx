@@ -20,6 +20,11 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { findPositionById } from './tradeFlow';
 import { fmt } from '../../utils/format';
+import {
+  classifyTradingError,
+  createFrontendTradingError,
+  formatTradingErrorFeedback,
+} from '../../api/tradingErrors';
 
 function formatModifyPrice(val: number) {
   const str = val.toFixed(2);
@@ -162,7 +167,14 @@ export function ModifyPositionScreen() {
 
   const handleModify = async () => {
     if (!accountDetails?.credentials?.accessToken) {
-      setSubmitMessage('Authentication Error: Session token missing.');
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            'Authentication Error',
+            'The app does not have a valid local trading session. Log in again before modifying the position.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -191,13 +203,11 @@ export function ModifyPositionScreen() {
       // Force UI back successfully
       router.back();
     } catch (error: any) {
-      const status = error?.response?.status;
-      const data = error?.response?.data || {};
-      if (status === 400) {
-        setSubmitMessage(data.message || 'Invalid parameters.');
-      } else {
-        setSubmitMessage('Modification rejected by broker.');
-      }
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          classifyTradingError(error, { action: 'modify-position' }),
+        ),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -266,29 +276,33 @@ export function ModifyPositionScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
-        
-        {/* Absolute Centered Top Line */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 20 }]}>
         <View style={styles.headerTopRow}>
-          <Pressable 
+          <Pressable
             onPress={() => {
               if (router.canGoBack()) {
                 router.back();
               } else {
                 router.replace('/trade');
               }
-            }} 
-            hitSlop={20} 
+            }}
+            hitSlop={20}
             style={styles.backBtn}
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
 
-          <Text numberOfLines={1} adjustsFontSizeToFit style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={styles.headerActionLabel}>MODIFY POSITION</Text>
-            <Text style={styles.headerDot}>  •  </Text>
-            <Text style={styles.headerTicketLabel}>#{position.id}</Text>
-          </Text>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
+              MODIFY POSITION
+            </Text>
+            <Text style={styles.headerTicketLabel} numberOfLines={1}>
+              #{position.id}
+            </Text>
+          </View>
+
+          {/* Right spacer to balance the back button so the title stays optically centered */}
+          <View style={styles.backBtn} />
         </View>
 
         {/* Payload Line */}
@@ -301,7 +315,6 @@ export function ModifyPositionScreen() {
           <Text style={styles.headerAt}>at</Text>
           <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
         </View>
-
       </View>
 
       {/* Big Prices */}
@@ -321,48 +334,131 @@ export function ModifyPositionScreen() {
         </View>
       </View>
 
-      {/* SL / TP Adjusters */}
-      <View style={styles.stepperRow}>
-        <View style={[styles.stepperCard, { borderColor: 'rgba(245, 124, 0, 0.3)', backgroundColor: 'rgba(245, 124, 0, 0.05)' }]}>
-          <Pressable onPress={() => handleStepSl(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Ionicons name="remove-circle-outline" size={24} color="#F57C00" />
-          </Pressable>
-          <View style={styles.stepInputWrap}>
-            <Text style={styles.stepperLabel}>Stop Loss</Text>
-            <TextInput
-               style={[styles.stepVal, !stopLoss && { color: T.textMuted }]}
-               keyboardType="numeric"
-               value={stopLoss !== null ? stopLoss.toString() : ''}
-               placeholder="Not Set"
-               placeholderTextColor={T.textMuted}
-               onChangeText={handleSlChange}
-            />
-          </View>
-          <Pressable onPress={() => handleStepSl(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Ionicons name="add-circle-outline" size={24} color="#F57C00" />
-          </Pressable>
-        </View>
+      {/* SL / TP Adjusters — enterprise premium card design */}
+      {(() => {
+        const PRESET_PIPS = [10, 25, 50, 100];
+        const SL_COLOR = '#F57C00';
+        const TP_COLOR = '#22C55E';
+        const contractSize = isJpy ? 1000 : 100000;
+        const lots = position.volume || 0;
 
-        <View style={[styles.stepperCard, { borderColor: 'rgba(56, 142, 60, 0.3)', backgroundColor: 'rgba(56, 142, 60, 0.05)' }]}>
-          <Pressable onPress={() => handleStepTp(-pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Ionicons name="remove-circle-outline" size={24} color="#388E3C" />
-          </Pressable>
-          <View style={styles.stepInputWrap}>
-            <Text style={styles.stepperLabel}>Take Profit</Text>
-            <TextInput
-               style={[styles.stepVal, !takeProfit && { color: T.textMuted }]}
-               keyboardType="numeric"
-               value={takeProfit !== null ? takeProfit.toString() : ''}
-               placeholder="Not Set"
-               placeholderTextColor={T.textMuted}
-               onChangeText={handleTpChange}
-            />
+        const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
+          if (!target) return null;
+          const distance = Math.abs(target - position.openPrice);
+          const pips = Math.round(distance / pipSize);
+          const usd = distance * contractSize * lots;
+          const sign = kind === 'sl' ? '−' : '+';
+          return { pips, usd, sign };
+        };
+        const slImpact = computeImpact(stopLoss, 'sl');
+        const tpImpact = computeImpact(takeProfit, 'tp');
+
+        const splitPrice = (val: number | null) => {
+          if (val === null) return { main: '—', huge: '' };
+          const str = val.toFixed(decimals);
+          return { main: str.slice(0, -2), huge: str.slice(-2) };
+        };
+        const slParts = splitPrice(stopLoss);
+        const tpParts = splitPrice(takeProfit);
+
+        const renderCard = (
+          kind: 'sl' | 'tp',
+          color: string,
+          title: string,
+          parts: { main: string; huge: string },
+          impact: { pips: number; usd: number; sign: string } | null,
+          onStep: (delta: number) => void,
+          onChangeText: (text: string) => void,
+          onClear: () => void,
+          rawValue: number | null,
+        ) => (
+          <View style={[styles.stepperCard, { borderColor: T.border }]}>
+            <View style={[styles.stepperAccent, { backgroundColor: color }]} />
+
+            {/* Header */}
+            <View style={styles.stepperHead}>
+              <View style={styles.stepperHeadLeft}>
+                <View style={[styles.stepperBadge, { backgroundColor: color }]}>
+                  <Text style={styles.stepperBadgeText}>{kind.toUpperCase()}</Text>
+                </View>
+                <Text style={styles.stepperLabel}>{title}</Text>
+              </View>
+              {rawValue !== null ? (
+                <Pressable onPress={onClear} hitSlop={10} style={styles.stepperClear}>
+                  <Ionicons name="close-circle" size={16} color={T.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* Hero Price Row */}
+            <View style={styles.stepperPriceRow}>
+              <Pressable onPress={() => onStep(-pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Ionicons name="remove" size={18} color={color} />
+              </Pressable>
+
+              <View style={styles.stepperPriceWrap}>
+                {rawValue !== null ? (
+                  <Text style={styles.stepperPriceMain} numberOfLines={1} adjustsFontSizeToFit>
+                    {parts.main}
+                    <Text style={[styles.stepperPriceHuge, { color }]}>{parts.huge}</Text>
+                  </Text>
+                ) : (
+                  <Text style={styles.stepperPriceEmpty}>Not set</Text>
+                )}
+                <TextInput
+                  style={styles.stepperHiddenInput}
+                  keyboardType="numeric"
+                  value={rawValue !== null ? rawValue.toString() : ''}
+                  onChangeText={onChangeText}
+                  placeholder="0"
+                  placeholderTextColor="transparent"
+                />
+              </View>
+
+              <Pressable onPress={() => onStep(pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                <Ionicons name="add" size={18} color={color} />
+              </Pressable>
+            </View>
+
+            {/* Quick preset chips */}
+            <View style={styles.stepperChipRow}>
+              {PRESET_PIPS.map((p) => (
+                <Pressable
+                  key={p}
+                  onPress={() => onStep(pipSize * p * (kind === 'sl' ? -1 : 1))}
+                  style={[styles.stepperChip, { borderColor: T.border }]}
+                  hitSlop={6}
+                >
+                  <Text style={[styles.stepperChipText, { color }]}>
+                    {kind === 'sl' ? '−' : '+'}{p}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Footer: pip distance + $ impact */}
+            <View style={styles.stepperFootRow}>
+              <Text style={styles.stepperFootLabel}>Distance</Text>
+              <Text style={[styles.stepperFootValue, impact && { color: T.text }]}>
+                {impact ? `${impact.pips} pts` : '—'}
+              </Text>
+            </View>
+            <View style={styles.stepperFootRow}>
+              <Text style={styles.stepperFootLabel}>Est. {kind === 'sl' ? 'Loss' : 'Profit'}</Text>
+              <Text style={[styles.stepperFootValue, impact && { color }]}>
+                {impact ? `${impact.sign}$${impact.usd.toFixed(2)}` : '—'}
+              </Text>
+            </View>
           </View>
-          <Pressable onPress={() => handleStepTp(pipSize * 10)} style={styles.stepBtn} hitSlop={10}>
-             <Ionicons name="add-circle-outline" size={24} color="#388E3C" />
-          </Pressable>
-        </View>
-      </View>
+        );
+
+        return (
+          <View style={styles.stepperRow}>
+            {renderCard('sl', SL_COLOR, 'Stop Loss', slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
+            {renderCard('tp', TP_COLOR, 'Take Profit', tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
+          </View>
+        );
+      })()}
 
       {/* SVG Tick Chart Area */}
       <View 
@@ -471,44 +567,49 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingBottom: 16,
-    alignItems: 'center', // Centers everything below the top row
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
   },
   headerTopRow: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: 12,
-    marginBottom: 4,
+    justifyContent: 'space-between',
+    marginBottom: 6,
   },
   backBtn: {
-    padding: 4,
-    zIndex: 10,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitleWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   headerActionLabel: {
     color: T.text,
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  headerDot: {
-    color: T.textMuted,
-    fontSize: 18,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.6,
   },
   headerTicketLabel: {
-    color: T.text,
-    fontSize: 18,
-    fontWeight: '700',
+    color: T.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
-    letterSpacing: 1,
+    letterSpacing: 0.4,
   },
   headerSubRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 4,
+    marginTop: 2,
   },
   headerSide: {
     fontSize: 15,
@@ -578,46 +679,158 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   stepperRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
-    marginHorizontal: 16,
+    marginHorizontal: 14,
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   stepperCard: {
     flex: 1,
+    paddingTop: 10,
+    paddingBottom: 8,
+    paddingLeft: 11,
+    paddingRight: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: T.glass1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  stepperAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+  },
+  stepperHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
+    marginBottom: 8,
   },
-  stepBtn: {
-    padding: 4,
+  stepperHeadLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
-  stepInputWrap: {
+  stepperBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  stepperBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: '#FFFFFF',
+  },
+  stepperLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  stepperClear: {
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepperLabel: {
+  stepperPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginBottom: 8,
+  },
+  stepperPriceWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    minHeight: 26,
+  },
+  stepperPriceMain: {
+    color: T.text,
+    fontSize: 19,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.4,
+    textAlign: 'center',
+  },
+  stepperPriceHuge: {
+    fontSize: 22,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  stepperPriceEmpty: {
+    color: T.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  stepperHiddenInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    color: 'transparent',
+    fontSize: 1,
+  },
+  stepperSquareBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.glass2,
+  },
+  stepperChipRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 4,
+    marginBottom: 8,
+  },
+  stepperChip: {
+    flex: 1,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.glass2,
+  },
+  stepperChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.2,
+  },
+  stepperFootRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 1,
+  },
+  stepperFootLabel: {
     fontSize: 10,
     fontWeight: '600',
     color: T.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+    letterSpacing: 0.4,
   },
-  stepVal: {
-    color: T.text,
-    fontSize: 16,
+  stepperFootValue: {
+    fontSize: 12,
     fontWeight: '700',
-    minWidth: 40,
-    maxWidth: 75,
-    padding: 0,
-    margin: 0,
-    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+    color: T.textMuted,
   },
   chartContainer: {
     flex: 1,

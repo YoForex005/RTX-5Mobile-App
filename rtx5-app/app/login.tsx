@@ -14,6 +14,7 @@ import {
   Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
@@ -40,7 +41,8 @@ export default function LoginScreen() {
   const { themeMode } = useUserPreferences();
   const T = useTheme();
   const isDark = themeMode === 'dark';
-  const styles = makeStyles(T, isDark);
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(T, isDark, insets.top);
 
   useEffect(() => {
     // Auto-populate saved credentials if they exist
@@ -97,20 +99,24 @@ export default function LoginScreen() {
       // Compute expiresAt from expires_in (seconds)
       const expiresAt = new Date(Date.now() + (response.expires_in ?? 86400) * 1000).toISOString();
 
+      // Use the broker_id from the API response as canonical — the server
+      // validates and returns it, so it's always correct. Falls back to
+      // the user-typed value if the response doesn't include it.
+      const canonicalBrokerId = response.broker_id || brokerId.trim();
+
+      // brokerId is persisted atomically inside login() to prevent race
+      // conditions with the async Zustand persist middleware.
       login(
         String(response.account_login),
         response.username || 'Trader',
-        response.server || brokerConfig?.server_name || brokerId,
+        response.server || brokerConfig?.server_name || canonicalBrokerId,
         {
           access_token: response.access_token,
           refresh_token: response.refresh_token,
           expires_at: expiresAt,
-        }
+        },
+        canonicalBrokerId
       );
-
-      // Persist broker_id to Zustand — enables GET /broker/config to resolve
-      // broker-specific settings (branding, currencies, leverage limits, etc.)
-      persistBrokerId(brokerId.trim());
 
       // ── Invalidate cached queries so fresh data loads for the new session ──
       // Without this, stale accounts/broker data from a previous login persists
@@ -321,12 +327,16 @@ export default function LoginScreen() {
 }
 
 // ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
-function makeStyles(T: ThemeColors, isDark: boolean) {
+function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   return StyleSheet.create({
     bg: {
       flex: 1,
       backgroundColor: T.bg, // Dynamic theme background
-      paddingTop: Platform.OS === 'ios' ? 56 : 24,
+      // Respect the device's actual safe-area inset (status bar / notch)
+      // instead of a hardcoded 56/24, which clipped the back button on
+      // tall-status-bar Android devices and floated the header awkwardly
+      // on iPhones without notches.
+      paddingTop: safeTop + 8,
     },
     container: {
       flex: 1,
@@ -360,9 +370,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     /* Section Title Bar (Minimalist) */
     sectionTitleContainer: {
-      paddingVertical: 16,
-      marginTop: 12,
-      marginBottom: 20,
+      paddingVertical: 8,
+      marginTop: 4,
+      marginBottom: 4,
     },
     sectionTitle: {
       color: T.textSub,
@@ -375,7 +385,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     formContainer: {
       paddingHorizontal: 20,
-      marginTop: 40,
+      marginTop: 8,
     },
 
     /* Input Rows (Ultra-Minimalist) */

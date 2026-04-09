@@ -6,10 +6,9 @@
  * It manages the transition from historical REST data into active streaming.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { candlesWsService } from '../api/ws/candlesSocket';
 import { normalizeTimeframe } from '../domain/candles';
-import { useUserPreferences } from '../state/userPreferences';
 
 export type CandleParams = {
   time: number; // unix timestamp in seconds
@@ -28,7 +27,6 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   const [candles, setCandles] = useState<CandleParams[]>([]);
   const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingCandlesRef = useRef<CandleParams[] | null>(null);
-  const accessToken = useUserPreferences((state) => state.accountDetails?.credentials?.accessToken);
 
   useEffect(() => {
     let unmounted = false;
@@ -64,9 +62,34 @@ export function useLiveCandles(symbol: string, timeframe: string) {
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       candlesWsService.removeArrayListener(handleArrayUpdate);
     };
-  }, [symbol, timeframe, accessToken]);
+    // accessToken is intentionally NOT a dependency. Token refresh is a
+    // background concern handled by the WebSocket service itself; tying the
+    // candle subscription to it caused the entire candle array to be wiped
+    // (and a fresh history fetch to fire) every time the auth refresh
+    // landed — which the user perceived as the chart "refreshing on its
+    // own" whenever they switched tabs at the wrong moment. The hook now
+    // re-subscribes ONLY on a real symbol or timeframe change.
+  }, [symbol, timeframe]);
 
-  return { candles };
+  /**
+   * Force a fresh fetch of historical candles + WebSocket re-subscription.
+   * Used by the chart screen's manual refresh button. Mirrors what
+   * unsubscribe + subscribe does internally so the candlesWsService
+   * treats it as a brand-new subscription and re-runs fetchHistoryAndSubscribe.
+   */
+  const refresh = useCallback(() => {
+    if (!symbol || !timeframe) return;
+    setCandles([]);
+    pendingCandlesRef.current = null;
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current);
+      flushTimeoutRef.current = null;
+    }
+    candlesWsService.unsubscribe();
+    candlesWsService.subscribe(symbol, timeframe);
+  }, [symbol, timeframe]);
+
+  return { candles, refresh };
 }
 
 /**

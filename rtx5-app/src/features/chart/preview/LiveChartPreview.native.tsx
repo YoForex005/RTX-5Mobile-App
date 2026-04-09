@@ -352,8 +352,12 @@ export default function LiveChartPreviewNative({
     },
   }), [colors, display]);
 
+  // Render the FULL candle history so the preview is byte-identical to the
+  // main ChartScreen. Previously this was sliced to the last 50 candles to save
+  // memory, but the user expects the preview and the main chart to look the
+  // same — so we feed the same dataset.
   const previewCandles = useMemo(
-    () => sanitizePreviewCandles(candles).slice(-50),
+    () => sanitizePreviewCandles(candles),
     [candles],
   );
   const mappedPreviewData = useMemo(

@@ -18,12 +18,16 @@ import { ThemeColors } from '../../theme/glass';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { QRScannerModal } from '../../components/QRScannerModal';
+import { useTranslation } from '../../i18n/useTranslation';
+import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
 
 export function SettingsScreen() {
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
+  const { t, language } = useTranslation();
+  const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const styles = useMemo(() => makeStyles(T, themeMode), [T, themeMode]);
 
   const [isSearching, setIsSearching] = useState(false);
@@ -96,7 +100,7 @@ export function SettingsScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {isSearching ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-            <AppHeader title="Settings" noBorder />
+            <AppHeader title={t('Settings')} noBorder />
             <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
               <Ionicons name="search" size={20} color={T.textMuted} />
               <TextInput
@@ -249,62 +253,62 @@ export function SettingsScreen() {
             </View>
 
             {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
-            <Text style={styles.sectionTitle}>ACCOUNT</Text>
+            <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
             <Pressable style={[styles.singleRowCard, styles.cardShadow]} onPress={() => router.push('/register')}>
               <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
                 <Ionicons name="person-outline" size={20} color="#1D4ED8" />
               </View>
-              <Text style={styles.rowTitleSingle}>New Account</Text>
+              <Text style={styles.rowTitleSingle}>{t('New Account')}</Text>
               <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
             </Pressable>
 
 
             {/* ── MARKET & NEWS SECTION ─────────────────────────────── */}
-            <Text style={styles.sectionTitle}>MARKET & NEWS</Text>
+            <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="mail-outline" color="#1D4ED8"
-                title="Mailbox" sub="High Importance News"
+                title={t('Mailbox')} sub="High Importance News"
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="newspaper-outline" color="#1D4ED8"
-                title="News" sub="WTI, US-Iran Talks, OPEC+"
+                title={t('News')} sub="WTI, US-Iran Talks, OPEC+"
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="calendar-outline" color="#1D4ED8"
-                title="Tradays" sub="Economic Calendar"
+                title={t('Tradays')} sub="Economic Calendar"
                 onPress={() => router.push('/settings/economic-calendar')}
               />
             </View>
 
             {/* ── COMMUNITY SECTION ─────────────────────────────────── */}
-            <Text style={styles.sectionTitle}>COMMUNITY</Text>
+            <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="chatbubble-outline" color="#1D4ED8"
-                title="Chat & Messages" sub="Sign in to MQL5.community"
+                title={t('Chat & Messages')} sub="Sign in to MQL5.community"
                 badge="9"
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="people-outline" color="#1D4ED8"
-                title="Traders Community"
+                title={t('Traders Community')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="flash-outline" color="#1D4ED8"
-                title="MQL5 Algo Trading"
+                title={t('MQL5 Algo Trading')}
               />
             </View>
 
             {/* ── TERMINAL SECTION (Vertical List) ───────────────────── */}
-            <Text style={styles.sectionTitle}>TERMINAL</Text>
+            <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="color-palette-outline" color="#1D4ED8"
-                title="Theme" sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
+                title={t('Theme')} sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
                 rightElement={
                   <Switch
                     value={themeMode === 'light'}
@@ -319,43 +323,44 @@ export function SettingsScreen() {
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="shield-checkmark-outline" color="#1D4ED8"
-                title="OTP" sub="Passcode Generator"
+                title={t('OTP')} sub="Passcode Generator"
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="qr-code-outline" color="#1D4ED8"
-                title="QR Scanner" sub="Scan code to connect"
+                title={t('QR Scanner')} sub="Scan code to connect"
                 onPress={() => setShowScanner(true)}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="browsers-outline" color="#1D4ED8"
-                title="Interface" sub="English"
+                title={t('Interface')} sub={currentLanguageNative}
+                onPress={() => router.push('/settings/interface')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="stats-chart-outline" color="#1D4ED8"
-                title="Charts"
+                title={t('Charts')}
                 onPress={() => router.push('/settings/charts')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="reader-outline" color="#1D4ED8"
-                title="Journal"
+                title={t('Journal')}
               />
             </View>
 
             {/* ── SUPPORT SECTION ───────────────────────────────────── */}
-            <Text style={styles.sectionTitle}>SUPPORT & HELP</Text>
+            <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="help-buoy-outline" color="#1D4ED8"
-                title="Support" sub="Contact our dedicated team"
+                title={t('Support')} sub="Contact our dedicated team"
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="information-circle-outline" color="#1D4ED8"
-                title="Help" sub="FAQs & Documentation"
+                title={t('Help')} sub="FAQs & Documentation"
               />
             </View>
 

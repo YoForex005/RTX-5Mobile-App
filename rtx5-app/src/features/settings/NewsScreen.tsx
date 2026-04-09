@@ -5,23 +5,39 @@
  * financial feeds (e.g. FXStreet) directly into the application.
  */
 
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { newsItems } from '../../mock/tradingData';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useUserPreferences } from '../../state/userPreferences';
 
 export function NewsScreen() {
   const T = useTheme();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T), [T]);
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 700);
+  }, []);
   return (
     <Screen>
       <Text style={styles.title}>Categories ▾</Text>
       <FlatList
         data={newsItems}
         keyExtractor={(item) => item}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#D1D4DC' : '#131722'}
+            colors={[isDark ? '#D1D4DC' : '#131722']}
+            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+          />
+        }
         renderItem={({ item }) => (
           <View style={styles.row}>
             <View style={styles.icon}><Text style={styles.iconText}>F</Text></View>

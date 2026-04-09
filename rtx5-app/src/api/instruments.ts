@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { normalizeSymbol } from '../domain/symbols';
 
 export interface InstrumentMetaDTO {
   symbol: string;
@@ -25,9 +26,10 @@ export interface InstrumentMetaDTO {
 }
 
 export async function fetchInstrumentMeta(symbol: string): Promise<InstrumentMetaDTO> {
-  const res = await apiClient(`/instruments/${encodeURIComponent(symbol)}`);
+  const normalizedSymbol = normalizeSymbol(symbol);
+  const res = await apiClient(`/instruments/${encodeURIComponent(normalizedSymbol)}`);
   if (!res.ok) {
-    throw new Error(`Failed to fetch metadata for ${symbol}`);
+    throw new Error(`Failed to fetch metadata for ${normalizedSymbol}`);
   }
   return res.json();
 }

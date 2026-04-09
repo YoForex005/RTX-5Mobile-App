@@ -13,6 +13,7 @@ import {
   Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
 // Integrated the Register API endpoint
 import { registerAPI } from '../src/api/auth';
@@ -37,7 +38,8 @@ export default function RegisterScreen() {
   const { themeMode } = useUserPreferences();
   const T = useTheme();
   const isDark = themeMode === 'dark';
-  const styles = makeStyles(T, isDark);
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(T, isDark, insets.top);
 
   const handleRegister = async () => {
     if (!brokerId.trim() || !name.trim() || !email.trim() || !password) {
@@ -68,20 +70,22 @@ export default function RegisterScreen() {
       // Compute expiresAt from expires_in (seconds)
       const expiresAt = new Date(Date.now() + (response.expires_in ?? 86400) * 1000).toISOString();
 
+      // Use the broker_id from the API response as canonical
+      const canonicalBrokerId = response.broker_id || brokerId.trim();
+
       // Log the user in right away after successful registration
+      // brokerId is persisted atomically inside login()
       login(
         String(response.account_login),
         response.username || name.trim(),
-        response.server || brokerConfig?.server_name || brokerId,
+        response.server || brokerConfig?.server_name || canonicalBrokerId,
         {
           access_token: response.access_token,
           refresh_token: response.refresh_token,
           expires_at: expiresAt,
-        }
+        },
+        canonicalBrokerId
       );
-
-      // Persist broker_id to Zustand
-      persistBrokerId(brokerId.trim());
 
       // Invalidate cached queries
       queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
@@ -263,12 +267,12 @@ export default function RegisterScreen() {
 }
 
 // ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
-function makeStyles(T: ThemeColors, isDark: boolean) {
+function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   return StyleSheet.create({
     bg: {
       flex: 1,
       backgroundColor: T.bg, // Dynamic theme background
-      paddingTop: Platform.OS === 'ios' ? 56 : 24,
+      paddingTop: safeTop + 8,
     },
     container: {
       flex: 1,

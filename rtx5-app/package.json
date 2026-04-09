@@ -10,6 +10,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "test": "npx --yes tsx --test src/features/chart/rendering/candleGeometry.test.ts",
+    "test:chart-geometry": "npx --yes tsx --test src/features/chart/rendering/candleGeometry.test.ts",
     "prebuild": "expo prebuild",
     "build:dev": "eas build --platform all --profile development --non-interactive",
     "build:preview": "eas build --platform all --profile preview --non-interactive",

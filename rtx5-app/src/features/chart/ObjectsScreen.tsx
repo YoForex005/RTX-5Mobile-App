@@ -5,7 +5,10 @@
  * and deleting stored persistent chart drawings (like trendlines and fib retracements).
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
@@ -25,15 +28,28 @@ export function ObjectsScreen() {
     themeMode,
   } = useUserPreferences();
   const T = useTheme();
-  const s = useMemo(() => makeStyles(T), [T]);
+  const isDark = themeMode === 'dark';
+  const insets = useSafeAreaInsets();
+  const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const addDrawing = (label: string) => {
     addChartDrawing(`${label} ${chartDrawings.length + 1}`);
   };
 
   return (
-    <Screen>
-      <Text style={s.title}>Objects</Text>
+    <Screen style={s.screen}>
+      <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={s.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={16} style={s.headerBackBtn}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
+          </Pressable>
+          <View style={s.headerTitleWrap} pointerEvents="none">
+            <Text style={s.headerTitle} numberOfLines={1}>Objects</Text>
+          </View>
+          <View style={s.headerBackBtn} />
+        </View>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
       <View style={s.toggleRow}>
         <Pressable style={[s.toggle, chartLockAll && s.toggleActive]} onPress={() => setChartLockAll(!chartLockAll)}>
           <Text style={s.toggleText}>{chartLockAll ? 'Unlock all' : 'Lock all'}</Text>
@@ -64,18 +80,45 @@ export function ObjectsScreen() {
           </Pressable>
         ))}
       </View>
+      </ScrollView>
     </Screen>
   );
 }
 
-function makeStyles(T: ThemeColors) {
+function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    title: {
-      marginTop: spacing.md,
-      marginHorizontal: spacing.md,
-      color: T.text,
-      fontSize: 24,
+    screen: {
+      backgroundColor: isDark ? '#06080D' : T.bg,
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : T.border,
+      backgroundColor: isDark ? '#06080D' : T.bg,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerBackBtn: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    headerTitle: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 17,
       fontWeight: '700',
+      letterSpacing: 0.3,
     },
     toggleRow: {
       marginTop: spacing.md,

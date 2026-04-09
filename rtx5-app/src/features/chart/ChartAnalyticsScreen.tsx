@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Image, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -114,6 +115,7 @@ export function ChartAnalyticsScreen() {
   const router = useRouter();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const currentSymbol = symbol || 'EUR/USD';
@@ -196,20 +198,20 @@ export function ChartAnalyticsScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <Stack.Screen 
-        options={{ 
-          title: `Analytics, ${currentSymbol}`, 
-          headerTitleAlign: 'center',
-          headerLeft: () => (
-            <Pressable onPress={() => router.back()} hitSlop={16} style={{ marginLeft: 6 }}>
-              <Ionicons name="arrow-back" size={26} color={T.text} />
-            </Pressable>
-          ),
-          headerStyle: { backgroundColor: isDark ? '#000000' : T.bg },
-          headerTitleStyle: { color: T.text, fontSize: 18, fontWeight: '700' },
-          headerShadowVisible: false,
-        }} 
-      />
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+            <Ionicons name="arrow-back" size={24} color={T.text} />
+          </Pressable>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              Analytics · {currentSymbol}
+            </Text>
+          </View>
+          <View style={styles.headerBackBtn} />
+        </View>
+      </View>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Performance Block — Dynamic from candle data */}
@@ -230,91 +232,142 @@ export function ChartAnalyticsScreen() {
           </View>
         </View>
 
-        {/* Daily Range — Modern Professional Design */}
-        <View style={styles.card}>
-          <View style={styles.rangeHeaderRow}>
-            <Text style={styles.cardHeader}>Daily Range</Text>
-            <View style={styles.rangeLivePill}>
-              <View style={styles.rangeLiveDot} />
-              <Text style={styles.rangeLiveText}>LIVE</Text>
-            </View>
-          </View>
+        {/* Daily Range — Enterprise Premium Design */}
+        {(() => {
+          const current = livePrice || rangeData.current;
+          const range = rangeData.high - rangeData.low;
+          const positionPct = range > 0 ? Math.max(0, Math.min(100, ((current - rangeData.low) / range) * 100)) : 50;
+          const change = current - rangeData.open;
+          const changePct = rangeData.open > 0 ? (change / rangeData.open) * 100 : 0;
+          const isUp = change >= 0;
+          const accentColor = isUp ? T.trading.buy.primary : T.trading.sell.primary;
+          const pipMultiplier = decimals === 3 ? 1000 : 100000;
+          const rangePts = (range * pipMultiplier).toFixed(0);
+          const volatilityPct = current > 0 ? (range / current) * 100 : 0;
 
-          {/* Current Price Hero */}
-          <View style={styles.rangeCurrentRow}>
-            <Text style={styles.rangeCurrentPrice}>
-              {(livePrice || rangeData.current).toFixed(decimals)}
-            </Text>
-            <View style={styles.rangeCurrentBadge}>
-              <Text style={styles.rangeCurrentBadgeText}>Current</Text>
-            </View>
-          </View>
+          // Split-decimal hero price (last 2 digits emphasized)
+          const priceStr = current.toFixed(decimals);
+          const priceMain = priceStr.slice(0, -2);
+          const priceHuge = priceStr.slice(-2);
 
-          {/* Range Bar Visualization */}
-          <View style={styles.rangeBarSection}>
-            {/* Labels Row */}
-            <View style={styles.rangeLabelsRow}>
-              <Text style={styles.rangeLabelLow}>LOW</Text>
-              <Text style={styles.rangeLabelHigh}>HIGH</Text>
-            </View>
-            
-            {/* Price Values Row */}
-            <View style={styles.rangePricesRow}>
-              <Text style={styles.rangePriceLow}>
-                {rangeData.low.toFixed(decimals)}
-              </Text>
-              <Text style={styles.rangePriceHigh}>
-                {rangeData.high.toFixed(decimals)}
-              </Text>
-            </View>
+          const formatSigned = (n: number, fixed: number, suffix = '') =>
+            `${n >= 0 ? '+' : ''}${n.toFixed(fixed)}${suffix}`;
 
-            {/* Progress Bar */}
-            <View style={styles.rangeBarTrack}>
-              <View style={[styles.rangeBarFill, { 
-                width: `${rangeData.high !== rangeData.low ? ((rangeData.current - rangeData.low) / (rangeData.high - rangeData.low)) * 100 : 50}%` 
-              }]} />
-              <View style={[styles.rangeBarThumb, {
-                left: `${rangeData.high !== rangeData.low ? ((rangeData.current - rangeData.low) / (rangeData.high - rangeData.low)) * 100 : 50}%`
-              }]} />
-            </View>
+          // Where to render the position indicator zone label
+          const zoneLabel = positionPct >= 66 ? 'UPPER' : positionPct >= 33 ? 'MID' : 'LOWER';
+          const zoneColor = positionPct >= 66
+            ? T.trading.buy.primary
+            : positionPct >= 33
+              ? T.textMuted
+              : T.trading.sell.primary;
 
-            {/* Sparkline Curve */}
-            <View style={styles.rangeSparklineWrap}>
-              <Svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
-                <Defs>
-                  <LinearGradient id="rangeGlow" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={T.trading.buy.primary} stopOpacity="0.25" />
-                    <Stop offset="1" stopColor={T.trading.buy.primary} stopOpacity="0" />
-                  </LinearGradient>
-                </Defs>
-                <Path d={`${sparkLineData.path} L100,40 L0,40 Z`} fill="url(#rangeGlow)" />
-                <Path d={sparkLineData.path} fill="none" stroke={T.trading.buy.primary} strokeWidth="1.5" strokeLinecap="round" />
-                <Circle cx={sparkLineData.maxNode.x} cy={sparkLineData.maxNode.y} r="2.5" fill={T.trading.buy.primary} stroke="rgba(255,255,255,0.3)" strokeWidth="0.8" />
-                <Circle cx={sparkLineData.minNode.x} cy={sparkLineData.minNode.y} r="2.5" fill={T.trading.sell.primary} stroke="rgba(255,255,255,0.3)" strokeWidth="0.8" />
-              </Svg>
-            </View>
-          </View>
+          return (
+            <View style={styles.card}>
+              <View style={styles.rangeHeaderRow}>
+                <Text style={styles.cardHeader}>Daily Range</Text>
+                <View style={styles.rangeLivePill}>
+                  <View style={styles.rangeLiveDot} />
+                  <Text style={styles.rangeLiveText}>LIVE</Text>
+                </View>
+              </View>
 
-          {/* Time Range & Stats Grid */}
-          <View style={styles.rangeStatsRow}>
-            <View style={styles.rangeStatItem}>
-              <Text style={styles.rangeStatLabel}>Open</Text>
-              <Text style={styles.rangeStatValue}>{rangeData.open.toFixed(decimals)}</Text>
+              {/* Hero: split-decimal price + signed change pill */}
+              <View style={styles.rangeHeroRow}>
+                <Text style={styles.rangeHeroPrice} numberOfLines={1} adjustsFontSizeToFit>
+                  {priceMain}
+                  <Text style={[styles.rangeHeroPriceHuge, { color: accentColor }]}>{priceHuge}</Text>
+                </Text>
+                <View style={[styles.rangeChangePill, { backgroundColor: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', borderColor: isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)' }]}>
+                  <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={11} color={accentColor} />
+                  <Text style={[styles.rangeChangePillText, { color: accentColor }]}>
+                    {formatSigned(changePct, 2, '%')}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Position-in-range row */}
+              <View style={styles.rangePositionRow}>
+                <Text style={styles.rangePositionLabel}>POSITION IN RANGE</Text>
+                <View style={styles.rangePositionRight}>
+                  <Text style={[styles.rangePositionZone, { color: zoneColor }]}>{zoneLabel}</Text>
+                  <Text style={styles.rangePositionPct}>{positionPct.toFixed(0)}%</Text>
+                </View>
+              </View>
+
+              {/* Range bar with tick marks + sparkline overlay */}
+              <View style={styles.rangeBarSection}>
+                <View style={styles.rangeBarOuter}>
+                  {/* Faint sparkline behind the bar */}
+                  <View style={styles.rangeSparkBg}>
+                    <Svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
+                      <Defs>
+                        <LinearGradient id="rangeGlow" x1="0" y1="0" x2="0" y2="1">
+                          <Stop offset="0" stopColor={accentColor} stopOpacity="0.20" />
+                          <Stop offset="1" stopColor={accentColor} stopOpacity="0" />
+                        </LinearGradient>
+                      </Defs>
+                      {sparkLineData.path ? (
+                        <>
+                          <Path d={`${sparkLineData.path} L100,40 L0,40 Z`} fill="url(#rangeGlow)" />
+                          <Path d={sparkLineData.path} fill="none" stroke={accentColor} strokeWidth="1.2" strokeLinecap="round" />
+                        </>
+                      ) : null}
+                    </Svg>
+                  </View>
+
+                  {/* The range track itself */}
+                  <View style={styles.rangeBarTrack}>
+                    {/* Quartile tick marks */}
+                    <View style={[styles.rangeTick, { left: '25%' }]} />
+                    <View style={[styles.rangeTick, { left: '50%' }]} />
+                    <View style={[styles.rangeTick, { left: '75%' }]} />
+
+                    {/* Filled portion up to current position */}
+                    <View style={[styles.rangeBarFill, { width: `${positionPct}%`, backgroundColor: accentColor }]} />
+
+                    {/* Current position thumb */}
+                    <View style={[styles.rangeBarThumb, { left: `${positionPct}%`, backgroundColor: accentColor, shadowColor: accentColor, borderColor: isDark ? '#0E141F' : '#FFFFFF' }]} />
+                  </View>
+                </View>
+
+                {/* Low / High labels with values */}
+                <View style={styles.rangeEndpointsRow}>
+                  <View style={styles.rangeEndpointCol}>
+                    <Text style={styles.rangeEndpointLabel}>LOW</Text>
+                    <Text style={styles.rangeEndpointValue}>{rangeData.low.toFixed(decimals)}</Text>
+                  </View>
+                  <View style={[styles.rangeEndpointCol, { alignItems: 'flex-end' }]}>
+                    <Text style={styles.rangeEndpointLabel}>HIGH</Text>
+                    <Text style={styles.rangeEndpointValue}>{rangeData.high.toFixed(decimals)}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Premium stats grid: Open / Range / Volatility / Change */}
+              <View style={styles.rangeStatsRow}>
+                <View style={styles.rangeStatItem}>
+                  <Text style={styles.rangeStatLabel}>Open</Text>
+                  <Text style={styles.rangeStatValue}>{rangeData.open.toFixed(decimals)}</Text>
+                </View>
+                <View style={styles.rangeStatDivider} />
+                <View style={styles.rangeStatItem}>
+                  <Text style={styles.rangeStatLabel}>Range</Text>
+                  <Text style={styles.rangeStatValue}>{rangePts} pts</Text>
+                </View>
+                <View style={styles.rangeStatDivider} />
+                <View style={styles.rangeStatItem}>
+                  <Text style={styles.rangeStatLabel}>Volatility</Text>
+                  <Text style={styles.rangeStatValue}>{volatilityPct.toFixed(2)}%</Text>
+                </View>
+                <View style={styles.rangeStatDivider} />
+                <View style={styles.rangeStatItem}>
+                  <Text style={styles.rangeStatLabel}>Change</Text>
+                  <Text style={[styles.rangeStatValue, { color: accentColor }]}>{formatSigned(change, decimals)}</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.rangeStatDivider} />
-            <View style={styles.rangeStatItem}>
-              <Text style={styles.rangeStatLabel}>Spread</Text>
-              <Text style={styles.rangeStatValue}>
-                {liveQuote?.spread?.toFixed(1) ?? ((rangeData.high - rangeData.low) * (decimals === 3 ? 1000 : 100000)).toFixed(1)} pts
-              </Text>
-            </View>
-            <View style={styles.rangeStatDivider} />
-            <View style={styles.rangeStatItem}>
-              <Text style={styles.rangeStatLabel}>Time</Text>
-              <Text style={styles.rangeStatValue}>{rangeData.points.length > 0 ? `${rangeData.points[0].time} – ${rangeData.points[rangeData.points.length - 1].time}` : '--'}</Text>
-            </View>
-          </View>
-        </View>
+          );
+        })()}
 
         {/* HMR List */}
         <View style={styles.card}>
@@ -448,15 +501,44 @@ export function ChartAnalyticsScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const cardBg = isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2;
+  const cardBg = isDark ? '#0E141F' : T.glass2;
 
   return StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: isDark ? '#000000' : T.bg,
+      backgroundColor: isDark ? '#06080D' : T.bg,
     },
     scrollContent: {
       paddingTop: spacing.md,
+    },
+    header: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : T.border,
+      backgroundColor: isDark ? '#06080D' : T.bg,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerBackBtn: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      color: T.text,
+      fontSize: 16,
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     card: {
       marginHorizontal: spacing.md,
@@ -564,76 +646,104 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       letterSpacing: 0.8,
     },
-    rangeCurrentRow: {
+    // Hero row
+    rangeHeroRow: {
       flexDirection: 'row',
-      alignItems: 'baseline',
-      gap: 10,
-      marginBottom: 18,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 14,
     },
-    rangeCurrentPrice: {
+    rangeHeroPrice: {
       color: T.text,
-      fontSize: 28,
+      fontSize: 30,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -1,
+      letterSpacing: -1.2,
+      flex: 1,
     },
-    rangeCurrentBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 6,
-      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
+    rangeHeroPriceHuge: {
+      fontSize: 34,
+      fontWeight: '900',
+      fontVariant: ['tabular-nums'],
     },
-    rangeCurrentBadgeText: {
-      color: T.trading.buy.primary,
-      fontSize: 11,
+    rangeChangePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 8,
+      borderWidth: 1,
+    },
+    rangeChangePillText: {
+      fontSize: 12,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 0.2,
+    },
+
+    // Position-in-range row
+    rangePositionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 10,
+    },
+    rangePositionLabel: {
+      color: T.textMuted,
+      fontSize: 10,
       fontWeight: '700',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+    },
+    rangePositionRight: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+    },
+    rangePositionZone: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.8,
+    },
+    rangePositionPct: {
+      color: T.text,
+      fontSize: 14,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
     },
 
     // Range bar
     rangeBarSection: {
       marginBottom: 16,
     },
-    rangeLabelsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 4,
+    rangeBarOuter: {
+      position: 'relative',
+      paddingTop: 28,
+      paddingBottom: 14,
     },
-    rangeLabelLow: {
-      color: T.trading.sell.primary,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 1.2,
-    },
-    rangeLabelHigh: {
-      color: T.trading.buy.primary,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 1.2,
-    },
-    rangePricesRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 10,
-    },
-    rangePriceLow: {
-      color: T.textSub,
-      fontSize: 14,
-      fontWeight: '700',
-      fontVariant: ['tabular-nums'],
-    },
-    rangePriceHigh: {
-      color: T.textSub,
-      fontSize: 14,
-      fontWeight: '700',
-      fontVariant: ['tabular-nums'],
+    rangeSparkBg: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 38,
+      opacity: 0.85,
     },
     rangeBarTrack: {
       height: 6,
       borderRadius: 3,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
       position: 'relative',
       overflow: 'visible',
-      marginBottom: 16,
+    },
+    rangeTick: {
+      position: 'absolute',
+      top: -3,
+      width: 1,
+      height: 12,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+      marginLeft: -0.5,
     },
     rangeBarFill: {
       position: 'absolute',
@@ -641,7 +751,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       height: 6,
       borderRadius: 3,
-      backgroundColor: T.trading.buy.primary,
     },
     rangeBarThumb: {
       position: 'absolute',
@@ -649,23 +758,33 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 16,
       height: 16,
       borderRadius: 8,
-      backgroundColor: T.trading.buy.primary,
       borderWidth: 3,
-      borderColor: isDark ? '#000000' : '#FFFFFF',
       marginLeft: -8,
-      shadowColor: T.trading.buy.primary,
       shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.4,
+      shadowOpacity: 0.5,
       shadowRadius: 6,
       elevation: 4,
     },
-
-    // Sparkline inside range
-    rangeSparklineWrap: {
-      height: 64,
-      borderRadius: 10,
-      overflow: 'hidden',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+    rangeEndpointsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 4,
+    },
+    rangeEndpointCol: {
+      alignItems: 'flex-start',
+    },
+    rangeEndpointLabel: {
+      color: T.textMuted,
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 1,
+      marginBottom: 2,
+    },
+    rangeEndpointValue: {
+      color: T.textSub,
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
 
     // Stats grid

@@ -5,6 +5,11 @@
 import { create } from 'zustand';
 import { PositionItem } from '../mock/tradingData';
 import { positionsApi, Position } from '../api/positions';
+import {
+  classifyTradingError,
+  createFrontendTradingError,
+  TradingErrorFeedback,
+} from '../api/tradingErrors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global positions state (Zustand).
@@ -35,8 +40,24 @@ function mapPositionToItem(dto: any): PositionItem {
     console.warn('[PositionsState] Invalid time_create format:', dto.time_create);
   }
 
+  // ── STABLE FALLBACK ID ────────────────────────────────────────────────
+  // The backend usually returns `ticket` (the MT5 position ticket) which is a
+  // stable integer. Until it does, use a DETERMINISTIC fallback derived from
+  // the position's intrinsic fields, NOT Math.random().
+  //
+  // The previous version used `Math.random()` as the last fallback. Two
+  // problems with that:
+  //   1. String(Math.random()) returns "0.1774502954656" — the dot makes
+  //      React's reconciler interpret the key as a nested path and emits
+  //      "Encountered two children with the same key, `.$1774502954656`"
+  //      (the leading `0.` is treated as a path separator).
+  //   2. A different random number is generated on every re-map of the same
+  //      DTO, so the same position gets a fresh key each render — causing
+  //      list re-mounts and unstable selection state.
+  const stableFallbackId =
+    `pos_${dto.symbol || 'unknown'}_${dto.side || 'na'}_${dto.time_create || 0}_${dto.volume || 0}_${dto.price_open || 0}`;
   return {
-    id: String(dto.ticket || dto.id || Math.random()),
+    id: String(dto.ticket || dto.id || stableFallbackId),
     symbol: dto.symbol || 'UNKNOWN',
     side: dto.side || 'buy',
     volume: dto.volume || 0,
@@ -54,7 +75,7 @@ type PositionsState = {
   positions: PositionItem[];
   isLoading: boolean;
   lastFetchLogin: string | null;
-  lastError: string | null;
+  lastError: TradingErrorFeedback | null;
   setPositions: (positions: PositionItem[]) => void;
   upsertPosition: (dto: any) => void;
   refreshPositions: (accountLogin: string) => Promise<void>;
@@ -107,7 +128,10 @@ export const usePositionsState = create<PositionsState>((set) => ({
         console.warn('[PositionsState] Invalid account login:', accountLogin);
         set({
           isLoading: false,
-          lastError: `Invalid account login: ${accountLogin}`,
+          lastError: createFrontendTradingError(
+            'Account Error',
+            `The app could not resolve a valid trading account login from local state: ${accountLogin}.`,
+          ),
         });
         return;
       }
@@ -202,11 +226,10 @@ export const usePositionsState = create<PositionsState>((set) => ({
       });
     } catch (e) {
       console.warn('[PositionsState] Failed to fetch positions', e);
-      const message =
-        (e as any)?.response?.data?.message
-        || (e as Error)?.message
-        || 'Failed to fetch open positions';
-      set({ isLoading: false, lastError: message });
+      set({
+        isLoading: false,
+        lastError: classifyTradingError(e, { action: 'load-positions' }),
+      });
     }
   },
 }));

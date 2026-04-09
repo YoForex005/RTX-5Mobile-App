@@ -6,9 +6,10 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
@@ -60,6 +61,7 @@ export function HistoryFilterScreen() {
   const { historyRange, setHistoryRange } = useUserPreferences();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('range');
@@ -186,6 +188,15 @@ export function HistoryFilterScreen() {
     else setCalMonth(calMonth + 1);
   };
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/history');
+  }, []);
+
   // Build calendar grid
   const calendarGrid = useMemo(() => {
     const daysInMonth = getDaysInMonth(calYear, calMonth);
@@ -210,8 +221,30 @@ export function HistoryFilterScreen() {
 
   return (
     <Screen>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <Text style={s.title}>History</Text>
+      <View style={s.page}>
+        <View
+          style={[
+            s.header,
+            {
+              paddingTop: Math.max(insets.top, 20) + 12,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(17,24,39,0.08)',
+            },
+          ]}
+        >
+          <View style={s.headerRow}>
+            <Pressable onPress={handleBack} hitSlop={16} style={s.headerBackButton}>
+              <Ionicons name="arrow-back" size={24} color={T.text} />
+            </Pressable>
+            <View style={s.headerTitleWrap} pointerEvents="none">
+              <Text style={s.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+                History Filter
+              </Text>
+            </View>
+            <View style={s.headerBackButton} />
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.symbolRow}>
           <Text style={s.label}>Symbol:</Text>
           <Text style={s.value}>All symbols</Text>
@@ -339,43 +372,59 @@ export function HistoryFilterScreen() {
           <Text style={s.reportTitle}>Create a trade report</Text>
           <Text style={s.reportSub}>{historyRange}</Text>
         </Pressable>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </Screen>
   );
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
-    backRow: {
+    page: {
+      flex: 1,
+      backgroundColor: isDark ? '#06080D' : T.bg,
+    },
+    header: {
+      backgroundColor: isDark ? '#06080D' : T.bg,
+      paddingBottom: 10,
+      paddingHorizontal: spacing.lg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: spacing.md,
-      paddingTop: 16,
-      paddingBottom: 4,
+      justifyContent: 'space-between',
     },
-    backText: {
+    headerBackButton: {
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    headerTitle: {
       color: T.text,
       fontSize: 17,
       fontWeight: '700',
-      letterSpacing: -0.2,
+      letterSpacing: 0.3,
     },
-    title: {
-      marginTop: spacing.md,
-      textAlign: 'center',
-      color: T.text,
-      fontSize: 24,
-      fontWeight: '700',
+    scrollContent: {
+      paddingBottom: spacing.xl,
     },
     symbolRow: {
       margin: spacing.md,
-      backgroundColor: T.glass1,
-      borderRadius: 10,
+      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      borderRadius: 12,
       padding: spacing.md,
       flexDirection: 'row',
       justifyContent: 'space-between',
       borderWidth: 1,
-      borderColor: T.border,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
     },
     label: {
       color: T.textSub,
@@ -387,23 +436,25 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     card: {
       marginHorizontal: spacing.md,
-      backgroundColor: T.glass1,
-      borderRadius: 12,
+      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      borderRadius: 14,
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: T.borderMedium,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderMedium,
     },
     option: {
       paddingHorizontal: spacing.md,
-      paddingVertical: 14,
-      borderBottomColor: T.borderMedium,
-      borderBottomWidth: 1,
+      paddingVertical: 11,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : T.borderMedium,
+      borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
     },
     optionText: {
       color: T.text,
-      fontSize: 18,
+      fontSize: 16,
+      fontWeight: '500',
     },
     check: {
       color: T.accent,
@@ -411,12 +462,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     reportBtn: {
       margin: spacing.md,
-      marginTop: spacing.xl,
-      backgroundColor: T.glass1,
-      borderRadius: 10,
+      marginTop: spacing.sm,
+      backgroundColor: isDark ? '#0E141F' : T.glass1,
+      borderRadius: 12,
       padding: spacing.md,
       borderWidth: 1,
-      borderColor: T.border,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
     },
     reportTitle: {
       color: T.text,
@@ -431,15 +482,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     calendarCard: {
       marginHorizontal: spacing.md,
       marginTop: spacing.md,
-      backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass1,
+      backgroundColor: isDark ? '#0E141F' : T.glass1,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: T.border,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
       padding: spacing.md,
-      shadowColor: isDark ? '#2563EB' : '#64748B',
+      shadowColor: isDark ? '#000000' : '#64748B',
       shadowOffset: { width: 0, height: isDark ? 4 : 8 },
-      shadowOpacity: isDark ? 0.08 : 0.08,
-      shadowRadius: isDark ? 16 : 24,
+      shadowOpacity: isDark ? 0.25 : 0.08,
+      shadowRadius: isDark ? 12 : 24,
       elevation: 4,
     },
 

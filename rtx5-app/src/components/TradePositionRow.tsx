@@ -76,7 +76,7 @@ export function TradePositionRow({
       style={[
         styles.row,
         {
-          backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
+          backgroundColor: isDark ? '#0E141F' : T.glass2,
           borderColor: T.border,
           borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
         },
@@ -154,7 +154,7 @@ export function TradePositionRow({
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
               <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
                 <Text style={[styles.detailValue, { color: T.accent }]}>
-                  Modify
+                  SL / TP
                 </Text>
               </Pressable>
             </View>

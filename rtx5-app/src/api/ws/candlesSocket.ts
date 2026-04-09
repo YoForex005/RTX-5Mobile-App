@@ -152,8 +152,18 @@ export class CandlesWebSocketService {
         this.attemptReconnect();
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[Candles WS] Error', error);
+      this.ws.onerror = () => {
+        // The browser/RN WebSocket `error` event fires for any low-level
+        // hiccup (network blip, server restart, TLS renegotiation) and
+        // carries no useful information beyond "something went wrong" —
+        // the actual recovery path is the `onclose` handler above which
+        // calls attemptReconnect(). Logging this as console.error spams
+        // the LogBox with a noisy red overlay every time the user briefly
+        // loses signal, even though the reconnect succeeds within a
+        // second. Downgrade to console.warn so it stays in Metro logs
+        // for diagnostic purposes but no longer triggers the dev-mode
+        // error overlay.
+        console.warn('[Candles WS] connection error (will auto-reconnect via onclose)');
       };
     } catch (error) {
       console.error('[Candles WS] Connection failed', error);
@@ -1027,8 +1037,8 @@ export class CandlesWebSocketService {
     return {
       candle,
       hasExplicitHighLow:
-        hasFiniteField(payload, ['high', 'h']) &&
-        hasFiniteField(payload, ['low', 'l']),
+        hasFiniteField(payload, ['high', 'h', 'High', 'H']) &&
+        hasFiniteField(payload, ['low', 'l', 'Low', 'L']),
     };
   }
 }

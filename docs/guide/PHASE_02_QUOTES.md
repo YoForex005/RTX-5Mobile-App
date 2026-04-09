@@ -42,3 +42,10 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 ## Exit Criteria
 - Quotes module reaches parity checklist with no P1 defects.
 
+## Progress Notes
+- 2026-04-08: Quotes tab dark theme refreshed with a desk-style shell, stronger quote card hierarchy, and retained live/search/edit flows for `IMG_3044.PNG` scope.
+- 2026-04-08: Restored the previous quote symbol card treatment while keeping the refreshed quotes screen shell/background in place.
+- 2026-04-08: Removed the large market-desk hero panel from the quotes screen while preserving the updated dark background treatment.
+- 2026-04-08: Retuned the quotes search bar color in dark mode to a clearer blue-slate field for better contrast against the background.
+- 2026-04-08: Removed the floating orb shapes from the quotes screen background while keeping the full-screen theme wash intact.
+

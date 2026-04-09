@@ -10,13 +10,14 @@
  * lightning-fast feedback when order states change locally without waiting for server-side replica sync.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
+import { useTranslation } from '../../i18n/useTranslation';
 import { TradePositionRow } from '../../components/TradePositionRow';
 import { PositionItem } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -30,6 +31,7 @@ import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { useUIState } from '../../state/uiState';
 import { useMarketData } from '../../query/websocket';
+import { getTradingErrorOriginLabel } from '../../api/tradingErrors';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
 const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
@@ -78,7 +80,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   return (
     <>
       <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }, isDark && {
-        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        backgroundColor: '#0E141F',
         shadowColor: '#2563EB',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.08,
@@ -222,6 +224,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
 export function TradeScreen() {
   const T = useTheme();
+  const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -250,17 +253,14 @@ export function TradeScreen() {
     fetchPositions();
   }, [fetchPositions]);
 
+  // Initial fetch when the account login is first available. Tab focus
+  // should NOT trigger an auto-refetch — the user has explicit control via
+  // pull-to-refresh.
   useEffect(() => {
     if (resolvedLogin) {
       fetchPositions();
     }
   }, [resolvedLogin, fetchPositions]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchPositions();
-    }, [fetchPositions])
-  );
 
   const tradingAccount = useTradingState((state: any) => state.account);
   const liveAcc = useLiveAccountState();
@@ -284,7 +284,7 @@ export function TradeScreen() {
         { label: 'Close Profitable Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'profitable' } }) },
         { label: 'Close Losing Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'losing' } }) },
         { label: 'Close Buy Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'buy' } }) },
-        { label: 'Close BTCUSDm Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSDm' } }) },
+        { label: 'Close BTCUSD Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSD' } }) },
       ],
     });
   };
@@ -304,7 +304,17 @@ export function TradeScreen() {
   };
 
   return (
-    <Screen>
+    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+      <AppHeader title={t('Trade')} noBorder />
+      <LiveUnrealizedPnLHeader
+        positions={positions}
+        account={account}
+        s={s}
+        T={T}
+        isDark={isDark}
+        totalVolume={totalVolume}
+        onBulkPress={showBulkSheet}
+      />
       <FlatList
         style={s.list}
         data={positions}
@@ -317,21 +327,6 @@ export function TradeScreen() {
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
-        ListHeaderComponent={(
-          <>
-            <AppHeader title="Trade" noBorder />
-
-            <LiveUnrealizedPnLHeader
-              positions={positions}
-              account={account}
-              s={s}
-              T={T}
-              isDark={isDark}
-              totalVolume={totalVolume}
-              onBulkPress={showBulkSheet}
-            />
-          </>
-        )}
         renderItem={({ item }) => (
           <TradePositionRow
             item={item}
@@ -347,7 +342,7 @@ export function TradeScreen() {
             </Text>
             <Text style={[s.emptySub, { color: T.textDimmed }]}>
               {lastError
-                ? `Account ${lastFetchLogin ?? resolvedLogin ?? 'unknown'}: ${lastError}`
+                ? `Account ${lastFetchLogin ?? resolvedLogin ?? 'unknown'}: ${getTradingErrorOriginLabel(lastError.origin)}. ${lastError.title}: ${lastError.message}`
                 : resolvedLogin
                   ? `Account ${resolvedLogin}: your active trades will appear here`
                   : 'Waiting for active trading account'}
@@ -367,7 +362,9 @@ export function TradeScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const cardBg = T.glass2;
+  // Premium dark palette: matches the QuotesScreen rotation. Deep slate-black
+  // screen background with a subtly elevated card surface for clear depth.
+  const cardBg = isDark ? '#0E141F' : T.glass2;
   return StyleSheet.create({
     list: { flex: 1 },
     listContent: { paddingBottom: spacing.xl + spacing.md },

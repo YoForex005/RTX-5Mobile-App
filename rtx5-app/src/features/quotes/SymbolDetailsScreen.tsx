@@ -17,6 +17,8 @@ import { useCandleHistory } from '../../query/candles';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
 import { Alert } from 'react-native';
+import { normalizeSymbol } from '../../domain/symbols';
+import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const dCol = (c: number, T: ThemeColors) => c > 0 ? T.up : c < 0 ? T.down : T.textMuted;
@@ -76,8 +78,8 @@ function SymbolFlags({ symbol }: { symbol: string }) {
 type Meta = { name: string; category: string; sector: string; spreadMode: string; stopsLevel: string; calculation: string; chartMode: string; sessions: Array<[string, string]>; };
 const DEFAULT_SESSIONS: Array<[string, string]> = [['Sunday', '23:05 – 24:00'], ['Monday', '00:00 – 24:00'], ['Tuesday', '00:00 – 24:00'], ['Wednesday', '00:00 – 24:00'], ['Thursday', '00:00 – 24:00'], ['Friday', '00:00 – 22:59']];
 const META: Record<string, Partial<Meta>> = {
-  BTCUSDm: { name: 'Bitcoin vs US Dollar', category: 'Crypto', sector: 'Digital Asset', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Exchange', chartMode: 'By Last' },
-  XAUUSDm: { name: 'Gold vs US Dollar', category: 'Commodity', sector: 'Precious Metal', spreadMode: 'Floating', stopsLevel: '0', calculation: 'CFD', chartMode: 'By Bid' },
+  BTCUSD: { name: 'Bitcoin vs US Dollar', category: 'Crypto', sector: 'Digital Asset', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Exchange', chartMode: 'By Last' },
+  XAUUSD: { name: 'Gold vs US Dollar', category: 'Commodity', sector: 'Precious Metal', spreadMode: 'Floating', stopsLevel: '0', calculation: 'CFD', chartMode: 'By Bid' },
 };
 function getMeta(sym: string): Meta { return { name: sym.replace(/m$/i, '') + ' Instrument', category: 'Major', sector: 'Currency', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Forex', chartMode: 'By Bid', sessions: DEFAULT_SESSIONS, ...META[sym] }; }
 
@@ -198,7 +200,8 @@ function MomentumBar({ q }: { q: any }) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function SymbolDetailsScreen() {
-  const { symbol = 'BTCUSDm' } = useLocalSearchParams<{ symbol?: string }>();
+  const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
+  const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const { setChartSymbol, oneClickAccepted } = useUserPreferences();
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [alertOn, setAlertOn] = useState(false);
@@ -331,7 +334,11 @@ export function SymbolDetailsScreen() {
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
-        Alert.alert('Error', 'No active trading account resolved.');
+        const feedback = createFrontendTradingError(
+          'Account Error',
+          'The app could not resolve the active trading account from local state. Select an account and try again.',
+        );
+        Alert.alert(feedback.title, feedback.message);
         return;
       }
 
@@ -353,8 +360,8 @@ export function SymbolDetailsScreen() {
             Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${data?.position_ticket || data?.order_ticket || 'Confirmed'}`);
           },
           onError: (err: any) => {
-            const msg = err?.response?.data?.message || err?.message || 'Execution error';
-            Alert.alert('Trade Failed', msg);
+            const feedback = classifyTradingError(err, { action: 'place-order' });
+            Alert.alert(feedback.title, feedback.message);
           }
         }
       );

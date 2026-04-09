@@ -7,6 +7,7 @@
  */
 
 import { PositionItem } from '../../mock/tradingData';
+import { normalizeSymbol } from '../../domain/symbols';
 
 export function findPositionById(positions: PositionItem[], positionId?: string | string[]) {
   if (!positionId) return undefined;
@@ -16,12 +17,11 @@ export function findPositionById(positions: PositionItem[], positionId?: string 
 
 export function symbolDisplayName(symbol: string) {
   const map: Record<string, string> = {
-    BTCUSDm: 'Bitcoin vs US Dollar',
-    XAUUSDm: 'Gold vs US Dollar',
+    BTCUSD: 'Bitcoin vs US Dollar',
+    XAUUSD: 'Gold vs US Dollar',
     MBTUSD: 'Micro Bitcoin vs US Dollar',
-    MBTUSDm: 'Micro Bitcoin vs US Dollar',
   };
-  return map[symbol] ?? symbol;
+  return map[normalizeSymbol(symbol)] ?? symbol;
 }
 
 export function bulkModeLabel(mode?: string | string[]) {
@@ -36,8 +36,9 @@ export function bulkModeLabel(mode?: string | string[]) {
       return 'Close Losing Positions';
     case 'buy':
       return 'Close Buy Positions';
+    case 'symbol:BTCUSD':
     case 'symbol:BTCUSDm':
-      return 'Close BTCUSDm Positions';
+      return 'Close BTCUSD Positions';
     default:
       return 'Bulk Operation';
   }
