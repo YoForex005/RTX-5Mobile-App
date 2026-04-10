@@ -1,9 +1,57 @@
 /**
  * Core module: orders.ts
+ *
+ * Contains:
+ *  - useOrdersByLoginQuery  — fetches order history via GET /api/v2/orders/{login}
+ *                             (login-based, verified real field names)
+ *  - useAccountOrdersQuery  — fetches order history via GET /api/v2/account/orders
+ *                             (JWT-resolved, no login param)
+ *  - usePlaceOrderMutation  — submits new market orders via POST /api/v2/orders
  */
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ordersApi, PlaceOrderPayload } from '../api/orders';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TanStack Query hook for login-based order history.
+// Uses GET /api/v2/orders/{login} — returns orders for a specific MT5 account.
+// Real response uses price_open / time_setup / time_done (not the swagger names).
+// Primary hook used by the History screen's "Orders" tab.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch order history for a specific MT5 account login.
+ * Returns 404 from the server if the account is not owned by the session user.
+ *
+ * @param login - MT5 account login number (pass undefined to disable the query)
+ */
+export function useOrdersByLoginQuery(login: number | undefined) {
+  return useQuery({
+    queryKey: ['ordersByLogin', login],
+    queryFn: () => ordersApi.getOrdersByLogin(login!),
+    enabled: !!login,
+    refetchInterval: 10_000,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TanStack Query hook for JWT-resolved order history (fallback / alternative).
+// Uses GET /api/v2/account/orders — no login param needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch order history for the authenticated user's trading account.
+ * Account is resolved server-side from the Bearer token — no login param needed.
+ *
+ * Polls every 10 seconds (orders change less frequently than positions/deals).
+ */
+export function useAccountOrdersQuery() {
+  return useQuery({
+    queryKey: ['accountOrders'],
+    queryFn: () => ordersApi.getAccountOrders(),
+    refetchInterval: 10_000,
+  });
+}
 import { usePositionsState } from '../state/positionsState';
 import { resolveTradingLoginString } from '../state/tradingLogin';
 

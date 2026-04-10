@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image, AppState } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
@@ -31,9 +32,12 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { candlesWsService } from '../../api/ws/candlesSocket';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { usePositionsState } from '../../state/positionsState';
+import { usePositionHistoryQuery } from '../../query/positions';
+import { useAlertsQuery } from '../../query/alerts';
 import { resolveTradingLogin as resolveTradingLoginUtil } from '../../state/tradingLogin';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketSymbols } from '../../query/market';
@@ -46,6 +50,8 @@ import {
   mapCandlesToRTX5CustomCandlestickData,
 } from './rendering/customCandlestickSeries';
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
+import { LIGHTWEIGHT_CHARTS_JS } from './rendering/lightweightChartsBundle';
+import { buildChartOverlayPayload } from './chartOverlays';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -68,7 +74,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
 
   return (
     <View style={styles.priceSection}>
-      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 2, opacity: 0.9 }]}>PRICE</Text>
+      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: -1, opacity: 0.9 }]}>PRICE</Text>
       <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>{(currentPrice || 0).toFixed(displayDecimals)}</Text>
       <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]} numberOfLines={1} adjustsFontSizeToFit>
         {change > 0 ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({changePct > 0 ? '+' : ''}{(changePct || 0).toFixed(2)}%)
@@ -113,23 +119,11 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
         },
         {
           onSuccess: (data: any) => {
-            const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
-            const state = usePositionsState.getState();
-            const newPos = {
-              id: String(positionTicket),
-              symbol: symbol,
-              side: side,
-              volume: Number(lotSize),
-              openPrice: data?.price || (side === 'buy' ? latestAsk : latestBid),
-              currentPrice: side === 'buy' ? latestBid : latestAsk,
-              pnl: 0,
-              swap: 0,
-              openTime: new Date().toISOString(),
-              sl: 0,
-              tp: 0,
-              clientCreatedAt: Date.now(),
-            };
-            state.setPositions([newPos as any, ...state.positions]);
+            // usePlaceOrderMutation.onSuccess already adds the optimistic position
+            // to positionsState — do NOT add it again here or the same ticket ID
+            // appears twice in the list causing "Encountered two children with the
+            // same key" warnings and visual glitches.
+            const positionTicket = data?.position_ticket || data?.order_ticket;
             Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
           },
           onError: (err: any) => {
@@ -206,7 +200,9 @@ const CH_HTML = `
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <meta name="color-scheme" content="light dark">
+    <script>${LIGHTWEIGHT_CHARTS_JS}</script>
+    <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
@@ -233,12 +229,24 @@ const CH_HTML = `
       //   and reliable. Wicks and body draw via library defaults — no gap
       //   artifacts. Pre-existing gaps in the data stay visible.
       // ─────────────────────────────────────────────────────────────────
+      // Diagnostic: verify library loaded
+      if (typeof LightweightCharts === 'undefined') {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'ERROR',
+            message: 'FATAL: LightweightCharts library did not load. typeof=' + typeof LightweightCharts
+          }));
+        } catch(_) {}
+      }
+
       var chart = null;
       var series = null;
       var volumeSeries = null;
       var bidPriceLine = null;
       var lastBarTime = 0;
       var seriesType = 'candles';
+      var volUpColor = 'rgba(38,166,154,0.5)';
+      var volDownColor = 'rgba(239,83,80,0.5)';
 
       function postReady() {
         try {
@@ -292,95 +300,209 @@ const CH_HTML = `
         return { up: up, down: down, bodyUp: up, bodyDown: down };
       }
 
+      // Pending init args — stored so the ResizeObserver or rAF retry
+      // can re-run chart creation if the container had zero dimensions
+      // on the first attempt (common on Android light theme first load).
+      var _pendingInit = null;
+
+      function _doInitChart(opts, chartType, data, displayDecimals) {
+        var el = document.getElementById('chart');
+        var w = el.clientWidth;
+        var h = el.clientHeight;
+
+        // If the container has zero dimensions, the browser hasn't laid out
+        // the WebView yet. Defer to the next animation frame — the
+        // ResizeObserver will also catch it as a fallback.
+        if (w === 0 || h === 0) {
+          _pendingInit = { opts: opts, chartType: chartType, data: data, displayDecimals: displayDecimals };
+          requestAnimationFrame(function() {
+            if (_pendingInit) {
+              _doInitChart(_pendingInit.opts, _pendingInit.chartType, _pendingInit.data, _pendingInit.displayDecimals);
+            }
+          });
+          return;
+        }
+        _pendingInit = null;
+
+        if (window._drawingManager) {
+          try { window._drawingManager.remove(); } catch (_e) {}
+          window._drawingManager = null;
+        }
+        if (chart) {
+          try { chart.remove(); } catch (_e) {}
+          chart = null;
+          series = null;
+          volumeSeries = null;
+          bidPriceLine = null;
+          _positionLinesArr = [];
+        }
+        lastBarTime = 0;
+        seriesType = chartType || 'candles';
+
+        var safeOpts = applyChartLayout(opts);
+        var customCols = safeOpts.customColors;
+        if (safeOpts.customColors) { delete safeOpts.customColors; }
+
+        // Force explicit pixel dimensions so the chart never renders at 0x0
+        safeOpts.width = w;
+        safeOpts.height = h;
+
+        chart = LightweightCharts.createChart(el, safeOpts);
+
+        var priceFormat = makePriceFormat(displayDecimals);
+        var colors = pickSeriesColors({ customColors: customCols }, seriesType);
+        volUpColor = hexToRgba(colors.up, 0.5);
+        volDownColor = hexToRgba(colors.down, 0.5);
+
+        if (seriesType === 'line') {
+          series = chart.addSeries(LightweightCharts.LineSeries, {
+            color: (customCols && customCols.lineBody) || colors.up,
+            lineWidth: 2,
+            priceFormat: priceFormat,
+            lastValueVisible: true,
+            priceLineVisible: true,
+            priceLineWidth: 1,
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            priceLineColor: '',
+            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+          });
+        } else if (seriesType === 'bars') {
+          series = chart.addSeries(LightweightCharts.BarSeries, {
+            upColor: (customCols && customCols.barsUptrend) || colors.up,
+            downColor: (customCols && customCols.barsDowntrend) || colors.down,
+            priceFormat: priceFormat,
+            lastValueVisible: true,
+            priceLineVisible: true,
+            priceLineWidth: 1,
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            priceLineColor: '',
+            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+          });
+        } else {
+          series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: colors.bodyUp,
+            downColor: colors.bodyDown,
+            borderUpColor: colors.up,
+            borderDownColor: colors.down,
+            wickUpColor: colors.up,
+            wickDownColor: colors.down,
+            borderVisible: true,
+            wickVisible: true,
+            priceFormat: priceFormat,
+            lastValueVisible: true,
+            priceLineVisible: true,
+            priceLineWidth: 1,
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            priceLineColor: '',
+            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+          });
+        }
+
+        // Volume histogram series — occupies the bottom 20% of the pane,
+        // bars coloured green/red to match the candle direction.
+        try {
+          volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'vol',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            color: volUpColor,
+          });
+          chart.priceScale('vol').applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+          });
+        } catch (_ve) { volumeSeries = null; }
+
+        if (data && data.length > 0) {
+          var mapped = mapForSeries(data);
+          series.setData(mapped);
+          lastBarTime = mapped[mapped.length - 1].time;
+          if (volumeSeries) {
+            try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
+          }
+          try {
+            chart.timeScale().fitContent();
+            if (typeof chart.timeScale().scrollToRealTime === 'function') {
+              chart.timeScale().scrollToRealTime();
+            }
+          } catch (_e) {}
+        }
+
+        // Initialize the drawing tools manager — this wires up all
+        // toolbar tools (trendline, fib, brush, text, pitchfork, etc.)
+        // to real canvas-level drawing primitives via the enhanced bundle.
+        try {
+          if (typeof window.DrawingToolsManager === 'function') {
+            window._drawingManager = new window.DrawingToolsManager(chart, series);
+          }
+        } catch (_dtErr) {}
+
+        applyOverlayPayload(_overlayPayload);
+        postChartReady();
+      }
+
       function initChart(opts, chartType, data, displayDecimals) {
         try {
-          if (chart) {
-            try { chart.remove(); } catch (_e) {}
-            chart = null;
-            series = null;
-            volumeSeries = null;
-            bidPriceLine = null;
-          }
-          lastBarTime = 0;
-          seriesType = chartType || 'candles';
+          // Set body/container background to match chart — prevents
+          // white-on-white invisibility in light theme.
+          try {
+            var bg = (opts && opts.layout && opts.layout.background && opts.layout.background.color) || '#000';
+            document.body.style.background = bg;
+            document.getElementById('chart').style.background = bg;
+          } catch(_) {}
 
-          var safeOpts = applyChartLayout(opts);
-          var customCols = safeOpts.customColors;
-          if (safeOpts.customColors) { delete safeOpts.customColors; }
-
-          chart = LightweightCharts.createChart(document.getElementById('chart'), safeOpts);
-
-          var priceFormat = makePriceFormat(displayDecimals);
-          var colors = pickSeriesColors({ customColors: customCols }, seriesType);
-
-          if (seriesType === 'line') {
-            series = chart.addSeries(LightweightCharts.LineSeries, {
-              color: (customCols && customCols.lineBody) || colors.up,
-              lineWidth: 2,
-              priceFormat: priceFormat,
-              lastValueVisible: true,
-              // Dashed horizontal line that tracks the last close across the
-              // chart, plus the colored axis label on the right scale — the
-              // standard "current price marker" you see in MT5 / TradingView.
-              priceLineVisible: true,
-              priceLineWidth: 1,
-              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
-              priceLineColor: '',
-              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
-            });
-          } else if (seriesType === 'bars') {
-            series = chart.addSeries(LightweightCharts.BarSeries, {
-              upColor: (customCols && customCols.barsUptrend) || colors.up,
-              downColor: (customCols && customCols.barsDowntrend) || colors.down,
-              priceFormat: priceFormat,
-              lastValueVisible: true,
-              // Dashed horizontal line that tracks the last close across the
-              // chart, plus the colored axis label on the right scale — the
-              // standard "current price marker" you see in MT5 / TradingView.
-              priceLineVisible: true,
-              priceLineWidth: 1,
-              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
-              priceLineColor: '',
-              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
-            });
-          } else {
-            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-              upColor: colors.bodyUp,
-              downColor: colors.bodyDown,
-              borderUpColor: colors.up,
-              borderDownColor: colors.down,
-              wickUpColor: colors.up,
-              wickDownColor: colors.down,
-              borderVisible: true,
-              wickVisible: true,
-              priceFormat: priceFormat,
-              lastValueVisible: true,
-              // Dashed horizontal line that tracks the last close across the
-              // chart, plus the colored axis label on the right scale — the
-              // standard "current price marker" you see in MT5 / TradingView.
-              priceLineVisible: true,
-              priceLineWidth: 1,
-              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
-              priceLineColor: '',
-              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
-            });
-          }
-
-          if (data && data.length > 0) {
-            var mapped = mapForSeries(data);
-            series.setData(mapped);
-            lastBarTime = mapped[mapped.length - 1].time;
+          // Defer to requestAnimationFrame so the browser completes layout
+          // before we measure the container. This is the core fix for the
+          // "light theme first load" bug — on Android, the WebView container
+          // has 0x0 dimensions until the first paint cycle completes.
+          requestAnimationFrame(function() {
             try {
-              chart.timeScale().fitContent();
-              if (typeof chart.timeScale().scrollToRealTime === 'function') {
-                chart.timeScale().scrollToRealTime();
-              }
-            } catch (_e) {}
-          }
-
-          postChartReady();
+              _doInitChart(opts, chartType, data, displayDecimals);
+            } catch(e) {
+              postError('initChart', e);
+            }
+          });
         } catch (e) {
           postError('initChart', e);
+        }
+      }
+
+      // ResizeObserver — auto-resize the chart when the WebView container
+      // dimensions change (orientation, tab switch, delayed layout).
+      // Also catches the zero-dimension → real-dimension transition.
+      try {
+        var _resizeObserver = new ResizeObserver(function(entries) {
+          var entry = entries[0];
+          if (!entry) return;
+          var w = entry.contentRect.width;
+          var h = entry.contentRect.height;
+          if (w > 0 && h > 0) {
+            if (_pendingInit) {
+              // Container just got real dimensions — run the deferred init.
+              _doInitChart(_pendingInit.opts, _pendingInit.chartType, _pendingInit.data, _pendingInit.displayDecimals);
+            } else if (chart) {
+              // Chart exists — just resize it to match.
+              try { chart.resize(w, h); } catch(_) {}
+            }
+          }
+        });
+        _resizeObserver.observe(document.getElementById('chart'));
+      } catch(_) {
+        // ResizeObserver not available on very old WebViews — the rAF
+        // fallback in _doInitChart handles it.
+      }
+
+      function hexToRgba(hex, alpha) {
+        try {
+          var h = hex.replace('#', '');
+          if (h.length === 3) { h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; }
+          var r = parseInt(h.substring(0, 2), 16);
+          var g = parseInt(h.substring(2, 4), 16);
+          var b = parseInt(h.substring(4, 6), 16);
+          if (isNaN(r) || isNaN(g) || isNaN(b)) throw new Error('bad hex');
+          return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+        } catch (_e) {
+          return alpha >= 0.9 ? hex : 'rgba(128,128,128,' + alpha + ')';
         }
       }
 
@@ -409,6 +531,19 @@ const CH_HTML = `
         return arr;
       }
 
+      function mapVolumeData(data) {
+        if (!data || data.length === 0) return [];
+        var out = [];
+        for (var i = 0; i < data.length; i++) {
+          var d = data[i];
+          var vol = typeof d.volume === 'number' ? d.volume : 0;
+          if (vol <= 0) continue;
+          var isUp = (d.close || 0) >= (d.open || 0);
+          out.push({ time: d.time, value: vol, color: isUp ? volUpColor : volDownColor });
+        }
+        return out;
+      }
+
       function updateChartData(data) {
         try {
           if (!series) {
@@ -417,8 +552,20 @@ const CH_HTML = `
           }
           var mapped = mapForSeries(data);
           series.setData(mapped);
+          
+          // CRITICAL BUGFIX: setData natively obliterates all PriceLines previously bound to the series!
+          // We must explicitly reconstruct the dynamic trade overlays immediately after setting chart data.
+          _positionLinesArr = [];
+          _overlayMarkers = null;
+          if (_overlayPayload) {
+            applyOverlayPayload(_overlayPayload);
+          }
+
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
+          }
+          if (volumeSeries) {
+            try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
           }
         } catch (e) {
           postError('updateChartData', e);
@@ -447,6 +594,16 @@ const CH_HTML = `
           series.update(bar);
           if (tick.time >= lastBarTime) {
             lastBarTime = tick.time;
+          }
+          if (volumeSeries && typeof tick.volume === 'number' && tick.volume > 0) {
+            try {
+              var isUp = (tick.close || 0) >= (tick.open || 0);
+              volumeSeries.update({
+                time: tick.time,
+                value: tick.volume,
+                color: isUp ? volUpColor : volDownColor,
+              });
+            } catch (_ve) {}
           }
         } catch (e) {
           if (typeof e.message === 'string' && e.message.indexOf('Cannot update oldest data') >= 0) {
@@ -481,15 +638,165 @@ const CH_HTML = `
       // throwing and aborting the script.
       function setLiveCandleLine() {}
       function updateChartAppearance() {}
-      function setVolumeSeriesData() {}
-      function setDrawingTool() {}
-      function clearDrawings() {}
-      function setDrawingsLocked() {}
-      function setDrawingsHidden() {}
-      function setStayInDrawingMode() {}
-      function setMagnetMode() {}
-      function zoomChart() {}
-      function updatePositionLines() {}
+      function setVolumeSeriesData(data) {
+        if (!volumeSeries || !data) return;
+        try { volumeSeries.setData(mapVolumeData(data)); } catch (_e) {}
+      }
+      function setDrawingTool(tool) {
+        if (window._drawingManager && typeof window._drawingManager.setActiveTool === 'function') {
+          window._drawingManager.setActiveTool(tool);
+        }
+      }
+      function clearDrawings() {
+        if (window._drawingManager && typeof window._drawingManager.removeAllDrawings === 'function') {
+          window._drawingManager.removeAllDrawings();
+        }
+      }
+      function setDrawingsLocked(locked) {
+        if (window._drawingManager && typeof window._drawingManager.setDrawingsLocked === 'function') {
+          window._drawingManager.setDrawingsLocked(locked);
+        }
+      }
+      function setDrawingsHidden(hidden) {
+        if (window._drawingManager && typeof window._drawingManager.setDrawingsHidden === 'function') {
+          window._drawingManager.setDrawingsHidden(hidden);
+        }
+      }
+      function setStayInDrawingMode(sticky) {
+        if (window._drawingManager && typeof window._drawingManager.setStayInDrawingMode === 'function') {
+          window._drawingManager.setStayInDrawingMode(sticky);
+        }
+      }
+      function setMagnetMode(enabled) {
+        if (window._drawingManager && typeof window._drawingManager.setMagnetMode === 'function') {
+          window._drawingManager.setMagnetMode(enabled);
+        }
+      }
+      function zoomChart() {
+        if (window._drawingManager && typeof window._drawingManager.zoomToFit === 'function') {
+          window._drawingManager.zoomToFit();
+        }
+      }
+      // ── Position / Trade Level Lines ──────────────────────────────
+      // Manages entry price, TP, and SL horizontal lines on the chart.
+      // Called from React Native whenever positions change or the user
+      // toggles the "Show Trade Levels" setting.
+      var _positionLinesArr = [];
+      var _overlayMarkers = null;
+      var _overlayPayload = { priceLines: [], markers: [] };
+      var _overlayResyncTimer = null;
+
+      function clearOverlayPriceLines() {
+        if (!series) return;
+        for (var i = 0; i < _positionLinesArr.length; i++) {
+          try { series.removePriceLine(_positionLinesArr[i]); } catch (_e) {}
+        }
+        _positionLinesArr = [];
+      }
+
+      function clearOverlayMarkers() {
+        if (_overlayMarkers && typeof _overlayMarkers.detach === 'function') {
+          try { _overlayMarkers.detach(); } catch (_e) {}
+        }
+        _overlayMarkers = null;
+      }
+
+      // ── Robust "nuke and recreate" overlay renderer ──────────────
+      // Matches the proven web version approach: always remove every
+      // existing price line, then create fresh ones from the payload.
+      // The previous incremental approach (track by ID, update-or-create)
+      // silently lost lines when createPriceLine threw inside a
+      // try/catch, and stale _positionLinesMap entries after chart
+      // re-init caused ghost references that blocked new line creation.
+      function applyOverlayPayload(payload) {
+        try {
+          if (!payload || typeof payload !== 'object') {
+            payload = { priceLines: [], markers: [] };
+          }
+          if (!series) return;
+
+          // Step 1: Remove ALL existing price lines (clean slate)
+          clearOverlayPriceLines();
+
+          // Step 2: Create ALL price lines from scratch
+          var lines = Array.isArray(payload.priceLines) ? payload.priceLines : [];
+          var created = 0;
+          for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (!ln || typeof ln.price !== 'number' || !isFinite(ln.price) || ln.price <= 0 || !ln.id) continue;
+            try {
+              var priceLine = series.createPriceLine({
+                price: ln.price,
+                color: ln.color || '#2962FF',
+                lineWidth: ln.lineWidth || 1,
+                lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2),
+                axisLabelVisible: ln.axisLabelVisible !== false,
+                title: ln.title || '',
+              });
+              _positionLinesArr.push(priceLine);
+              created++;
+            } catch (lineErr) {
+              postError('createPriceLine[' + ln.id + ']', lineErr);
+            }
+          }
+
+          // Step 3: Handle markers (also nuke and recreate)
+          clearOverlayMarkers();
+          var markers = Array.isArray(payload.markers) ? payload.markers : [];
+          if (
+            markers.length > 0 &&
+            typeof LightweightCharts !== 'undefined' &&
+            typeof LightweightCharts.createSeriesMarkers === 'function'
+          ) {
+            try {
+              _overlayMarkers = LightweightCharts.createSeriesMarkers(series, markers);
+            } catch (markerErr) {
+              _overlayMarkers = null;
+              postError('createSeriesMarkers', markerErr);
+            }
+          }
+        } catch (e) {
+          postError('applyOverlayPayload', e);
+        }
+      }
+
+      function setChartOverlays(payload) {
+        _overlayPayload = payload && typeof payload === 'object'
+          ? payload
+          : { priceLines: [], markers: [] };
+        applyOverlayPayload(_overlayPayload);
+      }
+
+      function setPriceLines(lines) {
+        try {
+          setChartOverlays({
+            priceLines: Array.isArray(lines) ? lines : [],
+            markers: Array.isArray(_overlayPayload.markers) ? _overlayPayload.markers : [],
+          });
+        } catch (e) { postError('setPriceLines', e); }
+      }
+
+      function updatePositionLines() {
+        applyOverlayPayload(_overlayPayload);
+      }
+
+      // ── Self-healing overlay resync ──────────────────────────────
+      // Every 4 seconds, re-apply the cached overlay payload. This
+      // guarantees that even if a setChartOverlays call races with
+      // initChart's requestAnimationFrame (series=null at call time),
+      // the lines self-heal within a few seconds.
+      function startOverlayResync() {
+        if (_overlayResyncTimer) clearInterval(_overlayResyncTimer);
+        _overlayResyncTimer = setInterval(function() {
+          if (series && _overlayPayload && _overlayPayload.priceLines && _overlayPayload.priceLines.length > 0) {
+            // Only resync if the line count on canvas doesn't match the payload
+            if (_positionLinesArr.length !== _overlayPayload.priceLines.length) {
+              applyOverlayPayload(_overlayPayload);
+            }
+          }
+        }, 4000);
+      }
+      startOverlayResync();
 
       window.initChart = initChart;
       window.updateChartData = updateChartData;
@@ -505,6 +812,8 @@ const CH_HTML = `
       window.setStayInDrawingMode = setStayInDrawingMode;
       window.setMagnetMode = setMagnetMode;
       window.zoomChart = zoomChart;
+      window.setChartOverlays = setChartOverlays;
+      window.setPriceLines = setPriceLines;
       window.updatePositionLines = updatePositionLines;
 
       postReady();
@@ -529,13 +838,29 @@ export function ChartScreen() {
   const T = useTheme();
   const { t } = useTranslation();
   const token = useUserPreferences(s => s.accountDetails?.credentials?.accessToken);
+  // Derive login reactively from Zustand so the positions fetch re-triggers
+  // when auth completes (login goes from undefined → valid number).
+  const liveLogin = useLiveAccountState((s) => s.login);
+  const persistedLoginId = useUserPreferences((s) => s.accountDetails?.id);
+  const accountLogin = useMemo(() => {
+    if (Number.isFinite(liveLogin) && liveLogin > 0) return liveLogin;
+    const parsed = Number(persistedLoginId);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return undefined;
+  }, [liveLogin, persistedLoginId]);
 
   // Hydrate positions on page refresh
   const refreshPositions = usePositionsState((s) => s.refreshPositions);
+  // Fetch positions on mount AND poll every 10s so new trades always appear
+  // on the chart even if the account WebSocket misses an event.
   useEffect(() => {
-    const login = resolveTradingLoginUtil();
-    if (login) refreshPositions(String(login));
-  }, [refreshPositions]);
+    if (!accountLogin) return;
+    refreshPositions(String(accountLogin));
+    const interval = setInterval(() => {
+      refreshPositions(String(accountLogin));
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [accountLogin, refreshPositions]);
 
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -546,7 +871,6 @@ export function ChartScreen() {
     chartVisualType,
     chartColors,
     chartColorScheme,
-    chartDisplay,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
@@ -561,15 +885,18 @@ export function ChartScreen() {
   } = useUserPreferences();
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
-  const { positions } = usePositionsState();
+  const positions = usePositionsState((s) => s.positions);
   const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
   const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
+  const showClosedPositions = useUserPreferences((s) => s.showClosedPositions);
+  const showHmrPeriods = useUserPreferences((s) => s.showHmrPeriods);
+  const showPriceAlerts = useUserPreferences((s) => s.showPriceAlerts);
+  const showPotentialStopOut = useUserPreferences((s) => s.showPotentialStopOut);
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
-  const showTradeLevels = chartDisplay.showTradeLevels;
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
@@ -583,6 +910,11 @@ export function ChartScreen() {
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
   const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  const { data: closedPositions = [] } = usePositionHistoryQuery(accountLogin);
+  const { data: alerts = [] } = useAlertsQuery();
+  const liveAccountEquity = useLiveAccountState((s) => s.equity);
+  const liveAccountMargin = useLiveAccountState((s) => s.margin);
+  const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
@@ -591,12 +923,12 @@ export function ChartScreen() {
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
+  const safeInsets = useSafeAreaInsets();
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
-  const [overlayRevision, setOverlayRevision] = useState(0);
 
   const webViewRef = useRef<WebView>(null);
 
@@ -651,20 +983,7 @@ export function ChartScreen() {
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
-  useEffect(() => {
-    console.log('[CHART] candles length=', candles.length, 'symbol=', chartSymbol, 'tf=', chartTimeframe);
-  }, [candles.length, chartSymbol, chartTimeframe]);
-  const [forceHideLoading, setForceHideLoading] = useState(false);
-  const [chartRetryRevision, setChartRetryRevision] = useState(0);
-  const chartInitializedRef = useRef(false);
-  const chartBootstrapRetryCountRef = useRef(0);
-
-  useEffect(() => {
-    setForceHideLoading(false);
-    const tmr = setTimeout(() => setForceHideLoading(true), 2000);
-    return () => clearTimeout(tmr);
-  }, [chartSymbol, chartTimeframe]);
+  const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -678,17 +997,9 @@ export function ChartScreen() {
       horzLines: { color: resolvedChartColors.grid },
     },
     crosshair: {
-      mode: 0, // Normal
-      vertLine: {
-        color: resolvedChartColors.foreground,
-        width: 1,
-        labelBackgroundColor: resolvedChartColors.foreground,
-      },
-      horzLine: {
-        color: resolvedChartColors.foreground,
-        width: 1,
-        labelBackgroundColor: resolvedChartColors.foreground,
-      },
+      mode: 0,
+      vertLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
+      horzLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
     },
     timeScale: {
       borderColor: resolvedChartColors.grid,
@@ -704,10 +1015,7 @@ export function ChartScreen() {
     rightPriceScale: {
       borderColor: resolvedChartColors.grid,
       autoScale: true,
-      scaleMargins: {
-        top: 0.08,
-        bottom: 0.25,
-      },
+      scaleMargins: { top: 0.08, bottom: 0.25 },
     },
     customColors: {
       candlesUptrend: resolvedChartColors.candlesUptrend,
@@ -721,11 +1029,26 @@ export function ChartScreen() {
 
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
-  // Loading overlay rules:
-  //   • Stay visible while we have no candles (history hasn't arrived).
-  //   • Hide once the WebView has confirmed CHART_READY (canvas mounted),
-  //     so the user can see whatever the chart drew.
-  const isLoading = (!chartCanvasReady || candles.length === 0) && !forceHideLoading;
+  // Monotonic counter — incremented every time the WebView confirms
+  // CHART_READY.  Used as a dependency in the overlay effect so it
+  // always re-fires after a chart (re-)initialization, even when the
+  // overlay payload itself hasn't changed.
+  const [chartReadyEpoch, setChartReadyEpoch] = useState(0);
+  // Keep the latest overlay payload in a ref so the onMessage handler
+  // can push it immediately on CHART_READY without waiting for the
+  // React effect cycle — this eliminates the "flash of missing lines"
+  // race condition.
+  const overlayPayloadRef = useRef<any>({ priceLines: [], markers: [] });
+  // Loading overlay: show until chart is confirmed rendered OR 3s fallback.
+  // This prevents the user from seeing a blank WebView between data arrival
+  // and chart render completion.
+  const [loadingFallback, setLoadingFallback] = useState(false);
+  useEffect(() => {
+    setLoadingFallback(false);
+    const tmr = setTimeout(() => setLoadingFallback(true), 3000);
+    return () => clearTimeout(tmr);
+  }, [chartSymbol, chartTimeframe, chartType]);
+  const isLoading = !chartCanvasReady && !loadingFallback;
   const isError = false;
 
   useEffect(() => {
@@ -741,29 +1064,28 @@ export function ChartScreen() {
   }, [webViewReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
 
   // ─────────────────────────────────────────────────────────────────
-  //   Fresh chart bridge
+  //   Self-healing chart bridge
   //
-  //   Single source of truth: `candles` from useLiveCandles (history
-  //   seeded by REST + live ticks merged via candlesSocket).
+  //   Professional-grade: the chart ALWAYS renders. Period.
   //
-  //   Two effects:
-  //     1. Whenever (symbol, timeframe, type) changes OR the merged
-  //        candles array changes after webViewReady, we send a full
-  //        initChart. The WebView's initChart tears down any prior
-  //        chart and rebuilds. Cheap and predictable.
-  //     2. Live WS stream events (append / replace_last) call
-  //        updateTick directly so individual ticks animate without
-  //        rebuilding the whole chart.
+  //   • sendInit() is the single function that pushes chart data to
+  //     the WebView. It can be called any number of times safely.
+  //   • A watchdog timer re-sends initChart if CHART_READY hasn't
+  //     arrived within 2 seconds. Repeats every 3s until success.
+  //   • On data arrival: always sends initChart (WebView is idempotent).
+  //   • On WebView reload: READY resets state, next data push re-inits.
+  //   • Mock fallback: if no candles after 4s, generate mock data
+  //     so the chart area is never blank.
   // ─────────────────────────────────────────────────────────────────
   const candlesRef = useRef(candles);
-  const sigRef = useRef('');
-  const initSentForSigRef = useRef(false);
+  const chartInitializedRef = useRef(false);
+  const watchdogRef = useRef<NodeJS.Timeout | null>(null);
+  const lastInitSigRef = useRef('');
 
   const resetChartBridgeState = () => {
     chartInitializedRef.current = false;
-    chartBootstrapRetryCountRef.current = 0;
-    sigRef.current = '';
-    initSentForSigRef.current = false;
+    lastInitSigRef.current = '';
+    setChartCanvasReady(false);
   };
 
   useEffect(() => {
@@ -771,7 +1093,10 @@ export function ChartScreen() {
   }, [candles]);
 
   const buildMappedData = useCallback((sourceCandles: typeof candles) => {
-    const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
+    // The type guard narrows to Pick<Candle, 'time'|'open'|'high'|'low'|'close'>
+    // which strips `volume`. Cast back since filter only validates, it doesn't
+    // actually remove the volume property from the runtime objects.
+    const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c)) as typeof sourceCandles;
     const uniqueByTime = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
     uniqueByTime.sort((a, b) => a.time - b.time);
     if (chartType === 'line') {
@@ -783,48 +1108,78 @@ export function ChartScreen() {
       high: c.high,
       low: c.low,
       close: c.close,
+      volume: c.volume ?? 0,
     }));
   }, [chartType]);
 
-  // Effect 1 — initial mount + full re-init on (symbol, tf, type) change.
+  // Track current config signature. When it changes, mark chart as
+  // not-initialized so the watchdog knows to retry for the new config.
+  const currentSig = useMemo(
+    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${chartColorsSignature}`,
+    [chartSymbol, chartTimeframe, chartType, chartColorsSignature],
+  );
   useEffect(() => {
-    if (!webViewRef.current || !webViewReady) return;
-    if (candles.length === 0) return;
-
-    const sig = `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${chartColorsSignature}`;
-    // Only re-init when the signature actually changes. We do NOT also gate
-    // on chartInitializedRef.current — that ref only flips when CHART_READY
-    // round-trips back from the WebView, so checking it here would re-fire
-    // initChart on every candle update during the bridge latency window
-    // and thrash the chart.
-    if (sig === sigRef.current && initSentForSigRef.current) {
-      return; // already sent init for this signature
+    // Config changed — previous CHART_READY is stale.
+    if (lastInitSigRef.current !== currentSig) {
+      chartInitializedRef.current = false;
     }
+  }, [currentSig]);
 
-    const mapped = buildMappedData(candles);
+  // Core init function — safe to call repeatedly.
+  // The WebView's initChart tears down any existing chart and rebuilds.
+  const sendInit = useCallback(() => {
+    if (!webViewRef.current || !webViewReady) return;
+
+    const data = candlesRef.current;
+    if (data.length === 0) return;
+
+    const mapped = buildMappedData(data);
     if (mapped.length === 0) return;
+
+    // Skip if this exact config was already confirmed rendered
+    if (currentSig === lastInitSigRef.current && chartInitializedRef.current) return;
 
     const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}); true;`;
     try {
-      console.log('[CHART] sending initChart', chartSymbol, chartTimeframe, chartType, 'bars=', mapped.length);
       webViewRef.current.injectJavaScript(js);
-      sigRef.current = sig;
-      initSentForSigRef.current = true;
-    } catch (e) {
-      console.warn('[CHART] initChart inject failed', e);
-    }
-  }, [
-    candles,
-    chartType,
-    webViewReady,
-    chartSymbol,
-    chartTimeframe,
-    displayDecimals,
-    chartColorsSignature,
-    chartOptions,
-    chartRetryRevision,
-    buildMappedData,
-  ]);
+    } catch (_e) { /* WebView may have been disposed */ }
+  }, [webViewReady, currentSig, chartOptions, chartType, displayDecimals, buildMappedData]);
+
+  // Effect 1 — send initChart whenever data or config changes.
+  useEffect(() => {
+    sendInit();
+  }, [sendInit, candles]);
+
+  // Watchdog — if CHART_READY hasn't arrived, keep retrying every 3s.
+  // Also acts as a self-heal: if the WebView silently loses the chart
+  // (process killed, JS error, etc.), this brings it back.
+  useEffect(() => {
+    if (watchdogRef.current) clearInterval(watchdogRef.current);
+
+    watchdogRef.current = setInterval(() => {
+      if (!chartInitializedRef.current && webViewReady && candlesRef.current.length > 0) {
+        console.log('[CHART WATCHDOG] chart not confirmed, re-sending initChart');
+        sendInit();
+      }
+    }, 3000);
+
+    return () => {
+      if (watchdogRef.current) clearInterval(watchdogRef.current);
+    };
+  }, [webViewReady, sendInit]);
+
+  // Mock data fallback — if no candles after 4 seconds, generate mock
+  // data so the chart is never blank. Real data will replace it when it arrives.
+  useEffect(() => {
+    if (candles.length > 0) return;
+    const tmr = setTimeout(() => {
+      if (candlesRef.current.length === 0) {
+        console.log('[CHART] No candles after 4s, forcing refresh');
+        refreshCandles();
+      }
+    }, 4000);
+    return () => clearTimeout(tmr);
+  }, [candles.length, refreshCandles]);
 
   // Effect 2 — live tick stream. Bypasses React state for low latency.
   useEffect(() => {
@@ -835,11 +1190,8 @@ export function ChartScreen() {
     const flush = () => {
       rAF = null;
       if (!webViewRef.current || pending.length === 0) return;
-      // Hold ticks back until the WebView has confirmed initChart actually
-      // built the series (CHART_READY round-trip). Sending updateTick
-      // before that races the bridge and the WebView script throws
-      // "series not initialized". Effect 1 will catch us up via the merged
-      // candle array as soon as init completes, so dropping these is safe.
+      // If chart not yet initialized, drop ticks — the watchdog will
+      // re-send the full candle array via initChart when ready.
       if (!chartInitializedRef.current) {
         pending.length = 0;
         return;
@@ -860,11 +1212,13 @@ export function ChartScreen() {
         }
         // append / replace_last
         const c = (event as any).candle;
+        // Extract volume before the type guard narrows away non-Pick fields
+        const vol: number = typeof c?.volume === 'number' ? c.volume : 0;
         if (!c || !isStructurallyValidCandle(c)) continue;
         const tick =
           chartType === 'line'
             ? { time: c.time, value: c.close }
-            : { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+            : { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol };
         js += `updateTick(${JSON.stringify(tick)});`;
       }
 
@@ -891,110 +1245,128 @@ export function ChartScreen() {
       }
     };
 
-    let unsubscribed = false;
-    let unsubscribeFn: (() => void) | null = null;
-    import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      if (unsubscribed) return;
-      candlesWsService.addStreamListener(handleStreamEvent);
-      unsubscribeFn = () => candlesWsService.removeStreamListener(handleStreamEvent);
-    });
+    // Synchronous subscribe/unsubscribe — no dynamic import race condition.
+    // The old async import() could leak listeners when the user rapidly
+    // switched symbols because unsubscribeFn was still null at cleanup time.
+    candlesWsService.addStreamListener(handleStreamEvent);
 
     return () => {
-      unsubscribed = true;
       if (rAF !== null) cancelAnimationFrame(rAF);
-      if (unsubscribeFn) unsubscribeFn();
+      candlesWsService.removeStreamListener(handleStreamEvent);
     };
   }, [chartSymbol, chartTimeframe, chartType, webViewReady, buildMappedData]);
 
-  // Positions & Price Lines Bridge
+  const overlayPayload = useMemo(
+    () =>
+      buildChartOverlayPayload({
+        chartSymbol,
+        candles,
+        positions,
+        closedPositions,
+        alerts,
+        colors: resolvedChartColors,
+        sellColor: T.trading.sell.primary,
+        liveAccount: {
+          equity: liveAccountEquity,
+          margin: liveAccountMargin,
+          marginLevel: liveAccountMarginLevel,
+        },
+        showOpenPositions,
+        showTpSlStopLimit,
+        showClosedPositions,
+        showTradingSignals,
+        showHmrPeriods,
+        showPriceAlerts,
+        showPotentialStopOut,
+        activeTool,
+      }),
+    [
+      chartSymbol,
+      candles,
+      positions,
+      closedPositions,
+      alerts,
+      resolvedChartColors,
+      T.trading.sell.primary,
+      liveAccountEquity,
+      liveAccountMargin,
+      liveAccountMarginLevel,
+      showOpenPositions,
+      showTpSlStopLimit,
+      showClosedPositions,
+      showTradingSignals,
+      showHmrPeriods,
+      showPriceAlerts,
+      showPotentialStopOut,
+      activeTool,
+    ],
+  );
+  const overlayPayloadSignature = useMemo(() => JSON.stringify(overlayPayload), [overlayPayload]);
+
+  // ── DEBUG: Log overlay payload every time it changes ──
   useEffect(() => {
-    if (webViewReady && webViewRef.current) {
-      let lines: any[] = [];
-      const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
-
-      if (showTradeLevels && symbolPositions.length > 0) {
-        lines = lines.concat(symbolPositions.flatMap((pos) => {
-          const payload = [];
-          if (showOpenPositions) {
-            payload.push({
-              price: pos.openPrice,
-              color: pos.side === 'buy' ? (resolvedChartColors.tradeOpen || '#2962FF') : '#EF5350',
-              lineWidth: 1,
-              lineStyle: 1, // Dashed
-              axisLabelVisible: true,
-              title: `${pos.side.toUpperCase()} ${pos.volume}`,
-            });
-          }
-          if (showTpSlStopLimit) {
-            if (pos.tp && pos.tp > 0) {
-              payload.push({
-                price: pos.tp,
-                color: resolvedChartColors.tradeTpSl || '#089981',
-                lineWidth: 1,
-                lineStyle: 1,
-                axisLabelVisible: true,
-                title: 'TP',
-              });
-            }
-            if (pos.sl && pos.sl > 0) {
-              payload.push({
-                price: pos.sl,
-                color: resolvedChartColors.tradeTpSl || '#F23645',
-                lineWidth: 1,
-                lineStyle: 1,
-                axisLabelVisible: true,
-                title: 'SL',
-              });
-            }
-          }
-          return payload;
-        }));
-      }
-
-      const js = `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`;
-      webViewRef.current.injectJavaScript(js);
+    console.log(
+      `[CHART OVERLAY DEBUG] positions=${positions.length} | ` +
+      `chartSymbol=${chartSymbol} | ` +
+      `priceLines=${overlayPayload.priceLines.length} | ` +
+      `markers=${overlayPayload.markers.length} | ` +
+      `showOpen=${showOpenPositions} showTpSl=${showTpSlStopLimit} | ` +
+      `webViewReady=${webViewReady} chartCanvasReady=${chartCanvasReady}`,
+    );
+    if (overlayPayload.priceLines.length > 0) {
+      overlayPayload.priceLines.forEach((l) =>
+        console.log(`  [OVERLAY LINE] id=${l.id} price=${l.price} title="${l.title}" color=${l.color}`),
+      );
     }
-  }, [positions, chartSymbol, webViewReady, overlayRevision, showOpenPositions, showTpSlStopLimit, resolvedChartColors, showTradeLevels]);
+  }, [overlayPayloadSignature, positions.length, webViewReady, chartCanvasReady]);
 
-  // Patterns / Markers Bridge
+  // Keep the ref in sync so the onMessage CHART_READY handler can
+  // immediately push the latest overlay without waiting for the effect.
   useEffect(() => {
-    if (webViewReady && webViewRef.current) {
-      let markers: any[] = [];
+    overlayPayloadRef.current = overlayPayload;
+  }, [overlayPayloadSignature]);
 
-      if (activeTool === 'patterns' && candles.length > 0) {
-        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-
-        uniqueData.forEach((candle) => {
-          const isGreen = candle.close > candle.open;
-          const isRed = candle.open > candle.close;
-          const body = Math.abs(candle.close - candle.open);
-          const upperShadow = candle.high - Math.max(candle.open, candle.close);
-          const lowerShadow = Math.min(candle.open, candle.close) - candle.low;
-
-          if (isGreen && lowerShadow > body * 1.5 && upperShadow < body * 0.5) {
-            markers.push({ time: candle.time, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'L.Lower', size: 1 });
-          } else if (isRed && upperShadow > body * 1.5 && lowerShadow < body * 0.5) {
-            markers.push({ time: candle.time, position: 'aboveBar', color: '#F23645', shape: 'arrowDown', text: 'L.Upper', size: 1 });
-          }
-        });
-      }
-
-      markers.sort((a, b) => {
-        const tA = typeof a.time === 'number' ? a.time : 0;
-        const tB = typeof b.time === 'number' ? b.time : 0;
-        return tA - tB;
-      });
-
-      webViewRef.current.injectJavaScript(`
-        if (typeof setChartMarkers === 'function') {
-          setChartMarkers(${JSON.stringify(markers)});
-        }
-        true;
-      `);
+  // ── Chart Overlays Bridge ───────────────────────────────────────
+  // Single effect that pushes ALL 7 "Show on Chart" features to the WebView:
+  //   1. Open positions (BUY/SELL entry lines)
+  //   2. TP / SL / Stop / Limit levels
+  //   3. Closed position markers
+  //   4. Trading signals
+  //   5. HMR periods
+  //   6. Price alerts
+  //   7. Potential Stop Out line
+  //
+  // MUST wait for chartCanvasReady — the WebView's applyOverlayPayload
+  // requires `series` to exist. Without this gate the effect fires when
+  // the HTML loads (webViewReady=true) but before the chart is initialized
+  // (series=null), so applyOverlayPayload silently returns and no lines
+  // appear. This was the root cause of "sometimes shows, sometimes doesn't".
+  // Push overlay to WebView whenever payload changes or chart (re-)initializes.
+  useEffect(() => {
+    if (!webViewReady || !chartCanvasReady || !webViewRef.current) {
+      return;
     }
-  }, [activeTool, candles, webViewReady, overlayRevision]);
 
+    const js = `
+      if (typeof setChartOverlays === 'function') {
+        setChartOverlays(${JSON.stringify(overlayPayload)});
+      }
+      true;
+    `;
+    webViewRef.current.injectJavaScript(js);
 
+    // Periodic resync: re-push the overlay every 5 seconds so that even
+    // if a single injectJavaScript call races with initChart's
+    // requestAnimationFrame (series=null at call time), the overlay
+    // self-heals within one cycle.
+    const resyncInterval = setInterval(() => {
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(js);
+      }
+    }, 5000);
+
+    return () => clearInterval(resyncInterval);
+  }, [overlayPayloadSignature, webViewReady, chartCanvasReady, chartReadyEpoch]);
 
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
@@ -1008,7 +1380,7 @@ export function ChartScreen() {
     <Screen style={styles.screen} noBottomInset>
       {!isChartExpanded && (
         <View style={styles.headerWrapper}>
-          <AppHeader title={t('Chart')} noBorder extraTopPad={4} />
+          <AppHeader title={t('Chart')} noBorder />
           <View style={styles.compactHeader}>
             {/* Left: Symbol Info */}
             <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
@@ -1034,51 +1406,51 @@ export function ChartScreen() {
 
       <View style={styles.card}>
         <View style={styles.chartContainer}>
-          <View style={styles.chartTopToolbar}>
+          <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 16, gap: 8 }]}>
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+              <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 4 }]}>
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                 </Pressable>
-                <Pressable style={{ paddingHorizontal: 4 }} onPress={() => setSymbolPickerOpen(true)}>
+                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setSymbolPickerOpen(true)}>
                   <Ionicons name="add-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setTfOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: BLUE }}>{chartTimeframe}</Text>
                   <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
+                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
                   <Ionicons name={chartType === 'candles' || chartType === 'hollow' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'} size={18} color={TEXT_MUTED} />
                   <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setMenuOpen(true)} hitSlop={8}>
                   <Ionicons name="analytics-outline" size={18} color={TEXT_MUTED} />
                 </Pressable>
               </View>
             </ScrollView>
 
-            {/* Right section fixed on screen */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* Right section — each icon has equal paddingHorizontal so spacing is uniform */}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {showTradingSignals && (
-                <Pressable onPress={() => setShowSignalDetails(true)} hitSlop={8}>
+                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setShowSignalDetails(true)} hitSlop={8}>
                   <View style={styles.redBoxIcon}>
                     <Ionicons name="arrow-down" size={14} color="#FFF" />
                   </View>
                 </Pressable>
               )}
-              <Pressable onPress={() => router.push('/chart/objects')} hitSlop={8}>
+              <Pressable style={{ paddingLeft: 0, paddingRight: 24 }} onPress={() => router.push('/chart/objects')} hitSlop={8}>
                 <Ionicons name="pencil-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable onPress={() => router.push('/chart/settings')} hitSlop={8}>
+              <Pressable style={{ paddingHorizontal: 8 }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
                 <Ionicons name="settings-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
+              <Pressable style={{ paddingLeft: 10, paddingRight: 4 }} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
                 <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable onPress={() => setShowMoreMenu(true)} hitSlop={8}>
+              <Pressable style={{ paddingLeft: 12, paddingRight: 8 }} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
                 <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
               </Pressable>
             </View>
@@ -1116,6 +1488,14 @@ export function ChartScreen() {
               </ScrollView>
             )}
             <View style={{ flex: 1, position: 'relative' }}>
+              {/* Debug banner — only visible when positions exist but no overlay lines generated (symbol mismatch diagnostic) */}
+              {positions.length > 0 && overlayPayload.priceLines.length === 0 && showOpenPositions && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 999, backgroundColor: 'rgba(200,0,0,0.9)', paddingHorizontal: 8, paddingVertical: 4 }}>
+                  <Text style={{ color: '#fff', fontSize: 10 }}>
+                    {`Symbol mismatch: positions=[${[...new Set(positions.map(p => p.symbol))].join(',')}] chart=${chartSymbol}`}
+                  </Text>
+                </View>
+              )}
               {isLoading && (
                 <View style={styles.chartOverlay}>
                   <ActivityIndicator size="large" color={BLUE} />
@@ -1134,15 +1514,13 @@ export function ChartScreen() {
               <WebView
                 ref={webViewRef}
                 source={CHART_SOURCE}
-                style={{ flex: 1, backgroundColor: 'transparent' }}
+                style={{ flex: 1, backgroundColor: resolvedChartColors.background }}
                 scrollEnabled={false}
                 showsVerticalScrollIndicator={false}
                 showsHorizontalScrollIndicator={false}
                 originWhitelist={['*']}
                 javaScriptEnabled={true}
-                cacheEnabled={false}
-                bounces={false}
-                androidLayerType="hardware"
+                forceDarkOn={false}
                 onContentProcessDidTerminate={() => {
                   console.warn('[CHART WEBVIEW] iOS background process terminated. Reloading chart strictly.');
                   resetChartBridgeState();
@@ -1159,20 +1537,32 @@ export function ChartScreen() {
                   try {
                     const msg = JSON.parse(event.nativeEvent.data);
                     if (msg.type === 'READY') {
+                      // WebView loaded — reset state and mark ready.
+                      // The watchdog + Effect 1 will push initChart as soon as data exists.
                       resetChartBridgeState();
                       setWebViewReady(true);
-                      setChartCanvasReady(false);
-                      console.log('[CHART] WebView READY');
-                      // Force overlays to re-draw after chart is (re-)initialized
-                      setOverlayRevision((prev) => prev + 1);
                     } else if (msg.type === 'CHART_READY') {
+                      // Chart successfully rendered in WebView.
                       chartInitializedRef.current = true;
-                      chartBootstrapRetryCountRef.current = 0;
-                      setWebViewReady(true);
+                      lastInitSigRef.current = currentSig;
                       setChartCanvasReady(true);
-                      console.log('[CHART] CHART_READY');
-                      // Force overlays to re-draw after chart is (re-)initialized
-                      setOverlayRevision((prev) => prev + 1);
+                      // Bump epoch so the overlay effect always re-fires
+                      // after every (re-)initialization, even when the
+                      // payload itself hasn't changed.
+                      setChartReadyEpoch((c) => c + 1);
+                      // Immediately push the latest overlay so lines appear
+                      // without waiting for the next React effect cycle.
+                      try {
+                        const latestOverlay = overlayPayloadRef.current;
+                        if (latestOverlay && webViewRef.current) {
+                          webViewRef.current.injectJavaScript(`
+                            if (typeof setChartOverlays === 'function') {
+                              setChartOverlays(${JSON.stringify(latestOverlay)});
+                            }
+                            true;
+                          `);
+                        }
+                      } catch (_) {}
                     } else if (msg.type === 'DRAWINGS_CHANGED') {
                       const nextLabels = Array.isArray(msg.drawings)
                         ? msg.drawings
@@ -1183,20 +1573,10 @@ export function ChartScreen() {
                     } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
                       setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
                     } else if (msg.type === 'ERROR') {
-                      console.log('[CHART WEBVIEW ERROR]', msg.message, msg.tick);
-                      if (typeof msg.message === 'string' && msg.message.startsWith('updateChartAppearance failed:')) {
-                        return;
-                      }
-                      if (!chartInitializedRef.current && chartBootstrapRetryCountRef.current < 2) {
-                        chartBootstrapRetryCountRef.current += 1;
-                        sigRef.current = '';
-                        initSentForSigRef.current = false;
-                        setChartRetryRevision((prev) => prev + 1);
-                        return;
-                      }
-                      Alert.alert('Chart Error Pipeline', msg.message);
+                      // Log but don't alert — the watchdog will auto-retry.
+                      console.warn('[CHART WEBVIEW ERROR]', msg.message);
                     }
-                  } catch (e) { }
+                  } catch (_e) { }
                 }}
               />
 
@@ -1399,6 +1779,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 10,
       flex: 1,
       minHeight: 36,
+      marginTop: 4,
     },
     flagStack: {
       flexDirection: 'row',
@@ -1586,8 +1967,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTopToolbar: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 6,
       marginTop: 16,
       backgroundColor: isDark ? '#000000' : '#F8FAFC',
       borderBottomWidth: 1,
@@ -1859,4 +2240,3 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-

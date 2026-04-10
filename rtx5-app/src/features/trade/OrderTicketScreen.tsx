@@ -228,7 +228,10 @@ export function OrderTicketScreen() {
       router.back();
     } catch (error: any) {
       const feedback = classifyTradingError(error, { action: 'place-order' });
-      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+      // Extract raw server message so we can see the exact rejection reason
+      const rawMsg = (error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '');
+      const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
+      setModalState({ visible: true, type: 'error', title: feedback.title, message: displayMsg });
     } finally {
       setPendingSide(null);
     }

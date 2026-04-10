@@ -51,8 +51,15 @@ class AccountWebSocketService {
 
     const accountDetails = useUserPreferences.getState().accountDetails;
     if (!accountDetails || !accountDetails.credentials?.accessToken) {
-      console.warn('[Account WS] No auth credentials available. Refusing to connect.');
-      this.shouldReconnect = false;
+      console.warn('[Account WS] No auth credentials available. Will retry in 5s in case tokens are refreshing.');
+      // Don't set shouldReconnect = false here — the token may be mid-refresh.
+      // Schedule a delayed retry so we reconnect once the token lands.
+      if (this.shouldReconnect && !this.reconnectTimer) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this._doConnect();
+        }, 5000);
+      }
       return;
     }
 
@@ -155,12 +162,18 @@ class AccountWebSocketService {
   }
 
   private attemptReconnect(): void {
-    // Do NOT reconnect if disconnect() was called explicitly or no credentials exist
+    // Do NOT reconnect if disconnect() was called explicitly
     if (!this.shouldReconnect) return;
     const accountDetails = useUserPreferences.getState().accountDetails;
     if (!accountDetails?.credentials?.accessToken) {
-      console.warn('[Account WS] Reconnect cancelled — no valid auth credentials.');
-      this.shouldReconnect = false;
+      // Token may be mid-refresh — retry in 5s instead of giving up permanently.
+      console.warn('[Account WS] No credentials during reconnect — retrying in 5s.');
+      if (!this.reconnectTimer) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this._doConnect();
+        }, 5000);
+      }
       return;
     }
 

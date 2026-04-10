@@ -15,7 +15,7 @@ const LEGACY_SUFFIX_BASES = new Set([
 ]);
 
 export const normalizeSymbol = (symbol: string): string => {
-  const normalized = symbol.trim().toUpperCase();
+  const normalized = symbol.trim().toUpperCase().replace(/[\/\s]+/g, '');
   if (!normalized) return '';
 
   if (EXPLICIT_SYMBOL_ALIASES[normalized]) {

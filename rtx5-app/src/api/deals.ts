@@ -40,7 +40,50 @@ export interface Deal {
   time: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Trading API — Account Deals (JWT-resolved, date-range aware)
+// Endpoint: GET /api/v2/account/deals
+// Like /deals/{login} but the account is resolved from the Bearer token — no
+// login parameter needed. Supports optional from/to Unix timestamp filtering
+// so the History screen can honour the date range the user selected.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const dealsApi = {
+  /**
+   * Fetch deal history for the authenticated user's trading account.
+   *
+   * GET /api/v2/account/deals?limit={limit}&offset={offset}[&from={from}&to={to}]
+   *
+   * Account is resolved server-side from the session JWT — no login param needed.
+   * Optionally pass `from` and `to` as Unix timestamps (seconds) to restrict the
+   * result to a specific date window (e.g. Last 6 months, custom calendar range).
+   *
+   * @param limit  - Max records to return (default: 500)
+   * @param offset - Pagination offset (default: 0)
+   * @param from   - Range start as Unix seconds (optional)
+   * @param to     - Range end as Unix seconds (optional, defaults to now on server)
+   */
+  getAccountDeals: async (limit = 500, offset = 0, from?: number, to?: number): Promise<Deal[]> => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (from != null) params.set('from', String(from));
+    if (to != null) params.set('to', String(to));
+
+    const response = await apiClient(`/account/deals?${params.toString()}`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw { response: { data: errorData, status: response.status } };
+    }
+
+    const json = await response.json();
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json?.data)) return json.data;
+    return [];
+  },
+
   /**
    * Fetch deal history for a trading account.
    *

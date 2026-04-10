@@ -61,6 +61,9 @@ export function useLiveCandles(symbol: string, timeframe: string) {
       unmounted = true;
       if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
       candlesWsService.removeArrayListener(handleArrayUpdate);
+      // Unsubscribe from the candle feed so the service doesn't keep fetching
+      // and processing ticks for a symbol/timeframe that no component needs.
+      candlesWsService.unsubscribe();
     };
     // accessToken is intentionally NOT a dependency. Token refresh is a
     // background concern handled by the WebSocket service itself; tying the

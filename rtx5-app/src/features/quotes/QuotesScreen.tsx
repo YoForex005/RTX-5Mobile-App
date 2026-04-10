@@ -43,6 +43,12 @@ import { useTradingState } from '../../state/tradingState';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMarketSymbols } from '../../query/market';
+import {
+  useWatchlistQuery,
+  useAddToWatchlistMutation,
+  useRemoveWatchlistMutation,
+  useReplaceWatchlistMutation,
+} from '../../query/watchlist';
 import { fmt } from '../../utils/format';
 import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -216,7 +222,7 @@ function useQuotesThemeRotation(isDark: boolean) {
 
 /* ───── QuoteCard ───── */
 
-function QuoteCard({
+const QuoteCard = React.memo(function QuoteCard({
   symbol,
   T,
   isDark,
@@ -480,7 +486,7 @@ function QuoteCard({
       </View>
     </Pressable>
   );
-}
+});
 
 function EditQuoteRow({
   symbol,
@@ -764,6 +770,15 @@ export function QuotesScreen() {
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const { data: apiSymbols = [], refetch: refetchSymbols } = useMarketSymbols();
 
+  // ── Server-side watchlist sync ──────────────────────────────────────────
+  // Fetch the server watchlist and sync mutations. Local Zustand state stays
+  // as the primary UI source of truth (instant updates); the server is kept
+  // in sync fire-and-forget so the watchlist persists across devices/sessions.
+  const { data: serverWatchlist } = useWatchlistQuery();
+  const { mutate: serverAdd } = useAddToWatchlistMutation();
+  const { mutate: serverRemove } = useRemoveWatchlistMutation();
+  const { mutate: serverReplace } = useReplaceWatchlistMutation();
+
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -779,34 +794,86 @@ export function QuotesScreen() {
   const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
 
-  useEffect(() => {
-    if (apiSymbols.length > 0) {
-      const DEFAULT_WATCHLIST = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'];
-      // Detect and repair the legacy bloated-watchlist state. Earlier
-      // versions of the seed effect copied the entire instrument catalog
-      // into quoteSymbols on first launch, which left the Add Asset picker
-      // marking every symbol as "Already in your watchlist" while the
-      // Quotes screen could not realistically render the full 60-symbol
-      // dump. If we still see a watchlist that contains ≥80% of the
-      // catalog, treat it as bloated and reset to the curated default.
-      const bloated =
-        hasSetInitialSymbols &&
-        quoteSymbols.length >= Math.max(20, Math.floor(apiSymbols.length * 0.8));
+  // Read quoteSymbols via a ref so the seeding effect can access the current
+  // value without listing it as a dependency — listing it caused an infinite
+  // loop: setQuoteSymbols → quoteSymbols changes → effect re-runs → repeat.
+  const quoteSymbolsRef = useRef(quoteSymbols);
+  quoteSymbolsRef.current = quoteSymbols;
 
-      if (!hasSetInitialSymbols || bloated) {
+  // Track whether the server watchlist seed has already been applied this
+  // session so the Priority-1 branch only fires once even as the query
+  // result reference changes between renders.
+  const serverSeedDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (apiSymbols.length === 0) return;
+
+    const DEFAULT_WATCHLIST = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'];
+    const currentSymbols = quoteSymbolsRef.current;
+
+    // ── Already initialised: never let the server override local state ───
+    // hasSetInitialSymbols is persisted in Zustand so it survives restarts,
+    // logouts, and tab navigations. Once the user's list is established the
+    // server watchlist is only used as a fire-and-forget sync target — it
+    // must never silently replace the user's curated list. Without this guard
+    // every component remount (tab switch, background→foreground) re-ran the
+    // server seed because serverSeedDoneRef reset to false, overwriting local
+    // symbols with whatever the server returned at that moment.
+    if (hasSetInitialSymbols) {
+      // If the user removed every symbol (or state is empty after a bug),
+      // re-seed with curated defaults so the screen is never permanently blank.
+      if (currentSymbols.length === 0) {
         const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
         setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
-        setHasSetInitialSymbols(true);
-      } else {
-        const validSymbols = quoteSymbols.filter((sym) => apiSymbols.includes(sym));
-        if (validSymbols.length < quoteSymbols.length) {
-          setQuoteSymbols(validSymbols);
+        return;
+      }
+      // Fix bloated legacy state (old versions seeded the entire catalog)
+      const bloated = currentSymbols.length >= Math.max(20, Math.floor(apiSymbols.length * 0.8));
+      if (bloated) {
+        const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
+        setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
+        return;
+      }
+      // Strip any symbols the broker has since delisted
+      const valid = currentSymbols.filter((sym) => apiSymbols.includes(sym));
+      if (valid.length < currentSymbols.length) setQuoteSymbols(valid);
+      return; // ← critical: no server override after first init
+    }
+
+    // ── First launch only: seed from server watchlist if available ───────
+    // serverSeedDoneRef prevents the block from running twice within the same
+    // mount cycle if both apiSymbols and serverWatchlist resolve simultaneously.
+    if (!serverSeedDoneRef.current && serverWatchlist && serverWatchlist.length > 0) {
+      const sorted = [...serverWatchlist].sort((a, b) => a.sort_order - b.sort_order);
+      const validFromServer = sorted
+        .map((item) => item.symbol)
+        .filter((sym) => apiSymbols.includes(sym));
+      const uniqueFromServer = [...new Set(validFromServer)];
+      if (uniqueFromServer.length > 0) {
+        // If server has too few symbols (e.g. leftover from a previous bug),
+        // supplement with curated defaults so the user always starts with a
+        // useful set of at least 5 instruments.
+        let finalList = uniqueFromServer;
+        if (finalList.length < 5) {
+          const extras = DEFAULT_WATCHLIST.filter(
+            (sym) => apiSymbols.includes(sym) && !finalList.includes(sym),
+          );
+          finalList = [...finalList, ...extras].slice(0, 5);
         }
+        setQuoteSymbols(finalList);
+        setHasSetInitialSymbols(true);
+        serverSeedDoneRef.current = true;
+        return;
       }
     }
+
+    // ── First launch fallback: curated defaults ───────────────────────────
+    const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
+    setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
+    setHasSetInitialSymbols(true);
   }, [
     apiSymbols,
-    quoteSymbols,
+    serverWatchlist,
     setQuoteSymbols,
     hasSetInitialSymbols,
     setHasSetInitialSymbols,
@@ -816,8 +883,9 @@ export function QuotesScreen() {
   const deferredSearch = useDeferredValue(search);
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState(new Date());
-  const trackedSymbols = quoteSymbols;
+  // Memoize so the WS subscription effect only re-runs when the actual
+  // symbol list changes, not on every parent re-render.
+  const trackedSymbols = useMemo(() => quoteSymbols, [JSON.stringify(quoteSymbols)]);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -828,17 +896,21 @@ export function QuotesScreen() {
     const newQueue = [...quoteSymbols];
     const element = newQueue.splice(fromIndex, 1)[0];
     newQueue.splice(toIndex, 0, element);
+    // Update local state immediately for instant UI response, then sync to server
     setQuoteSymbols(newQueue);
+    serverReplace(newQueue);
   };
 
-  useEffect(() => {
-    const id = setInterval(() => setUpdatedAt(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  // Clock timer moved into isolated GmtClock component to prevent
+  // the 1-second interval from re-rendering the entire QuotesScreen
+  // (parent re-render forces all FlatList items to re-evaluate).
 
   useEffect(() => {
+    if (trackedSymbols.length === 0) return;
     quotesWsService.connect();
-    quotesWsService.setSubscriptions(trackedSymbols);
+    // Use subscribe (additive) so it coexists with useMarketData subscriptions
+    // from other screens (ChartScreen, SymbolDetailsScreen, etc.)
+    quotesWsService.subscribe(trackedSymbols);
     return () => {
       quotesWsService.unsubscribe(trackedSymbols);
     };
@@ -911,9 +983,7 @@ export function QuotesScreen() {
           />
 
           <View style={s.subheaderRow}>
-            <Text style={[s.subLeft, { color: palette.secondaryText }]}>
-              Updated: {gmtClock(updatedAt)} GMT
-            </Text>
+            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} />
 
             <View style={{ alignItems: 'flex-end' }}>
               <TickCounter T={T} palette={palette} />
@@ -957,7 +1027,7 @@ export function QuotesScreen() {
                     T={T}
                     isDark={isDark}
                     cardBackground={animatedCardBackground}
-                    onRemove={() => removeQuoteSymbol(sym)}
+                    onRemove={() => { removeQuoteSymbol(sym); serverRemove(sym); }}
                     onMoveUp={() => moveQuote(globalIndex, globalIndex - 1)}
                     onMoveDown={() => moveQuote(globalIndex, globalIndex + 1)}
                   />
@@ -986,7 +1056,7 @@ export function QuotesScreen() {
                         {
                           label: 'Hide',
                           danger: true,
-                          onPress: () => removeQuoteSymbol(sym),
+                          onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
                         },
                       ],
                     })
@@ -1038,6 +1108,7 @@ export function QuotesScreen() {
         onClose={() => setShowAddModal(false)}
         onAdd={(sym: string) => {
           addQuoteSymbol(sym);
+          serverAdd(sym);
           setShowAddModal(false);
         }}
         T={T}
@@ -1246,6 +1317,16 @@ const sc = StyleSheet.create({
   },
 });
 
+/** Isolated 1-second clock so the timer doesn't re-render the parent QuotesScreen. */
+function GmtClock({ style }: { style: any }) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <Text style={style}>Updated: {gmtClock(now)} GMT</Text>;
+}
+
 function TickCounter({ T, palette }: { T: ThemeColors; palette: QuotesPalette }) {
   const [tps, setTps] = useState(0);
   const tickCountRef = useRef(useTradingState.getState().tickCount);
@@ -1277,55 +1358,3 @@ function TickCounter({ T, palette }: { T: ThemeColors; palette: QuotesPalette })
   );
 }
 
-function useActiveSymbols(quoteSymbols: string[]) {
-  // Compute the active set from the CURRENT trading state on every render so
-  // the very first paint already includes every symbol that has live data.
-  // No "wait 1 second for the interval" delay.
-  const computeActive = useCallback(() => {
-    const stateQuotes = useTradingState.getState().quotes;
-    const now = Date.now();
-    return quoteSymbols.filter((sym) => hasFreshLiveQuote(stateQuotes[sym], now));
-  }, [quoteSymbols]);
-
-  const [activeSymbols, setActiveSymbols] = useState<string[]>(() => computeActive());
-
-  // Re-compute whenever the quote stream emits new ticks. We subscribe to
-  // tickCount (incremented by the WebSocket on every batch) so a stale list
-  // catches up within ~16ms instead of the previous 1000ms polling delay.
-  useEffect(() => {
-    // Recompute once immediately after subscriptions change so we never
-    // start from an empty list.
-    setActiveSymbols((prev) => {
-      const next = computeActive();
-      if (prev.length === next.length && prev.every((s, i) => s === next[i])) return prev;
-      return next;
-    });
-
-    const unsubscribe = useTradingState.subscribe((state, prevState) => {
-      if (state.tickCount === prevState.tickCount) return;
-      const next = computeActive();
-      setActiveSymbols((prev) => {
-        if (prev.length === next.length && prev.every((s, i) => s === next[i])) return prev;
-        return next;
-      });
-    });
-
-    // Periodic stale-purge: a symbol that hasn't ticked in
-    // LIVE_SYMBOL_STALE_MS should drop out even if no new ticks arrive.
-    // This is the only thing the interval is for now.
-    const stalePurge = setInterval(() => {
-      const next = computeActive();
-      setActiveSymbols((prev) => {
-        if (prev.length === next.length && prev.every((s, i) => s === next[i])) return prev;
-        return next;
-      });
-    }, 2000);
-
-    return () => {
-      unsubscribe();
-      clearInterval(stalePurge);
-    };
-  }, [computeActive]);
-
-  return activeSymbols;
-}

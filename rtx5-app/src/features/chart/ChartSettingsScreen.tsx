@@ -135,6 +135,20 @@ export function ChartSettingsScreen() {
           ))}
         </View>
 
+        {/* ── ALERTS ─────────────────────────────────────────────── */}
+        <View style={styles.sectionHeader}>
+          <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>ALERTS</Text>
+        </View>
+        <View style={styles.card}>
+          <NavRow
+            label="Price Alerts"
+            value=""
+            onPress={() => router.push('/chart/alerts')}
+            styles={styles}
+          />
+        </View>
+
         {/* ── NAVIGATION ─────────────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />

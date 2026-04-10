@@ -24,7 +24,9 @@
     "update:prod": "eas update --channel production",
     "submit:ios": "eas submit --platform ios",
     "submit:android": "eas submit --platform android",
-    "submit:all": "eas submit --platform all"
+    "submit:all": "eas submit --platform all",
+    "bundle:charts": "node scripts/bundle-lightweight-charts.js",
+    "postinstall": "node scripts/bundle-lightweight-charts.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

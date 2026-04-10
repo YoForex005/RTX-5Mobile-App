@@ -202,8 +202,8 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
 const defaultSymbols: string[] = [];
 
 const DEFAULT_SHOW_ON_CHART_FLAGS = {
-  showOpenPositions: false,
-  showTpSlStopLimit: false,
+  showOpenPositions: true,
+  showTpSlStopLimit: true,
   showClosedPositions: false,
   showHmrPeriods: false,
   showPriceAlerts: false,
@@ -261,6 +261,14 @@ type UserPreferencesState = {
   showPotentialStopOut: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
+  /**
+   * Unix millisecond timestamps for the active history date filter.
+   * Set alongside `historyRange` so query hooks can pass `from`/`to` params
+   * to GET /api/v2/account/deals and similar range-aware endpoints.
+   * null means "no explicit filter" — the server applies its own default.
+   */
+  historyFromMs: number | null;
+  historyToMs: number | null;
   showTradingSignals: boolean;
   priceSource: 'bid' | 'ask';
   openOrderMode: 'Regular' | 'Risk calculator' | 'One-click';
@@ -312,6 +320,8 @@ type UserPreferencesState = {
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
   setHistoryRange: (range: string) => void;
+  /** Persist the computed from/to Unix-ms timestamps alongside the range label. */
+  setHistoryDateRange: (fromMs: number | null, toMs: number | null) => void;
   setIsDemoAccount: (isDemo: boolean) => void;
   /** Persist the broker_id from the login screen for app-wide broker config access */
   setBrokerId: (id: string) => void;
@@ -344,6 +354,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
       openOrderMode: 'Regular',
       oneClickAccepted: false,
       historyRange: 'Last 6 months',
+      historyFromMs: null,
+      historyToMs: null,
       isDemoAccount: true,
       isLoggedIn: false,
       hasSetInitialSymbols: false,
@@ -375,7 +387,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
         // Clear auth state but preserve brokerId — it's not security-sensitive
         // and preserving it allows the saved-credentials auto-login flow to
         // work without requiring the user to re-enter the Broker ID.
-        set({ isLoggedIn: false, accountDetails: null });
+        // Reset quoteSymbols and hasSetInitialSymbols so the next login
+        // re-seeds from server watchlist or defaults (5 symbols).
+        set({ isLoggedIn: false, accountDetails: null, quoteSymbols: [], hasSetInitialSymbols: false });
       },
       updateTokens: (accessToken, refreshToken, expiresAt) =>
         set((state) => {
@@ -427,6 +441,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
+      setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
       setHasSetInitialSymbols: (hasSet) => set({ hasSetInitialSymbols: hasSet }),

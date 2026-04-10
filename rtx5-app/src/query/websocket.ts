@@ -2,7 +2,8 @@
  * Core module: websocket.ts
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/shallow';
 
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
@@ -47,26 +48,42 @@ export function useMarketData(symbols: string[] = []) {
     () => Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))),
     [JSON.stringify(symbols)],
   );
-  // Subscribe to tickCount (a plain number) — React 19 + Zustand 5 can't miss a
-  // primitive change, so this guarantees a re-render on every single server tick.
-  useTradingState(state => state.tickCount);
-  // Read the latest quotes directly from the store on each render triggered above.
-  const quotes = useTradingState.getState().quotes;
+
+  // Selector that picks ONLY the quotes this component cares about.
+  // Zustand + shallow comparison ensures we only re-render when one of
+  // OUR symbols changes — not when an unrelated symbol ticks.
+  // This is the key optimization: a QuoteDetails page watching EURUSD
+  // no longer re-renders when BTCUSD ticks.
+  const stableKey = JSON.stringify(normalizedSymbols);
+  const selector = useCallback(
+    (state: any) => {
+      if (normalizedSymbols.length === 0) return state.quotes;
+      const result: Record<string, any> = {};
+      for (const sym of normalizedSymbols) {
+        if (state.quotes[sym]) result[sym] = state.quotes[sym];
+      }
+      return result;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stableKey],
+  );
+  const liveQuotes = useTradingState(useShallow(selector));
 
   useEffect(() => {
+    if (normalizedSymbols.length === 0) return;
     quotesWsService.connect();
-    quotesWsService.setSubscriptions(normalizedSymbols);
+    quotesWsService.subscribe(normalizedSymbols);
 
     return () => {
       quotesWsService.unsubscribe(normalizedSymbols);
     };
   }, [JSON.stringify(normalizedSymbols)]);
 
-  if (symbols.length === 0) return quotes;
+  if (symbols.length === 0) return liveQuotes;
   return symbols.reduce((acc, sym) => {
     const normalizedSymbol = normalizeSymbol(sym);
     const mock = mockQuotes.find((m) => normalizeSymbol(m.symbol) === normalizedSymbol);
-    const live = quotes[sym] || quotes[normalizedSymbol];
+    const live = liveQuotes[sym] || liveQuotes[normalizedSymbol];
     if (live || mock) {
       acc[sym] = { ...(mock || {}), ...(live || {}), symbol: normalizedSymbol };
     }

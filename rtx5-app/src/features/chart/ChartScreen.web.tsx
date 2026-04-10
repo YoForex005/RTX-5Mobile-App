@@ -33,18 +33,32 @@ import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { useMarketSymbols } from '../../query/market';
-import { createChart, IChartApi, ISeriesApi, ColorType, CrosshairMode, BarSeries, LineSeries, LineStyle, HistogramSeries } from 'lightweight-charts';
+import {
+  createChart,
+  createSeriesMarkers,
+  IChartApi,
+  ISeriesApi,
+  ColorType,
+  CrosshairMode,
+  BarSeries,
+  LineSeries,
+  LineStyle,
+  HistogramSeries,
+} from 'lightweight-charts';
 import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import { usePositionHistoryQuery } from '../../query/positions';
+import { useAlertsQuery } from '../../query/alerts';
 import {
   buildRTX5CustomCandlestickSeriesOptions,
   createRTX5CustomCandlestickPaneView,
   mapCandlesToRTX5CustomCandlestickData,
 } from './rendering/customCandlestickSeries';
+import { buildChartOverlayPayload } from './chartOverlays';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 type VolumeSourceCandle = {
@@ -419,14 +433,18 @@ export function ChartScreen() {
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const TEXT_MUTED = T.textMuted;
-  const { chartSymbol, chartTimeframe, chartVisualType, chartColors, chartColorScheme, chartDisplay, setChartTimeframe, setChartVisualType, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
+  const { chartSymbol, chartTimeframe, chartVisualType, chartColors, chartColorScheme, setChartTimeframe, setChartVisualType, setChartSymbol, isDemoAccount, accountDetails } = useUserPreferences();
+  const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
+  const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
+  const showClosedPositions = useUserPreferences((s) => s.showClosedPositions);
+  const showTradingSignals = useUserPreferences((s) => s.showTradingSignals);
+  const showHmrPeriods = useUserPreferences((s) => s.showHmrPeriods);
+  const showPriceAlerts = useUserPreferences((s) => s.showPriceAlerts);
+  const showPotentialStopOut = useUserPreferences((s) => s.showPotentialStopOut);
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
   );
-  const showTradeLevels = chartDisplay.showTradeLevels;
-
-
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
   const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
@@ -439,16 +457,17 @@ export function ChartScreen() {
 
   // Hydrate positions on page refresh
   const refreshPositions = usePositionsState((s) => s.refreshPositions);
+  const accountLogin = resolveTradingLogin();
   useEffect(() => {
-    const login = resolveTradingLogin();
-    if (login) refreshPositions(String(login));
-  }, [refreshPositions]);
+    if (accountLogin) refreshPositions(String(accountLogin));
+  }, [accountLogin, refreshPositions]);
   const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const chartContainerRef = useRef<any>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<any>(null);
+  const overlayMarkersRef = useRef<{ detach: () => void } | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const lastVolumePointRef = useRef<{ time: number; value: number } | null>(null);
   const lastCandleLengthRef = useRef(0);
@@ -477,6 +496,11 @@ export function ChartScreen() {
 
   const [lotSize, setLotSize] = useState<number>(0.10);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { data: closedPositions = [] } = usePositionHistoryQuery(accountLogin);
+  const { data: alerts = [] } = useAlertsQuery();
+  const liveAccountEquity = useLiveAccountState((s) => s.equity);
+  const liveAccountMargin = useLiveAccountState((s) => s.margin);
+  const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const candlesRef = useRef(candles);
   const [forceHideLoading, setForceHideLoading] = useState(false);
@@ -574,6 +598,8 @@ export function ChartScreen() {
       window.removeEventListener('resize', handleResize);
       try { drawingToolsRef.current?.remove(); } catch (e) { }
       drawingToolsRef.current = null;
+      try { overlayMarkersRef.current?.detach(); } catch (e) { }
+      overlayMarkersRef.current = null;
       if (seriesRef.current) {
         try { chart.removeSeries(seriesRef.current); } catch (e) { }
         seriesRef.current = null;
@@ -602,6 +628,8 @@ export function ChartScreen() {
     };
 
     if (seriesRef.current) {
+      try { overlayMarkersRef.current?.detach(); } catch (e) { }
+      overlayMarkersRef.current = null;
       try { chart.removeSeries(seriesRef.current); } catch (e) { }
       seriesRef.current = null;
     }
@@ -778,107 +806,94 @@ export function ChartScreen() {
     }
   }, [candles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
-  // Draw Positions as Price Lines
   const positions = usePositionsState((s) => s.positions);
-  const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
-  const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
   const positionLinesRef = useRef<any[]>([]);
+  const overlayPayload = useMemo(
+    () =>
+      buildChartOverlayPayload({
+        chartSymbol,
+        candles,
+        positions,
+        closedPositions,
+        alerts,
+        colors: resolvedChartColors,
+        sellColor: RED,
+        liveAccount: {
+          equity: liveAccountEquity,
+          margin: liveAccountMargin,
+          marginLevel: liveAccountMarginLevel,
+        },
+        showOpenPositions,
+        showTpSlStopLimit,
+        showClosedPositions,
+        showTradingSignals,
+        showHmrPeriods,
+        showPriceAlerts,
+        showPotentialStopOut,
+        activeTool,
+      }),
+    [
+      chartSymbol,
+      candles,
+      positions,
+      closedPositions,
+      alerts,
+      resolvedChartColors,
+      RED,
+      liveAccountEquity,
+      liveAccountMargin,
+      liveAccountMarginLevel,
+      showOpenPositions,
+      showTpSlStopLimit,
+      showClosedPositions,
+      showTradingSignals,
+      showHmrPeriods,
+      showPriceAlerts,
+      showPotentialStopOut,
+      activeTool,
+    ],
+  );
+  const overlayPayloadSignature = useMemo(() => JSON.stringify(overlayPayload), [overlayPayload]);
 
   useEffect(() => {
     if (!seriesRef.current) return;
 
-    // Clear old price lines
-    positionLinesRef.current.forEach((pl) => {
-      try { seriesRef.current.removePriceLine(pl); } catch (e) { }
+    positionLinesRef.current.forEach((line) => {
+      try { seriesRef.current.removePriceLine(line); } catch (e) { }
     });
     positionLinesRef.current = [];
 
-    const symbolPositions = positions.filter((p) => p.symbol === chartSymbol);
+    try { overlayMarkersRef.current?.detach(); } catch (e) { }
+    overlayMarkersRef.current = null;
 
-    if (showTradeLevels && symbolPositions.length > 0) {
-      symbolPositions.forEach((pos) => {
-        try {
-          if (showOpenPositions) {
-            const pl = seriesRef.current.createPriceLine({
-              price: pos.openPrice,
-              color: pos.side === 'buy' ? (resolvedChartColors.tradeOpen || '#2962FF') : RED,
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
-              axisLabelVisible: true,
-              title: `${pos.side.toUpperCase()} ${pos.volume}`,
-            });
-            positionLinesRef.current.push(pl);
-          }
-
-          if (showTpSlStopLimit) {
-            if (pos.tp && pos.tp > 0) {
-              const tpLine = seriesRef.current.createPriceLine({
-                price: pos.tp,
-                color: resolvedChartColors.tradeTpSl || '#089981',
-                lineWidth: 1,
-                lineStyle: LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'TP',
-              });
-              positionLinesRef.current.push(tpLine);
-            }
-
-            if (pos.sl && pos.sl > 0) {
-              const slLine = seriesRef.current.createPriceLine({
-                price: pos.sl,
-                color: resolvedChartColors.tradeTpSl || '#F23645',
-                lineWidth: 1,
-                lineStyle: LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'SL',
-              });
-              positionLinesRef.current.push(slLine);
-            }
-          }
-        } catch (e) {
-          console.warn('[ChartOverlay] Error creating position lines:', e);
-        }
-      });
-    }
-  }, [positions, chartSymbol, BLUE, RED, overlayRevision, showOpenPositions, showTpSlStopLimit, resolvedChartColors, showTradeLevels]);
-
-  // Patterns / Markers Local
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    try {
-      let markers: any[] = [];
-      if (activeTool === 'patterns' && candles.length > 0) {
-        const uniqueData = Array.from(new Map(candles.map(item => [item.time, item])).values());
-        uniqueData.forEach((candle) => {
-          const isGreen = candle.close > candle.open;
-          const isRed = candle.open > candle.close;
-          const body = Math.abs(candle.close - candle.open);
-          const upperShadow = candle.high - Math.max(candle.open, candle.close);
-          const lowerShadow = Math.min(candle.open, candle.close) - candle.low;
-
-          if (isGreen && lowerShadow > body * 1.5 && upperShadow < body * 0.5) {
-            markers.push({ time: candle.time, position: 'belowBar', color: '#089981', shape: 'arrowUp', text: 'L.Lower', size: 1 });
-          } else if (isRed && upperShadow > body * 1.5 && lowerShadow < body * 0.5) {
-            markers.push({ time: candle.time, position: 'aboveBar', color: '#F23645', shape: 'arrowDown', text: 'L.Upper', size: 1 });
-          }
-        });
+    overlayPayload.priceLines.forEach((line) => {
+      try {
+        positionLinesRef.current.push(
+          seriesRef.current.createPriceLine({
+            price: line.price,
+            color: line.color,
+            lineWidth: line.lineWidth,
+            lineStyle: line.lineStyle,
+            axisLabelVisible: line.axisLabelVisible,
+            title: line.title,
+          }),
+        );
+      } catch (e) {
+        console.warn('[ChartOverlay] Error creating overlay line:', e);
       }
+    });
 
-      markers.sort((a, b) => {
-        const tA = typeof a.time === 'number' ? a.time : 0;
-        const tB = typeof b.time === 'number' ? b.time : 0;
-        return tA - tB;
-      });
-
-      // @ts-ignore: setMarkers available on series in lightweight-charts
-      if (typeof seriesRef.current.setMarkers === 'function') {
-        // @ts-ignore
-        seriesRef.current.setMarkers(markers);
+    if (overlayPayload.markers.length > 0) {
+      try {
+        overlayMarkersRef.current = createSeriesMarkers(
+          seriesRef.current as any,
+          overlayPayload.markers as any,
+        ) as any;
+      } catch (e) {
+        console.warn('[ChartOverlay] Error creating overlay markers:', e);
       }
-    } catch (e) {
-      console.warn('[ChartOverlay] Error setting chart markers:', e);
     }
-  }, [activeTool, candles, overlayRevision]);
+  }, [overlayPayloadSignature, overlayRevision]);
 
   // Canonical Candle Stream Sync
   useEffect(() => {

@@ -591,10 +591,15 @@ export class CandlesWebSocketService {
   }
 
   private attemptReconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
+    this.reconnectAttempts++;
+    if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+      // Fast reconnect phase: exponential backoff up to ~45s
       const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-      setTimeout(() => this.connect(), delay);
+      setTimeout(() => this.connect(), Math.min(delay, 45_000));
+    } else {
+      // Slow reconnect phase: retry every 30s forever.
+      // A trading app must never permanently lose its data feed.
+      setTimeout(() => this.connect(), 30_000);
     }
   }
 

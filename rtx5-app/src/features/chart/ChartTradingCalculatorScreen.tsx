@@ -13,7 +13,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketData } from '../../query/websocket';
+import { useMarginCalculation, useProfitCalculation } from '../../query/calculators';
 import { useUserPreferences } from '../../state/userPreferences';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 
 // Format helpers — return "—" when an input is missing so the UI never shows
@@ -42,7 +44,6 @@ export function ChartTradingCalculatorScreen() {
   const liveMid = liveBid !== undefined && liveAsk !== undefined
     ? (liveBid + liveAsk) / 2
     : (liveBid ?? liveAsk);
-  const profitCurrency = meta?.profitCurrency || 'USD';
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [lotSize, setLotSize] = useState('0.01');
@@ -56,40 +57,53 @@ export function ChartTradingCalculatorScreen() {
     });
   };
 
-  // ── Derive every summary value from real inputs ───────────────────────
-  // Resolve effective open/close prices, falling back to live quote.
+  // ── Resolve inputs ──────────────────────────────────────────────────────
+  const accountLogin = resolveTradingLogin();
   const lots = parseFloat(lotSize) || 0;
   const effectiveOpen = parseFloat(openPrice) || (side === 'buy' ? liveAsk : liveBid) || liveMid;
   const effectiveClose = parseFloat(closePrice) || (side === 'buy' ? liveBid : liveAsk) || liveMid;
-  const contractSize = meta?.contractSize ?? 0;
-  const tickValue = meta?.tickValue ?? 0;
   const pipMultiplier = currentSymbol.includes('JPY') ? 100 : 10000;
+  const profitCurrency = meta?.profitCurrency || 'USD';
 
-  // Standard formulas (broker math, not magic constants):
-  //   Spread (pips)  = (ask - bid) * pipMultiplier
-  //   Pip value      = lots * contractSize * tickSize  (or directly meta.tickValue * lots / pip ratio)
-  //   Margin         = lots * contractSize * openPrice / leverage
-  //   Swap (1 day)   = lots * (swapLong | swapShort)
-  //   P/L            = (close - open) * lots * contractSize  * directionSign
-  const accountLeverage = 2000; // TODO: thread real account leverage when available
-  const directionSign = side === 'buy' ? 1 : -1;
+  // ── Server-side margin calculation ──────────────────────────────────────
+  // POST /api/v2/calculate/margin — uses actual account leverage and broker specs.
+  // Replaces the old hardcoded formula: (lots * contractSize * price) / 2000.
+  const { data: marginResult, isFetching: marginFetching } = useMarginCalculation(
+    accountLogin && lots > 0
+      ? { account_login: accountLogin, symbol: currentSymbol, side, volume: lots }
+      : null,
+  );
 
+  // ── Server-side profit calculation ──────────────────────────────────────
+  // POST /api/v2/calculate/profit — accurate currency conversion and contract math.
+  // Replaces the old formula: (close - open) * lots * contractSize * sign.
+  const { data: profitResult, isFetching: profitFetching } = useProfitCalculation(
+    lots > 0 && effectiveOpen && effectiveClose
+      ? {
+          symbol: currentSymbol,
+          volume: lots,
+          side,
+          open_price: effectiveOpen,
+          close_price: effectiveClose,
+        }
+      : null,
+  );
+
+  // ── Derived display values ───────────────────────────────────────────────
+  // Use server results where available; fall back to local meta for spread/swap
+  // which aren't part of the calculator endpoints.
   const spread = liveBid !== undefined && liveAsk !== undefined
     ? (liveAsk - liveBid) * pipMultiplier
-    : undefined;
-  const pipValue = lots > 0 && contractSize > 0 && tickValue > 0
-    ? lots * tickValue
-    : undefined;
-  const margin = lots > 0 && contractSize > 0 && effectiveOpen
-    ? (lots * contractSize * effectiveOpen) / accountLeverage
     : undefined;
   const swapPerDay = lots > 0
     ? lots * ((side === 'buy' ? meta?.swapLong : meta?.swapShort) ?? NaN)
     : undefined;
-  const commission = 0; // No commission field in InstrumentMetaDTO; surface 0 explicitly.
-  const profitLoss = lots > 0 && contractSize > 0 && effectiveOpen && effectiveClose
-    ? (effectiveClose - effectiveOpen) * lots * contractSize * directionSign
-    : undefined;
+
+  // Server values (preferred)
+  const margin = marginResult?.required_margin;
+  const pipValue = marginResult?.pip_value ?? profitResult?.pip_value;
+  const profitLoss = profitResult?.profit;
+  const commission = 0; // Not returned by calculators API; broker may charge separately
 
   return (
     <Screen style={styles.screen}>
@@ -195,21 +209,30 @@ export function ChartTradingCalculatorScreen() {
           </View>
         </View>
 
-        {/* Summary Table */}
+        {/* Summary Table — values from POST /api/v2/calculate/margin and /profit */}
         <View style={styles.summaryTable}>
           {[
-            { label: 'Margin',     value: fmtMoney(margin, profitCurrency) },
-            { label: 'Commission', value: fmtMoney(commission, profitCurrency) },
-            { label: 'Swap',       value: fmtMoney(swapPerDay, profitCurrency) },
-            { label: 'Spread',     value: spread !== undefined ? `${spread.toFixed(1)} pts` : '—' },
-            { label: 'Pip Value',  value: fmtPipValue(pipValue, profitCurrency) },
-            { label: 'P/L',        value: fmtMoney(profitLoss, profitCurrency) },
+            { label: 'Required Margin', value: fmtMoney(margin, profitCurrency) },
+            { label: 'Free Margin',     value: fmtMoney(marginResult?.free_margin, profitCurrency) },
+            { label: 'Max Lots',        value: marginResult?.max_lots != null ? marginResult.max_lots.toFixed(2) : '—' },
+            { label: 'Commission',      value: fmtMoney(commission, profitCurrency) },
+            { label: 'Swap / day',      value: fmtMoney(swapPerDay, profitCurrency) },
+            { label: 'Spread',          value: spread !== undefined ? `${spread.toFixed(1)} pts` : '—' },
+            { label: 'Pip Value',       value: fmtPipValue(pipValue, profitCurrency) },
+            { label: 'P/L',            value: fmtMoney(profitLoss, profitCurrency) },
           ].map((item, i, arr) => (
             <React.Fragment key={item.label}>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>{item.label}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={styles.summaryValue}>{item.value}</Text>
+                  <Text style={[
+                    styles.summaryValue,
+                    item.label === 'P/L' && profitLoss !== undefined
+                      ? { color: profitLoss >= 0 ? T.trading.buy.primary : T.trading.sell.primary, fontWeight: '700' }
+                      : {},
+                  ]}>
+                    {(marginFetching || profitFetching) && item.value === '—' ? '…' : item.value}
+                  </Text>
                   <Ionicons name="information-circle-outline" size={20} color={T.textMuted} />
                 </View>
               </View>

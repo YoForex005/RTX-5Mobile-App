@@ -32,12 +32,6 @@ function getFirstDayOfMonth(year: number, month: number) {
   return day === 0 ? 6 : day - 1; // Monday-first
 }
 
-function getWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-}
 
 function getWeekDates(date: Date): [Date, Date] {
   const day = date.getDay();
@@ -58,7 +52,7 @@ function formatDate(d: Date): string {
 }
 
 export function HistoryFilterScreen() {
-  const { historyRange, setHistoryRange } = useUserPreferences();
+  const { historyRange, setHistoryRange, setHistoryDateRange } = useUserPreferences();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
@@ -77,58 +71,49 @@ export function HistoryFilterScreen() {
     return toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
   }, []);
 
-  // Compute date range for a preset and apply it
+  // Compute date range for a preset, persist it, and update the calendar view
   const handlePresetPress = (preset: string) => {
     setHistoryRange(preset);
     setIsCustom(preset === 'Custom');
 
-    const now = new Date();
-    const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
-    let start = todayKey;
-    let end = todayKey;
-
-    if (preset === 'Today') {
-      start = todayKey;
-      end = todayKey;
-    } else if (preset === 'Last week') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 7);
-      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      end = todayKey;
-    } else if (preset === 'Last month') {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 1);
-      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      end = todayKey;
-    } else if (preset === 'Last 3 months') {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 3);
-      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      end = todayKey;
-    } else if (preset === 'Last 6 months') {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 6);
-      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      end = todayKey;
-    } else if (preset === 'Last year') {
-      const d = new Date(now);
-      d.setFullYear(d.getFullYear() - 1);
-      start = toDateKey(d.getFullYear(), d.getMonth(), d.getDate());
-      end = todayKey;
-    } else if (preset === 'Custom') {
-      // Don't auto-set dates for custom — let user pick
+    if (preset === 'Custom') {
+      // Don't auto-set dates for custom — let user pick from calendar
       setStartDate(null);
       setEndDate(null);
+      setHistoryDateRange(null, null);
       return;
     }
+
+    const now = new Date();
+    const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
+    const startD = new Date(now);
+
+    if (preset === 'Today') {
+      // no offset — startD stays as today
+    } else if (preset === 'Last week') {
+      startD.setDate(startD.getDate() - 7);
+    } else if (preset === 'Last month') {
+      startD.setMonth(startD.getMonth() - 1);
+    } else if (preset === 'Last 3 months') {
+      startD.setMonth(startD.getMonth() - 3);
+    } else if (preset === 'Last 6 months') {
+      startD.setMonth(startD.getMonth() - 6);
+    } else if (preset === 'Last year') {
+      startD.setFullYear(startD.getFullYear() - 1);
+    }
+
+    const start = toDateKey(startD.getFullYear(), startD.getMonth(), startD.getDate());
+    const end = todayKey;
 
     setStartDate(start);
     setEndDate(end);
 
+    // Persist Unix-ms timestamps so query hooks can pass from/to to the API
+    setHistoryDateRange(startD.setHours(0, 0, 0, 0), now.setHours(23, 59, 59, 999));
+
     // Navigate calendar to start month
-    const sd = new Date(start);
-    setCalYear(sd.getFullYear());
-    setCalMonth(sd.getMonth());
+    setCalYear(startD.getFullYear());
+    setCalMonth(startD.getMonth());
   };
 
   const handleDayPress = useCallback((year: number, month: number, day: number) => {
@@ -169,11 +154,13 @@ export function HistoryFilterScreen() {
   const applyCustomRange = () => {
     if (startDate) {
       const sDate = new Date(startDate);
-      const eDate = endDate ? new Date(endDate) : sDate;
+      const eDate = endDate ? new Date(endDate) : new Date(startDate);
       const label = startDate === endDate
         ? formatDate(sDate)
         : `${formatDate(sDate)} – ${formatDate(eDate)}`;
       setHistoryRange(label);
+      // Persist Unix-ms timestamps for the custom range so API queries can use them
+      setHistoryDateRange(sDate.setHours(0, 0, 0, 0), eDate.setHours(23, 59, 59, 999));
       setIsCustom(false);
     }
   };

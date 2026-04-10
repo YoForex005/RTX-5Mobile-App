@@ -9,20 +9,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
-import { historyOrders, account as mockAccount } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { usePositionHistoryQuery, usePositionsQuery } from '../../query/positions';
-import { useDealsQuery } from '../../query/deals';
+import { useAccountDealsQuery } from '../../query/deals';
+import { useOrdersByLoginQuery } from '../../query/orders';
 import { useMarketData } from '../../query/websocket';
 import { useLiveAccountState } from '../../state/liveAccountState';
-import { ClosedPosition } from '../../api/positions';
 import { Deal } from '../../api/deals';
+import { LoginOrder } from '../../api/orders';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -39,6 +37,8 @@ type HistoryRow = {
   time: string;
   status?: string;
   profit?: number | null;
+  /** Optional note shown beneath the price row (e.g. deal comment from EA or manual entry) */
+  note?: string;
 };
 
 type Tone = 'positive' | 'negative' | 'neutral';
@@ -56,38 +56,69 @@ function safeTimeStr(timestamp?: number): string {
 }
 
 /**
- * Maps a ClosedPosition DTO from GET /api/v2/positions/{login}/history
+ * Maps a LoginOrder DTO from GET /api/v2/orders/{login}
  * into the HistoryRow format used by the list renderer.
+ *
+ * Real response uses `price_open` (not `price`), `time_setup` (order placed),
+ * and `time_done` (order completed). For closed orders, `time_done` is shown
+ * as the primary timestamp since it represents when the position was closed.
+ *
+ * Price precision: 5 dp for non-JPY forex, 3 dp for JPY pairs.
+ * Status forwarded so the row badge can colour-code filled vs closed/canceled.
+ * Comment forwarded as `note` — shows EA name or manual annotation.
  */
-function mapClosedPositionToRow(p: ClosedPosition): HistoryRow {
-  const priceClose = p.price_close ?? p.price_current ?? 0;
-  const timeStr = safeTimeStr(p.time_close || p.time_create);
-  const isJpy = p.symbol?.includes('JPY');
-  const decimals = isJpy ? 3 : 5;
-  const ticketId = p.ticket || (p as any).position_ticket || (p as any).id || (p as any).order_ticket || Math.floor(Math.random() * 1000000);
+function mapOrderToRow(o: LoginOrder): HistoryRow {
+  const isJpy = o.symbol?.includes('JPY');
+  const priceDecimals = isJpy ? 3 : 5;
+
+  // Closed orders: show time_done (when position closed) as primary time.
+  // Filled/open orders: show time_setup (when order was placed).
+  const isClosed = o.status === 'closed' || o.status === 'canceled';
+  const displayTime = isClosed ? o.time_done : o.time_setup;
+
   return {
-    id: `hp${ticketId}`,
-    line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)}`,
-    line2: `${fmt.price(p.price_open)} → ${fmt.price(priceClose)}`,
-    time: timeStr,
-    profit: (p.profit || 0) + (p.swap || 0) + (p.commission || 0),
+    id: `ho${o.ticket}`,
+    line1: `${o.symbol ?? ''} ${o.side ?? ''} ${(o.volume ?? 0).toFixed(2)}`,
+    line2: `${o.type ?? 'market'} at ${(o.price_open ?? 0).toFixed(priceDecimals)}`,
+    time: safeTimeStr(displayTime),
+    status: o.status,
+    profit: null,
+    note: o.comment?.trim() || undefined,
   };
 }
 
 /**
  * Maps a Deal DTO from GET /api/v2/deals/{login}
  * into the HistoryRow format used by the list renderer.
+ *
+ * Price precision: forex pairs need 5 decimal places (3 for JPY pairs).
+ * Fee: included in the net profit — `fee` is a broker cost separate from commission.
+ * Comment: forwarded as a `note` so the EA or manual annotation is visible.
  */
 function mapDealToRow(d: Deal): HistoryRow {
   const direction = d.action === 'deal_buy' ? 'buy' : 'sell';
   const entry = d.entry === 'entry_in' ? 'in' : 'out';
   const timeStr = safeTimeStr(d.time);
+
+  // Use symbol-aware decimal places: JPY pairs → 3 dp, all others → 5 dp
+  const isJpy = d.symbol?.includes('JPY');
+  const priceDecimals = isJpy ? 3 : 5;
+
+  // Net profit includes swap, commission, and fee (all are real P&L costs).
+  // entry_in deals (opening a position) typically have 0 profit but non-zero
+  // commission/fee — we show those as a cost by including them. entry_out
+  // deals close the position and realise the full P&L including all costs.
+  const netCosts = (d.swap || 0) + (d.commission || 0) + (d.fee || 0);
+  const netProfit = d.entry === 'entry_out' ? d.profit + netCosts : null;
+
   return {
     id: `hd${d.ticket}`,
     line1: `${d.symbol} ${direction},${entry}`,
-    line2: `${d.volume.toFixed(2)} at ${d.price.toFixed(2)}`,
+    line2: `${(d.volume ?? 0).toFixed(2)} at ${(d.price ?? 0).toFixed(priceDecimals)}`,
     time: timeStr,
-    profit: d.entry === 'entry_out' ? d.profit + (d.swap || 0) + (d.commission || 0) : null,
+    profit: netProfit,
+    // Only forward non-empty comments — EA names, manual notes, or reason codes
+    note: d.comment?.trim() || undefined,
   };
 }
 
@@ -95,7 +126,6 @@ export function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
   const { historyRange, accountDetails } = useUserPreferences();
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const T = useTheme();
@@ -105,21 +135,23 @@ export function HistoryScreen() {
 
   // ── Live API data via TanStack Query ─────────────────────────────────
   // GET /api/v2/positions/{login}/history — closed position history
-  // GET /api/v2/deals/{login} — deal execution history
+  // GET /api/v2/account/deals             — deal history (JWT-resolved, date-range aware)
+  // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
   const accountLogin = resolveTradingLogin();
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin);
   const { data: rawPositions = [], refetch: refetchPositions } = usePositionsQuery(accountLogin);
-  const { data: rawDeals = [], refetch: refetchDeals } = useDealsQuery(accountLogin);
+  const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery();
+  const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetchPositionHistory(), refetchPositions(), refetchDeals()]);
+      await Promise.all([refetchPositionHistory(), refetchPositions(), refetchDeals(), refetchOrders()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetchPositionHistory, refetchPositions, refetchDeals]);
+  }, [refetchPositionHistory, refetchPositions, refetchDeals, refetchOrders]);
 
   // Hook into live pricing feed for open positions parity
   const activeSymbols = useMemo(() => Array.from(new Set(rawPositions.map(p => p.symbol))), [rawPositions]);
@@ -140,10 +172,11 @@ export function HistoryScreen() {
   const deposit = balance - totalClosedPnl;
 
   const baseData = useMemo<HistoryRow[]>(() => {
-    if (tab === 'Orders') return historyOrders; // No dedicated orders history endpoint yet
+    // GET /api/v2/account/orders — real order history, replaces static mock
+    if (tab === 'Orders') return rawOrders.map(mapOrderToRow);
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
 
-    // User requested History -> Positions to show Open Positions with live prices ticking
+    // Positions tab — open positions with live prices ticking
     const openRows = rawPositions.map((p) => {
       const liveQuote = quotesStore[p.symbol];
       const liveBid = liveQuote?.bid || p.currentPrice;
@@ -151,9 +184,7 @@ export function HistoryScreen() {
       const isBuy = p.side === 'buy';
       const livePrice = isBuy ? liveBid : liveAsk;
 
-      const isJpy = p.symbol.includes('JPY');
-      const decimals = isJpy ? 3 : 5;
-      const contractSize = isJpy ? 1000 : 100000;
+      const contractSize = p.symbol.includes('JPY') ? 1000 : 100000;
       const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
       const livePnl = priceDiff * (p.volume || 0.01) * contractSize;
 
@@ -327,14 +358,14 @@ export function HistoryScreen() {
             </View>
           </>
         )}
-        renderItem={({ item }) => <HistoryItemRow item={item} tab={tab} T={T} isDark={isDark} />}
+        renderItem={({ item }) => <HistoryItemRow item={item} T={T} isDark={isDark} />}
         ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>No history records</Text>}
       />
     </Screen>
   );
 }
 
-function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; T: ThemeColors; isDark: boolean }) {
+function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors; isDark: boolean }) {
   const { symbol, side, volume } = parseLine1(item.line1);
   const sideLower = side.toLowerCase().replace(',', '');
   const isBuy = sideLower.includes('buy');
@@ -396,6 +427,13 @@ function HistoryItemRow({ item, tab, T, isDark }: { item: HistoryRow; tab: Tab; 
           )}
           <Text style={[rStyles.timeText, { color: T.textMuted }]}>{item.time}</Text>
         </View>
+        {/* Deal comment — shown when present (EA notes, manual reason codes, etc.) */}
+        {item.note ? (
+          <View style={rStyles.noteRow}>
+            <Ionicons name="chatbubble-ellipses-outline" size={11} color={T.textMuted} />
+            <Text style={[rStyles.noteText, { color: T.textMuted }]} numberOfLines={1}>{item.note}</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -503,6 +541,9 @@ const rStyles = StyleSheet.create({
   priceTrack: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
   timeText: { fontSize: 11, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
   timeOnly: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  /** Deal comment row — only rendered when a non-empty comment exists on the deal */
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  noteText: { fontSize: 11, fontWeight: '500', flex: 1 },
 });
 
 const mpS = StyleSheet.create({

@@ -2,9 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { quotes } from '../../mock/tradingData';
 import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -206,12 +206,12 @@ export function SymbolDetailsScreen() {
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [alertOn, setAlertOn] = useState(false);
 
-
   // Subscribe to live tick data for this symbol
   const liveQuotes = useMarketData([symbol]);
 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const { data: remoteMeta } = useInstrumentMeta(symbol);
@@ -372,15 +372,33 @@ export function SymbolDetailsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
+      {/* ── Fixed custom header — permanent, never shifts ── */}
+      <View style={{
+        paddingTop: insets.top,
+        backgroundColor: T.bg,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      }}>
+        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
+          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+            <Ionicons name="arrow-back" size={26} color={T.text} />
+          </Pressable>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
+            Quote Details
+          </Text>
+          <View style={{ width: 46 }} />
+        </View>
+      </View>
+
       {/* Ambient glow orbs */}
       {isDark && (
         <>
-          <View style={{ position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: isUp ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)', top: -100, right: -60 }} />
+          <View style={{ position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: isUp ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)', top: 0, right: -60 }} />
           <View style={{ position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(59,130,246,0.03)', bottom: 300, left: -60 }} />
         </>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: Math.max(useSafeAreaInsets().top, 16) }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
 
         {/* ════ ENTERPRISE HERO SECTION ════ */}
         <View style={s.glassHero.container}>

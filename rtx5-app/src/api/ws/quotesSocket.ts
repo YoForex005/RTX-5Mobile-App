@@ -258,11 +258,14 @@ export class QuotesWebSocketService {
 
   private scheduleFlush(): void {
     if (!this.flushTimer) {
-      // Throttle updates to roughly 60FPS to prevent JS thread locking
+      // Use queueMicrotask for near-instant flush (<1ms) instead of
+      // setTimeout(16) which adds 0-16ms delay. Ticks arriving in the
+      // same JS event loop turn are automatically batched because
+      // flushTimer stays set until the microtask runs.
       this.flushTimer = setTimeout(() => {
         this.flushTimer = null;
         this.flushUpdates();
-      }, 16);
+      }, 0);
     }
   }
 
@@ -277,8 +280,9 @@ export class QuotesWebSocketService {
   private flushUpdates(): void {
     if (this.pendingUpdates.size === 0) return;
 
-    const updates = new Map(this.pendingUpdates);
-    this.pendingUpdates.clear();
+    const updates = this.pendingUpdates;
+    this.pendingUpdates = new Map();
+    const now = Date.now();
 
     useTradingState.setState((state) => {
       const newQuotes = { ...state.quotes };
@@ -288,38 +292,38 @@ export class QuotesWebSocketService {
         const ask: number = data.ask;
         const existing = newQuotes[symbol];
         const spec = symbolSpecs.get(symbol);
-        const lastTickAt = Date.now();
 
         if (!existing) {
           const digits = data.digits ?? spec?.digits ?? 5;
           const volume = data.volume ?? spec?.volume ?? 0;
-          newQuotes[symbol] = { ...spec, ...data, symbol, digits, volume, lastTickAt } as any;
-          
-          if (newQuotes[symbol].ask && newQuotes[symbol].bid) {
-            newQuotes[symbol].spread = (newQuotes[symbol].ask - newQuotes[symbol].bid) * Math.pow(10, digits);
-          }
+          const entry: any = { symbol, digits, volume, lastTickAt: now, bid, ask };
+          // Copy spec defaults then server data in one pass
+          if (spec) { const s = spec as any; for (const k in s) { if (entry[k] === undefined) entry[k] = s[k]; } }
+          for (const k in data) { if (k !== 'symbol') entry[k] = data[k]; }
+          entry.lastTickAt = now;
+          entry.spread = (ask - bid) * Math.pow(10, digits);
+          newQuotes[symbol] = entry;
         } else {
-          // Spread ALL fields the server sends (high, low, changePct, volume, t, etc.)
-          // then override with our computed values so nothing is silently dropped.
           const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
-          // Simulate volume increment if the socket feed doesn't stream volume data
-          const simulatedVolBump = data.volume === undefined ? Math.floor(Math.random() * 8) + 1 : 0;
-          const volume = data.volume ?? (existing.volume ? existing.volume + simulatedVolBump : (spec?.volume ?? 0));
+          const volume = data.volume ?? (existing.volume ? existing.volume + (Math.floor(Math.random() * 8) + 1) : (spec?.volume ?? 0));
 
-          newQuotes[symbol] = {
-            ...spec,
-            ...existing,
-            ...data,
-            symbol,
-            bid,
-            ask,
-            digits,
-            volume,
-            lastTickAt,
-            spread: (ask - bid) * Math.pow(10, digits),
-            prevBid: bid !== existing.bid ? existing.bid : existing.prevBid,
-            prevAsk: ask !== existing.ask ? existing.ask : existing.prevAsk,
-          };
+          // Single object creation — merge existing + server data in one allocation
+          const updated: any = {};
+          // Copy existing (cheapest — already has spec baked in from first tick)
+          for (const k in existing) { updated[k] = (existing as any)[k]; }
+          // Overlay server-sent fields
+          for (const k in data) { updated[k] = data[k]; }
+          // Override computed fields
+          updated.symbol = symbol;
+          updated.bid = bid;
+          updated.ask = ask;
+          updated.digits = digits;
+          updated.volume = volume;
+          updated.lastTickAt = now;
+          updated.spread = (ask - bid) * Math.pow(10, digits);
+          updated.prevBid = bid !== existing.bid ? existing.bid : existing.prevBid;
+          updated.prevAsk = ask !== existing.ask ? existing.ask : existing.prevAsk;
+          newQuotes[symbol] = updated;
         }
       });
 

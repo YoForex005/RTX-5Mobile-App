@@ -2,14 +2,15 @@ import 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { PropsWithChildren, useEffect, useCallback } from 'react';
-import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
+import { PropsWithChildren, useEffect } from 'react';
+import { Platform, StyleSheet, Text, View, useWindowDimensions, Pressable } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
+
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
@@ -54,25 +55,26 @@ function InnerLayout() {
             headerStyle: { backgroundColor: T.bg },
             headerTintColor: T.text,
             contentStyle: { backgroundColor: T.bg },
+            headerTitleStyle: { fontSize: 17, fontWeight: '600' },
             headerLeft: (props) => {
-              if (props.canGoBack) {
-                return (
-                  <Pressable onPress={() => router.back()} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, marginRight: 16 }}>
+              // Fixed-width container so React Navigation's header layout engine
+              // always reserves the same space for the back button. Without this,
+              // the title centering shifts between renders because the measured
+              // width of headerLeft fluctuates (async layout, font loading, etc.),
+              // causing the title to occasionally go off-screen.
+              const action = props.canGoBack ? () => router.back() : () => router.replace('/');
+              return (
+                <View style={{ width: 46, alignItems: 'flex-start' }}>
+                  <Pressable onPress={action} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}>
                     <Ionicons name="arrow-back" size={26} color={T.text} />
                   </Pressable>
-                );
-              }
-
-              return (
-                <Pressable onPress={() => router.replace('/')} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, marginRight: 16 }}>
-                  <Ionicons name="arrow-back" size={26} color={T.text} />
-                </Pressable>
+                </View>
               );
             }
           }}
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
-          <Stack.Screen name='quotes/details' options={{ title: 'Quote Details' }} />
+          <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
           <Stack.Screen name='trade/order-ticket' options={{ title: 'Trade' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: 'One Click Trading' }} />
           <Stack.Screen name='trade/close-position' options={{ title: 'Close Position' }} />
