@@ -98,7 +98,7 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
 };
 
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
-  background: '#000000',
+  background: '#080B11',
   foreground: '#94A3B8',
   grid: 'rgba(255,255,255,0.04)',
   candlesUptrend: '#2962FF',
@@ -122,14 +122,16 @@ const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
 };
 
 const DARK_THEME_CHART_FALLBACKS: StructuralChartColors = {
-  background: '#000000',
+  background: '#080B11',
   foreground: DEFAULT_CHART_COLORS.foreground,
   grid: DEFAULT_CHART_COLORS.grid,
-  hollowBody: '#000000',
+  hollowBody: '#080B11',
 };
 
 const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>> = {
   background: new Set([
+    '#000000', // legacy default — ensures persisted values get migrated
+    '#0E141F', // previous card default
     DEFAULT_CHART_COLORS.background,
     CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.background,
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,

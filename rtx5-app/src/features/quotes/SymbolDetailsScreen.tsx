@@ -350,7 +350,7 @@ export function SymbolDetailsScreen() {
           volume: 0.01, // Using 0.01 micro-lot as safety default for quotes view
           price_sl: 0,
           price_tp: 0,
-          comment: 'One-Click RTX5 Order',
+          comment: '',
           trailing_stop: 0,
           trailing_step: 0,
           magic: 0

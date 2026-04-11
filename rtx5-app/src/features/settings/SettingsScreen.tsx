@@ -20,9 +20,25 @@ import { Alert } from 'react-native';
 import { QRScannerModal } from '../../components/QRScannerModal';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
+import { useLiveAccountState } from '../../state/liveAccountState';
+import { useBrokerConfig } from '../../query/broker';
+import { useAccounts } from '../../query/accounts';
+import { accountWsService } from '../../api/ws/accountSocket';
+import { candlesWsService } from '../../api/ws/candlesSocket';
 
 export function SettingsScreen() {
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences();
+  const brokerId = useUserPreferences((s) => s.brokerId);
+  const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
+  const liveAccount = useLiveAccountState();
+  const { data: brokerConfig } = useBrokerConfig(brokerId);
+  const { data: accounts } = useAccounts(isLoggedIn);
+  const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
+  const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+  const displayBalance = liveAccount.balance > 0 ? fmt.price(liveAccount.balance) : '---';
+  const displayCurrency = 'USD';
+  const displayBrokerName = brokerConfig?.broker_name ?? '---';
+  const displayAccountName = accountDetails?.name ?? '---';
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
@@ -30,9 +46,31 @@ export function SettingsScreen() {
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const styles = useMemo(() => makeStyles(T, themeMode), [T, themeMode]);
 
+  const logout = useUserPreferences((s) => s.logout);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showScanner, setShowScanner] = useState(false);
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout? You will need to sign in again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: () => {
+            accountWsService.disconnect();
+            candlesWsService.disconnect();
+            useLiveAccountState.getState().resetMetrics();
+            logout();
+            router.replace('/login');
+          },
+        },
+      ],
+    );
+  };
   const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -95,7 +133,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <Screen>
+    <Screen noBottomInset>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {isSearching ? (
@@ -173,15 +211,15 @@ export function SettingsScreen() {
                   </View>
                 </View>
 
-                <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>Standard</Text>
+                <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>{displayAccountName}</Text>
                 <Text style={[styles.accBalance, themeMode === 'light' && { color: '#FFFFFF' }]}>
-                  119,701.53 <Text style={[styles.accCurrency, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>USD</Text>
+                  {displayBalance} <Text style={[styles.accCurrency, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>{displayCurrency}</Text>
                 </Text>
 
                 <View style={styles.accDivider} />
 
                 <View style={styles.accDetailsWrap}>
-                  <Text style={styles.accCompany}>RTX-5</Text>
+                  <Text style={styles.accCompany}>{displayBrokerName}</Text>
                   <View style={styles.accServerRow}>
                     <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
                       #{accountDetails?.id || '---'}
@@ -289,7 +327,8 @@ export function SettingsScreen() {
               <SettingRow T={T} styles={styles}
                 icon="chatbubble-outline" color="#1D4ED8"
                 title={t('Chat & Messages')} sub="Sign in to MQL5.community"
-                badge="9"
+
+
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
@@ -366,7 +405,7 @@ export function SettingsScreen() {
 
             {/* ── LOGOUT SECTION ────────────────────────────────────── */}
             <View style={styles.logoutContainer}>
-              <Pressable style={styles.singleRowCardLogout}>
+              <Pressable style={styles.singleRowCardLogout} onPress={handleLogout}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                   <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                 </View>
@@ -426,7 +465,7 @@ function SettingRow({ icon, color, title, sub, badge, rightElement, onPress, T, 
 
 const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.create({
   container: { flex: 1, backgroundColor: T.bg },
-  content: { paddingBottom: 100 },
+  content: { paddingBottom: 20 },
 
   cardShadow: {
     shadowColor: themeMode === 'light' ? '#0F172A' : '#2563EB',
@@ -481,9 +520,9 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
 
   accTopRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 },
 
-  connectedPill: { flexDirection: 'row', alignItems: 'center' },
-  greenDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6', marginRight: 6 },
-  connectedText: { color: '#3B82F6', fontSize: 11, fontWeight: '700' },
+  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  greenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981', marginRight: 6 },
+  connectedText: { color: '#10B981', fontSize: 12, fontWeight: '700' },
 
   accName: { color: themeMode === 'light' ? '#FFF' : T.text, fontSize: 28, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
   accBalance: { color: '#3b82f6', fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
@@ -507,13 +546,13 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
     flex: 1,
     backgroundColor: T.glass2,
     borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 5,
     borderWidth: 1,
     borderColor: T.border,
     overflow: 'hidden',
     position: 'relative',
-    gap: 4,
+    gap: -5,
   },
   metricTopRow: {
     flexDirection: 'row',

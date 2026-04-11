@@ -7,11 +7,12 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
+import { useMarketStatus } from '../../query/marketStatus';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
@@ -23,6 +24,37 @@ const fmtNum = (n: number | undefined, decimals = 2) =>
 const fmtStr = (s: string | undefined) =>
   s === undefined || s === null || s === '' ? '—' : s;
 
+// ─── Default trading sessions (standard Forex hours in GMT) ───────────────────
+// Used as fallback for the trading hours modal when the API
+// doesn't return sessions for the symbol.
+
+const DEFAULT_SESSIONS: Array<[string, string]> = [
+  ['Sunday',    '23:05 - 24:00'],
+  ['Monday',    '00:00 - 24:00'],
+  ['Tuesday',   '00:00 - 24:00'],
+  ['Wednesday', '00:00 - 24:00'],
+  ['Thursday',  '00:00 - 24:00'],
+  ['Friday',    '00:00 - 22:59'],
+  ['Saturday',  '-'],
+];
+
+// ─── Market status helpers ────────────────────────────────────────────────────
+
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Market is open',
+  closed: 'Market is closed',
+  pre_market: 'Pre-market',
+  after_hours: 'After hours',
+};
+
+function fmtCountdown(totalSecs: number): string {
+  if (totalSecs <= 0 || !Number.isFinite(totalSecs)) return '--:--:--';
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = Math.floor(totalSecs % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 export function ChartSpecificationScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const T = useTheme();
@@ -30,10 +62,32 @@ export function ChartSpecificationScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const [showTradingHoursModal, setShowTradingHoursModal] = React.useState(false);
+  const [showTradingHoursModal, setShowTradingHoursModal] = useState(false);
 
   const currentSymbol = symbol || 'XAU/USD';
   const { data: meta, isLoading: isMetaLoading } = useInstrumentMeta(currentSymbol);
+  const { data: mktStatus } = useMarketStatus(currentSymbol);
+
+  const activeSessions = meta?.sessions ?? DEFAULT_SESSIONS;
+
+  // Live countdown derived from API session_open / session_close timestamps
+  const isOpen = mktStatus?.status === 'open' || mktStatus?.status === 'pre_market' || mktStatus?.status === 'after_hours';
+  const statusLabel = mktStatus ? (STATUS_LABELS[mktStatus.status] ?? 'Market is closed') : 'Loading...';
+
+  // Target timestamp: if open → session_close, if closed → session_open (next open)
+  const targetTs = isOpen ? mktStatus?.session_close : mktStatus?.session_open;
+
+  const [countdown, setCountdown] = useState('--:--:--');
+  useEffect(() => {
+    if (!targetTs) { setCountdown('--:--:--'); return; }
+    const tick = () => {
+      const nowSecs = Math.floor(Date.now() / 1000);
+      setCountdown(fmtCountdown(targetTs - nowSecs));
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [targetTs]);
 
   const infoRows = [
     { label: 'Minimum volume, lots', value: fmtNum(meta?.minVolume, 2) },
@@ -70,15 +124,17 @@ export function ChartSpecificationScreen() {
           style={({ pressed }) => [styles.tradingHoursCard, pressed && styles.cardPressed]}
           onPress={() => setShowTradingHoursModal(true)}
         >
-          <View style={styles.timeIconWrap}>
-            <Ionicons name="time-outline" size={20} color={T.trading.buy.primary} />
+          <View style={[styles.timeIconWrap, !isOpen && styles.timeIconWrapClosed]}>
+            <Ionicons name="time-outline" size={20} color={isOpen ? T.trading.buy.primary : T.trading.sell.primary} />
           </View>
           <View style={styles.tradingHoursTextCol}>
             <View style={styles.tradingHoursTitleRow}>
-              <View style={styles.marketStatusDot} />
-              <Text style={styles.tradingHoursTitle}>Market is open</Text>
+              <View style={[styles.marketStatusDot, !isOpen && styles.marketStatusDotClosed]} />
+              <Text style={styles.tradingHoursTitle}>{statusLabel}</Text>
             </View>
-            <Text style={styles.tradingHoursSub}>Closes in 13:45:15</Text>
+            <Text style={styles.tradingHoursSub}>
+              {isOpen ? 'Closes in ' : 'Opens in '}{countdown}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={isDark ? '#64748B' : '#94A3B8'} />
         </Pressable>
@@ -99,9 +155,11 @@ export function ChartSpecificationScreen() {
 
       </ScrollView>
 
-      <ChartTradingHoursModal 
-        visible={showTradingHoursModal} 
-        onClose={() => setShowTradingHoursModal(false)} 
+      <ChartTradingHoursModal
+        visible={showTradingHoursModal}
+        onClose={() => setShowTradingHoursModal(false)}
+        sessions={activeSessions}
+        isLoading={isMetaLoading}
       />
     </Screen>
   );
@@ -194,6 +252,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       height: 7,
       borderRadius: 4,
       backgroundColor: '#22C55E',
+    },
+    marketStatusDotClosed: {
+      backgroundColor: '#EF4444',
+    },
+    timeIconWrapClosed: {
+      backgroundColor: isDark ? 'rgba(239,68,68,0.10)' : 'rgba(239,68,68,0.08)',
     },
     tradingHoursTitle: {
       fontSize: 15,

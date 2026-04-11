@@ -5,10 +5,11 @@
  * position (e.g. hedging) to save on spread costs.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { positionsApi } from '../../api/positions';
@@ -60,7 +61,25 @@ export function CloseByScreen() {
   const activePairId = selectedPairId || candidates[0]?.id || '';
   const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
 
-  if (!sourcePosition) return <Screen><View style={styles.header}><Text style={styles.subTitle}>Loading...</Text></View></Screen>;
+  const insets = useSafeAreaInsets();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const screenBg = isDark ? T.bg : '#F1F5F9';
+
+  if (!sourcePosition) return (
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+      <View style={styles.customHeader}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
+        <View style={styles.headerBtn} />
+      </View>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="small" color={T.accent} />
+      </View>
+    </View>
+  );
 
   const handleSubmit = async () => {
     if (!sourcePosition || !selectedPair) return;
@@ -105,7 +124,15 @@ export function CloseByScreen() {
   };
 
   return (
-    <Screen>
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+      <View style={styles.customHeader}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
+        <View style={styles.headerBtn} />
+      </View>
       <View style={styles.header}>
         <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>
       </View>
@@ -173,7 +200,8 @@ export function CloseByScreen() {
 
       <Pressable
         style={({ pressed }) => [
-          styles.submitButton, 
+          styles.submitButton,
+          { marginTop: 4, paddingBottom: Math.max(insets.bottom, 16) },
           (!activePairId || candidates.length === 0 || isClosing) && styles.submitDisabled,
           pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
         ]}
@@ -186,11 +214,21 @@ export function CloseByScreen() {
           <Text style={styles.submitText}>Send Close By Request</Text>
         )}
       </Pressable>
-    </Screen>
+    </View>
   );
 }
 
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
+  headerTitleText: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,

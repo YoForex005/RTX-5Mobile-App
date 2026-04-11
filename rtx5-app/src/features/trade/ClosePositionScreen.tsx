@@ -5,11 +5,11 @@
  * Allows users to adjust the exact volume to close.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ActivityIndicator } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { useTradingState } from '../../state/tradingState';
@@ -56,114 +56,133 @@ export function ClosePositionScreen() {
     }
   }, [position, resolvedLogin]);
 
-  if (!position) return <Screen><View style={styles.header}><Text style={styles.title}>Loading...</Text></View></Screen>;
+  const insets = useSafeAreaInsets();
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const screenBg = isDark ? T.bg : '#F1F5F9';
+
+  if (!position) return (
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+      <View style={styles.customHeader}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
+        <View style={styles.headerBtn} />
+      </View>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="small" color={T.accent} />
+      </View>
+    </View>
+  );
 
   return (
-    <Screen>
-      <View style={styles.header}>
-        <Text style={styles.subTitle}>Review and confirm closing order</Text>
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+      <View style={styles.customHeader}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
+        <View style={styles.headerBtn} />
       </View>
-
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text style={styles.symbol}>{position.symbol.replace(/\//g, '')}</Text>
-            <Text style={styles.instrument}>{symbolDisplayName(position.symbol)}</Text>
-          </View>
-          <Text style={[styles.sideText, position.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-            {position.side.toUpperCase()} {(position.volume || 0).toFixed(2)}
-          </Text>
+      <View style={styles.contentWrap}>
+        <View style={styles.header}>
+          <Text style={styles.subTitle}>Review and confirm closing order</Text>
         </View>
 
-        <View style={styles.separator} />
-
-        <View style={styles.metrics}>
-          <Metric label='Open Price' value={fmt.price(position.openPrice)} />
-          <Metric label='Current Price' value={fmt.price(getLivePrice(position))} />
-          <View style={styles.metricSpacer} />
-          <Metric label='Real-time P/L' value={fmt.pnl(position.pnl)} negative={position.pnl < 0} positive={position.pnl > 0} isHighlighted />
-          <Metric label='Order Ticket' value={`#${position.id}`} isSecondary />
-        </View>
-      </View>
-
-      {closeError || submitted ? (
-        <View style={styles.success}>
-          {closeError ? (
-            <Text style={[styles.successText, { color: T.trading.sell.primary }]}>
-              {closeError}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View>
+              <Text style={styles.symbol}>{position.symbol.replace(/\//g, '')}</Text>
+              <Text style={styles.instrument}>{symbolDisplayName(position.symbol)}</Text>
+            </View>
+            <Text style={[styles.sideText, position.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
+              {position.side.toUpperCase()} {(position.volume || 0).toFixed(2)}
             </Text>
-          ) : (
-            <Text style={styles.successText}>Close order submitted. Position closed successfully.</Text>
-          )}
+          </View>
+
+          <View style={styles.separator} />
+
+          <View style={styles.metrics}>
+            <Metric label='Open Price' value={fmt.price(position.openPrice)} />
+            <Metric label='Current Price' value={fmt.price(getLivePrice(position))} />
+            <View style={styles.metricSpacer} />
+            <Metric label='Real-time P/L' value={fmt.pnl(position.pnl)} negative={position.pnl < 0} positive={position.pnl > 0} isHighlighted />
+            <Metric label='Order Ticket' value={`#${position.id}`} isSecondary />
+          </View>
         </View>
-      ) : null}
 
-      <View style={[styles.buttonRow, { paddingBottom: Math.max(useSafeAreaInsets().bottom, 16) }]}>
-        <Pressable 
-          style={[styles.actionButton, styles.closeButton, isClosing && { opacity: 0.6 }]} 
-          disabled={isClosing}
-          onPress={async () => {
-            const ticketId = position.id;
-            if (!accountDetails?.credentials?.accessToken) {
-              setCloseError(
-                formatTradingErrorFeedback(
-                  createFrontendTradingError(
-                    'Authentication Error',
-                    'The app does not have a valid local trading session. Log in again before closing a position.',
+        {closeError || submitted ? (
+          <View style={styles.success}>
+            {closeError ? (
+              <Text style={[styles.successText, { color: T.trading.sell.primary }]}>
+                {closeError}
+              </Text>
+            ) : (
+              <Text style={styles.successText}>Close order submitted. Position closed successfully.</Text>
+            )}
+          </View>
+        ) : null}
+
+        <View style={[styles.buttonRow, { marginTop: 4, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Pressable
+            style={[styles.actionButton, styles.closeButton, isClosing && { opacity: 0.6 }]}
+            disabled={isClosing}
+            onPress={async () => {
+              const ticketId = position.id;
+              if (!accountDetails?.credentials?.accessToken) {
+                setCloseError(
+                  formatTradingErrorFeedback(
+                    createFrontendTradingError(
+                      'Authentication Error',
+                      'The app does not have a valid local trading session. Log in again before closing a position.',
+                    ),
                   ),
-                ),
-              );
-              return;
-            }
-
-            setIsClosing(true);
-            setCloseError(null);
-            try {
-              // Live API Integration: POST /api/v2/positions/{ticketId}/close
-              // Closes the position by its ticket ID (not account login).
-              // Routed through positionsApi → apiClient which handles:
-              //   • Automatic Bearer token injection from Zustand state
-              //   • 401 token refresh loops (cyclic refresh_token renewal)
-              //   • DB transaction atomicity on the server side
-              //   • Rejection on zero/negative market prices
-              await positionsApi.closePosition(ticketId);
-
-              // Optimistic fast UI update to eliminate replication lag timeout shortcut
-              const state = usePositionsState.getState();
-              state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
-              setSubmitted(true);
-              router.back();
-
-              // Background refresh to true up with the server eventually
-              if (resolvedLogin) {
-                state.refreshPositions(resolvedLogin);
+                );
+                return;
               }
-            } catch (error: any) {
-              setCloseError(
-                formatTradingErrorFeedback(
-                  classifyTradingError(error, { action: 'close-position' }),
-                ),
-              );
-            } finally {
-              setIsClosing(false);
-            }
-          }}
-        >
-          {isClosing ? (
-            <ActivityIndicator color={T.trading.sell.primary} />
-          ) : (
-            <Text style={styles.closeButtonText}>Close Position</Text>
-          )}
-        </Pressable>
 
-        <Pressable
-          style={[styles.actionButton, styles.closeByButton]}
-          onPress={() => router.push({ pathname: '/trade/close-by', params: { positionId: position.id } })}
-        >
-          <Text style={styles.closeByButtonText}>Close By</Text>
-        </Pressable>
+              setIsClosing(true);
+              setCloseError(null);
+              try {
+                await positionsApi.closePosition(ticketId);
+
+                const state = usePositionsState.getState();
+                state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
+                setSubmitted(true);
+                router.back();
+
+                if (resolvedLogin) {
+                  state.refreshPositions(resolvedLogin);
+                }
+              } catch (error: any) {
+                setCloseError(
+                  formatTradingErrorFeedback(
+                    classifyTradingError(error, { action: 'close-position' }),
+                  ),
+                );
+              } finally {
+                setIsClosing(false);
+              }
+            }}
+          >
+            {isClosing ? (
+              <ActivityIndicator color={T.trading.sell.primary} />
+            ) : (
+              <Text style={styles.closeButtonText}>Close Position</Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[styles.actionButton, styles.closeByButton]}
+            onPress={() => router.push({ pathname: '/trade/close-by', params: { positionId: position.id } })}
+          >
+            <Text style={styles.closeByButtonText}>Close By</Text>
+          </Pressable>
+        </View>
       </View>
-    </Screen>
+    </View>
   );
 }
 
@@ -199,8 +218,21 @@ function Metric({
 }
 
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+  contentWrap: {
+    flex: 1,
+  },
   header: {
-    marginTop: spacing.md,
+    marginTop: 4,
     paddingHorizontal: spacing.md,
   },
   title: {

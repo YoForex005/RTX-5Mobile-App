@@ -192,7 +192,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           volume: Number(lotSize),
           price_sl: 0,
           price_tp: 0,
-          comment: 'One-Click RTX5 Order',
+          comment: '',
           trailing_stop: 0,
           trailing_step: 0,
           magic: 0
@@ -1174,9 +1174,9 @@ export function ChartScreen() {
 
                 <View style={styles.toolbarSeparator} />
 
-                {/* 7: Settings */}
+                {/* 7: Chart Preferences */}
                 <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
-                  <Ionicons name="settings-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                  <Ionicons name="options-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
@@ -1409,7 +1409,7 @@ export function ChartScreen() {
         actions={[
           { label: 'Indicators' },
           { label: 'Objects', onPress: () => router.push('/chart/objects') },
-          { label: 'Settings' },
+          { label: 'Chart Preferences' },
         ]}
       />
 

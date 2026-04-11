@@ -15,14 +15,17 @@
 import React, { ReactNode } from 'react';
 import {
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
   ViewStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { useUserPreferences } from '../state/userPreferences';
+import { useUIState } from '../state/uiState';
 
 // The global menu button is 40px wide + 16px left margin = 56dp reserved zone.
 export const MENU_BTN_GUTTER = 56;
@@ -57,6 +60,7 @@ export function AppHeader({
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
+  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
 
   // The global hamburger ☰ button in _layout.tsx is positioned at:
   //   top: insets.top + 16,  height: 40px  →  center = insets.top + 36px
@@ -69,7 +73,7 @@ export function AppHeader({
   // This guarantees the title text and ☰ icon sit on the exact same horizontal
   // line on EVERY Android phone regardless of status bar / notch height.
   const safeTop = Platform.OS === 'web' ? 0 : Math.max(insets.top, 0);
-  const topPad = safeTop + 16 + extraTopPad;
+  const topPad = safeTop + 6 + extraTopPad;
 
   return (
     <View
@@ -86,8 +90,10 @@ export function AppHeader({
         style,
       ]}
     >
-      {/* Left gutter — reserved for the global ☰ menu button */}
-      <View style={styles.leftGutter} />
+      {/* Hamburger menu button — in the same flex row as title */}
+      <Pressable style={styles.leftGutter} onPress={() => setSidebarOpen(true)}>
+        <Ionicons name="menu" size={28} color={T.text} />
+      </Pressable>
 
       {/* Centered title */}
       <Text
@@ -117,6 +123,8 @@ const styles = StyleSheet.create({
   leftGutter: {
     width: MENU_BTN_GUTTER - 16, // 16 already accounted for by paddingHorizontal
     flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     flex: 1,

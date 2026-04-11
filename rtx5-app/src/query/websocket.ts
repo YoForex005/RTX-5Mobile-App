@@ -29,7 +29,7 @@ export function useWebSocketConnection() {
     };
   }, []);
 
-  return { connected: true };
+  return { connected: wsService.getConnectionStatus() };
 }
 
 // ─── Component Data Hooks (TanStack Query + Zustand) ────────────────────────

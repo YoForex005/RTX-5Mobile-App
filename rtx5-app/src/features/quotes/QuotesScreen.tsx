@@ -1125,7 +1125,7 @@ export function QuotesScreen() {
 const s = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
-  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
+  screen: { flex: 1, paddingTop: 16 },
 
   headerActions: {
     flexDirection: 'row',
@@ -1135,10 +1135,10 @@ const s = StyleSheet.create({
   },
 
   headerActionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    borderWidth: 1,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 0.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1146,9 +1146,10 @@ const s = StyleSheet.create({
   subheaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: 2,
-    marginBottom: 14,
+    alignItems: 'center',
+    marginTop: -4,
+    marginBottom: 10,
+    paddingHorizontal: 16,
   },
 
   subLeft: { fontSize: 12, fontWeight: '600' },
@@ -1156,8 +1157,6 @@ const s = StyleSheet.create({
   subRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 7,
     gap: 6,
@@ -1173,13 +1172,14 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
+    marginHorizontal: 16,
     marginBottom: 12,
     gap: 10,
   },
 
   searchInput: { flex: 1, fontSize: 15, fontWeight: '500' },
 
-  list: { flex: 1 },
+  list: { flex: 1, paddingHorizontal: 16 },
   listPad: { paddingBottom: 32 },
 
   emptyWrap: {
@@ -1349,10 +1349,10 @@ function TickCounter({ T, palette }: { T: ThemeColors; palette: QuotesPalette })
   }, []);
 
   return (
-    <View style={[s.subRight, { backgroundColor: palette.metaBg, borderColor: palette.metaBorder }]}>
-      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Speed</Text>
+    <View style={s.subRight}>
+      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Speed:</Text>
       <Text style={[s.subLive, { color: T.trading.profit }]}>{tps} tps</Text>
-      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Status</Text>
+      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Status:</Text>
       <Text style={[s.subLive, { color: T.trading.profit }]}>LIVE</Text>
     </View>
   );

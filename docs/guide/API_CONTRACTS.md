@@ -151,6 +151,11 @@ export type FeatureFlags = {
 | `account.snapshot` | `AccountSnapshot` | Replace account header values in trade screen |
 | `system.flag` | partial `FeatureFlags` | Apply kill switch and disable affected UI actions |
 
+## WebSocket Transport Notes
+- The V2 authenticated account stream is opened via `/ws/v2?token={JWT}` and subscribed by channel, not by REST-style event name.
+- Live backend account metrics currently arrive on `metrics.{LOGIN}`. Older docs and some fallback payloads still refer to `account.{LOGIN}` or `account.snapshot`, so the frontend must accept both while treating the payload as the same authoritative account-metrics contract.
+- `positions.{LOGIN}` may send either full open-position snapshots or partial per-ticket updates. The frontend must merge partial updates into existing local positions instead of zeroing omitted fields.
+
 ## Error Shapes
 ```ts
 export type ApiError = {

@@ -6,7 +6,7 @@
  * rather than local component state.
  */
 import React, { useState, useEffect } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, ThemeColors } from '../theme/useTheme';
@@ -32,20 +32,17 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
     if (visible) setQuery('');
   }, [visible]);
 
-  if (!visible) return null;
-
   const filteredActions = searchable && query.trim()
     ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
     : actions;
 
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
-      {/* Tap-outside-to-dismiss */}
-      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.overlay} pointerEvents="box-none">
+        {/* Tap-outside-to-dismiss */}
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
-      {/* Content */}
-      <View style={{ paddingHorizontal: 0, paddingBottom: Math.max(insets.bottom, 16) }}>
-        {/* Sheet */}
+        {/* Content */}
         <View style={styles.sheet}>
           <View style={styles.handle} />
           {title ? (
@@ -103,17 +100,20 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
               </Pressable>
             ))}
           </ScrollView>
+
+          {/* Cancel */}
+          <Pressable
+            style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
+            onPress={onClose}
+          >
+            <Text style={styles.cancelText}>Cancel</Text>
+          </Pressable>
         </View>
 
-        {/* Cancel */}
-        <Pressable
-          style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
-          onPress={onClose}
-        >
-          <Text style={styles.cancelText}>Cancel</Text>
-        </Pressable>
+        {/* Structural Safe Area Fill */}
+        <View style={{ height: Math.max(insets.bottom, 16), width: '100%', backgroundColor: isDark ? '#121212' : '#FFFFFF' }} />
       </View>
-    </View>
+    </Modal>
   );
 }
 

@@ -20,7 +20,7 @@ type MenuItem = { label: string; icon: keyof typeof Ionicons.glyphMap };
 const QUICK_ACCESS: MenuItem[] = [
   { label: 'Price Alerts', icon: 'navigate-circle-outline' },
   { label: 'Maximise', icon: 'expand-outline' },
-  { label: 'Settings', icon: 'settings-outline' },
+  { label: 'Chart Preferences', icon: 'options-outline' },
 ];
 
 const OTHER: MenuItem[] = [

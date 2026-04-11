@@ -48,7 +48,7 @@ export function ChartPreferencesScreen() {
   };
 
   const chartPrefs: NavItem[] = [
-    { label: 'Chart', value: 'RTX5' },
+    { label: 'Chart', value: 'RTX-5', onPress: () => router.push('/(tabs)/chart') },
     { label: 'Price source', value: prefs.priceSource === 'bid' ? 'Bid price' : 'Ask price', onPress: () => router.push('/chart/price-source') },
     { label: 'Colors', onPress: () => router.push('/chart/colors') },
     { label: 'Open order mode', value: prefs.openOrderMode, onPress: () => router.push('/chart/open-order-mode') },

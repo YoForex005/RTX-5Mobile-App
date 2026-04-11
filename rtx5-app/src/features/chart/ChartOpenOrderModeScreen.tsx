@@ -1,6 +1,6 @@
 /**
  * Chart Feature UI: ChartOpenOrderModeScreen
- * 
+ *
  * Allows users to toggle their preferred order entry mode directly from the chart:
  * Regular, Risk Calculator, or One-Click trading.
  */
@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../theme/useTheme';
 
@@ -17,6 +17,7 @@ export function ChartOpenOrderModeScreen() {
   const router = useRouter();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const { openOrderMode, setOpenOrderMode } = useUserPreferences();
@@ -25,8 +26,24 @@ export function ChartOpenOrderModeScreen() {
     setOpenOrderMode(mode);
   };
 
+  const screenBg = isDark ? T.bg : '#F1F5F9';
+
   return (
-    <Screen style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: screenBg }]}>
+      {/* Status bar spacer */}
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: screenBg }]}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>
+          Open order mode
+        </Text>
+        <View style={styles.headerBtn} />
+      </View>
+
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Pressable style={styles.row} onPress={() => handleSelect('Regular')}>
@@ -36,7 +53,7 @@ export function ChartOpenOrderModeScreen() {
             )}
           </Pressable>
           <View style={styles.separator} />
-          
+
           <Pressable style={styles.row} onPress={() => handleSelect('Risk calculator')}>
             <Text style={styles.rowLabel}>Risk calculator</Text>
             {openOrderMode === 'Risk calculator' && (
@@ -44,7 +61,7 @@ export function ChartOpenOrderModeScreen() {
             )}
           </Pressable>
           <View style={styles.separator} />
-          
+
           <Pressable style={styles.row} onPress={() => handleSelect('One-click')}>
             <Text style={styles.rowLabel}>One-click</Text>
             {openOrderMode === 'One-click' && (
@@ -53,16 +70,25 @@ export function ChartOpenOrderModeScreen() {
           </Pressable>
         </View>
       </ScrollView>
-    </Screen>
+    </View>
   );
 }
 
 function makeStyles(T: any, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? T.bg : '#F1F5F9',
-      paddingHorizontal: 0,
+      flex: 1,
     },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 48,
+      paddingHorizontal: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0',
+    },
+    headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
+    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
     scrollView: {
       flex: 1,
     },

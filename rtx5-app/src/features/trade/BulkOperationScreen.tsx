@@ -37,11 +37,8 @@ export function BulkOperationScreen() {
   const totalNetExposure = 0;
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: 'Bulk Operations', headerTitleAlign: 'center' }} />
-      <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
-      </View>
+    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+      <Stack.Screen options={{ title, headerTitleAlign: 'center' }} />
 
       <View style={styles.summaryCard}>
         <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
@@ -118,36 +115,15 @@ function Row({
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
-  header: {
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  title: {
-    color: T.textSub,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  subTitle: {
-    marginTop: 4,
-    color: T.textSub,
-    fontSize: 14,
-    fontWeight: '500',
-  },
   summaryCard: {
     marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     marginBottom: spacing.md,
     padding: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderSubtle,
-    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
-    shadowColor: isDark ? '#2563EB' : '#0F172A',
-    shadowOffset: { width: 0, height: isDark ? 4 : 4 },
-    shadowOpacity: isDark ? 0.08 : 0.03,
-    shadowRadius: isDark ? 16 : 10,
-    elevation: 4,
+    borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    backgroundColor: isDark ? '#0E141F' : T.glass2,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -173,13 +149,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     marginHorizontal: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? T.border : T.borderSubtle,
-    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.7)' : T.glass2,
-    shadowColor: isDark ? '#2563EB' : '#0F172A',
-    shadowOffset: { width: 0, height: isDark ? 4 : 4 },
-    shadowOpacity: isDark ? 0.08 : 0.03,
-    shadowRadius: isDark ? 16 : 10,
-    elevation: 4,
+    borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    backgroundColor: isDark ? '#0E141F' : T.glass2,
     overflow: 'hidden',
   },
   previewRow: {

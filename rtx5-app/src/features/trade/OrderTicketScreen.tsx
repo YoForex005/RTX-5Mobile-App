@@ -183,7 +183,7 @@ export function OrderTicketScreen() {
         volume: volume,
         ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
-        comment: 'RTX5 Mobile Order',
+        comment: '',
       });
 
       if (['rejected', 'failed', 'error'].includes(data.status?.toLowerCase())) {
@@ -247,7 +247,7 @@ export function OrderTicketScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* ── Compact Header ─────────────────────────────────────────── */}
-      <View style={[styles.header, { paddingTop: insets.top + 24, zIndex: 10 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
@@ -299,7 +299,7 @@ export function OrderTicketScreen() {
       {/* ── Scrollable Form ────────────────────────────────────────── */}
       <ScrollView
         style={styles.root}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

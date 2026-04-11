@@ -12,8 +12,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
+import { Animated, Pressable, RefreshControl, StyleSheet, Text, View, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { MetricRow } from '../../components/MetricRow';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
@@ -30,40 +31,17 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { useUIState } from '../../state/uiState';
-import { useMarketData } from '../../query/websocket';
 import { getTradingErrorOriginLabel } from '../../api/tradingErrors';
+import { buildTradeAccountSummary } from './accountSummary';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
 const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
-  const activeSymbols = useMemo(() => Array.from(new Set(positions.map((p: any) => p.symbol))) as string[], [positions]);
-  const quotesStore = useMarketData(activeSymbols);
-
-  const dynamicFloating = useMemo(() => {
-    let total = 0;
-    positions.forEach((p: any) => {
-      const liveQuote = quotesStore[p.symbol];
-      const fallbackBid = typeof p.currentPrice === 'number' && !isNaN(p.currentPrice) ? p.currentPrice : p.openPrice;
-      const liveBid = typeof liveQuote?.bid === 'number' && !isNaN(liveQuote.bid) ? liveQuote.bid : fallbackBid;
-      const fallbackAsk = liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
-      const liveAsk = typeof liveQuote?.ask === 'number' && !isNaN(liveQuote.ask) ? liveQuote.ask : fallbackAsk;
-      const isBuy = p.side === 'buy';
-      const rawLivePrice = isBuy ? liveBid : liveAsk;
-      const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : p.openPrice;
-
-      const isJpy = p.symbol.includes('JPY');
-      const contractSize = isJpy ? 1000 : 100000;
-      const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
-      const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (p.volume || 0.01) * contractSize) : 0;
-      if (Number.isFinite(livePnl)) total += livePnl;
-    });
-    return total;
-  }, [positions, quotesStore]);
-
-  // Use dynamic floating to infer true Equity and Margin Level based on Balance and used Margin.
   const safeBalance = Number.isFinite(account.balance) ? account.balance : 0;
+  const safeFloating = Number.isFinite(account.floating) ? account.floating : 0;
+  const safeEquity = Number.isFinite(account.equity) ? account.equity : 0;
   const safeMargin = Number.isFinite(account.margin) ? account.margin : 0;
-  const dynamicEquity = safeBalance + dynamicFloating;
-  const dynamicMarginLevel = safeMargin > 0 ? (dynamicEquity / safeMargin) * 100 : 0;
+  const safeFreeMargin = Number.isFinite(account.freeMargin) ? account.freeMargin : 0;
+  const safeMarginLevel = Number.isFinite(account.marginLevel) ? account.marginLevel : 0;
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -79,122 +57,116 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
   return (
     <>
-      <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }, isDark && {
-        backgroundColor: '#0E141F',
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 16,
-        elevation: 4,
-      }]}>
+      <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+
         <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
           {/* The Hero: Unrealized P/L */}
           <View style={{ alignItems: 'flex-start', marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
               Floating P/L
             </Text>
-            <Animated.Text 
-              style={{ 
-                fontSize: 24, 
-                fontWeight: '700', 
-                color: dynamicFloating >= 0 ? T.up : T.down, 
-                opacity: pulseAnim, 
-                marginTop: 2, 
-                letterSpacing: -0.2, 
+            <Animated.Text
+              style={{
+                fontSize: 24,
+                fontWeight: '700',
+                color: safeFloating >= 0 ? T.up : T.down,
+                opacity: pulseAnim,
+                marginTop: 2,
+                letterSpacing: -0.2,
                 fontVariant: ['tabular-nums'],
                 marginLeft: 0
               }}>
-              {fmt.pnl(dynamicFloating)}
+              {fmt.pnl(safeFloating)}
             </Animated.Text>
           </View>
-          
+
           {/* Horizontal rows for each metric */}
           <View style={{ gap: 8 }}>
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                 Balance <Text style={{fontSize: 10, color: T.textFaint}}>({account.currency || 'USD'})</Text>
-               </Text>
-               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                 {fmt.decimal(safeBalance)}
-               </Text>
-             </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Balance <Text style={{ fontSize: 10, color: T.textFaint }}>({account.currency || 'USD'})</Text>
+              </Text>
+              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                  ....................................................................................................
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                {fmt.decimal(safeBalance)}
+              </Text>
+            </View>
 
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                 Equity
-               </Text>
-               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                 {fmt.decimal(dynamicEquity)}
-               </Text>
-             </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Equity
+              </Text>
+              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                  ....................................................................................................
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                {fmt.decimal(safeEquity)}
+              </Text>
+            </View>
 
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                 Margin
-               </Text>
-               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                 {fmt.decimal(safeMargin)}
-               </Text>
-             </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Margin
+              </Text>
+              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                  ....................................................................................................
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                {fmt.decimal(safeMargin)}
+              </Text>
+            </View>
 
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                 Free Margin
-               </Text>
-               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                 {fmt.decimal(dynamicEquity - safeMargin)}
-               </Text>
-             </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Free Margin
+              </Text>
+              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                  ....................................................................................................
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                {fmt.decimal(safeFreeMargin)}
+              </Text>
+            </View>
 
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                 Margin Level
-               </Text>
-               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-               <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                 {fmt.decimal(dynamicMarginLevel)}%
-               </Text>
-             </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Margin Level
+              </Text>
+              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                  ....................................................................................................
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                {fmt.decimal(safeMarginLevel)}%
+              </Text>
+            </View>
 
-             {account.credit > 0 && (
-               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                 <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                   Credit
-                 </Text>
-                 <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{translateY: -3}] }}>
-                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                   ....................................................................................................
-                 </Text>
-               </View>
-                 <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                   {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
-                 </Text>
-               </View>
-             )}
+            {account.credit > 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Credit
+                </Text>
+                <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
+                  <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
+                    ....................................................................................................
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
+                  {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </View>
@@ -239,7 +211,10 @@ export function TradeScreen() {
 
   const fetchPositions = useCallback(async () => {
     const mt5Login = resolveTradingLogin();
-    if (!mt5Login) return;
+    if (!mt5Login) {
+      setRefreshing(false);
+      return;
+    }
 
     setRefreshing(true);
     try {
@@ -249,8 +224,8 @@ export function TradeScreen() {
     }
   }, [refreshPositions]);
 
-  const onRefresh = useCallback(() => {
-    fetchPositions();
+  const onRefresh = useCallback(async () => {
+    await fetchPositions();
   }, [fetchPositions]);
 
   // Initial fetch when the account login is first available. Tab focus
@@ -264,16 +239,7 @@ export function TradeScreen() {
 
   const tradingAccount = useTradingState((state: any) => state.account);
   const liveAcc = useLiveAccountState();
-  const account = {
-    balance: liveAcc.balance || 0,
-    credit: tradingAccount?.credit || 0,
-    floating: liveAcc.floating || 0,
-    equity: liveAcc.equity || 0,
-    margin: liveAcc.margin || 0,
-    freeMargin: liveAcc.margin_free || 0,
-    marginLevel: liveAcc.margin_level || 0,
-    currency: tradingAccount?.currency || 'USD',
-  };
+  const account = buildTradeAccountSummary(liveAcc, tradingAccount);
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
 
   const showBulkSheet = () => {
@@ -304,7 +270,7 @@ export function TradeScreen() {
   };
 
   return (
-    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+    <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('Trade')} noBorder />
       <LiveUnrealizedPnLHeader
         positions={positions}
@@ -321,8 +287,15 @@ export function TradeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#D1D4DC' : '#131722'}
+            colors={[isDark ? '#D1D4DC' : '#131722']}
+            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+          />
+        }
         initialNumToRender={15}
         maxToRenderPerBatch={10}
         windowSize={5}
@@ -367,7 +340,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = isDark ? '#0E141F' : T.glass2;
   return StyleSheet.create({
     list: { flex: 1 },
-    listContent: { paddingBottom: spacing.xl + spacing.md },
+    listContent: { paddingBottom: 32 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
       backgroundColor: cardBg, borderWidth: 1, borderColor: T.border,

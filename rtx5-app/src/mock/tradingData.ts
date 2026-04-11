@@ -125,6 +125,7 @@ export type PositionItem = {
   currentPrice: number;
   pnl: number;
   swap: number;
+  commission?: number;
   openTime: string;
   sl?: number;
   tp?: number;

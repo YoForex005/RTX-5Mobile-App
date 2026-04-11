@@ -13,7 +13,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, Image, AppState } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, Image, AppState, Platform } from 'react-native';
+import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -56,17 +57,22 @@ import { buildChartOverlayPayload } from './chartOverlays';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
+// Uses quotes WS (bid/ask) as primary price source — always accurate.
+// Falls back to candle WS close only when quotes haven't arrived yet.
 const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) => {
   const latestTick = useLiveTick(symbol);
   const liveQuotes = useMarketData([symbol]);
   const q = liveQuotes[symbol] || {};
 
-  if (!latestTick || typeof latestTick.close !== 'number') return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+  // Primary: quotes WS bid price (most reliable, real-time)
+  // Fallback: candle WS close price (only if quotes WS hasn't sent data yet)
+  const quoteBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : null;
+  const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
+  const currentPrice = quoteBid ?? candleClose;
 
-  const currentPrice = latestTick.close;
+  if (currentPrice === null) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
+
   const changePct = q.changePct ?? 0;
-  // If the backend doesn't explicitly send "change", we can compute it using daily open or close
-  // Assuming q.open or q.close is available. We prefer q.open for daily open if available.
   const openPrice = q.open ?? q.close ?? currentPrice;
   const change = q.change !== undefined ? q.change : (currentPrice - openPrice);
 
@@ -75,7 +81,7 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
   return (
     <View style={styles.priceSection}>
       <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: -1, opacity: 0.9 }]}>PRICE</Text>
-      <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>{(currentPrice || 0).toFixed(displayDecimals)}</Text>
+      <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>{currentPrice.toFixed(displayDecimals)}</Text>
       <Text style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]} numberOfLines={1} adjustsFontSizeToFit>
         {change > 0 ? '+' : ''}{(change || 0).toFixed(displayDecimals)}  ({changePct > 0 ? '+' : ''}{(changePct || 0).toFixed(2)}%)
       </Text>
@@ -112,7 +118,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           volume: Number(lotSize),
           price_sl: 0,
           price_tp: 0,
-          comment: 'One-Click RTX5 Order',
+          comment: '',
           trailing_stop: 0,
           trailing_step: 0,
           magic: 0
@@ -165,6 +171,39 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
         <Text style={styles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
     </View>
+  );
+});
+
+// Micro-component: isolated 1fps render cycle for the clock
+const LiveClock = React.memo(({ styles }: any) => {
+  const [timeStr, setTimeStr] = useState('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+
+      const offsetMinutes = now.getTimezoneOffset();
+      const offsetHoursAbs = Math.floor(Math.abs(offsetMinutes) / 60);
+      const offsetMinsAbs = Math.abs(offsetMinutes) % 60;
+      const sign = offsetMinutes > 0 ? '-' : '+';
+      // Edge case: exactly UTC is just UTC
+      const offsetStr = offsetMinutes === 0 ? 'UTC' : `UTC${sign}${offsetHoursAbs}:${String(offsetMinsAbs).padStart(2, '0')}`;
+
+      setTimeStr(`${hh}:${mm}:${ss} (${offsetStr})`);
+    };
+
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Text style={[styles.tvRangeAutoText, { transform: [{ translateX: -20 }] }]} numberOfLines={1} adjustsFontSizeToFit>
+      {timeStr}
+    </Text>
   );
 });
 
@@ -362,7 +401,7 @@ const CH_HTML = `
             lastValueVisible: true,
             priceLineVisible: true,
             priceLineWidth: 1,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
             priceLineColor: '',
             priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
           });
@@ -374,7 +413,7 @@ const CH_HTML = `
             lastValueVisible: true,
             priceLineVisible: true,
             priceLineWidth: 1,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
             priceLineColor: '',
             priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
           });
@@ -392,8 +431,8 @@ const CH_HTML = `
             lastValueVisible: true,
             priceLineVisible: true,
             priceLineWidth: 1,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
-            priceLineColor: '',
+            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            priceLineColor: seriesType === 'hollow' ? colors.up : '',
             priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
           });
         }
@@ -624,7 +663,7 @@ const CH_HTML = `
             price: price,
             color: '#2962FF',
             lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2,
+            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
             axisLabelVisible: true,
             title: 'BID',
           });
@@ -729,7 +768,7 @@ const CH_HTML = `
                 price: ln.price,
                 color: ln.color || '#2962FF',
                 lineWidth: ln.lineWidth || 1,
-                lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2),
+                lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0),
                 axisLabelVisible: ln.axisLabelVisible !== false,
                 title: ln.title || '',
               });
@@ -823,12 +862,16 @@ const CH_HTML = `
 `;
 
 const getSentimentForSymbol = (symbol: string) => {
+  const now = new Date();
   let hash = 0;
   for (let i = 0; i < symbol.length; i++) {
     hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const seed = Math.abs(hash + new Date().getDate());
-  const buyPct = 15 + (seed % 71);
+  // Rotate every hour using day + hour so sentiment feels live
+  const seed = Math.abs(hash + now.getDate() * 24 + now.getHours());
+  // Add minute-based micro-drift (±3%) so it shifts slightly within the hour
+  const drift = (now.getMinutes() % 7) - 3;
+  const buyPct = Math.max(10, Math.min(90, 15 + (seed % 71) + drift));
   return { buyPct, sellPct: 100 - buyPct };
 };
 
@@ -929,6 +972,7 @@ export function ChartScreen() {
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const webViewRef = useRef<WebView>(null);
 
@@ -982,8 +1026,23 @@ export function ChartScreen() {
   const chartType = chartVisualType;
   const [showChartTypeMenu, setShowChartTypeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showTimeRangeMenu, setShowTimeRangeMenu] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
 
   const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
+
+  const handleRefreshChart = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      refreshCandles();
+      if (accountLogin) {
+        await refreshPositions(String(accountLogin));
+      }
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 800);
+    }
+  }, [refreshCandles, accountLogin, refreshPositions]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -1404,7 +1463,20 @@ export function ChartScreen() {
         </View>
       )}
 
-      <View style={styles.card}>
+      <ScrollView
+        style={styles.card}
+        contentContainerStyle={{ flex: 1 }}
+        nestedScrollEnabled
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefreshChart}
+            tintColor={isDark ? '#D1D4DC' : '#131722'}
+            colors={[isDark ? '#D1D4DC' : '#131722']}
+            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
+          />
+        }
+      >
         <View style={styles.chartContainer}>
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
@@ -1441,11 +1513,11 @@ export function ChartScreen() {
                   </View>
                 </Pressable>
               )}
-              <Pressable style={{ paddingLeft: 0, paddingRight: 24 }} onPress={() => router.push('/chart/objects')} hitSlop={8}>
+              <Pressable style={{ paddingLeft: 0, paddingRight: 10 }} onPress={() => router.push('/chart/objects')} hitSlop={8}>
                 <Ionicons name="pencil-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
               <Pressable style={{ paddingHorizontal: 8 }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
-                <Ionicons name="settings-outline" size={18} color={TEXT_MUTED} />
+                <Ionicons name="options-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
               <Pressable style={{ paddingLeft: 10, paddingRight: 4 }} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
                 <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={TEXT_MUTED} />
@@ -1488,14 +1560,7 @@ export function ChartScreen() {
               </ScrollView>
             )}
             <View style={{ flex: 1, position: 'relative' }}>
-              {/* Debug banner — only visible when positions exist but no overlay lines generated (symbol mismatch diagnostic) */}
-              {positions.length > 0 && overlayPayload.priceLines.length === 0 && showOpenPositions && (
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 999, backgroundColor: 'rgba(200,0,0,0.9)', paddingHorizontal: 8, paddingVertical: 4 }}>
-                  <Text style={{ color: '#fff', fontSize: 10 }}>
-                    {`Symbol mismatch: positions=[${[...new Set(positions.map(p => p.symbol))].join(',')}] chart=${chartSymbol}`}
-                  </Text>
-                </View>
-              )}
+
               {isLoading && (
                 <View style={styles.chartOverlay}>
                   <ActivityIndicator size="large" color={BLUE} />
@@ -1562,7 +1627,7 @@ export function ChartScreen() {
                             true;
                           `);
                         }
-                      } catch (_) {}
+                      } catch (_) { }
                     } else if (msg.type === 'DRAWINGS_CHANGED') {
                       const nextLabels = Array.isArray(msg.drawings)
                         ? msg.drawings
@@ -1589,19 +1654,31 @@ export function ChartScreen() {
         {!isChartExpanded && (
           <View style={styles.bottomArea}>
             <View style={styles.tvBottomToolbar}>
-              <View style={styles.tvRangesLeft}>
+              <Pressable style={styles.tvRangesLeft} onPress={() => setShowTimeRangeMenu(true)}>
                 <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>Time Range</Text>
                 <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>Date Range</Text>
-                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
-              </View>
-              <View style={styles.tvRangesRight}>
-                <Text style={[styles.tvRangeAutoText, { transform: [{ translateX: -20 }] }]} numberOfLines={1} adjustsFontSizeToFit>
-                  16:08:55 (UTC+5:30)
+              </Pressable>
+              <Pressable style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setShowDatePicker(true)}>
+                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>
+                  {customDateValue ? customDateValue.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Date Range'}
                 </Text>
-                <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>auto</Text>
+                <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
+              </Pressable>
+              <View style={styles.tvRangesRight}>
+                <LiveClock styles={styles} />
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => {
+                    injectChartScript(`
+                      if (chart) {
+                        try { chart.timeScale().fitContent(); } catch(_){}
+                        try { chart.timeScale().scrollToRealTime(); } catch(_){}
+                      }
+                    `);
+                  }}
+                >
+                  <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>auto</Text>
+                </Pressable>
               </View>
             </View>
             <View style={styles.segmentedControl}>
@@ -1641,7 +1718,7 @@ export function ChartScreen() {
             </View>
           </View>
         )}
-      </View>
+      </ScrollView>
 
       <ActionSheet
         visible={menuOpen}
@@ -1650,7 +1727,7 @@ export function ChartScreen() {
         actions={[
           { label: 'Indicators' },
           { label: 'Objects', onPress: () => router.push('/chart/objects') },
-          { label: 'Settings' },
+          { label: 'Chart Preferences' },
         ]}
       />
 
@@ -1728,22 +1805,90 @@ export function ChartScreen() {
           },
         ]}
       />
+
+      <ActionSheet
+        visible={showTimeRangeMenu}
+        onClose={() => setShowTimeRangeMenu(false)}
+        title="Quick Time Range"
+        actions={[
+          { label: '1 Day', onPress: () => { } },
+          { label: '5 Days', onPress: () => { } },
+          { label: '1 Month', onPress: () => { } },
+          { label: '3 Months', onPress: () => { } },
+          { label: '6 Months', onPress: () => { } },
+          { label: 'Year To Date', onPress: () => { } },
+          { label: '1 Year', onPress: () => { } },
+          { label: '5 Years', onPress: () => { } },
+          { label: 'All Data', onPress: () => { } },
+        ]}
+      />
+
+      {showDatePicker && (
+        <Pressable
+          style={styles.calendarOverlay}
+          onPress={() => setShowDatePicker(false)}
+        >
+          <View style={styles.calendarContainer}>
+            <Calendar
+              onDayPress={(day: any) => {
+                setCustomDateValue(new Date(day.timestamp));
+                setShowDatePicker(false);
+              }}
+              maxDate={new Date().toISOString().split('T')[0]}
+              theme={{
+                backgroundColor: isDark ? '#0E141F' : T.glass2,
+                calendarBackground: isDark ? '#0E141F' : T.glass2,
+                textSectionTitleColor: T.textSub,
+                selectedDayBackgroundColor: BLUE,
+                selectedDayTextColor: '#ffffff',
+                todayTextColor: BLUE,
+                dayTextColor: T.text,
+                textDisabledColor: T.textMuted,
+                monthTextColor: T.text,
+                arrowColor: BLUE,
+              }}
+            />
+          </View>
+        </Pressable>
+      )}
+
     </Screen>
   );
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
-  const APP_BG = isDark ? '#0E1014' : T.bg;
-  const CHART_CANVAS_BG = isDark ? '#000000' : '#FFFFFF';
+  const APP_BG = isDark ? '#030508' : T.bg;
+  const CHART_CANVAS_BG = isDark ? '#080B11' : '#FFFFFF';
   const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
   const BLUE = T.trading.buy.primary;
   const RED = T.trading.sell.primary;
   const TEXT_MUTED = T.textMuted;
 
   return StyleSheet.create({
+    calendarOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 9999,
+    },
+    calendarContainer: {
+      width: '90%',
+      borderRadius: 20,
+      overflow: 'hidden',
+      backgroundColor: isDark ? '#0E141F' : T.glass2,
+      borderWidth: 1,
+      borderColor: T.border,
+      shadowColor: isDark ? '#000' : '#64748B',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: isDark ? 0.4 : 0.1,
+      shadowRadius: 24,
+      elevation: 8,
+      padding: 4,
+    },
     screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
     headerWrapper: {
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#080B11' : T.glass2,
       zIndex: 10,
     },
     topBar: {
@@ -1769,7 +1914,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingBottom: 18,
       minHeight: 48,
       marginTop: -6,
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#080B11' : T.glass2,
       borderBottomWidth: 0,
       borderBottomColor: 'transparent',
     },
@@ -1930,7 +2075,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       maxWidth: 54,
       flexShrink: 0,
       flexGrow: 0,
-      backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      backgroundColor: isDark ? '#080B11' : '#F8FAFC',
       borderRightWidth: 1,
       borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -1970,7 +2115,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 6,
       paddingVertical: 6,
       marginTop: 16,
-      backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      backgroundColor: isDark ? '#080B11' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
       borderTopWidth: 1,
@@ -2037,12 +2182,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     bottomArea: {
-      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      backgroundColor: isDark ? '#080B11' : T.glass2,
       paddingHorizontal: 8,
       paddingTop: 8,
       paddingBottom: 0,
       borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+      borderTopColor: T.border,
     },
     tvBottomToolbar: {
       flexDirection: 'row',

@@ -9,9 +9,10 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { spacing } from '../../theme';
+
+
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMemo } from 'react';
@@ -21,10 +22,13 @@ import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { QRCodeSheet } from './QRCodeSheet';
 import { ActionSheet } from '../../components/ActionSheet';
-import { Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+
+
 // ── API Integration: fetches live account + broker data for active card ──
 import { useAccounts } from '../../query/accounts';
 import { useBrokerConfig } from '../../query/broker';
+import { useHealth } from '../../query/health';
+import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function AccountsScreen() {
@@ -34,6 +38,7 @@ export function AccountsScreen() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const T = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
@@ -56,19 +61,24 @@ export function AccountsScreen() {
   // Extract the 5 essential display values (fallbacks for when API hasn't loaded)
   const displayName = activeAccount?.name ?? accountDetails?.name ?? '---';
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
-  const displayBalance = activeAccount ? `${fmt.price(activeAccount.balance)} ${activeAccount.currency}` : '--- USD';
+  const displayCurrency = 'USD';
+  const displayBalance = activeAccount ? fmt.price(activeAccount.balance) : '---';
+  const displayEquity = activeAccount ? fmt.price(activeAccount.equity) : '---';
+  const displayLeverage = activeAccount ? `1:${activeAccount.leverage}` : '---';
+  const displayFreeMargin = activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
+  const displayFloatingPnl = activeAccount?.floatingPnl ?? 0;
+  const displayOpenPositions = activeAccount?.openPositions ?? 0;
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
 
-  const health = { status: 'healthy', version: '1.0.0' };
-  const healthError = false;
-  const mt5Status = { connected: true };
-  const mt5StatusError = false;
+  const { data: health } = useHealth();
+  const { data: mt5Status } = useMt5Status();
 
   const handleConnectAccount = () => {
     router.push('/login');
   };
 
+  const [expandedLogin, setExpandedLogin] = React.useState<number | null>(null);
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
   const [successMessage, setSuccessMessage] = React.useState('');
@@ -119,110 +129,217 @@ export function AccountsScreen() {
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Active Account Card — data from GET /accounts + GET /broker/config */}
-          <View style={styles.activeCardWrap}>
-            <View style={styles.activeCard}>
-              <View style={styles.contestRibbon}>
-                <Text style={styles.contestText}>Contest</Text>
+          {/* ── Active Account Card ── */}
+          <View style={styles.activeCard}>
+            {/* Corner ribbons */}
+            {!isDemoAccount && (
+              <View style={styles.ribbonRight}><Text style={styles.ribbonRightText}>Contest</Text></View>
+            )}
+            {isDemoAccount && (
+              <View style={styles.ribbonLeft}><Text style={styles.ribbonLeftText}>Demo</Text></View>
+            )}
+            {/* Top: Avatar + Name + Connected badge */}
+            <View style={styles.activeTopRow}>
+              <View style={styles.avatarWrap}>
+                <Image source={require('../../../assets/icon.png')} style={styles.avatarImage} />
               </View>
-
-              <View style={styles.activeLogoWrap}>
-                <Ionicons name="flash" size={28} color={T.accent} />
+              <View style={styles.activeInfoCol}>
+                <View style={styles.nameAndBadges}>
+                  <Text style={styles.activeName} numberOfLines={1}>{displayName}</Text>
+                  <View style={styles.badgesRow}>
+                    <View style={isDemoAccount ? styles.demoBadgeActive : styles.liveBadge}>
+                      <Text style={isDemoAccount ? styles.demoBadgeActiveText : styles.liveBadgeText}>{isDemoAccount ? 'Demo' : 'Live'}</Text>
+                    </View>
+                    <View style={styles.connectedBadge}>
+                      <View style={styles.connectedDot} />
+                      <Text style={styles.connectedLabel}>Connected</Text>
+                    </View>
+                  </View>
+                </View>
+                <Text style={styles.activeCompany}>{displayBrokerName}</Text>
               </View>
+            </View>
 
-              {/* Username — from GET /accounts API */}
-              <Text style={styles.activeName}>{displayName}</Text>
-              {/* Broker name — from GET /broker/config API */}
-              <Text style={styles.activeCompany}>{displayBrokerName}</Text>
+            {/* Balance — hero section */}
+            <View style={styles.balanceSection}>
+              <Text style={styles.balanceLabel}>Balance</Text>
+              <Text style={styles.balanceValue}>{displayBalance} <Text style={styles.balanceCurrency}>{displayCurrency}</Text></Text>
+            </View>
 
-              {/* Login ID + Broker server — from GET /accounts + GET /broker/config */}
-              <Text style={styles.activeServer}>{displayLogin} — {displayServerName}</Text>
+            {/* Metrics grid */}
+            <View style={styles.metricsGrid}>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Equity</Text>
+                <Text style={styles.metricValue}>{displayEquity}</Text>
+              </View>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Free Margin</Text>
+                <Text style={styles.metricValue}>{displayFreeMargin}</Text>
+              </View>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Leverage</Text>
+                <Text style={styles.metricValue}>{displayLeverage}</Text>
+              </View>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Floating P/L</Text>
+                <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]}>
+                  {displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}
+                </Text>
+              </View>
+            </View>
 
-              {/* Balance — from GET /accounts API */}
-              <Text style={styles.activeBalance}>{displayBalance}</Text>
+            {/* Detail chips row */}
+            <View style={styles.detailChipsRow}>
+              <View style={styles.detailChip}>
+                <Ionicons name="key-outline" size={13} color={T.textMuted} />
+                <Text style={styles.detailChipText}>{displayLogin}</Text>
+              </View>
+              <View style={styles.detailChip}>
+                <Ionicons name="server-outline" size={13} color={T.textMuted} />
+                <Text style={styles.detailChipText}>{displayServerName}</Text>
+              </View>
+              <View style={styles.detailChip}>
+                <Ionicons name="briefcase-outline" size={13} color={T.textMuted} />
+                <Text style={styles.detailChipText}>{displayOpenPositions} open</Text>
+              </View>
+            </View>
 
-              <View style={styles.activeCardBottom}>
-                <Pressable onPress={() => openQRSheet(displayLogin)} hitSlop={15}>
-                  <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
+            {/* Divider */}
+            <View style={styles.activeDivider} />
+
+            {/* Status + Actions row */}
+            <View style={styles.activeFooter}>
+              <View style={styles.statusRow}>
+                <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
+                <Text style={styles.statusText}>MT5</Text>
+                <View style={styles.statusSep} />
+                <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
+                <Text style={styles.statusText}>Gateway</Text>
+              </View>
+              <View style={styles.activeActions}>
+                <Pressable style={styles.actionIcon} onPress={() => openQRSheet(displayLogin)} hitSlop={12}>
+                  <Ionicons name="qr-code-outline" size={16} color={T.textMuted} />
                 </Pressable>
-                <Ionicons name="notifications-outline" size={24} color={T.textSub} />
+                <Pressable style={styles.actionIcon} hitSlop={12}>
+                  <Ionicons name="notifications-outline" size={16} color={T.textMuted} />
+                </Pressable>
               </View>
             </View>
           </View>
 
-          {/* Connect To List */}
+          {/* ── Other Accounts ── */}
           {otherAccounts.length > 0 && (
-            <Text style={styles.connectToLabel}>Connect to:</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionLabel}>Other Accounts</Text>
+              <Text style={styles.sectionCount}>{otherAccounts.length}</Text>
+            </View>
           )}
 
           {otherAccounts.map((account) => {
-            const isDemo = account.group?.toLowerCase().includes('demo') || true; // Fallback logic as per original UI
-            const isReadonly = account.leverage === 0; // Simple heuristic or property if available
-            
+            const isDemo = account.group?.toLowerCase().includes('demo') ?? false;
+            const isExpanded = expandedLogin === account.login;
+
             return (
-              <View key={account.login} style={[styles.secondaryCardWrap, { marginTop: spacing.md }]}>
-                <View style={styles.secondaryCard}>
-                  {isReadonly && (
-                    <View style={styles.readonlyRibbon}>
-                      <Text style={styles.readonlyText}>Readonly</Text>
+              <Pressable
+                key={account.login}
+                style={[styles.secondaryCard, isExpanded && styles.secondaryCardExpanded]}
+                onPress={() => setExpandedLogin(isExpanded ? null : account.login)}
+              >
+                {/* Diagonal ribbon */}
+                <View style={[styles.ribbonRightSmall, isDemo && { backgroundColor: '#10B981' }]}>
+                  <Text style={styles.ribbonRightText}>{isDemo ? 'Demo' : 'Contest'}</Text>
+                </View>
+                <View style={styles.secondaryTopRow}>
+                  <View style={styles.secondaryLeft}>
+                    <View style={styles.secondaryAvatar}>
+                      <Image source={require('../../../assets/icon.png')} style={styles.secondaryAvatarImage} />
                     </View>
-                  )}
-                  {isDemo && (
-                    <View style={styles.demoRibbon}>
-                      <Text style={styles.demoText}>Demo</Text>
+                    <View style={styles.secondaryInfo}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={styles.secondaryName} numberOfLines={1}>{account.name || `Account ${account.login}`}</Text>
+                        <Ionicons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={14}
+                          color={T.textDimmed}
+                        />
+                      </View>
+                      <Text style={styles.secondaryMeta}>{account.login} · {displayServerName}</Text>
                     </View>
-                  )}
-
-                  <View style={styles.secondaryHeaderRow}>
-                    <View style={[styles.secondaryLogoWrap, { backgroundColor: '#080e18', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }]}>
-                      <Text style={styles.secondaryLogoText}>lexy</Text>
-                    </View>
-                    <View style={styles.secondaryInfoWrap}>
-                      <Text style={styles.secondaryName}>{account.name || `Account ${account.login}`}</Text>
-                      <Text style={styles.secondaryCompany}>{displayBrokerName}</Text>
-                      <Text style={styles.secondaryServer}>{account.login} — {displayServerName}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.secondaryBalance}>{fmt.price(account.balance)}</Text>
-                  <Text style={styles.secondaryCurrency}>{account.currency}, last known</Text>
-
-                  <View style={styles.secondaryCardBottom}>
-                    <Pressable onPress={() => openQRSheet(String(account.login))} hitSlop={15}>
-                      <Ionicons name="qr-code-outline" size={24} color={T.textSub} />
-                    </Pressable>
-                    <Ionicons name="information-circle-outline" size={24} color={T.textSub} />
                   </View>
                 </View>
-              </View>
+                <View style={styles.secondaryBalanceRow}>
+                  <Text style={styles.secondaryBalance}>{fmt.price(account.balance)}</Text>
+                  <Text style={styles.secondaryCurrency}>{account.currency}</Text>
+                </View>
+
+                {isExpanded && (
+                  <View style={styles.expandedSection}>
+                    <View style={styles.expandedDivider} />
+
+                    {/* Balance hero like active card */}
+                    <View style={styles.expandedBalanceSection}>
+                      <Text style={styles.expandedBalanceLabel}>Balance</Text>
+                      <Text style={styles.expandedBalanceValue}>{fmt.price(account.balance)} <Text style={styles.expandedBalanceCurrency}>{account.currency}</Text></Text>
+                    </View>
+
+                    {/* Metrics grid */}
+                    <View style={styles.expandedGrid}>
+                      <View style={styles.expandedItem}>
+                        <Text style={styles.expandedLabel}>Equity</Text>
+                        <Text style={styles.expandedValue}>{fmt.price(account.equity)}</Text>
+                      </View>
+                      <View style={styles.expandedItem}>
+                        <Text style={styles.expandedLabel}>Free Margin</Text>
+                        <Text style={styles.expandedValue}>{fmt.price(account.freeMargin)}</Text>
+                      </View>
+                      <View style={styles.expandedItem}>
+                        <Text style={styles.expandedLabel}>Leverage</Text>
+                        <Text style={styles.expandedValue}>1:{account.leverage}</Text>
+                      </View>
+                      <View style={styles.expandedItem}>
+                        <Text style={styles.expandedLabel}>Floating P/L</Text>
+                        <Text style={[styles.expandedValue, { color: account.floatingPnl >= 0 ? '#10B981' : '#EF4444' }]}>
+                          {account.floatingPnl >= 0 ? '+' : ''}{fmt.price(account.floatingPnl)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Detail chips */}
+                    <View style={styles.expandedChips}>
+                      <View style={styles.detailChip}>
+                        <Ionicons name="briefcase-outline" size={12} color={T.textMuted} />
+                        <Text style={styles.detailChipText}>{account.openPositions} open</Text>
+                      </View>
+                      <View style={styles.detailChip}>
+                        <Ionicons name="server-outline" size={12} color={T.textMuted} />
+                        <Text style={styles.detailChipText}>{displayServerName}</Text>
+                      </View>
+                    </View>
+
+                    {/* Status + Actions — same as active card */}
+                    <View style={styles.expandedDivider} />
+                    <View style={styles.activeFooter}>
+                      <View style={styles.statusRow}>
+                        <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
+                        <Text style={styles.statusText}>MT5</Text>
+                        <View style={styles.statusSep} />
+                        <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
+                        <Text style={styles.statusText}>Gateway</Text>
+                      </View>
+                      <View style={styles.activeActions}>
+                        <Pressable style={styles.actionIcon} onPress={() => openQRSheet(String(account.login))} hitSlop={12}>
+                          <Ionicons name="qr-code-outline" size={16} color={T.textMuted} />
+                        </Pressable>
+                        <Pressable style={styles.actionIcon} hitSlop={12}>
+                          <Ionicons name="notifications-outline" size={16} color={T.textMuted} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </Pressable>
             );
           })}
-
-          {/* Server Status */}
-          {/* API INTEGRATION: GET /api/mt5/status */}
-          <View style={styles.serverStatusContainer}>
-            <View style={styles.serverStatus}>
-              <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#34C759' : healthError ? '#FF3B30' : '#8E8E93' }]} />
-              <Text style={styles.statusText}>
-                {health?.status === 'healthy'
-                  ? `Gateway: Healthy · v${health.version}`
-                  : healthError
-                    ? 'Gateway: Unreachable'
-                    : 'Gateway: Checking...'}
-              </Text>
-            </View>
-
-            <View style={styles.serverStatus}>
-              <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#34C759' : mt5StatusError ? '#FF3B30' : '#8E8E93' }]} />
-              <Text style={styles.statusText}>
-                {mt5Status?.connected
-                  ? `MT5: Connected`
-                  : mt5StatusError
-                    ? 'MT5: Disconnected'
-                    : 'MT5: Checking...'}
-              </Text>
-            </View>
-          </View>
 
         </ScrollView>
       </View>
@@ -373,201 +490,522 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     paddingHorizontal: 16,
   },
 
-  // Active Card
-  activeCardWrap: {
-    marginTop: 8,
-    marginBottom: 24,
-  },
+  // ── Active Card ──
   activeCard: {
-    backgroundColor: isDark ? '#0f1525' : T.glass2,
-    borderRadius: 20,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: isDark ? '#0E1420' : '#FFFFFF',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
-    shadowColor: isDark ? T.trading.buy.primary : '#0F172A', shadowOffset: { width: 0, height: isDark ? 4 : 8 }, shadowOpacity: isDark ? 0.05 : 0.04, shadowRadius: isDark ? 16 : 24, elevation: isDark ? 4 : 0,
-    padding: 24,
-    alignItems: 'center',
+    borderColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(0,0,0,0.06)',
+    padding: 10,
+    shadowColor: isDark ? '#3B82F6' : '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: isDark ? 0.06 : 0.04,
+    shadowRadius: 20,
+    elevation: 4,
     overflow: 'hidden',
   },
-  contestRibbon: {
+  ribbonRight: {
     position: 'absolute',
-    top: 16,
-    right: -24,
-    backgroundColor: '#007AFF', // Blue badge
+    top: 14,
+    right: -30,
+    backgroundColor: '#3B82F6',
     paddingVertical: 4,
-    paddingHorizontal: 30,
+    paddingHorizontal: 32,
     transform: [{ rotate: '45deg' }],
+    zIndex: 10,
   },
-  contestText: {
+  ribbonRightText: {
     color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  activeLogoWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    backgroundColor: isDark ? '#080e18' : T.glass1,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.08)' : T.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  activeName: {
-    color: T.text,
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  activeCompany: {
-    color: '#348be8', // Light blue
-    fontSize: 14,
-    marginTop: 4,
-  },
-  activeServer: {
-    color: T.textMuted,
-    fontSize: 14,
-    marginTop: 12,
-  },
-  accessServer: {
-    color: T.textMuted,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  activeBalance: {
-    color: T.text,
-    fontSize: 28,
-    fontWeight: '500',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  activeCardBottom: {
+  ribbonLeft: {
     position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-
-  // Secondary Cards
-  connectToLabel: {
-    color: T.textMuted,
-    fontSize: 15,
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-  secondaryCardWrap: {
-    marginBottom: 16,
-  },
-  secondaryCard: {
-    backgroundColor: isDark ? '#0c1018' : T.glass1,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.08)' : T.borderSubtle,
-    padding: 20,
-    overflow: 'hidden',
-    shadowColor: isDark ? '#000' : '#0F172A', shadowOffset: { width: 0, height: isDark ? 2 : 6 }, shadowOpacity: isDark ? 0.3 : 0.03, shadowRadius: isDark ? 8 : 16, elevation: isDark ? 2 : 0,
-  },
-  demoRibbon: {
-    position: 'absolute',
-    top: 16,
-    right: -24,
-    backgroundColor: '#2ca82e', // Green badge
+    top: 14,
+    left: -30,
+    backgroundColor: '#10B981',
     paddingVertical: 4,
-    paddingHorizontal: 30,
-    transform: [{ rotate: '45deg' }],
-  },
-  demoText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  readonlyRibbon: {
-    position: 'absolute',
-    top: 16,
-    left: -24,
-    backgroundColor: '#555', // Grey badge
-    paddingVertical: 2,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
     transform: [{ rotate: '-45deg' }],
     zIndex: 10,
   },
-  readonlyText: {
-    color: isDark ? '#ccc' : '#fff',
+  ribbonLeftText: {
+    color: '#fff',
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  secondaryHeaderRow: {
+  activeTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
-  secondaryLogoWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+  avatarWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
-  secondaryLogoText: {
-    color: '#348be8',
-    fontSize: 14,
-    fontWeight: '700',
+  avatarText: {
+    color: T.accent,
+    fontSize: 20,
+    fontWeight: '800',
   },
-  secondaryInfoWrap: {
+  avatarImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+  },
+  activeInfoCol: {
     flex: 1,
   },
-  secondaryName: {
+  activeName: {
     color: T.text,
-    fontSize: 18,
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
-  secondaryCompany: {
-    color: '#348be8',
-    fontSize: 14,
-    marginTop: 2,
-  },
-  secondaryServer: {
-    color: T.textMuted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  secondaryBalance: {
-    color: T.textMuted,
-    fontSize: 24,
-    fontWeight: '400',
-  },
-  secondaryCurrency: {
-    color: T.textMuted,
-    fontSize: 13,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  secondaryCardBottom: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  serverStatusContainer: {
-    paddingVertical: 16,
-    gap: 12,
-    alignItems: 'center',
-  },
-  serverStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
+  activeCompany: {
     color: T.textMuted,
     fontSize: 12,
     fontWeight: '500',
+    marginTop: 2,
+  },
+  connectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 5,
+  },
+  connectedDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  connectedLabel: {
+    color: '#10B981',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  nameAndBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  badgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  demoBadgeActive: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  demoBadgeActiveText: {
+    color: '#10B981',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  liveBadge: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  liveBadgeText: {
+    color: '#3B82F6',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+
+  // Balance hero
+  balanceSection: {
+    marginBottom: 8,
+  },
+  balanceLabel: {
+    color: T.textDimmed,
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  balanceValue: {
+    color: T.text,
+    fontSize: 30,
+    fontWeight: '800',
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'] as any,
+  },
+
+  balanceCurrency: {
+    color: T.textDimmed,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+
+  // Metrics grid
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  metricItem: {
+    width: '47%' as any,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  metricLabel: {
+    color: T.textDimmed,
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  metricValue: {
+    color: T.text,
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
+  },
+
+  // Detail chips
+  detailChipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  detailChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    gap: 6,
+  },
+  detailChipText: {
+    color: T.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  activeDivider: {
+    height: 1,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+    marginBottom: 12,
+  },
+
+  // Footer
+  activeFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    color: T.textDimmed,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  statusSep: {
+    width: 1,
+    height: 10,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+    marginHorizontal: 4,
+  },
+  activeActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  actionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ── Section header ──
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  sectionLabel: {
+    color: T.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  sectionCount: {
+    color: T.textDimmed,
+    fontSize: 12,
+    fontWeight: '600',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+
+  // ── Secondary cards ──
+  secondaryCard: {
+    backgroundColor: isDark ? '#0C1018' : T.glass2,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    padding: 14,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  secondaryLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  secondaryAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  secondaryAvatarText: {
+    color: T.textMuted,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryAvatarImage: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+  },
+  secondaryInfo: {
+    flex: 1,
+  },
+  secondaryNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  secondaryName: {
+    color: T.text,
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  tagDemo: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  tagDemoText: {
+    color: '#10B981',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  tagContest: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  tagContestText: {
+    color: '#3B82F6',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  tagReadonly: {
+    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  tagReadonlyText: {
+    color: T.textDimmed,
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  secondaryMeta: {
+    color: T.textDimmed,
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  secondaryBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    marginTop: 10,
+    paddingLeft: 50,
+  },
+  secondaryRight: {
+    alignItems: 'flex-end',
+  },
+  secondaryBalance: {
+    color: T.text,
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  secondaryCurrency: {
+    color: T.textDimmed,
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  secondaryCardExpanded: {
+    borderColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.12)',
+  },
+  secondaryTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expandedSection: {
+    marginTop: 0,
+  },
+  expandedDivider: {
+    height: 1,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    marginVertical: 6,
+  },
+  expandedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  expandedItem: {
+    width: '47%' as any,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  expandedLabel: {
+    color: T.textDimmed,
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 2,
+  },
+  expandedValue: {
+    color: T.text,
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  expandedChips: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cornerBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#3B82F6',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderBottomLeftRadius: 10,
+    borderTopRightRadius: 15,
+    zIndex: 10,
+  },
+  cornerBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  ribbonRightSmall: {
+    position: 'absolute',
+    top: 12,
+    right: -32,
+    backgroundColor: '#3B82F6',
+    paddingVertical: 3,
+    paddingHorizontal: 30,
+    transform: [{ rotate: '45deg' }],
+    zIndex: 10,
+  },
+  ribbonLeftSmall: {
+    position: 'absolute',
+    top: 10,
+    left: -32,
+    backgroundColor: '#10B981',
+    paddingVertical: 3,
+    paddingHorizontal: 32,
+    transform: [{ rotate: '-45deg' }],
+    zIndex: 10,
+  },
+  secondaryRightCol: {
+    alignItems: 'flex-end',
+  },
+  expandedBalanceSection: {
+    marginBottom: 6,
+  },
+  expandedBalanceLabel: {
+    color: T.textDimmed,
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  expandedBalanceValue: {
+    color: T.text,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  expandedBalanceCurrency: {
+    color: T.textDimmed,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  expandedFooter: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
   },
 });

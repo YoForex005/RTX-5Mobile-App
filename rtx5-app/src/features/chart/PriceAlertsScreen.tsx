@@ -17,6 +17,8 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -26,7 +28,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
 import { useTheme } from '../../theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useAlertsQuery, useCreateAlertMutation, useDeleteAlertMutation } from '../../query/alerts';
@@ -107,170 +108,179 @@ export function PriceAlertsScreen() {
     [alerts],
   );
 
+  const screenBg = isDark ? T.bg : '#F1F5F9';
+
   return (
-    <Screen style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: screenBg }]}>
+      {/* ── Status bar spacer ── */}
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
+
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={24} color={T.text} />
-          </Pressable>
-          <View style={styles.headerCenter} pointerEvents="none">
-            <Text style={[styles.headerTitle, { color: T.text }]}>Price Alerts</Text>
-          </View>
-          <View style={styles.headerBtn} />
-        </View>
+      <View style={[styles.header, { backgroundColor: screenBg }]}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>
+          Price Alerts
+        </Text>
+        <View style={styles.headerBtn} />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={isDark ? '#D1D4DC' : '#131722'}
-            colors={[T.accent]}
-            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
-          />
-        }
+      <KeyboardAvoidingView
+        style={styles.flex1}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-
-        {/* ── Create Alert Form ── */}
-        <View style={styles.sectionHeader}>
-          <Ionicons name="add-circle-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>NEW ALERT</Text>
-        </View>
-        <View style={styles.card}>
-          {/* Symbol */}
-          <View style={styles.fieldRow}>
-            <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Symbol</Text>
-            <TextInput
-              style={[styles.fieldInput, { color: T.text }]}
-              value={symbol}
-              onChangeText={(v) => setSymbol(v.toUpperCase())}
-              placeholder="e.g. EURUSD"
-              placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
-              autoCapitalize="characters"
-              returnKeyType="next"
+        <ScrollView
+          style={styles.flex1}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={isDark ? '#D1D4DC' : '#131722'}
+              colors={[T.accent]}
+              progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
             />
-          </View>
-          <View style={styles.separator} />
+          }
+        >
 
-          {/* Condition toggle */}
-          <View style={styles.fieldRow}>
-            <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Condition</Text>
-            <View style={styles.conditionToggle}>
-              {(['above', 'below'] as AlertCondition[]).map((c) => (
-                <Pressable
-                  key={c}
-                  style={[
-                    styles.conditionPill,
-                    condition === c && {
-                      backgroundColor: c === 'above' ? T.trading.buy.primary : T.trading.sell.primary,
-                    },
-                  ]}
-                  onPress={() => setCondition(c)}
-                >
-                  <Text style={[
-                    styles.conditionPillText,
-                    { color: condition === c ? '#FFFFFF' : T.textMuted },
-                  ]}>
-                    {c === 'above' ? '▲ Above' : '▼ Below'}
-                  </Text>
-                </Pressable>
-              ))}
+          {/* ── Create Alert Form ── */}
+          <View style={styles.sectionHeader}>
+            <Ionicons name="add-circle-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+            <Text style={styles.sectionTitle}>NEW ALERT</Text>
+          </View>
+          <View style={styles.card}>
+            {/* Symbol */}
+            <View style={styles.fieldRow}>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Symbol</Text>
+              <TextInput
+                style={[styles.fieldInput, { color: T.text }]}
+                value={symbol}
+                onChangeText={(v) => setSymbol(v.toUpperCase())}
+                placeholder="e.g. EURUSD"
+                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                autoCapitalize="characters"
+                returnKeyType="next"
+              />
             </View>
-          </View>
-          <View style={styles.separator} />
+            <View style={styles.separator} />
 
-          {/* Price */}
-          <View style={styles.fieldRow}>
-            <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Price</Text>
-            <TextInput
-              style={[styles.fieldInput, { color: T.text }]}
-              value={price}
-              onChangeText={setPrice}
-              placeholder="0.00000"
-              placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
-              keyboardType="decimal-pad"
-              returnKeyType="next"
-            />
-          </View>
-          <View style={styles.separator} />
-
-          {/* Message (optional) */}
-          <View style={styles.fieldRow}>
-            <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Note</Text>
-            <TextInput
-              style={[styles.fieldInput, { color: T.text }]}
-              value={message}
-              onChangeText={setMessage}
-              placeholder="Optional notification note"
-              placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
-              returnKeyType="done"
-            />
-          </View>
-
-          {/* Error */}
-          {!!formError && (
-            <View style={styles.errorRow}>
-              <Ionicons name="warning-outline" size={14} color={T.down} />
-              <Text style={[styles.errorText, { color: T.down }]}>{formError}</Text>
+            {/* Condition toggle */}
+            <View style={styles.fieldRow}>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Condition</Text>
+              <View style={styles.conditionToggle}>
+                {(['above', 'below'] as AlertCondition[]).map((c) => (
+                  <Pressable
+                    key={c}
+                    style={[
+                      styles.conditionPill,
+                      condition === c && {
+                        backgroundColor: c === 'above' ? T.trading.buy.primary : T.trading.sell.primary,
+                        borderColor: c === 'above' ? T.trading.buy.primary : T.trading.sell.primary,
+                      },
+                    ]}
+                    onPress={() => setCondition(c)}
+                  >
+                    <Text style={[
+                      styles.conditionPillText,
+                      { color: condition === c ? '#FFFFFF' : T.textMuted },
+                    ]}>
+                      {c === 'above' ? '▲ Above' : '▼ Below'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
-          )}
+            <View style={styles.separator} />
 
-          {/* Submit */}
-          <Pressable
-            style={[styles.createBtn, { backgroundColor: T.accent }, isCreating && { opacity: 0.6 }]}
-            onPress={handleCreate}
-            disabled={isCreating}
-          >
-            {isCreating
-              ? <ActivityIndicator size="small" color="#FFFFFF" />
-              : <Text style={styles.createBtnText}>Set Alert</Text>
-            }
-          </Pressable>
-        </View>
+            {/* Price */}
+            <View style={styles.fieldRow}>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Price</Text>
+              <TextInput
+                style={[styles.fieldInput, { color: T.text }]}
+                value={price}
+                onChangeText={setPrice}
+                placeholder="0.00000"
+                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                keyboardType="decimal-pad"
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.separator} />
 
-        {/* ── Active Alerts ── */}
-        <View style={styles.sectionHeader}>
-          <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>
-            MY ALERTS{alerts.length > 0 ? ` (${alerts.length})` : ''}
-          </Text>
-        </View>
+            {/* Message (optional) */}
+            <View style={styles.fieldRow}>
+              <Text style={[styles.fieldLabel, { color: T.textMuted }]}>Note</Text>
+              <TextInput
+                style={[styles.fieldInput, { color: T.text }]}
+                value={message}
+                onChangeText={setMessage}
+                placeholder="Optional notification note"
+                placeholderTextColor={isDark ? 'rgba(148,163,184,0.4)' : '#94A3B8'}
+                returnKeyType="done"
+              />
+            </View>
 
-        {isLoading ? (
-          <ActivityIndicator size="small" color={T.accent} style={{ marginTop: 24 }} />
-        ) : sorted.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="notifications-off-outline" size={32} color={isDark ? '#334155' : '#CBD5E1'} />
-            <Text style={[styles.emptyText, { color: T.textMuted }]}>No alerts set</Text>
-            <Text style={[styles.emptySubText, { color: isDark ? '#334155' : '#CBD5E1' }]}>
-              Create an alert above to be notified when a price is reached
+            {/* Error */}
+            {!!formError && (
+              <View style={styles.errorRow}>
+                <Ionicons name="warning-outline" size={14} color={T.down} />
+                <Text style={[styles.errorText, { color: T.down }]}>{formError}</Text>
+              </View>
+            )}
+
+            {/* Submit */}
+            <Pressable
+              style={[styles.createBtn, { backgroundColor: T.accent }, isCreating && { opacity: 0.6 }]}
+              onPress={handleCreate}
+              disabled={isCreating}
+            >
+              {isCreating
+                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                : <Text style={styles.createBtnText}>Set Alert</Text>
+              }
+            </Pressable>
+          </View>
+
+          {/* ── Active Alerts ── */}
+          <View style={styles.sectionHeader}>
+            <Ionicons name="notifications-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+            <Text style={styles.sectionTitle}>
+              MY ALERTS{alerts.length > 0 ? ` (${alerts.length})` : ''}
             </Text>
           </View>
-        ) : (
-          <View style={styles.card}>
-            {sorted.map((alert, idx) => (
-              <AlertRow
-                key={alert.id}
-                alert={alert}
-                onDelete={() => deleteAlert(alert.id)}
-                isDeleting={isDeleting}
-                isLast={idx === sorted.length - 1}
-                T={T}
-                isDark={isDark}
-                styles={styles}
-              />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-    </Screen>
+
+          {isLoading ? (
+            <ActivityIndicator size="small" color={T.accent} style={{ marginTop: 24 }} />
+          ) : sorted.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="notifications-off-outline" size={36} color={isDark ? '#334155' : '#CBD5E1'} />
+              <Text style={[styles.emptyText, { color: T.textMuted }]}>No alerts set</Text>
+              <Text style={[styles.emptySubText, { color: isDark ? '#475569' : '#94A3B8' }]}>
+                Create an alert above to get notified{'\n'}when a price level is reached
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.card}>
+              {sorted.map((alert, idx) => (
+                <AlertRow
+                  key={alert.id}
+                  alert={alert}
+                  onDelete={() => deleteAlert(alert.id)}
+                  isDeleting={isDeleting}
+                  isLast={idx === sorted.length - 1}
+                  T={T}
+                  isDark={isDark}
+                  styles={styles}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -363,26 +373,25 @@ function AlertRow({
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeStyles(T: ThemeColors, isDark: boolean) {
+function makeStyles(_T: ThemeColors, isDark: boolean) {
   const cardBg = isDark ? '#0B0F19' : '#FFFFFF';
   const border = isDark ? 'rgba(255,255,255,0.06)' : '#E2E8F0';
 
   return StyleSheet.create({
-    screen: { backgroundColor: isDark ? T.bg : '#F1F5F9', paddingHorizontal: 0 },
+    screen: { flex: 1 },
+    flex1: { flex: 1 },
     header: {
-      paddingHorizontal: 16,
-      paddingBottom: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 48,
+      paddingHorizontal: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: border,
-      backgroundColor: isDark ? T.bg : '#F1F5F9',
     },
-    headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    headerBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-    headerCenter: { flex: 1, alignItems: 'center' },
-    headerTitle: { fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
+    headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
+    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
 
-    scroll: { flex: 1 },
-    scrollContent: { paddingBottom: 48, paddingTop: 8 },
+    scrollContent: { paddingTop: 8 },
 
     sectionHeader: {
       flexDirection: 'row',

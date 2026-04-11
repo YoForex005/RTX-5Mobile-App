@@ -55,12 +55,9 @@ export function TradePositionRow({
   const rawLivePrice = isBuy ? liveBid : liveAsk;
   const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : item.openPrice;
 
-  // Calculate live floating P&L using standard FX contract math safely
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
-  const contractSize = isJpy ? 1000 : 100000;
-  const priceDiff = isBuy ? (livePrice - item.openPrice) : (item.openPrice - livePrice);
-  const livePnl = Number.isFinite(priceDiff) ? (priceDiff * (item.volume || 0.01) * contractSize) : 0;
+  const displayPnl = Number.isFinite(item.pnl) ? item.pnl : 0;
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -109,8 +106,8 @@ export function TradePositionRow({
             <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
           </View>
           <View style={styles.rightCol}>
-            <Text style={[styles.pnl, { color: livePnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-              {fmt.pnl(livePnl)}
+            <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
+              {fmt.pnl(displayPnl)}
             </Text>
           </View>
         </View>

@@ -1,25 +1,39 @@
 /**
  * Core module: accountSocket.ts
+ *
+ * Singleton WebSocket service for live account data.
+ *
+ * Protocol:
+ *   1. Connect to ws://server:8090/ws/v2?token=JWT_TOKEN
+ *   2. Subscribe: { "action": "subscribe", "channel": "metrics.LOGIN" }
+ *                  { "action": "subscribe", "channel": "positions.LOGIN" }
+ *
+ *   - metrics.LOGIN   -> balance, equity, margin, free margin, margin level, floating
+ *   - positions.LOGIN -> live profit per open trade (position updates)
  */
 
-import { useUserPreferences } from '../../state/userPreferences';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLogin } from '../../state/tradingLogin';
+import { useUserPreferences } from '../../state/userPreferences';
+import {
+  extractLiveAccountMetrics,
+  resolveAccountWsSession,
+  type AccountWsSession,
+} from './accountSocket.helpers';
 
-/**
- * Singleton service for managing the Live Account WebSocket connection.
- * Communicates strict auth -> subscribe sequences over port 8090.
- */
+const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'ws://69.197.178.27:8090/ws/v2';
+
 class AccountWebSocketService {
   private static instance: AccountWebSocketService;
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'ws://69.197.178.27:8090/ws/v2';
-  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnected = false;
-  private shouldReconnect = false; // Set false on explicit disconnect() to stop ghost retries
+  private shouldReconnect = false;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private readonly maxReconnectAttempts = 5;
+  private activeSession: AccountWsSession | null = null;
 
   private constructor() {}
 
@@ -30,90 +44,71 @@ class AccountWebSocketService {
     return AccountWebSocketService.instance;
   }
 
-  /**
-   * Public entry point. Resets backoff state then opens the socket.
-   * Call this on login or explicit reconnect from the layout.
-   */
   public connect(): void {
     this.shouldReconnect = true;
     this.reconnectAttempts = 0;
-    this._doConnect();
+    this.clearReconnectTimer();
+
+    const desiredSession = this.resolveSession();
+    if (
+      desiredSession &&
+      this.activeSession &&
+      (desiredSession.login !== this.activeSession.login || desiredSession.token !== this.activeSession.token)
+    ) {
+      this.teardownSocket(false);
+    }
+
+    this.doConnect();
   }
 
-  /**
-   * Internal: creates the WebSocket and wires all event handlers.
-   * Called by connect() and by the reconnect timer (without resetting attempt count).
-   */
-  private _doConnect(): void {
+  public disconnect(): void {
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+    this.activeSession = null;
+    this.clearReconnectTimer();
+    this.teardownSocket(true);
+  }
+
+  private resolveSession(): AccountWsSession | null {
+    return resolveAccountWsSession(
+      useUserPreferences.getState().accountDetails,
+      resolveTradingLogin(),
+    );
+  }
+
+  private doConnect(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
 
-    const accountDetails = useUserPreferences.getState().accountDetails;
-    if (!accountDetails || !accountDetails.credentials?.accessToken) {
-      console.warn('[Account WS] No auth credentials available. Will retry in 5s in case tokens are refreshing.');
-      // Don't set shouldReconnect = false here — the token may be mid-refresh.
-      // Schedule a delayed retry so we reconnect once the token lands.
-      if (this.shouldReconnect && !this.reconnectTimer) {
-        this.reconnectTimer = setTimeout(() => {
-          this.reconnectTimer = null;
-          this._doConnect();
-        }, 5000);
-      }
+    const session = this.resolveSession();
+    if (!session) {
+      console.warn('[Account WS] No authenticated MT5 session available. Will retry in 5s.');
+      this.scheduleRetry(5000);
       return;
     }
 
+    this.activeSession = session;
+    const wsUrl = `${BASE_WS_URL}?token=${encodeURIComponent(session.token)}`;
+
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('[Account WS] Connected to', this.url);
+        console.log('[Account WS] Connected');
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
-
-        // 1. Send Auth immediately
-        this.ws?.send(JSON.stringify({
-          action: 'auth',
-          token: accountDetails.credentials!.accessToken,
-        }));
-
-        // 2. Send Subscription Channel
-        this.ws?.send(JSON.stringify({
-          action: 'subscribe',
-          channel: `account.${accountDetails.id}`,
-        }));
+        this.send({ action: 'subscribe', channel: `metrics.${session.login}` });
+        this.send({ action: 'subscribe', channel: `positions.${session.login}` });
       };
 
       this.ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data as string);
-
-          // Legacy: pure account data (no event field)
-          if (payload.channel?.startsWith('account.') && payload.data && !payload.event) {
-            useLiveAccountState.getState().updateMetrics(payload.data);
-          }
-
-          // Real-time Event Routing
-          if (payload.event === 'position.update' && payload.data) {
-            console.log('[Account WS] Received position.update');
-            usePositionsState.getState().upsertPosition(payload.data);
-          }
-
-          if (payload.event === 'order.status' && payload.data) {
-            console.log('[Account WS] Received order.status');
-            const currentLogin =
-              payload.data.login || useUserPreferences.getState().accountDetails?.id;
-            if (currentLogin) {
-              void usePositionsState.getState().refreshPositions(String(currentLogin));
-            }
-          }
-
-          if (payload.event === 'account.snapshot' && payload.data) {
-            useLiveAccountState.getState().updateMetrics(payload.data);
-          }
-        } catch (e) {
-          console.warn('[Account WS] Parse error', e);
+          this.handlePayload(payload);
+        } catch (error) {
+          console.warn('[Account WS] Parse error', error);
         }
       };
 
@@ -126,77 +121,122 @@ class AccountWebSocketService {
       };
 
       this.ws.onerror = () => {
-        // Log a clean one-liner instead of dumping the raw Event object
         const state = this.ws?.readyState ?? -1;
-        console.warn(
-          `[Account WS] Connection error — url: ${this.url} | readyState: ${state}`,
-        );
+        console.warn(`[Account WS] Connection error - readyState: ${state}`);
       };
-    } catch (e) {
-      console.error('[Account WS] Connection initialization failed', e);
+    } catch (error) {
+      console.error('[Account WS] Connection initialization failed', error);
       this.attemptReconnect();
     }
   }
 
-  /**
-   * Forcefully closes the connection, clears active heartbeat intervals, 
-   * and resets the live account state to zeros.
-   */
-  public disconnect(): void {
-    // Signal that this is an intentional close — stop all pending reconnect timers
-    this.shouldReconnect = false;
-    this.reconnectAttempts = 0;
+  private handlePayload(payload: any): void {
+    const channel = typeof payload?.channel === 'string' ? payload.channel : '';
+    const data = payload?.data ?? payload;
 
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    if ((channel.startsWith('metrics.') || channel.startsWith('account.')) && data) {
+      const metrics = extractLiveAccountMetrics(data);
+      if (metrics) {
+        useLiveAccountState.getState().updateMetrics(metrics);
+      }
     }
 
-    if (this.ws) {
-      this.stopHeartbeat();
-      this.ws.close();
-      this.ws = null;
-      this.isConnected = false;
+    if (channel.startsWith('positions.') && data) {
+      this.handlePositionsPayload(data);
     }
-    useLiveAccountState.getState().resetMetrics();
+
+    if (payload?.event === 'position.update' && payload.data) {
+      usePositionsState.getState().upsertPosition(payload.data);
+    }
+
+    if (payload?.event === 'order.status' && payload.data) {
+      const currentLogin = payload.data.login || resolveTradingLogin() || useUserPreferences.getState().accountDetails?.id;
+      if (currentLogin) {
+        void usePositionsState.getState().refreshPositions(String(currentLogin));
+      }
+    }
+
+    if (payload?.event === 'account.snapshot' && payload.data) {
+      const metrics = extractLiveAccountMetrics(payload.data);
+      if (metrics) {
+        useLiveAccountState.getState().updateMetrics(metrics);
+      }
+    }
   }
 
-  private attemptReconnect(): void {
-    // Do NOT reconnect if disconnect() was called explicitly
-    if (!this.shouldReconnect) return;
-    const accountDetails = useUserPreferences.getState().accountDetails;
-    if (!accountDetails?.credentials?.accessToken) {
-      // Token may be mid-refresh — retry in 5s instead of giving up permanently.
-      console.warn('[Account WS] No credentials during reconnect — retrying in 5s.');
-      if (!this.reconnectTimer) {
-        this.reconnectTimer = setTimeout(() => {
-          this.reconnectTimer = null;
-          this._doConnect();
-        }, 5000);
+  private handlePositionsPayload(data: any): void {
+    if (Array.isArray(data)) {
+      for (const position of data) {
+        usePositionsState.getState().upsertPosition(position);
       }
       return;
     }
 
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const timeout = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
-      console.log(`[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this._doConnect();
-      }, timeout);
-    } else {
+    if (Array.isArray(data?.positions)) {
+      for (const position of data.positions) {
+        usePositionsState.getState().upsertPosition(position);
+      }
+      return;
+    }
+
+    if (data && typeof data === 'object' && (data.ticket || data.id || data.symbol)) {
+      usePositionsState.getState().upsertPosition(data);
+    }
+  }
+
+  private send(message: Record<string, unknown>): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (!this.shouldReconnect) {
+      return;
+    }
+
+    if (!this.resolveSession()) {
+      console.warn('[Account WS] No valid auth session during reconnect. Retrying in 5s.');
+      this.scheduleRetry(5000);
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[Account WS] Max reconnect attempts reached. Giving up until next login.');
       this.shouldReconnect = false;
+      return;
+    }
+
+    this.reconnectAttempts += 1;
+    const timeout = Math.min(1000 * 2 ** this.reconnectAttempts, 10000);
+    console.log(
+      `[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+    );
+    this.scheduleRetry(timeout);
+  }
+
+  private scheduleRetry(timeoutMs: number): void {
+    if (!this.shouldReconnect || this.reconnectTimer) {
+      return;
+    }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.doConnect();
+    }, timeoutMs);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
   }
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-         this.ws.send(JSON.stringify({ type: 'ping' }));
-      }
+      this.send({ type: 'ping' });
     }, 15000);
   }
 
@@ -204,6 +244,25 @@ class AccountWebSocketService {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
+    }
+  }
+
+  private teardownSocket(resetMetrics: boolean): void {
+    const currentSocket = this.ws;
+    this.stopHeartbeat();
+    this.isConnected = false;
+    this.ws = null;
+
+    if (currentSocket) {
+      currentSocket.onopen = null;
+      currentSocket.onmessage = null;
+      currentSocket.onerror = null;
+      currentSocket.onclose = null;
+      currentSocket.close();
+    }
+
+    if (resetMetrics) {
+      useLiveAccountState.getState().resetMetrics();
     }
   }
 }

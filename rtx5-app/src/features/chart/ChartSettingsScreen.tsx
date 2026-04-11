@@ -107,7 +107,7 @@ export function ChartSettingsScreen() {
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle} numberOfLines={1}>Settings</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>Chart Preferences</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>
@@ -163,16 +163,16 @@ export function ChartSettingsScreen() {
           />
         </View>
 
-        {/* ── CHART PREFERENCES ──────────────────────────────────── */}
+        {/* ── CHART CONFIGURATION ─────────────────────────────────── */}
         <View style={styles.sectionHeader}>
-          <Ionicons name="options-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>CHART PREFERENCES</Text>
+          <Ionicons name="build-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>CHART CONFIGURATION</Text>
         </View>
         <View style={styles.card}>
           <NavRow
             label="Chart"
-            value="TradingView"
-            onPress={() => {}}
+            value="RTX-5"
+            onPress={() => router.push('/(tabs)/chart')}
             styles={styles}
           />
           <View style={styles.separator} />

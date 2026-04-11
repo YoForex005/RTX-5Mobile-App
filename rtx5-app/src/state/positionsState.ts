@@ -3,73 +3,14 @@
  */
 
 import { create } from 'zustand';
-import { PositionItem } from '../mock/tradingData';
-import { positionsApi, Position } from '../api/positions';
+import type { PositionItem } from '../mock/tradingData';
+import { positionsApi, type Position } from '../api/positions';
 import {
   classifyTradingError,
   createFrontendTradingError,
-  TradingErrorFeedback,
+  type TradingErrorFeedback,
 } from '../api/tradingErrors';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Global positions state (Zustand).
-// Stores the list of open positions and exposes a refreshPositions action
-// that fetches from the live API via positionsApi.getPositions().
-// Used by TradeScreen, BulkOperationScreen, and anywhere that needs
-// synchronous access to the current positions list outside React Query.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Maps a raw Position DTO from the API into the app's PositionItem model.
- * Identical to the mapping in query/positions.ts — kept in sync here for
- * the imperative refreshPositions path that bypasses React Query.
- */
-function mapPositionToItem(dto: any): PositionItem {
-  // Safely parse openTime to avoid RangeError on invalid dates
-  let openTimeStr = new Date().toISOString();
-  try {
-    if (dto.time_create) {
-      if (typeof dto.time_create === 'number') {
-        // Assume seconds from epoch (MT5 standard)
-        openTimeStr = new Date(dto.time_create * 1000).toISOString();
-      } else if (typeof dto.time_create === 'string') {
-        openTimeStr = new Date(dto.time_create).toISOString();
-      }
-    }
-  } catch (e) {
-    console.warn('[PositionsState] Invalid time_create format:', dto.time_create);
-  }
-
-  // ── STABLE FALLBACK ID ────────────────────────────────────────────────
-  // The backend usually returns `ticket` (the MT5 position ticket) which is a
-  // stable integer. Until it does, use a DETERMINISTIC fallback derived from
-  // the position's intrinsic fields, NOT Math.random().
-  //
-  // The previous version used `Math.random()` as the last fallback. Two
-  // problems with that:
-  //   1. String(Math.random()) returns "0.1774502954656" — the dot makes
-  //      React's reconciler interpret the key as a nested path and emits
-  //      "Encountered two children with the same key, `.$1774502954656`"
-  //      (the leading `0.` is treated as a path separator).
-  //   2. A different random number is generated on every re-map of the same
-  //      DTO, so the same position gets a fresh key each render — causing
-  //      list re-mounts and unstable selection state.
-  const stableFallbackId =
-    `pos_${dto.symbol || 'unknown'}_${dto.side || 'na'}_${dto.time_create || 0}_${dto.volume || 0}_${dto.price_open || 0}`;
-  return {
-    id: String(dto.ticket || dto.id || stableFallbackId),
-    symbol: dto.symbol || 'UNKNOWN',
-    side: dto.side || 'buy',
-    volume: dto.volume || 0,
-    openPrice: dto.price_open || 0,
-    currentPrice: dto.price_current || dto.price_open || 0,
-    pnl: (Number(dto.profit) || 0) + (Number(dto.swap) || 0) + (Number(dto.commission) || 0),
-    swap: Number(dto.swap) || 0,
-    openTime: openTimeStr,
-    sl: dto.price_sl || dto.sl || 0,
-    tp: dto.price_tp || dto.tp || 0,
-  };
-}
+import { mapPositionToItem } from './positionsMapper';
 
 type PositionsState = {
   positions: PositionItem[];
@@ -81,50 +22,49 @@ type PositionsState = {
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
 
+function findExistingPosition(positions: PositionItem[], dto: any): PositionItem | undefined {
+  const incomingId = dto?.ticket ?? dto?.id;
+  if (incomingId !== undefined && incomingId !== null) {
+    return positions.find((position) => String(position.id) === String(incomingId));
+  }
+
+  return undefined;
+}
+
 export const usePositionsState = create<PositionsState>((set) => ({
   positions: [],
   isLoading: false,
   lastFetchLogin: null,
   lastError: null,
   setPositions: (positions) => set({ positions }),
-  
+
   upsertPosition: (dto: any) => {
     set((state) => {
-      const newItem = mapPositionToItem(dto);
-      // critically stamp WebSocket trades with a client timestamp so the 
-      // REST polling loop doesn't instantly purge them before the DB catches up!
-      newItem.clientCreatedAt = Date.now();
-      
-      const existsIdx = state.positions.findIndex(p => p.id === newItem.id);
-      let newPositions = [...state.positions];
-      
+      const existing = findExistingPosition(state.positions, dto);
+      const newItem = mapPositionToItem(dto, existing);
+      newItem.clientCreatedAt = existing?.clientCreatedAt ?? Date.now();
+      newItem.clientModifiedAt = existing?.clientModifiedAt;
+
+      const existsIdx = state.positions.findIndex((position) => position.id === newItem.id);
+      const nextPositions = [...state.positions];
+
       if (existsIdx >= 0) {
-        // Safe update: retain clientCreatedAt to prevent optimistic expiration bugs
-        newPositions[existsIdx] = { ...newItem, clientCreatedAt: state.positions[existsIdx].clientCreatedAt };
+        nextPositions[existsIdx] = newItem;
       } else {
-        newPositions = [newItem, ...newPositions];
+        nextPositions.unshift(newItem);
       }
-      
-      // Keep sorted newest-first
-      newPositions.sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
-      
-      return { positions: newPositions };
+
+      nextPositions.sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
+      return { positions: nextPositions };
     });
   },
 
-  /**
-   * Fetches open positions from the live trading API and updates state.
-   * Routes through positionsApi.getPositions() which uses apiClient for
-   * automatic Bearer token injection and 401 token refresh handling.
-   *
-   * @param accountLogin - The MT5 account login number as a string
-   */
   refreshPositions: async (accountLogin: string) => {
     set({ isLoading: true, lastFetchLogin: accountLogin, lastError: null });
 
     try {
       const login = parseInt(accountLogin, 10);
-      if (isNaN(login)) {
+      if (Number.isNaN(login)) {
         console.warn('[PositionsState] Invalid account login:', accountLogin);
         set({
           isLoading: false,
@@ -137,13 +77,11 @@ export const usePositionsState = create<PositionsState>((set) => ({
       }
 
       const data = await positionsApi.getPositions(login);
-      
-      // Handle both array and wrapped responses (e.g. { data: [...] } or { positions: [...] })
+
       let positionsArray: Position[];
       if (Array.isArray(data)) {
         positionsArray = data;
       } else if (data && typeof data === 'object') {
-        // Try common wrapper keys first
         const wrapped = data as any;
         if (Array.isArray(wrapped.data)) {
           positionsArray = wrapped.data;
@@ -154,15 +92,12 @@ export const usePositionsState = create<PositionsState>((set) => ({
         } else if (Array.isArray(wrapped.result)) {
           positionsArray = wrapped.result;
         } else {
-          // Check if any value is an array
           const arrVal = Object.values(wrapped).find(Array.isArray);
           if (arrVal) {
             positionsArray = arrVal as Position[];
           } else if (wrapped.ticket || wrapped.id) {
-            // It's a single position object!
             positionsArray = [wrapped];
           } else {
-            // It might be a dictionary of positions
             const vals = Object.values(wrapped);
             if (vals.length > 0 && typeof vals[0] === 'object' && (vals[0] as any).ticket) {
               positionsArray = vals as Position[];
@@ -177,46 +112,46 @@ export const usePositionsState = create<PositionsState>((set) => ({
       }
 
       console.log('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
-      const mapped = positionsArray.map(mapPositionToItem);
-      
+
       set((state) => {
+        const mapped = positionsArray.map((dto) => mapPositionToItem(dto, findExistingPosition(state.positions, dto)));
         const now = Date.now();
-        // Preserve client-created optimistic positions briefly so a slow
-        // /positions replication step does not blank the list right after
-        // a filled order. Do not depend on server timestamps for this.
-        const optimisticPositions = state.positions.filter(p => {
-          const clientCreatedAt = p.clientCreatedAt ?? 0;
+
+        const optimisticPositions = state.positions.filter((position) => {
+          const clientCreatedAt = position.clientCreatedAt ?? 0;
           if (!clientCreatedAt) return false;
 
           const ageMs = now - clientCreatedAt;
           const isRecent = ageMs >= 0 && ageMs < 60000;
-          const existsInFetched = mapped.some(m => m.id === p.id);
+          const existsInFetched = mapped.some((mappedPosition) => mappedPosition.id === position.id);
           return isRecent && !existsInFetched;
         });
 
-        // Override mapped properties with optimistic values if recently modified
-        const mergedMapped = mapped.map((m) => {
-          const existing = state.positions.find((p) => p.id === m.id);
+        const mergedMapped = mapped.map((mappedPosition) => {
+          const existing = state.positions.find((position) => position.id === mappedPosition.id);
           if (existing?.clientModifiedAt) {
             const modAgeMs = now - existing.clientModifiedAt;
-            // Retain local client SL/TP bounds for 10 seconds post-modification
-            // to allow the REST replica sequence to sync with MT5
             if (modAgeMs >= 0 && modAgeMs < 10000) {
-              return { 
-                ...m, 
-                sl: existing.sl, 
-                tp: existing.tp, 
-                clientModifiedAt: existing.clientModifiedAt 
+              return {
+                ...mappedPosition,
+                sl: existing.sl,
+                tp: existing.tp,
+                clientCreatedAt: existing.clientCreatedAt,
+                clientModifiedAt: existing.clientModifiedAt,
               };
             }
           }
-          return m;
+
+          return {
+            ...mappedPosition,
+            clientCreatedAt: existing?.clientCreatedAt,
+            clientModifiedAt: existing?.clientModifiedAt,
+          };
         });
 
-        // Combine and optionally sort by time (newest first)
-        const combined = [...optimisticPositions, ...mergedMapped].sort((a, b) => {
-          return new Date(b.openTime).getTime() - new Date(a.openTime).getTime();
-        });
+        const combined = [...optimisticPositions, ...mergedMapped].sort(
+          (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
+        );
 
         return {
           positions: combined,

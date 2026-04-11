@@ -38,12 +38,12 @@ const HMR_PERIODS = [
 const HMR_PREVIEW_COUNT = 3;
 
 const UPCOMING_EVENTS = [
-  { title: 'PPI YoY', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM – In 1 hour' },
-  { title: 'PPI MoM', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: '12:30 PM – In 1 hour' },
-  { title: 'Balance of Trade', flag: 'https://flagcdn.com/w40/it.png', countryCode: 'IT', impact: 3, time: '2:30 PM – In 3 hours' },
-  { title: 'Consumer Confidence', flag: 'https://flagcdn.com/w40/us.png', countryCode: 'US', impact: 2, time: '4:00 PM – In 5 hours' },
-  { title: 'Retail Sales MoM', flag: 'https://flagcdn.com/w40/gb.png', countryCode: 'GB', impact: 2, time: '7:00 AM – Tomorrow' },
-  { title: 'GDP QoQ', flag: 'https://flagcdn.com/w40/jp.png', countryCode: 'JP', impact: 3, time: '11:50 PM – In 12 hours' },
+  { title: 'PPI YoY', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: 'In 1 hour' },
+  { title: 'PPI MoM', flag: 'https://flagcdn.com/w40/de.png', countryCode: 'DE', impact: 3, time: 'In 1 hour' },
+  { title: 'Balance of Trade', flag: 'https://flagcdn.com/w40/it.png', countryCode: 'IT', impact: 3, time: 'In 3 hours' },
+  { title: 'Consumer Confidence', flag: 'https://flagcdn.com/w40/us.png', countryCode: 'US', impact: 2, time: 'In 5 hours' },
+  { title: 'Retail Sales MoM', flag: 'https://flagcdn.com/w40/gb.png', countryCode: 'GB', impact: 2, time: 'Tomorrow' },
+  { title: 'GDP QoQ', flag: 'https://flagcdn.com/w40/jp.png', countryCode: 'JP', impact: 3, time: 'In 12 hours' },
 ];
 
 const EVENTS_PREVIEW_COUNT = 3;
@@ -163,6 +163,8 @@ export function ChartAnalyticsScreen() {
   const [hmrExpanded, setHmrExpanded] = useState(false);
   const [signalExpanded, setSignalExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
+
+  const isSignalActive = true; // Set to false to test the EXPIRED gray dot indicator
   const [newsExpanded, setNewsExpanded] = useState(false);
   const [activePerf, setActivePerf] = useState(0);
 
@@ -171,30 +173,7 @@ export function ChartAnalyticsScreen() {
     setter(prev => !prev);
   };
 
-  // ── Sparkline SVG from dynamic range points ──────────────────────
-  const sparkLineData = useMemo(() => {
-    const data = rangeData.points;
-    if (data.length < 2) return { path: '', maxNode: { x: 0, y: 0 }, minNode: { x: 0, y: 0 }, maxIndex: 0, minIndex: 0 };
-    const prices = data.map(d => d.price);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const prange = maxPrice - minPrice || 1;
 
-    const points = data.map((d, i) => ({
-      x: (i / (data.length - 1)) * 100,
-      y: 35 - ((d.price - minPrice) / prange) * 30
-    }));
-
-    const maxIndex = prices.indexOf(maxPrice);
-    const minIndex = prices.indexOf(minPrice);
-
-    return {
-      path: generateSmoothPath(points),
-      maxNode: points[maxIndex] || { x: 0, y: 0 },
-      minNode: points[minIndex] || { x: 0, y: 0 },
-      maxIndex, minIndex
-    };
-  }, [rangeData.points]);
 
   return (
     <Screen style={styles.screen}>
@@ -294,43 +273,29 @@ export function ChartAnalyticsScreen() {
                 </View>
               </View>
 
-              {/* Range bar with tick marks + sparkline overlay */}
+              {/* Range bar */}
               <View style={styles.rangeBarSection}>
                 <View style={styles.rangeBarOuter}>
-                  {/* Faint sparkline behind the bar */}
-                  <View style={styles.rangeSparkBg}>
-                    <Svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
-                      <Defs>
-                        <LinearGradient id="rangeGlow" x1="0" y1="0" x2="0" y2="1">
-                          <Stop offset="0" stopColor={accentColor} stopOpacity="0.20" />
-                          <Stop offset="1" stopColor={accentColor} stopOpacity="0" />
-                        </LinearGradient>
-                      </Defs>
-                      {sparkLineData.path ? (
-                        <>
-                          <Path d={`${sparkLineData.path} L100,40 L0,40 Z`} fill="url(#rangeGlow)" />
-                          <Path d={sparkLineData.path} fill="none" stroke={accentColor} strokeWidth="1.2" strokeLinecap="round" />
-                        </>
-                      ) : null}
-                    </Svg>
-                  </View>
-
-                  {/* The range track itself */}
                   <View style={styles.rangeBarTrack}>
-                    {/* Quartile tick marks */}
                     <View style={[styles.rangeTick, { left: '25%' }]} />
                     <View style={[styles.rangeTick, { left: '50%' }]} />
                     <View style={[styles.rangeTick, { left: '75%' }]} />
 
-                    {/* Filled portion up to current position */}
                     <View style={[styles.rangeBarFill, { width: `${positionPct}%`, backgroundColor: accentColor }]} />
 
-                    {/* Current position thumb */}
-                    <View style={[styles.rangeBarThumb, { left: `${positionPct}%`, backgroundColor: accentColor, shadowColor: accentColor, borderColor: isDark ? '#0E141F' : '#FFFFFF' }]} />
+                    <View style={[
+                      styles.rangeBarThumb, 
+                      { 
+                        left: `${positionPct}%`, 
+                        backgroundColor: accentColor, 
+                        shadowColor: accentColor, 
+                        borderColor: isDark ? '#0E141F' : '#FFFFFF' 
+                      }
+                    ]} />
                   </View>
                 </View>
 
-                {/* Low / High labels with values */}
+                {/* Low / High labels */}
                 <View style={styles.rangeEndpointsRow}>
                   <View style={styles.rangeEndpointCol}>
                     <Text style={styles.rangeEndpointLabel}>LOW</Text>
@@ -402,31 +367,54 @@ export function ChartAnalyticsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardHeader}>Trading Signals</Text>
           <View style={styles.signalsContainer}>
-            <View style={styles.signalBadgeRow}>
+            <View style={styles.signalHeroRow}>
+              <View style={styles.signalOrb}>
+                <Ionicons name="trending-up" size={24} color={T.trading.buy.primary} />
+              </View>
+              <View style={styles.signalHeroTexts}>
+                <Text style={styles.signalPrimaryAction}>BUY OPPORTUNITY</Text>
+                <Text style={styles.signalSubAction}>{currentSymbol} • Intraday</Text>
+              </View>
               <View style={styles.signalBadge}>
-                <Ionicons name='arrow-up' size={12} color={T.trading.buy.hover} />
-                <Text style={styles.signalBadgeText}>Intraday</Text>
+                <View style={isSignalActive ? styles.signalActiveDot : styles.signalInactiveDot} />
+                <Text style={[styles.signalBadgeText, !isSignalActive && { color: T.textMuted }]}>
+                  {isSignalActive ? 'ACTIVE' : 'EXPIRED'}
+                </Text>
               </View>
-              <Text style={styles.signalDate}>Feb 27, 2026</Text>
             </View>
-            <Text style={styles.signalTitle}>Intraday: consolidation.</Text>
-            <Text style={styles.signalDesc}>MT: the bias remains bullish.</Text>
-            {signalExpanded && (
-              <View style={styles.signalDetailsGrid}>
-                {SIGNAL_DETAILS.map((detail, i) => (
-                  <View key={detail.label} style={[styles.signalDetailRow, i !== 0 && styles.divider]}>
-                    <Text style={styles.signalDetailLabel}>{detail.label}</Text>
-                    <Text style={styles.signalDetailValue}>{detail.value}</Text>
-                  </View>
-                ))}
+            
+            <View style={styles.signalBody}>
+              <Text style={styles.signalTitle}>Consolidation Breakout Expected</Text>
+              <Text style={styles.signalDesc}>Medium term bias remains strongly bullish with upper targets in sight. Resistance break triggers continuation.</Text>
+            </View>
+
+            <View style={styles.signalMetricsGrid}>
+              <View style={styles.signalMetricCol}>
+                <Text style={styles.signalMetricLabel}>ENTRY</Text>
+                <Text style={[styles.signalMetricVal, { color: T.text }]}>1.1550</Text>
               </View>
-            )}
-            <Pressable style={styles.linkBtn} onPress={() => toggleSection(setSignalExpanded)}>
-              <View style={styles.linkRow}>
-                <Text style={styles.linkText}>{signalExpanded ? 'Show Less' : 'Full Signal Report'}</Text>
-                <Ionicons name={signalExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={T.trading.buy.hover} />
+              <View style={styles.signalMetricDiv} />
+              <View style={styles.signalMetricCol}>
+                <Text style={styles.signalMetricLabel}>TARGET</Text>
+                <Text style={[styles.signalMetricVal, { color: T.trading.buy.primary }]}>1.1680</Text>
               </View>
-            </Pressable>
+              <View style={styles.signalMetricDiv} />
+              <View style={styles.signalMetricCol}>
+                <Text style={styles.signalMetricLabel}>STOP LOSS</Text>
+                <Text style={[styles.signalMetricVal, { color: T.trading.sell.primary }]}>1.1490</Text>
+              </View>
+            </View>
+
+            <View style={styles.signalSecondaryMetrics}>
+              <View style={styles.signalSecBadge}>
+                <Ionicons name="pie-chart" size={12} color={T.textMuted} />
+                <Text style={styles.signalSecText}>Risk/Reward 1:2.4</Text>
+              </View>
+              <View style={styles.signalSecBadge}>
+                <Ionicons name="shield-checkmark" size={12} color={T.textMuted} />
+                <Text style={styles.signalSecText}>Med-High Conviction</Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -439,15 +427,27 @@ export function ChartAnalyticsScreen() {
                 <View style={[styles.eventItem, i !== 0 && styles.divider]}>
                   <Image source={{ uri: item.flag }} style={styles.flagIcon} />
                   <View style={styles.eventTexts}>
-                    <Text style={styles.eventTitle}>{item.title}</Text>
+                    <View style={styles.eventTitleRow}>
+                      <Text style={styles.eventTitle}>{item.title}</Text>
+                      {(() => {
+                        let cfg = { bg: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', color: T.textMuted, text: 'LOW' };
+                        if (item.impact >= 3) cfg = { bg: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)', color: T.trading.sell.primary, text: 'HIGH' };
+                        else if (item.impact === 2) cfg = { bg: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.1)', color: '#F59E0B', text: 'MED' };
+
+                        return (
+                          <View style={[styles.impactPill, { backgroundColor: cfg.bg }]}>
+                            <View style={[styles.impactDot, { backgroundColor: cfg.color }]} />
+                            <Text style={[styles.impactPillText, { color: cfg.color }]}>{cfg.text}</Text>
+                          </View>
+                        );
+                      })()}
+                    </View>
                     <View style={styles.eventMetaRow}>
-                      <Text style={styles.eventCode}>{item.countryCode}</Text>
-                      <View style={styles.impactBars}>
-                        {[1, 2, 3].map(b => (
-                          <View key={b} style={[styles.impactBar, { backgroundColor: item.impact >= b ? T.trading.sell.primary : T.borderSubtle }]} />
-                        ))}
-                      </View>
-                      <Text style={styles.eventTime}>{item.time}</Text>
+                      <Text style={styles.eventCode}>
+                        {item.countryCode}
+                        <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontWeight: '400' }}>  |  </Text>
+                        <Text style={styles.eventTime}>{item.time}</Text>
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -687,11 +687,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 10,
+      marginBottom: 16,
     },
     rangePositionLabel: {
       color: T.textMuted,
-      fontSize: 10,
+      fontSize: 11,
       fontWeight: '700',
       letterSpacing: 0.8,
       textTransform: 'uppercase',
@@ -719,69 +719,64 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeBarOuter: {
       position: 'relative',
-      paddingTop: 28,
-      paddingBottom: 14,
-    },
-    rangeSparkBg: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 38,
-      opacity: 0.85,
+      paddingVertical: 12,
     },
     rangeBarTrack: {
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
       position: 'relative',
-      overflow: 'visible',
+      justifyContent: 'center',
     },
     rangeTick: {
       position: 'absolute',
-      top: -3,
-      width: 1,
-      height: 12,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
-      marginLeft: -0.5,
+      width: 2,
+      height: 8,
+      borderRadius: 1,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+      marginLeft: -1,
+      zIndex: 1,
     },
     rangeBarFill: {
       position: 'absolute',
       top: 0,
+      bottom: 0,
       left: 0,
-      height: 6,
-      borderRadius: 3,
+      borderRadius: 4,
+      zIndex: 2,
     },
     rangeBarThumb: {
       position: 'absolute',
-      top: -5,
-      width: 16,
-      height: 16,
-      borderRadius: 8,
-      borderWidth: 3,
-      marginLeft: -8,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.5,
-      shadowRadius: 6,
+      top: '50%',
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 4,
+      marginLeft: -10,
+      marginTop: -10,
+      zIndex: 3,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
       elevation: 4,
     },
     rangeEndpointsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginTop: 4,
+      marginTop: 6,
     },
     rangeEndpointCol: {
       alignItems: 'flex-start',
     },
     rangeEndpointLabel: {
       color: T.textMuted,
-      fontSize: 9,
+      fontSize: 10,
       fontWeight: '800',
       letterSpacing: 1,
       marginBottom: 2,
     },
     rangeEndpointValue: {
-      color: T.textSub,
+      color: T.text,
       fontSize: 13,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -866,74 +861,139 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: 6,
     },
-    signalDetailsGrid: {
+    signalMetricsGrid: {
+      flexDirection: 'row',
       marginTop: 16,
       borderRadius: 12,
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-      paddingHorizontal: 14,
-      paddingVertical: 4,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
-    },
-    signalDetailRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
       paddingVertical: 12,
     },
-    signalDetailLabel: {
-      color: T.textMuted,
-      fontSize: 13,
-      fontWeight: '600',
+    signalMetricCol: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    signalDetailValue: {
-      color: T.text,
-      fontSize: 14,
-      fontWeight: '700',
+    signalMetricDiv: {
+      width: 1,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    },
+    signalMetricLabel: {
+      color: T.textMuted,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      marginBottom: 4,
+    },
+    signalMetricVal: {
+      fontSize: 15,
+      fontWeight: '800',
       fontVariant: ['tabular-nums'],
+    },
+    signalSecondaryMetrics: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 16,
+    },
+    signalSecBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    signalSecText: {
+      color: T.textSub,
+      fontSize: 11,
+      fontWeight: '600',
     },
     signalsContainer: {
       paddingBottom: 4,
     },
-    signalBadgeRow: {
+    signalHeroRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
       marginBottom: 16,
+      paddingBottom: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
+    },
+    signalOrb: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: isDark ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    signalHeroTexts: {
+      flex: 1,
+    },
+    signalPrimaryAction: {
+      color: T.trading.buy.primary,
+      fontSize: 14,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+    },
+    signalSubAction: {
+      color: T.textMuted,
+      fontSize: 12,
+      fontWeight: '600',
+      marginTop: 2,
     },
     signalBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.15)' : 'rgba(37, 99, 235, 0.08)',
+      gap: 4,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 6,
-      gap: 4,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+    },
+    signalActiveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#22C55E',
+      shadowColor: '#22C55E',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.8,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    signalInactiveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: T.textMuted,
     },
     signalBadgeText: {
-      color: T.trading.buy.hover,
-      fontSize: 12,
+      color: T.text,
+      fontSize: 10,
       fontWeight: '800',
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
+    signalBody: {
+      marginBottom: 4,
+    },
     signalTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '700',
       marginBottom: 6,
-      letterSpacing: -0.3,
     },
     signalDesc: {
       color: T.textSub,
-      fontSize: 15,
-      lineHeight: 22,
-    },
-    signalDate: {
-      color: T.textMuted,
-      fontSize: 12,
-      fontWeight: '600',
-      fontVariant: ['tabular-nums'],
+      fontSize: 14,
+      lineHeight: 20,
     },
     eventItem: {
       flexDirection: 'row',
@@ -951,11 +1011,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       justifyContent: 'center',
     },
+    eventTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
     eventTitle: {
       color: T.text,
       fontSize: 16,
       fontWeight: '700',
-      marginBottom: 8,
+      flex: 1,
+      marginRight: 8,
     },
     eventMetaRow: {
       flexDirection: 'row',
@@ -967,15 +1034,23 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '800',
       marginRight: 10,
     },
-    impactBars: {
+    impactPill: {
       flexDirection: 'row',
-      gap: 3,
-      marginRight: 12,
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 6,
     },
-    impactBar: {
-      width: 4,
-      height: 12,
-      borderRadius: 2,
+    impactDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 2.5,
+    },
+    impactPillText: {
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.5,
     },
     eventTime: {
       color: T.textMuted,

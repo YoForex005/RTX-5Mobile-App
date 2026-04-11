@@ -3,7 +3,7 @@ import 'react-native-reanimated';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
-import { Platform, StyleSheet, Text, View, useWindowDimensions, Pressable } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useTheme } from '../src/theme/useTheme';
@@ -56,17 +56,13 @@ function InnerLayout() {
             headerTintColor: T.text,
             contentStyle: { backgroundColor: T.bg },
             headerTitleStyle: { fontSize: 17, fontWeight: '600' },
+            headerTitleAlign: 'center',
             headerLeft: (props) => {
-              // Fixed-width container so React Navigation's header layout engine
-              // always reserves the same space for the back button. Without this,
-              // the title centering shifts between renders because the measured
-              // width of headerLeft fluctuates (async layout, font loading, etc.),
-              // causing the title to occasionally go off-screen.
               const action = props.canGoBack ? () => router.back() : () => router.replace('/');
               return (
-                <View style={{ width: 46, alignItems: 'flex-start' }}>
+                <View style={{ width: 46, height: 40, alignItems: 'flex-start', justifyContent: 'center' }}>
                   <Pressable onPress={action} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}>
-                    <Ionicons name="arrow-back" size={26} color={T.text} />
+                    <Ionicons name="arrow-back" size={24} color={T.text} />
                   </Pressable>
                 </View>
               );
@@ -77,8 +73,8 @@ function InnerLayout() {
           <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
           <Stack.Screen name='trade/order-ticket' options={{ title: 'Trade' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: 'One Click Trading' }} />
-          <Stack.Screen name='trade/close-position' options={{ title: 'Close Position' }} />
-          <Stack.Screen name='trade/close-by' options={{ title: 'Close By' }} />
+          <Stack.Screen name='trade/close-position' options={{ headerShown: false }} />
+          <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
           <Stack.Screen name='trade/modify-position' options={{ title: 'Modify Position' }} />
           <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
           <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
@@ -86,11 +82,12 @@ function InnerLayout() {
           <Stack.Screen name='chart/settings' options={{ headerShown: false }} />
           <Stack.Screen name='chart/preferences' options={{ headerShown: false }} />
           <Stack.Screen name='chart/colors' options={{ title: 'Colors' }} />
-          <Stack.Screen name='chart/price-source' options={{ title: 'Price source' }} />
-          <Stack.Screen name='chart/open-order-mode' options={{ title: 'Open order mode' }} />
+          <Stack.Screen name='chart/price-source' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/open-order-mode' options={{ headerShown: false }} />
           <Stack.Screen name='chart/calculator' options={{ headerShown: false }} />
           <Stack.Screen name='chart/analytics' options={{ title: 'Analytics' }} />
           <Stack.Screen name='chart/specification' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/alerts' options={{ headerShown: false }} />
           <Stack.Screen name='chart/menu-order' options={{ headerShown: false }} />
           <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />
           <Stack.Screen name='settings/accounts' options={{ title: 'Accounts' }} />
@@ -125,8 +122,6 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      accountWsService.connect();
-      
       const bootAccountData = async () => {
          if (!accountDetails?.id) return;
          
@@ -159,6 +154,7 @@ export default function RootLayout() {
 
          if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
             useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
+            accountWsService.connect();
          }
 
          try {
@@ -181,7 +177,7 @@ export default function RootLayout() {
          }
       };
 
-      bootAccountData();
+      void bootAccountData();
     } else {
       accountWsService.disconnect();
     }
