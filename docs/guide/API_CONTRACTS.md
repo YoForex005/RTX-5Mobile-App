@@ -155,6 +155,8 @@ export type FeatureFlags = {
 - The V2 authenticated account stream is opened via `/ws/v2?token={JWT}` and subscribed by channel, not by REST-style event name.
 - Live backend account metrics currently arrive on `metrics.{LOGIN}`. Older docs and some fallback payloads still refer to `account.{LOGIN}` or `account.snapshot`, so the frontend must accept both while treating the payload as the same authoritative account-metrics contract.
 - `positions.{LOGIN}` may send either full open-position snapshots or partial per-ticket updates. The frontend must merge partial updates into existing local positions instead of zeroing omitted fields.
+- The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote `tick` payloads with `bid`/`ask`/`timestamp` and candle `update` payloads shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`; the frontend must continue accepting both shapes, but the canonical live chart path now derives the active candle from quote ticks, then heals it from recent REST history so backend-side candle-update timing or shape changes do not break live rendering.
+- The live market feed may acknowledge broker-suffixed subscriptions such as `GBPUSDm` or `GBPUSD.c`, but verified runtime payloads still arrive under the canonical base symbol (for example `GBPUSD`). Frontend consumers must normalize both requested symbols and incoming payload symbols before matching, otherwise history can load while live candle updates are silently dropped.
 
 ## Error Shapes
 ```ts

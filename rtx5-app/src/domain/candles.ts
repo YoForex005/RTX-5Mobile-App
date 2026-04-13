@@ -1,4 +1,5 @@
 import { Candle } from '../state/tradingState';
+import { normalizeSymbol as normalizeMarketSymbol } from './symbols';
 
 export const DEFAULT_CANDLE_HISTORY_LIMIT = 500;
 
@@ -20,7 +21,7 @@ export type CandleStreamEvent =
   | { type: 'append'; symbol: string; tf: string; candle: Candle }
   | { type: 'resync_required'; symbol: string; tf: string; reason: string };
 
-export const normalizeSymbol = (symbol: string): string => symbol.trim().toUpperCase();
+export const normalizeSymbol = (symbol: string): string => normalizeMarketSymbol(symbol);
 
 export const normalizeTimeframe = (timeframe: string): string => {
   const tf = timeframe.trim().toUpperCase();
@@ -43,9 +44,30 @@ export const getTimeframeSeconds = (timeframe: string): number => {
   return TIMEFRAME_SECONDS[normalizeTimeframe(timeframe)] ?? 60;
 };
 
+export type NormalizedIncomingCandle = {
+  candle: Candle;
+  hasExplicitHighLow: boolean;
+};
+
 const toFiniteNumber = (value: unknown): number | null => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const hasFiniteField = (input: Record<string, unknown>, keys: string[]): boolean => {
+  for (const key of keys) {
+    const value = input[key];
+    if (value === null || value === undefined || value === '') {
+      continue;
+    }
+
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(parsed)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 export const alignTimeToBucket = (timeInSeconds: number, timeframe: string): number => {
@@ -104,7 +126,7 @@ export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: s
 
 export const normalizeCandle = (input: Record<string, unknown>, timeframe: string): Candle | null => {
   const time = normalizeTimeValue(input.time ?? input.timestamp ?? input.ts ?? input.t, timeframe);
-  const close = toFiniteNumber(input.close ?? input.c ?? input.price ?? input.p);
+  const close = toFiniteNumber(input.close ?? input.c ?? input.price ?? input.p ?? input.bid ?? input.ask);
   const explicitOpen = toFiniteNumber(input.open ?? input.o);
   const explicitHigh = toFiniteNumber(input.high ?? input.h);
   const explicitLow = toFiniteNumber(input.low ?? input.l);
@@ -142,6 +164,28 @@ export const normalizeCandle = (input: Record<string, unknown>, timeframe: strin
   return isStructurallyValidCandle(candle) && isBucketAlignedCandle(candle, timeframe) ? candle : null;
 };
 
+export const parseIncomingCandlePayload = (
+  input: unknown,
+  timeframe: string,
+): NormalizedIncomingCandle | null => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return null;
+  }
+
+  const payload = input as Record<string, unknown>;
+  const candle = normalizeCandle(payload, timeframe);
+  if (!candle) {
+    return null;
+  }
+
+  return {
+    candle,
+    hasExplicitHighLow:
+      hasFiniteField(payload, ['high', 'h', 'High', 'H']) &&
+      hasFiniteField(payload, ['low', 'l', 'Low', 'L']),
+  };
+};
+
 export const mergeCandleUpdate = (existing: Candle, incoming: Candle): Candle | null => {
   const merged: Candle = {
     time: existing.time,
@@ -175,6 +219,67 @@ export const sortAndDedupeCandles = (candles: Candle[]): Candle[] => {
   }
 
   return deduped;
+};
+
+export const dedupeIncomingCandlePayloads = (
+  entries: NormalizedIncomingCandle[],
+): NormalizedIncomingCandle[] => {
+  const sorted = [...entries].sort((a, b) => a.candle.time - b.candle.time);
+  const deduped: NormalizedIncomingCandle[] = [];
+
+  for (const entry of sorted) {
+    const last = deduped[deduped.length - 1];
+    if (!last || last.candle.time !== entry.candle.time) {
+      deduped.push(entry);
+      continue;
+    }
+
+    const merged = mergeCandleUpdate(last.candle, entry.candle);
+    if (!merged) {
+      continue;
+    }
+
+    deduped[deduped.length - 1] = {
+      candle: merged,
+      hasExplicitHighLow: last.hasExplicitHighLow || entry.hasExplicitHighLow,
+    };
+  }
+
+  return deduped;
+};
+
+export const extractIncomingCandlePayloads = (
+  payload: unknown,
+  timeframe: string,
+): NormalizedIncomingCandle[] => {
+  const parsed: NormalizedIncomingCandle[] = [];
+
+  const pushParsed = (item: unknown) => {
+    const candle = parseIncomingCandlePayload(item, timeframe);
+    if (candle) {
+      parsed.push(candle);
+    }
+  };
+
+  if (Array.isArray(payload)) {
+    payload.forEach(pushParsed);
+    return dedupeIncomingCandlePayloads(parsed);
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (Array.isArray(record.data)) {
+    record.data.forEach(pushParsed);
+  } else if (Array.isArray(record.candles)) {
+    record.candles.forEach(pushParsed);
+  } else {
+    pushParsed(record.candle ?? payload);
+  }
+
+  return dedupeIncomingCandlePayloads(parsed);
 };
 
 export const normalizeCandleSeries = (candles: unknown[], timeframe: string): Candle[] => {
@@ -229,4 +334,130 @@ export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: s
   const intervalSeconds = getTimeframeSeconds(timeframe);
   if (toTime <= fromTime) return 0;
   return Math.floor((toTime - fromTime) / intervalSeconds);
+};
+
+export const hasExcessiveLivePriceGap = (
+  candles: Candle[],
+  price: number,
+  timestamp: unknown,
+  timeframe: string,
+  maxAutoGapFillCandles: number = 5,
+): boolean => {
+  if (candles.length === 0) {
+    return false;
+  }
+
+  const normalized = normalizeCandle({ bid: price, timestamp }, timeframe);
+  if (!normalized) {
+    return false;
+  }
+
+  const lastCandle = candles[candles.length - 1];
+  return (
+    normalized.time > lastCandle.time &&
+    getBucketGapCount(lastCandle.time, normalized.time, timeframe) > maxAutoGapFillCandles
+  );
+};
+
+export const applyLivePriceToCandleSeries = (
+  candles: Candle[],
+  price: number,
+  timestamp: unknown,
+  timeframe: string,
+  maxAutoGapFillCandles: number = 5,
+): Candle[] => {
+  const normalized = normalizeCandle({ bid: price, timestamp }, timeframe);
+  if (!normalized) {
+    return candles;
+  }
+
+  if (candles.length === 0) {
+    return [normalized];
+  }
+
+  const nextCandles = [...candles];
+  const lastCandle = nextCandles[nextCandles.length - 1];
+
+  if (normalized.time === lastCandle.time) {
+    const merged = mergeCandleUpdate(lastCandle, normalized);
+    if (!merged) {
+      return candles;
+    }
+
+    nextCandles[nextCandles.length - 1] = merged;
+    return nextCandles;
+  }
+
+  if (normalized.time > lastCandle.time) {
+    const gapFillCandles = buildFlatGapCandles(lastCandle, normalized.time, timeframe);
+    if (gapFillCandles.length > maxAutoGapFillCandles) {
+      return candles;
+    }
+
+    nextCandles.push(...gapFillCandles, normalized);
+    return nextCandles.slice(-2500);
+  }
+
+  const existingIndex = nextCandles.findIndex((candle) => candle.time === normalized.time);
+  if (existingIndex === -1) {
+    return candles;
+  }
+
+  const mergedHistorical = mergeCandleUpdate(nextCandles[existingIndex], normalized);
+  if (!mergedHistorical) {
+    return candles;
+  }
+
+  nextCandles[existingIndex] = mergedHistorical;
+  return nextCandles;
+};
+
+export const mergeRecentHistoryIntoCandles = (
+  candles: Candle[],
+  recentHistory: Candle[],
+  timeframe: string,
+): Candle[] => {
+  if (candles.length === 0) {
+    return sortAndDedupeCandles(recentHistory);
+  }
+
+  const currentLastTime = candles[candles.length - 1].time;
+  const cacheTimes = new Map(candles.map((candle, index) => [candle.time, index]));
+  const nextCandles = [...candles];
+  let changed = false;
+
+  for (const historical of recentHistory) {
+    if (!isStructurallyValidCandle(historical) || !isBucketAlignedCandle(historical, timeframe)) {
+      continue;
+    }
+
+    const existingIndex = cacheTimes.get(historical.time);
+    if (existingIndex === undefined) {
+      if (historical.time < currentLastTime) {
+        nextCandles.push(historical);
+        changed = true;
+      }
+      continue;
+    }
+
+    const existing = nextCandles[existingIndex];
+    const healed =
+      historical.time < currentLastTime
+        ? historical
+        : mergeCandleUpdate(existing, historical) ?? historical;
+
+    if (
+      existing.time !== healed.time ||
+      existing.open !== healed.open ||
+      existing.high !== healed.high ||
+      existing.low !== healed.low ||
+      existing.close !== healed.close ||
+      existing.volume !== healed.volume
+    ) {
+      nextCandles[existingIndex] = healed;
+      changed = true;
+    }
+  }
+
+  return changed ? sortAndDedupeCandles(nextCandles) : candles;
 };

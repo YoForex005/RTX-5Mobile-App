@@ -8,6 +8,7 @@ import { getCandleHistory } from '../candles';
 import {
   buildFlatGapCandles,
   CandleStreamEvent,
+  dedupeIncomingCandlePayloads,
   DEFAULT_CANDLE_HISTORY_LIMIT,
   getBucketGapCount,
   getCurrentBucketTime,
@@ -16,51 +17,52 @@ import {
   isStructurallyValidCandle,
   isWithinLiveBucketHorizon,
   mergeCandleUpdate,
-  normalizeCandle,
+  NormalizedIncomingCandle,
   normalizeSymbol,
   normalizeTimeframe,
+  parseIncomingCandlePayload,
   sortAndDedupeCandles,
 } from '../../domain/candles';
 
-type CandleSubscription = {
-  symbol: string;
-  tf: string;
-};
+type FullSyncReason = 'subscription_change' | 'history_seed' | 'resync' | 'historical_patch';
+type HistoryFetchReason = 'history_seed' | 'resync';
 
 type TickListener = (symbol: string, tf: string, mutatedCandles: Candle[]) => void;
 type ArrayListener = (symbol: string, tf: string, allCandles: Candle[]) => void;
 type StreamListener = (event: CandleStreamEvent) => void;
 
-type ParsedIncomingCandle = {
-  candle: Candle;
-  hasExplicitHighLow: boolean;
+type SubscriptionState = {
+  key: string;
+  symbol: string;
+  tf: string;
+  consumerCount: number;
+  candleCache: Candle[];
+  isHistoryLoading: boolean;
+  queuedWsTicks: NormalizedIncomingCandle[];
+  fetchController: AbortController | null;
+  hasLiveEdgeForSubscription: boolean;
+  hasSeededHistoryForSubscription: boolean;
+  hasStaleHistoryForSubscription: boolean;
+  activeBucketNeedsHistoryHeal: boolean;
+  recentHistoryHealTimer: NodeJS.Timeout | null;
+  isRecentHistoryHealInFlight: boolean;
+  resyncTimer: NodeJS.Timeout | null;
 };
 
-const hasFiniteField = (input: Record<string, unknown>, keys: string[]): boolean => {
-  for (const key of keys) {
-    const value = input[key];
-    if (value === null || value === undefined || value === '') {
-      continue;
-    }
+const createSubscriptionKey = (symbol: string, tf: string): string =>
+  `${normalizeSymbol(symbol)}::${normalizeTimeframe(tf)}`;
 
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (Number.isFinite(parsed)) {
-      return true;
-    }
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
   }
 
-  return false;
+  return value as Record<string, unknown>;
 };
 
-/**
- * Dedicated WebSocket service for streaming real-time candlestick (OHLCV) updates.
- * The internal candle cache is the single source of truth for all renderers.
- */
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
   private static readonly MAX_AUTO_GAP_FILL_CANDLES = 5;
-  // The initial REST->live handoff must be at least as strict as steady-state updates.
-  // Larger rebuilds create detached probe candles when history is stale.
   private static readonly MAX_INITIAL_HANDOFF_GAP_FILL_CANDLES = 5;
   private static readonly MAX_ACCEPTABLE_HISTORY_STALENESS_CANDLES = 5;
   private static readonly RECENT_HISTORY_HEAL_LIMIT = 12;
@@ -71,35 +73,30 @@ export class CandlesWebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 15;
   private reconnectDelay = 2000;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private isConnected = false;
+  private manualDisconnect = false;
 
-  private activeSubscription: CandleSubscription | null = null;
+  private subscriptions = new Map<string, SubscriptionState>();
+  private symbolConsumerCounts = new Map<string, number>();
+  private serverSubscribedSymbols = new Set<string>();
 
   private tickListeners: Set<TickListener> = new Set();
   private arrayListeners: Set<ArrayListener> = new Set();
   private streamListeners: Set<StreamListener> = new Set();
 
   public candleCache: Candle[] = [];
-  private isHistoryLoading = false;
-  private queuedWsTicks: ParsedIncomingCandle[] = [];
-  private fetchController: AbortController | null = null;
-  private hasLiveEdgeForSubscription = false;
-  private hasSeededHistoryForSubscription = false;
-  private hasStaleHistoryForSubscription = false;
-  private activeBucketNeedsHistoryHeal = false;
-  private recentHistoryHealTimer: NodeJS.Timeout | null = null;
-  private isRecentHistoryHealInFlight = false;
+  private lastSnapshotKey: string | null = null;
 
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: NativeEventSubscription | null = null;
   private lastMessageAt: number = Date.now();
-  private resyncTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        console.log('[Candles WS] App wake up detected. Reconnecting feed...');
+      if (nextAppState === 'active' && this.subscriptions.size > 0) {
+        this.logPipeline('app_wake_reconnect', { activeSubscriptions: this.subscriptions.size });
         this.triggerInvisibleReconnect();
       }
     });
@@ -113,9 +110,16 @@ export class CandlesWebSocketService {
   }
 
   public connect(): void {
+    if (this.subscriptions.size === 0) {
+      return;
+    }
+
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
+
+    this.manualDisconnect = false;
+    this.clearReconnectTimer();
 
     try {
       this.ws = new WebSocket(this.url);
@@ -125,12 +129,11 @@ export class CandlesWebSocketService {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastMessageAt = Date.now();
+        this.serverSubscribedSymbols.clear();
         this.startHeartbeat();
         this.startWatchdog();
-
-        if (this.activeSubscription) {
-          this.fetchHistoryAndSubscribe(this.activeSubscription.symbol, this.activeSubscription.tf, 'resync');
-        }
+        this.syncServerSubscriptions();
+        this.refetchAllSubscriptionsAfterReconnect();
       };
 
       this.ws.onmessage = (event) => {
@@ -148,21 +151,15 @@ export class CandlesWebSocketService {
         this.stopHeartbeat();
         this.stopWatchdog();
         this.isConnected = false;
+        this.serverSubscribedSymbols.clear();
         this.ws = null;
-        this.attemptReconnect();
+
+        if (!this.manualDisconnect && this.subscriptions.size > 0) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = () => {
-        // The browser/RN WebSocket `error` event fires for any low-level
-        // hiccup (network blip, server restart, TLS renegotiation) and
-        // carries no useful information beyond "something went wrong" —
-        // the actual recovery path is the `onclose` handler above which
-        // calls attemptReconnect(). Logging this as console.error spams
-        // the LogBox with a noisy red overlay every time the user briefly
-        // loses signal, even though the reconnect succeeds within a
-        // second. Downgrade to console.warn so it stays in Metro logs
-        // for diagnostic purposes but no longer triggers the dev-mode
-        // error overlay.
         console.warn('[Candles WS] connection error (will auto-reconnect via onclose)');
       };
     } catch (error) {
@@ -172,89 +169,142 @@ export class CandlesWebSocketService {
   }
 
   public disconnect(): void {
-    this.fetchController?.abort();
-    this.clearResyncTimer();
-    this.clearRecentHistoryHealTimer();
-    this.isRecentHistoryHealInFlight = false;
+    this.manualDisconnect = true;
+    this.clearReconnectTimer();
+    this.stopHeartbeat();
+    this.stopWatchdog();
+
+    for (const state of this.subscriptions.values()) {
+      this.disposeSubscriptionResources(state);
+    }
+
+    this.subscriptions.clear();
+    this.symbolConsumerCounts.clear();
+    this.serverSubscribedSymbols.clear();
+    this.candleCache = [];
+    this.lastSnapshotKey = null;
 
     if (this.ws) {
-      this.activeSubscription = null;
-      this.candleCache = [];
-      this.isHistoryLoading = false;
-      this.queuedWsTicks = [];
-      this.hasLiveEdgeForSubscription = false;
-      this.hasSeededHistoryForSubscription = false;
-      this.hasStaleHistoryForSubscription = false;
-      this.activeBucketNeedsHistoryHeal = false;
-      this.stopHeartbeat();
-      this.stopWatchdog();
-      this.ws.close();
+      this.ws.onclose = null;
+      try {
+        this.ws.close();
+      } catch (_error) {}
       this.ws = null;
-      this.isConnected = false;
     }
+
+    this.isConnected = false;
   }
 
   public subscribe(symbol: string, tf: string): void {
     const normalizedSymbol = normalizeSymbol(symbol);
     const normalizedTimeframe = normalizeTimeframe(tf);
-    const isNew =
-      normalizeSymbol(this.activeSubscription?.symbol ?? '') !== normalizedSymbol ||
-      normalizeTimeframe(this.activeSubscription?.tf ?? '') !== normalizedTimeframe;
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
 
-    if (!isNew) {
-      if (!this.isHistoryLoading && !this.hasSeededHistoryForSubscription) {
-        this.fetchHistoryAndSubscribe(normalizedSymbol, normalizedTimeframe, 'history_seed');
-        return;
-      }
+    this.manualDisconnect = false;
 
-      if (!this.isHistoryLoading) {
-        this.emitFullSync(normalizedSymbol, normalizedTimeframe, 'history_seed');
+    const key = createSubscriptionKey(normalizedSymbol, normalizedTimeframe);
+    let state = this.subscriptions.get(key);
+    const isNewState = !state;
+
+    if (!state) {
+      state = this.createSubscriptionState(normalizedSymbol, normalizedTimeframe);
+      this.subscriptions.set(key, state);
+    }
+
+    state.consumerCount += 1;
+    this.incrementSymbolConsumerCount(normalizedSymbol);
+
+    if (this.isConnected) {
+      this.ensureServerSymbolSubscription(normalizedSymbol);
+    } else {
+      this.connect();
+    }
+
+    if (state.isHistoryLoading) {
+      return;
+    }
+
+    if (!state.hasSeededHistoryForSubscription) {
+      if (this.isConnected) {
+        this.fetchHistoryAndSubscribe(state, 'history_seed');
       }
       return;
     }
 
-    this.fetchController?.abort();
-    this.clearResyncTimer();
-    this.clearRecentHistoryHealTimer();
+    if (!isNewState && state.candleCache.length > 0) {
+      this.emitFullSync(state, 'history_seed');
+    }
+  }
 
-    this.activeSubscription = { symbol: normalizedSymbol, tf: normalizedTimeframe };
-    this.candleCache = [];
-    this.queuedWsTicks = [];
-    this.isHistoryLoading = false;
-    this.hasLiveEdgeForSubscription = false;
-    this.hasSeededHistoryForSubscription = false;
-    this.hasStaleHistoryForSubscription = false;
-    this.activeBucketNeedsHistoryHeal = false;
-    this.isRecentHistoryHealInFlight = false;
+  public unsubscribe(symbol?: string, tf?: string): void {
+    const normalizedSymbol = normalizeSymbol(symbol ?? '');
+    const normalizedTimeframe = normalizeTimeframe(tf ?? '');
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
 
-    this.emitFullSync(normalizedSymbol, normalizedTimeframe, 'subscription_change');
+    const key = createSubscriptionKey(normalizedSymbol, normalizedTimeframe);
+    const state = this.subscriptions.get(key);
+    if (!state) {
+      return;
+    }
+
+    state.consumerCount = Math.max(0, state.consumerCount - 1);
+    this.decrementSymbolConsumerCount(normalizedSymbol);
+
+    if (state.consumerCount > 0) {
+      return;
+    }
+
+    this.disposeSubscriptionResources(state);
+    this.subscriptions.delete(key);
+    this.releaseServerSymbolSubscriptionIfUnused(normalizedSymbol);
+
+    if (this.lastSnapshotKey === key) {
+      const fallbackState = this.subscriptions.values().next().value as SubscriptionState | undefined;
+      this.lastSnapshotKey = fallbackState?.key ?? null;
+      this.candleCache = fallbackState ? [...fallbackState.candleCache] : [];
+    }
+  }
+
+  public refresh(symbol: string, tf: string): void {
+    const state = this.getSubscriptionState(symbol, tf);
+    if (!state) {
+      return;
+    }
+
+    this.clearStateResyncTimer(state);
+    this.clearStateRecentHistoryHealTimer(state);
+    state.fetchController?.abort();
+    state.fetchController = null;
+    state.isHistoryLoading = false;
+    state.queuedWsTicks = [];
+    state.hasLiveEdgeForSubscription = false;
+    state.hasSeededHistoryForSubscription = false;
+    state.hasStaleHistoryForSubscription = false;
+    state.activeBucketNeedsHistoryHeal = false;
+    state.isRecentHistoryHealInFlight = false;
 
     if (this.isConnected) {
-      this.fetchHistoryAndSubscribe(normalizedSymbol, normalizedTimeframe, 'history_seed');
+      this.ensureServerSymbolSubscription(state.symbol);
+      this.fetchHistoryAndSubscribe(state, 'resync');
     } else {
       this.connect();
     }
   }
 
-  public unsubscribe(): void {
-    this.fetchController?.abort();
-    this.clearResyncTimer();
-    this.clearRecentHistoryHealTimer();
-    this.activeSubscription = null;
-    this.candleCache = [];
-    this.queuedWsTicks = [];
-    this.isHistoryLoading = false;
-    this.hasLiveEdgeForSubscription = false;
-    this.hasSeededHistoryForSubscription = false;
-    this.hasStaleHistoryForSubscription = false;
-    this.activeBucketNeedsHistoryHeal = false;
-    this.isRecentHistoryHealInFlight = false;
-  }
-
   public addTickListener(listener: TickListener): void {
     this.tickListeners.add(listener);
-    if (!this.isHistoryLoading && this.activeSubscription && this.candleCache.length > 0) {
-      listener(this.activeSubscription.symbol, this.activeSubscription.tf, [this.candleCache[this.candleCache.length - 1]]);
+
+    for (const state of this.subscriptions.values()) {
+      if (state.isHistoryLoading || state.candleCache.length === 0) {
+        continue;
+      }
+
+      const latest = state.candleCache[state.candleCache.length - 1];
+      listener(state.symbol, state.tf, [{ ...latest }]);
     }
   }
 
@@ -264,8 +314,13 @@ export class CandlesWebSocketService {
 
   public addArrayListener(listener: ArrayListener): void {
     this.arrayListeners.add(listener);
-    if (!this.isHistoryLoading && this.activeSubscription) {
-      listener(this.activeSubscription.symbol, this.activeSubscription.tf, [...this.candleCache]);
+
+    for (const state of this.subscriptions.values()) {
+      if (state.isHistoryLoading) {
+        continue;
+      }
+
+      listener(state.symbol, state.tf, [...state.candleCache]);
     }
   }
 
@@ -275,13 +330,18 @@ export class CandlesWebSocketService {
 
   public addStreamListener(listener: StreamListener): void {
     this.streamListeners.add(listener);
-    if (!this.isHistoryLoading && this.activeSubscription) {
+
+    for (const state of this.subscriptions.values()) {
+      if (state.isHistoryLoading) {
+        continue;
+      }
+
       listener({
         type: 'full_sync',
-        symbol: this.activeSubscription.symbol,
-        tf: this.activeSubscription.tf,
-        candles: [...this.candleCache],
-        reason: 'history_seed',
+        symbol: state.symbol,
+        tf: state.tf,
+        candles: [...state.candleCache],
+        reason: state.hasSeededHistoryForSubscription ? 'history_seed' : 'subscription_change',
       });
     }
   }
@@ -290,19 +350,73 @@ export class CandlesWebSocketService {
     this.streamListeners.delete(listener);
   }
 
-  private triggerInvisibleReconnect() {
-    if (this.ws) {
-      this.ws.onclose = null;
-      try { this.ws.close(); } catch (_error) {}
-      this.ws = null;
+  private createSubscriptionState(symbol: string, tf: string): SubscriptionState {
+    return {
+      key: createSubscriptionKey(symbol, tf),
+      symbol,
+      tf,
+      consumerCount: 0,
+      candleCache: [],
+      isHistoryLoading: false,
+      queuedWsTicks: [],
+      fetchController: null,
+      hasLiveEdgeForSubscription: false,
+      hasSeededHistoryForSubscription: false,
+      hasStaleHistoryForSubscription: false,
+      activeBucketNeedsHistoryHeal: false,
+      recentHistoryHealTimer: null,
+      isRecentHistoryHealInFlight: false,
+      resyncTimer: null,
+    };
+  }
+
+  private getSubscriptionState(symbol: string, tf: string): SubscriptionState | undefined {
+    return this.subscriptions.get(createSubscriptionKey(symbol, tf));
+  }
+
+  private isTrackedState(state: SubscriptionState): boolean {
+    return this.subscriptions.get(state.key) === state;
+  }
+
+  private incrementSymbolConsumerCount(symbol: string): void {
+    const current = this.symbolConsumerCounts.get(symbol) ?? 0;
+    this.symbolConsumerCounts.set(symbol, current + 1);
+  }
+
+  private decrementSymbolConsumerCount(symbol: string): void {
+    const current = this.symbolConsumerCounts.get(symbol) ?? 0;
+    const next = Math.max(0, current - 1);
+
+    if (next === 0) {
+      this.symbolConsumerCounts.delete(symbol);
+      return;
     }
-    this.isConnected = false;
-    this.stopHeartbeat();
-    this.stopWatchdog();
-    setTimeout(() => {
-      this.reconnectAttempts = 0;
+
+    this.symbolConsumerCounts.set(symbol, next);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private triggerInvisibleReconnect(): void {
+    if (this.subscriptions.size === 0) {
+      return;
+    }
+
+    this.manualDisconnect = false;
+    this.serverSubscribedSymbols.clear();
+
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch (_error) {}
+    } else {
       this.connect();
-    }, 500);
+    }
   }
 
   private startHeartbeat(): void {
@@ -325,7 +439,7 @@ export class CandlesWebSocketService {
     this.stopWatchdog();
     this.watchdogInterval = setInterval(() => {
       if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
-      if (!this.activeSubscription) return;
+      if (this.subscriptions.size === 0) return;
 
       const staleFor = Date.now() - this.lastMessageAt;
       if (staleFor > 35000) {
@@ -342,17 +456,95 @@ export class CandlesWebSocketService {
     }
   }
 
-  private clearResyncTimer() {
-    if (this.resyncTimer) {
-      clearTimeout(this.resyncTimer);
-      this.resyncTimer = null;
+  private attemptReconnect(): void {
+    if (this.manualDisconnect || this.subscriptions.size === 0) {
+      return;
+    }
+
+    this.reconnectAttempts += 1;
+    const delay =
+      this.reconnectAttempts <= this.maxReconnectAttempts
+        ? Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 45_000)
+        : 30_000;
+
+    this.clearReconnectTimer();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.manualDisconnect && this.subscriptions.size > 0) {
+        this.connect();
+      }
+    }, delay);
+  }
+
+  private refetchAllSubscriptionsAfterReconnect(): void {
+    for (const state of this.subscriptions.values()) {
+      const reason: HistoryFetchReason = state.hasSeededHistoryForSubscription ? 'resync' : 'history_seed';
+      this.fetchHistoryAndSubscribe(state, reason);
     }
   }
 
-  private clearRecentHistoryHealTimer() {
-    if (this.recentHistoryHealTimer) {
-      clearTimeout(this.recentHistoryHealTimer);
-      this.recentHistoryHealTimer = null;
+  private syncServerSubscriptions(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    for (const symbol of this.symbolConsumerCounts.keys()) {
+      this.ensureServerSymbolSubscription(symbol);
+    }
+  }
+
+  private ensureServerSymbolSubscription(symbol: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (this.serverSubscribedSymbols.has(symbol)) {
+      return;
+    }
+
+    this.ws.send(JSON.stringify({ type: 'subscribe', symbols: [symbol] }));
+    this.serverSubscribedSymbols.add(symbol);
+    this.logPipeline('feed_subscribe', { symbol });
+  }
+
+  private releaseServerSymbolSubscriptionIfUnused(symbol: string): void {
+    if ((this.symbolConsumerCounts.get(symbol) ?? 0) > 0) {
+      return;
+    }
+
+    if (!this.serverSubscribedSymbols.has(symbol)) {
+      return;
+    }
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'unsubscribe', symbols: [symbol] }));
+      this.logPipeline('feed_unsubscribe', { symbol });
+    }
+
+    this.serverSubscribedSymbols.delete(symbol);
+  }
+
+  private disposeSubscriptionResources(state: SubscriptionState): void {
+    state.fetchController?.abort();
+    state.fetchController = null;
+    this.clearStateResyncTimer(state);
+    this.clearStateRecentHistoryHealTimer(state);
+    state.isHistoryLoading = false;
+    state.queuedWsTicks = [];
+    state.isRecentHistoryHealInFlight = false;
+  }
+
+  private clearStateResyncTimer(state: SubscriptionState): void {
+    if (state.resyncTimer) {
+      clearTimeout(state.resyncTimer);
+      state.resyncTimer = null;
+    }
+  }
+
+  private clearStateRecentHistoryHealTimer(state: SubscriptionState): void {
+    if (state.recentHistoryHealTimer) {
+      clearTimeout(state.recentHistoryHealTimer);
+      state.recentHistoryHealTimer = null;
     }
   }
 
@@ -362,148 +554,141 @@ export class CandlesWebSocketService {
     } catch (_error) {}
   }
 
-  private matchesActiveSubscription(symbol: string, tf: string): boolean {
-    if (!this.activeSubscription) return false;
-
-    return (
-      normalizeSymbol(this.activeSubscription.symbol) === normalizeSymbol(symbol) &&
-      normalizeTimeframe(this.activeSubscription.tf) === normalizeTimeframe(tf)
-    );
-  }
-
-  private emitStreamEvent(event: CandleStreamEvent) {
+  private emitStreamEvent(event: CandleStreamEvent): void {
     this.streamListeners.forEach((listener) => listener(event));
   }
 
-  private notifyArrayListeners(symbol: string, tf: string, candles: Candle[]) {
+  private notifyArrayListeners(symbol: string, tf: string, candles: Candle[]): void {
     const snapshot = [...candles];
     this.arrayListeners.forEach((listener) => listener(symbol, tf, snapshot));
   }
 
-  private emitTickListeners(symbol: string, tf: string, candles: Candle[]) {
-    if (candles.length === 0) return;
+  private emitTickListeners(symbol: string, tf: string, candles: Candle[]): void {
+    if (candles.length === 0) {
+      return;
+    }
+
     const snapshot = candles.map((candle) => ({ ...candle }));
     this.tickListeners.forEach((listener) => listener(symbol, tf, snapshot));
   }
 
+  private updatePublicSnapshot(state: SubscriptionState, candles: Candle[]): void {
+    this.lastSnapshotKey = state.key;
+    this.candleCache = [...candles];
+  }
+
   private emitFullSync(
-    symbol: string,
-    tf: string,
-    reason: 'subscription_change' | 'history_seed' | 'resync' | 'historical_patch',
-    candles: Candle[] = this.candleCache,
-  ) {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const normalizedTimeframe = normalizeTimeframe(tf);
+    state: SubscriptionState,
+    reason: FullSyncReason,
+    candles: Candle[] = state.candleCache,
+  ): void {
     const snapshot = [...candles];
+    this.updatePublicSnapshot(state, snapshot);
 
     this.emitStreamEvent({
       type: 'full_sync',
-      symbol: normalizedSymbol,
-      tf: normalizedTimeframe,
+      symbol: state.symbol,
+      tf: state.tf,
       candles: snapshot,
       reason,
     });
-    this.notifyArrayListeners(normalizedSymbol, normalizedTimeframe, snapshot);
+    this.notifyArrayListeners(state.symbol, state.tf, snapshot);
 
     if (snapshot.length > 0) {
-      this.emitTickListeners(normalizedSymbol, normalizedTimeframe, [snapshot[snapshot.length - 1]]);
+      this.emitTickListeners(state.symbol, state.tf, [snapshot[snapshot.length - 1]]);
     }
   }
 
-  private requestResync(symbol: string, tf: string, reason: string): void {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const normalizedTimeframe = normalizeTimeframe(tf);
-
-    if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+  private requestResync(state: SubscriptionState, reason: string): void {
+    if (!this.isTrackedState(state)) {
       return;
     }
 
     this.emitStreamEvent({
       type: 'resync_required',
-      symbol: normalizedSymbol,
-      tf: normalizedTimeframe,
+      symbol: state.symbol,
+      tf: state.tf,
       reason,
     });
     this.logPipeline('resync_required', {
-      symbol: normalizedSymbol,
-      tf: normalizedTimeframe,
+      symbol: state.symbol,
+      tf: state.tf,
       reason,
-      cacheSize: this.candleCache.length,
-      lastCacheTime: this.candleCache[this.candleCache.length - 1]?.time ?? null,
+      cacheSize: state.candleCache.length,
+      lastCacheTime: state.candleCache[state.candleCache.length - 1]?.time ?? null,
     });
 
-    if (this.resyncTimer || this.isHistoryLoading) {
+    if (state.resyncTimer || state.isHistoryLoading) {
       return;
     }
 
     const delayMs = reason.startsWith('history_stale') ? 5000 : 50;
 
-    this.resyncTimer = setTimeout(() => {
-      this.resyncTimer = null;
-      if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+    state.resyncTimer = setTimeout(() => {
+      state.resyncTimer = null;
+      if (!this.isTrackedState(state)) {
         return;
       }
-      this.fetchHistoryAndSubscribe(normalizedSymbol, normalizedTimeframe, 'resync');
+
+      this.fetchHistoryAndSubscribe(state, 'resync');
     }, delayMs);
   }
 
-  private fetchHistoryAndSubscribe(symbol: string, tf: string, reason: 'history_seed' | 'resync'): void {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const normalizedTimeframe = normalizeTimeframe(tf);
-
-    if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+  private fetchHistoryAndSubscribe(state: SubscriptionState, reason: HistoryFetchReason): void {
+    if (!this.isTrackedState(state)) {
       return;
     }
 
-    if (this.isHistoryLoading) {
-      this.fetchController?.abort();
+    if (state.isHistoryLoading) {
+      state.fetchController?.abort();
     }
 
-    this.fetchController = new AbortController();
-    const controller = this.fetchController;
-    this.isHistoryLoading = true;
-    this.queuedWsTicks = [];
-    this.hasLiveEdgeForSubscription = false;
-    this.hasSeededHistoryForSubscription = false;
-    this.hasStaleHistoryForSubscription = false;
-    this.activeBucketNeedsHistoryHeal = false;
-    this.clearRecentHistoryHealTimer();
+    const controller = new AbortController();
+    state.fetchController = controller;
+    state.isHistoryLoading = true;
+    state.queuedWsTicks = [];
+    state.hasLiveEdgeForSubscription = false;
+    state.hasSeededHistoryForSubscription = false;
+    state.hasStaleHistoryForSubscription = false;
+    state.activeBucketNeedsHistoryHeal = false;
+    this.clearStateResyncTimer(state);
+    this.clearStateRecentHistoryHealTimer(state);
+
     this.logPipeline('history_fetch_start', {
-      symbol: normalizedSymbol,
-      tf: normalizedTimeframe,
+      symbol: state.symbol,
+      tf: state.tf,
       reason,
     });
 
-    this.sendSubscription(normalizedSymbol, normalizedTimeframe);
+    this.ensureServerSymbolSubscription(state.symbol);
 
-    void getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT, controller.signal)
+    void getCandleHistory(state.symbol, state.tf, DEFAULT_CANDLE_HISTORY_LIMIT, controller.signal)
       .then((history) => {
-        if (controller.signal.aborted) return;
-        if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) return;
+        if (controller.signal.aborted || !this.isTrackedState(state)) {
+          return;
+        }
 
         const normalizedHistory = sortAndDedupeCandles(history.candles);
         const latestHistoryCandle = normalizedHistory[normalizedHistory.length - 1];
-        const currentBucketTime = getCurrentBucketTime(normalizedTimeframe);
+        const currentBucketTime = getCurrentBucketTime(state.tf);
         const historyGapCount = latestHistoryCandle
-          ? getBucketGapCount(latestHistoryCandle.time, currentBucketTime, normalizedTimeframe)
+          ? getBucketGapCount(latestHistoryCandle.time, currentBucketTime, state.tf)
           : 0;
         const clientClockSuggestsStale =
           !!latestHistoryCandle &&
           historyGapCount > CandlesWebSocketService.MAX_ACCEPTABLE_HISTORY_STALENESS_CANDLES;
 
-        // Keep the normalized history snapshot visible and validate the handoff
-        // against the first live candle rather than the device clock alone.
-        this.candleCache = normalizedHistory;
-        this.isHistoryLoading = false;
-        this.hasLiveEdgeForSubscription = false;
-        this.hasSeededHistoryForSubscription = this.candleCache.length > 0;
-        this.hasStaleHistoryForSubscription = clientClockSuggestsStale;
-        this.activeBucketNeedsHistoryHeal = false;
+        state.candleCache = normalizedHistory;
+        state.isHistoryLoading = false;
+        state.hasLiveEdgeForSubscription = false;
+        state.hasSeededHistoryForSubscription = state.candleCache.length > 0;
+        state.hasStaleHistoryForSubscription = clientClockSuggestsStale;
+        state.activeBucketNeedsHistoryHeal = false;
 
         if (normalizedHistory.length > 0) {
           this.logPipeline('history_fetch_success', {
-            symbol: normalizedSymbol,
-            tf: normalizedTimeframe,
+            symbol: state.symbol,
+            tf: state.tf,
             reason,
             count: normalizedHistory.length,
             latestHistoryTime: latestHistoryCandle?.time ?? null,
@@ -512,13 +697,13 @@ export class CandlesWebSocketService {
             accepted: true,
             clientClockSuggestsStale,
           });
-          this.emitFullSync(normalizedSymbol, normalizedTimeframe, reason);
+          this.emitFullSync(state, reason);
         }
 
         if (clientClockSuggestsStale) {
           this.logPipeline('history_fetch_client_clock_gap_detected', {
-            symbol: normalizedSymbol,
-            tf: normalizedTimeframe,
+            symbol: state.symbol,
+            tf: state.tf,
             reason,
             latestHistoryTime: latestHistoryCandle?.time ?? null,
             currentBucketTime,
@@ -527,145 +712,170 @@ export class CandlesWebSocketService {
           });
         }
 
-        if (this.queuedWsTicks.length > 0) {
-          const queuedTicks = this.dedupeParsedIncomingCandles(this.queuedWsTicks);
-          this.queuedWsTicks = [];
-          this.processParsedCandles(queuedTicks, normalizedSymbol, normalizedTimeframe);
+        if (state.queuedWsTicks.length > 0) {
+          const queuedTicks = dedupeIncomingCandlePayloads(state.queuedWsTicks);
+          state.queuedWsTicks = [];
+          this.processParsedCandles(state, queuedTicks);
         }
       })
       .catch((error) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !this.isTrackedState(state)) {
+          return;
+        }
 
         console.warn('[Candles WS] History fetch failed, continuing with live stream only:', error);
-        this.isHistoryLoading = false;
-        this.hasLiveEdgeForSubscription = false;
-        this.hasSeededHistoryForSubscription = false;
-        this.hasStaleHistoryForSubscription = false;
-        this.activeBucketNeedsHistoryHeal = false;
+        state.isHistoryLoading = false;
+        state.hasLiveEdgeForSubscription = false;
+        state.hasSeededHistoryForSubscription = false;
+        state.hasStaleHistoryForSubscription = false;
+        state.activeBucketNeedsHistoryHeal = false;
+
         this.logPipeline('history_fetch_failed', {
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           reason,
           error: error instanceof Error ? error.message : String(error),
         });
+
         this.emitStreamEvent({
           type: 'resync_required',
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           reason: 'history_fetch_failed',
         });
 
-        if (this.queuedWsTicks.length > 0) {
-          const queuedTicks = this.dedupeParsedIncomingCandles(this.queuedWsTicks);
-          this.queuedWsTicks = [];
-          this.processParsedCandles(queuedTicks, normalizedSymbol, normalizedTimeframe);
+        if (state.queuedWsTicks.length > 0) {
+          const queuedTicks = dedupeIncomingCandlePayloads(state.queuedWsTicks);
+          state.queuedWsTicks = [];
+          this.processParsedCandles(state, queuedTicks);
+        }
+      })
+      .finally(() => {
+        if (this.isTrackedState(state) && state.fetchController === controller) {
+          state.fetchController = null;
         }
       });
   }
 
-  private sendSubscription(symbol: string, tf: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+  private handlePayload(payload: unknown): void {
+    if (this.subscriptions.size === 0) {
       return;
     }
 
-    const tfMap: Record<string, string> = {
-      M1: '1m',
-      M5: '5m',
-      M15: '15m',
-      M30: '30m',
-      H1: '1h',
-      H4: '4h',
-      D1: '1d',
-      W1: '1w',
-      MN: '1M',
-    };
+    const statesBySymbol = new Map<string, SubscriptionState[]>();
+    for (const state of this.subscriptions.values()) {
+      const entries = statesBySymbol.get(state.symbol);
+      if (entries) {
+        entries.push(state);
+      } else {
+        statesBySymbol.set(state.symbol, [state]);
+      }
+    }
 
-    const msg = {
-      type: 'subscribe_candles',
-      symbol,
-      tf: tfMap[normalizeTimeframe(tf)] || '1m',
-    };
+    for (const [symbol, states] of statesBySymbol.entries()) {
+      for (const state of states) {
+        const parsedCandles = this.extractParsedCandlesForSymbol(payload, symbol, state.tf);
+        if (parsedCandles.length === 0) {
+          continue;
+        }
 
-    this.ws.send(JSON.stringify(msg));
-    console.log('[Candles WS] Subscribed:', msg);
-  }
+        if (state.isHistoryLoading) {
+          state.queuedWsTicks.push(...parsedCandles);
+          continue;
+        }
 
-  private attemptReconnect(): void {
-    this.reconnectAttempts++;
-    if (this.reconnectAttempts <= this.maxReconnectAttempts) {
-      // Fast reconnect phase: exponential backoff up to ~45s
-      const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-      setTimeout(() => this.connect(), Math.min(delay, 45_000));
-    } else {
-      // Slow reconnect phase: retry every 30s forever.
-      // A trading app must never permanently lose its data feed.
-      setTimeout(() => this.connect(), 30_000);
+        this.processParsedCandles(state, parsedCandles);
+      }
     }
   }
 
-  private handlePayload(payload: any) {
-    if (!this.activeSubscription) return;
+  private extractParsedCandlesForSymbol(
+    payload: unknown,
+    targetSymbol: string,
+    timeframe: string,
+  ): NormalizedIncomingCandle[] {
+    const parsed: NormalizedIncomingCandle[] = [];
+    const singleActiveSymbol = this.getSingleActiveSymbol();
 
-    const activeSymbol = normalizeSymbol(this.activeSubscription.symbol);
-    const activeTimeframe = normalizeTimeframe(this.activeSubscription.tf);
-    const payloadSymbol = typeof payload?.symbol === 'string' ? normalizeSymbol(payload.symbol) : activeSymbol;
-    const payloadTimeframe = typeof payload?.tf === 'string' ? normalizeTimeframe(payload.tf) : activeTimeframe;
+    const pushParsed = (item: unknown, fallbackSymbol: string | null = null) => {
+      const record = asRecord(item);
+      if (!record) {
+        return;
+      }
 
-    if (payloadSymbol !== activeSymbol) {
-      return;
-    }
+      const resolvedSymbol = this.resolvePayloadSymbol(record) ?? fallbackSymbol ?? singleActiveSymbol;
+      if (resolvedSymbol && resolvedSymbol !== targetSymbol) {
+        return;
+      }
 
-    if (payloadTimeframe !== activeTimeframe) {
-      return;
-    }
-
-    const parsedCandles = this.extractParsedCandles(payload, payloadTimeframe);
-    if (parsedCandles.length === 0) {
-      return;
-    }
-
-    if (this.isHistoryLoading) {
-      this.queuedWsTicks.push(...parsedCandles);
-      return;
-    }
-
-    this.processParsedCandles(parsedCandles, activeSymbol, activeTimeframe);
-  }
-
-  private extractParsedCandles(payload: any, timeframe: string): ParsedIncomingCandle[] {
-    const parsed: ParsedIncomingCandle[] = [];
-
-    const pushParsed = (item: any) => {
-      const candle = this.parseSingleCandlePayload(item, timeframe);
-      if (candle) {
-        parsed.push(candle);
+      const normalized = parseIncomingCandlePayload(record, timeframe);
+      if (normalized) {
+        parsed.push(normalized);
       }
     };
 
     if (Array.isArray(payload)) {
-      payload.forEach(pushParsed);
-    } else if (payload?.data && Array.isArray(payload.data)) {
-      payload.data.forEach(pushParsed);
-    } else if (payload?.candles && Array.isArray(payload.candles)) {
-      payload.candles.forEach(pushParsed);
-    } else {
-      pushParsed(payload?.candle ?? payload);
+      payload.forEach((item) => pushParsed(item));
+      return dedupeIncomingCandlePayloads(parsed);
     }
 
-    return this.dedupeParsedIncomingCandles(parsed);
+    const record = asRecord(payload);
+    if (!record) {
+      return [];
+    }
+
+    const parentSymbol =
+      this.resolvePayloadSymbol(record) ??
+      this.resolvePayloadSymbol(record.candle) ??
+      this.resolvePayloadSymbol(record.data);
+
+    const nestedItems =
+      (Array.isArray(record.data) ? record.data : null) ??
+      (Array.isArray(record.candles) ? record.candles : null) ??
+      (Array.isArray(record.items) ? record.items : null);
+
+    if (nestedItems) {
+      nestedItems.forEach((item) => pushParsed(item, parentSymbol));
+      return dedupeIncomingCandlePayloads(parsed);
+    }
+
+    pushParsed(record.candle ?? record, parentSymbol);
+    return dedupeIncomingCandlePayloads(parsed);
   }
 
-  private processParsedCandles(incomingCandles: ParsedIncomingCandle[], symbol: string, tf: string) {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const normalizedTimeframe = normalizeTimeframe(tf);
+  private resolvePayloadSymbol(payload: unknown): string | null {
+    const record = asRecord(payload);
+    if (!record) {
+      return null;
+    }
 
-    if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+    const candidate =
+      (typeof record.symbol === 'string' ? record.symbol : null) ??
+      (typeof record.s === 'string' ? record.s : null) ??
+      (typeof record.Symbol === 'string' ? record.Symbol : null) ??
+      (typeof record.instrument === 'string' ? record.instrument : null);
+
+    if (!candidate) {
+      return null;
+    }
+
+    const normalized = normalizeSymbol(candidate);
+    return normalized || null;
+  }
+
+  private getSingleActiveSymbol(): string | null {
+    const symbols = Array.from(new Set(Array.from(this.subscriptions.values()).map((state) => state.symbol)));
+    return symbols.length === 1 ? symbols[0] : null;
+  }
+
+  private processParsedCandles(state: SubscriptionState, incomingCandles: NormalizedIncomingCandle[]): void {
+    if (!this.isTrackedState(state)) {
       return;
     }
 
     const canonicalEvents: CandleStreamEvent[] = [];
     let shouldFullSync = false;
-    let fullSyncReason: 'history_seed' | 'resync' | 'historical_patch' = 'historical_patch';
+    let fullSyncReason: Extract<FullSyncReason, 'history_seed' | 'resync' | 'historical_patch'> = 'historical_patch';
     let cacheChanged = false;
     let shouldScheduleRecentHistoryHeal = false;
     let recentHistoryHealReason = 'closed_bucket_missing_explicit_high_low';
@@ -673,89 +883,89 @@ export class CandlesWebSocketService {
     for (const incomingEntry of incomingCandles) {
       const incoming = incomingEntry.candle;
 
-      if (!isStructurallyValidCandle(incoming) || !isBucketAlignedCandle(incoming, normalizedTimeframe)) {
-        this.requestResync(normalizedSymbol, normalizedTimeframe, 'invalid_ohlc_or_bucket');
+      if (!isStructurallyValidCandle(incoming) || !isBucketAlignedCandle(incoming, state.tf)) {
+        this.requestResync(state, 'invalid_ohlc_or_bucket');
         continue;
       }
 
-      if (this.candleCache.length === 0) {
-        this.candleCache = [incoming];
+      if (state.candleCache.length === 0) {
+        state.candleCache = [incoming];
         cacheChanged = true;
         shouldFullSync = true;
         fullSyncReason = 'resync';
-        this.hasLiveEdgeForSubscription = true;
-        this.hasStaleHistoryForSubscription = false;
-        this.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
+        state.hasLiveEdgeForSubscription = true;
+        state.hasStaleHistoryForSubscription = false;
+        state.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
         continue;
       }
 
-      const lastCandle = this.candleCache[this.candleCache.length - 1];
+      const lastCandle = state.candleCache[state.candleCache.length - 1];
 
       if (incoming.time === lastCandle.time) {
         const merged = mergeCandleUpdate(lastCandle, incoming);
         if (!merged) {
-          this.requestResync(normalizedSymbol, normalizedTimeframe, 'invalid_replace_last');
+          this.requestResync(state, 'invalid_replace_last');
           continue;
         }
 
-        this.candleCache[this.candleCache.length - 1] = merged;
+        state.candleCache[state.candleCache.length - 1] = merged;
         cacheChanged = true;
         canonicalEvents.push({
           type: 'replace_last',
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           candle: merged,
         });
         this.logPipeline('replace_last', {
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           candleTime: merged.time,
           lastCacheTime: lastCandle.time,
         });
-        this.hasLiveEdgeForSubscription = true;
-        this.hasStaleHistoryForSubscription = false;
-        this.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
+        state.hasLiveEdgeForSubscription = true;
+        state.hasStaleHistoryForSubscription = false;
+        state.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
         continue;
       }
 
-      const expectedNextTime = getExpectedNextCandleTime(lastCandle.time, normalizedTimeframe);
+      const expectedNextTime = getExpectedNextCandleTime(lastCandle.time, state.tf);
 
       if (incoming.time === expectedNextTime) {
-        if (this.activeBucketNeedsHistoryHeal) {
+        if (state.activeBucketNeedsHistoryHeal) {
           shouldScheduleRecentHistoryHeal = true;
           recentHistoryHealReason = 'closed_bucket_missing_explicit_high_low';
         }
 
-        this.candleCache.push(incoming);
+        state.candleCache.push(incoming);
         cacheChanged = true;
         canonicalEvents.push({
           type: 'append',
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           candle: incoming,
         });
         this.logPipeline('append', {
-          symbol: normalizedSymbol,
-          tf: normalizedTimeframe,
+          symbol: state.symbol,
+          tf: state.tf,
           candleTime: incoming.time,
           previousTime: lastCandle.time,
           gapCandles: 0,
         });
-        this.hasLiveEdgeForSubscription = true;
-        this.hasStaleHistoryForSubscription = false;
-        this.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
+        state.hasLiveEdgeForSubscription = true;
+        state.hasStaleHistoryForSubscription = false;
+        state.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
         continue;
       }
 
       if (incoming.time > expectedNextTime) {
-        if (isWithinLiveBucketHorizon(incoming.time, normalizedTimeframe)) {
-          const gapFillCandles = buildFlatGapCandles(lastCandle, incoming.time, normalizedTimeframe);
+        if (isWithinLiveBucketHorizon(incoming.time, state.tf)) {
+          const gapFillCandles = buildFlatGapCandles(lastCandle, incoming.time, state.tf);
 
           if (
-            !this.hasLiveEdgeForSubscription &&
+            !state.hasLiveEdgeForSubscription &&
             gapFillCandles.length <= CandlesWebSocketService.MAX_INITIAL_HANDOFF_GAP_FILL_CANDLES
           ) {
-            this.candleCache.push(...gapFillCandles, incoming);
+            state.candleCache.push(...gapFillCandles, incoming);
             cacheChanged = true;
             shouldFullSync = true;
             fullSyncReason = 'resync';
@@ -764,89 +974,88 @@ export class CandlesWebSocketService {
               recentHistoryHealReason = 'initial_handoff_gap_fill_backfill';
             }
             this.logPipeline('initial_handoff_rebuild', {
-              symbol: normalizedSymbol,
-              tf: normalizedTimeframe,
+              symbol: state.symbol,
+              tf: state.tf,
               incomingTime: incoming.time,
               lastHistoryTime: lastCandle.time,
               gapCandles: gapFillCandles.length,
               action: 'full_sync',
             });
-            this.hasLiveEdgeForSubscription = true;
-            this.hasStaleHistoryForSubscription = false;
-            this.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
+            state.hasLiveEdgeForSubscription = true;
+            state.hasStaleHistoryForSubscription = false;
+            state.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
             continue;
           }
 
-          if (!this.hasLiveEdgeForSubscription) {
+          if (!state.hasLiveEdgeForSubscription) {
             this.logPipeline('initial_handoff_blocked', {
-              symbol: normalizedSymbol,
-              tf: normalizedTimeframe,
+              symbol: state.symbol,
+              tf: state.tf,
               incomingTime: incoming.time,
               lastHistoryTime: lastCandle.time,
               gapCandles: gapFillCandles.length,
               action: 'resync_required',
             });
-            this.requestResync(normalizedSymbol, normalizedTimeframe, 'history_stale_live_handoff_blocked');
+            this.requestResync(state, 'history_stale_live_handoff_blocked');
             continue;
           }
 
           if (gapFillCandles.length <= CandlesWebSocketService.MAX_AUTO_GAP_FILL_CANDLES) {
-            if (this.activeBucketNeedsHistoryHeal || gapFillCandles.length > 0) {
+            if (state.activeBucketNeedsHistoryHeal || gapFillCandles.length > 0) {
               shouldScheduleRecentHistoryHeal = true;
-              recentHistoryHealReason = gapFillCandles.length > 0
-                ? 'gap_fill_backfill'
-                : 'closed_bucket_missing_explicit_high_low';
+              recentHistoryHealReason =
+                gapFillCandles.length > 0 ? 'gap_fill_backfill' : 'closed_bucket_missing_explicit_high_low';
             }
 
             for (const filler of gapFillCandles) {
-              this.candleCache.push(filler);
+              state.candleCache.push(filler);
               canonicalEvents.push({
                 type: 'append',
-                symbol: normalizedSymbol,
-                tf: normalizedTimeframe,
+                symbol: state.symbol,
+                tf: state.tf,
                 candle: filler,
               });
             }
 
-            this.candleCache.push(incoming);
+            state.candleCache.push(incoming);
             cacheChanged = true;
             canonicalEvents.push({
               type: 'append',
-              symbol: normalizedSymbol,
-              tf: normalizedTimeframe,
+              symbol: state.symbol,
+              tf: state.tf,
               candle: incoming,
             });
             this.logPipeline('append_with_gap_fill', {
-              symbol: normalizedSymbol,
-              tf: normalizedTimeframe,
+              symbol: state.symbol,
+              tf: state.tf,
               incomingTime: incoming.time,
               previousTime: lastCandle.time,
               gapCandles: gapFillCandles.length,
             });
-            this.hasLiveEdgeForSubscription = true;
-            this.hasStaleHistoryForSubscription = false;
-            this.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
+            state.hasLiveEdgeForSubscription = true;
+            state.hasStaleHistoryForSubscription = false;
+            state.activeBucketNeedsHistoryHeal = !incomingEntry.hasExplicitHighLow;
             continue;
           }
         }
 
-        this.requestResync(normalizedSymbol, normalizedTimeframe, 'unexpected_time_gap');
+        this.requestResync(state, 'unexpected_time_gap');
         continue;
       }
 
-      const existingIdx = this.candleCache.findIndex((candle) => candle.time === incoming.time);
+      const existingIdx = state.candleCache.findIndex((candle) => candle.time === incoming.time);
       if (existingIdx === -1) {
-        this.requestResync(normalizedSymbol, normalizedTimeframe, 'out_of_order_missing_bucket');
+        this.requestResync(state, 'out_of_order_missing_bucket');
         continue;
       }
 
-      const mergedHistorical = mergeCandleUpdate(this.candleCache[existingIdx], incoming);
+      const mergedHistorical = mergeCandleUpdate(state.candleCache[existingIdx], incoming);
       if (!mergedHistorical) {
-        this.requestResync(normalizedSymbol, normalizedTimeframe, 'invalid_historical_patch');
+        this.requestResync(state, 'invalid_historical_patch');
         continue;
       }
 
-      this.candleCache[existingIdx] = mergedHistorical;
+      state.candleCache[existingIdx] = mergedHistorical;
       cacheChanged = true;
       shouldFullSync = true;
       fullSyncReason = 'historical_patch';
@@ -856,65 +1065,62 @@ export class CandlesWebSocketService {
       return;
     }
 
-    if (this.candleCache.length > 2500) {
-      this.candleCache = this.candleCache.slice(-2500);
+    if (state.candleCache.length > 2500) {
+      state.candleCache = state.candleCache.slice(-2500);
       shouldFullSync = true;
       fullSyncReason = 'historical_patch';
     }
 
     if (shouldFullSync) {
       if (shouldScheduleRecentHistoryHeal) {
-        this.scheduleRecentHistoryHeal(normalizedSymbol, normalizedTimeframe, recentHistoryHealReason);
+        this.scheduleRecentHistoryHeal(state, recentHistoryHealReason);
       }
-      this.emitFullSync(normalizedSymbol, normalizedTimeframe, fullSyncReason);
+      this.emitFullSync(state, fullSyncReason);
       return;
     }
 
     const incrementalCandles = canonicalEvents
-      .filter((event): event is Extract<CandleStreamEvent, { type: 'append' | 'replace_last' }> => event.type === 'append' || event.type === 'replace_last')
+      .filter(
+        (event): event is Extract<CandleStreamEvent, { type: 'append' | 'replace_last' }> =>
+          event.type === 'append' || event.type === 'replace_last',
+      )
       .map((event) => event.candle);
 
     if (incrementalCandles.length > 0) {
-      this.emitTickListeners(normalizedSymbol, normalizedTimeframe, incrementalCandles);
+      this.emitTickListeners(state.symbol, state.tf, incrementalCandles);
     }
 
     canonicalEvents.forEach((event) => this.emitStreamEvent(event));
-    this.notifyArrayListeners(normalizedSymbol, normalizedTimeframe, this.candleCache);
+    this.notifyArrayListeners(state.symbol, state.tf, state.candleCache);
+    this.updatePublicSnapshot(state, state.candleCache);
 
     if (shouldScheduleRecentHistoryHeal) {
-      this.scheduleRecentHistoryHeal(normalizedSymbol, normalizedTimeframe, recentHistoryHealReason);
+      this.scheduleRecentHistoryHeal(state, recentHistoryHealReason);
     }
   }
 
-  private scheduleRecentHistoryHeal(symbol: string, tf: string, reason: string): void {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const normalizedTimeframe = normalizeTimeframe(tf);
-
-    if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+  private scheduleRecentHistoryHeal(state: SubscriptionState, reason: string): void {
+    if (!this.isTrackedState(state)) {
       return;
     }
 
-    this.clearRecentHistoryHealTimer();
-    this.recentHistoryHealTimer = setTimeout(() => {
-      this.recentHistoryHealTimer = null;
+    this.clearStateRecentHistoryHealTimer(state);
+    state.recentHistoryHealTimer = setTimeout(() => {
+      state.recentHistoryHealTimer = null;
 
-      if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+      if (!this.isTrackedState(state)) {
         return;
       }
 
-      if (this.isHistoryLoading || this.isRecentHistoryHealInFlight) {
+      if (state.isHistoryLoading || state.isRecentHistoryHealInFlight) {
         return;
       }
 
-      this.isRecentHistoryHealInFlight = true;
+      state.isRecentHistoryHealInFlight = true;
 
-      void getCandleHistory(
-        normalizedSymbol,
-        normalizedTimeframe,
-        CandlesWebSocketService.RECENT_HISTORY_HEAL_LIMIT,
-      )
+      void getCandleHistory(state.symbol, state.tf, CandlesWebSocketService.RECENT_HISTORY_HEAL_LIMIT)
         .then((history) => {
-          if (!this.matchesActiveSubscription(normalizedSymbol, normalizedTimeframe)) {
+          if (!this.isTrackedState(state)) {
             return;
           }
 
@@ -923,46 +1129,48 @@ export class CandlesWebSocketService {
             return;
           }
 
-          const changed = this.applyRecentHistoryHeal(healedCandles, normalizedTimeframe);
+          const changed = this.applyRecentHistoryHeal(state, healedCandles);
 
           this.logPipeline('recent_history_heal', {
-            symbol: normalizedSymbol,
-            tf: normalizedTimeframe,
+            symbol: state.symbol,
+            tf: state.tf,
             reason,
             fetchedCount: healedCandles.length,
             cacheChanged: changed,
           });
 
           if (changed) {
-            this.emitFullSync(normalizedSymbol, normalizedTimeframe, 'historical_patch');
+            this.emitFullSync(state, 'historical_patch');
           }
         })
         .catch((error) => {
           this.logPipeline('recent_history_heal_failed', {
-            symbol: normalizedSymbol,
-            tf: normalizedTimeframe,
+            symbol: state.symbol,
+            tf: state.tf,
             reason,
             error: error instanceof Error ? error.message : String(error),
           });
         })
         .finally(() => {
-          this.isRecentHistoryHealInFlight = false;
+          if (this.isTrackedState(state)) {
+            state.isRecentHistoryHealInFlight = false;
+          }
         });
     }, CandlesWebSocketService.RECENT_HISTORY_HEAL_DELAY_MS);
   }
 
-  private applyRecentHistoryHeal(recentHistory: Candle[], timeframe: string): boolean {
-    if (this.candleCache.length === 0) {
+  private applyRecentHistoryHeal(state: SubscriptionState, recentHistory: Candle[]): boolean {
+    if (state.candleCache.length === 0) {
       return false;
     }
 
-    const currentLastTime = this.candleCache[this.candleCache.length - 1].time;
-    const cacheTimes = new Map(this.candleCache.map((candle, index) => [candle.time, index]));
-    const nextCache = [...this.candleCache];
+    const currentLastTime = state.candleCache[state.candleCache.length - 1].time;
+    const cacheTimes = new Map(state.candleCache.map((candle, index) => [candle.time, index]));
+    const nextCache = [...state.candleCache];
     let changed = false;
 
     for (const historical of recentHistory) {
-      if (!isStructurallyValidCandle(historical) || !isBucketAlignedCandle(historical, timeframe)) {
+      if (!isStructurallyValidCandle(historical) || !isBucketAlignedCandle(historical, state.tf)) {
         continue;
       }
 
@@ -991,7 +1199,7 @@ export class CandlesWebSocketService {
       return false;
     }
 
-    this.candleCache = sortAndDedupeCandles(nextCache);
+    state.candleCache = sortAndDedupeCandles(nextCache);
     return true;
   }
 
@@ -1004,47 +1212,6 @@ export class CandlesWebSocketService {
       a.close === b.close &&
       a.volume === b.volume
     );
-  }
-
-  private dedupeParsedIncomingCandles(entries: ParsedIncomingCandle[]): ParsedIncomingCandle[] {
-    const sorted = [...entries].sort((a, b) => a.candle.time - b.candle.time);
-    const deduped: ParsedIncomingCandle[] = [];
-
-    for (const entry of sorted) {
-      const last = deduped[deduped.length - 1];
-      if (!last || last.candle.time !== entry.candle.time) {
-        deduped.push(entry);
-        continue;
-      }
-
-      const merged = mergeCandleUpdate(last.candle, entry.candle);
-      if (!merged) {
-        continue;
-      }
-
-      deduped[deduped.length - 1] = {
-        candle: merged,
-        hasExplicitHighLow: last.hasExplicitHighLow || entry.hasExplicitHighLow,
-      };
-    }
-
-    return deduped;
-  }
-
-  private parseSingleCandlePayload(data: any, tf: string): ParsedIncomingCandle | null {
-    if (!data) return null;
-    const payload = typeof data === 'object' ? (data as Record<string, unknown>) : null;
-    if (!payload) return null;
-
-    const candle = normalizeCandle(payload, tf);
-    if (!candle) return null;
-
-    return {
-      candle,
-      hasExplicitHighLow:
-        hasFiniteField(payload, ['high', 'h', 'High', 'H']) &&
-        hasFiniteField(payload, ['low', 'l', 'Low', 'L']),
-    };
   }
 }
 

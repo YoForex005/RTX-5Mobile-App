@@ -12,7 +12,7 @@ import {
   CrosshairMode,
 } from 'lightweight-charts';
 import { useLiveCandles } from '../../../hooks/useLiveCandles';
-import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../../domain/candles';
+import { isStructurallyValidCandle } from '../../../domain/candles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
 import { useMarketData } from '../../../query/websocket';
 import {
@@ -280,9 +280,6 @@ export default function LiveChartPreviewWeb({
   }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask]);
 
   useEffect(() => {
-    let rAF: number | null = null;
-    const pendingEvents: CandleStreamEvent[] = [];
-
     const syncSeriesFromCandles = (sourceCandles: ReturnType<typeof sanitizePreviewCandles>) => {
       if (!seriesRef.current) return;
 
@@ -304,86 +301,8 @@ export default function LiveChartPreviewWeb({
       lastRenderedCandleSignatureRef.current = getLastPreviewCandleSignature(sourceCandles);
     };
 
-    const flushEvents = () => {
-      rAF = null;
-      if (!seriesRef.current || pendingEvents.length === 0) return;
-
-      const events = [...pendingEvents];
-      pendingEvents.length = 0;
-      let shouldResync = false;
-
-      for (const event of events) {
-        if (event.type === 'resync_required') {
-          shouldResync = true;
-          continue;
-        }
-
-        if (event.type === 'full_sync') {
-          syncSeriesFromCandles(sanitizePreviewCandles(event.candles).slice(-50));
-          continue;
-        }
-
-        const candle = event.candle;
-        if (!isStructurallyValidCandle(candle)) {
-          shouldResync = true;
-          continue;
-        }
-
-        const tickToInject =
-          chartType === 'line'
-            ? {
-                time: candle.time,
-                value: candle.close,
-                open: candle.open,
-                close: candle.close,
-                volume: candle.volume,
-              }
-            : mapPreviewCandles([candle], chartType, colors)[0];
-
-        try {
-          seriesRef.current.update(tickToInject as any);
-
-          if (volumeSeriesRef.current) {
-            const previousLiveVolume =
-              lastVolumePointRef.current?.time === candle.time
-                ? lastVolumePointRef.current.value
-                : undefined;
-            const volumePoint = buildVolumeDatum(candle, colors, true, previousLiveVolume);
-            volumeSeriesRef.current.update(volumePoint as any);
-            lastVolumePointRef.current = { time: volumePoint.time, value: volumePoint.value };
-          }
-
-          setOhlcData({ o: candle.open, h: candle.high, l: candle.low, c: candle.close });
-        } catch (_error) {
-          shouldResync = true;
-        }
-      }
-
-      if (shouldResync) {
-        syncSeriesFromCandles(previewCandlesRef.current);
-      }
-    };
-
-    const handleStreamEvent = (event: CandleStreamEvent) => {
-      if (event.symbol.toUpperCase() !== symbol.toUpperCase()) return;
-      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(timeframe)) return;
-      pendingEvents.push(event);
-      if (rAF === null) {
-        rAF = requestAnimationFrame(flushEvents);
-      }
-    };
-
-    import('../../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addStreamListener(handleStreamEvent);
-    });
-
-    return () => {
-      if (rAF !== null) cancelAnimationFrame(rAF);
-      import('../../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeStreamListener(handleStreamEvent);
-      });
-    };
-  }, [symbol, timeframe, chartType, colors]);
+    syncSeriesFromCandles(previewCandlesRef.current);
+  }, [candles, symbol, timeframe, chartType, colors]);
 
   const formatPrice = (value: number) => value.toFixed(displayDecimals);
   const isUp = ohlcData ? ohlcData.c >= ohlcData.o : true;

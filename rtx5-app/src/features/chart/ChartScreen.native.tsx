@@ -33,7 +33,6 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
-import { candlesWsService } from '../../api/ws/candlesSocket';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { usePositionsState } from '../../state/positionsState';
@@ -46,7 +45,7 @@ import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
-import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import { isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
 import {
   mapCandlesToRTX5CustomCandlestickData,
 } from './rendering/customCandlestickSeries';
@@ -257,10 +256,11 @@ const CH_HTML = `
       //   Contract with the React Native host:
       //     • host calls initChart(opts, chartType, candles, displayDecimals)
       //         once per (symbol, timeframe, type) change
-      //     • host calls updateChartData(candles) when the merged history+WS
-      //         array reshuffles (e.g. resync, history backfill)
-      //     • host calls updateTick(candle) for every live WS candle event
-      //         (append OR replace_last; the merge is decided by time match)
+      //     • host calls updateChartData(candles) whenever the canonical
+      //         history+live candle array changes
+      //     • host may still call updateTick(candle) for narrow live patches,
+      //         but the chart no longer depends on a second websocket delta
+      //         bridge to stay in sync
       //     • host calls setBidPriceLine(price) for the live BID line
       //
       //   We rely on the standard lightweight-charts CandlestickSeries
@@ -1239,81 +1239,6 @@ export function ChartScreen() {
     }, 4000);
     return () => clearTimeout(tmr);
   }, [candles.length, refreshCandles]);
-
-  // Effect 2 — live tick stream. Bypasses React state for low latency.
-  useEffect(() => {
-    if (!webViewReady) return;
-    let rAF: number | null = null;
-    const pending: CandleStreamEvent[] = [];
-
-    const flush = () => {
-      rAF = null;
-      if (!webViewRef.current || pending.length === 0) return;
-      // If chart not yet initialized, drop ticks — the watchdog will
-      // re-send the full candle array via initChart when ready.
-      if (!chartInitializedRef.current) {
-        pending.length = 0;
-        return;
-      }
-      const events = pending.splice(0, pending.length);
-
-      let js = '';
-      let needsResync = false;
-
-      for (const event of events) {
-        if (event.type === 'resync_required') {
-          needsResync = true;
-          continue;
-        }
-        if (event.type === 'full_sync') {
-          js += `updateChartData(${JSON.stringify(buildMappedData(event.candles))});`;
-          continue;
-        }
-        // append / replace_last
-        const c = (event as any).candle;
-        // Extract volume before the type guard narrows away non-Pick fields
-        const vol: number = typeof c?.volume === 'number' ? c.volume : 0;
-        if (!c || !isStructurallyValidCandle(c)) continue;
-        const tick =
-          chartType === 'line'
-            ? { time: c.time, value: c.close }
-            : { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol };
-        js += `updateTick(${JSON.stringify(tick)});`;
-      }
-
-      if (needsResync) {
-        const mapped = buildMappedData(candlesRef.current);
-        if (mapped.length > 0) {
-          js += `updateChartData(${JSON.stringify(mapped)});`;
-        }
-      }
-
-      if (js.length > 0) {
-        try {
-          webViewRef.current.injectJavaScript(js + ' true;');
-        } catch (_e) { /* ignore — WebView may have been disposed */ }
-      }
-    };
-
-    const handleStreamEvent = (event: CandleStreamEvent) => {
-      if (event.symbol.toUpperCase() !== chartSymbol.toUpperCase()) return;
-      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(chartTimeframe)) return;
-      pending.push(event);
-      if (rAF === null) {
-        rAF = requestAnimationFrame(flush);
-      }
-    };
-
-    // Synchronous subscribe/unsubscribe — no dynamic import race condition.
-    // The old async import() could leak listeners when the user rapidly
-    // switched symbols because unsubscribeFn was still null at cleanup time.
-    candlesWsService.addStreamListener(handleStreamEvent);
-
-    return () => {
-      if (rAF !== null) cancelAnimationFrame(rAF);
-      candlesWsService.removeStreamListener(handleStreamEvent);
-    };
-  }, [chartSymbol, chartTimeframe, chartType, webViewReady, buildMappedData]);
 
   const overlayPayload = useMemo(
     () =>

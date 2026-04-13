@@ -50,7 +50,7 @@ import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
-import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import { isStructurallyValidCandle } from '../../domain/candles';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
 import {
@@ -766,23 +766,23 @@ export function ChartScreen() {
           uniqueData.sort((a, b) => a.time - b.time);
 
           let mappedData;
-            if (chartType === 'line') {
-              mappedData = uniqueData.map((item) => ({
-                time: item.time,
-                value: item.close,
-                open: item.open,
-                close: item.close,
-                volume: item.volume,
-              }));
-            } else if (chartType === 'candles' || chartType === 'hollow') {
-              mappedData = mapCandlesToRTX5CustomCandlestickData({
-                candles: uniqueData,
-                bullishColor: resolvedChartColors.candlesUptrend,
-                bearishColor: resolvedChartColors.candlesDowntrend,
-              });
-            } else {
-              mappedData = uniqueData;
-            }
+          if (chartType === 'line') {
+            mappedData = uniqueData.map((item) => ({
+              time: item.time,
+              value: item.close,
+              open: item.open,
+              close: item.close,
+              volume: item.volume,
+            }));
+          } else if (chartType === 'candles' || chartType === 'hollow') {
+            mappedData = mapCandlesToRTX5CustomCandlestickData({
+              candles: uniqueData,
+              bullishColor: resolvedChartColors.candlesUptrend,
+              bearishColor: resolvedChartColors.candlesDowntrend,
+            });
+          } else {
+            mappedData = uniqueData;
+          }
 
           seriesRef.current.setData(mappedData as any);
 
@@ -897,9 +897,6 @@ export function ChartScreen() {
 
   // Canonical Candle Stream Sync
   useEffect(() => {
-    let rAF: number | null = null;
-    const pendingEvents: CandleStreamEvent[] = [];
-
     const getRenderableCandles = (sourceCandles: typeof candlesRef.current) => {
       const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
       const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
@@ -952,94 +949,8 @@ export function ChartScreen() {
       lastRenderedCandleSignatureRef.current = getLastCandleSignature(sourceCandles);
     };
 
-    const flushEvents = () => {
-      rAF = null;
-      if (!seriesRef.current || pendingEvents.length === 0) return;
-
-      const events = [...pendingEvents];
-      pendingEvents.length = 0;
-      let rejectedUpdate = false;
-
-      for (const event of events) {
-        if (event.type === 'resync_required') {
-          rejectedUpdate = true;
-          continue;
-        }
-
-        if (event.type === 'full_sync') {
-          syncSeriesFromCandles(event.candles);
-          continue;
-        }
-
-        const candle = event.candle;
-        if (!isStructurallyValidCandle(candle)) {
-          rejectedUpdate = true;
-          continue;
-        }
-
-        let tickToInject: any = candle;
-        if (chartType === 'line') {
-          tickToInject = {
-            time: candle.time,
-            value: candle.close,
-            open: candle.open,
-            close: candle.close,
-            volume: candle.volume,
-          };
-        } else if (chartType === 'candles' || chartType === 'hollow') {
-          tickToInject = mapCandlesToRTX5CustomCandlestickData({
-            candles: [candle],
-            bullishColor: resolvedChartColors.candlesUptrend,
-            bearishColor: resolvedChartColors.candlesDowntrend,
-          })[0];
-        }
-
-        try {
-          seriesRef.current.update(tickToInject);
-          if (volumeSeriesRef.current) {
-            const previousLiveVolume =
-              lastVolumePointRef.current?.time === candle.time
-                ? lastVolumePointRef.current.value
-                : undefined;
-            const volumePoint = buildVolumeDatum(candle, resolvedChartColors, true, previousLiveVolume);
-            volumeSeriesRef.current.update(volumePoint as any);
-            lastVolumePointRef.current = { time: volumePoint.time, value: volumePoint.value };
-          }
-          if (event.type === 'append') {
-            lastCandleLengthRef.current += 1;
-          }
-          lastRenderedCandleSignatureRef.current = getLastCandleSignature(candlesRef.current);
-        } catch (_error) {
-          rejectedUpdate = true;
-        }
-      }
-
-      if (rejectedUpdate) {
-        syncSeriesFromCandles(candlesRef.current);
-      }
-    };
-
-    const handleStreamEvent = (event: CandleStreamEvent) => {
-      if (event.symbol.toUpperCase() !== chartSymbol.toUpperCase()) return;
-      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(chartTimeframe)) return;
-
-      pendingEvents.push(event);
-      if (rAF === null) {
-        rAF = requestAnimationFrame(flushEvents);
-      }
-    };
-
-    import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addStreamListener(handleStreamEvent);
-    });
-
-    return () => {
-      if (rAF !== null) cancelAnimationFrame(rAF);
-      import('../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeStreamListener(handleStreamEvent);
-      });
-    };
-  }, [chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
+    syncSeriesFromCandles(candlesRef.current);
+  }, [candles, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
   const CHART_HEIGHT = chartLayout.height;
 

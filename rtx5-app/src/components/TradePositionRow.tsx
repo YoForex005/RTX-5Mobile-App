@@ -9,6 +9,7 @@
  */
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
@@ -117,7 +118,7 @@ export function TradePositionRow({
             <Text style={[styles.price, { color: T.textSub }]}>
               {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
             </Text>
-            <Text style={[styles.arrow, { color: T.textDimmed }]}>→</Text>
+            <Ionicons name="arrow-forward" size={12} color={T.textDimmed} style={styles.arrow} />
             <Text style={[styles.price, { color: T.textSub }]}>
               {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
             </Text>
@@ -273,7 +274,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   arrow: {
-    fontSize: 11,
+    marginHorizontal: 2,
   },
   dateRight: {
     fontSize: 11,

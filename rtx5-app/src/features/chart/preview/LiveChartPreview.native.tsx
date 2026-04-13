@@ -3,7 +3,7 @@ import { View, StyleSheet, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useLiveCandles } from '../../../hooks/useLiveCandles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
-import { CandleStreamEvent, isStructurallyValidCandle, normalizeTimeframe } from '../../../domain/candles';
+import { isStructurallyValidCandle } from '../../../domain/candles';
 import { useMarketData } from '../../../query/websocket';
 import {
   buildVolumeDatum,
@@ -447,9 +447,6 @@ export default function LiveChartPreviewNative({
   }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady]);
 
   useEffect(() => {
-    let rAF: number | null = null;
-    const pendingEvents: CandleStreamEvent[] = [];
-
     const resyncPreview = () => {
       if (!webViewRef.current || !webViewReady) return;
       const currentCandles = previewCandlesRef.current;
@@ -459,84 +456,8 @@ export default function LiveChartPreviewNative({
       lastCandleLengthRef.current = currentCandles.length;
       lastRenderedCandleSignatureRef.current = getLastPreviewCandleSignature(currentCandles);
     };
-
-    const flushEvents = () => {
-      rAF = null;
-      if (!webViewRef.current || !webViewReady || pendingEvents.length === 0) return;
-
-      const events = [...pendingEvents];
-      pendingEvents.length = 0;
-      let js = '';
-      let shouldResync = false;
-
-      for (const event of events) {
-        if (event.type === 'resync_required') {
-          shouldResync = true;
-          continue;
-        }
-
-        if (event.type === 'full_sync') {
-          const syncedCandles = sanitizePreviewCandles(event.candles).slice(-50);
-          js += `updateChartData(${JSON.stringify(mapPreviewCandles(syncedCandles, chartType, colors))});`;
-          lastCandleLengthRef.current = syncedCandles.length;
-          lastRenderedCandleSignatureRef.current = getLastPreviewCandleSignature(syncedCandles);
-          continue;
-        }
-
-        const candle = event.candle;
-        if (!isStructurallyValidCandle(candle)) {
-          shouldResync = true;
-          continue;
-        }
-
-        const tickToInject =
-          chartType === 'line'
-            ? {
-                time: candle.time,
-                value: candle.close,
-                open: candle.open,
-                close: candle.close,
-                volume: candle.volume,
-              }
-            : mapPreviewCandles([candle], chartType, colors)[0];
-
-        js += `updateTick(${JSON.stringify(tickToInject)});`;
-        setOhlcData({ o: candle.open, h: candle.high, l: candle.low, c: candle.close });
-      }
-
-      if (js) {
-        try {
-          webViewRef.current.injectJavaScript(`${js} true;`);
-        } catch (_error) {}
-      }
-
-      if (shouldResync) {
-        resyncPreview();
-      }
-    };
-
-    const handleStreamEvent = (event: CandleStreamEvent) => {
-      if (event.symbol.toUpperCase() !== symbol.toUpperCase()) return;
-      if (normalizeTimeframe(event.tf) !== normalizeTimeframe(timeframe)) return;
-      if (!webViewReady) return;
-
-      pendingEvents.push(event);
-      if (rAF === null) {
-        rAF = requestAnimationFrame(flushEvents);
-      }
-    };
-
-    import('../../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-      candlesWsService.addStreamListener(handleStreamEvent);
-    });
-
-    return () => {
-      if (rAF !== null) cancelAnimationFrame(rAF);
-      import('../../../api/ws/candlesSocket').then(({ candlesWsService }) => {
-        candlesWsService.removeStreamListener(handleStreamEvent);
-      });
-    };
-  }, [symbol, timeframe, webViewReady, chartType, colors]);
+    resyncPreview();
+  }, [candles, symbol, timeframe, webViewReady, chartType, colors]);
 
   const formatPrice = (value: number) => value.toFixed(displayDecimals);
   const isUp = ohlcData ? ohlcData.c >= ohlcData.o : true;
