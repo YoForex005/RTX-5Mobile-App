@@ -19,7 +19,8 @@
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 5000
+      "fallbackToCacheTimeout": 5000,
+      "url": "https://u.expo.dev/017504ac-1c55-42f4-91ff-982f5f172082"
     },
     "ios": {
       "bundleIdentifier": "com.rtx5.trading",
@@ -30,6 +31,7 @@
           "NSAllowsArbitraryLoads": true
         },
         "UIBackgroundModes": [
+          "fetch",
           "fetch"
         ]
       },
@@ -49,7 +51,14 @@
       "permissions": [
         "INTERNET",
         "USE_BIOMETRIC",
-        "USE_FINGERPRINT"
+        "USE_FINGERPRINT",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "INTERNET",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -68,7 +77,7 @@
       [
         "expo-updates",
         {
-          "username": "yoforexpremium"
+          "username": "yoforex"
         }
       ]
     ],
@@ -83,3 +92,4 @@
     "owner": "yoforex"
   }
 }
+

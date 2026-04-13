@@ -2,6 +2,7 @@ import { Candle } from '../state/tradingState';
 import { normalizeSymbol as normalizeMarketSymbol } from './symbols';
 
 export const DEFAULT_CANDLE_HISTORY_LIMIT = 500;
+export const MAX_CANDLE_SERIES_LENGTH = 2500;
 
 const TIMEFRAME_SECONDS: Record<string, number> = {
   M1: 60,
@@ -193,10 +194,25 @@ export const mergeCandleUpdate = (existing: Candle, incoming: Candle): Candle | 
     high: Math.max(existing.high, incoming.high, existing.open, incoming.close),
     low: Math.min(existing.low, incoming.low, existing.open, incoming.close),
     close: incoming.close,
-    volume: Number.isFinite(incoming.volume) ? incoming.volume : existing.volume,
+    volume: (Number.isFinite(incoming.volume) && incoming.volume > 0) ? incoming.volume : existing.volume,
   };
 
-  return isStructurallyValidCandle(merged) ? merged : null;
+  if (!isStructurallyValidCandle(merged)) {
+    return null;
+  }
+
+  if (
+    merged.time === existing.time &&
+    merged.open === existing.open &&
+    merged.high === existing.high &&
+    merged.low === existing.low &&
+    merged.close === existing.close &&
+    merged.volume === existing.volume
+  ) {
+    return existing;
+  }
+
+  return merged;
 };
 
 export const sortAndDedupeCandles = (candles: Candle[]): Candle[] => {
@@ -359,13 +375,35 @@ export const hasExcessiveLivePriceGap = (
   );
 };
 
+type ApplyLivePriceOptions = {
+  maxAutoGapFillCandles?: number;
+  allowSparseAppendOnGap?: boolean;
+};
+
+const resolveApplyLivePriceOptions = (
+  input: number | ApplyLivePriceOptions | undefined,
+): Required<ApplyLivePriceOptions> => {
+  if (typeof input === 'number') {
+    return {
+      maxAutoGapFillCandles: input,
+      allowSparseAppendOnGap: false,
+    };
+  }
+
+  return {
+    maxAutoGapFillCandles: input?.maxAutoGapFillCandles ?? 5,
+    allowSparseAppendOnGap: input?.allowSparseAppendOnGap ?? false,
+  };
+};
+
 export const applyLivePriceToCandleSeries = (
   candles: Candle[],
   price: number,
   timestamp: unknown,
   timeframe: string,
-  maxAutoGapFillCandles: number = 5,
+  options?: number | ApplyLivePriceOptions,
 ): Candle[] => {
+  const { maxAutoGapFillCandles, allowSparseAppendOnGap } = resolveApplyLivePriceOptions(options);
   const normalized = normalizeCandle({ bid: price, timestamp }, timeframe);
   if (!normalized) {
     return candles;
@@ -384,6 +422,10 @@ export const applyLivePriceToCandleSeries = (
       return candles;
     }
 
+    if (merged === lastCandle) {
+      return candles;
+    }
+
     nextCandles[nextCandles.length - 1] = merged;
     return nextCandles;
   }
@@ -391,11 +433,16 @@ export const applyLivePriceToCandleSeries = (
   if (normalized.time > lastCandle.time) {
     const gapFillCandles = buildFlatGapCandles(lastCandle, normalized.time, timeframe);
     if (gapFillCandles.length > maxAutoGapFillCandles) {
-      return candles;
+      if (!allowSparseAppendOnGap) {
+        return candles;
+      }
+
+      nextCandles.push(normalized);
+      return nextCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
     }
 
     nextCandles.push(...gapFillCandles, normalized);
-    return nextCandles.slice(-2500);
+    return nextCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 
   const existingIndex = nextCandles.findIndex((candle) => candle.time === normalized.time);
@@ -408,8 +455,62 @@ export const applyLivePriceToCandleSeries = (
     return candles;
   }
 
+  if (mergedHistorical === nextCandles[existingIndex]) {
+    return candles;
+  }
+
   nextCandles[existingIndex] = mergedHistorical;
   return nextCandles;
+};
+
+export const overlayLiveCandlesOnHistory = (
+  historyCandles: Candle[],
+  liveCandles: Candle[],
+): Candle[] => {
+  if (historyCandles.length === 0) {
+    return liveCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  if (liveCandles.length === 0) {
+    return historyCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  return sortAndDedupeCandles([...historyCandles, ...liveCandles]).slice(-MAX_CANDLE_SERIES_LENGTH);
+};
+
+const mergeActiveCandleWithRecentHistory = (
+  existing: Candle,
+  historical: Candle,
+): Candle | null => {
+  const healed: Candle = {
+    time: existing.time,
+    // For the active candle, the REST snapshot usually knows the real bucket
+    // open better than a live quote stream that may have started mid-bucket.
+    open: historical.open,
+    // Preserve the latest live close so the chart keeps following the current
+    // quote, but expand wick extremes using both sources.
+    high: Math.max(existing.high, historical.high, historical.open, historical.close, existing.close),
+    low: Math.min(existing.low, historical.low, historical.open, historical.close, existing.close),
+    close: existing.close,
+    volume: Math.max(existing.volume, historical.volume),
+  };
+
+  if (!isStructurallyValidCandle(healed)) {
+    return null;
+  }
+
+  if (
+    healed.time === existing.time &&
+    healed.open === existing.open &&
+    healed.high === existing.high &&
+    healed.low === existing.low &&
+    healed.close === existing.close &&
+    healed.volume === existing.volume
+  ) {
+    return existing;
+  }
+
+  return healed;
 };
 
 export const mergeRecentHistoryIntoCandles = (
@@ -444,7 +545,7 @@ export const mergeRecentHistoryIntoCandles = (
     const healed =
       historical.time < currentLastTime
         ? historical
-        : mergeCandleUpdate(existing, historical) ?? historical;
+        : mergeActiveCandleWithRecentHistory(existing, historical) ?? historical;
 
     if (
       existing.time !== healed.time ||

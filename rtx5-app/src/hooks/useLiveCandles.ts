@@ -14,6 +14,7 @@ import {
   hasExcessiveLivePriceGap,
   mergeRecentHistoryIntoCandles,
   normalizeCandle,
+  overlayLiveCandlesOnHistory,
   normalizeSymbol,
   normalizeTimeframe,
 } from '../domain/candles';
@@ -53,12 +54,29 @@ const getQuotePrice = (quote: Record<string, any> | undefined): number | null =>
   return null;
 };
 
-const getQuoteTimestamp = (quote: Record<string, any> | undefined): unknown => {
+const getQuoteTimestamp = (quote: Record<string, any> | undefined): number | null => {
   if (!quote) {
     return null;
   }
 
-  return quote.time ?? quote.timestamp ?? quote.t ?? quote.lastTickAt ?? null;
+  // Always use lastTickAt (Date.now() set by flushUpdates) as the canonical
+  // timestamp for live candle bucket alignment. The server's `time` / `t`
+  // fields are unreliable for this purpose — they may be 0, an unparseable
+  // string, or a stale value — which causes normalizeCandle to silently
+  // fail or produce a bucket time far in the past, preventing any live
+  // candle from being applied to the chart.
+  if (typeof quote.lastTickAt === 'number' && quote.lastTickAt > 0) {
+    return quote.lastTickAt;
+  }
+
+  // Fallback: try server-provided fields
+  const candidates = [quote.time, quote.timestamp, quote.t];
+  for (const c of candidates) {
+    if (typeof c === 'number' && Number.isFinite(c) && c > 0) return c;
+  }
+
+  // Last resort: generate a timestamp now
+  return Date.now();
 };
 
 const clampPendingQuotes = (quotes: PendingQuote[]) =>
@@ -145,17 +163,15 @@ export function useLiveCandles(symbol: string, timeframe: string) {
       let requiresHistoryReload = false;
 
       for (const pendingQuote of quotes) {
-        if (
-          hasExcessiveLivePriceGap(
-            nextCandles,
-            pendingQuote.price,
-            pendingQuote.timestamp,
-            normalizedTimeframe,
-            MAX_AUTO_GAP_FILL_CANDLES,
-          )
-        ) {
+        const hasExcessiveGap = hasExcessiveLivePriceGap(
+          nextCandles,
+          pendingQuote.price,
+          pendingQuote.timestamp,
+          normalizedTimeframe,
+          MAX_AUTO_GAP_FILL_CANDLES,
+        );
+        if (hasExcessiveGap) {
           requiresHistoryReload = true;
-          break;
         }
 
         const previousLastTime = nextCandles[nextCandles.length - 1]?.time ?? null;
@@ -164,7 +180,10 @@ export function useLiveCandles(symbol: string, timeframe: string) {
           pendingQuote.price,
           pendingQuote.timestamp,
           normalizedTimeframe,
-          MAX_AUTO_GAP_FILL_CANDLES,
+          {
+            maxAutoGapFillCandles: MAX_AUTO_GAP_FILL_CANDLES,
+            allowSparseAppendOnGap: hasExcessiveGap,
+          },
         ) as CandleParams[];
 
         if (updatedCandles !== nextCandles) {
@@ -212,13 +231,23 @@ export function useLiveCandles(symbol: string, timeframe: string) {
 
       const queuedQuotes = queuedQuotesRef.current;
       queuedQuotesRef.current = [];
-      const { nextCandles, appendedNewBucket } = applyPendingQuotes(history.candles, queuedQuotes);
+      const historyBaseCandles = preserveVisibleCandles
+        ? (overlayLiveCandlesOnHistory(history.candles, candlesRef.current) as CandleParams[])
+        : history.candles;
+      const { nextCandles, appendedNewBucket, requiresHistoryReload } = applyPendingQuotes(
+        historyBaseCandles,
+        queuedQuotes,
+      );
       historyReadyRef.current = true;
       replaceCandles([...nextCandles]);
       lastGapResyncAtRef.current = 0;
 
       if (appendedNewBucket) {
         scheduleRecentHistoryHeal();
+      }
+
+      if (requiresHistoryReload) {
+        lastGapResyncAtRef.current = Date.now();
       }
     } catch (error) {
       if (fetchEpoch !== fetchEpochRef.current) {
@@ -296,17 +325,16 @@ export function useLiveCandles(symbol: string, timeframe: string) {
         quotesToApply,
       );
 
+      if (nextCandles !== candlesRef.current) {
+        replaceCandles(nextCandles);
+      }
+
       if (requiresHistoryReload) {
         const now = Date.now();
         if (now - lastGapResyncAtRef.current >= GAP_RESYNC_THROTTLE_MS) {
           lastGapResyncAtRef.current = now;
           void loadHistory({ preserveVisibleCandles: true });
         }
-        return;
-      }
-
-      if (nextCandles !== candlesRef.current) {
-        replaceCandles(nextCandles);
       }
 
       if (appendedNewBucket) {

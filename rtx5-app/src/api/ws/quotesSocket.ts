@@ -5,6 +5,7 @@
 import { useTradingState } from '../../state/tradingState';
 import { AppState, NativeEventSubscription } from 'react-native';
 import { quotes as mockQuotes } from '../../mock/tradingData';
+import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -23,6 +24,8 @@ export class QuotesWebSocketService {
   private isConnected = false;
 
   private activeSymbols: Set<string> = new Set();
+  private stickySymbols: Set<string> = new Set();
+  private symbolConsumerCounts: Map<string, number> = new Map();
   private pendingUpdates: Map<string, any> = new Map();
   private flushTimer: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
@@ -123,12 +126,14 @@ export class QuotesWebSocketService {
     this.cancelFlush();
     this.stopHeartbeat();
     this.stopWatchdog();
+    this.activeSymbols.clear();
+    this.stickySymbols.clear();
+    this.symbolConsumerCounts.clear();
     if (this.ws) {
-      this.activeSymbols.clear();
       this.ws.close();
       this.ws = null;
-      this.isConnected = false;
     }
+    this.isConnected = false;
   }
 
   private startHeartbeat(): void {
@@ -174,25 +179,13 @@ export class QuotesWebSocketService {
    * @param symbols - Array of strings (e.g., ['EURUSD', 'BTCUSD'])
    */
   public subscribe(symbols: string[]): void {
-    let changed = false;
-    for (const sym of symbols) {
-      if (!this.activeSymbols.has(sym)) {
-        this.activeSymbols.add(sym);
-        changed = true;
-      }
-    }
-    if (changed && this.isConnected) this.sendSubscription();
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, 1);
+    this.syncActiveSymbols();
   }
 
   public unsubscribe(symbols: string[]): void {
-    let changed = false;
-    for (const sym of symbols) {
-      if (this.activeSymbols.has(sym)) {
-        this.activeSymbols.delete(sym);
-        changed = true;
-      }
-    }
-    if (changed && this.isConnected) this.sendSubscription();
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, -1);
+    this.syncActiveSymbols();
   }
 
   /**
@@ -200,13 +193,29 @@ export class QuotesWebSocketService {
    * Triggers an immediate diff sync over the active socket.
    */
   public setSubscriptions(symbols: string[]): void {
-    this.activeSymbols = new Set(symbols);
-    if (this.isConnected) this.sendSubscription();
+    this.stickySymbols = new Set(symbols);
+    this.syncActiveSymbols();
   }
 
   private sendSubscription(): void {
     const syms = Array.from(this.activeSymbols);
     if (syms.length > 0) this.send({ type: 'subscribe', symbols: syms });
+  }
+
+  private syncActiveSymbols(): void {
+    const nextActiveSymbols = new Set(buildActiveQuoteSymbols(this.stickySymbols, this.symbolConsumerCounts));
+    const changed =
+      nextActiveSymbols.size !== this.activeSymbols.size ||
+      Array.from(nextActiveSymbols).some((symbol) => !this.activeSymbols.has(symbol));
+
+    if (!changed) {
+      return;
+    }
+
+    this.activeSymbols = nextActiveSymbols;
+    if (this.isConnected) {
+      this.sendSubscription();
+    }
   }
 
   private send(msg: any): void {

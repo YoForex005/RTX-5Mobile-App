@@ -289,7 +289,7 @@ export function ModifyPositionScreen() {
             hitSlop={20}
             style={styles.backBtn}
           >
-            <Ionicons name="arrow-back" size={24} color={T.text} />
+            <Ionicons name="chevron-back" size={28} color={T.text} />
           </Pressable>
 
           <View style={styles.headerTitleWrap} pointerEvents="none">

@@ -116,15 +116,15 @@ export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
     name: raw.name || `Account ${raw.login}`,
     group: raw.group || 'standard',
     currency: raw.currency || 'USD',
-    leverage: raw.leverage || 0,
-    balance: raw.balance || 0,
-    credit: raw.credit || 0,
-    equity: raw.equity || 0,
-    usedMargin: raw.used_margin || 0,
-    freeMargin: raw.free_margin || 0,
-    marginLevel: raw.margin_level || 0,
-    floatingPnl: raw.floating_pnl || 0,
-    totalSwap: raw.total_swap || 0,
+    leverage: raw.leverage ?? 0,
+    balance: raw.balance ?? 0,
+    credit: raw.credit ?? 0,
+    equity: raw.equity ?? 0,
+    usedMargin: raw.used_margin ?? 0,
+    freeMargin: raw.free_margin ?? 0,
+    marginLevel: raw.margin_level ?? 0,
+    floatingPnl: raw.floating_pnl ?? 0,
+    totalSwap: raw.total_swap ?? 0,
     openPositions: raw.open_positions ?? 0,
     status: raw.status || 'active',
     createdAt: raw.created_at,
@@ -199,7 +199,10 @@ export async function getAccounts(): Promise<TradingAccount[]> {
 
   // API returns a flat array, not { accounts: [...] }
   const data: TradingAccountRaw[] = await response.json();
-  return (data || []).map(mapRawAccount);
+  console.log('[Accounts API] Raw backend response:', JSON.stringify(data, null, 2));
+  const mapped = (data || []).map(mapRawAccount);
+  console.log('[Accounts API] Mapped accounts:', JSON.stringify(mapped, null, 2));
+  return mapped;
 }
 
 // ─── API Function: Single Account ───────────────────────────────────────────────

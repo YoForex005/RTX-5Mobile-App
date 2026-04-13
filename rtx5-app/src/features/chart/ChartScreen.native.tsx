@@ -13,7 +13,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, Image, AppState, Platform } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Pressable, RefreshControl, ScrollView, StyleSheet, Text, Vibration, View, Image, AppState, Platform } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -45,13 +45,16 @@ import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
-import { isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
-import {
-  mapCandlesToRTX5CustomCandlestickData,
-} from './rendering/customCandlestickSeries';
+import { getTimeframeSeconds, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import { normalizeSymbol } from '../../domain/symbols';
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
 import { LIGHTWEIGHT_CHARTS_JS } from './rendering/lightweightChartsBundle';
 import { buildChartOverlayPayload } from './chartOverlays';
+import {
+  buildChartSeriesSnapshot,
+  EMPTY_CHART_SERIES_SNAPSHOT,
+  getChartSeriesUpdateMode,
+} from './liveChartSync';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -88,10 +91,323 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
   );
 });
 
+// ─── Trade Feedback Modal ─────────────────────────────────────────────────────
+// Professional animated overlay shown after one-click trade execution.
+type TradeFeedbackState = {
+  visible: boolean;
+  type: 'success' | 'error';
+  side?: 'buy' | 'sell';
+  symbol?: string;
+  ticket?: string;
+  price?: number;
+  volume?: number;
+  executedAt?: string;
+  title?: string;
+  message?: string;
+};
 
+const TRADE_MODAL_INITIAL: TradeFeedbackState = { visible: false, type: 'success' };
+
+const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
+  state: TradeFeedbackState;
+  onClose: () => void;
+  T: any;
+  isDark: boolean;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!state.visible) return;
+    scaleAnim.setValue(0.8);
+    opacityAnim.setValue(0);
+    progressAnim.setValue(1);
+
+    Animated.parallel([
+      Animated.spring(scaleAnim, { toValue: 1, tension: 65, friction: 8, useNativeDriver: true }),
+      Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
+
+    if (state.type === 'success') {
+      Vibration.vibrate([0, 40, 60, 40]);
+      Animated.timing(progressAnim, { toValue: 0, duration: 4000, useNativeDriver: false }).start();
+      const timer = setTimeout(onClose, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [state.visible]);
+
+  if (!state.visible) return null;
+
+  const isBuy = state.side === 'buy';
+  const accentColor = state.type === 'success'
+    ? (isBuy ? '#10B981' : '#EF4444')
+    : '#EF4444';
+  const glowColor = state.type === 'success'
+    ? (isBuy ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)')
+    : 'rgba(239,68,68,0.12)';
+
+  return (
+    <View style={tfmStyles.overlay} pointerEvents="box-none">
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+      <Animated.View style={[
+        tfmStyles.card,
+        {
+          backgroundColor: isDark ? '#1C1C2E' : '#FFFFFF',
+          borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+          opacity: opacityAnim,
+          transform: [{ scale: scaleAnim }],
+        },
+      ]}>
+        {/* Animated accent bar at top */}
+        <View style={[tfmStyles.topBar, { backgroundColor: accentColor }]}>
+          {state.type === 'success' && (
+            <Animated.View style={[
+              tfmStyles.topBarProgress,
+              {
+                backgroundColor: 'rgba(255,255,255,0.3)',
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]} />
+          )}
+        </View>
+
+        {/* Icon */}
+        <View style={tfmStyles.iconWrap}>
+          <View style={[tfmStyles.iconGlow, { backgroundColor: glowColor }]} />
+          <View style={[tfmStyles.iconCircle, { backgroundColor: accentColor }]}>
+            <Ionicons
+              name={state.type === 'success' ? 'checkmark-sharp' : 'close-sharp'}
+              size={30}
+              color="#fff"
+            />
+          </View>
+        </View>
+
+        {state.type === 'success' ? (
+          <>
+            <Text style={[tfmStyles.title, { color: isDark ? '#fff' : '#111' }]}>
+              Order Filled
+            </Text>
+
+            {/* Symbol + Side pill */}
+            <View style={tfmStyles.symbolRow}>
+              <Text style={[tfmStyles.symbolText, { color: isDark ? '#fff' : '#111' }]}>
+                {state.symbol}
+              </Text>
+              <View style={[tfmStyles.sidePill, { backgroundColor: isBuy ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' }]}>
+                <Text style={[tfmStyles.sidePillText, { color: accentColor }]}>
+                  {state.side?.toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            {/* Execution price */}
+            <Text style={[tfmStyles.priceText, { color: isDark ? '#fff' : '#111' }]}>
+              {state.price?.toFixed(state.symbol?.includes('JPY') ? 3 : state.symbol?.includes('BTC') || state.symbol?.includes('XAU') ? 2 : 5) ?? '---'}
+            </Text>
+
+            {/* Divider */}
+            <View style={[tfmStyles.divider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} />
+
+            {/* Details grid */}
+            <View style={tfmStyles.detailsRow}>
+              <View style={tfmStyles.detailItem}>
+                <Text style={tfmStyles.detailLabel}>VOLUME</Text>
+                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
+                  {state.volume}
+                </Text>
+              </View>
+              <View style={[tfmStyles.detailSep, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+              <View style={tfmStyles.detailItem}>
+                <Text style={tfmStyles.detailLabel}>TICKET</Text>
+                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
+                  #{state.ticket}
+                </Text>
+              </View>
+              <View style={[tfmStyles.detailSep, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+              <View style={tfmStyles.detailItem}>
+                <Text style={tfmStyles.detailLabel}>TIME</Text>
+                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
+                  {state.executedAt}
+                </Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={[tfmStyles.title, { color: isDark ? '#fff' : '#111' }]}>
+              {state.title || 'Trade Failed'}
+            </Text>
+            <Text style={[tfmStyles.errorMsg, { color: isDark ? '#999' : '#666' }]}>
+              {state.message}
+            </Text>
+          </>
+        )}
+
+        {/* Action button */}
+        <Pressable
+          style={[tfmStyles.actionBtn, { backgroundColor: accentColor }]}
+          onPress={onClose}
+        >
+          <Text style={tfmStyles.actionBtnText}>
+            {state.type === 'success' ? 'Done' : 'Dismiss'}
+          </Text>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+});
+
+const tfmStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 999,
+    elevation: 999,
+  },
+  card: {
+    width: '92%',
+    maxWidth: 360,
+    borderRadius: 24,
+    paddingTop: 0,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.3,
+    shadowRadius: 48,
+    elevation: 20,
+    overflow: 'hidden',
+  },
+  topBar: {
+    width: '150%',
+    height: 4,
+    marginBottom: 28,
+    overflow: 'hidden',
+  },
+  topBarProgress: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  iconWrap: {
+    width: 80,
+    height: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  iconGlow: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  iconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    marginBottom: 10,
+  },
+  symbolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  symbolText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  sidePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  sidePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  priceText: {
+    fontSize: 38,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'] as any,
+    letterSpacing: -1.2,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  divider: {
+    width: '100%',
+    height: StyleSheet.hairlineWidth,
+    marginBottom: 16,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  detailItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  detailLabel: {
+    color: '#888',
+    fontSize: 10,
+    fontWeight: '600',
+    marginBottom: 4,
+    letterSpacing: 0.8,
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  detailSep: {
+    width: 1,
+    height: 28,
+  },
+  errorMsg: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 24,
+    paddingHorizontal: 4,
+  },
+  actionBtn: {
+    width: '100%',
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize }: any) => {
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, onTradeResult }: any) => {
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
@@ -105,7 +421,12 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
-        Alert.alert('Error', 'No active trading account resolved.');
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: 'Account Error',
+          message: 'No active trading account resolved. Select an account and try again.',
+        });
         return;
       }
 
@@ -124,16 +445,27 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
         },
         {
           onSuccess: (data: any) => {
-            // usePlaceOrderMutation.onSuccess already adds the optimistic position
-            // to positionsState — do NOT add it again here or the same ticket ID
-            // appears twice in the list causing "Encountered two children with the
-            // same key" warnings and visual glitches.
-            const positionTicket = data?.position_ticket || data?.order_ticket;
-            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+            const ticket = data?.position_ticket || data?.order_ticket || 'Confirmed';
+            const execPrice = side === 'buy' ? latestBid : latestAsk;
+            onTradeResult?.({
+              visible: true,
+              type: 'success',
+              side,
+              symbol,
+              ticket: String(ticket),
+              price: execPrice,
+              volume: Number(lotSize),
+              executedAt: new Date().toLocaleTimeString(),
+            });
           },
           onError: (err: any) => {
             const msg = err?.response?.data?.message || err?.message || 'Execution error';
-            Alert.alert('Trade Failed', msg);
+            onTradeResult?.({
+              visible: true,
+              type: 'error',
+              title: 'Trade Failed',
+              message: msg,
+            });
           }
         }
       );
@@ -240,6 +572,7 @@ const CH_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <meta name="color-scheme" content="light dark">
     <script>${LIGHTWEIGHT_CHARTS_JS}</script>
+    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
     <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -263,10 +596,10 @@ const CH_HTML = `
       //         bridge to stay in sync
       //     • host calls setBidPriceLine(price) for the live BID line
       //
-      //   We rely on the standard lightweight-charts CandlestickSeries
-      //   (no custom renderer, no bundled JS) to keep the pipeline simple
-      //   and reliable. Wicks and body draw via library defaults — no gap
-      //   artifacts. Pre-existing gaps in the data stay visible.
+      //   Native candlesticks use the RTX5 custom series so wick/body
+      //   geometry stays centered and stable on mobile WebView pixel grids.
+      //   Line and OHLC bars still use the standard lightweight-charts
+      //   series implementations. Pre-existing gaps in the data stay visible.
       // ─────────────────────────────────────────────────────────────────
       // Diagnostic: verify library loaded
       if (typeof LightweightCharts === 'undefined') {
@@ -284,6 +617,12 @@ const CH_HTML = `
       var bidPriceLine = null;
       var lastBarTime = 0;
       var seriesType = 'candles';
+      var pendingTick = null;
+      var liveVolumeBucket = 0;   // time of the bucket we're counting ticks for
+      var liveVolumeCount = 0;    // tick count within that bucket
+      var _avgHistoryVolume = 0;  // average volume of history candles
+      var _avgHistoryRange = 0;   // average high-low range of history candles
+      var tickFlushHandle = 0;
       var volUpColor = 'rgba(38,166,154,0.5)';
       var volDownColor = 'rgba(239,83,80,0.5)';
 
@@ -375,6 +714,11 @@ const CH_HTML = `
           bidPriceLine = null;
           _positionLinesArr = [];
         }
+        if (tickFlushHandle) {
+          try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
+          tickFlushHandle = 0;
+        }
+        pendingTick = null;
         lastBarTime = 0;
         seriesType = chartType || 'candles';
 
@@ -418,9 +762,10 @@ const CH_HTML = `
             priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
           });
         } else {
-          series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-            upColor: colors.bodyUp,
-            downColor: colors.bodyDown,
+          var customCandleOptions = {
+            color: colors.up,
+            bodyUpColor: colors.bodyUp,
+            bodyDownColor: colors.bodyDown,
             borderUpColor: colors.up,
             borderDownColor: colors.down,
             wickUpColor: colors.up,
@@ -430,11 +775,32 @@ const CH_HTML = `
             priceFormat: priceFormat,
             lastValueVisible: true,
             priceLineVisible: true,
-            priceLineWidth: 1,
             priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-            priceLineColor: seriesType === 'hollow' ? colors.up : '',
-            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
-          });
+          };
+          if (
+            typeof window.addRTX5CustomCandlestickSeries === 'function' &&
+            typeof chart.addCustomSeries === 'function'
+          ) {
+            series = window.addRTX5CustomCandlestickSeries(chart, customCandleOptions);
+          } else {
+            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+              upColor: colors.bodyUp,
+              downColor: colors.bodyDown,
+              borderUpColor: colors.up,
+              borderDownColor: colors.down,
+              wickUpColor: colors.up,
+              wickDownColor: colors.down,
+              borderVisible: true,
+              wickVisible: true,
+              priceFormat: priceFormat,
+              lastValueVisible: true,
+              priceLineVisible: true,
+              priceLineWidth: 1,
+              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+              priceLineColor: seriesType === 'hollow' ? colors.up : '',
+              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+            });
+          }
         }
 
         // Volume histogram series — occupies the bottom 20% of the pane,
@@ -456,6 +822,7 @@ const CH_HTML = `
           var mapped = mapForSeries(data);
           series.setData(mapped);
           lastBarTime = mapped[mapped.length - 1].time;
+          _computeHistoryStats(data);
           if (volumeSeries) {
             try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
           }
@@ -545,6 +912,28 @@ const CH_HTML = `
         }
       }
 
+      function _computeHistoryStats(data) {
+        // Compute average volume and price range from recent history candles
+        // so live volume bars are proportionate to the history bars.
+        if (!data || data.length === 0) return;
+        var n = Math.min(data.length, 50); // last 50 candles
+        var totalVol = 0, totalRange = 0, count = 0;
+        for (var i = data.length - n; i < data.length; i++) {
+          var c = data[i];
+          var v = typeof c.volume === 'number' ? c.volume : 0;
+          var r = (typeof c.high === 'number' && typeof c.low === 'number') ? (c.high - c.low) : 0;
+          if (r > 0) {
+            totalVol += v;
+            totalRange += r;
+            count++;
+          }
+        }
+        if (count > 0) {
+          _avgHistoryVolume = totalVol / count;
+          _avgHistoryRange = totalRange / count;
+        }
+      }
+
       function mapForSeries(data) {
         if (!data || data.length === 0) return [];
         if (seriesType === 'line') {
@@ -589,6 +978,11 @@ const CH_HTML = `
             postError('updateChartData', new Error('series not initialized'));
             return;
           }
+          if (tickFlushHandle) {
+            try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
+            tickFlushHandle = 0;
+          }
+          pendingTick = null;
           var mapped = mapForSeries(data);
           series.setData(mapped);
           
@@ -603,6 +997,7 @@ const CH_HTML = `
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
           }
+          _computeHistoryStats(data);
           if (volumeSeries) {
             try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
           }
@@ -611,45 +1006,124 @@ const CH_HTML = `
         }
       }
 
-      function updateTick(tick) {
+      // ── Live OHLC accumulator (runs inside WebView) ──
+      var _liveBar = null; // { time, open, high, low, close }
+
+      function applyTickUpdate(tick) {
+        if (!series || !tick || typeof tick.time !== 'number') return;
+        if (tick.time < lastBarTime) return;
+        var bar;
+        if (seriesType === 'line') {
+          bar = { time: tick.time, value: typeof tick.value === 'number' ? tick.value : tick.close };
+        } else {
+          bar = {
+            time: tick.time,
+            open: tick.open,
+            high: tick.high,
+            low: tick.low,
+            close: tick.close,
+          };
+        }
+        // Sync internal accumulator with full OHLC from host
+        _liveBar = { time: tick.time, open: tick.open, high: tick.high, low: tick.low, close: tick.close };
+        series.update(bar);
+        if (tick.time >= lastBarTime) {
+          lastBarTime = tick.time;
+        }
+        _updateVolume(tick);
+      }
+
+      // Fast-path: host sends just a price + bucket time.
+      // The WebView accumulates OHLC locally — no React state cycle needed.
+      function pushPrice(bucketTime, price) {
+        if (!series || typeof bucketTime !== 'number' || typeof price !== 'number') return;
+        if (bucketTime < lastBarTime) return;
+
+        var bar;
+        if (_liveBar && _liveBar.time === bucketTime) {
+          // Same bucket — accumulate
+          _liveBar.high = Math.max(_liveBar.high, price);
+          _liveBar.low = Math.min(_liveBar.low, price);
+          _liveBar.close = price;
+        } else {
+          // New bucket
+          _liveBar = { time: bucketTime, open: price, high: price, low: price, close: price };
+        }
+
+        if (seriesType === 'line') {
+          bar = { time: bucketTime, value: price };
+        } else {
+          bar = { time: _liveBar.time, open: _liveBar.open, high: _liveBar.high, low: _liveBar.low, close: _liveBar.close };
+        }
+        series.update(bar);
+        if (bucketTime >= lastBarTime) {
+          lastBarTime = bucketTime;
+        }
+
+        // Volume: scale by price movement magnitude so bars rise AND fall
+        // proportionally with market activity, like real volume data.
+        if (volumeSeries) {
+          try {
+            if (bucketTime === liveVolumeBucket) {
+              liveVolumeCount += 1;
+            } else {
+              liveVolumeBucket = bucketTime;
+              liveVolumeCount = 1;
+            }
+            // Derive volume from the candle's range × tick count.
+            // This produces natural-looking bars that correlate with
+            // price movement — tall bars for big moves, short for quiet.
+            var range = (_liveBar.high - _liveBar.low) || 0;
+            var avgHistVol = _avgHistoryVolume || 1;
+            var vol = Math.max(1, Math.round(range * liveVolumeCount * (avgHistVol / ((_avgHistoryRange || range) || 1))));
+            var isUp = (_liveBar.close || 0) >= (_liveBar.open || 0);
+            volumeSeries.update({ time: bucketTime, value: vol, color: isUp ? volUpColor : volDownColor });
+          } catch (_ve) {}
+        }
+      }
+
+      function _updateVolume(tick) {
+        if (!volumeSeries) return;
         try {
-          if (!series || !tick || typeof tick.time !== 'number') return;
-          // Stale tick guard: never update with a bar older than the last
-          // one already on screen — that triggers lightweight-charts'
-          // "Cannot update oldest data" exception.
-          if (tick.time < lastBarTime) return;
-          var bar;
-          if (seriesType === 'line') {
-            bar = { time: tick.time, value: typeof tick.value === 'number' ? tick.value : tick.close };
+          var vol;
+          if (typeof tick.volume === 'number' && tick.volume > 0) {
+            vol = tick.volume;
+            liveVolumeBucket = tick.time;
+            liveVolumeCount = vol;
           } else {
-            bar = {
-              time: tick.time,
-              open: tick.open,
-              high: tick.high,
-              low: tick.low,
-              close: tick.close,
-            };
+            if (tick.time === liveVolumeBucket) {
+              liveVolumeCount += 1;
+            } else {
+              liveVolumeBucket = tick.time;
+              liveVolumeCount = 1;
+            }
+            vol = liveVolumeCount;
           }
-          series.update(bar);
-          if (tick.time >= lastBarTime) {
-            lastBarTime = tick.time;
-          }
-          if (volumeSeries && typeof tick.volume === 'number' && tick.volume > 0) {
-            try {
-              var isUp = (tick.close || 0) >= (tick.open || 0);
-              volumeSeries.update({
-                time: tick.time,
-                value: tick.volume,
-                color: isUp ? volUpColor : volDownColor,
-              });
-            } catch (_ve) {}
-          }
+          var isUp = (tick.close || 0) >= (tick.open || 0);
+          volumeSeries.update({ time: tick.time, value: vol, color: isUp ? volUpColor : volDownColor });
+        } catch (_ve) {}
+      }
+
+      function flushPendingTick() {
+        try {
+          tickFlushHandle = 0;
+          var tick = pendingTick;
+          pendingTick = null;
+          if (!tick) return;
+          applyTickUpdate(tick);
         } catch (e) {
           if (typeof e.message === 'string' && e.message.indexOf('Cannot update oldest data') >= 0) {
             return; // benign race
           }
-          postError('updateTick', e);
+          postError('flushPendingTick', e);
         }
+      }
+
+      function updateTick(tick) {
+        if (!tick || typeof tick.time !== 'number') return;
+        pendingTick = tick;
+        if (tickFlushHandle) return;
+        tickFlushHandle = requestAnimationFrame(flushPendingTick);
       }
 
       function setBidPriceLine(price) {
@@ -840,6 +1314,7 @@ const CH_HTML = `
       window.initChart = initChart;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
+      window.pushPrice = pushPrice;
       window.setBidPriceLine = setBidPriceLine;
       window.setLiveCandleLine = setLiveCandleLine;
       window.updateChartAppearance = updateChartAppearance;
@@ -876,6 +1351,24 @@ const getSentimentForSymbol = (symbol: string) => {
 };
 
 const CHART_SOURCE = { html: CH_HTML };
+
+const buildChartTickPayload = (
+  candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
+  chartType: 'candles' | 'bars' | 'line' | 'hollow',
+) => {
+  if (chartType === 'line') {
+    return { time: candle.time, value: candle.close };
+  }
+
+  return {
+    time: candle.time,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: candle.volume ?? 0,
+  };
+};
 
 export function ChartScreen() {
   const T = useTheme();
@@ -952,7 +1445,18 @@ export function ChartScreen() {
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
-  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
+  const chartLiveQuote = chartLiveQuotes[chartSymbol];
+  const displayDecimals = useMemo(() => {
+    const liveDigits =
+      typeof chartLiveQuote?.digits === 'number' && Number.isFinite(chartLiveQuote.digits)
+        ? Math.floor(chartLiveQuote.digits)
+        : null;
+    if (liveDigits !== null) {
+      return Math.min(Math.max(liveDigits, 0), 8);
+    }
+    return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  }, [baseSymbol, chartLiveQuote?.digits]);
   const { data: closedPositions = [] } = usePositionHistoryQuery(accountLogin);
   const { data: alerts = [] } = useAlertsQuery();
   const liveAccountEquity = useLiveAccountState((s) => s.equity);
@@ -963,6 +1467,8 @@ export function ChartScreen() {
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [lotSize, setLotSize] = useState(0.10);
+  const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
+  const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
@@ -1140,10 +1646,12 @@ export function ChartScreen() {
   const chartInitializedRef = useRef(false);
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const lastInitSigRef = useRef('');
+  const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
 
   const resetChartBridgeState = () => {
     chartInitializedRef.current = false;
     lastInitSigRef.current = '';
+    renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     setChartCanvasReady(false);
   };
 
@@ -1151,13 +1659,18 @@ export function ChartScreen() {
     candlesRef.current = candles;
   }, [candles]);
 
-  const buildMappedData = useCallback((sourceCandles: typeof candles) => {
+  const getRenderableCandles = useCallback((sourceCandles: typeof candles) => {
     // The type guard narrows to Pick<Candle, 'time'|'open'|'high'|'low'|'close'>
     // which strips `volume`. Cast back since filter only validates, it doesn't
     // actually remove the volume property from the runtime objects.
     const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c)) as typeof sourceCandles;
     const uniqueByTime = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
     uniqueByTime.sort((a, b) => a.time - b.time);
+    return uniqueByTime;
+  }, []);
+
+  const buildMappedData = useCallback((sourceCandles: typeof candles) => {
+    const uniqueByTime = getRenderableCandles(sourceCandles);
     if (chartType === 'line') {
       return uniqueByTime.map((c) => ({ time: c.time, value: c.close }));
     }
@@ -1169,7 +1682,7 @@ export function ChartScreen() {
       close: c.close,
       volume: c.volume ?? 0,
     }));
-  }, [chartType]);
+  }, [chartType, getRenderableCandles]);
 
   // Track current config signature. When it changes, mark chart as
   // not-initialized so the watchdog knows to retry for the new config.
@@ -1181,6 +1694,7 @@ export function ChartScreen() {
     // Config changed — previous CHART_READY is stale.
     if (lastInitSigRef.current !== currentSig) {
       chartInitializedRef.current = false;
+      renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     }
   }, [currentSig]);
 
@@ -1208,6 +1722,86 @@ export function ChartScreen() {
   useEffect(() => {
     sendInit();
   }, [sendInit, candles]);
+
+  // Effect 2 — keep the WebView aligned with the canonical candle stream.
+
+  useEffect(() => {
+    if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
+      return;
+    }
+
+    const renderableCandles = getRenderableCandles(candles);
+    if (renderableCandles.length === 0) {
+      renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+      return;
+    }
+
+    const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
+    const updateMode = getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
+
+    if (updateMode === 'noop') {
+      return;
+    }
+
+    let didInject = false;
+
+    try {
+      if (updateMode === 'full_reload') {
+        const mapped = buildMappedData(renderableCandles);
+        if (mapped.length > 0) {
+          webViewRef.current.injectJavaScript(
+            `updateChartData(${JSON.stringify(mapped)}); true;`,
+          );
+          didInject = true;
+        }
+      } else {
+        const lastCandle = renderableCandles[renderableCandles.length - 1];
+        if (lastCandle) {
+          webViewRef.current.injectJavaScript(
+            `updateTick(${JSON.stringify(buildChartTickPayload(lastCandle, chartType))}); true;`,
+          );
+          didInject = true;
+        }
+      }
+    } catch (_e) { /* WebView may have been disposed */ }
+
+    if (didInject) {
+      renderedSeriesSnapshotRef.current = nextSnapshot;
+    }
+  }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, getRenderableCandles]);
+
+  // Effect 3 — Zero-latency live price bridge.
+  //
+  // Reads the raw quote bid directly from useMarketData (same feed as the
+  // price header) and pushes it to the WebView via pushPrice(bucketTime, price).
+  // The WebView accumulates OHLC internally — no React state cycle, no array
+  // copy, no JSON serialization of 500 candles. Just two numbers per tick.
+  const liveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
+  const rawQuote = liveQuotes[chartSymbol] || liveQuotes[useMemo(() => normalizeSymbol(chartSymbol), [chartSymbol])] || {};
+  const rawBid = typeof rawQuote.bid === 'number' && rawQuote.bid > 0 ? rawQuote.bid : null;
+  const rawTickAt = typeof rawQuote.lastTickAt === 'number' ? rawQuote.lastTickAt : null;
+
+  useEffect(() => {
+    if (
+      !webViewRef.current ||
+      !chartInitializedRef.current ||
+      rawBid === null ||
+      rawTickAt === null
+    ) {
+      return;
+    }
+    // Compute bucket time from client timestamp
+    let ts = rawTickAt;
+    while (ts > 2_500_000_000) ts = Math.floor(ts / 10);
+    const tfSec = getTimeframeSeconds(normalizeTimeframe(chartTimeframe));
+    const bucketTime = Math.floor(ts / tfSec) * tfSec;
+
+    if (bucketTime <= 0) return;
+
+    try {
+      webViewRef.current.injectJavaScript(`pushPrice(${bucketTime},${rawBid});true;`);
+    } catch (_e) {}
+  }, [rawBid, rawTickAt, chartTimeframe]);
 
   // Watchdog — if CHART_READY hasn't arrived, keep retrying every 3s.
   // Also acts as a self-heal: if the WebView silently loses the chart
@@ -1602,7 +2196,7 @@ export function ChartScreen() {
                     `);
                   }}
                 >
-                  <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>auto</Text>
+                  <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>Reset</Text>
                 </Pressable>
               </View>
             </View>
@@ -1630,7 +2224,7 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} onTradeResult={setTradeFeedback} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
@@ -1777,6 +2371,12 @@ export function ChartScreen() {
         </Pressable>
       )}
 
+      <TradeFeedbackModal
+        state={tradeFeedback}
+        onClose={handleTradeFeedbackClose}
+        T={T}
+        isDark={isDark}
+      />
     </Screen>
   );
 }

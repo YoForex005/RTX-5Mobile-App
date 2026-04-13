@@ -61,8 +61,8 @@ export function useAccounts(enabled?: boolean) {
     queryKey: [ACCOUNTS_LIST_KEY],
     queryFn: getAccounts,
     enabled: enabled ?? true,
-    staleTime: 30 * 1000,        // 30 seconds — accounts change with trades
-    refetchInterval: 60 * 1000,  // Refresh every 60 seconds for near-real-time data
+    staleTime: 5 * 1000,          // 5 seconds — keep data fresh for account screens
+    refetchInterval: 10 * 1000,  // Refresh every 10 seconds for near-real-time data
     retry: shouldRetryAccounts,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });

@@ -111,7 +111,7 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
         </View>
 
         {/* Structural Safe Area Fill */}
-        <View style={{ height: Math.max(insets.bottom, 16), width: '100%', backgroundColor: isDark ? '#121212' : '#FFFFFF' }} />
+        <View style={{ height: Math.max(insets.bottom, 16), width: '100%', backgroundColor: isDark ? '#0E141F' : T.glass2 }} />
       </View>
     </Modal>
   );
@@ -137,7 +137,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRightWidth: 0,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: isDark ? '#121212' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : T.glass2,
       maxHeight: SCREEN_HEIGHT * 0.70,
     },
     handle: {
@@ -226,7 +226,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 0,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: isDark ? '#121212' : '#FFFFFF',
+      backgroundColor: isDark ? '#0E141F' : T.glass2,
       alignItems: 'center',
       justifyContent: 'center',
     },

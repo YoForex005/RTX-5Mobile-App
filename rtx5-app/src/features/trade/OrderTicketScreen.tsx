@@ -8,8 +8,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useMemo, useRef } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
@@ -55,21 +55,65 @@ export function OrderTicketScreen() {
   const [tpEnabled, setTpEnabled] = useState(false);
   const [tpPrice, setTpPrice] = useState(0);
 
-  const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    type: 'success' | 'error';
+    title: string;
+    message: string;
+    side?: 'buy' | 'sell';
+    ticket?: string;
+    symbol?: string;
+    volume?: number;
+    price?: number;
+    executedAt?: string;
+  }>({ visible: false, type: 'success', title: '', message: '' });
 
-  const handleModalClose = () => {
-    if (modalState.type === 'success') {
-      router.back();
+  const modalScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const modalOpacityAnim = useRef(new Animated.Value(0)).current;
+  const autoDismissTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const showModal = useCallback((state: typeof modalState) => {
+    setModalState(state);
+    modalScaleAnim.setValue(0.85);
+    modalOpacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(modalScaleAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 8 }),
+      Animated.timing(modalOpacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
+
+    if (state.type === 'success') {
+      Vibration.vibrate([0, 40, 60, 40]);
+      autoDismissTimer.current = setTimeout(() => handleModalClose(), 4000);
     }
-    setModalState(prev => ({ ...prev, visible: false }));
-  };
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    if (autoDismissTimer.current) {
+      clearTimeout(autoDismissTimer.current);
+      autoDismissTimer.current = null;
+    }
+    const wasSuccess = modalState.type === 'success';
+    Animated.parallel([
+      Animated.timing(modalScaleAnim, { toValue: 0.9, duration: 150, useNativeDriver: true }),
+      Animated.timing(modalOpacityAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+    ]).start(() => {
+      setModalState(prev => ({ ...prev, visible: false }));
+      if (wasSuccess) setTimeout(() => router.back(), 100);
+    });
+  }, [modalState.type]);
+
+  useEffect(() => {
+    return () => {
+      if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
+    };
+  }, []);
 
   // Live WebSocket Pricing
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close || 0;
   // Compute synthetic BID/ASK if true bid/ask not provided by the socket schema
   const syntheticAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
-  
+
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
 
@@ -84,12 +128,12 @@ export function OrderTicketScreen() {
   else if (symbol.includes('BTC') || symbol.includes('ETH')) contractSize = 1;
   else if (symbol.includes('US30') || symbol.includes('SPX') || symbol.includes('NAS') || symbol.includes('GER') || symbol.includes('UK')) contractSize = 10;
 
-  const estimatedMargin = Number.isFinite(ASK) && ASK > 0 
-    ? (volume * contractSize * ASK) / leverage 
+  const estimatedMargin = Number.isFinite(ASK) && ASK > 0
+    ? (volume * contractSize * ASK) / leverage
     : 0;
 
-  const marginDisplay = currency === 'USD' 
-    ? `-$${fmt.price(estimatedMargin)}` 
+  const marginDisplay = currency === 'USD'
+    ? `-$${fmt.price(estimatedMargin)}`
     : `-${fmt.price(estimatedMargin)} ${currency}`;
 
   const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
@@ -138,7 +182,7 @@ export function OrderTicketScreen() {
         'Authentication Error',
         'The app does not have a valid local trading session. Log in again before placing an order.',
       );
-      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
       return;
     }
 
@@ -148,7 +192,7 @@ export function OrderTicketScreen() {
         'Account Error',
         'The app could not resolve the active trading account from local state. Select an account and try again.',
       );
-      setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
       return;
     }
 
@@ -191,7 +235,7 @@ export function OrderTicketScreen() {
           { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
           { action: 'place-order' },
         );
-        setModalState({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
         return;
       }
 
@@ -213,7 +257,7 @@ export function OrderTicketScreen() {
         tp: tpEnabled ? tpPrice : 0,
         clientCreatedAt: Date.now(),
       };
-      
+
       // prepend the new position
       state.setPositions([newPos, ...state.positions]);
 
@@ -222,16 +266,25 @@ export function OrderTicketScreen() {
       if (mt5Login) {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
-      
-      // Auto-pop back to chart without forcing a blocking modal tap
-      Alert.alert('Order Executed', `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}.\nTicket: #${positionTicket}`);
-      router.back();
+
+      showModal({
+        visible: true,
+        type: 'success',
+        title: 'Order Executed',
+        message: `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}`,
+        side,
+        ticket: String(positionTicket ?? ''),
+        symbol: symbol?.replace(/\//g, ''),
+        volume,
+        price: data.price || (side === 'buy' ? ASK : BID),
+        executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      });
     } catch (error: any) {
       const feedback = classifyTradingError(error, { action: 'place-order' });
       // Extract raw server message so we can see the exact rejection reason
       const rawMsg = (error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '');
       const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
-      setModalState({ visible: true, type: 'error', title: feedback.title, message: displayMsg });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg });
     } finally {
       setPendingSide(null);
     }
@@ -249,7 +302,7 @@ export function OrderTicketScreen() {
       {/* ── Compact Header ─────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={T.text} />
+          <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
           <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
@@ -263,7 +316,7 @@ export function OrderTicketScreen() {
       {/* ── Price Panel (HERO — always visible) ────────────────────── */}
       <View style={styles.pricePanel}>
         {/* SELL side */}
-        <Pressable 
+        <Pressable
           style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
           disabled={pendingSide !== null}
           onPress={() => {
@@ -283,7 +336,7 @@ export function OrderTicketScreen() {
         </View>
 
         {/* BUY side */}
-        <Pressable 
+        <Pressable
           style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
           disabled={pendingSide !== null}
           onPress={() => {
@@ -493,18 +546,98 @@ export function OrderTicketScreen() {
 
       {/* Success/Error Modal Overlay */}
       {modalState.visible && (
-        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+        <View style={styles.modalOverlay} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
-          <View style={styles.successModal}>
-            <View style={[styles.successIconBox, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]}>
-              <Ionicons name={modalState.type === 'success' ? 'checkmark' : 'close'} size={32} color="#fff" />
+          <Animated.View style={[styles.modalCard, { opacity: modalOpacityAnim, transform: [{ scale: modalScaleAnim }] }]}>
+
+            {/* Glow circle + icon */}
+            <View style={styles.modalIconWrap}>
+              <View style={[
+                styles.modalIconGlow,
+                {
+                  backgroundColor: modalState.type === 'success'
+                    ? (modalState.side === 'sell' ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)')
+                    : 'rgba(239,68,68,0.10)'
+                },
+              ]} />
+              <View style={[
+                styles.modalIconCircle,
+                {
+                  backgroundColor: modalState.type === 'success'
+                    ? (modalState.side === 'sell' ? T.trading.sell.primary : T.trading.buy.primary)
+                    : T.trading.sell.primary
+                },
+              ]}>
+                <Ionicons
+                  name={modalState.type === 'success' ? 'checkmark-sharp' : 'close-sharp'}
+                  size={28}
+                  color="#fff"
+                />
+              </View>
             </View>
-            <Text style={styles.successTitle}>{modalState.title}</Text>
-            <Text style={styles.successDesc}>{modalState.message}</Text>
-            <Pressable style={[styles.successBtn, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]} onPress={handleModalClose}>
-              <Text style={styles.successBtnText}>OK</Text>
+
+            {modalState.type === 'success' && modalState.ticket ? (
+              <>
+                {/* Title */}
+                <Text style={styles.modalTitle}>Order Filled</Text>
+
+                {/* Symbol + side pill */}
+                <View style={styles.modalSymbolRow}>
+                  <Text style={styles.modalSymbolText}>{modalState.symbol}</Text>
+                  <View style={[styles.modalSidePill, {
+                    backgroundColor: modalState.side === 'buy' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                  }]}>
+                    <Text style={[styles.modalSidePillText, {
+                      color: modalState.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary,
+                    }]}>{modalState.side?.toUpperCase()}</Text>
+                  </View>
+                </View>
+
+                {/* Execution price — hero */}
+                <Text style={styles.modalPrice}>{fmt.price(modalState.price ?? 0)}</Text>
+
+                {/* Divider */}
+                <View style={styles.modalDivider} />
+
+                {/* Details */}
+                <View style={styles.modalDetailsRow}>
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Volume</Text>
+                    <Text style={styles.modalDetailValue}>{modalState.volume}</Text>
+                  </View>
+                  <View style={styles.modalDetailSep} />
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Ticket</Text>
+                    <Text style={styles.modalDetailValue}>#{modalState.ticket}</Text>
+                  </View>
+                  <View style={styles.modalDetailSep} />
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Time</Text>
+                    <Text style={styles.modalDetailValue}>{modalState.executedAt}</Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>{modalState.title}</Text>
+                <Text style={styles.modalMessage}>{modalState.message}</Text>
+              </>
+            )}
+
+            {/* Button */}
+            <Pressable
+              style={[styles.modalBtn, {
+                backgroundColor: modalState.type === 'success'
+                  ? (modalState.side === 'sell' ? T.trading.sell.primary : T.trading.buy.primary)
+                  : T.trading.sell.primary,
+              }]}
+              onPress={handleModalClose}
+            >
+              <Text style={styles.modalBtnText}>
+                {modalState.type === 'success' ? 'Done' : 'Dismiss'}
+              </Text>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
       )}
     </View>
@@ -644,59 +777,145 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
-    
+
     /* Success / Error Modal */
     modalOverlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      backgroundColor: 'rgba(0, 0, 0, 0.55)',
       justifyContent: 'center',
+      alignItems: 'center',
+      padding: 28,
       zIndex: 999,
       elevation: 999,
     },
-    successModal: {
-      width: '85%',
-      maxWidth: 340,
+    modalCard: {
+      width: '92%',
+      maxWidth: 360,
       backgroundColor: SURFACE,
-      borderRadius: 24,
-      padding: 24,
+      borderRadius: 28,
+      paddingTop: 32,
+      paddingBottom: 24,
+      paddingHorizontal: 24,
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: T.border,
-      shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 24, elevation: 12,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 20 },
+      shadowOpacity: 0.25,
+      shadowRadius: 40,
+      elevation: 16,
     },
-    successIconBox: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      backgroundColor: BUY_C,
+    modalIconWrap: {
+      width: 80,
+      height: 80,
       justifyContent: 'center',
       alignItems: 'center',
+      marginBottom: 20,
+    },
+    modalIconGlow: {
+      position: 'absolute',
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+    },
+    modalIconCircle: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalTitle: {
+      color: T.text,
+      fontSize: 21,
+      fontWeight: '700',
+      letterSpacing: -0.3,
+      marginBottom: 12,
+    },
+    modalSymbolRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 6,
+    },
+    modalSymbolText: {
+      color: T.text,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    modalSidePill: {
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    modalSidePillText: {
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.8,
+    },
+    modalPrice: {
+      color: T.text,
+      fontSize: 36,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'] as any,
+      letterSpacing: -1,
+      marginTop: 4,
+      marginBottom: 20,
+    },
+    modalDivider: {
+      width: '100%',
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
       marginBottom: 16,
     },
-    successTitle: {
-      color: WHITE,
-      fontSize: 20,
-      fontWeight: '700',
-      marginBottom: 8,
+    modalDetailsRow: {
+      flexDirection: 'row',
+      width: '100%',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 24,
     },
-    successDesc: {
+    modalDetailItem: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    modalDetailLabel: {
+      color: SUB,
+      fontSize: 11,
+      fontWeight: '500',
+      marginBottom: 4,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    modalDetailValue: {
+      color: T.text,
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'] as any,
+    },
+    modalDetailSep: {
+      width: 1,
+      height: 28,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    },
+    modalMessage: {
       color: SUB,
       fontSize: 14,
       textAlign: 'center',
+      lineHeight: 21,
       marginBottom: 24,
-      lineHeight: 20,
+      paddingHorizontal: 4,
     },
-    successBtn: {
-      backgroundColor: ACCENT,
+    modalBtn: {
       width: '100%',
-      paddingVertical: 14,
-      borderRadius: 12,
+      paddingVertical: 15,
+      borderRadius: 14,
       alignItems: 'center',
     },
-    successBtnText: {
+    modalBtnText: {
       color: '#fff',
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '700',
     },
   });
 }

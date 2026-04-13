@@ -447,7 +447,18 @@ export function ChartScreen() {
   );
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
-  const displayDecimals = baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
+  const chartLiveQuote = chartLiveQuotes[chartSymbol];
+  const displayDecimals = useMemo(() => {
+    const liveDigits =
+      typeof chartLiveQuote?.digits === 'number' && Number.isFinite(chartLiveQuote.digits)
+        ? Math.floor(chartLiveQuote.digits)
+        : null;
+    if (liveDigits !== null) {
+      return Math.min(Math.max(liveDigits, 0), 8);
+    }
+    return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
+  }, [baseSymbol, chartLiveQuote?.digits]);
 
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [menuOpen, setMenuOpen] = useState(false);

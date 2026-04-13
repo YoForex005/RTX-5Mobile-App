@@ -357,7 +357,7 @@ export function SymbolDetailsScreen() {
         },
         {
           onSuccess: (data: any) => {
-            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${data?.position_ticket || data?.order_ticket || 'Confirmed'}`);
+            Alert.alert('Order Executed', 'Your order was successfully transmitted.');
           },
           onError: (err: any) => {
             const feedback = classifyTradingError(err, { action: 'place-order' });
@@ -732,3 +732,4 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     })
   };
 }
+

@@ -30,6 +30,7 @@ import { useBrokerConfig } from '../../query/broker';
 import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLiveAccountState } from '../../state/liveAccountState';
 
 export function AccountsScreen() {
   const router = useRouter();
@@ -58,18 +59,28 @@ export function AccountsScreen() {
   // Filter out the active account to render the other connected accounts
   const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
 
-  // Extract the 5 essential display values (fallbacks for when API hasn't loaded)
+  // ── Live WebSocket account metrics (real-time balance/equity from accountSocket) ──
+  const liveBalance = useLiveAccountState((s) => s.balance);
+  const liveEquity = useLiveAccountState((s) => s.equity);
+  const liveMarginFree = useLiveAccountState((s) => s.margin_free);
+  const liveFloating = useLiveAccountState((s) => s.floating);
+
+  // Extract the essential display values — prefer live WS data, fall back to REST API
   const displayName = activeAccount?.name ?? accountDetails?.name ?? '---';
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
-  const displayCurrency = 'USD';
-  const displayBalance = activeAccount ? fmt.price(activeAccount.balance) : '---';
-  const displayEquity = activeAccount ? fmt.price(activeAccount.equity) : '---';
+  const displayCurrency = activeAccount?.currency ?? 'USD';
+  const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
+  const displayEquity = liveEquity > 0 ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
   const displayLeverage = activeAccount ? `1:${activeAccount.leverage}` : '---';
-  const displayFreeMargin = activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
-  const displayFloatingPnl = activeAccount?.floatingPnl ?? 0;
+  const displayFreeMargin = liveMarginFree !== 0 ? fmt.price(liveMarginFree) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
+  const displayFloatingPnl = liveFloating !== 0 ? liveFloating : (activeAccount?.floatingPnl ?? 0);
   const displayOpenPositions = activeAccount?.openPositions ?? 0;
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
+
+  console.log('[AccountsScreen] activeAccount:', activeAccount ? { login: activeAccount.login, balance: activeAccount.balance, equity: activeAccount.equity, freeMargin: activeAccount.freeMargin, floatingPnl: activeAccount.floatingPnl, currency: activeAccount.currency } : 'none');
+  console.log('[AccountsScreen] live WS metrics:', { liveBalance, liveEquity, liveMarginFree, liveFloating });
+  console.log('[AccountsScreen] display values:', { displayBalance, displayEquity, displayFreeMargin, displayFloatingPnl, displayCurrency });
 
   const { data: health } = useHealth();
   const { data: mt5Status } = useMt5Status();
@@ -133,10 +144,10 @@ export function AccountsScreen() {
           <View style={styles.activeCard}>
             {/* Corner ribbons */}
             {!isDemoAccount && (
-              <View style={styles.ribbonRight}><Text style={styles.ribbonRightText}>Contest</Text></View>
+              <View style={styles.ribbonRightContest}><Text style={styles.ribbonRightText}>Contest</Text></View>
             )}
             {isDemoAccount && (
-              <View style={styles.ribbonLeft}><Text style={styles.ribbonLeftText}>Demo</Text></View>
+              <View style={styles.ribbonRightDemo}><Text style={styles.ribbonRightText}>Demo</Text></View>
             )}
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
@@ -182,9 +193,7 @@ export function AccountsScreen() {
               </View>
               <View style={styles.metricItem}>
                 <Text style={styles.metricLabel}>Floating P/L</Text>
-                <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]}>
-                  {displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}
-                </Text>
+                <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}</Text>
               </View>
             </View>
 
@@ -246,7 +255,7 @@ export function AccountsScreen() {
                 onPress={() => setExpandedLogin(isExpanded ? null : account.login)}
               >
                 {/* Diagonal ribbon */}
-                <View style={[styles.ribbonRightSmall, isDemo && { backgroundColor: '#10B981' }]}>
+                <View style={isDemo ? styles.ribbonRightDemo : styles.ribbonRightContest}>
                   <Text style={styles.ribbonRightText}>{isDemo ? 'Demo' : 'Contest'}</Text>
                 </View>
                 <View style={styles.secondaryTopRow}>
@@ -298,9 +307,7 @@ export function AccountsScreen() {
                       </View>
                       <View style={styles.expandedItem}>
                         <Text style={styles.expandedLabel}>Floating P/L</Text>
-                        <Text style={[styles.expandedValue, { color: account.floatingPnl >= 0 ? '#10B981' : '#EF4444' }]}>
-                          {account.floatingPnl >= 0 ? '+' : ''}{fmt.price(account.floatingPnl)}
-                        </Text>
+                        <Text style={[styles.expandedValue, { color: account.floatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{account.floatingPnl >= 0 ? '+' : ''}{fmt.price(account.floatingPnl)}</Text>
                       </View>
                     </View>
 
@@ -348,7 +355,7 @@ export function AccountsScreen() {
         <View style={styles.modalOverlay} pointerEvents="box-none">
           {/* Background tap to close */}
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPasswordSheetVisible(false)} />
-          
+
           <View style={styles.modalContent}>
             <ChangePasswordSheet
               loginId={displayLogin}
@@ -506,13 +513,29 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     elevation: 4,
     overflow: 'hidden',
   },
-  ribbonRight: {
+  ribbonRightContest: {
     position: 'absolute',
-    top: 14,
-    right: -30,
+    top: -3,
+    right: -55,
     backgroundColor: '#3B82F6',
-    paddingVertical: 4,
-    paddingHorizontal: 32,
+    width: 140,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 6,
+    transform: [{ rotate: '45deg' }],
+    zIndex: 10,
+  },
+  ribbonRightDemo: {
+    position: 'absolute',
+    top: -3,
+    right: -55,
+    backgroundColor: '#10B981',
+    width: 140,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 6,
     transform: [{ rotate: '45deg' }],
     zIndex: 10,
   },
@@ -672,7 +695,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 8,
+    minHeight: 48,
   },
   metricLabel: {
     color: T.textDimmed,
@@ -956,16 +980,6 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.4,
-  },
-  ribbonRightSmall: {
-    position: 'absolute',
-    top: 12,
-    right: -32,
-    backgroundColor: '#3B82F6',
-    paddingVertical: 3,
-    paddingHorizontal: 30,
-    transform: [{ rotate: '45deg' }],
-    zIndex: 10,
   },
   ribbonLeftSmall: {
     position: 'absolute',

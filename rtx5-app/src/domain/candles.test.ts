@@ -9,6 +9,7 @@ import {
   mergeCandleUpdate,
   normalizeCandle,
   normalizeSymbol,
+  overlayLiveCandlesOnHistory,
 } from './candles';
 
 test('candle-path normalizeSymbol matches quote-path broker suffix handling', () => {
@@ -150,6 +151,28 @@ test('applyLivePriceToCandleSeries updates the active bucket from quote ticks', 
   ]);
 });
 
+test('applyLivePriceToCandleSeries returns the existing series for duplicate no-op live ticks', () => {
+  const candles = [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 0,
+    },
+  ];
+
+  const updated = applyLivePriceToCandleSeries(
+    candles,
+    1.342875,
+    1776071310000,
+    'M1',
+  );
+
+  assert.equal(updated, candles);
+});
+
 test('applyLivePriceToCandleSeries appends a new bucket when the live quote rolls over', () => {
   const updated = applyLivePriceToCandleSeries(
     [
@@ -198,6 +221,115 @@ test('hasExcessiveLivePriceGap flags stale series that require a history resync'
   assert.equal(needsResync, true);
 });
 
+test('applyLivePriceToCandleSeries can append the current live bucket even when history is stale', () => {
+  const updated = applyLivePriceToCandleSeries(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+    ],
+    1.34325,
+    1776071701000,
+    'M1',
+    {
+      maxAutoGapFillCandles: 5,
+      allowSparseAppendOnGap: true,
+    },
+  );
+
+  assert.deepEqual(updated, [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+    {
+      time: 1776071700,
+      open: 1.34325,
+      high: 1.34325,
+      low: 1.34325,
+      close: 1.34325,
+      volume: 0,
+    },
+  ]);
+});
+
+test('overlayLiveCandlesOnHistory preserves the live candle while adding healed history behind it', () => {
+  const merged = overlayLiveCandlesOnHistory(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34294,
+        low: 1.34281,
+        close: 1.3429,
+        volume: 88,
+      },
+    ],
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071700,
+        open: 1.34325,
+        high: 1.3434,
+        low: 1.3431,
+        close: 1.3433,
+        volume: 0,
+      },
+    ],
+  );
+
+  assert.deepEqual(merged, [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+    {
+      time: 1776071340,
+      open: 1.342875,
+      high: 1.34294,
+      low: 1.34281,
+      close: 1.3429,
+      volume: 88,
+    },
+    {
+      time: 1776071700,
+      open: 1.34325,
+      high: 1.3434,
+      low: 1.3431,
+      close: 1.3433,
+      volume: 0,
+    },
+  ]);
+});
+
 test('mergeRecentHistoryIntoCandles heals the active candle wick without resetting the series', () => {
   const healed = mergeRecentHistoryIntoCandles(
     [
@@ -229,7 +361,44 @@ test('mergeRecentHistoryIntoCandles heals the active candle wick without resetti
       open: 1.342825,
       high: 1.34299,
       low: 1.34277,
-      close: 1.34288,
+      close: 1.34291,
+      volume: 101,
+    },
+  ]);
+});
+
+test('mergeRecentHistoryIntoCandles corrects the active candle open while preserving the latest live close', () => {
+  const healed = mergeRecentHistoryIntoCandles(
+    [
+      {
+        time: 1776071280,
+        open: 1.34291,
+        high: 1.34296,
+        low: 1.34289,
+        close: 1.34295,
+        volume: 0,
+      },
+    ],
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34299,
+        low: 1.34277,
+        close: 1.34288,
+        volume: 101,
+      },
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(healed, [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34299,
+      low: 1.34277,
+      close: 1.34295,
       volume: 101,
     },
   ]);

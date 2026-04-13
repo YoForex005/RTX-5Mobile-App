@@ -65,7 +65,7 @@ export function ClosePositionScreen() {
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={22} color={T.text} />
+          <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
         <View style={styles.headerBtn} />
@@ -81,7 +81,7 @@ export function ClosePositionScreen() {
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={22} color={T.text} />
+          <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
         <View style={styles.headerBtn} />

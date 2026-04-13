@@ -7,7 +7,7 @@
  *  POST /api/v2/orders               — place a new market order
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureItemAsync } from '../utils/secureStorage';
 import { apiClient, decodeBrokerIdFromToken, API_BASE_URL } from './apiClient';
 import { normalizeSymbol } from '../domain/symbols';
 import { createTradingApiError } from './tradingErrors';
@@ -212,7 +212,7 @@ export const ordersApi = {
     if (!jwtBrokerId) {
       console.warn('[RTX5 Order] JWT missing broker_id — attempting silent re-login');
       try {
-        const saved = await AsyncStorage.getItem('rtx5_saved_login');
+        const saved = await getSecureItemAsync('rtx5_saved_login');
         if (saved) {
           const { broker, login: savedLogin, pass } = JSON.parse(saved);
           if (broker && savedLogin && pass) {
@@ -282,3 +282,4 @@ export const ordersApi = {
     return finalData;
   },
 };
+

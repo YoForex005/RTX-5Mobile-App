@@ -189,7 +189,7 @@ export function SettingsScreen() {
             {/* ── Main Account Card ─────────────────────────────────── */}
             <Pressable onPress={() => router.push('/settings/accounts')}>
               <View style={[styles.accountCard, styles.cardShadow]}>
-                {/* Top-Left Diagonal Ribbon */}
+                {/* Top-Right Diagonal Ribbon */}
                 <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
                   <Text style={styles.ribbonText}>{isDemoAccount ? 'Demo' : 'Real'}</Text>
                 </View>
@@ -418,16 +418,16 @@ export function SettingsScreen() {
 
       </ScrollView>
 
-      <QRScannerModal 
-        visible={showScanner} 
-        onClose={() => setShowScanner(false)} 
+      <QRScannerModal
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
         onScan={(data) => {
           setShowScanner(false);
           // Small delay before alert to ensure modal closes smoothly first
           setTimeout(() => {
             Alert.alert('Scanned Success', data);
           }, 300);
-        }} 
+        }}
       />
     </Screen>
   );
@@ -509,9 +509,10 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
   },
 
   ribbonContainer: {
-    position: 'absolute', top: 18, left: -42, width: 150, height: 26,
+    position: 'absolute', top: -3, right: -55, width: 140, height: 38,
     justifyContent: 'center', alignItems: 'center',
-    transform: [{ rotate: '-45deg' }], zIndex: 10,
+    paddingTop: 6,
+    transform: [{ rotate: '45deg' }], zIndex: 10,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
   },
   ribbonDemo: { backgroundColor: '#10B981' },

@@ -1,6 +1,6 @@
 import { Stack, router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -46,7 +46,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     // Auto-populate saved credentials if they exist
-    AsyncStorage.getItem('rtx5_saved_login').then((val) => {
+    getSecureItemAsync('rtx5_saved_login').then((val) => {
       if (val) {
         try {
           const { broker, login: savedAccountId, pass } = JSON.parse(val);
@@ -126,12 +126,12 @@ export default function LoginScreen() {
 
       // ── Handle Save Password Option ──────────────────────────────────────
       if (savePassword) {
-        AsyncStorage.setItem(
+        setSecureItemAsync(
           'rtx5_saved_login',
           JSON.stringify({ broker: brokerId.trim(), login: accountId.trim(), pass: password })
         );
       } else {
-        AsyncStorage.removeItem('rtx5_saved_login');
+        removeSecureItemAsync('rtx5_saved_login');
       }
 
       setModalState({ visible: true, type: 'success', title: 'Success', message: 'Login successful' });
@@ -544,3 +544,4 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
   });
 }
+

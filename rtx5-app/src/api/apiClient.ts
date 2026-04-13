@@ -13,7 +13,7 @@
  * Query params and request headers are NOT checked by the V2 backend for broker routing.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureItemAsync } from '../utils/secureStorage';
 import { useUserPreferences } from '../state/userPreferences';
 
 // V2 API base URL — resolved from environment variable, falls back to direct IP
@@ -89,7 +89,7 @@ async function silentReLogin(
   if (isSilentReLogging) return null;
   isSilentReLogging = true;
   try {
-    const saved = await AsyncStorage.getItem('rtx5_saved_login');
+    const saved = await getSecureItemAsync('rtx5_saved_login');
     if (!saved) return null;
 
     const { broker, login: savedLogin, pass } = JSON.parse(saved);
@@ -292,3 +292,4 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
   return response;
 };
+

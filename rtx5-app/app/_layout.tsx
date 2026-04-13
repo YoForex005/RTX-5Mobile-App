@@ -113,7 +113,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (Platform.OS === 'web') return; // expo-web automatically mounts vector-icons via DOM style blocks
-    
+
     // Preload Ionicons font for Native UI
     Font.loadAsync(Ionicons.font).catch(() => {
       console.warn('Ionicons font failed to load on native');
@@ -123,58 +123,58 @@ export default function RootLayout() {
   useEffect(() => {
     if (isLoggedIn) {
       const bootAccountData = async () => {
-         if (!accountDetails?.id) return;
-         
-         let mt5LoginNumber = Number(accountDetails.id);
+        if (!accountDetails?.id) return;
 
-         // AUTO-MIGRATE LEGACY SESSIONS:
-         // If id < 100000, it's a legacy database user_id (e.g. 92) instead of an MT5 login (e.g. 200074).
-         // We fetch the user's accounts list to find their true MT5 login without forcing them to log out.
-         if (mt5LoginNumber < 100000) {
-            try {
-               const accounts = await getAccounts();
-               if (accounts.length > 0) {
-                  mt5LoginNumber = accounts[0].login;
-                  // Silently update the persisted Zustand session so it doesn't happen again
-                  useUserPreferences.getState().login(
-                     String(mt5LoginNumber),
-                     accountDetails.name,
-                     accountDetails.server,
-                     {
-                        access_token: accountDetails.credentials?.accessToken || '',
-                        refresh_token: accountDetails.credentials?.refreshToken || '',
-                        expires_at: accountDetails.credentials?.expiresAt || ''
-                     }
-                  );
-               }
-            } catch (e) {
-               console.warn('[Session Migration] Failed to auto-migrate old session:', e);
+        let mt5LoginNumber = Number(accountDetails.id);
+
+        // AUTO-MIGRATE LEGACY SESSIONS:
+        // If id < 100000, it's a legacy database user_id (e.g. 92) instead of an MT5 login (e.g. 200074).
+        // We fetch the user's accounts list to find their true MT5 login without forcing them to log out.
+        if (mt5LoginNumber < 100000) {
+          try {
+            const accounts = await getAccounts();
+            if (accounts.length > 0) {
+              mt5LoginNumber = accounts[0].login;
+              // Silently update the persisted Zustand session so it doesn't happen again
+              useUserPreferences.getState().login(
+                String(mt5LoginNumber),
+                accountDetails.name,
+                accountDetails.server,
+                {
+                  access_token: accountDetails.credentials?.accessToken || '',
+                  refresh_token: accountDetails.credentials?.refreshToken || '',
+                  expires_at: accountDetails.credentials?.expiresAt || ''
+                }
+              );
             }
-         }
+          } catch (e) {
+            console.warn('[Session Migration] Failed to auto-migrate old session:', e);
+          }
+        }
 
-         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
-            useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
-            accountWsService.connect();
-         }
+        if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
+          useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
+          accountWsService.connect();
+        }
 
-         try {
-            const acct = await getAccountById(mt5LoginNumber);
-            useLiveAccountState.getState().updateMetrics({
-               login: acct.login,
-               balance: acct.balance,
-               equity: acct.equity,
-               margin: acct.usedMargin,
-               margin_free: acct.freeMargin,
-               margin_level: acct.marginLevel,
-               floating: acct.floatingPnl
-            });
-            
-            // Automatically determine if it's a demo or real account based on the backend group name
-            const isDemo = acct.group.toLowerCase().includes('demo');
-            useUserPreferences.getState().setIsDemoAccount(isDemo);
-         } catch (e) {
-            console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
-         }
+        try {
+          const acct = await getAccountById(mt5LoginNumber);
+          useLiveAccountState.getState().updateMetrics({
+            login: acct.login,
+            balance: acct.balance,
+            equity: acct.equity,
+            margin: acct.usedMargin,
+            margin_free: acct.freeMargin,
+            margin_level: acct.marginLevel,
+            floating: acct.floatingPnl
+          });
+
+          // Automatically determine if it's a demo or real account based on the backend group name
+          const isDemo = acct.group.toLowerCase().includes('demo');
+          useUserPreferences.getState().setIsDemoAccount(isDemo);
+        } catch (e) {
+          console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
+        }
       };
 
       void bootAccountData();
