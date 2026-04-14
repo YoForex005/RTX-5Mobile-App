@@ -230,7 +230,7 @@ export function OrderTicketScreen() {
         comment: '',
       });
 
-      if (['rejected', 'failed', 'error'].includes(data.status?.toLowerCase())) {
+      if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
         const feedback = classifyTradingError(
           { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
           { action: 'place-order' },

@@ -4,7 +4,7 @@
  * Singleton WebSocket service for live account data.
  *
  * Protocol:
- *   1. Connect to ws://server:8090/ws/v2?token=JWT_TOKEN
+ *   1. Connect to wss://backend.orrnn.com/ws/v2?token=JWT_TOKEN
  *   2. Subscribe: { "action": "subscribe", "channel": "metrics.LOGIN" }
  *                  { "action": "subscribe", "channel": "positions.LOGIN" }
  *
@@ -22,7 +22,7 @@ import {
   type AccountWsSession,
 } from './accountSocket.helpers';
 
-const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'ws://69.197.178.27:8090/ws/v2';
+const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'wss://backend.orrnn.com/ws/v2';
 
 class AccountWebSocketService {
   private static instance: AccountWebSocketService;

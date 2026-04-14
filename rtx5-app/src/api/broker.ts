@@ -8,7 +8,7 @@
 import { apiClient } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// V2 Broker Config API — http://69.197.178.27/api/v2/broker/config
+// V2 Broker Config API — https://backend.orrnn.com/api/v2/broker/config
 //
 // Endpoint integrated:
 //   GET /broker/config — Returns broker-specific configuration

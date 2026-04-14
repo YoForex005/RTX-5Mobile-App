@@ -35,10 +35,11 @@ export function SettingsScreen() {
   const { data: accounts } = useAccounts(isLoggedIn);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+  const displayAccountName = activeAccount?.name ?? 'Account';
+  const displayEmail = accountDetails?.name ?? '---';
   const displayBalance = liveAccount.balance > 0 ? fmt.price(liveAccount.balance) : '---';
   const displayCurrency = 'USD';
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
-  const displayAccountName = accountDetails?.name ?? '---';
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
@@ -205,10 +206,13 @@ export function SettingsScreen() {
                 <View style={[styles.cardBubbleRight, { backgroundColor: themeMode === 'light' ? '#818CF8' : '#060B18' }]} />
 
                 <View style={styles.accTopRow}>
-                  <View style={styles.connectedPill}>
+                  <View style={[styles.connectedPill, { alignSelf: 'flex-start' }]}>
                     <View style={styles.greenDot} />
                     <Text style={styles.connectedText}>Connected</Text>
                   </View>
+                  <Text style={[styles.accEmail, themeMode === 'light' && { color: 'rgba(255,255,255,0.9)' }]} ellipsizeMode="tail" numberOfLines={1}>
+                    {displayEmail}
+                  </Text>
                 </View>
 
                 <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>{displayAccountName}</Text>
@@ -519,7 +523,8 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
   ribbonLive: { backgroundColor: '#3B82F6' },
   ribbonText: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.8 },
 
-  accTopRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 },
+  accTopRow: { flexDirection: 'column', alignItems: 'flex-start', marginBottom: 20, gap: 6 },
+  accEmail: { color: themeMode === 'light' ? 'rgba(255,255,255,0.9)' : T.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
 
   connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   greenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981', marginRight: 6 },

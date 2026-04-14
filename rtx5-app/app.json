@@ -27,11 +27,7 @@
       "supportsTablet": true,
       "buildNumber": "1",
       "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        },
         "UIBackgroundModes": [
-          "fetch",
           "fetch"
         ]
       },
@@ -79,7 +75,8 @@
         {
           "username": "yoforex"
         }
-      ]
+      ],
+      "./withNetworkSecurityConfig.js"
     ],
     "extra": {
       "router": {

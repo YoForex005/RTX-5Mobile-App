@@ -8,7 +8,7 @@
 import { apiClient } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// V2 Accounts API — http://69.197.178.27/api/v2/accounts
+// V2 Accounts API — https://backend.orrnn.com/api/v2/accounts
 //
 // Endpoints integrated:
 //   GET /accounts         — List all trading accounts for the authenticated user

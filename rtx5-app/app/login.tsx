@@ -90,32 +90,77 @@ export default function LoginScreen() {
         // Ignore errors, we'll fall back to brokerId if it fails
       }
 
-      const response = await loginAPI({
+      const response: any = await loginAPI({
         username: accountId.trim(),
         password,
         broker_id: brokerId.trim(),
       });
 
-      // Compute expiresAt from expires_in (seconds)
-      const expiresAt = new Date(Date.now() + (response.expires_in ?? 86400) * 1000).toISOString();
+      // ── Defensive response parsing ──
+      // The V2 server's spec (AuthTokenResponse) returns `token` + nested
+      // `user`, while older deployments returned the flat `access_token` +
+      // `account_login` shape. Accept BOTH so a server-side field rename
+      // can't silently break login and leave trades with an undefined JWT.
+      const accessToken = response.access_token ?? response.token;
+      const refreshToken = response.refresh_token ?? response.refreshToken;
+      const accountLogin =
+        response.account_login ??
+        response.accountLogin ??
+        response.user?.account_login ??
+        response.user?.id;
+      const username =
+        response.username ?? response.user?.username ?? response.user?.name ?? 'Trader';
+      const serverName =
+        response.server ?? response.broker_server ?? response.brokerServer;
+
+      if (!accessToken || !accountLogin) {
+        // Without a token or a resolvable account login every downstream
+        // REST/WS call is broken. Fail the login here with a clear message
+        // instead of allowing a half-authenticated session.
+        console.warn('[Login] Unexpected auth response shape:', JSON.stringify(response));
+        throw new Error(
+          !accessToken
+            ? 'Login server did not return an access token.'
+            : 'Login server did not return an account login.',
+        );
+      }
+
+      // Compute expiresAt: spec uses `expires_at` (epoch seconds), older
+      // shape uses `expires_in` (seconds from now). Accept both.
+      const expiresAtIso = (() => {
+        if (typeof response.expires_at === 'number' && response.expires_at > 0) {
+          // If it's an epoch in seconds (< year 3000 in ms), treat as seconds.
+          const ms = response.expires_at > 1e12 ? response.expires_at : response.expires_at * 1000;
+          return new Date(ms).toISOString();
+        }
+        const expiresInSec = typeof response.expires_in === 'number' ? response.expires_in : 86400;
+        return new Date(Date.now() + expiresInSec * 1000).toISOString();
+      })();
 
       // Use the broker_id from the API response as canonical — the server
       // validates and returns it, so it's always correct. Falls back to
       // the user-typed value if the response doesn't include it.
-      const canonicalBrokerId = response.broker_id || brokerId.trim();
+      const canonicalBrokerId = response.broker_id || response.brokerId || brokerId.trim();
+
+      console.log('[Login] success', {
+        accountLogin,
+        brokerId: canonicalBrokerId,
+        hasToken: !!accessToken,
+        hasRefresh: !!refreshToken,
+      });
 
       // brokerId is persisted atomically inside login() to prevent race
       // conditions with the async Zustand persist middleware.
       login(
-        String(response.account_login),
-        response.username || 'Trader',
-        response.server || brokerConfig?.server_name || canonicalBrokerId,
+        String(accountLogin),
+        username,
+        serverName || brokerConfig?.server_name || canonicalBrokerId,
         {
-          access_token: response.access_token,
-          refresh_token: response.refresh_token,
-          expires_at: expiresAt,
+          access_token: accessToken,
+          refresh_token: refreshToken ?? '',
+          expires_at: expiresAtIso,
         },
-        canonicalBrokerId
+        canonicalBrokerId,
       );
 
       // ── Invalidate cached queries so fresh data loads for the new session ──

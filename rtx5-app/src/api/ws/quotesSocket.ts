@@ -17,7 +17,7 @@ const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 export class QuotesWebSocketService {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_QUOTES_WS_URL || 'ws://69.197.178.27/ws/feed';
+  private url = process.env.EXPO_PUBLIC_QUOTES_WS_URL || 'wss://backend.orrnn.com/ws/feed';
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
@@ -32,6 +32,7 @@ export class QuotesWebSocketService {
   private appStateSubscription: NativeEventSubscription | null = null;
   private lastMessageAt: number = Date.now();
   private watchdogInterval: NodeJS.Timeout | null = null;
+  private tickListeners: Set<(tick: QuoteTickEvent) => void> = new Set();
 
   private constructor() {
     this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
@@ -66,6 +67,14 @@ export class QuotesWebSocketService {
 
   public getConnectionStatus(): boolean {
     return this.isConnected;
+  }
+
+  public addTickListener(listener: (tick: QuoteTickEvent) => void): void {
+    this.tickListeners.add(listener);
+  }
+
+  public removeTickListener(listener: (tick: QuoteTickEvent) => void): void {
+    this.tickListeners.delete(listener);
   }
 
   /**
@@ -261,8 +270,44 @@ export class QuotesWebSocketService {
     if (!data.symbol || data.bid == null || data.ask == null) return false;
     // Normalize timestamp: some servers send `t` instead of `time`
     if (data.t != null && data.time == null) data = { ...data, time: data.t };
+
+    this.emitTick({
+      symbol: String(data.symbol),
+      bid: data.bid,
+      ask: data.ask,
+      timestamp: data.time ?? data.timestamp ?? data.t ?? Date.now(),
+    });
+
+    // Preserve intra-flush wick extremes. When several ticks arrive within
+    // the same event-loop turn, naively overwriting the pending entry would
+    // discard any spike high or dip low, leaving the candle wick incomplete.
+    // We carry forward bidHigh / bidLow so the candle engine can replay the
+    // extremes and grow the wick on both sides before settling on the close.
+    const existing = this.pendingUpdates.get(data.symbol);
+    if (existing) {
+      const prevHigh = typeof existing.bidHigh === 'number' ? existing.bidHigh : existing.bid;
+      const prevLow = typeof existing.bidLow === 'number' ? existing.bidLow : existing.bid;
+      data = {
+        ...data,
+        bidHigh: Math.max(prevHigh, data.bid),
+        bidLow: Math.min(prevLow, data.bid),
+      };
+    } else {
+      data = { ...data, bidHigh: data.bid, bidLow: data.bid };
+    }
+
     this.pendingUpdates.set(data.symbol, data);
     return true;
+  }
+
+  private emitTick(tick: QuoteTickEvent): void {
+    this.tickListeners.forEach((listener) => {
+      try {
+        listener(tick);
+      } catch (error) {
+        console.warn('[Quotes WS] Tick listener error', error);
+      }
+    });
   }
 
   private scheduleFlush(): void {
@@ -340,5 +385,12 @@ export class QuotesWebSocketService {
     });
   }
 }
+
+export type QuoteTickEvent = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  timestamp: unknown;
+};
 
 export const quotesWsService = QuotesWebSocketService.getInstance();

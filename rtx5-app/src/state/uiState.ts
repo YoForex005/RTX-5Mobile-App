@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import type { ChartDrawingKind } from '../features/chart/drawingPersistence';
 
 /** Represents a single interactive button in an ActionSheet */
 type ActionSheetAction = {
@@ -38,6 +39,11 @@ type UIState = {
   isSearchActive: boolean;
   setSearchActive: (active: boolean) => void;
 
+  /** Tool selection requested from the objects screen and consumed by the chart */
+  pendingChartDrawingTool: ChartDrawingKind | null;
+  queueChartDrawingTool: (tool: ChartDrawingKind) => void;
+  clearPendingChartDrawingTool: () => void;
+
   /** Current active action sheet config. Null means closed. */
   actionSheet: ActionSheetConfig | null;
   /** Opens the global action sheet with the provided config */
@@ -59,6 +65,10 @@ export const useUIState = create<UIState>((set) => ({
 
   isSearchActive: false,
   setSearchActive: (active) => set({ isSearchActive: active }),
+
+  pendingChartDrawingTool: null,
+  queueChartDrawingTool: (tool) => set({ pendingChartDrawingTool: tool }),
+  clearPendingChartDrawingTool: () => set({ pendingChartDrawingTool: null }),
 
   actionSheet: null,
   showActionSheet: (config) => set({ actionSheet: config }),

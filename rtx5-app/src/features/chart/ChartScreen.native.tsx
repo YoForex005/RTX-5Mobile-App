@@ -35,6 +35,7 @@ import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePlaceOrderMutation } from '../../query/orders';
+import { classifyTradingError } from '../../api/tradingErrors';
 import { usePositionsState } from '../../state/positionsState';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
@@ -43,13 +44,16 @@ import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketSymbols } from '../../query/market';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
-import { DRAWING_TOOLS_JS } from './plugins/drawingToolsBundleString';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
-import { getTimeframeSeconds, isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
+import { isStructurallyValidCandle, normalizeTimeframe } from '../../domain/candles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
 import { LIGHTWEIGHT_CHARTS_JS } from './rendering/lightweightChartsBundle';
 import { buildChartOverlayPayload } from './chartOverlays';
+import {
+  getChartDrawingBucketKey,
+  sanitizePersistedChartDrawings,
+} from './drawingPersistence';
 import {
   buildChartSeriesSnapshot,
   EMPTY_CHART_SERIES_SNAPSHOT,
@@ -74,11 +78,17 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) =>
 
   if (currentPrice === null) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
 
-  const changePct = q.changePct ?? 0;
-  const openPrice = q.open ?? q.close ?? currentPrice;
-  const change = q.change !== undefined ? q.change : (currentPrice - openPrice);
+  // The quote feed's `open`/`close` fields are seeded once at boot and never
+  // refreshed by live ticks, so `currentPrice - open` grows unbounded as the
+  // live price drifts (producing absurd "+9098.20 (+13.92%)" on BTCUSD when
+  // the real daily move is < 1%). `changePct` is the only field that stays
+  // bounded and updates realistically, so treat it as the source of truth
+  // and derive the absolute change from it — guarantees sign agreement and
+  // sane magnitudes regardless of how stale `open` is.
+  const changePct = typeof q.changePct === 'number' ? q.changePct : 0;
+  const change = currentPrice * (changePct / 100);
 
-  const isUp = change >= 0;
+  const isUp = changePct >= 0;
 
   return (
     <View style={styles.priceSection}>
@@ -108,31 +118,39 @@ type TradeFeedbackState = {
 
 const TRADE_MODAL_INITIAL: TradeFeedbackState = { visible: false, type: 'success' };
 
+const priceDecimalsFor = (symbol: string | undefined): number => {
+  if (!symbol) return 5;
+  if (symbol.includes('JPY')) return 3;
+  if (symbol.includes('BTC') || symbol.includes('XAU')) return 2;
+  return 5;
+};
+
 const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
   state: TradeFeedbackState;
   onClose: () => void;
   T: any;
   isDark: boolean;
 }) => {
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const insets = useSafeAreaInsets();
+  const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!state.visible) return;
-    scaleAnim.setValue(0.8);
+    slideAnim.setValue(0);
     opacityAnim.setValue(0);
     progressAnim.setValue(1);
 
     Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: 1, tension: 65, friction: 8, useNativeDriver: true }),
-      Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 1, tension: 80, friction: 11, useNativeDriver: true }),
+      Animated.timing(opacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
     ]).start();
 
     if (state.type === 'success') {
-      Vibration.vibrate([0, 40, 60, 40]);
-      Animated.timing(progressAnim, { toValue: 0, duration: 4000, useNativeDriver: false }).start();
-      const timer = setTimeout(onClose, 4000);
+      Vibration.vibrate([0, 28, 40, 28]);
+      Animated.timing(progressAnim, { toValue: 0, duration: 5000, useNativeDriver: false }).start();
+      const timer = setTimeout(onClose, 5000);
       return () => clearTimeout(timer);
     }
   }, [state.visible]);
@@ -140,12 +158,31 @@ const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
   if (!state.visible) return null;
 
   const isBuy = state.side === 'buy';
-  const accentColor = state.type === 'success'
-    ? (isBuy ? '#10B981' : '#EF4444')
-    : '#EF4444';
-  const glowColor = state.type === 'success'
-    ? (isBuy ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)')
-    : 'rgba(239,68,68,0.12)';
+  const isSuccess = state.type === 'success';
+  // Modern trading palette — emerald buy / crimson sell / amber warn.
+  const BUY_HEX = '#10B981';
+  const SELL_HEX = '#EF4444';
+  const ERR_HEX = '#F43F5E';
+  const accent = isSuccess ? (isBuy ? BUY_HEX : SELL_HEX) : ERR_HEX;
+  const accentSoft = isSuccess
+    ? (isBuy ? 'rgba(16,185,129,0.14)' : 'rgba(239,68,68,0.14)')
+    : 'rgba(244,63,94,0.14)';
+  const gradientTo = isSuccess
+    ? (isBuy ? '#34D399' : '#F87171')
+    : '#FB7185';
+
+  const cardBg = isDark ? '#14161D' : '#FFFFFF';
+  const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
+  const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
+  const textMuted = isDark ? '#94A3B8' : '#64748B';
+  const rowBg = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)';
+
+  const formattedPrice = typeof state.price === 'number'
+    ? state.price.toFixed(priceDecimalsFor(state.symbol))
+    : '—';
+
+  const translateY = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
+  const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] });
 
   return (
     <View style={tfmStyles.overlay} pointerEvents="box-none">
@@ -153,110 +190,144 @@ const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
       <Animated.View style={[
         tfmStyles.card,
         {
-          backgroundColor: isDark ? '#1C1C2E' : '#FFFFFF',
-          borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+          backgroundColor: cardBg,
+          borderColor: subtleBorder,
           opacity: opacityAnim,
-          transform: [{ scale: scaleAnim }],
+          transform: [{ translateY }, { scale }],
+          marginBottom: Math.max(insets.bottom, 16),
         },
       ]}>
-        {/* Animated accent bar at top */}
-        <View style={[tfmStyles.topBar, { backgroundColor: accentColor }]}>
-          {state.type === 'success' && (
+        {/* Gradient header strip */}
+        <LinearGradient
+          colors={[accent, gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={tfmStyles.headerStrip}
+        >
+          {isSuccess && (
             <Animated.View style={[
-              tfmStyles.topBarProgress,
+              tfmStyles.headerProgress,
               {
-                backgroundColor: 'rgba(255,255,255,0.3)',
-                width: progressAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0%', '100%'],
-                }),
+                width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
               },
             ]} />
           )}
-        </View>
+        </LinearGradient>
 
-        {/* Icon */}
-        <View style={tfmStyles.iconWrap}>
-          <View style={[tfmStyles.iconGlow, { backgroundColor: glowColor }]} />
-          <View style={[tfmStyles.iconCircle, { backgroundColor: accentColor }]}>
+        {/* Status row — icon + badge */}
+        <View style={tfmStyles.statusRow}>
+          <View style={[tfmStyles.statusIcon, { backgroundColor: accentSoft, borderColor: accent }]}>
             <Ionicons
-              name={state.type === 'success' ? 'checkmark-sharp' : 'close-sharp'}
-              size={30}
-              color="#fff"
+              name={isSuccess ? 'checkmark' : 'close'}
+              size={22}
+              color={accent}
             />
           </View>
+          <View style={tfmStyles.statusTextCol}>
+            <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
+              {isSuccess ? 'Order Executed' : (state.title || 'Order Rejected')}
+            </Text>
+            <View style={tfmStyles.statusSubRow}>
+              <View style={[tfmStyles.statusBadge, { backgroundColor: accentSoft }]}>
+                <View style={[tfmStyles.statusDot, { backgroundColor: accent }]} />
+                <Text style={[tfmStyles.statusBadgeText, { color: accent }]}>
+                  {isSuccess ? 'FILLED' : 'FAILED'}
+                </Text>
+              </View>
+              {isSuccess && state.executedAt ? (
+                <Text style={[tfmStyles.statusSubText, { color: textMuted }]} numberOfLines={1}>
+                  {state.executedAt}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+          <Pressable style={tfmStyles.closeBtn} onPress={onClose} hitSlop={10}>
+            <Ionicons name="close" size={18} color={textMuted} />
+          </Pressable>
         </View>
 
-        {state.type === 'success' ? (
+        {isSuccess ? (
           <>
-            <Text style={[tfmStyles.title, { color: isDark ? '#fff' : '#111' }]}>
-              Order Filled
-            </Text>
-
-            {/* Symbol + Side pill */}
-            <View style={tfmStyles.symbolRow}>
-              <Text style={[tfmStyles.symbolText, { color: isDark ? '#fff' : '#111' }]}>
-                {state.symbol}
-              </Text>
-              <View style={[tfmStyles.sidePill, { backgroundColor: isBuy ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' }]}>
-                <Text style={[tfmStyles.sidePillText, { color: accentColor }]}>
-                  {state.side?.toUpperCase()}
+            {/* Symbol + side chip + price */}
+            <View style={tfmStyles.priceCard}>
+              <View style={tfmStyles.priceHeaderRow}>
+                <Text style={[tfmStyles.symbolText, { color: textPrimary }]} numberOfLines={1}>
+                  {state.symbol}
                 </Text>
+                <View style={[tfmStyles.sideChip, { backgroundColor: accent }]}>
+                  <Ionicons name={isBuy ? 'arrow-up' : 'arrow-down'} size={11} color="#fff" />
+                  <Text style={tfmStyles.sideChipText}>{state.side?.toUpperCase()}</Text>
+                </View>
               </View>
+              <Text style={[tfmStyles.priceText, { color: textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formattedPrice}
+              </Text>
+              <Text style={[tfmStyles.priceLabel, { color: textMuted }]}>EXECUTION PRICE</Text>
             </View>
 
-            {/* Execution price */}
-            <Text style={[tfmStyles.priceText, { color: isDark ? '#fff' : '#111' }]}>
-              {state.price?.toFixed(state.symbol?.includes('JPY') ? 3 : state.symbol?.includes('BTC') || state.symbol?.includes('XAU') ? 2 : 5) ?? '---'}
-            </Text>
-
-            {/* Divider */}
-            <View style={[tfmStyles.divider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} />
-
             {/* Details grid */}
-            <View style={tfmStyles.detailsRow}>
+            <View style={[tfmStyles.detailsGrid, { backgroundColor: rowBg, borderColor: subtleBorder }]}>
               <View style={tfmStyles.detailItem}>
-                <Text style={tfmStyles.detailLabel}>VOLUME</Text>
-                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
-                  {state.volume}
+                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>VOLUME</Text>
+                <Text style={[tfmStyles.detailValue, { color: textPrimary }]} numberOfLines={1}>
+                  {typeof state.volume === 'number' ? state.volume.toFixed(2) : state.volume ?? '—'}
                 </Text>
               </View>
-              <View style={[tfmStyles.detailSep, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+              <View style={[tfmStyles.detailSep, { backgroundColor: subtleBorder }]} />
               <View style={tfmStyles.detailItem}>
-                <Text style={tfmStyles.detailLabel}>TICKET</Text>
-                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
-                  #{state.ticket}
+                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>TICKET</Text>
+                <Text style={[tfmStyles.detailValue, { color: textPrimary }]} numberOfLines={1}>
+                  #{state.ticket ?? '—'}
                 </Text>
               </View>
-              <View style={[tfmStyles.detailSep, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+              <View style={[tfmStyles.detailSep, { backgroundColor: subtleBorder }]} />
               <View style={tfmStyles.detailItem}>
-                <Text style={tfmStyles.detailLabel}>TIME</Text>
-                <Text style={[tfmStyles.detailValue, { color: isDark ? '#fff' : '#111' }]}>
-                  {state.executedAt}
+                <Text style={[tfmStyles.detailLabel, { color: textMuted }]}>SIDE</Text>
+                <Text style={[tfmStyles.detailValue, { color: accent }]} numberOfLines={1}>
+                  {state.side?.toUpperCase() ?? '—'}
                 </Text>
               </View>
             </View>
           </>
         ) : (
           <>
-            <Text style={[tfmStyles.title, { color: isDark ? '#fff' : '#111' }]}>
-              {state.title || 'Trade Failed'}
-            </Text>
-            <Text style={[tfmStyles.errorMsg, { color: isDark ? '#999' : '#666' }]}>
-              {state.message}
-            </Text>
+            <View style={[tfmStyles.errorBox, { backgroundColor: accentSoft, borderColor: accent }]}>
+              <Ionicons name="alert-circle" size={18} color={accent} style={{ marginRight: 10 }} />
+              <Text style={[tfmStyles.errorMsg, { color: textPrimary }]}>
+                {state.message || 'The broker rejected this order.'}
+              </Text>
+            </View>
           </>
         )}
 
-        {/* Action button */}
-        <Pressable
-          style={[tfmStyles.actionBtn, { backgroundColor: accentColor }]}
-          onPress={onClose}
-        >
-          <Text style={tfmStyles.actionBtnText}>
-            {state.type === 'success' ? 'Done' : 'Dismiss'}
-          </Text>
-        </Pressable>
+        {/* Action buttons */}
+        <View style={tfmStyles.actionsRow}>
+          {isSuccess ? (
+            <>
+              <Pressable
+                style={[tfmStyles.actionBtnSecondary, { borderColor: subtleBorder }]}
+                onPress={() => { onClose(); try { router.push('/trade'); } catch (_e) {} }}
+              >
+                <Text style={[tfmStyles.actionBtnSecondaryText, { color: textPrimary }]}>
+                  View Position
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[tfmStyles.actionBtnPrimary, { backgroundColor: accent }]}
+                onPress={onClose}
+              >
+                <Text style={tfmStyles.actionBtnPrimaryText}>Done</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable
+              style={[tfmStyles.actionBtnPrimary, tfmStyles.actionBtnPrimaryFull, { backgroundColor: accent }]}
+              onPress={onClose}
+            >
+              <Text style={tfmStyles.actionBtnPrimaryText}>Dismiss</Text>
+            </Pressable>
+          )}
+        </View>
       </Animated.View>
     </View>
   );
@@ -265,117 +336,162 @@ const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
 const tfmStyles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+    backgroundColor: 'rgba(3,6,16,0.55)',
+    justifyContent: 'flex-end',
+    alignItems: 'stretch',
+    paddingHorizontal: 12,
     zIndex: 999,
     elevation: 999,
   },
   card: {
-    width: '92%',
-    maxWidth: 360,
-    borderRadius: 24,
-    paddingTop: 0,
-    paddingBottom: 24,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    borderWidth: 1,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    paddingBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 24 },
-    shadowOpacity: 0.3,
-    shadowRadius: 48,
-    elevation: 20,
-    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.35,
+    shadowRadius: 32,
+    elevation: 24,
   },
-  topBar: {
-    width: '150%',
+  headerStrip: {
     height: 4,
-    marginBottom: 28,
+    width: '100%',
     overflow: 'hidden',
   },
-  topBarProgress: {
+  headerProgress: {
     position: 'absolute',
-    left: 0,
+    right: 0,
     top: 0,
     bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
-  iconWrap: {
-    width: 80,
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  iconGlow: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
-  iconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    marginBottom: 10,
-  },
-  symbolRow: {
+  statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 14,
   },
-  symbolText: {
-    fontSize: 16,
+  statusIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    marginRight: 12,
+  },
+  statusTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statusTitle: {
+    fontSize: 17,
     fontWeight: '700',
+    letterSpacing: -0.2,
+    marginBottom: 4,
   },
-  sidePill: {
-    paddingHorizontal: 10,
+  statusSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    marginRight: 8,
   },
-  sidePillText: {
-    fontSize: 11,
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 5,
+  },
+  statusBadgeText: {
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
+  statusSubText: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  closeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  priceCard: {
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+  },
+  priceHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  symbolText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  sideChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  sideChipText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginLeft: 4,
+  },
   priceText: {
-    fontSize: 38,
+    fontSize: 40,
     fontWeight: '800',
     fontVariant: ['tabular-nums'] as any,
-    letterSpacing: -1.2,
+    letterSpacing: -1.4,
+    lineHeight: 44,
+    marginTop: 2,
+  },
+  priceLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
     marginTop: 4,
-    marginBottom: 20,
   },
-  divider: {
-    width: '100%',
-    height: StyleSheet.hairlineWidth,
-    marginBottom: 16,
-  },
-  detailsRow: {
+  detailsGrid: {
     flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
+    marginHorizontal: 18,
+    marginTop: 4,
+    marginBottom: 18,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   detailItem: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   detailLabel: {
-    color: '#888',
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 4,
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
   detailValue: {
     fontSize: 13,
@@ -383,26 +499,58 @@ const tfmStyles = StyleSheet.create({
     fontVariant: ['tabular-nums'] as any,
   },
   detailSep: {
-    width: 1,
-    height: 28,
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginHorizontal: 18,
+    marginBottom: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   errorMsg: {
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 21,
-    marginBottom: 24,
-    paddingHorizontal: 4,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 19,
   },
-  actionBtn: {
-    width: '100%',
-    paddingVertical: 15,
-    borderRadius: 14,
+  actionsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  actionBtnPrimary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  actionBtnText: {
+  actionBtnPrimaryFull: {
+    flex: 1,
+  },
+  actionBtnPrimaryText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  actionBtnSecondary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionBtnSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
 
@@ -418,34 +566,79 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
 
   const handleTrade = (side: 'buy' | 'sell') => {
-    if (oneClickAccepted) {
-      const tradingLogin = resolveTradingLogin();
-      if (!tradingLogin) {
-        onTradeResult?.({
-          visible: true,
-          type: 'error',
-          title: 'Account Error',
-          message: 'No active trading account resolved. Select an account and try again.',
-        });
-        return;
-      }
+    const volume = Number(lotSize);
+    const authState = useUserPreferences.getState();
+    const authToken = authState.accountDetails?.credentials?.accessToken;
+    const tradingLogin = resolveTradingLogin();
 
+    console.log('[Trade] tap', {
+      side,
+      symbol,
+      oneClickAccepted,
+      volume,
+      isPending,
+      hasAuthToken: !!authToken,
+      tradingLogin,
+    });
+
+    // ── Gate 1: user must be signed in ────────────────────────────────────
+    // Every branch (one-click AND navigate) requires a JWT. Without it the
+    // REST call would return 401 with no helpful context, or the ticket
+    // screen would load into a broken state. Surface a clear modal instead.
+    if (!authToken) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Sign In Required',
+        message: 'Please sign in to your trading account before placing orders.',
+      });
+      return;
+    }
+
+    // ── Gate 2: an active trading account must be resolved ────────────────
+    // Gets set by the live account WS on connect, or falls back to the
+    // persisted account. If neither is available the user has no account
+    // selected yet — the order would be rejected by the server anyway.
+    if (!tradingLogin) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'No Trading Account',
+        message: 'No active trading account is selected. Open the account menu and choose one, then try again.',
+      });
+      return;
+    }
+
+    // ── Gate 3: volume must be > 0 ────────────────────────────────────────
+    // Backend rejects volume: 0 with no useful error message, so we intercept.
+    if (!Number.isFinite(volume) || volume <= 0) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Invalid Lot Size',
+        message: `Volume must be greater than 0. Current: ${lotSize}`,
+      });
+      return;
+    }
+
+    if (oneClickAccepted) {
+      console.log('[Trade] one-click path, login=', tradingLogin);
+
+      // NOTE: do NOT send price_sl / price_tp with value 0 — the server
+      // validates them against the current market price and rejects 0 with
+      // 400 "Invalid SL/TP". Omit them entirely for a "no SL / no TP" market
+      // order. `ordersApi.placeMarketOrder` also strips zero / empty fields.
       placeOrder(
         {
           account_login: tradingLogin,
           symbol,
           side,
-          volume: Number(lotSize),
-          price_sl: 0,
-          price_tp: 0,
-          comment: '',
-          trailing_stop: 0,
-          trailing_step: 0,
-          magic: 0
+          volume,
         },
         {
           onSuccess: (data: any) => {
-            const ticket = data?.position_ticket || data?.order_ticket || 'Confirmed';
+            console.log('[Trade] success', data);
+            const ticket = data?.position_ticket || data?.order_ticket || data?.ticket || 'Confirmed';
             const execPrice = side === 'buy' ? latestBid : latestAsk;
             onTradeResult?.({
               visible: true,
@@ -454,23 +647,40 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
               symbol,
               ticket: String(ticket),
               price: execPrice,
-              volume: Number(lotSize),
+              volume,
               executedAt: new Date().toLocaleTimeString(),
             });
           },
           onError: (err: any) => {
-            const msg = err?.response?.data?.message || err?.message || 'Execution error';
+            // Route through classifyTradingError so that a backend-down
+            // situation (fetch network failure, 5xx, gateway timeout) shows
+            // as "Trading Server Unavailable" — NOT a generic "Trade Failed"
+            // that makes the user think the frontend is broken. For a real
+            // broker rejection we still surface the server's message.
+            const feedback = classifyTradingError(err, { action: 'place-order' });
+            console.warn('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
             onTradeResult?.({
               visible: true,
               type: 'error',
-              title: 'Trade Failed',
-              message: msg,
+              title: feedback.title,
+              message: feedback.message,
             });
           }
         }
       );
     } else {
-      router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+      console.log('[Trade] navigate path → /trade/order-ticket');
+      try {
+        router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+      } catch (navErr: any) {
+        console.warn('[Trade] navigation failed', navErr);
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: 'Navigation Error',
+          message: navErr?.message || 'Could not open the order ticket screen.',
+        });
+      }
     }
   };
 
@@ -613,18 +823,33 @@ const CH_HTML = `
 
       var chart = null;
       var series = null;
-      var volumeSeries = null;
       var bidPriceLine = null;
+      // Dedicated horizontal line at the live close. We own this instance
+      // so we can retint it blue (up candle) / red (down candle) and shift
+      // its price on every tick WITHOUT calling applyOptions on the main
+      // candle series (which internally forces a full data redraw and was
+      // causing history to blank on bucket updates).
+      var directionPriceLine = null;
+      // Same idea on the move-bars pane — horizontal line at the live bar's
+      // move magnitude, tinted blue / red in lockstep with the candle.
+      var moveDirectionPriceLine = null;
       var lastBarTime = 0;
       var seriesType = 'candles';
       var pendingTick = null;
-      var liveVolumeBucket = 0;   // time of the bucket we're counting ticks for
-      var liveVolumeCount = 0;    // tick count within that bucket
-      var _avgHistoryVolume = 0;  // average volume of history candles
-      var _avgHistoryRange = 0;   // average high-low range of history candles
       var tickFlushHandle = 0;
-      var volUpColor = 'rgba(38,166,154,0.5)';
-      var volDownColor = 'rgba(239,83,80,0.5)';
+      // Price-movement histogram shown below the candles. Bar height equals
+      // |close − open| for that bar (the magnitude of the candle's move),
+      // coloured green when the candle closed up, red when it closed down.
+      // It IS NOT traded volume — it's a direct visual echo of the candle's
+      // own size, so the bar grows and shrinks in sync with the candle.
+      var moveBarsSeries = null;
+      var moveUpColor = 'rgba(38,166,154,0.85)';
+      var moveDownColor = 'rgba(239,83,80,0.85)';
+      // Captured from the active candle series so the bid line + last-price
+      // line can tint themselves to match the live candle's direction.
+      var barUpColor = '#2962FF';
+      var barDownColor = '#ef5350';
+      var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
 
       function postReady() {
         try {
@@ -710,8 +935,10 @@ const CH_HTML = `
           try { chart.remove(); } catch (_e) {}
           chart = null;
           series = null;
-          volumeSeries = null;
+          moveBarsSeries = null;
           bidPriceLine = null;
+          directionPriceLine = null;
+          moveDirectionPriceLine = null;
           _positionLinesArr = [];
         }
         if (tickFlushHandle) {
@@ -734,32 +961,30 @@ const CH_HTML = `
 
         var priceFormat = makePriceFormat(displayDecimals);
         var colors = pickSeriesColors({ customColors: customCols }, seriesType);
-        volUpColor = hexToRgba(colors.up, 0.5);
-        volDownColor = hexToRgba(colors.down, 0.5);
+        barUpColor = colors.up;
+        barDownColor = colors.down;
+        lastPriceLineDirection = null;
 
+        // We render our own direction-coloured price line via
+        // directionPriceLine (created post-data-load), so the series'
+        // built-in last-price line is suppressed (priceLineVisible: false).
+        // lastValueVisible: false removes its right-axis label too —
+        // otherwise the axis showed two labels stacked at the same price.
         if (seriesType === 'line') {
           series = chart.addSeries(LightweightCharts.LineSeries, {
             color: (customCols && customCols.lineBody) || colors.up,
             lineWidth: 2,
             priceFormat: priceFormat,
-            lastValueVisible: true,
-            priceLineVisible: true,
-            priceLineWidth: 1,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-            priceLineColor: '',
-            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+            lastValueVisible: false,
+            priceLineVisible: false,
           });
         } else if (seriesType === 'bars') {
           series = chart.addSeries(LightweightCharts.BarSeries, {
             upColor: (customCols && customCols.barsUptrend) || colors.up,
             downColor: (customCols && customCols.barsDowntrend) || colors.down,
             priceFormat: priceFormat,
-            lastValueVisible: true,
-            priceLineVisible: true,
-            priceLineWidth: 1,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-            priceLineColor: '',
-            priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+            lastValueVisible: false,
+            priceLineVisible: false,
           });
         } else {
           var customCandleOptions = {
@@ -773,9 +998,8 @@ const CH_HTML = `
             borderVisible: true,
             wickVisible: true,
             priceFormat: priceFormat,
-            lastValueVisible: true,
-            priceLineVisible: true,
-            priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            lastValueVisible: false,
+            priceLineVisible: false,
           };
           if (
             typeof window.addRTX5CustomCandlestickSeries === 'function' &&
@@ -793,38 +1017,50 @@ const CH_HTML = `
               borderVisible: true,
               wickVisible: true,
               priceFormat: priceFormat,
-              lastValueVisible: true,
-              priceLineVisible: true,
-              priceLineWidth: 1,
-              priceLineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-              priceLineColor: seriesType === 'hollow' ? colors.up : '',
-              priceLineSource: LightweightCharts.PriceLineSource ? LightweightCharts.PriceLineSource.LastBar : 0,
+              lastValueVisible: false,
+              priceLineVisible: false,
             });
           }
         }
 
-        // Volume histogram series — occupies the bottom 20% of the pane,
-        // bars coloured green/red to match the candle direction.
+        // Price-movement bars — a histogram placed in the bottom ~25 % of
+        // the pane. Same shape as a volume panel, but its values come from
+        // the candle's own |close − open|, so each bar's height is a direct
+        // echo of how far the candle moved. Colour matches candle direction.
         try {
-          volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'vol',
+          moveBarsSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+            priceFormat: { type: 'price', precision: displayDecimals || 2, minMove: 1 / Math.pow(10, displayDecimals || 2) },
+            priceScaleId: 'move',
+            // Our own moveDirectionPriceLine owns the right-axis label on
+            // this pane (blue / red), so the histogram's built-in label is
+            // suppressed to avoid a duplicate stacked at the same value.
             lastValueVisible: false,
             priceLineVisible: false,
-            color: volUpColor,
+            color: moveUpColor,
           });
-          chart.priceScale('vol').applyOptions({
-            scaleMargins: { top: 0.8, bottom: 0 },
+          moveUpColor = hexToRgba(colors.up, 0.85);
+          moveDownColor = hexToRgba(colors.down, 0.85);
+          chart.priceScale('move').applyOptions({
+            scaleMargins: { top: 0.82, bottom: 0.02 },
           });
-        } catch (_ve) { volumeSeries = null; }
+        } catch (_mb) { moveBarsSeries = null; }
 
         if (data && data.length > 0) {
           var mapped = mapForSeries(data);
           series.setData(mapped);
           lastBarTime = mapped[mapped.length - 1].time;
-          _computeHistoryStats(data);
-          if (volumeSeries) {
-            try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
+          if (seriesType !== 'line') {
+            var lastSeed = data[data.length - 1];
+            _liveBar = {
+              time: lastSeed.time,
+              open: lastSeed.open,
+              high: lastSeed.high,
+              low: lastSeed.low,
+              close: lastSeed.close,
+            };
+          }
+          if (moveBarsSeries) {
+            try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
           }
           try {
             chart.timeScale().fitContent();
@@ -832,6 +1068,8 @@ const CH_HTML = `
               chart.timeScale().scrollToRealTime();
             }
           } catch (_e) {}
+          ensureDirectionPriceLine();
+          ensureMoveDirectionPriceLine();
         }
 
         // Initialize the drawing tools manager — this wires up all
@@ -912,28 +1150,6 @@ const CH_HTML = `
         }
       }
 
-      function _computeHistoryStats(data) {
-        // Compute average volume and price range from recent history candles
-        // so live volume bars are proportionate to the history bars.
-        if (!data || data.length === 0) return;
-        var n = Math.min(data.length, 50); // last 50 candles
-        var totalVol = 0, totalRange = 0, count = 0;
-        for (var i = data.length - n; i < data.length; i++) {
-          var c = data[i];
-          var v = typeof c.volume === 'number' ? c.volume : 0;
-          var r = (typeof c.high === 'number' && typeof c.low === 'number') ? (c.high - c.low) : 0;
-          if (r > 0) {
-            totalVol += v;
-            totalRange += r;
-            count++;
-          }
-        }
-        if (count > 0) {
-          _avgHistoryVolume = totalVol / count;
-          _avgHistoryRange = totalRange / count;
-        }
-      }
-
       function mapForSeries(data) {
         if (!data || data.length === 0) return [];
         if (seriesType === 'line') {
@@ -959,17 +1175,32 @@ const CH_HTML = `
         return arr;
       }
 
-      function mapVolumeData(data) {
+      // One histogram point per bar: |close − open|, coloured by direction.
+      function mapMoveBarsData(data) {
         if (!data || data.length === 0) return [];
-        var out = [];
+        var out = new Array(data.length);
         for (var i = 0; i < data.length; i++) {
           var d = data[i];
-          var vol = typeof d.volume === 'number' ? d.volume : 0;
-          if (vol <= 0) continue;
-          var isUp = (d.close || 0) >= (d.open || 0);
-          out.push({ time: d.time, value: vol, color: isUp ? volUpColor : volDownColor });
+          var open = typeof d.open === 'number' ? d.open : d.close;
+          var close = typeof d.close === 'number' ? d.close : (typeof d.value === 'number' ? d.value : open);
+          var up = close >= open;
+          out[i] = {
+            time: d.time,
+            value: Math.abs(close - open),
+            color: up ? moveUpColor : moveDownColor,
+          };
         }
         return out;
+      }
+
+      // One histogram point derived from the current live bar state.
+      function makeMoveBarPoint(bar) {
+        var up = bar.close >= bar.open;
+        return {
+          time: bar.time,
+          value: Math.abs(bar.close - bar.open),
+          color: up ? moveUpColor : moveDownColor,
+        };
       }
 
       function updateChartData(data) {
@@ -985,7 +1216,10 @@ const CH_HTML = `
           pendingTick = null;
           var mapped = mapForSeries(data);
           series.setData(mapped);
-          
+          if (moveBarsSeries) {
+            try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
+          }
+
           // CRITICAL BUGFIX: setData natively obliterates all PriceLines previously bound to the series!
           // We must explicitly reconstruct the dynamic trade overlays immediately after setting chart data.
           _positionLinesArr = [];
@@ -996,10 +1230,21 @@ const CH_HTML = `
 
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
-          }
-          _computeHistoryStats(data);
-          if (volumeSeries) {
-            try { volumeSeries.setData(mapVolumeData(data)); } catch (_ve) {}
+            if (seriesType !== 'line') {
+              var lastSeed = data[data.length - 1];
+              _liveBar = {
+                time: lastSeed.time,
+                open: lastSeed.open,
+                high: lastSeed.high,
+                low: lastSeed.low,
+                close: lastSeed.close,
+              };
+            }
+            // Symbol / timeframe switch: reposition both direction lines to
+            // the new dataset's last close + move magnitude so they don't
+            // linger at the previous symbol's price.
+            refreshDirectionPriceLine();
+            refreshMoveDirectionPriceLine();
           }
         } catch (e) {
           postError('updateChartData', e);
@@ -1030,7 +1275,12 @@ const CH_HTML = `
         if (tick.time >= lastBarTime) {
           lastBarTime = tick.time;
         }
-        _updateVolume(tick);
+        if (moveBarsSeries && seriesType !== 'line') {
+          try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
+        }
+        refreshBidPriceLineColor();
+        refreshDirectionPriceLine();
+        refreshMoveDirectionPriceLine();
       }
 
       // Fast-path: host sends just a price + bucket time.
@@ -1046,8 +1296,17 @@ const CH_HTML = `
           _liveBar.low = Math.min(_liveBar.low, price);
           _liveBar.close = price;
         } else {
-          // New bucket
-          _liveBar = { time: bucketTime, open: price, high: price, low: price, close: price };
+          // New bucket: open from the previous close so the first tick
+          // inherits the correct gap/body behavior instead of starting
+          // as a flat candle at the incoming trade price.
+          var nextOpen = _liveBar && typeof _liveBar.close === 'number' ? _liveBar.close : price;
+          _liveBar = {
+            time: bucketTime,
+            open: nextOpen,
+            high: Math.max(nextOpen, price),
+            low: Math.min(nextOpen, price),
+            close: price,
+          };
         }
 
         if (seriesType === 'line') {
@@ -1059,49 +1318,12 @@ const CH_HTML = `
         if (bucketTime >= lastBarTime) {
           lastBarTime = bucketTime;
         }
-
-        // Volume: scale by price movement magnitude so bars rise AND fall
-        // proportionally with market activity, like real volume data.
-        if (volumeSeries) {
-          try {
-            if (bucketTime === liveVolumeBucket) {
-              liveVolumeCount += 1;
-            } else {
-              liveVolumeBucket = bucketTime;
-              liveVolumeCount = 1;
-            }
-            // Derive volume from the candle's range × tick count.
-            // This produces natural-looking bars that correlate with
-            // price movement — tall bars for big moves, short for quiet.
-            var range = (_liveBar.high - _liveBar.low) || 0;
-            var avgHistVol = _avgHistoryVolume || 1;
-            var vol = Math.max(1, Math.round(range * liveVolumeCount * (avgHistVol / ((_avgHistoryRange || range) || 1))));
-            var isUp = (_liveBar.close || 0) >= (_liveBar.open || 0);
-            volumeSeries.update({ time: bucketTime, value: vol, color: isUp ? volUpColor : volDownColor });
-          } catch (_ve) {}
+        if (moveBarsSeries && seriesType !== 'line' && _liveBar) {
+          try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
         }
-      }
-
-      function _updateVolume(tick) {
-        if (!volumeSeries) return;
-        try {
-          var vol;
-          if (typeof tick.volume === 'number' && tick.volume > 0) {
-            vol = tick.volume;
-            liveVolumeBucket = tick.time;
-            liveVolumeCount = vol;
-          } else {
-            if (tick.time === liveVolumeBucket) {
-              liveVolumeCount += 1;
-            } else {
-              liveVolumeBucket = tick.time;
-              liveVolumeCount = 1;
-            }
-            vol = liveVolumeCount;
-          }
-          var isUp = (tick.close || 0) >= (tick.open || 0);
-          volumeSeries.update({ time: tick.time, value: vol, color: isUp ? volUpColor : volDownColor });
-        } catch (_ve) {}
+        refreshBidPriceLineColor();
+        refreshDirectionPriceLine();
+        refreshMoveDirectionPriceLine();
       }
 
       function flushPendingTick() {
@@ -1126,6 +1348,102 @@ const CH_HTML = `
         tickFlushHandle = requestAnimationFrame(flushPendingTick);
       }
 
+      // Pick the candle-direction colour for the live bid / last-price line.
+      // Up candle (close ≥ open) → barUpColor. Down candle → barDownColor.
+      function pickLivePriceColor() {
+        if (!_liveBar || typeof _liveBar.close !== 'number' || typeof _liveBar.open !== 'number') {
+          return barUpColor;
+        }
+        return _liveBar.close >= _liveBar.open ? barUpColor : barDownColor;
+      }
+
+      // Create the dedicated direction-coloured price line at the live close
+      // if it doesn't exist yet. Safe to call repeatedly — no-ops once the
+      // instance is bound.
+      function ensureDirectionPriceLine() {
+        try {
+          if (directionPriceLine || !series) return;
+          if (!_liveBar || typeof _liveBar.close !== 'number') return;
+          directionPriceLine = series.createPriceLine({
+            price: _liveBar.close,
+            color: pickLivePriceColor(),
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            axisLabelVisible: true,
+          });
+        } catch (_e) {
+          directionPriceLine = null;
+        }
+      }
+
+      // Re-price and re-tint the direction line on every tick. Only calls
+      // applyOptions on the price-line instance we own — never on the main
+      // series — so it can't trigger a history redraw. If applyOptions
+      // fails (e.g. the series was torn down underneath) we null the ref
+      // so the next tick recreates a fresh instance on the live series.
+      function refreshDirectionPriceLine() {
+        if (!_liveBar || typeof _liveBar.close !== 'number') return;
+        if (!directionPriceLine) {
+          ensureDirectionPriceLine();
+          return;
+        }
+        var color = pickLivePriceColor();
+        try {
+          directionPriceLine.applyOptions({ price: _liveBar.close, color: color });
+        } catch (_e) {
+          directionPriceLine = null;
+        }
+      }
+
+      // Current move magnitude for the active bar (|close − open|). This is
+      // the y-value the move-bars pane plots, and where its direction line
+      // should sit.
+      function pickLiveMoveValue() {
+        if (!_liveBar || typeof _liveBar.close !== 'number' || typeof _liveBar.open !== 'number') {
+          return 0;
+        }
+        return Math.abs(_liveBar.close - _liveBar.open);
+      }
+
+      // Create the move-bars pane's direction line the first time we have a
+      // live bar. Scoped to the move-bars series so it renders on the move
+      // price scale ('move'), not the main candle scale.
+      function ensureMoveDirectionPriceLine() {
+        try {
+          if (moveDirectionPriceLine || !moveBarsSeries) return;
+          if (!_liveBar || typeof _liveBar.close !== 'number') return;
+          moveDirectionPriceLine = moveBarsSeries.createPriceLine({
+            price: pickLiveMoveValue(),
+            color: pickLivePriceColor(),
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            axisLabelVisible: true,
+          });
+        } catch (_e) {
+          moveDirectionPriceLine = null;
+        }
+      }
+
+      // Re-price + re-tint the move-bars direction line every tick. Again,
+      // only touches the price-line instance — move-bars series itself stays
+      // untouched. Same teardown-recovery trick: null the ref on failure so
+      // the next call recreates rather than re-throwing forever.
+      function refreshMoveDirectionPriceLine() {
+        if (!moveBarsSeries || !_liveBar) return;
+        if (!moveDirectionPriceLine) {
+          ensureMoveDirectionPriceLine();
+          return;
+        }
+        try {
+          moveDirectionPriceLine.applyOptions({
+            price: pickLiveMoveValue(),
+            color: pickLivePriceColor(),
+          });
+        } catch (_e) {
+          moveDirectionPriceLine = null;
+        }
+      }
+
       function setBidPriceLine(price) {
         try {
           if (!series || typeof price !== 'number' || !isFinite(price)) return;
@@ -1133,9 +1451,11 @@ const CH_HTML = `
             series.removePriceLine(bidPriceLine);
             bidPriceLine = null;
           }
+          var color = pickLivePriceColor();
+          lastPriceLineDirection = color === barUpColor ? 'up' : 'down';
           bidPriceLine = series.createPriceLine({
             price: price,
-            color: '#2962FF',
+            color: color,
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
             axisLabelVisible: true,
@@ -1146,15 +1466,27 @@ const CH_HTML = `
         }
       }
 
+      // Re-tint the custom BID price line in place when the active candle
+      // flips direction mid-bucket (blue when bullish, red when bearish).
+      // We intentionally don't touch the candle series' or move-bars' own
+      // options — applyOptions on the main series can cause a full redraw
+      // of the data, which was blanking history on some rebuilds.
+      function refreshBidPriceLineColor() {
+        if (!bidPriceLine) return;
+        var color = pickLivePriceColor();
+        var direction = color === barUpColor ? 'up' : 'down';
+        if (direction === lastPriceLineDirection) return;
+        lastPriceLineDirection = direction;
+        try { bidPriceLine.applyOptions({ color: color }); } catch (_e) {}
+      }
+
       // Backwards-compat no-ops so any stale call sites from earlier
       // builds (drawing tools / overlays) silently do nothing instead of
       // throwing and aborting the script.
       function setLiveCandleLine() {}
       function updateChartAppearance() {}
-      function setVolumeSeriesData(data) {
-        if (!volumeSeries || !data) return;
-        try { volumeSeries.setData(mapVolumeData(data)); } catch (_e) {}
-      }
+      // Legacy no-op kept so stale call-sites from earlier builds don't throw.
+      function setVolumeSeriesData(_data) {}
       function setDrawingTool(tool) {
         if (window._drawingManager && typeof window._drawingManager.setActiveTool === 'function') {
           window._drawingManager.setActiveTool(tool);
@@ -1163,6 +1495,11 @@ const CH_HTML = `
       function clearDrawings() {
         if (window._drawingManager && typeof window._drawingManager.removeAllDrawings === 'function') {
           window._drawingManager.removeAllDrawings();
+        }
+      }
+      function setSerializedDrawings(drawings) {
+        if (window._drawingManager && typeof window._drawingManager.setSerializedDrawings === 'function') {
+          window._drawingManager.setSerializedDrawings(drawings);
         }
       }
       function setDrawingsLocked(locked) {
@@ -1321,6 +1658,7 @@ const CH_HTML = `
       window.setVolumeSeriesData = setVolumeSeriesData;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;
+      window.setSerializedDrawings = setSerializedDrawings;
       window.setDrawingsLocked = setDrawingsLocked;
       window.setDrawingsHidden = setDrawingsHidden;
       window.setStayInDrawingMode = setStayInDrawingMode;
@@ -1407,6 +1745,7 @@ export function ChartScreen() {
     chartVisualType,
     chartColors,
     chartColorScheme,
+    chartDrawingRecordsBySymbol,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
@@ -1417,7 +1756,7 @@ export function ChartScreen() {
     chartHideAll,
     setChartLockAll,
     setChartHideAll,
-    setChartDrawings,
+    setChartDrawingRecordsForSymbol,
   } = useUserPreferences();
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
@@ -1433,6 +1772,12 @@ export function ChartScreen() {
     [chartColors, chartColorScheme, isDark],
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
+  const chartDrawingBucketKey = useMemo(() => getChartDrawingBucketKey(chartSymbol), [chartSymbol]);
+  const chartDrawingRecords = useMemo(
+    () => chartDrawingRecordsBySymbol[chartDrawingBucketKey] ?? [],
+    [chartDrawingBucketKey, chartDrawingRecordsBySymbol],
+  );
+  const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
@@ -1479,6 +1824,8 @@ export function ChartScreen() {
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
+  const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
 
@@ -1494,7 +1841,9 @@ export function ChartScreen() {
 
   const handleClearDrawings = () => {
     setActiveTool('crosshair');
-    setChartDrawings([]);
+    setChartDrawingRecordsForSymbol(chartSymbol, []);
+    lastWebViewDrawingSignatureRef.current = '';
+    lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
     injectChartScript('clearDrawings();');
   };
 
@@ -1580,7 +1929,7 @@ export function ChartScreen() {
     rightPriceScale: {
       borderColor: resolvedChartColors.grid,
       autoScale: true,
-      scaleMargins: { top: 0.08, bottom: 0.25 },
+      scaleMargins: { top: 0.08, bottom: 0.32 },
     },
     customColors: {
       candlesUptrend: resolvedChartColors.candlesUptrend,
@@ -1604,6 +1953,9 @@ export function ChartScreen() {
   // React effect cycle — this eliminates the "flash of missing lines"
   // race condition.
   const overlayPayloadRef = useRef<any>({ priceLines: [], markers: [] });
+  const drawingSignatureRef = useRef(chartDrawingSignature);
+  const lastWebViewDrawingSignatureRef = useRef('');
+  const lastInjectedDrawingSyncRef = useRef({ signature: '', epoch: -1 });
   // Loading overlay: show until chart is confirmed rendered OR 3s fallback.
   // This prevents the user from seeing a blank WebView between data arrival
   // and chart render completion.
@@ -1613,6 +1965,9 @@ export function ChartScreen() {
     const tmr = setTimeout(() => setLoadingFallback(true), 3000);
     return () => clearTimeout(tmr);
   }, [chartSymbol, chartTimeframe, chartType]);
+  useEffect(() => {
+    drawingSignatureRef.current = chartDrawingSignature;
+  }, [chartDrawingSignature]);
   const isLoading = !chartCanvasReady && !loadingFallback;
   const isError = false;
 
@@ -1626,7 +1981,17 @@ export function ChartScreen() {
       setMagnetMode(${magnetEnabled});
       setDrawingTool(${JSON.stringify(bridgedTool)});
     `);
-  }, [webViewReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
+  }, [activeTool, webViewReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
+
+  useEffect(() => {
+    if (!pendingChartDrawingTool || !chartCanvasReady || !webViewReady) {
+      return;
+    }
+
+    setActiveTool(pendingChartDrawingTool);
+    injectChartScript(`setDrawingTool(${JSON.stringify(pendingChartDrawingTool)});`);
+    clearPendingChartDrawingTool();
+  }, [pendingChartDrawingTool, chartCanvasReady, webViewReady, clearPendingChartDrawingTool]);
 
   // ─────────────────────────────────────────────────────────────────
   //   Self-healing chart bridge
@@ -1770,39 +2135,6 @@ export function ChartScreen() {
     }
   }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, getRenderableCandles]);
 
-  // Effect 3 — Zero-latency live price bridge.
-  //
-  // Reads the raw quote bid directly from useMarketData (same feed as the
-  // price header) and pushes it to the WebView via pushPrice(bucketTime, price).
-  // The WebView accumulates OHLC internally — no React state cycle, no array
-  // copy, no JSON serialization of 500 candles. Just two numbers per tick.
-  const liveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
-  const rawQuote = liveQuotes[chartSymbol] || liveQuotes[useMemo(() => normalizeSymbol(chartSymbol), [chartSymbol])] || {};
-  const rawBid = typeof rawQuote.bid === 'number' && rawQuote.bid > 0 ? rawQuote.bid : null;
-  const rawTickAt = typeof rawQuote.lastTickAt === 'number' ? rawQuote.lastTickAt : null;
-
-  useEffect(() => {
-    if (
-      !webViewRef.current ||
-      !chartInitializedRef.current ||
-      rawBid === null ||
-      rawTickAt === null
-    ) {
-      return;
-    }
-    // Compute bucket time from client timestamp
-    let ts = rawTickAt;
-    while (ts > 2_500_000_000) ts = Math.floor(ts / 10);
-    const tfSec = getTimeframeSeconds(normalizeTimeframe(chartTimeframe));
-    const bucketTime = Math.floor(ts / tfSec) * tfSec;
-
-    if (bucketTime <= 0) return;
-
-    try {
-      webViewRef.current.injectJavaScript(`pushPrice(${bucketTime},${rawBid});true;`);
-    } catch (_e) {}
-  }, [rawBid, rawTickAt, chartTimeframe]);
-
   // Watchdog — if CHART_READY hasn't arrived, keep retrying every 3s.
   // Also acts as a self-heal: if the WebView silently loses the chart
   // (process killed, JS error, etc.), this brings it back.
@@ -1903,6 +2235,36 @@ export function ChartScreen() {
   useEffect(() => {
     overlayPayloadRef.current = overlayPayload;
   }, [overlayPayloadSignature]);
+  useEffect(() => {
+    if (!webViewReady || !chartCanvasReady || !webViewRef.current) {
+      return;
+    }
+
+    const alreadySyncedForCurrentChart =
+      lastInjectedDrawingSyncRef.current.signature === chartDrawingSignature &&
+      lastInjectedDrawingSyncRef.current.epoch === chartReadyEpoch;
+
+    if (alreadySyncedForCurrentChart) {
+      return;
+    }
+
+    const signatureCameFromWebView =
+      lastWebViewDrawingSignatureRef.current === chartDrawingSignature &&
+      lastInjectedDrawingSyncRef.current.epoch === chartReadyEpoch;
+
+    if (signatureCameFromWebView) {
+      lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
+      return;
+    }
+
+    webViewRef.current.injectJavaScript(`
+      if (typeof setSerializedDrawings === 'function') {
+        setSerializedDrawings(${JSON.stringify(chartDrawingRecords)});
+      }
+      true;
+    `);
+    lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
+  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, webViewReady]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
   // Single effect that pushes ALL 7 "Show on Chart" features to the WebView:
@@ -2124,6 +2486,8 @@ export function ChartScreen() {
                       // WebView loaded — reset state and mark ready.
                       // The watchdog + Effect 1 will push initChart as soon as data exists.
                       resetChartBridgeState();
+                      lastWebViewDrawingSignatureRef.current = '';
+                      lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
                       setWebViewReady(true);
                     } else if (msg.type === 'CHART_READY') {
                       // Chart successfully rendered in WebView.
@@ -2148,12 +2512,13 @@ export function ChartScreen() {
                         }
                       } catch (_) { }
                     } else if (msg.type === 'DRAWINGS_CHANGED') {
-                      const nextLabels = Array.isArray(msg.drawings)
-                        ? msg.drawings
-                          .map((item: any) => (typeof item?.label === 'string' ? item.label : ''))
-                          .filter(Boolean)
-                        : [];
-                      setChartDrawings(nextLabels);
+                      const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
+                      const nextSignature = JSON.stringify(nextDrawings);
+                      lastWebViewDrawingSignatureRef.current = nextSignature;
+
+                      if (nextSignature !== drawingSignatureRef.current) {
+                        setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+                      }
                     } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
                       setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
                     } else if (msg.type === 'ERROR') {

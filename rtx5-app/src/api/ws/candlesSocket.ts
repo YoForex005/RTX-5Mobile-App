@@ -69,7 +69,7 @@ export class CandlesWebSocketService {
   private static readonly RECENT_HISTORY_HEAL_DELAY_MS = 900;
 
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_CANDLES_WS_URL || 'ws://69.197.178.27/ws/feed';
+  private url = process.env.EXPO_PUBLIC_CANDLES_WS_URL || 'wss://backend.orrnn.com/ws/feed';
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 15;
   private reconnectDelay = 2000;

@@ -1,7 +1,7 @@
 import { apiClient, API_BASE_URL } from './apiClient';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// V2 Auth API — http://69.197.178.27/api/v2/auth
+// V2 Auth API — https://backend.orrnn.com/api/v2/auth
 //
 // Endpoints integrated:
 //   POST   /auth/login           — Authenticate and receive JWT tokens

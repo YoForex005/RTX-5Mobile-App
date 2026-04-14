@@ -1,6 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import {
+  type PersistedChartDrawing,
+  type PersistedChartDrawingsBySymbol,
+  getChartDrawingBucketKey,
+  getChartDrawingLabels,
+  sanitizePersistedChartDrawings,
+} from '../features/chart/drawingPersistence';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 export type LanguageCode =
@@ -253,6 +260,7 @@ type UserPreferencesState = {
   chartTimeframe: string;
   chartVisualType: ChartVisualType;
   chartDrawings: string[];
+  chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
   chartLockAll: boolean;
   chartHideAll: boolean;
   showOpenPositions: boolean;
@@ -309,6 +317,8 @@ type UserPreferencesState = {
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
   setChartDrawings: (drawings: string[]) => void;
+  setChartDrawingRecordsForSymbol: (symbol: string, drawings: PersistedChartDrawing[]) => void;
+  removeChartDrawingRecordForSymbol: (symbol: string, drawingId: string) => void;
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
   setShowOpenPositions: (show: boolean) => void;
@@ -343,6 +353,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartTimeframe: 'H1',
       chartVisualType: 'candles',
       chartDrawings: [],
+      chartDrawingRecordsBySymbol: {},
       chartLockAll: false,
       chartHideAll: false,
       showOpenPositions: DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions,
@@ -419,7 +430,15 @@ export const useUserPreferences = create<UserPreferencesState>()(
         set({ quoteSymbols: get().quoteSymbols.filter((item) => item !== symbol) });
       },
       setQuoteSymbols: (symbols) => set({ quoteSymbols: symbols }),
-      setChartSymbol: (symbol) => set({ chartSymbol: symbol }),
+      setChartSymbol: (symbol) =>
+        set((state) => {
+          const nextKey = getChartDrawingBucketKey(symbol);
+          const nextDrawings = state.chartDrawingRecordsBySymbol[nextKey] ?? [];
+          return {
+            chartSymbol: symbol,
+            chartDrawings: getChartDrawingLabels(nextDrawings),
+          };
+        }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       addChartDrawing: (drawing) => {
@@ -430,6 +449,39 @@ export const useUserPreferences = create<UserPreferencesState>()(
         set({ chartDrawings: get().chartDrawings.filter((item) => item !== drawing) });
       },
       setChartDrawings: (drawings) => set({ chartDrawings: drawings }),
+      setChartDrawingRecordsForSymbol: (symbol, drawings) =>
+        set((state) => {
+          const bucketKey = getChartDrawingBucketKey(symbol);
+          const nextDrawings = sanitizePersistedChartDrawings(drawings);
+          const nextRecordsBySymbol: PersistedChartDrawingsBySymbol = {
+            ...state.chartDrawingRecordsBySymbol,
+            [bucketKey]: nextDrawings,
+          };
+
+          return {
+            chartDrawingRecordsBySymbol: nextRecordsBySymbol,
+            chartDrawings: getChartDrawingBucketKey(state.chartSymbol) === bucketKey
+              ? getChartDrawingLabels(nextDrawings)
+              : state.chartDrawings,
+          };
+        }),
+      removeChartDrawingRecordForSymbol: (symbol, drawingId) =>
+        set((state) => {
+          const bucketKey = getChartDrawingBucketKey(symbol);
+          const currentDrawings = state.chartDrawingRecordsBySymbol[bucketKey] ?? [];
+          const nextDrawings = currentDrawings.filter((drawing) => drawing.id !== drawingId);
+          const nextRecordsBySymbol: PersistedChartDrawingsBySymbol = {
+            ...state.chartDrawingRecordsBySymbol,
+            [bucketKey]: nextDrawings,
+          };
+
+          return {
+            chartDrawingRecordsBySymbol: nextRecordsBySymbol,
+            chartDrawings: getChartDrawingBucketKey(state.chartSymbol) === bucketKey
+              ? getChartDrawingLabels(nextDrawings)
+              : state.chartDrawings,
+          };
+        }),
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
       setShowOpenPositions: (show) => set({ showOpenPositions: show }),
@@ -470,14 +522,24 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
           chartColors?: Partial<ChartColorsConfig>;
           chartDisplay?: Partial<ChartDisplaySettings>;
+          chartDrawingRecordsBySymbol?: PersistedChartDrawingsBySymbol;
         };
         const shouldResetLegacyShowOnChartFlags = (version ?? 0) < 4 && hasLegacyShowOnChartDefaults(state);
+        const nextDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol = Object.fromEntries(
+          Object.entries(state.chartDrawingRecordsBySymbol ?? {}).map(([symbol, drawings]) => [
+            getChartDrawingBucketKey(symbol),
+            sanitizePersistedChartDrawings(drawings),
+          ]),
+        );
+        const activeDrawingLabels = getChartDrawingLabels(
+          nextDrawingRecordsBySymbol[getChartDrawingBucketKey(state.chartSymbol ?? 'GBPUSD')] ?? [],
+        );
 
         return {
           ...state,
@@ -502,6 +564,10 @@ export const useUserPreferences = create<UserPreferencesState>()(
           showTradingSignals: shouldResetLegacyShowOnChartFlags
             ? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals
             : (state.showTradingSignals ?? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals),
+          chartDrawings: activeDrawingLabels.length > 0
+            ? activeDrawingLabels
+            : (state.chartDrawings ?? []),
+          chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
           chartVisualType: state.chartVisualType ?? 'candles',
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {

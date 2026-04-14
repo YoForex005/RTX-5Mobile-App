@@ -10,6 +10,7 @@ import {
   normalizeCandle,
   normalizeSymbol,
   overlayLiveCandlesOnHistory,
+  trimCandlesBeforeDetachedLiveTail,
 } from './candles';
 
 test('candle-path normalizeSymbol matches quote-path broker suffix handling', () => {
@@ -118,7 +119,7 @@ test('mergeCandleUpdate preserves wick extremes when a live quote tick moves the
     high: 4738.635,
     low: 4737.73,
     close: 4738.34,
-    volume: 0,
+    volume: 69,
   });
 });
 
@@ -146,7 +147,7 @@ test('applyLivePriceToCandleSeries updates the active bucket from quote ticks', 
       high: 1.34291,
       low: 1.342795,
       close: 1.34291,
-      volume: 0,
+      volume: 97,
     },
   ]);
 });
@@ -191,11 +192,14 @@ test('applyLivePriceToCandleSeries appends a new bucket when the live quote roll
   );
 
   assert.equal(updated.length, 2);
+  // Immediate rollover keeps the live handoff continuous by opening the new
+  // bucket from the previous close until recent REST history heals the true
+  // bucket open.
   assert.deepEqual(updated[1], {
     time: 1776071340,
-    open: 1.34295,
+    open: 1.342875,
     high: 1.34295,
-    low: 1.34295,
+    low: 1.342875,
     close: 1.34295,
     volume: 0,
   });
@@ -242,6 +246,9 @@ test('applyLivePriceToCandleSeries can append the current live bucket even when 
     },
   );
 
+  // Sparse append while a resync is in flight: intermediate buckets are left
+  // missing (not fabricated with flat bars), and the new bar opens at the
+  // tick's own price.
   assert.deepEqual(updated, [
     {
       time: 1776071280,
@@ -260,6 +267,84 @@ test('applyLivePriceToCandleSeries can append the current live bucket even when 
       volume: 0,
     },
   ]);
+});
+
+test('trimCandlesBeforeDetachedLiveTail drops stale history when the live handoff jumps too far ahead', () => {
+  const trimmed = trimCandlesBeforeDetachedLiveTail(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34294,
+        low: 1.34281,
+        close: 1.3429,
+        volume: 88,
+      },
+      {
+        time: 1776071760,
+        open: 1.34325,
+        high: 1.34342,
+        low: 1.34312,
+        close: 1.34336,
+        volume: 0,
+      },
+    ],
+    1776071340,
+    'M1',
+    5,
+  );
+
+  assert.deepEqual(trimmed, [
+    {
+      time: 1776071760,
+      open: 1.34325,
+      high: 1.34342,
+      low: 1.34312,
+      close: 1.34336,
+      volume: 0,
+    },
+  ]);
+});
+
+test('trimCandlesBeforeDetachedLiveTail keeps history when the live handoff gap stays within tolerance', () => {
+  const candles = [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+    {
+      time: 1776071340,
+      open: 1.342875,
+      high: 1.34294,
+      low: 1.34281,
+      close: 1.3429,
+      volume: 88,
+    },
+    {
+      time: 1776071640,
+      open: 1.34305,
+      high: 1.34318,
+      low: 1.343,
+      close: 1.34311,
+      volume: 0,
+    },
+  ];
+
+  const trimmed = trimCandlesBeforeDetachedLiveTail(candles, 1776071340, 'M1', 5);
+
+  assert.equal(trimmed, candles);
 });
 
 test('overlayLiveCandlesOnHistory preserves the live candle while adding healed history behind it', () => {
@@ -399,6 +484,91 @@ test('mergeRecentHistoryIntoCandles corrects the active candle open while preser
       high: 1.34299,
       low: 1.34277,
       close: 1.34295,
+      volume: 101,
+    },
+  ]);
+});
+
+test('mergeRecentHistoryIntoCandles backfills missing history behind a sparse live bar and keeps the latest live close', () => {
+  const healed = mergeRecentHistoryIntoCandles(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071700,
+        open: 1.34325,
+        high: 1.34342,
+        low: 1.34312,
+        close: 1.34336,
+        volume: 0,
+      },
+    ],
+    [
+      {
+        time: 1776071340,
+        open: 1.34288,
+        high: 1.34294,
+        low: 1.34281,
+        close: 1.3429,
+        volume: 88,
+      },
+      {
+        time: 1776071400,
+        open: 1.3429,
+        high: 1.34305,
+        low: 1.34286,
+        close: 1.343,
+        volume: 92,
+      },
+      {
+        time: 1776071700,
+        open: 1.3432,
+        high: 1.34345,
+        low: 1.34305,
+        close: 1.34331,
+        volume: 101,
+      },
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(healed, [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+    {
+      time: 1776071340,
+      open: 1.34288,
+      high: 1.34294,
+      low: 1.34281,
+      close: 1.3429,
+      volume: 88,
+    },
+    {
+      time: 1776071400,
+      open: 1.3429,
+      high: 1.34305,
+      low: 1.34286,
+      close: 1.343,
+      volume: 92,
+    },
+    {
+      time: 1776071700,
+      open: 1.3432,
+      high: 1.34345,
+      low: 1.34305,
+      close: 1.34336,
       volume: 101,
     },
   ]);

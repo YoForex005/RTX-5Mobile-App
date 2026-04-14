@@ -62,6 +62,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return (names[kind] || 'Object') + ' ' + index;
   }
 
+  function clonePoint(point) {
+    return {
+      time: point.time,
+      price: point.price
+    };
+  }
+
+  function clonePoints(points) {
+    return Array.isArray(points)
+      ? points.map(function (point) { return clonePoint(point); })
+      : [];
+  }
+
   function PrimitiveBase() {
     this._chart = null;
     this._series = null;
@@ -616,9 +629,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return { time: param.time, price: price };
   };
 
-  BaseTool.prototype._completeDrawing = function (primitive, explicitLabel) {
+  BaseTool.prototype._completeDrawing = function (primitive, explicitLabel, serializedData) {
     if (!primitive) return;
-    this._manager.registerDrawing(this._kind, primitive, explicitLabel);
+    this._manager.registerDrawing(this._kind, primitive, explicitLabel, serializedData);
     if (this._manager.isStickyMode()) {
       this._drawing = true;
       if (typeof this._resetDrawingSession === 'function') this._resetDrawingSession();
@@ -655,7 +668,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         color: '#3B82F6',
         width: 2,
         label: formatDelta(this._points[1].price - this._points[0].price)
-      }));
+      }), null, {
+        points: clonePoints(this._points.slice(0, 2))
+      });
     }
   };
   TrendLineTool.prototype.remove = function () {
@@ -694,7 +709,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         label: patternLabel,
         labelBackgroundColor: 'rgba(88, 28, 135, 0.92)',
         labelTextColor: '#F3E8FF'
-      }), patternLabel);
+      }), patternLabel, {
+        points: clonePoints(points)
+      });
     }
   };
   PatternTool.prototype.remove = function () {
@@ -764,7 +781,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       var p1 = this._points[0];
       var p2 = this._points[1];
       this._removePreview();
-      this._completeDrawing(createBoxPrimitive(p1, p2, this._buildOptions(p1, p2, false)));
+      this._completeDrawing(createBoxPrimitive(p1, p2, this._buildOptions(p1, p2, false)), null, {
+        points: clonePoints([p1, p2])
+      });
     }
   };
   BoxTool.prototype._handleMove = function (param) {
@@ -800,7 +819,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       textColor: this._options.textColor,
       anchorColor: this._options.anchorColor,
       fontSize: this._options.fontSize || 11
-    }));
+    }), null, {
+      points: clonePoints([point]),
+      text: this._options.text
+    });
   };
   LabelTool.prototype.remove = function () {
     this.stopDrawing();
@@ -833,7 +855,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._completeDrawing(createPitchforkPrimitive(this._points[0], this._points[1], this._points[2], {
         color: '#8B5CF6',
         width: 1.6
-      }));
+      }), null, {
+        points: clonePoints(this._points.slice(0, 3))
+      });
     }
   };
   PitchforkTool.prototype.remove = function () {
@@ -924,10 +948,159 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return defaultLabel(kind, next);
   };
 
+  AdvancedDrawingToolsManager.prototype._requiredPointCount = function (kind) {
+    return {
+      trendline: 2,
+      patterns: 3,
+      fib: 2,
+      brush: 2,
+      prediction: 2,
+      measure: 2,
+      text: 1,
+      smiley: 1,
+      pitchfork: 3
+    }[kind] || 0;
+  };
+
+  AdvancedDrawingToolsManager.prototype._detachRecord = function (record) {
+    if (!record || !record.primitive) return;
+    try { this._series.detachPrimitive(record.primitive); } catch (_error) {}
+  };
+
+  AdvancedDrawingToolsManager.prototype._recountDrawingCounters = function () {
+    this._drawingCounter = {};
+    this._records.forEach(function (record) {
+      this._drawingCounter[record.kind] = (this._drawingCounter[record.kind] || 0) + 1;
+    }, this);
+  };
+
+  AdvancedDrawingToolsManager.prototype._sanitizeSerializedRecord = function (record, index) {
+    if (!record || typeof record !== 'object' || !record.kind || !this._tools[record.kind]) {
+      return null;
+    }
+
+    var requiredPointCount = this._requiredPointCount(record.kind);
+    var points = Array.isArray(record.points)
+      ? record.points
+        .map(function (point) {
+          if (!point || typeof point !== 'object' || point.time === undefined || typeof point.price !== 'number' || !isFinite(point.price)) {
+            return null;
+          }
+          return clonePoint(point);
+        })
+        .filter(function (point) { return point !== null; })
+        .slice(0, requiredPointCount)
+      : [];
+
+    if (points.length < requiredPointCount) {
+      return null;
+    }
+
+    return {
+      id: typeof record.id === 'string' && record.id ? record.id : record.kind + '_restored_' + (index + 1),
+      kind: record.kind,
+      label: typeof record.label === 'string' && record.label ? record.label : defaultLabel(record.kind, index + 1),
+      hidden: !!record.hidden,
+      visible: !record.hidden,
+      points: points,
+      text: typeof record.text === 'string' ? record.text : undefined
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._createPrimitiveForRecord = function (record) {
+    var points = record.points || [];
+    switch (record.kind) {
+      case 'trendline':
+        return createLinePrimitive(points[0], points[1], {
+          color: '#3B82F6',
+          width: 2,
+          label: formatDelta(points[1].price - points[0].price)
+        });
+      case 'patterns':
+        return createPolylinePrimitive(points, {
+          color: '#A855F7',
+          width: 1.8,
+          label: 'Pattern ' + formatDelta(points[points.length - 1].price - points[0].price),
+          labelBackgroundColor: 'rgba(88, 28, 135, 0.92)',
+          labelTextColor: '#F3E8FF'
+        });
+      case 'fib':
+        return createBoxPrimitive(points[0], points[1], {
+          fillColor: 'rgba(245, 158, 11, 0.16)',
+          borderColor: '#F59E0B',
+          borderWidth: 1.3,
+          label: 'Fib Zone',
+          labelBackgroundColor: 'rgba(146, 64, 14, 0.92)',
+          labelTextColor: '#FDE68A',
+          fontSize: 11
+        });
+      case 'brush':
+        return createBoxPrimitive(points[0], points[1], {
+          fillColor: 'rgba(59, 130, 246, 0.16)',
+          borderColor: '#3B82F6',
+          borderWidth: 1.2,
+          label: 'Highlight',
+          labelBackgroundColor: 'rgba(30, 64, 175, 0.92)',
+          labelTextColor: '#DBEAFE',
+          fontSize: 11
+        });
+      case 'prediction':
+        return createBoxPrimitive(points[0], points[1], {
+          fillColor: 'rgba(16, 185, 129, 0.15)',
+          borderColor: '#10B981',
+          borderWidth: 1.4,
+          label: 'Long ' + formatDelta(points[1].price - points[0].price) + ' (' + (points[0].price ? (((points[1].price - points[0].price) / points[0].price) * 100).toFixed(2) : '0.00') + '%)',
+          labelBackgroundColor: 'rgba(6, 95, 70, 0.92)',
+          labelTextColor: '#D1FAE5',
+          fontSize: 11
+        });
+      case 'measure':
+        return createBoxPrimitive(points[0], points[1], {
+          fillColor: 'rgba(148, 163, 184, 0.08)',
+          borderColor: '#94A3B8',
+          borderWidth: 1.1,
+          label: formatDelta(points[1].price - points[0].price) + ' / ' + formatDuration(Math.abs(Number(points[1].time) - Number(points[0].time))),
+          labelBackgroundColor: 'rgba(15, 23, 42, 0.9)',
+          labelTextColor: '#E2E8F0',
+          fontSize: 11
+        });
+      case 'text':
+        return createPointLabelPrimitive(points[0], {
+          text: record.text || 'TXT',
+          backgroundColor: 'rgba(37, 99, 235, 0.94)',
+          textColor: '#FFFFFF',
+          anchorColor: '#60A5FA',
+          fontSize: 11
+        });
+      case 'smiley':
+        return createPointLabelPrimitive(points[0], {
+          text: record.text || ':)',
+          backgroundColor: 'rgba(245, 158, 11, 0.94)',
+          textColor: '#0F172A',
+          anchorColor: '#F59E0B',
+          fontSize: 11
+        });
+      case 'pitchfork':
+        return createPitchforkPrimitive(points[0], points[1], points[2], {
+          color: '#8B5CF6',
+          width: 1.6
+        });
+      default:
+        return null;
+    }
+  };
+
   AdvancedDrawingToolsManager.prototype._emitDrawingsChanged = function () {
     safeNotify('DRAWINGS_CHANGED', {
       drawings: this._records.map(function (record) {
-        return { id: record.id, kind: record.kind, label: record.label, hidden: !record.visible };
+        return {
+          id: record.id,
+          kind: record.kind,
+          label: record.label,
+          hidden: !record.visible,
+          points: clonePoints(record.points),
+          text: record.text
+        };
       })
     });
   };
@@ -940,13 +1113,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return this._sticky;
   };
 
-  AdvancedDrawingToolsManager.prototype.registerDrawing = function (kind, primitive, label) {
+  AdvancedDrawingToolsManager.prototype.registerDrawing = function (kind, primitive, label, serializedData) {
+    var nextLabel = label || this._nextLabel(kind);
     var record = {
       id: kind + '_' + Date.now() + '_' + (this._records.length + 1),
       kind: kind,
-      label: label || this._nextLabel(kind),
+      label: nextLabel,
       primitive: primitive,
-      visible: !this._hidden
+      hidden: !!this._hidden,
+      visible: !this._hidden,
+      points: clonePoints(serializedData && Array.isArray(serializedData.points) ? serializedData.points : []),
+      text: serializedData && typeof serializedData.text === 'string' ? serializedData.text : undefined
     };
     if (typeof primitive.setVisible === 'function') {
       primitive.setVisible(record.visible);
@@ -980,6 +1157,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.setDrawingsHidden = function (hidden) {
     this._hidden = !!hidden;
     this._records.forEach(function (record) {
+      record.hidden = !!this._hidden;
       record.visible = !this._hidden;
       if (record.primitive && typeof record.primitive.setVisible === 'function') {
         record.primitive.setVisible(record.visible);
@@ -1017,10 +1195,42 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     } catch (_error) {}
   };
 
+  AdvancedDrawingToolsManager.prototype.setSerializedDrawings = function (drawings) {
+    var nextRecords = Array.isArray(drawings)
+      ? drawings
+        .map(function (record, index) {
+          return this._sanitizeSerializedRecord(record, index);
+        }, this)
+        .filter(function (record) { return record !== null; })
+      : [];
+
+    this._stopAllTools();
+    this._records.forEach(function (record) {
+      this._detachRecord(record);
+    }, this);
+    this._records = [];
+
+    nextRecords.forEach(function (record) {
+      var primitive = this._createPrimitiveForRecord(record);
+      if (!primitive) return;
+      record.primitive = primitive;
+      record.hidden = this._hidden ? true : !!record.hidden;
+      record.visible = !record.hidden;
+      if (typeof primitive.setVisible === 'function') {
+        primitive.setVisible(record.visible);
+      }
+      this._series.attachPrimitive(primitive);
+      this._records.push(record);
+    }, this);
+
+    this._recountDrawingCounters();
+    this._emitDrawingsChanged();
+  };
+
   AdvancedDrawingToolsManager.prototype.removeAllDrawings = function () {
     this._stopAllTools();
     this._records.forEach(function (record) {
-      try { this._series.detachPrimitive(record.primitive); } catch (_error) {}
+      this._detachRecord(record);
     }, this);
     this._records = [];
     this._drawingCounter = {};

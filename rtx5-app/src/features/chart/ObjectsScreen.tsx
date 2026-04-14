@@ -7,10 +7,11 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useUIState } from '../../state/uiState';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMemo } from 'react';
@@ -19,6 +20,10 @@ import {
   TvPatterns, TvPrediction, TvPitchfork, TvSmiley,
   TvLock, TvHide, TvTrash,
 } from './components/ChartToolbarIcons';
+import {
+  type ChartDrawingKind,
+  getChartDrawingBucketKey,
+} from './drawingPersistence';
 
 // Drawing tool definitions for the quick-add grid
 const DRAWING_TOOLS = [
@@ -31,26 +36,57 @@ const DRAWING_TOOLS = [
   { key: 'pitchfork', label: 'Pitchfork', Icon: TvPitchfork, color: '#8B5CF6' },
   { key: 'measure', label: 'Measure', Icon: TvMeasure, color: '#94A3B8' },
   { key: 'smiley', label: 'Emoji', Icon: TvSmiley, color: '#F59E0B' },
-] as const;
+] as const satisfies ReadonlyArray<{
+  key: ChartDrawingKind;
+  label: string;
+  Icon: typeof TvTrendLine;
+  color: string;
+}>;
 
 export function ObjectsScreen() {
   const {
+    chartSymbol,
     chartLockAll,
     chartHideAll,
-    chartDrawings,
+    chartDrawings: legacyChartDrawings,
+    chartDrawingRecordsBySymbol,
     setChartLockAll,
     setChartHideAll,
     addChartDrawing,
     removeChartDrawing,
+    removeChartDrawingRecordForSymbol,
     themeMode,
   } = useUserPreferences();
+  const queueChartDrawingTool = useUIState((s) => s.queueChartDrawingTool);
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const addDrawing = (label: string) => {
-    addChartDrawing(`${label} ${chartDrawings.length + 1}`);
+  const chartDrawings = chartDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [];
+  const legacyRows = legacyChartDrawings.map((label) => ({ id: label, label }));
+  const displayDrawings = chartDrawings.length > 0 ? chartDrawings : legacyRows;
+
+  const handleSelectTool = (tool: ChartDrawingKind) => {
+    if (Platform.OS === 'web') {
+      const selectedTool = DRAWING_TOOLS.find((item) => item.key === tool);
+      if (selectedTool) {
+        addChartDrawing(`${selectedTool.label} ${legacyChartDrawings.length + 1}`);
+      }
+      return;
+    }
+
+    queueChartDrawingTool(tool);
+    router.back();
+  };
+
+  const handleRemoveDrawing = (drawingId: string, label: string) => {
+    if (chartDrawings.length > 0) {
+      removeChartDrawingRecordForSymbol(chartSymbol, drawingId);
+      return;
+    }
+
+    removeChartDrawing(label);
   };
 
   return (
@@ -101,7 +137,7 @@ export function ObjectsScreen() {
             <Pressable
               key={tool.key}
               style={({ pressed }) => [s.toolCard, pressed && s.toolCardPressed]}
-              onPress={() => addDrawing(tool.label)}
+              onPress={() => handleSelectTool(tool.key)}
             >
               <View style={[s.toolIconWrap, { backgroundColor: tool.color + '18' }]}>
                 <tool.Icon color={tool.color} />
@@ -116,11 +152,11 @@ export function ObjectsScreen() {
           <Ionicons name="layers-outline" size={16} color={isDark ? '#64748B' : '#94A3B8'} />
           <Text style={s.sectionTitle}>Saved Drawings</Text>
           <View style={s.countBadge}>
-            <Text style={s.countText}>{chartDrawings.length}</Text>
+            <Text style={s.countText}>{displayDrawings.length}</Text>
           </View>
         </View>
 
-        {chartDrawings.length === 0 ? (
+        {displayDrawings.length === 0 ? (
           <View style={s.emptyState}>
             <Ionicons name="pencil-outline" size={40} color={isDark ? '#1E293B' : '#CBD5E1'} />
             <Text style={s.emptyTitle}>No drawings yet</Text>
@@ -128,20 +164,20 @@ export function ObjectsScreen() {
           </View>
         ) : (
           <View style={s.drawingsList}>
-            {chartDrawings.map((drawing: string, index: number) => (
+            {displayDrawings.map((drawing, index: number) => (
               <Pressable
-                key={drawing}
+                key={drawing.id}
                 style={({ pressed }) => [s.drawingRow, pressed && s.drawingRowPressed]}
-                onLongPress={() => removeChartDrawing(drawing)}
+                onLongPress={() => handleRemoveDrawing(drawing.id, drawing.label)}
               >
                 <View style={s.drawingLeft}>
                   <View style={s.drawingIndex}>
                     <Text style={s.drawingIndexText}>{index + 1}</Text>
                   </View>
-                  <Text style={s.drawingName} numberOfLines={1}>{drawing}</Text>
+                  <Text style={s.drawingName} numberOfLines={1}>{drawing.label}</Text>
                 </View>
                 <Pressable
-                  onPress={() => removeChartDrawing(drawing)}
+                  onPress={() => handleRemoveDrawing(drawing.id, drawing.label)}
                   hitSlop={12}
                   style={s.deleteBtn}
                 >
@@ -152,7 +188,7 @@ export function ObjectsScreen() {
           </View>
         )}
 
-        {chartDrawings.length > 0 && (
+        {displayDrawings.length > 0 && (
           <Text style={s.hint}>
             <Ionicons name="information-circle-outline" size={13} color={isDark ? '#475569' : '#94A3B8'} />
             {'  '}Long press a drawing to remove it

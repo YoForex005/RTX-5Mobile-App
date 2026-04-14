@@ -17,7 +17,7 @@ import { getSecureItemAsync } from '../utils/secureStorage';
 import { useUserPreferences } from '../state/userPreferences';
 
 // V2 API base URL — resolved from environment variable, falls back to direct IP
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://69.197.178.27/api/v2';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://backend.orrnn.com/api/v2';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JWT helpers
@@ -83,6 +83,32 @@ let isSilentReLogging = false;
  * On failure: returns null (no saved credentials / wrong password / network error).
  *             The original error is then propagated to the UI.
  */
+// Accepts BOTH the legacy `{access_token, refresh_token, expires_in}` shape
+// and the OpenAPI-spec `{token, refresh_token, expires_at}` shape. Returns
+// the extracted values or nulls if neither shape yielded a token.
+type NormalisedAuth = {
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresAtIso: string;
+  brokerId: string | null;
+};
+function normaliseAuthResponse(auth: any): NormalisedAuth {
+  const accessToken = auth?.access_token ?? auth?.token ?? null;
+  const refreshToken = auth?.refresh_token ?? auth?.refreshToken ?? null;
+
+  let expiresAtIso: string;
+  if (typeof auth?.expires_at === 'number' && auth.expires_at > 0) {
+    const ms = auth.expires_at > 1e12 ? auth.expires_at : auth.expires_at * 1000;
+    expiresAtIso = new Date(ms).toISOString();
+  } else {
+    const sec = typeof auth?.expires_in === 'number' ? auth.expires_in : 86400;
+    expiresAtIso = new Date(Date.now() + sec * 1000).toISOString();
+  }
+
+  const brokerId = auth?.broker_id ?? auth?.brokerId ?? null;
+  return { accessToken, refreshToken, expiresAtIso, brokerId };
+}
+
 async function silentReLogin(
   state: ReturnType<typeof useUserPreferences.getState>,
 ): Promise<string | null> {
@@ -103,13 +129,18 @@ async function silentReLogin(
     if (!resp.ok) return null;
 
     const auth = await resp.json();
-    const expiry = new Date(Date.now() + (auth.expires_in ?? 86400) * 1000).toISOString();
-    state.updateTokens(auth.access_token, auth.refresh_token, expiry);
-    if (auth.broker_id) state.setBrokerId(auth.broker_id);
+    const { accessToken, refreshToken, expiresAtIso, brokerId } = normaliseAuthResponse(auth);
+    if (!accessToken) {
+      console.warn('[apiClient] Silent re-login: response missing access token. Keys:', Object.keys(auth ?? {}));
+      return null;
+    }
 
-    const newBrokerId = decodeBrokerIdFromToken(auth.access_token);
+    state.updateTokens(accessToken, refreshToken ?? '', expiresAtIso);
+    if (brokerId) state.setBrokerId(brokerId);
+
+    const newBrokerId = decodeBrokerIdFromToken(accessToken);
     console.log('[apiClient] Silent re-login OK. JWT broker_id:', newBrokerId);
-    return auth.access_token;
+    return accessToken;
   } catch (e) {
     console.warn('[apiClient] Silent re-login failed:', e);
     return null;
@@ -226,18 +257,30 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       if (!rs.ok) throw new Error('Refresh token invalid or expired');
 
       const refreshData = await rs.json();
-      const expiresAt = new Date(Date.now() + (refreshData.expires_in ?? 86400) * 1000).toISOString();
-      state.updateTokens(refreshData.access_token, refreshData.refresh_token, expiresAt);
+      const normalised = normaliseAuthResponse(refreshData);
+      if (!normalised.accessToken) {
+        console.warn(
+          '[apiClient] Refresh response missing access token. Keys:',
+          Object.keys(refreshData ?? {}),
+        );
+        throw new Error('Refresh response did not contain an access token.');
+      }
+
+      state.updateTokens(
+        normalised.accessToken,
+        normalised.refreshToken ?? refreshToken,
+        normalised.expiresAtIso,
+      );
 
       // Persist broker_id from refresh response body (the refreshed JWT may or
       // may not contain it depending on the server version).
-      if (refreshData.broker_id) state.setBrokerId(refreshData.broker_id);
+      if (normalised.brokerId) state.setBrokerId(normalised.brokerId);
 
       // ── Post-refresh broker_id verification ─────────────────────────────
       // If the new JWT still has no broker_id claim, get a completely fresh
       // token via re-login. This handles server versions where the refresh
       // endpoint strips broker_id regardless of the request body.
-      let activeToken = refreshData.access_token;
+      let activeToken = normalised.accessToken;
       if (!decodeBrokerIdFromToken(activeToken)) {
         console.warn('[apiClient] Refreshed JWT has no broker_id — attempting silent re-login');
         const freshToken = await silentReLogin(useUserPreferences.getState());
