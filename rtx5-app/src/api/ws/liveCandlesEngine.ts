@@ -1,54 +1,36 @@
 /**
- * Live candle engine — single canonical OHLC stream per (symbol, timeframe).
+ * Canonical live candle engine.
  *
- * Architecture:
- *   Quote feed (Zustand) ──▶ tick dedupe ──▶ micro-batch (≤16ms)
- *                                              │
- *                                              ▼
- *                                       classify + apply
- *                                              │
- *              ┌───────────────┬───────────────┼──────────────────┐
- *              ▼               ▼               ▼                  ▼
- *       update active     rollover new    late-bucket      gap > horizon
- *         bucket           bucket (open    merge            → resync history
- *                          = prior close)
+ * Strategy:
+ *   - REST history provides the recent authoritative candle window.
+ *   - WebSocket quotes build only a live overlay segment.
+ *   - The chart consumes a materialized series derived from:
+ *       recent history + live overlay when contiguous
+ *       live overlay only when history is detached/stale
  *
- * Guarantees:
- *   - One engine entry per (symbol, tf), reference-counted by React consumers.
- *   - Live ticks arriving during history fetch are queued and replayed on the
- *     fresh history snapshot — zero ticks are lost across the boundary.
- *   - Bucket rollover triggers a fast (≤250 ms) REST heal that reconciles the
- *     bar's true open against the live aggregation.
- *   - Excessive gaps force a throttled history resync rather than corrupting
- *     the tape with speculative fill.
- *   - Volume on live bars is real tick count (MT5/TradingView convention when
- *     exchange volume is unavailable). Historical bars keep their REST volume.
+ * This avoids exposing half-merged arrays to the chart and prevents the
+ * detached old-history + fresh-live cluster artifacts seen on mobile.
  */
 
-import { getCandleHistory } from '../candles';
+import { CandleHistoryRequestOptions, getCandleHistory } from '../candles';
 import { quotesWsService } from './quotesSocket';
 import type { QuoteTickEvent } from './quotesSocket';
 import {
-  applyLivePriceToCandleSeries,
   DEFAULT_CANDLE_HISTORY_LIMIT,
+  MAX_CANDLE_SERIES_LENGTH,
+  getExpectedNextCandleTime,
   getTimeframeSeconds,
-  hasExcessiveLivePriceGap,
-  mergeRecentHistoryIntoCandles,
+  materializeHistoryAndLiveCandles,
+  mergeCandleUpdate,
   normalizeSymbol,
   normalizeTimeframe,
-  overlayLiveCandlesOnHistory,
-  trimCandlesBeforeDetachedLiveTail,
+  normalizeTimestampToBucket,
+  pruneLiveCandlesCoveredByHistory,
+  sortAndDedupeCandles,
 } from '../../domain/candles';
+import type { Candle } from '../../state/tradingState';
 
-// ─── Public types ───────────────────────────────────────────────────────────
-
-export type CandleParams = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+export type CandleParams = Candle & {
   bid?: number;
   ask?: number;
 };
@@ -58,14 +40,8 @@ type PendingQuote = {
   timestamp: unknown;
 };
 
-type BucketTickCounter = {
-  bucketTime: number;
-  tickCount: number;
-};
-
 type EngineListener = () => void;
-
-type EntryStatus = 'idle' | 'loading' | 'ready';
+type EntryStatus = 'idle' | 'bootstrapping' | 'ready';
 
 type EngineEntry = {
   key: string;
@@ -73,6 +49,8 @@ type EngineEntry = {
   timeframe: string;
   status: EntryStatus;
   candles: CandleParams[];
+  historyCandles: CandleParams[];
+  liveCandles: CandleParams[];
   listeners: Set<EngineListener>;
   consumers: number;
   releaseTimer: ReturnType<typeof setTimeout> | null;
@@ -82,45 +60,67 @@ type EngineEntry = {
   pendingQuotes: PendingQuote[];
   flushTimeout: ReturnType<typeof setTimeout> | null;
   healTimer: ReturnType<typeof setTimeout> | null;
-  gapResyncTimer: ReturnType<typeof setTimeout> | null;
-  healInFlight: boolean;
-  lastResyncAt: number;
-  tickCounter: BucketTickCounter | null;
+  gapRefreshTimer: ReturnType<typeof setTimeout> | null;
+  lastGapRefreshAt: number;
   lastQuoteSignature: string | null;
 };
 
-// ─── Tunables ───────────────────────────────────────────────────────────────
+const QUOTE_BATCH_INTERVAL_MS = 16;
+const MAX_PENDING_QUOTES = 256;
+const ENTRY_RETENTION_MS = 60_000;
+const GAP_RESYNC_THROTTLE_MS = 4_000;
+const POST_ROLLOVER_HEAL_DELAY_MS = 350;
+const RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS = 2;
 
-const QUOTE_BATCH_INTERVAL_MS = 16;          // ~1 frame — smooth without starving CPU
-const BUCKET_HEAL_DELAY_MS = 250;            // fast reconciliation after rollover
-const HEAL_CANDLE_LIMIT = 12;                // how many recent bars the REST heal pulls
-const GAP_RESYNC_THROTTLE_MS = 4000;         // min spacing between gap-triggered refetches
-const MAX_AUTO_GAP_FILL_CANDLES = 5;         // ≥ this many empty buckets → resync instead of fill
-const MAX_PENDING_QUOTES = 128;              // hard cap on in-flight quote backlog
-const ENTRY_RETENTION_MS = 60_000;           // keep a disposed entry warm briefly for remounts
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-// Stable empty snapshot — must be the SAME reference across calls so that
-// useSyncExternalStore's Object.is comparison doesn't trigger an infinite loop
-// when an entry has not yet produced any candles.
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
 
 const entryKey = (symbol: string, timeframe: string) =>
   `${normalizeSymbol(symbol)}::${normalizeTimeframe(timeframe)}`;
 
-const clampQuoteBacklog = (quotes: PendingQuote[]): PendingQuote[] =>
+const clampPendingQuotes = (quotes: PendingQuote[]): PendingQuote[] =>
   quotes.length > MAX_PENDING_QUOTES ? quotes.slice(-MAX_PENDING_QUOTES) : quotes;
 
+const asCandleParams = (candles: Candle[]): CandleParams[] => candles as CandleParams[];
 
-// ─── Engine ─────────────────────────────────────────────────────────────────
+const areCandlesEqual = (a: CandleParams, b: CandleParams): boolean =>
+  a.time === b.time &&
+  a.open === b.open &&
+  a.high === b.high &&
+  a.low === b.low &&
+  a.close === b.close &&
+  a.volume === b.volume;
+
+const areSeriesEqual = (a: CandleParams[], b: CandleParams[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+
+  for (let index = 0; index < a.length; index += 1) {
+    if (!areCandlesEqual(a[index], b[index])) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const createLiveCandle = (
+  time: number,
+  open: number,
+  close: number,
+  volume: number,
+): CandleParams => ({
+  time,
+  open,
+  high: Math.max(open, close),
+  low: Math.min(open, close),
+  close,
+  volume: Math.max(volume, 1),
+});
 
 class LiveCandlesEngine {
   private entries = new Map<string, EngineEntry>();
   private symbolEntryCounts = new Map<string, number>();
   private quoteTickListenerAttached = false;
-
-  // ── Public API ────────────────────────────────────────────────────────────
 
   public subscribe(symbol: string, timeframe: string, listener: EngineListener): () => void {
     const sym = normalizeSymbol(symbol);
@@ -137,41 +137,15 @@ class LiveCandlesEngine {
     entry.listeners.add(listener);
     entry.consumers += 1;
 
-    // Staleness check. If the entry is IDLE we always load history. If it's
-    // READY we reload ONLY when the last in-memory bar is older than one
-    // bucket — i.e. the chart has been detached long enough that real time
-    // has walked past the cached data, which is exactly the case that
-    // produces the "island of stale candles + giant empty gap + fresh live
-    // cluster" artifact. For a normal remount within a few seconds, the
-    // existing candles are still current and we skip the network call.
     if (entry.status === 'idle') {
-      this.loadHistory(entry);
+      this.bootstrapHistory(entry);
     } else if (this.isEntryStale(entry)) {
-      console.log(
-        '[liveCandlesEngine] entry stale on subscribe — forcing fresh history',
-        { symbol: entry.symbol, tf: entry.timeframe, lastBarAgo: this.lastBarAgeSeconds(entry) },
-      );
-      this.loadHistory(entry);
+      this.requestHistoryRefresh(entry, 'subscribe_stale_history', this.estimateHistoryAnchor(entry));
     } else if (entry.candles.length > 0) {
       listener();
     }
 
     return () => this.releaseListener(entry.key, listener);
-  }
-
-  private lastBarAgeSeconds(entry: EngineEntry): number {
-    const last = entry.candles[entry.candles.length - 1];
-    if (!last) return Number.POSITIVE_INFINITY;
-    return Math.floor(Date.now() / 1000) - last.time;
-  }
-
-  private isEntryStale(entry: EngineEntry): boolean {
-    if (entry.candles.length === 0) return true;
-    const intervalSec = getTimeframeSeconds(entry.timeframe);
-    // Allow up to 2 buckets of age before we consider the tape stale — one
-    // bucket is the active bar's natural horizon, a second accounts for
-    // small delays between bar-close and the next tick arriving.
-    return this.lastBarAgeSeconds(entry) > intervalSec * 2;
   }
 
   public getCandles(symbol: string, timeframe: string): CandleParams[] {
@@ -184,10 +158,13 @@ class LiveCandlesEngine {
     if (!sym || !tf) return;
 
     const entry = this.ensureEntry(sym, tf);
-    this.loadHistory(entry);
-  }
+    if (entry.status === 'idle') {
+      this.bootstrapHistory(entry);
+      return;
+    }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+    this.requestHistoryRefresh(entry, 'manual_refresh', this.estimateHistoryAnchor(entry), 0);
+  }
 
   private ensureEntry(symbol: string, timeframe: string): EngineEntry {
     const key = entryKey(symbol, timeframe);
@@ -200,6 +177,8 @@ class LiveCandlesEngine {
       timeframe,
       status: 'idle',
       candles: [],
+      historyCandles: [],
+      liveCandles: [],
       listeners: new Set(),
       consumers: 0,
       releaseTimer: null,
@@ -209,10 +188,8 @@ class LiveCandlesEngine {
       pendingQuotes: [],
       flushTimeout: null,
       healTimer: null,
-      gapResyncTimer: null,
-      healInFlight: false,
-      lastResyncAt: 0,
-      tickCounter: null,
+      gapRefreshTimer: null,
+      lastGapRefreshAt: 0,
       lastQuoteSignature: null,
     };
 
@@ -234,7 +211,9 @@ class LiveCandlesEngine {
     if (entry.consumers === 0 && !entry.releaseTimer) {
       entry.releaseTimer = setTimeout(() => {
         entry.releaseTimer = null;
-        if ((entry.consumers ?? 0) === 0) this.disposeEntry(key);
+        if ((entry.consumers ?? 0) === 0) {
+          this.disposeEntry(key);
+        }
       }, ENTRY_RETENTION_MS);
     }
   }
@@ -246,7 +225,7 @@ class LiveCandlesEngine {
     entry.fetchController?.abort();
     if (entry.flushTimeout) clearTimeout(entry.flushTimeout);
     if (entry.healTimer) clearTimeout(entry.healTimer);
-    if (entry.gapResyncTimer) clearTimeout(entry.gapResyncTimer);
+    if (entry.gapRefreshTimer) clearTimeout(entry.gapRefreshTimer);
     if (entry.releaseTimer) clearTimeout(entry.releaseTimer);
 
     this.entries.delete(key);
@@ -269,10 +248,9 @@ class LiveCandlesEngine {
       quotesWsService.unsubscribe([symbol]);
       return;
     }
+
     this.symbolEntryCounts.set(symbol, next);
   }
-
-  // ── Zustand tick subscription ─────────────────────────────────────────────
 
   private ensureQuoteTickListener(): void {
     if (this.quoteTickListenerAttached) return;
@@ -282,8 +260,7 @@ class LiveCandlesEngine {
 
   private handleQuoteTick = (tick: QuoteTickEvent): void => {
     const symbol = normalizeSymbol(tick.symbol);
-    if (!symbol) return;
-    if (!Number.isFinite(tick.bid)) return;
+    if (!symbol || !Number.isFinite(tick.bid)) return;
 
     for (const entry of this.entries.values()) {
       if (entry.symbol !== symbol) continue;
@@ -298,16 +275,14 @@ class LiveCandlesEngine {
       };
 
       if (entry.status !== 'ready') {
-        entry.queuedQuotes = clampQuoteBacklog([...entry.queuedQuotes, pending]);
+        entry.queuedQuotes = clampPendingQuotes([...entry.queuedQuotes, pending]);
         continue;
       }
 
-      entry.pendingQuotes = clampQuoteBacklog([...entry.pendingQuotes, pending]);
+      entry.pendingQuotes = clampPendingQuotes([...entry.pendingQuotes, pending]);
       this.scheduleFlush(entry);
     }
   };
-
-  // ── Tick batch flush ──────────────────────────────────────────────────────
 
   private scheduleFlush(entry: EngineEntry): void {
     if (entry.flushTimeout) return;
@@ -320,392 +295,352 @@ class LiveCandlesEngine {
       entry.pendingQuotes = [];
       if (batch.length === 0) return;
 
-      const result = this.applyQuoteBatch(entry, entry.candles, batch);
-      const anchorTime = entry.candles[entry.candles.length - 1]?.time ?? null;
-      const visibleCandles = trimCandlesBeforeDetachedLiveTail(
-        result.nextCandles,
-        anchorTime,
-        entry.timeframe,
-        MAX_AUTO_GAP_FILL_CANDLES,
-      ) as CandleParams[];
-      const detachedHistoryDropped = visibleCandles !== result.nextCandles;
-
-      if (visibleCandles !== entry.candles) {
-        entry.candles = visibleCandles;
-        this.notify(entry);
+      const outcome = this.applyQuoteBatch(entry, batch);
+      if (outcome.changed) {
+        this.commitVisibleCandles(entry);
       }
 
-      if (result.bucketRolledOver) {
-        this.scheduleBucketHeal(entry);
-      }
-
-      if (result.gapResyncRequired || detachedHistoryDropped) {
-        if (detachedHistoryDropped) {
-          console.log('[liveCandlesEngine] live flush trimmed detached stale tail', {
-            symbol: entry.symbol,
-            tf: entry.timeframe,
-            anchorTime,
-            visibleStartTime: visibleCandles[0]?.time ?? null,
-            visibleEndTime: visibleCandles[visibleCandles.length - 1]?.time ?? null,
-          });
-        }
-        this.scheduleGapResync(
-          entry,
-          detachedHistoryDropped ? 'ready_state_detached_live_tail' : 'ready_state_quote_gap',
-        );
+      if (outcome.detachedHistory) {
+        this.requestGapRefresh(entry, 'detached_live_stream', outcome.anchorTime);
+      } else if (outcome.bucketRolledOver) {
+        this.schedulePostRolloverHeal(entry, outcome.anchorTime);
       }
     }, QUOTE_BATCH_INTERVAL_MS);
   }
 
   private applyQuoteBatch(
     entry: EngineEntry,
-    baseCandles: CandleParams[],
     quotes: PendingQuote[],
-  ): { nextCandles: CandleParams[]; bucketRolledOver: boolean; gapResyncRequired: boolean } {
-    let nextCandles = baseCandles;
+  ): { changed: boolean; bucketRolledOver: boolean; detachedHistory: boolean; anchorTime: number | null } {
+    let changed = false;
     let bucketRolledOver = false;
-    let gapResyncRequired = false;
+    let detachedHistory = false;
+    let anchorTime: number | null = null;
 
-    for (const pending of quotes) {
-      const hugeGap = hasExcessiveLivePriceGap(
-        nextCandles,
-        pending.price,
-        pending.timestamp,
-        entry.timeframe,
-        MAX_AUTO_GAP_FILL_CANDLES,
-      );
-      if (hugeGap) gapResyncRequired = true;
-
-      const prevLastTime = nextCandles[nextCandles.length - 1]?.time ?? null;
-
-      // Always keep the live tape alive. When a tick is separated from the
-      // active bar by more than MAX_AUTO_GAP_FILL_CANDLES buckets we append
-      // the live bar sparsely (the intermediate buckets stay genuinely
-      // missing — no fabricated flat bars) and concurrently fire a REST
-      // resync below to backfill those buckets when the backend has them.
-      // This guarantees the chart never freezes on device sleep/wake or
-      // transient backend lag, while still merging history + live cleanly
-      // the moment the missing data arrives.
-      const applied = applyLivePriceToCandleSeries(
-        nextCandles,
-        pending.price,
-        pending.timestamp,
-        entry.timeframe,
-        {
-          maxAutoGapFillCandles: MAX_AUTO_GAP_FILL_CANDLES,
-          allowSparseAppendOnGap: true,
-        },
-      ) as CandleParams[];
-
-      if (applied === nextCandles) continue;
-
-      const nextLastTime = applied[applied.length - 1]?.time ?? null;
-      const rolledOver = prevLastTime !== null && nextLastTime !== prevLastTime;
-
-      // Maintain real tick-count volume for the active bucket (MT5/TV convention).
-      const withTickVolume = this.stampTickVolume(entry, applied, rolledOver);
-
-      nextCandles = withTickVolume;
-      if (rolledOver) bucketRolledOver = true;
+    for (const quote of quotes) {
+      const outcome = this.applyQuote(entry, quote);
+      changed = changed || outcome.changed;
+      bucketRolledOver = bucketRolledOver || outcome.bucketRolledOver;
+      detachedHistory = detachedHistory || outcome.detachedHistory;
+      anchorTime = outcome.anchorTime ?? anchorTime;
     }
 
-    return { nextCandles, bucketRolledOver, gapResyncRequired };
+    return { changed, bucketRolledOver, detachedHistory, anchorTime };
   }
 
-  /**
-   * Stamp the active bucket with tick-count volume. Historical bars are left
-   * untouched — only the rightmost bar (the current bucket) is mutated.
-   */
-  private stampTickVolume(
+  private applyQuote(
     entry: EngineEntry,
-    source: CandleParams[],
-    rolledOver: boolean,
-  ): CandleParams[] {
-    if (source.length === 0) {
-      entry.tickCounter = null;
-      return source;
+    quote: PendingQuote,
+  ): { changed: boolean; bucketRolledOver: boolean; detachedHistory: boolean; anchorTime: number | null } {
+    const bucketTime = normalizeTimestampToBucket(quote.timestamp, entry.timeframe);
+    if (bucketTime === null) {
+      return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: null };
     }
 
-    const lastCandle = source[source.length - 1];
-    const bucket = lastCandle.time;
+    const baseTail = this.getBaseTail(entry);
+    const currentLiveTail = this.getLiveTail(entry);
+    const liveByTime = entry.liveCandles.find((candle) => candle.time === bucketTime) ?? null;
 
-    if (rolledOver || !entry.tickCounter || entry.tickCounter.bucketTime !== bucket) {
-      entry.tickCounter = { bucketTime: bucket, tickCount: 1 };
+    if (!baseTail) {
+      entry.liveCandles = [createLiveCandle(bucketTime, quote.price, quote.price, 1)];
+      return { changed: true, bucketRolledOver: true, detachedHistory: true, anchorTime: bucketTime };
+    }
+
+    if (liveByTime) {
+      const merged = mergeCandleUpdate(
+        liveByTime,
+        {
+          time: bucketTime,
+          open: liveByTime.open,
+          high: Math.max(liveByTime.high, quote.price),
+          low: Math.min(liveByTime.low, quote.price),
+          close: quote.price,
+          volume: Math.max(liveByTime.volume + 1, 1),
+        },
+      );
+
+      if (!merged || areCandlesEqual(merged as CandleParams, liveByTime)) {
+        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+      }
+
+      this.upsertLiveCandle(entry, merged as CandleParams);
+      return { changed: true, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+    }
+
+    if (bucketTime < baseTail.time) {
+      const matchingHistory = entry.historyCandles.find((candle) => candle.time === bucketTime);
+      if (!matchingHistory) {
+        this.requestGapRefresh(entry, 'late_tick_missing_history_bucket', baseTail.time);
+        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: baseTail.time };
+      }
+
+      const overlayBase = matchingHistory;
+      const merged = mergeCandleUpdate(
+        overlayBase,
+        {
+          time: bucketTime,
+          open: overlayBase.open,
+          high: Math.max(overlayBase.high, quote.price),
+          low: Math.min(overlayBase.low, quote.price),
+          close: quote.price,
+          volume: Math.max(overlayBase.volume + 1, 1),
+        },
+      );
+
+      if (!merged) {
+        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+      }
+
+      this.upsertLiveCandle(entry, merged as CandleParams);
+      return { changed: true, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+    }
+
+    if (bucketTime === baseTail.time) {
+      const overlayBase = currentLiveTail?.time === bucketTime ? currentLiveTail : baseTail;
+      const merged = mergeCandleUpdate(
+        overlayBase,
+        {
+          time: bucketTime,
+          open: overlayBase.open,
+          high: Math.max(overlayBase.high, quote.price),
+          low: Math.min(overlayBase.low, quote.price),
+          close: quote.price,
+          volume: Math.max(overlayBase.volume + 1, 1),
+        },
+      );
+
+      if (!merged || areCandlesEqual(merged as CandleParams, overlayBase as CandleParams)) {
+        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+      }
+
+      this.upsertLiveCandle(entry, merged as CandleParams);
+      return { changed: true, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+    }
+
+    const expectedNextTime = getExpectedNextCandleTime(baseTail.time, entry.timeframe);
+    if (bucketTime === expectedNextTime) {
+      const nextCandle = createLiveCandle(bucketTime, baseTail.close, quote.price, 1);
+      this.upsertLiveCandle(entry, nextCandle);
+      return { changed: true, bucketRolledOver: true, detachedHistory: false, anchorTime: bucketTime };
+    }
+
+    entry.liveCandles = [createLiveCandle(bucketTime, quote.price, quote.price, 1)];
+    return { changed: true, bucketRolledOver: true, detachedHistory: true, anchorTime: bucketTime };
+  }
+
+  private upsertLiveCandle(entry: EngineEntry, candle: CandleParams): void {
+    const next = entry.liveCandles.slice();
+    const existingIndex = next.findIndex((item) => item.time === candle.time);
+
+    if (existingIndex === -1) {
+      next.push(candle);
     } else {
-      entry.tickCounter.tickCount += 1;
+      next[existingIndex] = candle;
     }
 
-    const tickCount = entry.tickCounter.tickCount;
-    // Prefer upstream volume if the server ever reports it, else tick count.
-    const volume = Math.max(lastCandle.volume ?? 0, tickCount);
-    if (volume === lastCandle.volume) return source;
+    entry.liveCandles = asCandleParams(sortAndDedupeCandles(next)).slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
 
-    const next = source.slice();
-    next[next.length - 1] = { ...lastCandle, volume };
-    return next;
+  private getBaseTail(entry: EngineEntry): CandleParams | null {
+    return this.getLiveTail(entry) ?? this.getHistoryTail(entry);
+  }
+
+  private getHistoryTail(entry: EngineEntry): CandleParams | null {
+    return entry.historyCandles[entry.historyCandles.length - 1] ?? null;
+  }
+
+  private getLiveTail(entry: EngineEntry): CandleParams | null {
+    return entry.liveCandles[entry.liveCandles.length - 1] ?? null;
+  }
+
+  private commitVisibleCandles(entry: EngineEntry): void {
+    const nextVisible = asCandleParams(
+      materializeHistoryAndLiveCandles(entry.historyCandles, entry.liveCandles, entry.timeframe),
+    );
+
+    if (areSeriesEqual(entry.candles, nextVisible)) {
+      return;
+    }
+
+    entry.candles = nextVisible;
+    this.notify(entry);
   }
 
   private notify(entry: EngineEntry): void {
     entry.listeners.forEach((listener) => {
       try {
         listener();
-      } catch (err) {
-        // A bad listener must not poison the rest of the subscribers.
-        console.warn('[liveCandlesEngine] listener threw', err);
+      } catch (error) {
+        console.warn('[liveCandlesEngine] listener threw', error);
       }
     });
   }
 
-  private scheduleGapResync(entry: EngineEntry, reason: string): void {
-    const tracked = this.entries.get(entry.key);
-    if (!tracked || tracked.gapResyncTimer) {
-      return;
-    }
+  private isEntryStale(entry: EngineEntry): boolean {
+    const last = entry.candles[entry.candles.length - 1];
+    if (!last) return true;
 
-    const now = Date.now();
-    const delay = Math.max(0, GAP_RESYNC_THROTTLE_MS - (now - tracked.lastResyncAt));
+    const interval = getTimeframeSeconds(entry.timeframe);
+    const now = Math.floor(Date.now() / 1000);
+    return now - last.time > interval * RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS;
+  }
 
-    tracked.gapResyncTimer = setTimeout(() => {
-      tracked.gapResyncTimer = null;
+  private estimateHistoryAnchor(entry: EngineEntry): number {
+    const interval = getTimeframeSeconds(entry.timeframe);
+    const now = Math.floor(Date.now() / 1000);
+    const latestKnownTime =
+      this.getLiveTail(entry)?.time ??
+      this.getHistoryTail(entry)?.time ??
+      now;
 
-      const live = this.entries.get(entry.key);
-      if (!live || live.fetchController || live.status === 'loading') {
-        return;
-      }
+    return Math.max(latestKnownTime, now) + interval;
+  }
 
-      live.lastResyncAt = Date.now();
-      console.log('[liveCandlesEngine] gap resync scheduled', {
-        symbol: live.symbol,
-        tf: live.timeframe,
+  private buildHistoryRequestOptions(entry: EngineEntry, signal: AbortSignal, anchorTo?: number): CandleHistoryRequestOptions {
+    const interval = getTimeframeSeconds(entry.timeframe);
+    const now = Math.floor(Date.now() / 1000);
+    const to = Math.max(anchorTo ?? 0, now) + interval;
+    return { signal, to };
+  }
+
+  private bootstrapHistory(entry: EngineEntry): void {
+    if (!this.entries.has(entry.key)) return;
+    entry.status = 'bootstrapping';
+    entry.queuedQuotes = [];
+    this.loadHistory(entry, { reason: 'bootstrap', bootstrap: true, anchorTo: this.estimateHistoryAnchor(entry) });
+  }
+
+  private requestGapRefresh(entry: EngineEntry, reason: string, anchorTime: number | null | undefined): void {
+    if (!this.entries.has(entry.key)) return;
+    if (entry.gapRefreshTimer) return;
+
+    const delay = Math.max(0, GAP_RESYNC_THROTTLE_MS - (Date.now() - entry.lastGapRefreshAt));
+    entry.gapRefreshTimer = setTimeout(() => {
+      entry.gapRefreshTimer = null;
+      if (!this.entries.has(entry.key)) return;
+
+      entry.lastGapRefreshAt = Date.now();
+      this.loadHistory(entry, {
         reason,
+        bootstrap: false,
+        anchorTo: anchorTime ?? this.estimateHistoryAnchor(entry),
       });
-      this.loadHistory(live, { preserveVisibleCandles: false });
     }, delay);
   }
 
-  // ── History fetch ─────────────────────────────────────────────────────────
-
-  private loadHistory(entry: EngineEntry, options?: { preserveVisibleCandles?: boolean }): void {
-    const preserveVisibleCandles = options?.preserveVisibleCandles === true;
-    const current = this.entries.get(entry.key);
-    if (!current) return;
-
-    current.fetchEpoch += 1;
-    const epoch = current.fetchEpoch;
-    current.fetchController?.abort();
-    current.fetchController = new AbortController();
-    current.status = 'loading';
-    current.queuedQuotes = [];
-    current.pendingQuotes = [];
-    current.tickCounter = null;
-    current.healInFlight = false;
-
-    if (current.healTimer) {
-      clearTimeout(current.healTimer);
-      current.healTimer = null;
+  private requestHistoryRefresh(entry: EngineEntry, reason: string, anchorTo: number, delayMs: number = POST_ROLLOVER_HEAL_DELAY_MS): void {
+    if (!this.entries.has(entry.key)) return;
+    if (entry.healTimer) {
+      clearTimeout(entry.healTimer);
     }
 
-    if (current.gapResyncTimer) {
-      clearTimeout(current.gapResyncTimer);
-      current.gapResyncTimer = null;
-    }
+    entry.healTimer = setTimeout(() => {
+      entry.healTimer = null;
+      if (!this.entries.has(entry.key)) return;
 
-    void getCandleHistory(
-      current.symbol,
-      current.timeframe,
-      DEFAULT_CANDLE_HISTORY_LIMIT,
-      current.fetchController.signal,
-    )
-      .then((history) => {
-        if (!history.candles || history.candles.length === 0) {
-          console.warn(
-            `[liveCandlesEngine] REST history empty for ${current.symbol} ${current.timeframe} — chart will show live ticks only until backend catches up`,
-          );
-        } else {
-          console.log(
-            `[liveCandlesEngine] Loaded ${history.candles.length} history bars for ${current.symbol} ${current.timeframe}`,
-          );
-        }
-        this.onHistoryLoaded(current.key, epoch, history.candles, preserveVisibleCandles);
-      })
-      .catch((err) => {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        console.warn(
-          `[liveCandlesEngine] REST history fetch failed for ${current.symbol} ${current.timeframe}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-        this.onHistoryFailed(current.key, epoch, preserveVisibleCandles);
-      })
-      .finally(() => {
-        const tracked = this.entries.get(current.key);
-        if (tracked && tracked.fetchEpoch === epoch) {
-          tracked.fetchController = null;
-        }
+      this.loadHistory(entry, {
+        reason,
+        bootstrap: false,
+        anchorTo,
       });
+    }, delayMs);
   }
 
-  private onHistoryLoaded(
-    key: string,
-    epoch: number,
-    historyCandles: CandleParams[],
-    preserveVisibleCandles: boolean,
+  private schedulePostRolloverHeal(entry: EngineEntry, anchorTime: number | null | undefined): void {
+    this.requestHistoryRefresh(
+      entry,
+      'post_rollover_heal',
+      anchorTime ?? this.estimateHistoryAnchor(entry),
+    );
+  }
+
+  private loadHistory(
+    entry: EngineEntry,
+    options: { reason: string; bootstrap: boolean; anchorTo?: number },
   ): void {
-    const tracked = this.entries.get(key);
-    if (!tracked || tracked.fetchEpoch !== epoch) return;
-
-    const queued = tracked.queuedQuotes;
-    tracked.queuedQuotes = [];
-
-    // Choose the base for the new tape.
-    //
-    // Invariant we enforce:
-    //   The final tape is CONTIGUOUS — no bars older than the first bar REST
-    //   returned. Keeping older cached bars would place them at their real
-    //   timestamps far to the left of the fresh history, and lightweight-
-    //   charts renders the gap between them and the fresh bars as empty
-    //   space. That's the "left cluster + big gap + right cluster" artifact
-    //   we're fixing.
-    //
-    //   • REST returned bars → they define the authoritative window. Any
-    //     cached bar older than their first timestamp is discarded. Cached
-    //     bars WITHIN the window are overlaid (wick-merge preserved).
-    //   • REST returned empty → keep the existing tape (don't strand the
-    //     user on live-only bars just because of a slow round-trip).
-    let baseCandles: CandleParams[];
-    if (historyCandles.length === 0) {
-      baseCandles = tracked.candles;
-    } else {
-      const firstRestTime = historyCandles[0].time;
-      const trimmedCache = tracked.candles.filter((c) => c.time >= firstRestTime);
-      if (preserveVisibleCandles && trimmedCache.length > 0) {
-        baseCandles = overlayLiveCandlesOnHistory(historyCandles, trimmedCache) as CandleParams[];
-      } else {
-        // Full refresh. Merge REST with any in-window cached bars (keeps
-        // live-only bars that are NEWER than REST's last bar, which is the
-        // common case when the user has been watching for a while).
-        const inWindow = trimmedCache;
-        if (inWindow.length > 0) {
-          baseCandles = overlayLiveCandlesOnHistory(historyCandles, inWindow) as CandleParams[];
-        } else {
-          baseCandles = historyCandles;
-        }
-      }
-    }
-
-    tracked.tickCounter = null;
-    tracked.status = 'ready';
-
-    const { nextCandles, bucketRolledOver, gapResyncRequired } = this.applyQuoteBatch(tracked, baseCandles, queued);
-    const historyTailTime = historyCandles[historyCandles.length - 1]?.time ?? null;
-    const visibleCandles = trimCandlesBeforeDetachedLiveTail(
-      nextCandles,
-      historyTailTime,
-      tracked.timeframe,
-      MAX_AUTO_GAP_FILL_CANDLES,
-    ) as CandleParams[];
-    const detachedHistoryDropped = visibleCandles !== nextCandles;
-
-    tracked.candles = [...visibleCandles];
-    this.notify(tracked);
-
-    if (bucketRolledOver) this.scheduleBucketHeal(tracked);
-
-    if (gapResyncRequired || detachedHistoryDropped) {
-      console.log('[liveCandlesEngine] detached history handoff trimmed', {
-        symbol: tracked.symbol,
-        tf: tracked.timeframe,
-        historyTailTime,
-        visibleStartTime: tracked.candles[0]?.time ?? null,
-        visibleEndTime: tracked.candles[tracked.candles.length - 1]?.time ?? null,
-        gapResyncRequired,
-      });
-      this.scheduleGapResync(
-        tracked,
-        detachedHistoryDropped ? 'detached_history_handoff' : 'queued_quote_gap',
-      );
-    }
-  }
-
-  private onHistoryFailed(key: string, epoch: number, _preserveVisibleCandles: boolean): void {
-    const tracked = this.entries.get(key);
-    if (!tracked || tracked.fetchEpoch !== epoch) return;
-
-    const queued = tracked.queuedQuotes;
-    tracked.queuedQuotes = [];
-    // On REST failure we ALWAYS keep whatever candles were in memory — even
-    // if this load was a "force-fresh" attempt. Wiping on failure would
-    // strand the user with only live ticks (no history context), which is
-    // strictly worse than showing stale history with a warning. A successful
-    // load still replaces (see onHistoryLoaded).
-    const baseCandles = tracked.candles;
-    tracked.tickCounter = null;
-    tracked.status = 'ready';
-
-    const { nextCandles, bucketRolledOver, gapResyncRequired } = this.applyQuoteBatch(tracked, baseCandles, queued);
-    const anchorTime = baseCandles[baseCandles.length - 1]?.time ?? null;
-    const visibleCandles = trimCandlesBeforeDetachedLiveTail(
-      nextCandles,
-      anchorTime,
-      tracked.timeframe,
-      MAX_AUTO_GAP_FILL_CANDLES,
-    ) as CandleParams[];
-    const detachedHistoryDropped = visibleCandles !== nextCandles;
-
-    if (visibleCandles !== tracked.candles) {
-      tracked.candles = [...visibleCandles];
-      this.notify(tracked);
-    }
-
-    if (bucketRolledOver) this.scheduleBucketHeal(tracked);
-
-    if (gapResyncRequired || detachedHistoryDropped) {
-      this.scheduleGapResync(
-        tracked,
-        detachedHistoryDropped ? 'history_failed_detached_live_tail' : 'history_failed_quote_gap',
-      );
-    }
-  }
-
-  // ── Post-rollover heal ────────────────────────────────────────────────────
-
-  private scheduleBucketHeal(entry: EngineEntry): void {
     const tracked = this.entries.get(entry.key);
     if (!tracked) return;
 
-    if (tracked.healTimer) clearTimeout(tracked.healTimer);
+    tracked.fetchEpoch += 1;
+    const epoch = tracked.fetchEpoch;
+    tracked.fetchController?.abort();
+    const controller = new AbortController();
+    tracked.fetchController = controller;
 
-    tracked.healTimer = setTimeout(() => {
-      tracked.healTimer = null;
+    const requestOptions = this.buildHistoryRequestOptions(tracked, controller.signal, options.anchorTo);
 
-      const active = this.entries.get(entry.key);
-      if (!active || active.fetchController || active.healInFlight) return;
+    void getCandleHistory(
+      tracked.symbol,
+      tracked.timeframe,
+      DEFAULT_CANDLE_HISTORY_LIMIT,
+      requestOptions,
+    )
+      .then((history) => {
+        const live = this.entries.get(tracked.key);
+        if (!live || live.fetchEpoch !== epoch) return;
 
-      active.healInFlight = true;
+        live.historyCandles = asCandleParams(sortAndDedupeCandles(history.candles)).slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
+        live.liveCandles = asCandleParams(
+          pruneLiveCandlesCoveredByHistory(live.historyCandles, live.liveCandles),
+        );
 
-      void getCandleHistory(active.symbol, active.timeframe, HEAL_CANDLE_LIMIT)
-        .then((history) => {
-          const live = this.entries.get(entry.key);
-          if (!live) return;
+        if (options.bootstrap) {
+          live.status = 'ready';
+          const queued = live.queuedQuotes;
+          live.queuedQuotes = [];
+          if (queued.length > 0) {
+            const outcome = this.applyQuoteBatch(live, queued);
+            if (outcome.changed) {
+              this.commitVisibleCandles(live);
+            } else {
+              this.commitVisibleCandles(live);
+            }
 
-          const healed = mergeRecentHistoryIntoCandles(
-            live.candles,
-            history.candles,
-            live.timeframe,
-          ) as CandleParams[];
-
-          if (healed !== live.candles) {
-            live.candles = healed;
-            this.notify(live);
+            if (outcome.detachedHistory) {
+              this.requestGapRefresh(live, 'bootstrap_detached_live_stream', outcome.anchorTime);
+            } else if (outcome.bucketRolledOver) {
+              this.schedulePostRolloverHeal(live, outcome.anchorTime);
+            }
+            return;
           }
-        })
-        .catch(() => {
-          // Healing is best-effort; a failure leaves the live tape intact.
-        })
-        .finally(() => {
-          const live = this.entries.get(entry.key);
-          if (live) live.healInFlight = false;
-        });
-    }, BUCKET_HEAL_DELAY_MS);
+        }
+
+        live.status = 'ready';
+        this.commitVisibleCandles(live);
+      })
+      .catch((error) => {
+        const live = this.entries.get(tracked.key);
+        if (!live || live.fetchEpoch !== epoch) return;
+        if (error instanceof Error && error.name === 'AbortError') return;
+
+        console.warn(
+          `[liveCandlesEngine] history fetch failed for ${tracked.symbol} ${tracked.timeframe}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+
+        if (options.bootstrap) {
+          live.status = 'ready';
+          const queued = live.queuedQuotes;
+          live.queuedQuotes = [];
+          if (queued.length > 0) {
+            const outcome = this.applyQuoteBatch(live, queued);
+            if (outcome.changed) {
+              this.commitVisibleCandles(live);
+            }
+            if (outcome.detachedHistory) {
+              this.requestGapRefresh(live, 'bootstrap_fetch_failed_detached_live_stream', outcome.anchorTime);
+            }
+          }
+        } else {
+          live.status = 'ready';
+        }
+      })
+      .finally(() => {
+        const live = this.entries.get(tracked.key);
+        if (live && live.fetchEpoch === epoch) {
+          live.fetchController = null;
+        }
+      });
   }
 }
 

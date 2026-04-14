@@ -140,6 +140,10 @@ const normalizeTimeValue = (value: unknown, timeframe: string): number | null =>
   return alignTimeToBucket(seconds, timeframe);
 };
 
+export const normalizeTimestampToBucket = (value: unknown, timeframe: string): number | null => {
+  return normalizeTimeValue(value, timeframe);
+};
+
 // ─── OHLC validation ────────────────────────────────────────────────────────
 
 export const isStructurallyValidCandle = (
@@ -413,29 +417,45 @@ export const hasExcessiveLivePriceGap = (
  * count, keep only the recent live segment and let background resync backfill
  * history later instead of rendering detached price regions together.
  */
-export const trimCandlesBeforeDetachedLiveTail = (
-  candles: Candle[],
-  anchorTime: number | null | undefined,
-  timeframe: string,
-  maxGapBuckets: number = 5,
+export const pruneLiveCandlesCoveredByHistory = (
+  historyCandles: Candle[],
+  liveCandles: Candle[],
 ): Candle[] => {
-  if (candles.length === 0 || !Number.isFinite(anchorTime)) {
-    return candles;
+  const normalizedLive = sortAndDedupeCandles(liveCandles);
+  if (normalizedLive.length === 0 || historyCandles.length === 0) {
+    return normalizedLive.slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 
-  const firstLiveIndex = candles.findIndex((candle) => candle.time > anchorTime!);
-  if (firstLiveIndex <= 0) {
-    return candles;
+  const historyLastTime = historyCandles[historyCandles.length - 1].time;
+  return normalizedLive
+    .filter((candle) => candle.time >= historyLastTime)
+    .slice(-MAX_CANDLE_SERIES_LENGTH);
+};
+
+export const materializeHistoryAndLiveCandles = (
+  historyCandles: Candle[],
+  liveCandles: Candle[],
+  timeframe: string,
+): Candle[] => {
+  const normalizedHistory = sortAndDedupeCandles(historyCandles);
+  const normalizedLive = sortAndDedupeCandles(liveCandles);
+
+  if (normalizedHistory.length === 0) {
+    return normalizedLive.slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 
-  const firstLiveCandle = candles[firstLiveIndex];
-  const missingBuckets = getBucketGapCount(anchorTime!, firstLiveCandle.time, timeframe) - 1;
-
-  if (missingBuckets <= maxGapBuckets) {
-    return candles;
+  if (normalizedLive.length === 0) {
+    return normalizedHistory.slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 
-  return candles.slice(firstLiveIndex);
+  const historyLastTime = normalizedHistory[normalizedHistory.length - 1].time;
+  const firstLiveTime = normalizedLive[0].time;
+
+  if (firstLiveTime > getExpectedNextCandleTime(historyLastTime, timeframe)) {
+    return normalizedLive.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  return sortAndDedupeCandles([...normalizedHistory, ...normalizedLive]).slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
 // ─── Live tick application ──────────────────────────────────────────────────

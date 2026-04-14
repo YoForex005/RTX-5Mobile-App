@@ -49,11 +49,6 @@
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "INTERNET",
-        "USE_BIOMETRIC",
-        "USE_FINGERPRINT",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },

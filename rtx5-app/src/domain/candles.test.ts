@@ -7,10 +7,11 @@ import {
   hasExcessiveLivePriceGap,
   mergeRecentHistoryIntoCandles,
   mergeCandleUpdate,
+  materializeHistoryAndLiveCandles,
   normalizeCandle,
   normalizeSymbol,
   overlayLiveCandlesOnHistory,
-  trimCandlesBeforeDetachedLiveTail,
+  pruneLiveCandlesCoveredByHistory,
 } from './candles';
 
 test('candle-path normalizeSymbol matches quote-path broker suffix handling', () => {
@@ -269,8 +270,8 @@ test('applyLivePriceToCandleSeries can append the current live bucket even when 
   ]);
 });
 
-test('trimCandlesBeforeDetachedLiveTail drops stale history when the live handoff jumps too far ahead', () => {
-  const trimmed = trimCandlesBeforeDetachedLiveTail(
+test('materializeHistoryAndLiveCandles drops stale history when the live stream is detached', () => {
+  const materialized = materializeHistoryAndLiveCandles(
     [
       {
         time: 1776071280,
@@ -288,6 +289,8 @@ test('trimCandlesBeforeDetachedLiveTail drops stale history when the live handof
         close: 1.3429,
         volume: 88,
       },
+    ],
+    [
       {
         time: 1776071760,
         open: 1.34325,
@@ -297,12 +300,10 @@ test('trimCandlesBeforeDetachedLiveTail drops stale history when the live handof
         volume: 0,
       },
     ],
-    1776071340,
     'M1',
-    5,
   );
 
-  assert.deepEqual(trimmed, [
+  assert.deepEqual(materialized, [
     {
       time: 1776071760,
       open: 1.34325,
@@ -314,8 +315,48 @@ test('trimCandlesBeforeDetachedLiveTail drops stale history when the live handof
   ]);
 });
 
-test('trimCandlesBeforeDetachedLiveTail keeps history when the live handoff gap stays within tolerance', () => {
-  const candles = [
+test('materializeHistoryAndLiveCandles overlays live candles onto recent history when the series stays contiguous', () => {
+  const materialized = materializeHistoryAndLiveCandles(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34294,
+        low: 1.34281,
+        close: 1.3429,
+        volume: 88,
+      },
+    ],
+    [
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34299,
+        low: 1.3428,
+        close: 1.34296,
+        volume: 0,
+      },
+      {
+        time: 1776071400,
+        open: 1.34296,
+        high: 1.34318,
+        low: 1.34296,
+        close: 1.34311,
+        volume: 0,
+      },
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(materialized, [
     {
       time: 1776071280,
       open: 1.342825,
@@ -327,24 +368,88 @@ test('trimCandlesBeforeDetachedLiveTail keeps history when the live handoff gap 
     {
       time: 1776071340,
       open: 1.342875,
-      high: 1.34294,
-      low: 1.34281,
-      close: 1.3429,
+      high: 1.34299,
+      low: 1.3428,
+      close: 1.34296,
       volume: 88,
     },
     {
-      time: 1776071640,
-      open: 1.34305,
+      time: 1776071400,
+      open: 1.34296,
       high: 1.34318,
-      low: 1.343,
+      low: 1.34296,
       close: 1.34311,
       volume: 0,
     },
-  ];
+  ]);
+});
 
-  const trimmed = trimCandlesBeforeDetachedLiveTail(candles, 1776071340, 'M1', 5);
+test('pruneLiveCandlesCoveredByHistory removes live bars already superseded by refreshed history', () => {
+  const pruned = pruneLiveCandlesCoveredByHistory(
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34289,
+        low: 1.342795,
+        close: 1.342875,
+        volume: 97,
+      },
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34294,
+        low: 1.34281,
+        close: 1.3429,
+        volume: 88,
+      },
+    ],
+    [
+      {
+        time: 1776071280,
+        open: 1.342825,
+        high: 1.34292,
+        low: 1.34279,
+        close: 1.34289,
+        volume: 0,
+      },
+      {
+        time: 1776071340,
+        open: 1.342875,
+        high: 1.34299,
+        low: 1.3428,
+        close: 1.34296,
+        volume: 0,
+      },
+      {
+        time: 1776071400,
+        open: 1.34296,
+        high: 1.34318,
+        low: 1.34296,
+        close: 1.34311,
+        volume: 0,
+      },
+    ],
+  );
 
-  assert.equal(trimmed, candles);
+  assert.deepEqual(pruned, [
+    {
+      time: 1776071340,
+      open: 1.342875,
+      high: 1.34299,
+      low: 1.3428,
+      close: 1.34296,
+      volume: 0,
+    },
+    {
+      time: 1776071400,
+      open: 1.34296,
+      high: 1.34318,
+      low: 1.34296,
+      close: 1.34311,
+      volume: 0,
+    },
+  ]);
 });
 
 test('overlayLiveCandlesOnHistory preserves the live candle while adding healed history behind it', () => {

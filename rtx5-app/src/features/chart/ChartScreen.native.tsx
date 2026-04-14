@@ -181,8 +181,13 @@ const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
     ? state.price.toFixed(priceDecimalsFor(state.symbol))
     : '—';
 
-  const translateY = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
-  const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] });
+  // Centered popup — small zoom-in feels more like a confirmation card than
+  // a bottom sheet. We deliberately drop the safe-area marginBottom we used
+  // when the card was anchored to the bottom; in centered mode it's not
+  // relevant and would push the card off-centre on devices with home-bar
+  // insets.
+  void insets; // kept for future use; not consumed in centered layout
+  const scale = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
 
   return (
     <View style={tfmStyles.overlay} pointerEvents="box-none">
@@ -193,8 +198,7 @@ const TradeFeedbackModal = React.memo(({ state, onClose, T, isDark }: {
           backgroundColor: cardBg,
           borderColor: subtleBorder,
           opacity: opacityAnim,
-          transform: [{ translateY }, { scale }],
-          marginBottom: Math.max(insets.bottom, 16),
+          transform: [{ scale }],
         },
       ]}>
         {/* Gradient header strip */}
@@ -337,13 +341,15 @@ const tfmStyles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(3,6,16,0.55)',
-    justifyContent: 'flex-end',
-    alignItems: 'stretch',
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
     zIndex: 999,
     elevation: 999,
   },
   card: {
+    width: '100%',
+    maxWidth: 380,
     borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
@@ -837,6 +843,7 @@ const CH_HTML = `
       var seriesType = 'candles';
       var pendingTick = null;
       var tickFlushHandle = 0;
+      var currentSeriesLength = 0;
       // Price-movement histogram shown below the candles. Bar height equals
       // |close − open| for that bar (the magnitude of the candle's move),
       // coloured green when the candle closed up, red when it closed down.
@@ -871,6 +878,39 @@ const CH_HTML = `
           }));
         } catch (_e) {}
       }
+
+      function getRecentVisibleBars(length) {
+        if (typeof length !== 'number' || !isFinite(length) || length <= 0) return 0;
+        // Aim for fat, easy-to-read candles on phone screens: cap at ~32 bars
+        // visible at once instead of compressing 56+ into the same width. The
+        // floor stays at 18 so very short series still show context.
+        return Math.min(Math.max(Math.round(length), 18), 32);
+      }
+
+      function applyRecentViewport(lengthOverride) {
+        try {
+          if (!chart || !chart.timeScale) return;
+          var dataLength =
+            (typeof lengthOverride === 'number' && isFinite(lengthOverride) && lengthOverride > 0)
+              ? Math.round(lengthOverride)
+              : currentSeriesLength;
+          if (!(dataLength > 0)) return;
+          if (typeof chart.timeScale().setVisibleLogicalRange === 'function') {
+            var visibleBars = getRecentVisibleBars(dataLength);
+            chart.timeScale().setVisibleLogicalRange({
+              from: Math.max(-0.5, dataLength - visibleBars - 1),
+              to: dataLength + 2,
+            });
+          } else {
+            chart.timeScale().fitContent();
+          }
+          if (typeof chart.timeScale().scrollToRealTime === 'function') {
+            chart.timeScale().scrollToRealTime();
+          }
+        } catch (_e) {}
+      }
+
+      window.__rtx5ApplyRecentViewport = applyRecentViewport;
 
       function makePriceFormat(displayDecimals) {
         var decimals = (typeof displayDecimals === 'number' && displayDecimals >= 0) ? displayDecimals : 2;
@@ -1048,6 +1088,7 @@ const CH_HTML = `
         if (data && data.length > 0) {
           var mapped = mapForSeries(data);
           series.setData(mapped);
+          currentSeriesLength = mapped.length;
           lastBarTime = mapped[mapped.length - 1].time;
           if (seriesType !== 'line') {
             var lastSeed = data[data.length - 1];
@@ -1062,12 +1103,7 @@ const CH_HTML = `
           if (moveBarsSeries) {
             try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
           }
-          try {
-            chart.timeScale().fitContent();
-            if (typeof chart.timeScale().scrollToRealTime === 'function') {
-              chart.timeScale().scrollToRealTime();
-            }
-          } catch (_e) {}
+          applyRecentViewport(currentSeriesLength);
           ensureDirectionPriceLine();
           ensureMoveDirectionPriceLine();
         }
@@ -1215,6 +1251,7 @@ const CH_HTML = `
           }
           pendingTick = null;
           var mapped = mapForSeries(data);
+          currentSeriesLength = mapped.length;
           series.setData(mapped);
           if (moveBarsSeries) {
             try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
@@ -1257,6 +1294,7 @@ const CH_HTML = `
       function applyTickUpdate(tick) {
         if (!series || !tick || typeof tick.time !== 'number') return;
         if (tick.time < lastBarTime) return;
+        var appendedNewBar = currentSeriesLength === 0 || tick.time > lastBarTime;
         var bar;
         if (seriesType === 'line') {
           bar = { time: tick.time, value: typeof tick.value === 'number' ? tick.value : tick.close };
@@ -1272,6 +1310,7 @@ const CH_HTML = `
         // Sync internal accumulator with full OHLC from host
         _liveBar = { time: tick.time, open: tick.open, high: tick.high, low: tick.low, close: tick.close };
         series.update(bar);
+        currentSeriesLength = appendedNewBar ? Math.max(currentSeriesLength + 1, 1) : Math.max(currentSeriesLength, 1);
         if (tick.time >= lastBarTime) {
           lastBarTime = tick.time;
         }
@@ -1288,6 +1327,7 @@ const CH_HTML = `
       function pushPrice(bucketTime, price) {
         if (!series || typeof bucketTime !== 'number' || typeof price !== 'number') return;
         if (bucketTime < lastBarTime) return;
+        var appendedNewBar = currentSeriesLength === 0 || bucketTime > lastBarTime;
 
         var bar;
         if (_liveBar && _liveBar.time === bucketTime) {
@@ -1315,6 +1355,7 @@ const CH_HTML = `
           bar = { time: _liveBar.time, open: _liveBar.open, high: _liveBar.high, low: _liveBar.low, close: _liveBar.close };
         }
         series.update(bar);
+        currentSeriesLength = appendedNewBar ? Math.max(currentSeriesLength + 1, 1) : Math.max(currentSeriesLength, 1);
         if (bucketTime >= lastBarTime) {
           lastBarTime = bucketTime;
         }
@@ -2555,8 +2596,16 @@ export function ChartScreen() {
                   onPress={() => {
                     injectChartScript(`
                       if (chart) {
-                        try { chart.timeScale().fitContent(); } catch(_){}
-                        try { chart.timeScale().scrollToRealTime(); } catch(_){}
+                        try {
+                          if (typeof window.__rtx5ApplyRecentViewport === 'function') {
+                            window.__rtx5ApplyRecentViewport();
+                          } else {
+                            chart.timeScale().fitContent();
+                            if (typeof chart.timeScale().scrollToRealTime === 'function') {
+                              chart.timeScale().scrollToRealTime();
+                            }
+                          }
+                        } catch(_){}
                       }
                     `);
                   }}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { extractCandleHistoryPayload } from './candles';
+import { buildCandleHistorySearchParams, extractCandleHistoryPayload } from './candleHistoryQuery';
 
 test('extractCandleHistoryPayload accepts raw array responses from /api/v2/candles', () => {
   const candles = [
@@ -44,4 +44,16 @@ test('extractCandleHistoryPayload accepts nested data wrappers used by some gate
   assert.equal(extracted.symbol, 'XAUUSD');
   assert.equal(extracted.timeframe, 'H1');
   assert.equal(extracted.candles.length, 1);
+});
+
+test('buildCandleHistorySearchParams anchors history requests to a bounded recent window', () => {
+  const params = buildCandleHistorySearchParams('m1', 500, {
+    from: 1775738200.9,
+    to: 1775738800.4,
+  });
+
+  assert.equal(params.get('timeframe'), 'M1');
+  assert.equal(params.get('limit'), '500');
+  assert.equal(params.get('from'), '1775738200');
+  assert.equal(params.get('to'), '1775738800');
 });

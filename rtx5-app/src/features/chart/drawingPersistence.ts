@@ -178,4 +178,4 @@ export function sanitizePersistedChartDrawings(value: unknown): PersistedChartDr
     .map((item, index) => sanitizePersistedChartDrawing(item, index))
     .filter((item): item is PersistedChartDrawing => item !== null);
 }
-import { normalizeSymbol } from '../../domain/symbols.ts';
+import { normalizeSymbol } from '../../domain/symbols';

@@ -6,6 +6,11 @@
  */
 
 import { apiClient } from './apiClient';
+import {
+  buildCandleHistorySearchParams,
+  extractCandleHistoryPayload,
+} from './candleHistoryQuery';
+import type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 import { Candle } from '../state/tradingState';
 import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 
@@ -16,76 +21,7 @@ export interface CandleHistoryResponse {
   count: number;
   candles: Candle[];
 }
-
-type ExtractedCandleHistoryPayload = {
-  candles: unknown[];
-  symbol?: string;
-  timeframe?: string;
-};
-
-const asObjectRecord = (value: unknown): Record<string, unknown> | null => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as Record<string, unknown>;
-};
-
-const pickFirstArray = (...candidates: unknown[]): unknown[] => {
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate;
-    }
-  }
-
-  return [];
-};
-
-export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHistoryPayload => {
-  if (Array.isArray(payload)) {
-    return { candles: payload };
-  }
-
-  const record = asObjectRecord(payload);
-  if (!record) {
-    return { candles: [] };
-  }
-
-  const nestedData = asObjectRecord(record.data);
-  const nestedResult = asObjectRecord(record.result);
-  const nestedPayload = asObjectRecord(record.payload);
-
-  return {
-    candles: pickFirstArray(
-      record.candles,
-      record.data,
-      record.items,
-      record.results,
-      record.result,
-      record.payload,
-      record.bars,
-      nestedData?.candles,
-      nestedData?.items,
-      nestedData?.results,
-      nestedData?.bars,
-      nestedResult?.candles,
-      nestedResult?.items,
-      nestedPayload?.candles,
-      nestedPayload?.items,
-    ),
-    symbol:
-      (typeof record.symbol === 'string' ? record.symbol : undefined) ??
-      (typeof nestedData?.symbol === 'string' ? nestedData.symbol : undefined) ??
-      (typeof nestedResult?.symbol === 'string' ? nestedResult.symbol : undefined),
-    timeframe:
-      (typeof record.timeframe === 'string' ? record.timeframe : undefined) ??
-      (typeof record.tf === 'string' ? record.tf : undefined) ??
-      (typeof nestedData?.timeframe === 'string' ? nestedData.timeframe : undefined) ??
-      (typeof nestedData?.tf === 'string' ? nestedData.tf : undefined) ??
-      (typeof nestedResult?.timeframe === 'string' ? nestedResult.timeframe : undefined) ??
-      (typeof nestedResult?.tf === 'string' ? nestedResult.tf : undefined),
-  };
-};
+export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 
 /**
  * Fetches historical candlestick data for a given symbol and timeframe.
@@ -100,15 +36,17 @@ export async function getCandleHistory(
   symbol: string,
   timeframe: string,
   count: number = DEFAULT_CANDLE_HISTORY_LIMIT,
-  signal?: AbortSignal,
+  options?: AbortSignal | CandleHistoryRequestOptions,
 ): Promise<CandleHistoryResponse> {
   const requestedSymbol = normalizeSymbol(symbol);
   const requestedTimeframe = normalizeTimeframe(timeframe);
-  const params = new URLSearchParams();
-  params.set('timeframe', requestedTimeframe);
-  params.set('limit', String(count));
+  const requestOptions =
+    options instanceof AbortSignal
+      ? { signal: options }
+      : options;
+  const params = buildCandleHistorySearchParams(requestedTimeframe, count, requestOptions);
 
-  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal });
+  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal: requestOptions?.signal });
 
   if (!response.ok) {
     let errorMsg = 'Failed to fetch candle history';
@@ -124,10 +62,7 @@ export async function getCandleHistory(
   const payload = await response.json();
   const extractedPayload = extractCandleHistoryPayload(payload);
   const resolvedTimeframe = normalizeTimeframe(extractedPayload.timeframe ?? requestedTimeframe);
-  const normalizedCandles = normalizeCandleSeries(
-    extractedPayload.candles,
-    resolvedTimeframe,
-  );
+  const normalizedCandles = normalizeCandleSeries(extractedPayload.candles, resolvedTimeframe).slice(-count);
 
   const rawCount = Array.isArray(extractedPayload.candles) ? extractedPayload.candles.length : 0;
   if (rawCount > 0 && normalizedCandles.length === 0) {
