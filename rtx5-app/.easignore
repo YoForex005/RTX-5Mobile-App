@@ -1,0 +1,13 @@
+android/
+ios/
+
+node_modules/
+.expo/
+dist/
+web-build/
+
+*.log
+.DS_Store
+Thumbs.db
+
+qr.png

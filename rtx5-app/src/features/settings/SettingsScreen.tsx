@@ -135,12 +135,22 @@ export function SettingsScreen() {
 
   return (
     <Screen noBottomInset>
-
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {isSearching ? (
-          <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
-            <AppHeader title={t('Settings')} noBorder />
-            <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, width: '100%', gap: 10 }, searchBarStyle]}>
+      <View style={styles.headerWrap}>
+        <AppHeader
+          title={t('Settings')}
+          noBorder
+          paddingBottom={isSearching ? 8 : 12}
+          rightActions={
+            !isSearching ? (
+              <Pressable onPress={enableSearch} hitSlop={12}>
+                <Ionicons name="search" size={22} color={T.textMuted} />
+              </Pressable>
+            ) : null
+          }
+        />
+        {isSearching && (
+          <View style={styles.searchBarWrap}>
+            <View style={[styles.searchBar, searchBarStyle]}>
               <Ionicons name="search" size={20} color={T.textMuted} />
               <TextInput
                 ref={searchInputRef}
@@ -152,23 +162,15 @@ export function SettingsScreen() {
                 autoCapitalize="none"
                 returnKeyType="search"
               />
-              <Pressable onPress={disableSearch}>
-                <Ionicons name="close-circle" size={16} color={T.textMuted} />
+              <Pressable onPress={disableSearch} hitSlop={10}>
+                <Ionicons name="close-circle" size={18} color={T.textMuted} />
               </Pressable>
             </View>
           </View>
-        ) : (
-          <AppHeader
-            title="Settings"
-            noBorder
-            rightActions={
-              <Pressable onPress={enableSearch} hitSlop={12}>
-                <Ionicons name="search" size={22} color={T.textMuted} />
-              </Pressable>
-            }
-          />
         )}
+      </View>
 
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }}>
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
@@ -206,13 +208,13 @@ export function SettingsScreen() {
                 <View style={[styles.cardBubbleRight, { backgroundColor: themeMode === 'light' ? '#818CF8' : '#060B18' }]} />
 
                 <View style={styles.accTopRow}>
-                  <View style={[styles.connectedPill, { alignSelf: 'flex-start' }]}>
-                    <View style={styles.greenDot} />
-                    <Text style={styles.connectedText}>Connected</Text>
-                  </View>
                   <Text style={[styles.accEmail, themeMode === 'light' && { color: 'rgba(255,255,255,0.9)' }]} ellipsizeMode="tail" numberOfLines={1}>
                     {displayEmail}
                   </Text>
+                  <View style={styles.connectedPill}>
+                    <View style={styles.greenDot} />
+                    <Text style={styles.connectedText}>Connected</Text>
+                  </View>
                 </View>
 
                 <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>{displayAccountName}</Text>
@@ -471,6 +473,25 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
   container: { flex: 1, backgroundColor: T.bg },
   content: { paddingBottom: 20 },
 
+  headerWrap: {
+    backgroundColor: T.bg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: themeMode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    zIndex: 10,
+  },
+  searchBarWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 44,
+    width: '100%',
+    gap: 10,
+  },
+
   cardShadow: {
     shadowColor: themeMode === 'light' ? '#0F172A' : '#2563EB',
     shadowOffset: { width: 0, height: themeMode === 'light' ? 8 : 6 },
@@ -523,10 +544,31 @@ const makeStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.c
   ribbonLive: { backgroundColor: '#3B82F6' },
   ribbonText: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.8 },
 
-  accTopRow: { flexDirection: 'column', alignItems: 'flex-start', marginBottom: 20, gap: 6 },
-  accEmail: { color: themeMode === 'light' ? 'rgba(255,255,255,0.9)' : T.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
+  accTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 12,
+    paddingRight: 56, // clears the diagonal Real/Demo ribbon
+  },
+  accEmail: {
+    flexShrink: 1,
+    color: themeMode === 'light' ? 'rgba(255,255,255,0.9)' : T.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
 
-  connectedPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  connectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    flexShrink: 0,
+  },
   greenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981', marginRight: 6 },
   connectedText: { color: '#10B981', fontSize: 12, fontWeight: '700' },
 
