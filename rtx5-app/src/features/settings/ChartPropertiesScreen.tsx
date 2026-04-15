@@ -572,6 +572,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 999,
       paddingHorizontal: 10,
       paddingVertical: 6,
+      marginRight: 16,
       backgroundColor: isDark ? 'rgba(37,99,235,0.12)' : 'rgba(37,99,235,0.08)',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)',

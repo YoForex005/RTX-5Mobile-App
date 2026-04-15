@@ -71,7 +71,8 @@
           "username": "yoforex"
         }
       ],
-      "./withNetworkSecurityConfig.js"
+      "./withNetworkSecurityConfig.js",
+      "expo-build-properties"
     ],
     "extra": {
       "router": {
@@ -84,4 +85,3 @@
     "owner": "yoforex"
   }
 }
-

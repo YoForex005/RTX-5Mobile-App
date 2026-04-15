@@ -154,6 +154,8 @@ const CH_HTML = `
 
           var showLastPriceLine = !!(window._displaySettings && window._displaySettings.showLastPriceLine);
           var showVolumes = !!(window._displaySettings && (window._displaySettings.showTickVolumes || window._displaySettings.showRealVolumes));
+          var hasCustomQuoteLine = !!(window._displaySettings && (window._displaySettings.showBidPriceLine || window._displaySettings.showAskPriceLine));
+          var showLastValueLabel = !hasCustomQuoteLine;
           var cUp = window._customColors.candlesUptrend || '#2962FF';
           var cDown = window._customColors.candlesDowntrend || '#EF5350';
           var hollowBody = window._customColors.hollowBody || 'transparent';
@@ -186,7 +188,7 @@ const CH_HTML = `
               borderVisible: true,
               wickVisible: true,
               color: cUp,
-              lastValueVisible: true,
+              lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
               priceFormat: priceFormatInfo,
             });
@@ -194,7 +196,7 @@ const CH_HTML = `
             series = chart.addSeries(LightweightCharts.BarSeries, {
               upColor: bUp,
               downColor: bDown,
-              lastValueVisible: true,
+              lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
               priceFormat: priceFormatInfo,
             });
@@ -203,7 +205,7 @@ const CH_HTML = `
               color: lineColor,
               lineWidth: 2,
               crosshairMarkerVisible: true,
-              lastValueVisible: true,
+              lastValueVisible: showLastValueLabel,
               priceLineVisible: showLastPriceLine,
               priceFormat: priceFormatInfo,
             });
@@ -270,6 +272,9 @@ const CH_HTML = `
               priceLinesArr.push(priceLine);
             } catch (_error) {}
           });
+          try {
+            series.applyOptions({ lastValueVisible: (lines || []).length === 0 });
+          } catch (_error) {}
         } catch (_error) {}
       }
 
