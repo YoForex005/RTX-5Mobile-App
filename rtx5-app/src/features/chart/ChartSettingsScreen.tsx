@@ -14,55 +14,38 @@ import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../theme/glass';
 import { useTheme } from '../../theme/useTheme';
+import { type ChartShowOnChartKey } from './chartShowOnChart';
 
-// Each toggle row owns its own Zustand subscription so toggling one switch
-// re-renders ONLY that single row — not the parent screen and not the other 6
-// rows. This is what makes the switch animation feel native and responsive.
-type PrefKey =
-  | 'showOpenPositions'
-  | 'showTpSlStopLimit'
-  | 'showClosedPositions'
-  | 'showTradingSignals'
-  | 'showHmrPeriods'
-  | 'showPriceAlerts'
-  | 'showPotentialStopOut';
-type SetterKey =
-  | 'setShowOpenPositions'
-  | 'setShowTpSlStopLimit'
-  | 'setShowClosedPositions'
-  | 'setShowTradingSignals'
-  | 'setShowHmrPeriods'
-  | 'setShowPriceAlerts'
-  | 'setShowPotentialStopOut';
+type PrefKey = ChartShowOnChartKey;
 
-const TOGGLE_ROWS: Array<{ label: string; key: PrefKey; setterKey: SetterKey }> = [
-  { label: 'Open positions',           key: 'showOpenPositions',    setterKey: 'setShowOpenPositions' },
-  { label: 'TP / SL / Stop / Limit',   key: 'showTpSlStopLimit',    setterKey: 'setShowTpSlStopLimit' },
-  { label: 'Closed positions',         key: 'showClosedPositions',  setterKey: 'setShowClosedPositions' },
-  { label: 'Trading signals',          key: 'showTradingSignals',   setterKey: 'setShowTradingSignals' },
-  { label: 'HMR periods',              key: 'showHmrPeriods',       setterKey: 'setShowHmrPeriods' },
-  { label: 'Price alerts',             key: 'showPriceAlerts',      setterKey: 'setShowPriceAlerts' },
-  { label: 'Potential Stop Out line',  key: 'showPotentialStopOut', setterKey: 'setShowPotentialStopOut' },
+const TOGGLE_ROWS: Array<{ label: string; key: PrefKey }> = [
+  { label: 'Open positions', key: 'openPositions' },
+  { label: 'TP / SL / Stop / Limit', key: 'tpSlStopLimit' },
+  { label: 'Closed positions', key: 'closedPositions' },
+  { label: 'Trading signals', key: 'tradingSignals' },
+  { label: 'HMR periods', key: 'hmrPeriods' },
+  { label: 'Price alerts', key: 'priceAlerts' },
+  { label: 'Potential Stop Out line', key: 'potentialStopOut' },
 ];
 
 const ToggleRow = React.memo(function ToggleRow({
   label,
   prefKey,
-  setterKey,
   isDark,
   buyColor,
   styles,
 }: {
   label: string;
   prefKey: PrefKey;
-  setterKey: SetterKey;
   isDark: boolean;
   buyColor: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const value = useUserPreferences((s) => s[prefKey] as boolean);
-  const setter = useUserPreferences((s) => s[setterKey] as (v: boolean) => void);
-  const onToggle = useCallback(() => setter(!value), [setter, value]);
+  const value = useUserPreferences((state) => state.chartShowOnChart[prefKey]);
+  const setChartShowOnChartItem = useUserPreferences((state) => state.setChartShowOnChartItem);
+  const onToggle = useCallback(() => {
+    setChartShowOnChartItem(prefKey, !value);
+  }, [prefKey, setChartShowOnChartItem, value]);
 
   return (
     <Pressable
@@ -70,19 +53,11 @@ const ToggleRow = React.memo(function ToggleRow({
       onPress={onToggle}
     >
       <Text style={styles.rowLabel}>{label}</Text>
-      {/*
-        The Switch is intentionally NON-interactive (pointerEvents="none"
-        and no onValueChange) so it cannot fire its own toggle. Tapping
-        anywhere on the row — including directly on the switch — bubbles
-        up to the parent Pressable, which is the single source of truth
-        for the toggle. This prevents the double-fire that previously
-        required two taps to enable.
-      */}
       <View pointerEvents="none">
         <Switch
           value={value}
           trackColor={{ false: isDark ? '#3F4B5C' : '#D1D5DB', true: buyColor }}
-          thumbColor={'#FFFFFF'}
+          thumbColor="#FFFFFF"
           ios_backgroundColor={isDark ? '#3F4B5C' : '#D1D5DB'}
         />
       </View>
@@ -114,7 +89,6 @@ export function ChartSettingsScreen() {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── SHOW ON CHART ──────────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <Ionicons name="eye-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
@@ -125,7 +99,6 @@ export function ChartSettingsScreen() {
               <ToggleRow
                 label={row.label}
                 prefKey={row.key}
-                setterKey={row.setterKey}
                 isDark={isDark}
                 buyColor={T.trading.buy.primary}
                 styles={styles}
@@ -135,7 +108,6 @@ export function ChartSettingsScreen() {
           ))}
         </View>
 
-        {/* ── ALERTS ─────────────────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>ALERTS</Text>
@@ -149,7 +121,6 @@ export function ChartSettingsScreen() {
           />
         </View>
 
-        {/* ── NAVIGATION ─────────────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>NAVIGATION</Text>
@@ -163,7 +134,6 @@ export function ChartSettingsScreen() {
           />
         </View>
 
-        {/* ── CHART CONFIGURATION ─────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <Ionicons name="build-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>CHART CONFIGURATION</Text>
@@ -196,13 +166,10 @@ export function ChartSettingsScreen() {
             Chart preferences are applied to all trading accounts and instruments
           </Text>
         </View>
-
       </ScrollView>
     </Screen>
   );
 }
-
-/* ── Navigation Row Sub-Component ──────────────────────────────── */
 
 function NavRow({
   label,
@@ -226,8 +193,6 @@ function NavRow({
   );
 }
 
-/* ── Styles ────────────────────────────────────────────────────── */
-
 function makeStyles(_T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
@@ -239,8 +204,6 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     content: {
       paddingBottom: 40,
     },
-
-    /* Inline header */
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
@@ -270,8 +233,6 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       letterSpacing: 0.3,
     },
-
-    /* Section header (icon + title) */
     sectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -287,8 +248,6 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       letterSpacing: 1.1,
       textTransform: 'uppercase',
     },
-
-    /* Floating rounded card */
     card: {
       marginHorizontal: 14,
       backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
@@ -302,15 +261,11 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       shadowRadius: 6,
       elevation: 2,
     },
-
-    /* Separator line (indented past the icon) */
     separator: {
       height: StyleSheet.hairlineWidth,
       backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
       marginLeft: 56,
     },
-
-    /* ── Unified row (toggles + nav) ──────────────────────── */
     row: {
       minHeight: 56,
       paddingHorizontal: 14,
@@ -321,21 +276,12 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     rowPressed: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
     },
-    iconCircle: {
-      width: 30,
-      height: 30,
-      borderRadius: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
     rowLabel: {
       flex: 1,
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 15,
       fontWeight: '500',
     },
-
-    /* ── Right-side details on nav rows ───────────────────── */
     navRight: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -347,8 +293,6 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
       fontWeight: '500',
       fontVariant: ['tabular-nums'],
     },
-
-    /* Footer note */
     noteRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',

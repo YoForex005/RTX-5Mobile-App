@@ -55,6 +55,10 @@ class AccountWebSocketService {
       this.activeSession &&
       (desiredSession.login !== this.activeSession.login || desiredSession.token !== this.activeSession.token)
     ) {
+      // Account changed: clear stale metrics/positions immediately so the UI
+      // does not keep rendering the old account while the new socket boots.
+      useLiveAccountState.getState().resetMetrics();
+      usePositionsState.getState().clearPositions();
       this.teardownSocket(false);
     }
 
@@ -66,6 +70,7 @@ class AccountWebSocketService {
     this.reconnectAttempts = 0;
     this.activeSession = null;
     this.clearReconnectTimer();
+    usePositionsState.getState().clearPositions();
     this.teardownSocket(true);
   }
 
@@ -165,17 +170,15 @@ class AccountWebSocketService {
   }
 
   private handlePositionsPayload(data: any): void {
+    const accountLogin = this.activeSession ? String(this.activeSession.login) : undefined;
+
     if (Array.isArray(data)) {
-      for (const position of data) {
-        usePositionsState.getState().upsertPosition(position);
-      }
+      usePositionsState.getState().applyPositionsSnapshot(data, accountLogin);
       return;
     }
 
     if (Array.isArray(data?.positions)) {
-      for (const position of data.positions) {
-        usePositionsState.getState().upsertPosition(position);
-      }
+      usePositionsState.getState().applyPositionsSnapshot(data.positions, accountLogin);
       return;
     }
 

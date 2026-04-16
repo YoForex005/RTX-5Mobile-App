@@ -78,6 +78,7 @@ function InnerLayout() {
           <Stack.Screen name='trade/modify-position' options={{ title: 'Modify Position' }} />
           <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
           <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
+          <Stack.Screen name='contest-login' options={{ title: 'Contest Login', headerLeft: () => null }} />
           <Stack.Screen name='chart/objects' options={{ headerShown: false }} />
           <Stack.Screen name='chart/settings' options={{ headerShown: false }} />
           <Stack.Screen name='chart/preferences' options={{ headerShown: false }} />
@@ -106,10 +107,16 @@ function InnerLayout() {
 import { accountWsService } from '../src/api/ws/accountSocket';
 import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
+import { usePositionsState } from '../src/state/positionsState';
+import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navigationPrefetch';
+import { isDemoTradingAccount } from '../src/domain/accountType';
 
 export default function RootLayout() {
+  const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const chartSymbol = useUserPreferences((s) => s.chartSymbol);
+  const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
 
   useEffect(() => {
     if (Platform.OS === 'web') return; // expo-web automatically mounts vector-icons via DOM style blocks
@@ -119,6 +126,11 @@ export default function RootLayout() {
       console.warn('Ionicons font failed to load on native');
     });
   }, []);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    prefetchChartCandles(chartSymbol, chartTimeframe);
+  }, [hasHydrated, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -138,7 +150,7 @@ export default function RootLayout() {
               // Silently update the persisted Zustand session so it doesn't happen again
               useUserPreferences.getState().login(
                 String(mt5LoginNumber),
-                accountDetails.name,
+                accounts[0].name || accountDetails.name,
                 accountDetails.server,
                 {
                   access_token: accountDetails.credentials?.accessToken || '',
@@ -154,11 +166,17 @@ export default function RootLayout() {
 
         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
+          void usePositionsState.getState().refreshPositions(String(mt5LoginNumber));
+          prefetchAccountSummary(String(mt5LoginNumber));
           accountWsService.connect();
         }
 
         try {
           const acct = await getAccountById(mt5LoginNumber);
+          useUserPreferences.getState().updateAccountDetails({
+            id: String(acct.login),
+            name: acct.name || `Account ${acct.login}`,
+          });
           useLiveAccountState.getState().updateMetrics({
             login: acct.login,
             balance: acct.balance,
@@ -170,7 +188,7 @@ export default function RootLayout() {
           });
 
           // Automatically determine if it's a demo or real account based on the backend group name
-          const isDemo = acct.group.toLowerCase().includes('demo');
+          const isDemo = isDemoTradingAccount(acct.group);
           useUserPreferences.getState().setIsDemoAccount(isDemo);
         } catch (e) {
           console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);

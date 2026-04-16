@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useLiveCandles } from '../../../hooks/useLiveCandles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
@@ -265,7 +265,7 @@ const CH_HTML = `
                 price: line.price,
                 color: line.color,
                 lineWidth: line.lineWidth || 1,
-                lineStyle: line.lineStyle || LightweightCharts.LineStyle.Dotted,
+                lineStyle: line.lineStyle !== undefined ? line.lineStyle : LightweightCharts.LineStyle.Solid,
                 axisLabelVisible: line.axisLabelVisible !== false,
                 title: line.title || '',
               });
@@ -284,13 +284,12 @@ const CH_HTML = `
 </html>
 `;
 
-type OhlcData = { o: number; h: number; l: number; c: number } | null;
-
 export default function LiveChartPreviewNative({
   symbol,
   timeframe,
   colors,
   display,
+  priceSource,
   isDark,
   chartType = 'candles',
 }: {
@@ -298,6 +297,7 @@ export default function LiveChartPreviewNative({
   timeframe: string;
   colors: ChartColorsConfig;
   display: ChartDisplaySettings;
+  priceSource: 'bid' | 'ask';
   isDark: boolean;
   chartType?: PreviewChartType;
 }) {
@@ -306,7 +306,6 @@ export default function LiveChartPreviewNative({
   const { candles } = useLiveCandles(symbol, timeframe);
   const liveQuotes = useMarketData([symbol]);
   const liveQuote = liveQuotes[symbol];
-  const [ohlcData, setOhlcData] = useState<OhlcData>(null);
 
   const chartSignatureRef = useRef('');
   const lastCandleLengthRef = useRef(0);
@@ -343,7 +342,7 @@ export default function LiveChartPreviewNative({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 16,
+      rightOffset: 12,
       barSpacing: 13,
       minBarSpacing: 3,
     },
@@ -376,14 +375,10 @@ export default function LiveChartPreviewNative({
 
   useEffect(() => {
     previewCandlesRef.current = previewCandles;
-    if (previewCandles.length > 0) {
-      const last = previewCandles[previewCandles.length - 1];
-      setOhlcData({ o: last.open, h: last.high, l: last.low, c: last.close });
-    }
   }, [previewCandles]);
 
   useEffect(() => {
-    if (!webViewReady || !webViewRef.current || previewCandles.length === 0) return;
+    if (!webViewReady || !webViewRef.current) return;
 
     const lastSignature = getLastPreviewCandleSignature(previewCandles);
     const shouldInit = chartSignatureRef.current !== chartSignature;
@@ -423,36 +418,24 @@ export default function LiveChartPreviewNative({
   useEffect(() => {
     if (!webViewReady || !webViewRef.current) return;
     const lines: Array<{ price: number; color: string; lineWidth: number; lineStyle: number; axisLabelVisible: boolean; title: string }> = [];
+    const shouldShowSelectedPriceLine = display.showBidPriceLine || display.showAskPriceLine;
+    const selectedPrice = priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask;
 
-    const isUpCandle = ohlcData ? ohlcData.c >= ohlcData.o : true;
-    const directionColor = isUpCandle ? colors.candlesUptrend : colors.candlesDowntrend;
-
-    if (display.showBidPriceLine && liveQuote?.bid) {
+    if (shouldShowSelectedPriceLine && typeof selectedPrice === 'number' && selectedPrice > 0) {
       lines.push({
-        price: liveQuote.bid,
-        color: directionColor,
+        price: selectedPrice,
+        color: priceSource === 'bid' ? '#2962FF' : '#EF5350',
         lineWidth: 1,
         lineStyle: 0,
         axisLabelVisible: true,
-        title: 'Bid',
-      });
-    }
-
-    if (display.showAskPriceLine && liveQuote?.ask) {
-      lines.push({
-        price: liveQuote.ask,
-        color: directionColor,
-        lineWidth: 1,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: 'Ask',
+        title: priceSource === 'bid' ? 'Bid' : 'Ask',
       });
     }
 
     webViewRef.current.injectJavaScript(
       `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`,
     );
-  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady, ohlcData, colors.candlesUptrend, colors.candlesDowntrend]);
+  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady, priceSource]);
 
   useEffect(() => {
     const resyncPreview = () => {
@@ -466,9 +449,6 @@ export default function LiveChartPreviewNative({
     };
     resyncPreview();
   }, [candles, symbol, timeframe, webViewReady, chartType, colors]);
-
-  const formatPrice = (value: number) => value.toFixed(displayDecimals);
-  const isUp = ohlcData ? ohlcData.c >= ohlcData.o : true;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -491,51 +471,6 @@ export default function LiveChartPreviewNative({
         cacheEnabled={false}
         androidLayerType="hardware"
       />
-
-      {display.showTicker && (
-        <Text style={{ position: 'absolute', top: 6, left: 8, fontSize: 10, fontWeight: '700', opacity: 0.85, color: colors.foreground, pointerEvents: 'none' }}>
-          {symbol.replace(/\//g, '')},{timeframe}
-        </Text>
-      )}
-
-      {display.showOHLC && ohlcData && (
-        <View style={[ohlcStyles.ohlcRow, { top: display.showTicker ? 20 : 6, left: 8 }]} pointerEvents="none">
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>O </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.o)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>H </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.h)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>L </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.l)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>C </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.c)}</Text>
-        </View>
-      )}
-
-      {(display.showTickVolumes || display.showRealVolumes) && (
-        <View style={{ position: 'absolute', bottom: 22, left: 8 }} pointerEvents="none">
-          <Text style={{ fontSize: 9, fontWeight: '600', color: isDark ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.6)' }}>
-            {display.showTickVolumes ? 'Tick Vol' : 'Real Vol'}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
-
-const ohlcStyles = StyleSheet.create({
-  ohlcRow: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  ohlcLabel: {
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  ohlcValue: {
-    fontSize: 9,
-    fontWeight: '700',
-    marginRight: 3,
-  },
-});

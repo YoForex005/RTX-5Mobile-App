@@ -14,11 +14,12 @@ import { ThemeColors } from '../../theme/glass';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useCandleHistory } from '../../query/candles';
-import { resolveTradingLogin } from '../../state/tradingLogin';
+import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
 import { Alert } from 'react-native';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
+import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const dCol = (c: number, T: ThemeColors) => c > 0 ? T.up : c < 0 ? T.down : T.textMuted;
@@ -202,7 +203,8 @@ function MomentumBar({ q }: { q: any }) {
 export function SymbolDetailsScreen() {
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
-  const { setChartSymbol, oneClickAccepted } = useUserPreferences();
+  const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
+  const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
   const [alertOn, setAlertOn] = useState(false);
@@ -369,6 +371,7 @@ export function SymbolDetailsScreen() {
         }
       );
     } else {
+      prefetchOrderTicketData(resolveTradingLoginString(), symbol);
       router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
     }
   };
@@ -547,7 +550,7 @@ export function SymbolDetailsScreen() {
 
         {/* ── Action Buttons ───── */}
         <View style={s.act.row}>
-          <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={() => router.push({ pathname: '/trade/order-ticket', params: { symbol } })}>
+          <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={() => { prefetchOrderTicketData(resolveTradingLoginString(), symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol } }); }}>
             <LinearGradient colors={['#2563EB', '#1D4ED8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
             <Ionicons name="flash" size={15} color="#fff" />
             <Text style={s.act.buyTxt}>Trade Now</Text>

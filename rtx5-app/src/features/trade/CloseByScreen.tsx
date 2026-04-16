@@ -7,8 +7,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -31,11 +31,14 @@ export function CloseByScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
-  const { accountDetails } = useUserPreferences();
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const positions = usePositionsState((s) => s.positions);
+  const primedPosition = usePositionsState((s) =>
+    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  );
   const resolvedLogin = resolveTradingLoginString();
   const quotes = useTradingState((s) => s.quotes);
 
@@ -47,8 +50,8 @@ export function CloseByScreen() {
   };
 
   const sourcePosition = useMemo(
-    () => findPositionById(positions, positionId),
-    [positions, positionId]
+    () => findPositionById(positions, positionId) ?? primedPosition,
+    [positions, positionId, primedPosition]
   );
   const candidates = useMemo(
     () => positionPairCandidates(positions, sourcePosition),
@@ -56,6 +59,12 @@ export function CloseByScreen() {
   );
 
   const [selectedPairId, setSelectedPairId] = useState<string>('');
+
+  useEffect(() => {
+    if (!sourcePosition && resolvedLogin) {
+      void usePositionsState.getState().refreshPositions(resolvedLogin);
+    }
+  }, [resolvedLogin, sourcePosition]);
 
   // Auto-select the first candidate if none is selected
   const activePairId = selectedPairId || candidates[0]?.id || '';
@@ -133,6 +142,15 @@ export function CloseByScreen() {
         <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
         <View style={styles.headerBtn} />
       </View>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
       <View style={styles.header}>
         <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>
       </View>
@@ -201,7 +219,6 @@ export function CloseByScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.submitButton,
-          { marginTop: 4, paddingBottom: Math.max(insets.bottom, 16) },
           (!activePairId || candidates.length === 0 || isClosing) && styles.submitDisabled,
           pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
         ]}
@@ -214,6 +231,7 @@ export function CloseByScreen() {
           <Text style={styles.submitText}>Send Close By Request</Text>
         )}
       </Pressable>
+      </ScrollView>
     </View>
   );
 }
@@ -229,6 +247,12 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
   headerTitleText: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
   header: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.md,

@@ -24,12 +24,38 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY } from '../src/query/broker';
 
-export default function LoginScreen() {
+type LoginVariant = 'broker' | 'contest';
+
+const LOGIN_SCREEN_COPY: Record<
+  LoginVariant,
+  {
+    headerTitle: string;
+    sectionTitle: string;
+    savedLoginKey: string;
+    showRegisterPrompt: boolean;
+  }
+> = {
+  broker: {
+    headerTitle: 'Broker Login',
+    sectionTitle: 'Login to an existing account',
+    savedLoginKey: 'rtx5_saved_login',
+    showRegisterPrompt: true,
+  },
+  contest: {
+    headerTitle: 'Contest Account Login',
+    sectionTitle: 'Login to an existing contest account',
+    savedLoginKey: 'rtx5_saved_contest_login',
+    showRegisterPrompt: false,
+  },
+};
+
+export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVariant }) {
   const login = useUserPreferences((s) => s.login);
   // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
   // can fetch GET /broker/config with the correct broker context app-wide
   const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
   const queryClient = useQueryClient();
+  const screenCopy = LOGIN_SCREEN_COPY[variant];
 
   const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
@@ -38,7 +64,7 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [brokerId, setBrokerId] = useState('');
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
-  const { themeMode } = useUserPreferences();
+  const themeMode = useUserPreferences((s) => s.themeMode);
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
@@ -46,7 +72,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     // Auto-populate saved credentials if they exist
-    getSecureItemAsync('rtx5_saved_login').then((val) => {
+    getSecureItemAsync(screenCopy.savedLoginKey).then((val) => {
       if (val) {
         try {
           const { broker, login: savedAccountId, pass } = JSON.parse(val);
@@ -59,7 +85,7 @@ export default function LoginScreen() {
         }
       }
     });
-  }, []);
+  }, [screenCopy.savedLoginKey]);
 
   const handleModalClose = () => {
     if (modalState.type === 'success') {
@@ -108,8 +134,16 @@ export default function LoginScreen() {
         response.accountLogin ??
         response.user?.account_login ??
         response.user?.id;
-      const username =
-        response.username ?? response.user?.username ?? response.user?.name ?? 'Trader';
+      const accountName =
+        response.account_name ??
+        response.accountName ??
+        response.name ??
+        response.user?.account_name ??
+        response.user?.accountName ??
+        response.user?.name ??
+        response.username ??
+        response.user?.username ??
+        'Trader';
       const serverName =
         response.server ?? response.broker_server ?? response.brokerServer;
 
@@ -153,7 +187,7 @@ export default function LoginScreen() {
       // conditions with the async Zustand persist middleware.
       login(
         String(accountLogin),
-        username,
+        accountName,
         serverName || brokerConfig?.server_name || canonicalBrokerId,
         {
           access_token: accessToken,
@@ -172,11 +206,11 @@ export default function LoginScreen() {
       // ── Handle Save Password Option ──────────────────────────────────────
       if (savePassword) {
         setSecureItemAsync(
-          'rtx5_saved_login',
+          screenCopy.savedLoginKey,
           JSON.stringify({ broker: brokerId.trim(), login: accountId.trim(), pass: password })
         );
       } else {
-        removeSecureItemAsync('rtx5_saved_login');
+        removeSecureItemAsync(screenCopy.savedLoginKey);
       }
 
       setModalState({ visible: true, type: 'success', title: 'Success', message: 'Login successful' });
@@ -229,7 +263,7 @@ export default function LoginScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Broker Login</Text>
+          <Text style={styles.headerTitle}>{screenCopy.headerTitle}</Text>
         </View>
 
         <KeyboardAvoidingView
@@ -240,7 +274,7 @@ export default function LoginScreen() {
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>Login to an existing account</Text>
+              <Text style={styles.sectionTitle}>{screenCopy.sectionTitle}</Text>
             </View>
 
             {/* ── Form Body ── */}
@@ -342,12 +376,14 @@ export default function LoginScreen() {
                 )}
               </Pressable>
 
-              <View style={styles.registerPromptContainer}>
-                <Text style={styles.registerPromptText}>Don't have an account? </Text>
-                <Pressable onPress={() => router.push('/register')} disabled={isLoading} hitSlop={10}>
-                  <Text style={styles.registerLinkText}>Register</Text>
-                </Pressable>
-              </View>
+              {screenCopy.showRegisterPrompt ? (
+                <View style={styles.registerPromptContainer}>
+                  <Text style={styles.registerPromptText}>Don't have an account? </Text>
+                  <Pressable onPress={() => router.push('/register')} disabled={isLoading} hitSlop={10}>
+                    <Text style={styles.registerLinkText}>Register</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
           </ScrollView>
@@ -372,6 +408,10 @@ export default function LoginScreen() {
 }
 
 // ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
+export default function LoginScreen() {
+  return <AccountLoginScreen variant="broker" />;
+}
+
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
   return StyleSheet.create({
     bg: {

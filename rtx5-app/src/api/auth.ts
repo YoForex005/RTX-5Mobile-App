@@ -55,6 +55,9 @@ export interface AuthResponse {
   expires_in: number;   // seconds (e.g. 86400 = 24h)
   account_login: number; // account login number returned by V2
   username: string;
+  name?: string;
+  account_name?: string;
+  accountName?: string;
   server?: string;      // Note: backend may not always return server directly in V2
   broker_id?: string;
   expires_at?: number;

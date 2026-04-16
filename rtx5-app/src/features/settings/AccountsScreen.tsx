@@ -31,6 +31,11 @@ import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import {
+  getTradingAccountBadgeLabel,
+  getTradingAccountRibbonLabel,
+  isDemoTradingAccount,
+} from '../../domain/accountType';
 
 export function AccountsScreen() {
   const router = useRouter();
@@ -55,6 +60,9 @@ export function AccountsScreen() {
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+  const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
+  const activeRibbonLabel = activeIsDemo ? 'Demo' : 'Real';
+  const activeBadgeLabel = activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live');
 
   // Filter out the active account to render the other connected accounts
   const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
@@ -66,8 +74,8 @@ export function AccountsScreen() {
   const liveFloating = useLiveAccountState((s) => s.floating);
 
   // Extract the essential display values — prefer live WS data, fall back to REST API
-  const displayName = activeAccount?.name ?? accountDetails?.name ?? '---';
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
+  const displayName = activeAccount?.name?.trim() || (displayLogin !== '---' ? `Account ${displayLogin}` : '---');
   const displayCurrency = activeAccount?.currency ?? 'USD';
   const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
   const displayEquity = liveEquity > 0 ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
@@ -86,7 +94,14 @@ export function AccountsScreen() {
   const { data: mt5Status } = useMt5Status();
 
   const handleConnectAccount = () => {
-    router.push('/login');
+    showActionSheet({
+      title: 'Connect account',
+      actions: [
+        { label: 'Login Real Account', onPress: () => router.push('/login') },
+        { label: 'Login Contest Account', onPress: () => router.push('/contest-login') },
+        { label: 'Open Demo Account', onPress: () => router.push('/register') },
+      ],
+    });
   };
 
   const [expandedLogin, setExpandedLogin] = React.useState<number | null>(null);
@@ -143,11 +158,11 @@ export function AccountsScreen() {
           {/* ── Active Account Card ── */}
           <View style={styles.activeCard}>
             {/* Corner ribbons */}
-            {!isDemoAccount && (
-              <View style={styles.ribbonRightContest}><Text style={styles.ribbonRightText}>Contest</Text></View>
+            {!activeIsDemo && (
+              <View style={styles.ribbonRightContest}><Text style={styles.ribbonRightText}>{activeRibbonLabel}</Text></View>
             )}
-            {isDemoAccount && (
-              <View style={styles.ribbonRightDemo}><Text style={styles.ribbonRightText}>Demo</Text></View>
+            {activeIsDemo && (
+              <View style={styles.ribbonRightDemo}><Text style={styles.ribbonRightText}>{activeRibbonLabel}</Text></View>
             )}
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
@@ -158,8 +173,8 @@ export function AccountsScreen() {
                 <View style={styles.nameAndBadges}>
                   <Text style={styles.activeName} numberOfLines={1}>{displayName}</Text>
                   <View style={styles.badgesRow}>
-                    <View style={isDemoAccount ? styles.demoBadgeActive : styles.liveBadge}>
-                      <Text style={isDemoAccount ? styles.demoBadgeActiveText : styles.liveBadgeText}>{isDemoAccount ? 'Demo' : 'Live'}</Text>
+                    <View style={activeIsDemo ? styles.demoBadgeActive : styles.liveBadge}>
+                      <Text style={activeIsDemo ? styles.demoBadgeActiveText : styles.liveBadgeText}>{activeBadgeLabel}</Text>
                     </View>
                     <View style={styles.connectedBadge}>
                       <View style={styles.connectedDot} />
@@ -245,7 +260,8 @@ export function AccountsScreen() {
           )}
 
           {otherAccounts.map((account) => {
-            const isDemo = account.group?.toLowerCase().includes('demo') ?? false;
+            const isDemo = isDemoTradingAccount(account.group);
+            const ribbonLabel = getTradingAccountRibbonLabel(account.group);
             const isExpanded = expandedLogin === account.login;
 
             return (
@@ -256,7 +272,7 @@ export function AccountsScreen() {
               >
                 {/* Diagonal ribbon */}
                 <View style={isDemo ? styles.ribbonRightDemo : styles.ribbonRightContest}>
-                  <Text style={styles.ribbonRightText}>{isDemo ? 'Demo' : 'Contest'}</Text>
+                  <Text style={styles.ribbonRightText}>{ribbonLabel}</Text>
                 </View>
                 <View style={styles.secondaryTopRow}>
                   <View style={styles.secondaryLeft}>

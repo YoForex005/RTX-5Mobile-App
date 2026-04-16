@@ -28,6 +28,26 @@ export function resolveTradingLogin(): number | undefined {
 }
 
 /**
+ * Reactive hook variant of resolveTradingLogin().
+ * Use inside components that need to update immediately when the active
+ * account login changes, such as query hooks keyed by account login.
+ */
+export function useResolvedTradingLogin(): number | undefined {
+  const liveLogin = useLiveAccountState((state) => state.login);
+  const persistedLogin = useUserPreferences((state) => Number(state.accountDetails?.id));
+
+  if (Number.isFinite(liveLogin) && liveLogin > 0) {
+    return liveLogin;
+  }
+
+  if (Number.isFinite(persistedLogin) && persistedLogin > 0) {
+    return persistedLogin;
+  }
+
+  return undefined;
+}
+
+/**
  * String-based wrapper for resolveTradingLogin, heavily used in TanStack Query keys 
  * and API requests where string interpolation is required.
  * 

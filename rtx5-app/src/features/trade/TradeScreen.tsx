@@ -33,6 +33,8 @@ import { fmt } from '../../utils/format';
 import { useUIState } from '../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../api/tradingErrors';
 import { buildTradeAccountSummary } from './accountSummary';
+import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
+import { useShallow } from 'zustand/shallow';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
 const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
@@ -200,12 +202,21 @@ export function TradeScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const { oneClickAccepted, setChartSymbol } = useUserPreferences();
+  const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const setSidebarOpen = useUIState((st) => st.setSidebarOpen);
   const showActionSheet = useUIState((st) => st.showActionSheet);
 
   // ── Pull-to-refresh & Live Fetch ────────────────────────────────────────
-  const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState();
+  const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState(
+    useShallow((state) => ({
+      positions: state.positions,
+      refreshPositions: state.refreshPositions,
+      isLoading: state.isLoading,
+      lastFetchLogin: state.lastFetchLogin,
+      lastError: state.lastError,
+    })),
+  );
+  const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const resolvedLogin = resolveTradingLogin();
 
@@ -238,11 +249,20 @@ export function TradeScreen() {
   }, [resolvedLogin, fetchPositions]);
 
   const tradingAccount = useTradingState((state: any) => state.account);
-  const liveAcc = useLiveAccountState();
+  const liveAcc = useLiveAccountState(
+    useShallow((state) => ({
+      balance: state.balance,
+      floating: state.floating,
+      equity: state.equity,
+      margin: state.margin,
+      margin_free: state.margin_free,
+      margin_level: state.margin_level,
+    })),
+  );
   const account = buildTradeAccountSummary(liveAcc, tradingAccount);
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
 
-  const showBulkSheet = () => {
+  const showBulkSheet = useCallback(() => {
     showActionSheet({
       title: 'Bulk Operations',
       actions: [
@@ -253,21 +273,30 @@ export function TradeScreen() {
         { label: 'Close BTCUSD Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSD' } }) },
       ],
     });
-  };
+  }, [showActionSheet]);
 
-  const showPositionSheet = (item: PositionItem) => {
+  const showPositionSheet = useCallback((item: PositionItem) => {
     showActionSheet({
       title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
       actions: [
-        { label: 'Close position', danger: true, onPress: () => router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }) },
-        { label: 'Close By', danger: true, onPress: () => router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }) },
-        { label: 'Modify position', onPress: () => router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }) },
-        { label: 'Trade', onPress: () => router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }) },
+        { label: 'Close position', danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
+        { label: 'Close By', danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
+        { label: 'Modify position', onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
+        { label: 'Trade', onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
         { label: 'Chart', onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
         { label: 'Bulk Operations...', onPress: () => showBulkSheet() },
       ],
     });
-  };
+  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showActionSheet, showBulkSheet]);
+
+  const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (
+    <TradePositionRow
+      item={item}
+      onPress={showPositionSheet}
+      onLongPress={showPositionSheet}
+      onBulkPress={showBulkSheet}
+    />
+  ), [showBulkSheet, showPositionSheet]);
 
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
@@ -300,14 +329,7 @@ export function TradeScreen() {
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
-        renderItem={({ item }) => (
-          <TradePositionRow
-            item={item}
-            onPress={showPositionSheet}
-            onLongPress={showPositionSheet}
-            onBulkPress={showBulkSheet}
-          />
-        )}
+        renderItem={renderPositionRow}
         ListEmptyComponent={
           <View style={s.emptyState}>
             <Ionicons name="receipt-outline" size={48} color={T.textDimmed} />

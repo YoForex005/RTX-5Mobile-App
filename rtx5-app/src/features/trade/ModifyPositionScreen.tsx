@@ -8,7 +8,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, Dimensions, TextInput } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
@@ -38,14 +38,17 @@ function formatModifyPrice(val: number) {
 export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const insets = useSafeAreaInsets();
-  const { accountDetails } = useUserPreferences();
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const positions = usePositionsState((s) => s.positions);
+  const primedPosition = usePositionsState((s) =>
+    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  );
   const position = useMemo(
-    () => findPositionById(positions, positionId),
-    [positions, positionId]
+    () => findPositionById(positions, positionId) ?? primedPosition,
+    [positions, positionId, primedPosition]
   );
 
   const [stopLoss, setStopLoss] = useState<number | null>(null);
@@ -216,6 +219,7 @@ export function ModifyPositionScreen() {
   const slDisplay = stopLoss ? stopLoss.toFixed(decimals) : 'SL';
   const tpDisplay = takeProfit ? takeProfit.toFixed(decimals) : 'TP';
   const isBuy = position.side === 'buy';
+  const chartHeight = Math.max(220, Math.min(Dimensions.get('window').height * 0.32, 340));
 
   const bidFmt = formatModifyPrice(BID);
   const askFmt = formatModifyPrice(ASK);
@@ -316,6 +320,16 @@ export function ModifyPositionScreen() {
           <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
         </View>
       </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 20) },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
 
       {/* Big Prices */}
       <View style={styles.priceHero}>
@@ -462,7 +476,7 @@ export function ModifyPositionScreen() {
 
       {/* SVG Tick Chart Area */}
       <View 
-        style={styles.chartContainer} 
+        style={[styles.chartContainer, { height: chartHeight }]} 
         onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
       >
         {w > 0 && h > 0 && (
@@ -556,6 +570,7 @@ export function ModifyPositionScreen() {
           )}
         </Pressable>
       </View>
+      </ScrollView>
     </View>
   );
 }
@@ -564,6 +579,12 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: T.bg, // Global app canvas background
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     paddingHorizontal: 16,
@@ -833,7 +854,6 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     color: T.textMuted,
   },
   chartContainer: {
-    flex: 1,
     marginVertical: 10,
     overflow: 'hidden',
   },

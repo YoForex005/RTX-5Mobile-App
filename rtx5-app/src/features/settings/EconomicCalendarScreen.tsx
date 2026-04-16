@@ -604,10 +604,7 @@ export function EconomicCalendarScreen() {
                 const isActive = selectedImpacts.has(impact);
                 return (
                   <Pressable key={impact} style={[styles.modalImpactBtn, isActive && { borderColor: config.color + '60', backgroundColor: config.color + '10' }]} onPress={() => toggleImpact(impact)}>
-                    {isActive && <View style={[styles.modalImpactCheck, { backgroundColor: config.color }]}>
-                      <Ionicons name="checkmark" size={10} color="#FFF" />
-                    </View>}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 16, opacity: isActive ? 1 : 0.6 }}>
+                    <View style={[styles.modalImpactIndicator, { opacity: isActive ? 1 : 0.6 }]}>
                       <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: isActive ? config.color + '30' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isActive ? config.color : isDark ? '#334155' : '#CBD5E1' }} />
                       </View>
@@ -811,12 +808,24 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     modalImpactRow: { flexDirection: 'row', gap: 8 },
     modalImpactBtn: {
-      flex: 1, alignItems: 'center', gap: 6, paddingVertical: 14, borderRadius: 14,
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      borderRadius: 14,
       borderWidth: 1.5, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
       backgroundColor: isDark ? '#080B11' : '#F8FAFC',
     },
-    modalImpactCheck: { position: 'absolute', top: 6, right: 6, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-    modalImpactLabel: { color: subtleText, fontSize: 12, fontWeight: '700' },
+    modalImpactIndicator: {
+      width: 16,
+      height: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    modalImpactLabel: { color: subtleText, fontSize: 12, fontWeight: '700', flexShrink: 1 },
 
     modalToggleRow: {
       flexDirection: 'row', alignItems: 'center', gap: 10,

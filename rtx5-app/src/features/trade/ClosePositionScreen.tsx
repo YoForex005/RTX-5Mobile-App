@@ -8,7 +8,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
@@ -28,7 +28,7 @@ import {
 
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
-  const { accountDetails } = useUserPreferences();
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -36,9 +36,13 @@ export function ClosePositionScreen() {
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const positions = usePositionsState((s) => s.positions);
+  const primedPosition = usePositionsState((s) =>
+    positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
+  );
+  const primePositionSnapshot = usePositionsState((s) => s.primePositionSnapshot);
   const position = useMemo(
-    () => findPositionById(positions, positionId),
-    [positions, positionId]
+    () => findPositionById(positions, positionId) ?? primedPosition,
+    [positions, positionId, primedPosition]
   );
   const resolvedLogin = resolveTradingLoginString();
 
@@ -86,7 +90,15 @@ export function ClosePositionScreen() {
         <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
         <View style={styles.headerBtn} />
       </View>
-      <View style={styles.contentWrap}>
+      <ScrollView
+        style={styles.contentWrap}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <Text style={styles.subTitle}>Review and confirm closing order</Text>
         </View>
@@ -125,7 +137,7 @@ export function ClosePositionScreen() {
           </View>
         ) : null}
 
-        <View style={[styles.buttonRow, { marginTop: 4, paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <View style={styles.buttonRow}>
           <Pressable
             style={[styles.actionButton, styles.closeButton, isClosing && { opacity: 0.6 }]}
             disabled={isClosing}
@@ -176,12 +188,15 @@ export function ClosePositionScreen() {
 
           <Pressable
             style={[styles.actionButton, styles.closeByButton]}
-            onPress={() => router.push({ pathname: '/trade/close-by', params: { positionId: position.id } })}
+            onPress={() => {
+              primePositionSnapshot(position);
+              router.push({ pathname: '/trade/close-by', params: { positionId: position.id } });
+            }}
           >
             <Text style={styles.closeByButtonText}>Close By</Text>
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -230,6 +245,9 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
   contentWrap: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     marginTop: 4,

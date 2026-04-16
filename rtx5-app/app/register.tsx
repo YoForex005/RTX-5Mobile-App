@@ -35,7 +35,7 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const { themeMode } = useUserPreferences();
+  const themeMode = useUserPreferences((s) => s.themeMode);
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
@@ -77,7 +77,7 @@ export default function RegisterScreen() {
       // brokerId is persisted atomically inside login()
       login(
         String(response.account_login),
-        response.username || name.trim(),
+        response.name || response.account_name || response.username || name.trim(),
         response.server || brokerConfig?.server_name || canonicalBrokerId,
         {
           access_token: response.access_token,

@@ -41,6 +41,8 @@ Implement settings and account ecosystem screens required for full screenshot pa
 ## Progress Notes
 - Settings hub layout was redesigned with a responsive premium card structure, a live market preview section tied to the active chart/watchlist context, and direct navigation affordances for accounts, mailbox, news, brokers, and chart settings on mobile widths.
 - The settings hub live chart card now renders through the shared chart preview component so chart palette changes from chart properties appear in the settings preview with the same persisted colors and display options as the main chart screen.
+- Accounts now classify `contest` as its own backend account type while presenting it as `Real` in the account ribbon, keep `Demo` only for demo groups, and expose a dedicated contest account login route alongside broker login and demo registration entry points.
+- Account identity display now rehydrates from the actual account record after login, so account headers do not stay stuck on a stale profile/login name while switching between demo and real accounts.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.

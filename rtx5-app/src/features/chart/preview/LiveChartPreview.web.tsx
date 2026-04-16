@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { View } from 'react-native';
 import {
   createChart,
   IChartApi,
@@ -33,13 +33,12 @@ const getSafePreviewDimensions = (width: number, height: number) => ({
   height: Math.max(1, Math.floor(height)),
 });
 
-type OhlcData = { o: number; h: number; l: number; c: number } | null;
-
 export default function LiveChartPreviewWeb({
   symbol,
   timeframe,
   colors,
   display,
+  priceSource,
   isDark,
   chartType = 'candles',
 }: {
@@ -47,6 +46,7 @@ export default function LiveChartPreviewWeb({
   timeframe: string;
   colors: ChartColorsConfig;
   display: ChartDisplaySettings;
+  priceSource: 'bid' | 'ask';
   isDark: boolean;
   chartType?: PreviewChartType;
 }) {
@@ -63,7 +63,6 @@ export default function LiveChartPreviewWeb({
   const { candles } = useLiveCandles(symbol, timeframe);
   const liveQuotes = useMarketData([symbol]);
   const liveQuote = liveQuotes[symbol];
-  const [ohlcData, setOhlcData] = useState<OhlcData>(null);
 
   const displayDecimals = getPreviewDisplayDecimals(symbol);
 
@@ -97,7 +96,7 @@ export default function LiveChartPreviewWeb({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 16,
+      rightOffset: 12,
       barSpacing: 13,
       minBarSpacing: 3,
     },
@@ -118,10 +117,6 @@ export default function LiveChartPreviewWeb({
 
   useEffect(() => {
     previewCandlesRef.current = previewCandles;
-    if (previewCandles.length > 0) {
-      const last = previewCandles[previewCandles.length - 1];
-      setOhlcData({ o: last.open, h: last.high, l: last.low, c: last.close });
-    }
   }, [previewCandles]);
 
   useEffect(() => {
@@ -250,34 +245,23 @@ export default function LiveChartPreviewWeb({
     });
     priceLinesRef.current = [];
 
-    if (display.showBidPriceLine && liveQuote?.bid) {
-      try {
-        const bidLine = seriesRef.current.createPriceLine({
-          price: liveQuote.bid,
-          color: '#2962FF',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: 'Bid',
-        });
-        priceLinesRef.current.push(bidLine);
-      } catch (_error) {}
-    }
+    const shouldShowSelectedPriceLine = display.showBidPriceLine || display.showAskPriceLine;
+    const selectedPrice = priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask;
 
-    if (display.showAskPriceLine && liveQuote?.ask) {
+    if (shouldShowSelectedPriceLine && typeof selectedPrice === 'number' && selectedPrice > 0) {
       try {
-        const askLine = seriesRef.current.createPriceLine({
-          price: liveQuote.ask,
-          color: '#EF5350',
+        const selectedLine = seriesRef.current.createPriceLine({
+          price: selectedPrice,
+          color: priceSource === 'bid' ? '#2962FF' : '#EF5350',
           lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
+          lineStyle: LineStyle.Solid,
           axisLabelVisible: true,
-          title: 'Ask',
+          title: priceSource === 'bid' ? 'Bid' : 'Ask',
         });
-        priceLinesRef.current.push(askLine);
+        priceLinesRef.current.push(selectedLine);
       } catch (_error) {}
     }
-  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask]);
+  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, priceSource]);
 
   useEffect(() => {
     const syncSeriesFromCandles = (sourceCandles: ReturnType<typeof sanitizePreviewCandles>) => {
@@ -304,57 +288,9 @@ export default function LiveChartPreviewWeb({
     syncSeriesFromCandles(previewCandlesRef.current);
   }, [candles, symbol, timeframe, chartType, colors]);
 
-  const formatPrice = (value: number) => value.toFixed(displayDecimals);
-  const isUp = ohlcData ? ohlcData.c >= ohlcData.o : true;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
-
-      {display.showTicker && (
-        <Text style={{ position: 'absolute', top: 6, left: 8, fontSize: 10, fontWeight: '700', opacity: 0.85, color: colors.foreground, pointerEvents: 'none' }}>
-          {symbol.replace(/\//g, '')},{timeframe}
-        </Text>
-      )}
-
-      {display.showOHLC && ohlcData && (
-        <View style={[ohlcStyles.ohlcRow, { top: display.showTicker ? 20 : 6, left: 8 }]} pointerEvents="none">
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>O </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.o)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>H </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.h)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>L </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.l)} </Text>
-          <Text style={[ohlcStyles.ohlcLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>C </Text>
-          <Text style={[ohlcStyles.ohlcValue, { color: isUp ? colors.candlesUptrend : colors.candlesDowntrend }]}>{formatPrice(ohlcData.c)}</Text>
-        </View>
-      )}
-
-      {(display.showTickVolumes || display.showRealVolumes) && (
-        <View style={{ position: 'absolute', bottom: 22, left: 8 }} pointerEvents="none">
-          <Text style={{ fontSize: 9, fontWeight: '600', color: isDark ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.6)' }}>
-            {display.showTickVolumes ? 'Tick Vol' : 'Real Vol'}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
-
-const ohlcStyles = StyleSheet.create({
-  ohlcRow: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  ohlcLabel: {
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  ohlcValue: {
-    fontSize: 9,
-    fontWeight: '700',
-    marginRight: 3,
-  },
-});

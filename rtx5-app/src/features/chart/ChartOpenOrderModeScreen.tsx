@@ -20,7 +20,8 @@ export function ChartOpenOrderModeScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  const { openOrderMode, setOpenOrderMode } = useUserPreferences();
+  const openOrderMode = useUserPreferences((s) => s.openOrderMode);
+  const setOpenOrderMode = useUserPreferences((s) => s.setOpenOrderMode);
 
   const handleSelect = (mode: 'Regular' | 'Risk calculator' | 'One-click') => {
     setOpenOrderMode(mode);

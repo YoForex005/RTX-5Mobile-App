@@ -1,12 +1,12 @@
 /**
  * Global reusable ActionSheet component.
- * 
+ *
  * Provides a native-feeling bottom sheet overlay for contextual actions.
  * Highly configurable and typically controlled via the global `useUIState` store
  * rather than local component state.
  */
-import React, { useState, useEffect } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Modal } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, ThemeColors } from '../theme/useTheme';
@@ -20,105 +20,142 @@ type ActionSheetProps = {
   searchable?: boolean;
 };
 
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
 export function ActionSheet({ visible, title, actions, onClose, searchable }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
-  const { themeMode } = useUserPreferences();
+  const themeMode = useUserPreferences((s) => s.themeMode);
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
   const [query, setQuery] = useState('');
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const sheetTranslateY = useRef(new Animated.Value(28)).current;
 
   useEffect(() => {
     if (visible) setQuery('');
   }, [visible]);
 
+  useEffect(() => {
+    if (!visible) {
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(28);
+      return;
+    }
+
+    overlayOpacity.setValue(0);
+    sheetTranslateY.setValue(28);
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 1,
+        duration: 110,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [overlayOpacity, sheetTranslateY, visible]);
+
   const filteredActions = searchable && query.trim()
-    ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
+    ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
     : actions;
 
+  const handleActionPress = useCallback((actionPress?: () => void) => {
+    onClose();
+    actionPress?.();
+  }, [onClose]);
+
   return (
-    <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay} pointerEvents="box-none">
-        {/* Tap-outside-to-dismiss */}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      hardwareAccelerated
+      onRequestClose={onClose}
+    >
+      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
-        {/* Content */}
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          {title ? (
-            <View style={styles.titleContainer}>
-              {title.includes(': ') ? (
-                <Text>
-                  <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
-                  <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
-                </Text>
-              ) : (
-                <Text style={styles.titlePrefix}>{title}</Text>
-              )}
-            </View>
-          ) : <View style={{ height: 16 }} />}
-          {searchable && (
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
-              <TextInput
-                style={[styles.searchInput, { outlineStyle: 'none' } as any]}
-                placeholder="Search symbol..."
-                placeholderTextColor={T.textMuted}
-                value={query}
-                onChangeText={setQuery}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-            </View>
-          )}
-          <ScrollView
-            style={styles.actionsScroll}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            {filteredActions.map((action, index) => (
-              <Pressable
-                key={action.label}
-                onPress={() => {
-                  action.onPress?.();
-                  onClose();
-                }}
-                style={({ pressed }) => [
-                  styles.action,
-                  index < actions.length - 1 && styles.actionDivider,
-                  action.danger && styles.actionDanger,
-                  pressed && styles.actionPressed,
-                ]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {action.icon && <View style={{ width: 24, marginRight: 12, alignItems: 'center' }}>{action.icon}</View>}
-                  <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
-                    {action.label}
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            {
+              paddingBottom: Math.max(insets.bottom, 12),
+              transform: [{ translateY: sheetTranslateY }],
+            },
+          ]}
+        >
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+
+            {title ? (
+              <View style={styles.titleContainer}>
+                {title.includes(': ') ? (
+                  <Text>
+                    <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
+                    <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
                   </Text>
-                </View>
-                {!action.icon && <Text style={styles.chevron}>›</Text>}
-              </Pressable>
-            ))}
-          </ScrollView>
+                ) : (
+                  <Text style={styles.titlePrefix}>{title}</Text>
+                )}
+              </View>
+            ) : (
+              <View style={{ height: 16 }} />
+            )}
 
-          {/* Cancel */}
-          <Pressable
-            style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
-            onPress={onClose}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
-        </View>
+            {searchable ? (
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
+                <TextInput
+                  style={[styles.searchInput, { outlineStyle: 'none' } as any]}
+                  placeholder="Search symbol..."
+                  placeholderTextColor={T.textMuted}
+                  value={query}
+                  onChangeText={setQuery}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+            ) : null}
 
-        {/* Structural Safe Area Fill */}
-        <View style={{ height: Math.max(insets.bottom, 16), width: '100%', backgroundColor: isDark ? '#0E141F' : T.glass2 }} />
-      </View>
+            <ScrollView style={styles.actionsScroll} showsVerticalScrollIndicator={false} bounces={false}>
+              {filteredActions.map((action, index) => (
+                <Pressable
+                  key={action.label}
+                  onPress={() => handleActionPress(action.onPress)}
+                  style={({ pressed }) => [
+                    styles.action,
+                    index < filteredActions.length - 1 && styles.actionDivider,
+                    action.danger && styles.actionDanger,
+                    pressed && styles.actionPressed,
+                  ]}
+                >
+                  <View style={styles.actionLeft}>
+                    {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
+                    <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
+                      {action.label}
+                    </Text>
+                  </View>
+                  {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
+              onPress={onClose}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 }
-
-
-const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
@@ -129,16 +166,19 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
       justifyContent: 'flex-end',
     },
+    sheetContainer: {
+      width: '100%',
+      justifyContent: 'flex-end',
+      backgroundColor: isDark ? '#0E141F' : T.glass2,
+    },
     sheet: {
       width: '100%',
       borderTopLeftRadius: 16,
       borderTopRightRadius: 16,
-      borderLeftWidth: 0,
-      borderRightWidth: 0,
       borderTopWidth: 1,
       borderColor: T.border,
       backgroundColor: isDark ? '#0E141F' : T.glass2,
-      maxHeight: SCREEN_HEIGHT * 0.70,
+      maxHeight: SCREEN_HEIGHT * 0.7,
     },
     handle: {
       alignSelf: 'center',
@@ -197,6 +237,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
     },
+    actionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    iconWrap: {
+      width: 24,
+      marginRight: 12,
+      alignItems: 'center',
+    },
     actionDivider: {
       borderBottomWidth: 1,
       borderBottomColor: T.border,
@@ -212,8 +261,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 17,
       fontWeight: '500',
     },
-    actionTextNormal: { color: T.text },
-    actionTextDanger:  { color: T.trading.sell.primary },
+    actionTextNormal: {
+      color: T.text,
+    },
+    actionTextDanger: {
+      color: T.trading.sell.primary,
+    },
     chevron: {
       fontSize: 21,
       lineHeight: 21,
@@ -221,9 +274,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     cancelButton: {
       width: '100%',
-      marginTop: 0,
       minHeight: 54,
-      borderRadius: 0,
       borderTopWidth: 1,
       borderColor: T.border,
       backgroundColor: isDark ? '#0E141F' : T.glass2,

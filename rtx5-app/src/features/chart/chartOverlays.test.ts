@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { PriceAlert } from '../../api/alerts';
+import type { LoginOrder } from '../../api/orders';
 import type { ClosedPosition } from '../../api/positions';
 import {
   buildChartOverlayPayload,
@@ -133,13 +134,15 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
       margin: 1_000,
       marginLevel: 500,
     },
-    showOpenPositions: true,
-    showTpSlStopLimit: true,
-    showClosedPositions: true,
-    showTradingSignals: false,
-    showHmrPeriods: false,
-    showPriceAlerts: true,
-    showPotentialStopOut: true,
+    showOnChart: {
+      openPositions: true,
+      tpSlStopLimit: true,
+      closedPositions: true,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: true,
+      potentialStopOut: true,
+    },
   });
 
   assert.deepEqual(
@@ -150,6 +153,65 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
   assert.equal(payload.priceLines.find((line) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
   assert.equal(payload.markers.length, 1);
   assert.equal(payload.markers[0].id, 'closed-99');
+});
+
+test('buildChartOverlayPayload adds active pending stop and limit orders to TP/SL/Stop/Limit overlays', () => {
+  const orders: LoginOrder[] = [
+    {
+      ticket: 55,
+      account_login: 1,
+      symbol: 'EURUSDm',
+      type: 'buy_limit',
+      side: 'buy',
+      volume: 0.15,
+      price_open: 1.1095,
+      price_sl: 1.1045,
+      price_tp: 1.1155,
+      status: 'pending',
+      comment: '',
+      time_setup: candles[12].time,
+      time_done: 0,
+    },
+    {
+      ticket: 56,
+      account_login: 1,
+      symbol: 'EURUSDm',
+      type: 'sell_stop',
+      side: 'sell',
+      volume: 0.1,
+      price_open: 1.0985,
+      status: 'canceled',
+      comment: '',
+      time_setup: candles[13].time,
+      time_done: candles[14].time,
+    },
+  ];
+
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions: [],
+    orders,
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: {
+      openPositions: false,
+      tpSlStopLimit: true,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
+  });
+
+  assert.deepEqual(
+    payload.priceLines.map((line) => line.id).sort(),
+    ['order-entry-55', 'order-sl-55', 'order-tp-55'].sort(),
+  );
+  assert.equal(payload.priceLines.find((line) => line.id === 'order-entry-55')?.title, 'BUY LIMIT 0.15');
+  assert.equal(payload.priceLines.find((line) => line.id === 'order-entry-55')?.lineStyle, CHART_LINE_STYLE.Dotted);
 });
 
 test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind toggle state', () => {
@@ -174,13 +236,15 @@ test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind tog
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOpenPositions: false,
-    showTpSlStopLimit: false,
-    showClosedPositions: false,
-    showTradingSignals: true,
-    showHmrPeriods: true,
-    showPriceAlerts: false,
-    showPotentialStopOut: false,
+    showOnChart: {
+      openPositions: false,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: true,
+      hmrPeriods: true,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
     activeTool: 'patterns',
   });
 
@@ -215,22 +279,32 @@ test('buildChartOverlayPayload follows the show-on-chart flags without any secon
       margin: 1_000,
       marginLevel: 500,
     },
-    showClosedPositions: false,
-    showTradingSignals: false,
-    showHmrPeriods: false,
-    showPriceAlerts: false,
-    showPotentialStopOut: false,
+    showOnChart: {
+      openPositions: false,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
   };
 
   const visiblePayload = buildChartOverlayPayload({
     ...baseInput,
-    showOpenPositions: true,
-    showTpSlStopLimit: true,
+    showOnChart: {
+      ...baseInput.showOnChart,
+      openPositions: true,
+      tpSlStopLimit: true,
+    },
   });
   const hiddenPayload = buildChartOverlayPayload({
     ...baseInput,
-    showOpenPositions: false,
-    showTpSlStopLimit: false,
+    showOnChart: {
+      ...baseInput.showOnChart,
+      openPositions: false,
+      tpSlStopLimit: false,
+    },
   });
 
   assert.deepEqual(
@@ -273,13 +347,15 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOpenPositions: true,
-    showTpSlStopLimit: true,
-    showClosedPositions: false,
-    showTradingSignals: false,
-    showHmrPeriods: false,
-    showPriceAlerts: false,
-    showPotentialStopOut: false,
+    showOnChart: {
+      openPositions: true,
+      tpSlStopLimit: true,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
   });
 
   assert.deepEqual(

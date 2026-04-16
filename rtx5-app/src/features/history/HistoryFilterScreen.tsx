@@ -52,7 +52,9 @@ function formatDate(d: Date): string {
 }
 
 export function HistoryFilterScreen() {
-  const { historyRange, setHistoryRange, setHistoryDateRange } = useUserPreferences();
+  const historyRange = useUserPreferences((s) => s.historyRange);
+  const setHistoryRange = useUserPreferences((s) => s.setHistoryRange);
+  const setHistoryDateRange = useUserPreferences((s) => s.setHistoryDateRange);
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();

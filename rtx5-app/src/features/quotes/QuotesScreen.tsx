@@ -52,6 +52,7 @@ import {
 import { fmt } from '../../utils/format';
 import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
+import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
 
 /* ───── Helpers ───── */
 
@@ -228,6 +229,7 @@ const QuoteCard = React.memo(function QuoteCard({
   isDark,
   cardBackground,
   onPress,
+  onPressIn,
   onLongPress,
 }: {
   symbol: string;
@@ -235,6 +237,7 @@ const QuoteCard = React.memo(function QuoteCard({
   isDark: boolean;
   cardBackground: AnimatedColorValue | string;
   onPress: () => void;
+  onPressIn?: () => void;
   onLongPress: () => void;
 }) {
   const liveItem = useTradingState((state) => state.quotes[symbol]);
@@ -372,9 +375,10 @@ const QuoteCard = React.memo(function QuoteCard({
         isDark && sc.cardShadowDark,
         pressed && sc.cardPressed,
       ]}
+      onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={180}
+      delayLongPress={80}
     >
       <Animated.View
         pointerEvents="none"
@@ -933,6 +937,7 @@ export function QuotesScreen() {
   }, [quoteSymbols, deferredSearch]);
 
   const goDetail = (sym: string) => {
+    prefetchQuoteDetails(sym);
     setChartSymbol(sym);
     router.push({ pathname: '/quotes/details', params: { symbol: sym } });
   };
@@ -1040,6 +1045,7 @@ export function QuotesScreen() {
                   T={T}
                   isDark={isDark}
                   cardBackground={animatedCardBackground}
+                  onPressIn={() => prefetchQuoteDetails(sym)}
                   onPress={() => goDetail(sym)}
                   onLongPress={() =>
                     showActionSheet({

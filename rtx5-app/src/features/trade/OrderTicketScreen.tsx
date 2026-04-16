@@ -36,7 +36,10 @@ export function OrderTicketScreen() {
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { accountDetails, themeMode, oneClickAccepted } = useUserPreferences();
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const themeMode = useUserPreferences((s) => s.themeMode);
+  const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const brokerId = useUserPreferences((s) => s.brokerId);
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
@@ -100,10 +103,8 @@ export function OrderTicketScreen() {
     ]).start(() => {
       setModalState(prev => ({ ...prev, visible: false }));
       if (wasSuccess) {
-        setTimeout(() => {
-          if (router.canGoBack()) router.back();
-          else router.replace('/');
-        }, 100);
+        if (router.canGoBack()) router.back();
+        else router.replace('/');
       }
     });
   }, [modalState.type]);
@@ -232,7 +233,7 @@ export function OrderTicketScreen() {
       // Read the broker_id that was persisted at login time. The server
       // requires this to route the order to the correct MT5 manager — without
       // it the response is 403 "No broker context found".
-      const brokerIdForOrder = useUserPreferences.getState().brokerId || undefined;
+      const brokerIdForOrder = brokerId || undefined;
 
       // Only include SL/TP when explicitly enabled by the user. Sending 0
       // makes some MT5 bridges interpret it as "set price to zero" and the

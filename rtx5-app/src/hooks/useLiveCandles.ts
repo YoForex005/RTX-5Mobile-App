@@ -11,6 +11,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { liveCandlesEngine, CandleParams, EMPTY_CANDLES } from '../api/ws/liveCandlesEngine';
 import { normalizeCandle, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 import { useMarketData } from '../query/websocket';
+import { useTradingState } from '../state/tradingState';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
@@ -53,6 +54,10 @@ export type { CandleParams } from '../api/ws/liveCandlesEngine';
 export function useLiveCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframe(timeframe), [timeframe]);
+  const candleKey = useMemo(
+    () => (normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : ''),
+    [normalizedSymbol, normalizedTimeframe],
+  );
 
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -73,7 +78,14 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     return liveCandlesEngine.getCandles(normalizedSymbol, normalizedTimeframe);
   }, [normalizedSymbol, normalizedTimeframe]);
 
-  const candles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
+  const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
+  const cachedCandles = useTradingState((state) =>
+    candleKey ? state.candles[candleKey] ?? emptyCandles : emptyCandles,
+  );
+  const candles = useMemo(
+    () => (engineCandles.length > 0 ? engineCandles : cachedCandles),
+    [engineCandles, cachedCandles],
+  );
 
   const refresh = useCallback(() => {
     if (!normalizedSymbol || !normalizedTimeframe) {

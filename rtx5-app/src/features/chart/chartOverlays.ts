@@ -1,8 +1,10 @@
 import type { PriceAlert } from '../../api/alerts';
+import type { LoginOrder } from '../../api/orders';
 import type { ClosedPosition } from '../../api/positions';
 import { normalizeSymbol } from '../../domain/symbols';
 import type { PositionItem } from '../../mock/tradingData';
 import type { ChartColorsConfig } from '../../state/userPreferences';
+import type { ChartShowOnChartSettings } from './chartShowOnChart';
 
 export const CHART_LINE_STYLE = {
   Solid: 0,
@@ -66,24 +68,28 @@ type BuildChartOverlayPayloadInput = {
   chartSymbol: string;
   candles: ChartOverlayCandle[];
   positions: PositionItem[];
+  orders?: LoginOrder[];
   closedPositions?: ClosedPosition[];
   alerts?: PriceAlert[];
   colors: ChartColorsConfig;
   sellColor: string;
   liveAccount?: ChartOverlayLiveAccount | null;
-  showOpenPositions: boolean;
-  showTpSlStopLimit: boolean;
-  showClosedPositions: boolean;
-  showTradingSignals: boolean;
-  showHmrPeriods: boolean;
-  showPriceAlerts: boolean;
-  showPotentialStopOut: boolean;
+  showOnChart: ChartShowOnChartSettings;
   activeTool?: string;
 };
 
 const STOP_OUT_MARGIN_LEVEL_FRACTION = 0.5;
 const MAX_CLOSED_POSITION_MARKERS = 8;
 const MAX_HMR_MARKERS = 3;
+const TERMINAL_ORDER_STATUSES = new Set([
+  'FILLED',
+  'CLOSED',
+  'CANCELED',
+  'CANCELLED',
+  'REJECTED',
+  'EXPIRED',
+  'DONE',
+]);
 
 const clampMarkerSize = (value: number | undefined): number => {
   if (!Number.isFinite(value)) return 1;
@@ -164,6 +170,46 @@ const inferContractSize = (symbol: string): number => {
   }
   if (normalized.includes('JPY')) return 1000;
   return 100000;
+};
+
+const formatPositionVolumeLabel = (value: number): string =>
+  Number.isFinite(value) ? value.toFixed(2) : '0.00';
+
+const normalizeOrderType = (value: string | undefined): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+const normalizeOrderStatus = (value: string | undefined): string =>
+  toUpper(
+    String(value ?? '')
+      .trim()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' '),
+  );
+
+const isPendingOrderType = (value: string): boolean => value.includes('limit') || value.includes('stop');
+
+const isActivePendingOrder = (order: LoginOrder): boolean => {
+  const normalizedType = normalizeOrderType(order.type);
+  if (!isPendingOrderType(normalizedType)) return false;
+
+  const normalizedStatus = normalizeOrderStatus(order.status);
+  return !TERMINAL_ORDER_STATUSES.has(normalizedStatus);
+};
+
+const buildPendingOrderLabel = (order: LoginOrder): string => {
+  const normalizedType = normalizeOrderType(order.type);
+  const upperType = toUpper(normalizedType);
+  const side = toUpper(order.side);
+  const typeLabel =
+    upperType.includes('BUY') || upperType.includes('SELL')
+      ? upperType
+      : `${side} ${upperType || 'ORDER'}`;
+
+  return `${typeLabel} ${formatPositionVolumeLabel(Number(order.volume))}`.trim();
 };
 
 const addUniquePriceLine = (target: Map<string, ChartOverlayPriceLine>, line: ChartOverlayPriceLine) => {
@@ -374,6 +420,60 @@ const buildClosedPositionMarkers = (
     }, []);
 };
 
+const buildPendingOrderLines = (
+  orders: LoginOrder[],
+  colors: ChartColorsConfig,
+  sellColor: string,
+): ChartOverlayPriceLine[] => {
+  return orders.reduce<ChartOverlayPriceLine[]>((accumulator, order) => {
+    if (!isActivePendingOrder(order)) return accumulator;
+
+    const entryPrice = Number(order.price_open);
+    const slValue = Number(order.price_sl);
+    const tpValue = Number(order.price_tp);
+    const precision = resolveDisplayPrecision(order.symbol);
+    const entryColor = order.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
+
+    if (Number.isFinite(entryPrice) && entryPrice > 0) {
+      accumulator.push({
+        id: `order-entry-${order.ticket}`,
+        price: entryPrice,
+        color: entryColor,
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dotted,
+        axisLabelVisible: true,
+        title: buildPendingOrderLabel(order),
+      });
+    }
+
+    if (Number.isFinite(tpValue) && tpValue > 0) {
+      accumulator.push({
+        id: `order-tp-${order.ticket}`,
+        price: tpValue,
+        color: colors.tradeTpSl || '#089981',
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dashed,
+        axisLabelVisible: true,
+        title: `TP ${tpValue.toFixed(precision)}`,
+      });
+    }
+
+    if (Number.isFinite(slValue) && slValue > 0) {
+      accumulator.push({
+        id: `order-sl-${order.ticket}`,
+        price: slValue,
+        color: colors.tradeStopOut || '#F23645',
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dashed,
+        axisLabelVisible: true,
+        title: `SL ${slValue.toFixed(precision)}`,
+      });
+    }
+
+    return accumulator;
+  }, []);
+};
+
 const buildPriceAlertLines = (
   alerts: PriceAlert[],
   chartSymbol: string,
@@ -447,18 +547,13 @@ export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
   positions,
+  orders = [],
   closedPositions = [],
   alerts = [],
   colors,
   sellColor,
   liveAccount,
-  showOpenPositions,
-  showTpSlStopLimit,
-  showClosedPositions,
-  showTradingSignals,
-  showHmrPeriods,
-  showPriceAlerts,
-  showPotentialStopOut,
+  showOnChart,
   activeTool,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
   const sanitizedCandles = sanitizeCandles(candles);
@@ -466,13 +561,15 @@ export const buildChartOverlayPayload = ({
   const symbolPositions = positions.filter(
     (position) => normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol,
   );
+  const symbolOrders = orders.filter((order) => normalizeChartOverlaySymbol(order.symbol) === normalizedChartSymbol);
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.log(
       `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
       `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
-      `flags: open=${showOpenPositions} tpsl=${showTpSlStopLimit} closed=${showClosedPositions} ` +
-      `signals=${showTradingSignals} hmr=${showHmrPeriods} alerts=${showPriceAlerts} stopOut=${showPotentialStopOut}`,
+      `totalOrders=${orders.length} matchingOrders=${symbolOrders.length} | ` +
+      `flags: open=${showOnChart.openPositions} tpsl=${showOnChart.tpSlStopLimit} closed=${showOnChart.closedPositions} ` +
+      `signals=${showOnChart.tradingSignals} hmr=${showOnChart.hmrPeriods} alerts=${showOnChart.priceAlerts} stopOut=${showOnChart.potentialStopOut}`,
     );
     if (symbolPositions.length > 0) {
       symbolPositions.forEach((p) =>
@@ -493,7 +590,7 @@ export const buildChartOverlayPayload = ({
 
       const precision = resolveDisplayPrecision(position.symbol);
 
-      if (showOpenPositions) {
+      if (showOnChart.openPositions) {
         addUniquePriceLine(priceLines, {
           id: `open-${position.id}`,
           price: parsedPrice,
@@ -501,12 +598,11 @@ export const buildChartOverlayPayload = ({
           lineWidth: 1,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: true,
-          title: `${position.side.toUpperCase()} ${position.volume} at ${parsedPrice.toFixed(precision)}`,
+          title: `${position.side.toUpperCase()} ${formatPositionVolumeLabel(position.volume)}`,
         });
       }
 
-      if (showTpSlStopLimit) {
-        const precision = resolveDisplayPrecision(position.symbol);
+      if (showOnChart.tpSlStopLimit) {
         const tpValue = Number(position.tp);
         if (Number.isFinite(tpValue) && tpValue > 0) {
           addUniquePriceLine(priceLines, {
@@ -536,26 +632,30 @@ export const buildChartOverlayPayload = ({
     });
   }
 
-  if (showPotentialStopOut) {
+  if (showOnChart.tpSlStopLimit) {
+    buildPendingOrderLines(symbolOrders, colors, sellColor).forEach((line) => addUniquePriceLine(priceLines, line));
+  }
+
+  if (showOnChart.potentialStopOut) {
     const stopOutLine = buildPotentialStopOutLine(symbolPositions, sanitizedCandles, liveAccount, colors);
     if (stopOutLine) addUniquePriceLine(priceLines, stopOutLine);
   }
 
-  if (showPriceAlerts) {
+  if (showOnChart.priceAlerts) {
     buildPriceAlertLines(alerts, chartSymbol).forEach((line) => addUniquePriceLine(priceLines, line));
   }
 
-  if (showClosedPositions) {
+  if (showOnChart.closedPositions) {
     buildClosedPositionMarkers(sanitizedCandles, closedPositions, chartSymbol).forEach((marker) =>
       addUniqueMarker(markers, marker),
     );
   }
 
-  if (showTradingSignals) {
+  if (showOnChart.tradingSignals) {
     buildTradingSignalMarkers(sanitizedCandles, colors).forEach((marker) => addUniqueMarker(markers, marker));
   }
 
-  if (showHmrPeriods) {
+  if (showOnChart.hmrPeriods) {
     buildHmrMarkers(sanitizedCandles).forEach((marker) => addUniqueMarker(markers, marker));
   }
 

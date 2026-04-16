@@ -11,9 +11,9 @@
  * - Micro-Components: Extracts fast-updating UI (like the live price pill) into memoized blocks isolated from the main layout.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Pressable, RefreshControl, ScrollView, StyleSheet, Text, Vibration, View, Image, AppState, Platform } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, Vibration, View, Image, AppState, Platform } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,7 +34,7 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
-import { usePlaceOrderMutation } from '../../query/orders';
+import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { classifyTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 
@@ -44,6 +44,7 @@ import { useAlertsQuery } from '../../query/alerts';
 import { resolveTradingLogin as resolveTradingLoginUtil } from '../../state/tradingLogin';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketSymbols } from '../../query/market';
+import { useAccountSummary } from '../../query/account';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
@@ -61,22 +62,26 @@ import {
   EMPTY_CHART_SERIES_SNAPSHOT,
   getChartSeriesUpdateMode,
 } from './liveChartSync';
+import { useShallow } from 'zustand/shallow';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 // Uses quotes WS (bid/ask) as primary price source — always accurate.
 // Falls back to candle WS close only when quotes haven't arrived yet.
-const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals }: any) => {
+const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource }: any) => {
   const latestTick = useLiveTick(symbol);
   const liveQuotes = useMarketData([symbol]);
   const q = liveQuotes[symbol] || {};
 
-  // Primary: quotes WS bid price (most reliable, real-time)
-  // Fallback: candle WS close price (only if quotes WS hasn't sent data yet)
-  const quoteBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : null;
+  // Primary: quotes WS selected price source (most reliable, real-time)
+  // Fallback: candle WS close price (only if the selected quote hasn't arrived yet)
+  const selectedQuote =
+    priceSource === 'ask'
+      ? (typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
+      : (typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
   const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
-  const currentPrice = quoteBid ?? candleClose;
+  const currentPrice = selectedQuote ?? candleClose;
 
   if (currentPrice === null) return <View style={styles.priceSection}><Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text></View>;
 
@@ -1335,30 +1340,45 @@ export function ChartScreen() {
     chartSymbol,
     chartTimeframe,
     chartVisualType,
+    priceSource,
     chartColors,
     chartColorScheme,
+    chartDisplay,
     chartDrawingRecordsBySymbol,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
-    isDemoAccount,
-    accountDetails,
-    showTradingSignals,
     chartLockAll,
     chartHideAll,
     setChartLockAll,
     setChartHideAll,
     setChartDrawingRecordsForSymbol,
-  } = useUserPreferences();
+  } = useUserPreferences(
+    useShallow((state) => ({
+      chartSymbol: state.chartSymbol,
+      chartTimeframe: state.chartTimeframe,
+      chartVisualType: state.chartVisualType,
+      priceSource: state.priceSource,
+      chartColors: state.chartColors,
+      chartColorScheme: state.chartColorScheme,
+      chartDisplay: state.chartDisplay,
+      chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
+      setChartTimeframe: state.setChartTimeframe,
+      setChartVisualType: state.setChartVisualType,
+      setChartSymbol: state.setChartSymbol,
+      chartLockAll: state.chartLockAll,
+      chartHideAll: state.chartHideAll,
+      setChartLockAll: state.setChartLockAll,
+      setChartHideAll: state.setChartHideAll,
+      setChartDrawingRecordsForSymbol: state.setChartDrawingRecordsForSymbol,
+    })),
+  );
   const BLUE = T.trading.buy.primary;
   const TEXT_MUTED = T.textMuted;
   const positions = usePositionsState((s) => s.positions);
-  const showOpenPositions = useUserPreferences((s) => s.showOpenPositions);
-  const showTpSlStopLimit = useUserPreferences((s) => s.showTpSlStopLimit);
-  const showClosedPositions = useUserPreferences((s) => s.showClosedPositions);
-  const showHmrPeriods = useUserPreferences((s) => s.showHmrPeriods);
-  const showPriceAlerts = useUserPreferences((s) => s.showPriceAlerts);
-  const showPotentialStopOut = useUserPreferences((s) => s.showPotentialStopOut);
+  const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
+  const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
+  const showTradingSignals = chartShowOnChart.tradingSignals;
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
@@ -1394,11 +1414,32 @@ export function ChartScreen() {
     }
     return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
   }, [baseSymbol, chartLiveQuote?.digits]);
-  const { data: closedPositions = [] } = usePositionHistoryQuery(accountLogin);
-  const { data: alerts = [] } = useAlertsQuery();
+  const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin);
+  const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin);
+  const { data: alerts = [], refetch: refetchAlerts } = useAlertsQuery();
+  const { data: accountSummary, refetch: refetchAccountSummary } = useAccountSummary(accountLogin ? String(accountLogin) : undefined);
   const liveAccountEquity = useLiveAccountState((s) => s.equity);
   const liveAccountMargin = useLiveAccountState((s) => s.margin);
   const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
+  const overlayAccountMetrics = useMemo(() => {
+    const hasLiveMetrics =
+      (Number.isFinite(liveAccountEquity) && liveAccountEquity > 0) ||
+      (Number.isFinite(liveAccountMargin) && liveAccountMargin > 0) ||
+      (Number.isFinite(liveAccountMarginLevel) && liveAccountMarginLevel > 0);
+
+    return {
+      equity: hasLiveMetrics ? liveAccountEquity : accountSummary?.equity ?? 0,
+      margin: hasLiveMetrics ? liveAccountMargin : accountSummary?.margin ?? 0,
+      marginLevel: hasLiveMetrics ? liveAccountMarginLevel : accountSummary?.marginLevel ?? 0,
+    };
+  }, [
+    liveAccountEquity,
+    liveAccountMargin,
+    liveAccountMarginLevel,
+    accountSummary?.equity,
+    accountSummary?.margin,
+    accountSummary?.marginLevel,
+  ]);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
@@ -1415,7 +1456,6 @@ export function ChartScreen() {
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
   const shouldCaptureChartGestures =
@@ -1480,18 +1520,25 @@ export function ChartScreen() {
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
 
   const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
-
-  const handleRefreshChart = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      refreshCandles();
-      if (accountLogin) {
-        await refreshPositions(String(accountLogin));
-      }
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 800);
-    }
-  }, [refreshCandles, accountLogin, refreshPositions]);
+  const formatChartValue = useCallback(
+    (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
+    [displayDecimals],
+  );
+  const chartMetaLastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
+  const chartMetaItems = useMemo(
+    () =>
+      chartMetaLastCandle
+        ? [
+            { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
+            { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
+            { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
+            { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
+          ]
+        : [],
+    [chartMetaLastCandle, formatChartValue],
+  );
+  const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -1537,6 +1584,7 @@ export function ChartScreen() {
 
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
+  const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
   // CHART_READY.  Used as a dependency in the overlay effect so it
   // always re-fires after a chart (re-)initialization, even when the
@@ -1562,6 +1610,41 @@ export function ChartScreen() {
   useEffect(() => {
     drawingSignatureRef.current = chartDrawingSignature;
   }, [chartDrawingSignature]);
+  const requestOverlaySync = useCallback(() => {
+    setOverlaySyncRevision((revision) => revision + 1);
+  }, []);
+  const refreshShowOnChartSources = useCallback(() => {
+    requestOverlaySync();
+    if (accountLogin) {
+      refreshPositions(String(accountLogin));
+    }
+    void refetchOrders();
+    void refetchClosedPositions();
+    void refetchAlerts();
+    void refetchAccountSummary();
+  }, [
+    accountLogin,
+    refreshPositions,
+    refetchOrders,
+    refetchClosedPositions,
+    refetchAlerts,
+    refetchAccountSummary,
+    requestOverlaySync,
+  ]);
+  useFocusEffect(
+    useCallback(() => {
+      refreshShowOnChartSources();
+    }, [refreshShowOnChartSources]),
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshShowOnChartSources();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [refreshShowOnChartSources]);
   const isLoading = !chartCanvasReady && !loadingFallback;
   const isError = false;
 
@@ -1761,47 +1844,37 @@ export function ChartScreen() {
   }, [candles.length, refreshCandles]);
 
   const overlayPayload = useMemo(
-    () =>
-      buildChartOverlayPayload({
+    () => {
+      if (!preferencesHydrated) {
+        return { priceLines: [], markers: [] };
+      }
+
+      return buildChartOverlayPayload({
         chartSymbol,
         candles,
         positions,
+        orders,
         closedPositions,
         alerts,
         colors: resolvedChartColors,
         sellColor: T.trading.sell.primary,
-        liveAccount: {
-          equity: liveAccountEquity,
-          margin: liveAccountMargin,
-          marginLevel: liveAccountMarginLevel,
-        },
-        showOpenPositions,
-        showTpSlStopLimit,
-        showClosedPositions,
-        showTradingSignals,
-        showHmrPeriods,
-        showPriceAlerts,
-        showPotentialStopOut,
+        liveAccount: overlayAccountMetrics,
+        showOnChart: chartShowOnChart,
         activeTool,
-      }),
+      });
+    },
     [
+      preferencesHydrated,
       chartSymbol,
       candles,
       positions,
+      orders,
       closedPositions,
       alerts,
       resolvedChartColors,
       T.trading.sell.primary,
-      liveAccountEquity,
-      liveAccountMargin,
-      liveAccountMarginLevel,
-      showOpenPositions,
-      showTpSlStopLimit,
-      showClosedPositions,
-      showTradingSignals,
-      showHmrPeriods,
-      showPriceAlerts,
-      showPotentialStopOut,
+      overlayAccountMetrics,
+      chartShowOnChart,
       activeTool,
     ],
   );
@@ -1814,7 +1887,7 @@ export function ChartScreen() {
       `chartSymbol=${chartSymbol} | ` +
       `priceLines=${overlayPayload.priceLines.length} | ` +
       `markers=${overlayPayload.markers.length} | ` +
-      `showOpen=${showOpenPositions} showTpSl=${showTpSlStopLimit} | ` +
+      `showOpen=${chartShowOnChart.openPositions} showTpSl=${chartShowOnChart.tpSlStopLimit} | ` +
       `webViewReady=${webViewReady} chartCanvasReady=${chartCanvasReady}`,
     );
     if (overlayPayload.priceLines.length > 0) {
@@ -1822,7 +1895,7 @@ export function ChartScreen() {
         console.log(`  [OVERLAY LINE] id=${l.id} price=${l.price} title="${l.title}" color=${l.color}`),
       );
     }
-  }, [overlayPayloadSignature, positions.length, webViewReady, chartCanvasReady]);
+  }, [overlayPayloadSignature, positions.length, webViewReady, chartCanvasReady, chartShowOnChart]);
 
   // Keep the ref in sync so the onMessage CHART_READY handler can
   // immediately push the latest overlay without waiting for the effect.
@@ -1900,7 +1973,7 @@ export function ChartScreen() {
     }, 5000);
 
     return () => clearInterval(resyncInterval);
-  }, [overlayPayloadSignature, webViewReady, chartCanvasReady, chartReadyEpoch]);
+  }, [overlayPayloadSignature, webViewReady, chartCanvasReady, chartReadyEpoch, overlaySyncRevision]);
 
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
@@ -1932,7 +2005,7 @@ export function ChartScreen() {
 
             {/* Right: Live Price */}
             <View style={styles.rightSection}>
-              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={candles} />
             </View>
           </View>
         </View>
@@ -1945,15 +2018,6 @@ export function ChartScreen() {
         scrollEnabled={!shouldCaptureChartGestures}
         bounces={!shouldCaptureChartGestures}
         alwaysBounceVertical={!shouldCaptureChartGestures}
-        refreshControl={!shouldCaptureChartGestures ? (
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefreshChart}
-            tintColor={isDark ? '#D1D4DC' : '#131722'}
-            colors={[isDark ? '#D1D4DC' : '#131722']}
-            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
-          />
-        ) : undefined}
       >
         <View style={styles.chartContainer}>
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
@@ -2038,6 +2102,25 @@ export function ChartScreen() {
               </ScrollView>
             )}
             <View style={{ flex: 1, position: 'relative' }}>
+              {showChartMetaRow && (
+                <View pointerEvents="none" style={styles.chartMetaOverlay}>
+                  <View style={styles.chartMetaOhlc}>
+                    {chartMetaItems.map((item) => (
+                      <View key={item.label} style={styles.chartMetaPair}>
+                        <Text style={styles.chartMetaLabel}>{item.label}</Text>
+                        <Text
+                          style={[
+                            styles.chartMetaValue,
+                            { color: chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend },
+                          ]}
+                        >
+                          {item.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               {isLoading && (
                 <View style={styles.chartOverlay}>
@@ -2201,7 +2284,7 @@ export function ChartScreen() {
         actions={[
           { label: 'Indicators' },
           { label: 'Objects', onPress: () => router.push('/chart/objects') },
-          { label: 'Chart Preferences' },
+          { label: 'Chart Preferences', onPress: () => router.push('/chart/settings') },
         ]}
       />
 
@@ -2599,6 +2682,38 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
+    },
+    chartMetaOverlay: {
+      position: 'absolute' as any,
+      top: 10,
+      left: 12,
+      zIndex: 30,
+    },
+    chartMetaOhlc: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'nowrap',
+      gap: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: isDark ? 'rgba(8,11,17,0.78)' : 'rgba(248,250,252,0.82)',
+      borderRadius: 6,
+    },
+    chartMetaPair: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    chartMetaLabel: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+    chartMetaValue: {
+      fontSize: 11,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
     inlineActionGroup: {
       flexDirection: 'row',

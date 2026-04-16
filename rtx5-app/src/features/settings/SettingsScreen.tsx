@@ -25,19 +25,31 @@ import { useBrokerConfig } from '../../query/broker';
 import { useAccounts } from '../../query/accounts';
 import { accountWsService } from '../../api/ws/accountSocket';
 import { candlesWsService } from '../../api/ws/candlesSocket';
+import { useShallow } from 'zustand/shallow';
 
 export function SettingsScreen() {
-  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setIsDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences();
+  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences(
+    useShallow((state) => ({
+      quoteSymbols: state.quoteSymbols,
+      chartDrawings: state.chartDrawings,
+      oneClickAccepted: state.oneClickAccepted,
+      setOneClickAccepted: state.setOneClickAccepted,
+      isDemoAccount: state.isDemoAccount,
+      themeMode: state.themeMode,
+      setThemeMode: state.setThemeMode,
+      accountDetails: state.accountDetails,
+    })),
+  );
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const liveAccount = useLiveAccountState();
+  const liveBalance = useLiveAccountState((s) => s.balance);
   const { data: brokerConfig } = useBrokerConfig(brokerId);
   const { data: accounts } = useAccounts(isLoggedIn);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
   const displayAccountName = activeAccount?.name ?? 'Account';
   const displayEmail = accountDetails?.name ?? '---';
-  const displayBalance = liveAccount.balance > 0 ? fmt.price(liveAccount.balance) : '---';
+  const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : '---';
   const displayCurrency = 'USD';
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);

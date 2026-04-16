@@ -20,7 +20,8 @@ export function ChartPriceSourceScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const insets = useSafeAreaInsets();
-  const { priceSource, setPriceSource } = useUserPreferences();
+  const priceSource = useUserPreferences((s) => s.priceSource);
+  const setPriceSource = useUserPreferences((s) => s.setPriceSource);
 
   const handleSelect = (source: 'bid' | 'ask') => {
     setPriceSource(source);

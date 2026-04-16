@@ -182,12 +182,27 @@ export function ChartPropertiesScreen() {
     }
   }, [draftColor, isValidDraftColor]);
 
-
-
   const snapshot = [
-    { label: 'Bid', value: formatQuote(liveQuote?.bid, liveQuote?.digits) },
-    { label: 'Ask', value: formatQuote(liveQuote?.ask, liveQuote?.digits) },
+    {
+      label: priceSource === 'bid' ? 'Bid' : 'Ask',
+      value: formatQuote(priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask, liveQuote?.digits),
+    },
     { label: 'Spread', value: Number.isFinite(liveQuote?.spread) ? liveQuote.spread.toFixed(1) : '--' },
+  ];
+  const previewLastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const previewIsUp = previewLastCandle ? previewLastCandle.close >= previewLastCandle.open : true;
+  const previewOhlcItems = previewLastCandle
+    ? [
+        { label: 'O', value: formatQuote(previewLastCandle.open, liveQuote?.digits) },
+        { label: 'H', value: formatQuote(previewLastCandle.high, liveQuote?.digits) },
+        { label: 'L', value: formatQuote(previewLastCandle.low, liveQuote?.digits) },
+        { label: 'C', value: formatQuote(previewLastCandle.close, liveQuote?.digits) },
+      ]
+    : [];
+  const previewFooterItems = [
+    `Scheme: ${SCHEME_OPTIONS.find((option) => option.key === chartColorScheme)?.label ?? 'Custom'}`,
+    `Source: ${priceSource === 'bid' ? 'Bid price' : 'Ask price'}`,
+    `Candles: ${candles.length}`,
   ];
 
   const rgbaToHex = (rgba: string): string => {
@@ -262,11 +277,34 @@ export function ChartPropertiesScreen() {
             ))}
           </View>
 
+          {(chartDisplay.showTicker || (chartDisplay.showOHLC && previewLastCandle)) && (
+            <View style={styles.previewMetaRow}>
+              {chartDisplay.showTicker && (
+                <Text style={styles.previewMetaTicker}>
+                  {chartSymbol.replace(/\//g, '')},{chartTimeframe}
+                </Text>
+              )}
+              {chartDisplay.showOHLC && previewLastCandle && (
+                <View style={styles.previewMetaOhlc}>
+                  {previewOhlcItems.map((item) => (
+                    <View key={item.label} style={styles.previewMetaPair}>
+                      <Text style={styles.previewMetaLabel}>{item.label}</Text>
+                      <Text style={[styles.previewMetaValue, { color: previewIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend }]}>
+                        {item.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
           <View style={[styles.previewChart, { backgroundColor: resolvedChartColors.background }]}>
             <LiveChartPreview
               symbol={chartSymbol}
               timeframe={chartTimeframe}
               chartType={chartVisualType}
+              priceSource={priceSource}
               colors={resolvedChartColors}
               display={chartDisplay}
               isDark={isDark}
@@ -274,9 +312,11 @@ export function ChartPropertiesScreen() {
           </View>
 
           <View style={styles.previewFooter}>
-            <Text style={styles.previewFooterText}>Scheme: {SCHEME_OPTIONS.find((option) => option.key === chartColorScheme)?.label ?? 'Custom'}</Text>
-            <Text style={styles.previewFooterText}>Source: {priceSource === 'bid' ? 'Bid price' : 'Ask price'}</Text>
-            <Text style={styles.previewFooterText}>Candles: {candles.length}</Text>
+            {previewFooterItems.map((item) => (
+              <View key={item} style={styles.previewFooterBadge}>
+                <Text style={styles.previewFooterText}>{item}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
@@ -625,11 +665,60 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#DDE3EA',
     },
+    previewMetaRow: {
+      marginBottom: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    previewMetaTicker: {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
+    previewMetaOhlc: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: isDark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(148,163,184,0.16)',
+    },
+    previewMetaPair: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginRight: 10,
+      marginBottom: 2,
+    },
+    previewMetaLabel: {
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 11,
+      fontWeight: '700',
+      marginRight: 4,
+    },
+    previewMetaValue: {
+      fontSize: 11,
+      fontWeight: '800',
+    },
     previewFooter: {
       marginTop: 12,
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 10,
+      gap: 12,
+      alignItems: 'center',
+    },
+    previewFooterBadge: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: isDark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(148,163,184,0.16)',
     },
     previewFooterText: {
       color: isDark ? '#94A3B8' : '#64748B',

@@ -2,6 +2,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
+  DEFAULT_CHART_SHOW_ON_CHART,
+  buildChartShowOnChartSettingsFromLegacy,
+  hasLegacyChartShowOnChartDefaults,
+  normalizeChartShowOnChartSettings,
+  type ChartShowOnChartKey,
+  type ChartShowOnChartSettings,
+} from '../features/chart/chartShowOnChart';
+import {
   type PersistedChartDrawing,
   type PersistedChartDrawingsBySymbol,
   getChartDrawingBucketKey,
@@ -210,49 +218,8 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
 
 const defaultSymbols: string[] = [];
 
-const DEFAULT_SHOW_ON_CHART_FLAGS = {
-  showOpenPositions: true,
-  showTpSlStopLimit: true,
-  showClosedPositions: false,
-  showHmrPeriods: false,
-  showPriceAlerts: false,
-  showPotentialStopOut: false,
-  showTradingSignals: false,
-} as const;
-
-const LEGACY_SHOW_ON_CHART_DEFAULTS = {
-  showOpenPositions: true,
-  showTpSlStopLimit: true,
-  showClosedPositions: false,
-  showHmrPeriods: true,
-  showPriceAlerts: true,
-  showPotentialStopOut: true,
-  showTradingSignals: false,
-} as const;
-
-const hasLegacyShowOnChartDefaults = (
-  state: Partial<
-    Pick<
-      UserPreferencesState,
-      | 'showOpenPositions'
-      | 'showTpSlStopLimit'
-      | 'showClosedPositions'
-      | 'showHmrPeriods'
-      | 'showPriceAlerts'
-      | 'showPotentialStopOut'
-      | 'showTradingSignals'
-    >
-  >,
-) =>
-  state.showOpenPositions === LEGACY_SHOW_ON_CHART_DEFAULTS.showOpenPositions &&
-  state.showTpSlStopLimit === LEGACY_SHOW_ON_CHART_DEFAULTS.showTpSlStopLimit &&
-  state.showClosedPositions === LEGACY_SHOW_ON_CHART_DEFAULTS.showClosedPositions &&
-  state.showHmrPeriods === LEGACY_SHOW_ON_CHART_DEFAULTS.showHmrPeriods &&
-  state.showPriceAlerts === LEGACY_SHOW_ON_CHART_DEFAULTS.showPriceAlerts &&
-  state.showPotentialStopOut === LEGACY_SHOW_ON_CHART_DEFAULTS.showPotentialStopOut &&
-  state.showTradingSignals === LEGACY_SHOW_ON_CHART_DEFAULTS.showTradingSignals;
-
 type UserPreferencesState = {
+  hasHydrated: boolean;
   themeMode: ThemeMode;
   quoteSymbols: string[];
   quoteViewMode: QuoteViewMode;
@@ -263,12 +230,7 @@ type UserPreferencesState = {
   chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
   chartLockAll: boolean;
   chartHideAll: boolean;
-  showOpenPositions: boolean;
-  showTpSlStopLimit: boolean;
-  showClosedPositions: boolean;
-  showHmrPeriods: boolean;
-  showPriceAlerts: boolean;
-  showPotentialStopOut: boolean;
+  chartShowOnChart: ChartShowOnChartSettings;
   oneClickAccepted: boolean;
   historyRange: string;
   /**
@@ -279,7 +241,6 @@ type UserPreferencesState = {
    */
   historyFromMs: number | null;
   historyToMs: number | null;
-  showTradingSignals: boolean;
   priceSource: 'bid' | 'ask';
   openOrderMode: 'Regular' | 'Risk calculator' | 'One-click';
   isDemoAccount: boolean;
@@ -321,13 +282,7 @@ type UserPreferencesState = {
   removeChartDrawingRecordForSymbol: (symbol: string, drawingId: string) => void;
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
-  setShowOpenPositions: (show: boolean) => void;
-  setShowTpSlStopLimit: (show: boolean) => void;
-  setShowClosedPositions: (show: boolean) => void;
-  setShowHmrPeriods: (show: boolean) => void;
-  setShowPriceAlerts: (show: boolean) => void;
-  setShowPotentialStopOut: (show: boolean) => void;
-  setShowTradingSignals: (show: boolean) => void;
+  setChartShowOnChartItem: <K extends ChartShowOnChartKey>(key: K, value: ChartShowOnChartSettings[K]) => void;
   setPriceSource: (source: 'bid' | 'ask') => void;
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
@@ -341,11 +296,14 @@ type UserPreferencesState = {
   setChartColorScheme: (scheme: ChartColorScheme) => void;
   setChartColor: (key: keyof ChartColorsConfig, color: string) => void;
   setChartDisplaySetting: <K extends keyof ChartDisplaySettings>(key: K, value: ChartDisplaySettings[K]) => void;
+  setHasHydrated: (hydrated: boolean) => void;
+  updateAccountDetails: (updates: Partial<NonNullable<UserPreferencesState['accountDetails']>>) => void;
 };
 
 export const useUserPreferences = create<UserPreferencesState>()(
   persist(
     (set, get) => ({
+      hasHydrated: false,
       themeMode: 'dark' as ThemeMode,
       quoteSymbols: defaultSymbols,
       quoteViewMode: 'list',
@@ -356,13 +314,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartDrawingRecordsBySymbol: {},
       chartLockAll: false,
       chartHideAll: false,
-      showOpenPositions: DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions,
-      showTpSlStopLimit: DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit,
-      showClosedPositions: DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions,
-      showHmrPeriods: DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods,
-      showPriceAlerts: DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts,
-      showPotentialStopOut: DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut,
-      showTradingSignals: DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals,
+      chartShowOnChart: { ...DEFAULT_CHART_SHOW_ON_CHART },
       priceSource: 'bid',
       openOrderMode: 'Regular',
       oneClickAccepted: false,
@@ -484,13 +436,13 @@ export const useUserPreferences = create<UserPreferencesState>()(
         }),
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
-      setShowOpenPositions: (show) => set({ showOpenPositions: show }),
-      setShowTpSlStopLimit: (show) => set({ showTpSlStopLimit: show }),
-      setShowClosedPositions: (show) => set({ showClosedPositions: show }),
-      setShowHmrPeriods: (show) => set({ showHmrPeriods: show }),
-      setShowPriceAlerts: (show) => set({ showPriceAlerts: show }),
-      setShowPotentialStopOut: (show) => set({ showPotentialStopOut: show }),
-      setShowTradingSignals: (show) => set({ showTradingSignals: show }),
+      setChartShowOnChartItem: (key, value) =>
+        set((state) => ({
+          chartShowOnChart: {
+            ...state.chartShowOnChart,
+            [key]: value,
+          },
+        })),
       setPriceSource: (source) => set({ priceSource: source }),
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
@@ -519,18 +471,46 @@ export const useUserPreferences = create<UserPreferencesState>()(
         set((state) => ({
           chartDisplay: { ...state.chartDisplay, [key]: value },
         })),
+      setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+      updateAccountDetails: (updates) =>
+        set((state) => {
+          if (!state.accountDetails) return state;
+          return {
+            accountDetails: {
+              ...state.accountDetails,
+              ...updates,
+              credentials: updates.credentials ?? state.accountDetails.credentials,
+            },
+          };
+        }),
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 5,
+      version: 7,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
           chartColors?: Partial<ChartColorsConfig>;
           chartDisplay?: Partial<ChartDisplaySettings>;
           chartDrawingRecordsBySymbol?: PersistedChartDrawingsBySymbol;
+          chartShowOnChart?: Partial<ChartShowOnChartSettings>;
         };
-        const shouldResetLegacyShowOnChartFlags = (version ?? 0) < 4 && hasLegacyShowOnChartDefaults(state);
+        const legacyShowOnChartState = {
+          showOpenPositions: (state as any).showOpenPositions,
+          showTpSlStopLimit: (state as any).showTpSlStopLimit,
+          showClosedPositions: (state as any).showClosedPositions,
+          showTradingSignals: (state as any).showTradingSignals,
+          showHmrPeriods: (state as any).showHmrPeriods,
+          showPriceAlerts: (state as any).showPriceAlerts,
+          showPotentialStopOut: (state as any).showPotentialStopOut,
+        };
+        const shouldResetLegacyShowOnChartFlags =
+          (version ?? 0) < 4 && hasLegacyChartShowOnChartDefaults(legacyShowOnChartState);
+        const nextChartShowOnChart = shouldResetLegacyShowOnChartFlags
+          ? { ...DEFAULT_CHART_SHOW_ON_CHART }
+          : normalizeChartShowOnChartSettings(
+              state.chartShowOnChart ?? buildChartShowOnChartSettingsFromLegacy(legacyShowOnChartState),
+            );
         const nextDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol = Object.fromEntries(
           Object.entries(state.chartDrawingRecordsBySymbol ?? {}).map(([symbol, drawings]) => [
             getChartDrawingBucketKey(symbol),
@@ -543,27 +523,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
 
         return {
           ...state,
-          showOpenPositions: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions
-            : (state.showOpenPositions ?? DEFAULT_SHOW_ON_CHART_FLAGS.showOpenPositions),
-          showTpSlStopLimit: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit
-            : (state.showTpSlStopLimit ?? DEFAULT_SHOW_ON_CHART_FLAGS.showTpSlStopLimit),
-          showClosedPositions: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions
-            : (state.showClosedPositions ?? DEFAULT_SHOW_ON_CHART_FLAGS.showClosedPositions),
-          showHmrPeriods: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods
-            : (state.showHmrPeriods ?? DEFAULT_SHOW_ON_CHART_FLAGS.showHmrPeriods),
-          showPriceAlerts: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts
-            : (state.showPriceAlerts ?? DEFAULT_SHOW_ON_CHART_FLAGS.showPriceAlerts),
-          showPotentialStopOut: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut
-            : (state.showPotentialStopOut ?? DEFAULT_SHOW_ON_CHART_FLAGS.showPotentialStopOut),
-          showTradingSignals: shouldResetLegacyShowOnChartFlags
-            ? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals
-            : (state.showTradingSignals ?? DEFAULT_SHOW_ON_CHART_FLAGS.showTradingSignals),
+          hasHydrated: false,
+          chartShowOnChart: nextChartShowOnChart,
           chartDrawings: activeDrawingLabels.length > 0
             ? activeDrawingLabels
             : (state.chartDrawings ?? []),
@@ -579,6 +540,12 @@ export const useUserPreferences = create<UserPreferencesState>()(
             ...(state.chartDisplay ?? {}),
           },
         } as UserPreferencesState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.warn('[UserPreferences] Failed to rehydrate persisted preferences', error);
+        }
+        state?.setHasHydrated(true);
       },
     }
   )

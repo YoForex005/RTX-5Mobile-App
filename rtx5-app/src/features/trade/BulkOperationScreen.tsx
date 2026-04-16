@@ -37,7 +37,7 @@ export function BulkOperationScreen() {
   const totalNetExposure = 0;
 
   return (
-    <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+    <Screen scroll style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <Stack.Screen options={{ title, headerTitleAlign: 'center' }} />
 
       <View style={styles.summaryCard}>

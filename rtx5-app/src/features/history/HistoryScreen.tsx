@@ -27,6 +27,7 @@ import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
+import { useShallow } from 'zustand/shallow';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -125,7 +126,12 @@ function mapDealToRow(d: Deal): HistoryRow {
 export function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
-  const { historyRange, accountDetails } = useUserPreferences();
+  const { historyRange, accountDetails } = useUserPreferences(
+    useShallow((state) => ({
+      historyRange: state.historyRange,
+      accountDetails: state.accountDetails,
+    })),
+  );
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const T = useTheme();
@@ -157,9 +163,8 @@ export function HistoryScreen() {
   const activeSymbols = useMemo(() => Array.from(new Set(rawPositions.map(p => p.symbol))), [rawPositions]);
   const quotesStore = useMarketData(activeSymbols);
 
-  const liveAcc = useLiveAccountState();
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
-  const balance = liveAcc.balance || 0;
+  const balance = useLiveAccountState((s) => s.balance) || 0;
   const currency = 'USD';
 
   // Calculate actual history summary stats from the raw API payload

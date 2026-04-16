@@ -28,7 +28,7 @@ import {
   pruneLiveCandlesCoveredByHistory,
   sortAndDedupeCandles,
 } from '../../domain/candles';
-import type { Candle } from '../../state/tradingState';
+import { useTradingState, type Candle } from '../../state/tradingState';
 
 export type CandleParams = Candle & {
   bid?: number;
@@ -81,6 +81,19 @@ const clampPendingQuotes = (quotes: PendingQuote[]): PendingQuote[] =>
   quotes.length > MAX_PENDING_QUOTES ? quotes.slice(-MAX_PENDING_QUOTES) : quotes;
 
 const asCandleParams = (candles: Candle[]): CandleParams[] => candles as CandleParams[];
+
+const getSeedHistoryCandles = (symbol: string, timeframe: string): CandleParams[] => {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  const cachedCandles =
+    useTradingState.getState().candles[`${normalizedSymbol}.${normalizedTimeframe}`] ?? [];
+
+  if (cachedCandles.length === 0) {
+    return [];
+  }
+
+  return asCandleParams(sortAndDedupeCandles(cachedCandles)).slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
+};
 
 const areCandlesEqual = (a: CandleParams, b: CandleParams): boolean =>
   a.time === b.time &&
@@ -192,6 +205,13 @@ class LiveCandlesEngine {
       lastGapRefreshAt: 0,
       lastQuoteSignature: null,
     };
+
+    const seededHistory = getSeedHistoryCandles(symbol, timeframe);
+    if (seededHistory.length > 0) {
+      entry.status = 'ready';
+      entry.historyCandles = seededHistory;
+      this.commitVisibleCandles(entry);
+    }
 
     this.entries.set(key, entry);
     this.incrementSymbolRefCount(symbol);

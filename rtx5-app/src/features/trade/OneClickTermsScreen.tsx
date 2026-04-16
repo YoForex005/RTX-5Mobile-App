@@ -14,7 +14,8 @@ import { ThemeColors } from '../../theme/glass';
 import { useMemo } from 'react';
 
 export function OneClickTermsScreen() {
-  const { oneClickAccepted, setOneClickAccepted } = useUserPreferences();
+  const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const setOneClickAccepted = useUserPreferences((s) => s.setOneClickAccepted);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 

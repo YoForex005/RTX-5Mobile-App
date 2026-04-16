@@ -19,6 +19,7 @@ import { useUserPreferences } from '../state/userPreferences';
 import { useUIState } from '../state/uiState';
 import { useTheme } from '../theme/useTheme';
 import { useBrokerConfig } from '../query/broker';
+import { useAccounts } from '../query/accounts';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -58,7 +59,11 @@ export function SidebarDrawer() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
   const { data: brokerConfig } = useBrokerConfig(brokerId);
+  const { data: accounts } = useAccounts(isLoggedIn);
   const isDark = themeMode === 'dark';
+  const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
+  const activeAccount = accounts?.find((account) => account.login === currentLogin) ?? accounts?.[0];
+  const displayAccountName = activeAccount?.name?.trim() || (accountDetails?.id ? `Account ${accountDetails.id}` : '---');
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -71,36 +76,52 @@ export function SidebarDrawer() {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 180,
+          duration: 120,
           useNativeDriver: true,
         }),
         Animated.timing(overlayAnim, {
           toValue: 1,
-          duration: 180,
+          duration: 120,
           useNativeDriver: true,
         }),
       ]).start();
     }
   }, [visible]);
 
-  /* Close handler: animate out FIRST, then notify parent */
-  const handleClose = () => {
+  const closeImmediately = (afterClose?: () => void) => {
+    slideAnim.stopAnimation();
+    overlayAnim.stopAnimation();
+    slideAnim.setValue(-DRAWER_WIDTH);
+    overlayAnim.setValue(0);
+    onClose();
+    isClosingRef.current = false;
+    afterClose?.();
+  };
+
+  /* Close handler: run actions immediately instead of waiting on drawer animation */
+  const handleClose = (afterClose?: () => void) => {
     if (isClosingRef.current) return; // prevent double-close
     isClosingRef.current = true;
+
+    if (afterClose) {
+      closeImmediately(afterClose);
+      return;
+    }
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 150,
+        duration: 110,
         useNativeDriver: true,
       }),
       Animated.timing(overlayAnim, {
         toValue: 0,
-        duration: 150,
+        duration: 110,
         useNativeDriver: true,
       }),
     ]).start(() => {
       // Animation finished → now tell parent to set sidebarOpen = false
       onClose();
+      isClosingRef.current = false;
     });
   };
 
@@ -115,7 +136,7 @@ export function SidebarDrawer() {
             { opacity: overlayAnim },
           ]}
         >
-          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => handleClose()} />
         </Animated.View>
 
         {/* Drawer */}
@@ -133,15 +154,12 @@ export function SidebarDrawer() {
               </View>
               {isLoggedIn && accountDetails ? (
                 <View style={ds.profileText}>
-                  <Text style={ds.userName} numberOfLines={1}>{accountDetails.name}</Text>
+                  <Text style={ds.userName} numberOfLines={1}>{displayAccountName}</Text>
                   <Text style={ds.accountDetails} numberOfLines={1}>{accountDetails.id} — {brokerConfig?.server_name || accountDetails.server}</Text>
                   {brokerConfig?.broker_name ? (
                     <Text style={[ds.accountDetails, { marginTop: 0, marginBottom: 4 }]} numberOfLines={1}>{brokerConfig.broker_name}</Text>
                   ) : null}
-                  <Pressable style={ds.manageBtn} onPress={() => {
-                    handleClose();
-                    setTimeout(() => router.push('/settings/accounts'), 150);
-                  }}>
+                  <Pressable style={ds.manageBtn} onPress={() => handleClose(() => router.push('/settings/accounts'))}>
                     <Text style={ds.manageText}>Manage accounts</Text>
                   </Pressable>
                 </View>
@@ -150,17 +168,13 @@ export function SidebarDrawer() {
                   <Text style={ds.loginText}>Login to existing account or open demo account</Text>
                   <Pressable
                     style={ds.getStartedBtn}
-                    onPress={() => {
-                      handleClose();
-                      // Slight delay to allow drawer to close before navigating
-                      setTimeout(() => router.push('/login'), 150);
-                    }}
+                    onPress={() => handleClose(() => router.push('/login'))}
                   >
                     <Text style={ds.getStartedText}>Get started</Text>
                   </Pressable>
                 </View>
               )}
-              <Pressable style={ds.closeBtn} onPress={handleClose}>
+              <Pressable style={ds.closeBtn} onPress={() => handleClose()}>
                 <Ionicons name="close" size={20} color={T.text} />
               </Pressable>
             </View>
@@ -203,10 +217,7 @@ export function SidebarDrawer() {
                   ds.menuItem,
                   pressed && ds.menuItemPressed,
                 ]}
-                onPress={() => {
-                  item.onPress?.();
-                  handleClose();
-                }}
+                onPress={() => handleClose(item.onPress)}
               >
                 <Ionicons
                   name={item.icon}

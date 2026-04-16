@@ -24,6 +24,7 @@ import {
   type ChartDrawingKind,
   getChartDrawingBucketKey,
 } from './drawingPersistence';
+import { useShallow } from 'zustand/shallow';
 
 // Drawing tool definitions for the quick-add grid
 const DRAWING_TOOLS = [
@@ -56,7 +57,21 @@ export function ObjectsScreen() {
     removeChartDrawing,
     removeChartDrawingRecordForSymbol,
     themeMode,
-  } = useUserPreferences();
+  } = useUserPreferences(
+    useShallow((state) => ({
+      chartSymbol: state.chartSymbol,
+      chartLockAll: state.chartLockAll,
+      chartHideAll: state.chartHideAll,
+      chartDrawings: state.chartDrawings,
+      chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
+      setChartLockAll: state.setChartLockAll,
+      setChartHideAll: state.setChartHideAll,
+      addChartDrawing: state.addChartDrawing,
+      removeChartDrawing: state.removeChartDrawing,
+      removeChartDrawingRecordForSymbol: state.removeChartDrawingRecordForSymbol,
+      themeMode: state.themeMode,
+    })),
+  );
   const queueChartDrawingTool = useUIState((s) => s.queueChartDrawingTool);
   const T = useTheme();
   const isDark = themeMode === 'dark';
@@ -169,6 +184,7 @@ export function ObjectsScreen() {
                 key={drawing.id}
                 style={({ pressed }) => [s.drawingRow, pressed && s.drawingRowPressed]}
                 onLongPress={() => handleRemoveDrawing(drawing.id, drawing.label)}
+                delayLongPress={80}
               >
                 <View style={s.drawingLeft}>
                   <View style={s.drawingIndex}>

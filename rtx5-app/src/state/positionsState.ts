@@ -11,35 +11,84 @@ import {
   type TradingErrorFeedback,
 } from '../api/tradingErrors';
 import { mapPositionToItem } from './positionsMapper';
+import {
+  buildMergedPositions,
+  findExistingPosition,
+  isTerminalPositionUpdate,
+  shouldClearPositionsForLoginSwitch,
+} from './positionsState.helpers';
 
 type PositionsState = {
   positions: PositionItem[];
+  positionSnapshots: Record<string, PositionItem>;
   isLoading: boolean;
   lastFetchLogin: string | null;
   lastError: TradingErrorFeedback | null;
   setPositions: (positions: PositionItem[]) => void;
+  clearPositions: () => void;
+  primePositionSnapshot: (position: PositionItem) => void;
+  clearPositionSnapshot: (positionId?: string | number) => void;
+  removePosition: (positionId: string | number) => void;
+  applyPositionsSnapshot: (dtos: any[], accountLogin?: string) => void;
   upsertPosition: (dto: any) => void;
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
 
-function findExistingPosition(positions: PositionItem[], dto: any): PositionItem | undefined {
-  const incomingId = dto?.ticket ?? dto?.id;
-  if (incomingId !== undefined && incomingId !== null) {
-    return positions.find((position) => String(position.id) === String(incomingId));
-  }
-
-  return undefined;
-}
-
 export const usePositionsState = create<PositionsState>((set) => ({
   positions: [],
+  positionSnapshots: {},
   isLoading: false,
   lastFetchLogin: null,
   lastError: null,
   setPositions: (positions) => set({ positions }),
+  clearPositions: () => set({ positions: [], positionSnapshots: {}, isLoading: false, lastError: null, lastFetchLogin: null }),
+  primePositionSnapshot: (position) =>
+    set((state) => ({
+      positionSnapshots: {
+        ...state.positionSnapshots,
+        [String(position.id)]: { ...position },
+      },
+    })),
+  clearPositionSnapshot: (positionId) =>
+    set((state) => {
+      if (positionId === undefined) {
+        return { positionSnapshots: {} };
+      }
+
+      const nextSnapshots = { ...state.positionSnapshots };
+      delete nextSnapshots[String(positionId)];
+      return { positionSnapshots: nextSnapshots };
+    }),
+  removePosition: (positionId) =>
+    set((state) => ({
+      positions: state.positions.filter((position) => String(position.id) !== String(positionId)),
+      positionSnapshots: Object.fromEntries(
+        Object.entries(state.positionSnapshots).filter(([id]) => id !== String(positionId)),
+      ),
+    })),
+  applyPositionsSnapshot: (dtos, accountLogin) =>
+    set((state) => ({
+      positions: buildMergedPositions(state.positions, Array.isArray(dtos) ? dtos : []),
+      lastFetchLogin: accountLogin ?? state.lastFetchLogin,
+      lastError: null,
+    })),
 
   upsertPosition: (dto: any) => {
     set((state) => {
+      if (isTerminalPositionUpdate(dto)) {
+        const existing = findExistingPosition(state.positions, dto);
+        if (!existing) {
+          return {};
+        }
+
+        return {
+          positions: state.positions.filter((position) => position.id !== existing.id),
+          positionSnapshots: Object.fromEntries(
+            Object.entries(state.positionSnapshots).filter(([id]) => id !== String(existing.id)),
+          ),
+        };
+      }
+
       const existing = findExistingPosition(state.positions, dto);
       const newItem = mapPositionToItem(dto, existing);
       newItem.clientCreatedAt = existing?.clientCreatedAt ?? Date.now();
@@ -60,7 +109,19 @@ export const usePositionsState = create<PositionsState>((set) => ({
   },
 
   refreshPositions: async (accountLogin: string) => {
-    set({ isLoading: true, lastFetchLogin: accountLogin, lastError: null });
+      set((state) => ({
+        isLoading: true,
+        lastFetchLogin: accountLogin,
+        lastError: null,
+        // Drop old-account positions immediately so the chart never keeps
+        // drawing stale trades while a new account fetch is in flight.
+        positions: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
+          ? []
+          : state.positions,
+        positionSnapshots: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
+          ? {}
+          : state.positionSnapshots,
+      }));
 
     try {
       const login = parseInt(accountLogin, 10);
@@ -114,47 +175,8 @@ export const usePositionsState = create<PositionsState>((set) => ({
       console.log('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
 
       set((state) => {
-        const mapped = positionsArray.map((dto) => mapPositionToItem(dto, findExistingPosition(state.positions, dto)));
-        const now = Date.now();
-
-        const optimisticPositions = state.positions.filter((position) => {
-          const clientCreatedAt = position.clientCreatedAt ?? 0;
-          if (!clientCreatedAt) return false;
-
-          const ageMs = now - clientCreatedAt;
-          const isRecent = ageMs >= 0 && ageMs < 60000;
-          const existsInFetched = mapped.some((mappedPosition) => mappedPosition.id === position.id);
-          return isRecent && !existsInFetched;
-        });
-
-        const mergedMapped = mapped.map((mappedPosition) => {
-          const existing = state.positions.find((position) => position.id === mappedPosition.id);
-          if (existing?.clientModifiedAt) {
-            const modAgeMs = now - existing.clientModifiedAt;
-            if (modAgeMs >= 0 && modAgeMs < 10000) {
-              return {
-                ...mappedPosition,
-                sl: existing.sl,
-                tp: existing.tp,
-                clientCreatedAt: existing.clientCreatedAt,
-                clientModifiedAt: existing.clientModifiedAt,
-              };
-            }
-          }
-
-          return {
-            ...mappedPosition,
-            clientCreatedAt: existing?.clientCreatedAt,
-            clientModifiedAt: existing?.clientModifiedAt,
-          };
-        });
-
-        const combined = [...optimisticPositions, ...mergedMapped].sort(
-          (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
-        );
-
         return {
-          positions: combined,
+          positions: buildMergedPositions(state.positions, positionsArray),
           isLoading: false,
           lastError: null,
         };

@@ -7,11 +7,11 @@
  * ONLY the specific `TradePositionRow` instances holding EURUSD will re-render,
  * bypassing a full `<FlatList>` re-render entirely.
  */
-import { useState, useRef } from 'react';
+import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { GestureDetector, Gesture, TouchableOpacity } from 'react-native-gesture-handler';
 import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
@@ -20,13 +20,15 @@ import { fmt } from '../utils/format';
 import { formatBrokerTime } from '../utils/brokerTime';
 import { useUserPreferences } from '../state/userPreferences';
 import { useMarketData } from '../query/websocket';
-import { useTradingState } from '../state/tradingState';
+import { resolveTradingLoginString } from '../state/tradingLogin';
+import { usePositionsState } from '../state/positionsState';
+import { prefetchOrderTicketData } from '../utils/navigationPrefetch';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-export function TradePositionRow({
+function TradePositionRowComponent({
   item,
   onPress,
   onLongPress,
@@ -41,7 +43,8 @@ export function TradePositionRow({
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const { setChartSymbol } = useUserPreferences();
+  const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
+  const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   const isBuy = item.side === 'buy';
   const [expanded, setExpanded] = useState(false);
   
@@ -104,20 +107,31 @@ export function TradePositionRow({
   const detailColor = T.textSub;
   const detailLabelColor = T.textMuted;
   const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : T.border;
+  const tradingLogin = resolveTradingLoginString();
+
+  const navigateWithSnapshot = (pathname: '/trade/close-position' | '/trade/close-by' | '/trade/modify-position') => {
+    primePositionSnapshot(item);
+    router.push({ pathname, params: { positionId: item.id } });
+  };
+
+  const navigateToOrderTicket = () => {
+    prefetchOrderTicketData(tradingLogin, item.symbol);
+    router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } });
+  };
 
   const renderOverlayActions = () => {
     return (
       <Animated.View style={[styles.overlayMenu, overlayStyle, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderLeftColor: dividerColor, zIndex: 100 }]}>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/close-position'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="close" size={20} color={T.down} />
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/close-by'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="swap-horizontal" size={20} color={T.text} />
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/modify-position'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="create" size={20} color={T.text} />
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateToOrderTicket(); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="add" size={20} color={T.text} />
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); setChartSymbol(item.symbol); router.push('/(tabs)/chart'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
@@ -152,7 +166,7 @@ export function TradePositionRow({
       <Pressable
         onPress={toggleExpand}
         onLongPress={() => onLongPress(item)}
-        delayLongPress={160}
+        delayLongPress={80}
         style={({ pressed }) => [styles.body, pressed && !expanded && styles.rowPressed]}
       >
         <View style={styles.headerRow}>
@@ -214,7 +228,7 @@ export function TradePositionRow({
           <View style={styles.detailGrid}>
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
-              <Pressable onPress={() => router.push(`/trade/modify-position?positionId=${item.id}`)} hitSlop={12}>
+              <Pressable onPress={() => { primePositionSnapshot(item); router.push(`/trade/modify-position?positionId=${item.id}`); }} hitSlop={12}>
                 <Text style={[styles.detailValue, { color: T.accent }]}>
                   SL / TP
                 </Text>
@@ -254,6 +268,14 @@ export function TradePositionRow({
     </GestureDetector>
   );
 }
+
+export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => (
+  prev.item === next.item &&
+  prev.selected === next.selected &&
+  prev.onPress === next.onPress &&
+  prev.onLongPress === next.onLongPress &&
+  prev.onBulkPress === next.onBulkPress
+));
 
 const styles = StyleSheet.create({
   row: {
