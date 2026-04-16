@@ -6,7 +6,7 @@ import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../providers/AppProviders';
 import { ACCOUNT_SUMMARY_KEY } from '../query/account';
 import { candleKeys } from '../query/candles';
-import { useTradingState } from '../state/tradingState';
+import { mergeHistoryIntoCandleCache } from '../state/candleCache';
 
 export function prefetchAccountSummary(login?: string) {
   if (!login) return;
@@ -38,7 +38,7 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
     queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe),
     queryFn: async () => {
       const response = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
-      useTradingState.getState().setCandleHistory(normalizedSymbol, normalizedTimeframe, response.candles);
+      mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, response.candles);
       return response.candles;
     },
     staleTime: 30_000,

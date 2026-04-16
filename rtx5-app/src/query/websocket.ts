@@ -8,6 +8,7 @@ import { useShallow } from 'zustand/shallow';
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { useTradingState, Candle } from '../state/tradingState';
+import { mergeHistoryIntoCandleCache } from '../state/candleCache';
 import { quotes as mockQuotes } from '../mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 
@@ -142,7 +143,7 @@ export function useCandleStream(symbol: string, timeframe: string) {
       const existing = store.candles[`${symbol}.${timeframe}`];
       if (!existing || existing.length === 0) {
         const demoCandles = generateDemoCandles(symbol, 200);
-        store.setCandleHistory(symbol, timeframe, demoCandles);
+        mergeHistoryIntoCandleCache(symbol, timeframe, demoCandles);
         setHasFallback(true);
       }
     }, 3000);

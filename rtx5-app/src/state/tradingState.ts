@@ -55,14 +55,21 @@ type TradingState = {
   tickCount: number; 
   /** Current account summary snapshot */
   account: AccountSummary | null;
-  /** Dictionary of historic/live candles Keyed by "Symbol.Timeframe" e.g. "EURUSD.H1" */
+  /**
+   * Canonical chart-visible candle cache keyed by "Symbol.Timeframe" e.g. "EURUSD.H1".
+   * This must remain the healed/merged series the chart can safely render on remount,
+   * not a raw REST-history-only buffer.
+   */
   candles: Record<string, Candle[]>; 
 
   /** Updates or merges quote data for a specific symbol */
   setQuote: (symbol: string, data: Partial<QuoteItem>) => void;
   /** Updates the overall account summary */
   setAccount: (data: Partial<AccountSummary>) => void;
-  /** Completely replaces the candle history list for a specific symbol/timeframe pair */
+  /**
+   * Low-level cache write for canonical candle series only.
+   * Raw history snapshots should be routed through `state/candleCache.ts`.
+   */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
   /** Appends a new candle or updates the terminal (active) candle in real-time */
   updateCandle: (symbol: string, timeframe: string, candle: Candle) => void;

@@ -29,6 +29,7 @@ import {
   sortAndDedupeCandles,
 } from '../../domain/candles';
 import { useTradingState, type Candle } from '../../state/tradingState';
+import { syncMergedCandleCache } from '../../state/candleCache';
 
 export type CandleParams = Candle & {
   bid?: number;
@@ -477,8 +478,12 @@ class LiveCandlesEngine {
     const nextVisible = asCandleParams(
       materializeHistoryAndLiveCandles(entry.historyCandles, entry.liveCandles, entry.timeframe),
     );
+    const cacheChanged = syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible);
 
     if (areSeriesEqual(entry.candles, nextVisible)) {
+      if (cacheChanged) {
+        entry.candles = nextVisible;
+      }
       return;
     }
 

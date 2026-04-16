@@ -2023,48 +2023,48 @@ export function ChartScreen() {
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 4 }]}>
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarSymbolButton} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                 </Pressable>
-                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setSymbolPickerOpen(true)}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setSymbolPickerOpen(true)}>
                   <Ionicons name="add-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarTimeframeButton} onPress={() => setTfOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: BLUE }}>{chartTimeframe}</Text>
                   <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 5 }} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarComboButton} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
                   <Ionicons name={chartType === 'candles' || chartType === 'hollow' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'} size={18} color={TEXT_MUTED} />
                   <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
-                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setMenuOpen(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setMenuOpen(true)} hitSlop={8}>
                   <Ionicons name="analytics-outline" size={18} color={TEXT_MUTED} />
                 </Pressable>
               </View>
             </ScrollView>
 
             {/* Right section — each icon has equal paddingHorizontal so spacing is uniform */}
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={styles.toolbarTrailingGroup}>
               {showTradingSignals && (
-                <Pressable style={{ paddingHorizontal: 5 }} onPress={() => setShowSignalDetails(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setShowSignalDetails(true)} hitSlop={8}>
                   <View style={styles.redBoxIcon}>
                     <Ionicons name="arrow-down" size={14} color="#FFF" />
                   </View>
                 </Pressable>
               )}
-              <Pressable style={{ paddingLeft: 0, paddingRight: 10 }} onPress={() => router.push('/chart/objects')} hitSlop={8}>
+              <Pressable style={styles.toolbarIconButton} onPress={() => router.push('/chart/objects')} hitSlop={8}>
                 <Ionicons name="pencil-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={{ paddingHorizontal: 8 }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
+              <Pressable style={styles.toolbarIconButton} onPress={() => router.push('/chart/settings')} hitSlop={8}>
                 <Ionicons name="options-outline" size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={{ paddingLeft: 10, paddingRight: 4 }} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
+              <Pressable style={styles.toolbarIconButton} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
                 <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={TEXT_MUTED} />
               </Pressable>
-              <Pressable style={{ paddingLeft: 12, paddingRight: 8 }} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
+              <Pressable style={styles.toolbarIconButton} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
                 <Ionicons name="ellipsis-vertical" size={18} color={TEXT_MUTED} />
               </Pressable>
             </View>
@@ -2720,11 +2720,43 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       flex: 1,
     },
+    toolbarSymbolButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      minHeight: 28,
+      paddingHorizontal: 6,
+    },
+    toolbarTimeframeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      minHeight: 28,
+      paddingHorizontal: 6,
+    },
+    toolbarComboButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      minHeight: 28,
+      paddingHorizontal: 6,
+    },
+    toolbarIconButton: {
+      width: 32,
+      height: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    toolbarTrailingGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+    },
     toolbarSeparator: {
       width: 1,
       height: 16,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      marginHorizontal: 4,
+      marginHorizontal: 6,
     },
     toolbarFlexSpacer: {
       flex: 1,

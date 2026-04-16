@@ -3,6 +3,7 @@
  */
 
 import { useTradingState } from '../../state/tradingState';
+import { mergeHistoryIntoCandleCache } from '../../state/candleCache';
 import NetInfo from '@react-native-community/netinfo';
 
 type SubscriptionMessage = {
@@ -215,7 +216,7 @@ export class WebSocketService {
     // 4. Candle History (bulk response)
     if (type === 'candle_history') {
       if (data.symbol && data.timeframe && data.candles) {
-        store.setCandleHistory(data.symbol, data.timeframe, data.candles);
+        mergeHistoryIntoCandleCache(data.symbol, data.timeframe, data.candles);
       }
     }
   }

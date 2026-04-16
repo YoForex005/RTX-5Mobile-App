@@ -1140,13 +1140,13 @@ export function ChartScreen() {
           {/* Top Integrated Toolbar (TradingView Exact Style) */}
           <View style={styles.chartTopToolbar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16 }}>
+              <View style={styles.toolbarButtonRow}>
                 {/* 1: Symbol & Add */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Pressable onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+                <View style={styles.toolbarLeadingGroup}>
+                  <Pressable style={styles.toolbarSymbolButton} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
                     <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                   </Pressable>
-                  <Pressable onPress={() => setSymbolPickerOpen(true)}>
+                  <Pressable style={styles.toolbarIconButton} onPress={() => setSymbolPickerOpen(true)}>
                     <Ionicons name="add-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                   </Pressable>
                 </View>
@@ -1154,48 +1154,48 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 3: Timeframe */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setTfOpen(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarTimeframeButton} onPress={() => setTfOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 4: Candles Type */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowChartTypeMenu(true)}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setShowChartTypeMenu(true)}>
                   <TvCandles color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 5: FX / Indicators */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setMenuOpen(true)}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setMenuOpen(true)}>
                   <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
 
                 {/* 6: Grid/Templates */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowTemplatesMenu(true)}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setShowTemplatesMenu(true)}>
                   <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 7: Chart Preferences */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => router.push('/chart/settings')} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => router.push('/chart/settings')} hitSlop={8}>
                   <Ionicons name="options-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 8: Expand */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
                   <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 9: More */}
-                <Pressable style={{ width: 32, alignItems: 'center', justifyContent: 'center' }} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
                   <Ionicons name="ellipsis-vertical" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
               </View>
@@ -1793,12 +1793,38 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       flex: 1,
     },
+    toolbarButtonRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: '100%',
+      paddingRight: 12,
+    },
+    toolbarLeadingGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    toolbarSymbolButton: {
+      minHeight: 28,
+      justifyContent: 'center',
+    },
+    toolbarTimeframeButton: {
+      width: 38,
+      height: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    toolbarIconButton: {
+      width: 32,
+      height: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     toolbarSeparator: {
       width: 1,
       height: 16,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      //space betweeen icon and
-      marginHorizontal: 8,
+      marginHorizontal: 6,
     },
     toolbarFlexSpacer: {
       flex: 1,

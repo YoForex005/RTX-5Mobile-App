@@ -348,7 +348,19 @@ export function HistoryScreen() {
                   isDark={isDark}
                 />
                 <MetricPill label='Trades' value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
-                <MetricPill label='Net P/L' value={fmt.pnl(netProfit)} icon='wallet-outline' tone={netTone} T={T} isDark={isDark} />
+                <MetricPill
+                  label='Net P/L'
+                  value={fmt.pnl(netProfit)}
+                  icon='wallet-outline'
+                  tone={netTone}
+                  T={T}
+                  isDark={isDark}
+                  onPress={
+                    tab === 'Positions'
+                      ? () => router.push({ pathname: '/history/filter', params: { view: 'net-pnl' } })
+                      : undefined
+                  }
+                />
               </View>
             </View>
 

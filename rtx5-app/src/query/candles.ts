@@ -4,7 +4,8 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCandleHistory } from '../api/candles';
-import { useTradingState, Candle } from '../state/tradingState';
+import { Candle } from '../state/tradingState';
+import { mergeHistoryIntoCandleCache } from '../state/candleCache';
 import { generateMockCandles } from '../mock/candleGenerator';
 import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 
@@ -32,16 +33,14 @@ export function useCandleHistory(symbol: string, timeframe: string) {
     queryFn: async () => {
       try {
         const res = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
-        // Populate the Zustand store so the chart renders immediately
-        const store = useTradingState.getState();
-        store.setCandleHistory(normalizedSymbol, normalizedTimeframe, res.candles);
+        // Keep the fallback cache healed without discarding the active live bar.
+        mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, res.candles);
         return res.candles;
       } catch (err) {
         // Fallback for demo or offline API
         console.warn(`[API Fallback] Using mock candles for ${normalizedSymbol}`);
         const fallbackCandles = generateMockCandles(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
-        const store = useTradingState.getState();
-        store.setCandleHistory(normalizedSymbol, normalizedTimeframe, fallbackCandles);
+        mergeHistoryIntoCandleCache(normalizedSymbol, normalizedTimeframe, fallbackCandles);
         return fallbackCandles;
       }
     },
