@@ -1285,21 +1285,6 @@ export function ChartScreen() {
 
         {!isChartExpanded && (
           <View style={styles.bottomArea}>
-            <View style={styles.segmentedControl}>
-              {['POSITIONS', 'ORDERS', 'HISTORY'].map((tab) => (
-                <Pressable
-                  key={tab}
-                  style={[styles.segmentBtn, tab === 'POSITIONS' ? styles.segmentBtnActive : null]}
-                  onPress={() => {
-                    if (tab === 'HISTORY') router.push('/history');
-                    else router.push('/trade');
-                  }}
-                >
-                  <Text style={[styles.segmentText, tab === 'POSITIONS' ? styles.segmentTextActive : null]}>{tab}</Text>
-                </Pressable>
-              ))}
-            </View>
-
             <View style={styles.sentimentLabelsRow}>
               <Text style={styles.sentimentLabelSell}>{sentiment.sellPct}% SELL</Text>
               <Text style={styles.sentimentLabelBuy}>{sentiment.buyPct}% BUY</Text>
@@ -1755,37 +1740,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingBottom: 10,
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
-    },
-    segmentedControl: {
-      flexDirection: 'row',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F1F5F9',
-      borderRadius: 8,
-      padding: 1,
-      marginBottom: 4,
-    },
-    segmentBtn: {
-      flex: 1,
-      paddingVertical: 4,
-      alignItems: 'center',
-      borderRadius: 6,
-    },
-    segmentBtnActive: {
-      backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.05,
-      shadowRadius: 2,
-      elevation: 2,
-    },
-    segmentText: {
-      color: isDark ? '#64748B' : '#64748B',
-      fontSize: 12,
-      fontWeight: '600',
-      letterSpacing: 0.5,
-    },
-    segmentTextActive: {
-      color: isDark ? '#F8FAFC' : '#0F172A',
-      fontWeight: '700',
     },
     sentimentLabelsRow: {
       flexDirection: 'row',

@@ -204,6 +204,7 @@ export function SymbolDetailsScreen() {
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const { setChartSymbol, oneClickAccepted } = useUserPreferences();
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
+  const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
   const [alertOn, setAlertOn] = useState(false);
 
   // Subscribe to live tick data for this symbol
@@ -331,6 +332,8 @@ export function SymbolDetailsScreen() {
   };
 
   const handleTrade = (side: 'buy' | 'sell') => {
+    setActiveSide(side);
+    setTimeout(() => setActiveSide(null), 800);
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
@@ -450,9 +453,9 @@ export function SymbolDetailsScreen() {
               <Text style={s.ticker.spreadLbl}>SPREAD</Text>
             </View>
 
-            <View style={[s.ticker.inner, isPending && { opacity: 0.6 }]}>
+            <View style={[s.ticker.inner]}>
               {/* SELL */}
-              <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('sell')}>
+              <Pressable style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 }]} disabled={isPending} onPress={() => handleTrade('sell')}>
                 <LinearGradient colors={[isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.down }]}>SELL</Text>
@@ -476,7 +479,7 @@ export function SymbolDetailsScreen() {
               </View>
 
               {/* BUY */}
-              <Pressable style={s.ticker.side} disabled={isPending} onPress={() => handleTrade('buy')}>
+              <Pressable style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 }]} disabled={isPending} onPress={() => handleTrade('buy')}>
                 <LinearGradient colors={[isDark ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.up }]}>BUY</Text>

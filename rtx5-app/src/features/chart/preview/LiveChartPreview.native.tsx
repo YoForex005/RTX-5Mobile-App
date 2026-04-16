@@ -424,12 +424,15 @@ export default function LiveChartPreviewNative({
     if (!webViewReady || !webViewRef.current) return;
     const lines: Array<{ price: number; color: string; lineWidth: number; lineStyle: number; axisLabelVisible: boolean; title: string }> = [];
 
+    const isUpCandle = ohlcData ? ohlcData.c >= ohlcData.o : true;
+    const directionColor = isUpCandle ? colors.candlesUptrend : colors.candlesDowntrend;
+
     if (display.showBidPriceLine && liveQuote?.bid) {
       lines.push({
         price: liveQuote.bid,
-        color: '#2962FF',
+        color: directionColor,
         lineWidth: 1,
-        lineStyle: 3,
+        lineStyle: 0,
         axisLabelVisible: true,
         title: 'Bid',
       });
@@ -438,9 +441,9 @@ export default function LiveChartPreviewNative({
     if (display.showAskPriceLine && liveQuote?.ask) {
       lines.push({
         price: liveQuote.ask,
-        color: '#EF5350',
+        color: directionColor,
         lineWidth: 1,
-        lineStyle: 3,
+        lineStyle: 0,
         axisLabelVisible: true,
         title: 'Ask',
       });
@@ -449,7 +452,7 @@ export default function LiveChartPreviewNative({
     webViewRef.current.injectJavaScript(
       `if (typeof setPriceLines === 'function') setPriceLines(${JSON.stringify(lines)}); true;`,
     );
-  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady]);
+  }, [display.showBidPriceLine, display.showAskPriceLine, liveQuote?.bid, liveQuote?.ask, webViewReady, ohlcData, colors.candlesUptrend, colors.candlesDowntrend]);
 
   useEffect(() => {
     const resyncPreview = () => {

@@ -484,9 +484,11 @@ export const ordersApi = {
     if (!accepted) {
       const status = lastBad?.status ?? 400;
       const body = lastBad?.graceful
-        ? { message: unwrap(lastBad.body)?.comment
-              || unwrap(lastBad.body)?.message
-              || 'Order rejected by the trading server.' }
+        ? {
+          message: unwrap(lastBad.body)?.comment
+            || unwrap(lastBad.body)?.message
+            || 'Order rejected by the trading server.'
+        }
         : (lastBad?.body ?? {});
       const headers: Record<string, string> = {};
       if (status === 429 && lastBad?.response) {

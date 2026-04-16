@@ -21,6 +21,7 @@ import { fmt } from '../../utils/format';
 import { useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
+import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 
 const ORDER_TYPES = [
   'Market Execution',
@@ -98,7 +99,12 @@ export function OrderTicketScreen() {
       Animated.timing(modalOpacityAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
     ]).start(() => {
       setModalState(prev => ({ ...prev, visible: false }));
-      if (wasSuccess) setTimeout(() => router.back(), 100);
+      if (wasSuccess) {
+        setTimeout(() => {
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
+        }, 100);
+      }
     });
   }, [modalState.type]);
 
@@ -149,6 +155,18 @@ export function OrderTicketScreen() {
   });
 
   const domRows = useMemo(() => {
+    // Perturb the DOM volumes slightly on each price tick to simulate live order book depth
+    const perturb = (val: number) => {
+      const v = val + (Math.random() * 14 - 7);
+      return Math.max(5, Math.min(95, v));
+    };
+
+    domSeed.current = {
+      v1s: perturb(domSeed.current.v1s), v1b: perturb(domSeed.current.v1b),
+      v2s: perturb(domSeed.current.v2s), v2b: perturb(domSeed.current.v2b),
+      v3s: perturb(domSeed.current.v3s), v3b: perturb(domSeed.current.v3b),
+    };
+
     return [
       { sell: domSeed.current.v1s, price: fmt.price(ASK + pipSize * 3), buy: domSeed.current.v1b },
       { sell: domSeed.current.v2s, price: fmt.price((ASK + BID) / 2), buy: domSeed.current.v2b },
@@ -182,7 +200,7 @@ export function OrderTicketScreen() {
         'Authentication Error',
         'The app does not have a valid local trading session. Log in again before placing an order.',
       );
-      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
       return;
     }
 
@@ -192,7 +210,7 @@ export function OrderTicketScreen() {
         'Account Error',
         'The app could not resolve the active trading account from local state. Select an account and try again.',
       );
-      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
       return;
     }
 
@@ -235,7 +253,7 @@ export function OrderTicketScreen() {
           { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
           { action: 'place-order' },
         );
-        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
         return;
       }
 
@@ -545,101 +563,11 @@ export function OrderTicketScreen() {
       </ScrollView>
 
       {/* Success/Error Modal Overlay */}
-      {modalState.visible && (
-        <View style={styles.modalOverlay} pointerEvents="box-none">
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
-          <Animated.View style={[styles.modalCard, { opacity: modalOpacityAnim, transform: [{ scale: modalScaleAnim }] }]}>
-
-            {/* Glow circle + icon */}
-            <View style={styles.modalIconWrap}>
-              <View style={[
-                styles.modalIconGlow,
-                {
-                  backgroundColor: modalState.type === 'success'
-                    ? (modalState.side === 'sell' ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)')
-                    : 'rgba(239,68,68,0.10)'
-                },
-              ]} />
-              <View style={[
-                styles.modalIconCircle,
-                {
-                  backgroundColor: modalState.type === 'success'
-                    ? (modalState.side === 'sell' ? T.trading.sell.primary : T.trading.buy.primary)
-                    : T.trading.sell.primary
-                },
-              ]}>
-                <Ionicons
-                  name={modalState.type === 'success' ? 'checkmark-sharp' : 'close-sharp'}
-                  size={28}
-                  color="#fff"
-                />
-              </View>
-            </View>
-
-            {modalState.type === 'success' && modalState.ticket ? (
-              <>
-                {/* Title */}
-                <Text style={styles.modalTitle}>Order Filled</Text>
-
-                {/* Symbol + side pill */}
-                <View style={styles.modalSymbolRow}>
-                  <Text style={styles.modalSymbolText}>{modalState.symbol}</Text>
-                  <View style={[styles.modalSidePill, {
-                    backgroundColor: modalState.side === 'buy' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-                  }]}>
-                    <Text style={[styles.modalSidePillText, {
-                      color: modalState.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary,
-                    }]}>{modalState.side?.toUpperCase()}</Text>
-                  </View>
-                </View>
-
-                {/* Execution price — hero */}
-                <Text style={styles.modalPrice}>{fmt.price(modalState.price ?? 0)}</Text>
-
-                {/* Divider */}
-                <View style={styles.modalDivider} />
-
-                {/* Details */}
-                <View style={styles.modalDetailsRow}>
-                  <View style={styles.modalDetailItem}>
-                    <Text style={styles.modalDetailLabel}>Volume</Text>
-                    <Text style={styles.modalDetailValue}>{modalState.volume}</Text>
-                  </View>
-                  <View style={styles.modalDetailSep} />
-                  <View style={styles.modalDetailItem}>
-                    <Text style={styles.modalDetailLabel}>Ticket</Text>
-                    <Text style={styles.modalDetailValue}>#{modalState.ticket}</Text>
-                  </View>
-                  <View style={styles.modalDetailSep} />
-                  <View style={styles.modalDetailItem}>
-                    <Text style={styles.modalDetailLabel}>Time</Text>
-                    <Text style={styles.modalDetailValue}>{modalState.executedAt}</Text>
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalTitle}>{modalState.title}</Text>
-                <Text style={styles.modalMessage}>{modalState.message}</Text>
-              </>
-            )}
-
-            {/* Button */}
-            <Pressable
-              style={[styles.modalBtn, {
-                backgroundColor: modalState.type === 'success'
-                  ? (modalState.side === 'sell' ? T.trading.sell.primary : T.trading.buy.primary)
-                  : T.trading.sell.primary,
-              }]}
-              onPress={handleModalClose}
-            >
-              <Text style={styles.modalBtnText}>
-                {modalState.type === 'success' ? 'Done' : 'Dismiss'}
-              </Text>
-            </Pressable>
-          </Animated.View>
-        </View>
-      )}
+      <TradeFeedbackModal
+        state={modalState}
+        onClose={handleModalClose}
+        isDark={isDark}
+      />
     </View>
   );
 }

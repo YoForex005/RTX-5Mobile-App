@@ -75,6 +75,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       : [];
   }
 
+  function hasTouchSupport() {
+    try {
+      return typeof window !== 'undefined' && (
+        'ontouchstart' in window ||
+        (typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 0)
+      );
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function PrimitiveBase() {
     this._chart = null;
     this._series = null;
@@ -204,6 +215,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     };
     LinePrimitive.prototype.setVisible = function (visible) {
       this._options.visible = !!visible;
+      this.requestUpdate();
+    };
+    LinePrimitive.prototype.updatePoints = function (pointA, pointB) {
+      this._p1 = pointA;
+      this._p2 = pointB;
       this.requestUpdate();
     };
     return new LinePrimitive(p1, p2, options);
@@ -644,26 +660,52 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   function TrendLineTool(chart, series, manager) {
     BaseTool.call(this, 'trendline', chart, series, manager);
     this._points = [];
+    this._preview = null;
     this._handleClick = this._handleClick.bind(this);
-    this._chart.subscribeClick(this._handleClick);
+    this._handleMove = this._handleMove.bind(this);
+    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
+    if (this._usesNativeChartInput) {
+      this._chart.subscribeClick(this._handleClick);
+      this._chart.subscribeCrosshairMove(this._handleMove);
+    }
   }
 
   TrendLineTool.prototype = Object.create(BaseTool.prototype);
   TrendLineTool.prototype.constructor = TrendLineTool;
   TrendLineTool.prototype.startDrawing = function () {
     BaseTool.prototype.startDrawing.call(this);
+    this._resetDrawingSession();
+  };
+  TrendLineTool.prototype._resetDrawingSession = function () {
     this._points = [];
+    this._removePreview();
   };
   TrendLineTool.prototype.stopDrawing = function () {
     BaseTool.prototype.stopDrawing.call(this);
-    this._points = [];
+    this._resetDrawingSession();
+  };
+  TrendLineTool.prototype._removePreview = function () {
+    if (this._preview) {
+      try { this._series.detachPrimitive(this._preview); } catch (_error) {}
+      this._preview = null;
+    }
   };
   TrendLineTool.prototype._handleClick = function (param) {
     if (!this._drawing) return;
     var point = this._resolvePoint(param);
     if (!point) return;
     this._points.push(point);
+    if (this._points.length === 1) {
+      this._preview = createLinePrimitive(point, point, {
+        color: '#3B82F6',
+        width: 2,
+        label: ''
+      });
+      this._series.attachPrimitive(this._preview);
+      return;
+    }
     if (this._points.length >= 2) {
+      this._removePreview();
       this._completeDrawing(createLinePrimitive(this._points[0], this._points[1], {
         color: '#3B82F6',
         width: 2,
@@ -673,16 +715,28 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       });
     }
   };
+  TrendLineTool.prototype._handleMove = function (param) {
+    if (!this._drawing || !this._preview || this._points.length !== 1) return;
+    var point = this._resolvePoint(param);
+    if (!point) return;
+    this._preview.updatePoints(this._points[0], point);
+  };
   TrendLineTool.prototype.remove = function () {
     this.stopDrawing();
-    this._chart.unsubscribeClick(this._handleClick);
+    if (this._usesNativeChartInput) {
+      this._chart.unsubscribeClick(this._handleClick);
+      this._chart.unsubscribeCrosshairMove(this._handleMove);
+    }
   };
 
   function PatternTool(chart, series, manager) {
     BaseTool.call(this, 'patterns', chart, series, manager);
     this._points = [];
     this._handleClick = this._handleClick.bind(this);
-    this._chart.subscribeClick(this._handleClick);
+    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
+    if (this._usesNativeChartInput) {
+      this._chart.subscribeClick(this._handleClick);
+    }
   }
 
   PatternTool.prototype = Object.create(BaseTool.prototype);
@@ -716,7 +770,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
   PatternTool.prototype.remove = function () {
     this.stopDrawing();
-    this._chart.unsubscribeClick(this._handleClick);
+    if (this._usesNativeChartInput) {
+      this._chart.unsubscribeClick(this._handleClick);
+    }
   };
 
   function BoxTool(kind, chart, series, manager, options) {
@@ -726,8 +782,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._options = options || {};
     this._handleClick = this._handleClick.bind(this);
     this._handleMove = this._handleMove.bind(this);
-    this._chart.subscribeClick(this._handleClick);
-    this._chart.subscribeCrosshairMove(this._handleMove);
+    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
+    if (this._usesNativeChartInput) {
+      this._chart.subscribeClick(this._handleClick);
+      this._chart.subscribeCrosshairMove(this._handleMove);
+    }
   }
 
   BoxTool.prototype = Object.create(BaseTool.prototype);
@@ -796,15 +855,20 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
   BoxTool.prototype.remove = function () {
     this.stopDrawing();
-    this._chart.unsubscribeClick(this._handleClick);
-    this._chart.unsubscribeCrosshairMove(this._handleMove);
+    if (this._usesNativeChartInput) {
+      this._chart.unsubscribeClick(this._handleClick);
+      this._chart.unsubscribeCrosshairMove(this._handleMove);
+    }
   };
 
   function LabelTool(kind, chart, series, manager, options) {
     BaseTool.call(this, kind, chart, series, manager);
     this._options = options || {};
     this._handleClick = this._handleClick.bind(this);
-    this._chart.subscribeClick(this._handleClick);
+    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
+    if (this._usesNativeChartInput) {
+      this._chart.subscribeClick(this._handleClick);
+    }
   }
 
   LabelTool.prototype = Object.create(BaseTool.prototype);
@@ -826,14 +890,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
   LabelTool.prototype.remove = function () {
     this.stopDrawing();
-    this._chart.unsubscribeClick(this._handleClick);
+    if (this._usesNativeChartInput) {
+      this._chart.unsubscribeClick(this._handleClick);
+    }
   };
 
   function PitchforkTool(chart, series, manager) {
     BaseTool.call(this, 'pitchfork', chart, series, manager);
     this._points = [];
     this._handleClick = this._handleClick.bind(this);
-    this._chart.subscribeClick(this._handleClick);
+    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
+    if (this._usesNativeChartInput) {
+      this._chart.subscribeClick(this._handleClick);
+    }
   }
 
   PitchforkTool.prototype = Object.create(BaseTool.prototype);
@@ -862,7 +931,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
   PitchforkTool.prototype.remove = function () {
     this.stopDrawing();
-    this._chart.unsubscribeClick(this._handleClick);
+    if (this._usesNativeChartInput) {
+      this._chart.unsubscribeClick(this._handleClick);
+    }
   };
 
   function AdvancedDrawingToolsManager(chart, series) {
@@ -872,8 +943,17 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._hidden = false;
     this._locked = false;
     this._sticky = false;
+    this._magnetEnabled = false;
     this._drawingCounter = {};
     this._records = [];
+    this._chartHost = null;
+    this._activeTouchId = null;
+    this._touchGestureMode = 'idle';
+    this._touchDidMove = false;
+    this._handleTouchStart = this._handleTouchStart.bind(this);
+    this._handleTouchMove = this._handleTouchMove.bind(this);
+    this._handleTouchEnd = this._handleTouchEnd.bind(this);
+    this._handleTouchCancel = this._handleTouchCancel.bind(this);
     this._tools = {
       trendline: new TrendLineTool(chart, series, this),
       patterns: new PatternTool(chart, series, this),
@@ -933,13 +1013,356 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       }),
       pitchfork: new PitchforkTool(chart, series, this)
     };
+    this._bindTouchBridge();
     this._emitDrawingsChanged();
+    this._applyChartInteractionMode();
   }
 
   AdvancedDrawingToolsManager.prototype._stopAllTools = function () {
     Object.keys(this._tools).forEach(function (key) {
       this._tools[key].stopDrawing();
     }, this);
+  };
+
+  AdvancedDrawingToolsManager.prototype._isDrawingToolActive = function () {
+    return !this._locked && !!this._tools[this._activeTool];
+  };
+
+  AdvancedDrawingToolsManager.prototype.shouldUseDirectTouchInput = function () {
+    return hasTouchSupport();
+  };
+
+  AdvancedDrawingToolsManager.prototype._bindTouchBridge = function () {
+    if (!this.shouldUseDirectTouchInput() || typeof document === 'undefined') {
+      return;
+    }
+
+    var host = document.getElementById('chart');
+    if (!host || host === this._chartHost) {
+      return;
+    }
+
+    this._unbindTouchBridge();
+    this._chartHost = host;
+    host.addEventListener('touchstart', this._handleTouchStart, { capture: true, passive: false });
+    host.addEventListener('touchmove', this._handleTouchMove, { capture: true, passive: false });
+    host.addEventListener('touchend', this._handleTouchEnd, { capture: true, passive: false });
+    host.addEventListener('touchcancel', this._handleTouchCancel, { capture: true, passive: false });
+  };
+
+  AdvancedDrawingToolsManager.prototype._unbindTouchBridge = function () {
+    if (!this._chartHost) {
+      return;
+    }
+
+    this._chartHost.removeEventListener('touchstart', this._handleTouchStart, true);
+    this._chartHost.removeEventListener('touchmove', this._handleTouchMove, true);
+    this._chartHost.removeEventListener('touchend', this._handleTouchEnd, true);
+    this._chartHost.removeEventListener('touchcancel', this._handleTouchCancel, true);
+
+    try {
+      this._chartHost.style.touchAction = '';
+      this._chartHost.style.userSelect = '';
+      this._chartHost.style.webkitUserSelect = '';
+    } catch (_error) {}
+
+    this._chartHost = null;
+    this._activeTouchId = null;
+    this._touchGestureMode = 'idle';
+    this._touchDidMove = false;
+  };
+
+  AdvancedDrawingToolsManager.prototype._getActiveTouchTool = function () {
+    if (!this._isDrawingToolActive()) {
+      return null;
+    }
+
+    var tool = this._tools[this._activeTool];
+    if (!tool || typeof tool.isDrawing !== 'function' || !tool.isDrawing()) {
+      return null;
+    }
+
+    return tool;
+  };
+
+  AdvancedDrawingToolsManager.prototype._findTrackedTouch = function (touchList) {
+    if (!touchList || typeof touchList.length !== 'number') {
+      return null;
+    }
+
+    var fallback = null;
+    for (var i = 0; i < touchList.length; i++) {
+      var touch = typeof touchList.item === 'function' ? touchList.item(i) : touchList[i];
+      if (!touch) continue;
+      if (!fallback) {
+        fallback = touch;
+      }
+      if (this._activeTouchId === null || this._activeTouchId === undefined || touch.identifier === this._activeTouchId) {
+        return touch;
+      }
+    }
+
+    return fallback;
+  };
+
+  AdvancedDrawingToolsManager.prototype._snapPriceToSeriesBar = function (timeScale, time, price) {
+    if (
+      !this._magnetEnabled ||
+      !timeScale ||
+      typeof timeScale.timeToIndex !== 'function' ||
+      !this._series ||
+      typeof this._series.dataByIndex !== 'function'
+    ) {
+      return null;
+    }
+
+    try {
+      var index = timeScale.timeToIndex(time, true);
+      if (index === null || index === undefined) {
+        return null;
+      }
+
+      var bar = this._series.dataByIndex(index, 0);
+      if (!bar || typeof bar !== 'object') {
+        return null;
+      }
+
+      var candidates = [];
+      if (typeof bar.open === 'number') candidates.push(bar.open);
+      if (typeof bar.high === 'number') candidates.push(bar.high);
+      if (typeof bar.low === 'number') candidates.push(bar.low);
+      if (typeof bar.close === 'number') candidates.push(bar.close);
+      if (typeof bar.value === 'number') candidates.push(bar.value);
+
+      if (!candidates.length) {
+        return null;
+      }
+
+      var nearest = candidates[0];
+      var minDistance = Math.abs(nearest - price);
+      for (var i = 1; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        var distance = Math.abs(candidate - price);
+        if (distance < minDistance) {
+          nearest = candidate;
+          minDistance = distance;
+        }
+      }
+
+      return nearest;
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildSyntheticPointerParam = function (touch) {
+    if (!touch || !this._chartHost || !this._chart || !this._series) {
+      return null;
+    }
+
+    var rect = this._chartHost.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) {
+      return null;
+    }
+
+    var x = clampNumber(touch.clientX - rect.left, 0);
+    var y = clampNumber(touch.clientY - rect.top, 0);
+    x = Math.max(0, Math.min(rect.width, x));
+    y = Math.max(0, Math.min(rect.height, y));
+
+    var timeScale = typeof this._chart.timeScale === 'function' ? this._chart.timeScale() : null;
+    if (!timeScale || typeof timeScale.coordinateToTime !== 'function') {
+      return null;
+    }
+
+    var time = timeScale.coordinateToTime(x);
+    if (time === null || time === undefined) {
+      return null;
+    }
+
+    var price = typeof this._series.coordinateToPrice === 'function'
+      ? this._series.coordinateToPrice(y)
+      : null;
+    if (price === null || price === undefined || !isFinite(price)) {
+      return null;
+    }
+
+    var snappedPrice = this._snapPriceToSeriesBar(timeScale, time, price);
+    if (snappedPrice !== null) {
+      price = snappedPrice;
+      if (typeof this._series.priceToCoordinate === 'function') {
+        var snappedY = this._series.priceToCoordinate(price);
+        if (snappedY !== null && snappedY !== undefined && isFinite(snappedY)) {
+          y = snappedY;
+        }
+      }
+    }
+
+    return {
+      point: { x: x, y: y },
+      time: time
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._consumeTouchEvent = function (event) {
+    if (!event) {
+      return;
+    }
+
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    if (typeof event.stopPropagation === 'function') {
+      event.stopPropagation();
+    }
+    if (typeof event.stopImmediatePropagation === 'function') {
+      event.stopImmediatePropagation();
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleTouchStart = function (event) {
+    var tool = this._getActiveTouchTool();
+    if (!tool || !this.shouldUseDirectTouchInput()) {
+      return;
+    }
+
+    if (event.touches && event.touches.length > 1) {
+      this._activeTouchId = null;
+      return;
+    }
+
+    var touch = this._findTrackedTouch(event.changedTouches || event.touches);
+    if (!touch) {
+      return;
+    }
+
+    this._activeTouchId = touch.identifier;
+    var param = this._buildSyntheticPointerParam(touch);
+    this._touchDidMove = false;
+    var hasPreviewHandler = typeof tool._handleMove === 'function';
+    var existingPointCount = Array.isArray(tool._points) ? tool._points.length : 0;
+    if (hasPreviewHandler && existingPointCount === 0) {
+      this._touchGestureMode = 'drag-from-first-anchor';
+    } else if (hasPreviewHandler && existingPointCount === 1) {
+      this._touchGestureMode = 'commit-second-anchor';
+    } else {
+      this._touchGestureMode = 'click';
+    }
+
+    if (param) {
+      if (this._touchGestureMode === 'drag-from-first-anchor') {
+        if (typeof tool._handleClick === 'function') {
+          tool._handleClick(param);
+        }
+      } else if (this._touchGestureMode === 'commit-second-anchor' && hasPreviewHandler) {
+        tool._handleMove(param);
+      } else if (typeof tool._handleClick === 'function') {
+        tool._handleClick(param);
+      }
+    }
+    this._consumeTouchEvent(event);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleTouchMove = function (event) {
+    var tool = this._getActiveTouchTool();
+    if (!tool || !this.shouldUseDirectTouchInput()) {
+      return;
+    }
+
+    var touch = this._findTrackedTouch(event.touches || event.changedTouches);
+    if (!touch) {
+      return;
+    }
+
+    var param = this._buildSyntheticPointerParam(touch);
+    if (param && typeof tool._handleMove === 'function') {
+      this._touchDidMove = true;
+      tool._handleMove(param);
+    }
+    this._consumeTouchEvent(event);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleTouchEnd = function (event) {
+    var tool = this._getActiveTouchTool();
+    if (!tool || !this.shouldUseDirectTouchInput()) {
+      this._touchGestureMode = 'idle';
+      this._touchDidMove = false;
+      this._activeTouchId = null;
+      return;
+    }
+
+    var touch = this._findTrackedTouch(event.changedTouches || event.touches);
+    if (!touch) {
+      this._activeTouchId = null;
+      return;
+    }
+
+    var param = this._buildSyntheticPointerParam(touch);
+    var shouldCommitOnRelease = (
+      this._touchGestureMode === 'commit-second-anchor' ||
+      (this._touchGestureMode === 'drag-from-first-anchor' && this._touchDidMove)
+    );
+    if (shouldCommitOnRelease && param && typeof tool._handleClick === 'function') {
+      tool._handleClick(param);
+    }
+
+    this._touchGestureMode = 'idle';
+    this._touchDidMove = false;
+    this._activeTouchId = null;
+    this._consumeTouchEvent(event);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleTouchCancel = function (event) {
+    this._touchGestureMode = 'idle';
+    this._touchDidMove = false;
+    this._activeTouchId = null;
+    this._consumeTouchEvent(event);
+  };
+
+  AdvancedDrawingToolsManager.prototype._applyChartInteractionMode = function () {
+    if (!this._chart || typeof this._chart.applyOptions !== 'function') {
+      return;
+    }
+
+    this._bindTouchBridge();
+    var drawingMode = this._isDrawingToolActive();
+
+    if (this._chartHost) {
+      try {
+        this._chartHost.style.touchAction = drawingMode ? 'none' : 'manipulation';
+        this._chartHost.style.userSelect = drawingMode ? 'none' : '';
+        this._chartHost.style.webkitUserSelect = drawingMode ? 'none' : '';
+      } catch (_error) {}
+    }
+
+    try {
+      this._chart.applyOptions({
+        handleScroll: drawingMode
+          ? {
+              mouseWheel: false,
+              pressedMouseMove: false,
+              horzTouchDrag: false,
+              vertTouchDrag: false
+            }
+          : {
+              mouseWheel: true,
+              pressedMouseMove: true,
+              horzTouchDrag: true,
+              vertTouchDrag: true
+            },
+        handleScale: drawingMode
+          ? {
+              mouseWheel: false,
+              pinch: false,
+              axisPressedMouseMove: false
+            }
+          : {
+              mouseWheel: true,
+              pinch: true,
+              axisPressedMouseMove: true
+            }
+      });
+    } catch (_error) {}
   };
 
   AdvancedDrawingToolsManager.prototype._nextLabel = function (kind) {
@@ -1145,6 +1568,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     } else {
       this._activeTool = 'crosshair';
     }
+    this._applyChartInteractionMode();
     if (!silent) {
       safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool });
     }
@@ -1178,6 +1602,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype.setMagnetMode = function (enabled) {
+    this._magnetEnabled = !!enabled;
     if (this._chart && typeof this._chart.applyOptions === 'function') {
       this._chart.applyOptions({
         crosshair: {
@@ -1240,6 +1665,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype.remove = function () {
     this.removeAllDrawings();
+    this._unbindTouchBridge();
     Object.keys(this._tools).forEach(function (key) {
       this._tools[key].remove();
     }, this);

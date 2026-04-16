@@ -305,6 +305,7 @@ export function TradeScreen() {
             item={item}
             onPress={showPositionSheet}
             onLongPress={showPositionSheet}
+            onBulkPress={showBulkSheet}
           />
         )}
         ListEmptyComponent={

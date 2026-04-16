@@ -7,10 +7,12 @@
  * ONLY the specific `TradePositionRow` instances holding EURUSD will re-render,
  * bypassing a full `<FlatList>` re-render entirely.
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import { GestureDetector, Gesture, TouchableOpacity } from 'react-native-gesture-handler';
 import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
@@ -28,17 +30,51 @@ export function TradePositionRow({
   item,
   onPress,
   onLongPress,
+  onBulkPress,
   selected = false,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
   onLongPress: (item: PositionItem) => void;
+  onBulkPress?: () => void;
   selected?: boolean;
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const { setChartSymbol } = useUserPreferences();
   const isBuy = item.side === 'buy';
   const [expanded, setExpanded] = useState(false);
+  
+  const ACTIONS_WIDTH = 270;
+  const translateX = useSharedValue(ACTIONS_WIDTH); // Start deeply closed (pushed right)
+  const startX = useSharedValue(0);
+
+  const closeOverlay = () => {
+    translateX.value = withSpring(ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+  };
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .onStart(() => {
+      startX.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      const nextX = startX.value + event.translationX;
+      translateX.value = Math.max(0, Math.min(ACTIONS_WIDTH, nextX));
+    })
+    .onEnd((event) => {
+      if (event.velocityX < -500 || translateX.value < ACTIONS_WIDTH / 2) {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 200, overshootClamping: true });
+      } else {
+        translateX.value = withSpring(ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+      }
+    });
+
+  const overlayStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: translateX.value }],
+    };
+  });
   
   // Continuously hook into the global multi-symbol WebSocket Quotes stream!
   // This extracts THIS specific symbol's exact nanosecond ask/bid feed.
@@ -69,20 +105,48 @@ export function TradePositionRow({
   const detailLabelColor = T.textMuted;
   const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : T.border;
 
+  const renderOverlayActions = () => {
+    return (
+      <Animated.View style={[styles.overlayMenu, overlayStyle, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderLeftColor: dividerColor, zIndex: 100 }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Ionicons name="close" size={20} color={T.down} />
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Ionicons name="swap-horizontal" size={20} color={T.text} />
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Ionicons name="create" size={20} color={T.text} />
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }) }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Ionicons name="add" size={20} color={T.text} />
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); setChartSymbol(item.symbol); router.push('/(tabs)/chart'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Ionicons name="bar-chart" size={20} color={T.text} />
+        </TouchableOpacity>
+        {onBulkPress && (
+          <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); onBulkPress(); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+             <Ionicons name="layers" size={20} color={T.text} />
+          </TouchableOpacity>
+        )}
+      </Animated.View>
+    );
+  };
+
   return (
-    <View
-      style={[
-        styles.row,
-        {
-          backgroundColor: isDark ? '#0E141F' : T.glass2,
-          borderColor: T.border,
-          borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
-        },
-        !isDark && styles.shadowLight,
-        isDark && styles.shadowDark,
-        selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
-      ]}
-    >
+    <GestureDetector gesture={panGesture}>
+      <Animated.View
+        style={[
+          styles.row,
+          {
+            backgroundColor: isDark ? '#0E141F' : T.glass2,
+            borderColor: T.border,
+            borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
+          },
+          !isDark && styles.shadowLight,
+          isDark && styles.shadowDark,
+          selected && { backgroundColor: T.glass1, borderColor: T.trading.buy.primary },
+        ]}
+      >
       <Text style={[styles.cornerId, { color: T.textMuted }]}>#{item.id}</Text>
       
       <Pressable
@@ -181,7 +245,13 @@ export function TradePositionRow({
           </View>
         </View>
       )}
-    </View>
+        
+        {/* Render overlay on top within a clipping wrapper so shadows stay intact */}
+        <View style={[StyleSheet.absoluteFill, { overflow: 'hidden', borderRadius: 16 }]} pointerEvents="box-none">
+          {renderOverlayActions()}
+        </View>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -359,5 +429,39 @@ const styles = StyleSheet.create({
   modBadgeIcon: {
     fontSize: 12,
     color: 'rgba(150,150,150,0.8)',
+  },
+  overlayMenu: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 270,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingLeft: 4,
+    borderLeftWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: -4, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    zIndex: 100,
+  },
+  actionBtnContainer: {
+    marginLeft: 6,
+  },
+  actionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
 });
