@@ -149,6 +149,8 @@ export function HistoryScreen() {
       accountDetails: state.accountDetails,
     })),
   );
+  const historySummaryDetailsVisible = useUserPreferences((state) => state.historySummaryDetailsVisible);
+  const setHistorySummaryDetailsVisible = useUserPreferences((state) => state.setHistorySummaryDetailsVisible);
   const showActionSheet = useUIState((s) => s.showActionSheet);
 
   const T = useTheme();
@@ -208,6 +210,10 @@ export function HistoryScreen() {
   }, [profitRows.length, wins]);
   const filledCount = useMemo(() => data.filter((item) => item.status === 'filled').length, [data]);
   const netTone: Tone = netProfit > 0 ? 'positive' : netProfit < 0 ? 'negative' : 'neutral';
+  const historySymbolLabel = 'All symbols';
+  const toggleHistorySummaryDetails = useCallback(() => {
+    setHistorySummaryDetailsVisible(!historySummaryDetailsVisible);
+  }, [historySummaryDetailsVisible, setHistorySummaryDetailsVisible]);
 
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
@@ -216,61 +222,94 @@ export function HistoryScreen() {
       <Text style={styles.accountSummaryHeading}>Account Summary</Text>
       <View style={styles.summaryBlock}>
         <View style={styles.summaryTop}>
-          <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
-          <View style={styles.floatingRow}>
-            <Text style={[styles.floating, { color: T.text, opacity: 0.9 }]}>
-              {fmt.int(balance)}
-            </Text>
-            <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
+          <View style={styles.summaryBalanceWrap}>
+            <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
+            <View style={styles.floatingRow}>
+              <Text style={[styles.floating, { color: T.text, opacity: 0.9 }]}>
+                {fmt.int(balance)}
+              </Text>
+              <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
+            </View>
           </View>
+          <Pressable
+            onPress={toggleHistorySummaryDetails}
+            style={({ pressed }) => [
+              styles.summaryToggle,
+              pressed && styles.summaryTogglePressed,
+            ]}
+          >
+            <Ionicons
+              name={historySummaryDetailsVisible ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={T.textMuted}
+            />
+          </Pressable>
         </View>
-        <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
-          <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-            <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
+        {historySummaryDetailsVisible ? (
+          <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
+            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
               </View>
-              <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
+              <View style={styles.gridCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Symbol:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{historySymbolLabel}</Text>
+              </View>
             </View>
-            <View style={styles.gridCol}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Deposit:</Text>
+            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Deposit:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
               </View>
-              <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
+              <View style={styles.gridCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
+              </View>
+            </View>
+            <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+              <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
+              </View>
+              <View style={styles.gridCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
+              </View>
+            </View>
+            <View style={styles.gridRow}>
+              <Pressable
+                style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}
+                onPress={() => router.push('/history/filter')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRange}</Text>
+              </Pressable>
+              <View style={styles.gridCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Net P/L:</Text>
+                </View>
+                <Text style={[styles.gridValue, { color: netProfit >= 0 ? T.up : T.down, opacity: 0.9 }]}>
+                  {fmt.pnl(netProfit)}
+                </Text>
+              </View>
             </View>
           </View>
-          <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-            <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
-              </View>
-              <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
-            </View>
-            <View style={styles.gridCol}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
-              </View>
-              <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
-            </View>
-          </View>
-          <View style={styles.gridRow}>
-            <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
-              </View>
-              <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
-            </View>
-            <Pressable
-              style={styles.gridCol}
-              onPress={() => router.push('/history/filter')}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
-              </View>
-              <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRange}</Text>
-            </Pressable>
-          </View>
-        </View>
+        ) : null}
       </View>
 
       <FlatList
@@ -574,11 +613,21 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowRadius: isDark ? 16 : 24, elevation: 4,
       overflow: 'hidden',
     },
-    summaryTop: { paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
-    summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 4 },
-    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-    floating: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 4, fontVariant: ['tabular-nums'] },
+    summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
+    summaryBalanceWrap: { flex: 1, minWidth: 0 },
+    summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 1 },
+    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 0 },
+    floating: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
     balanceQuickCurrency: { fontSize: 18, fontWeight: '500' },
+    summaryToggle: {
+      alignSelf: 'flex-start',
+      width: 28,
+      height: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 12,
+    },
+    summaryTogglePressed: { opacity: 0.55 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

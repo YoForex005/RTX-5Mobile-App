@@ -10,7 +10,7 @@
  *   bypassing the React Native bridge's slow JSON serialization.
  * - Micro-Components: Extracts fast-updating UI (like the live price pill) into memoized blocks isolated from the main layout.
  */
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Keyboard, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View, Image, AppState, Platform } from 'react-native';
@@ -19,8 +19,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
-  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
-  TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode
+  TvRadialIndicators,
+  TvRadialObjects,
+  TvRadialPlus,
+  TvRadialSettings,
+  TvRadialShapes,
 } from './components/ChartToolbarIcons';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
@@ -323,6 +326,216 @@ const LiveClock = React.memo(({ styles }: any) => {
   );
 });
 
+type ChartTapMenuAnchor = {
+  x: number;
+  y: number;
+  price?: number | null;
+};
+
+type ChartTapMenuBounds = {
+  width: number;
+  height: number;
+};
+
+const CHART_TAP_MENU_SIZE = 228;
+const CHART_TAP_RING_WIDTH = 38;
+const CHART_TAP_TIMEFRAME_HEIGHT = 30;
+const CHART_TAP_OUTER_ITEM_RADIUS = CHART_TAP_MENU_SIZE / 2 - CHART_TAP_RING_WIDTH / 2;
+const CHART_TAP_ACTION_RADIUS = CHART_TAP_OUTER_ITEM_RADIUS;
+const CHART_TAP_MENU_PADDING = 10;
+
+const clampValue = (value: number, min: number, max: number) => {
+  if (max <= min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+};
+
+const getRadialItemPosition = (
+  angleFromTop: number,
+  radius: number,
+  itemWidth: number,
+  itemHeight: number = itemWidth,
+) => {
+  const radians = ((angleFromTop - 90) * Math.PI) / 180;
+  const center = CHART_TAP_MENU_SIZE / 2;
+  return {
+    left: center + Math.cos(radians) * radius - itemWidth / 2,
+    top: center + Math.sin(radians) * radius - itemHeight / 2,
+  };
+};
+
+const getRadialTextRotation = (angleFromTop: number) => {
+  let rotation = angleFromTop <= 180 ? angleFromTop : angleFromTop - 360;
+  if (rotation > 90) {
+    rotation -= 180;
+  }
+  if (rotation < -90) {
+    rotation += 180;
+  }
+  return `${rotation}deg`;
+};
+
+function ChartTapRadialMenu({
+  anchor,
+  bounds,
+  activeTimeframe,
+  accentColor,
+  mutedColor,
+  styles,
+  onDismiss,
+  onSelectTimeframe,
+  onOpenObjects,
+  onOpenDrawingTools,
+  onOpenChartType,
+  onOpenSettings,
+}: {
+  anchor: ChartTapMenuAnchor | null;
+  bounds: ChartTapMenuBounds;
+  activeTimeframe: string;
+  accentColor: string;
+  mutedColor: string;
+  styles: ReturnType<typeof makeStyles>;
+  onDismiss: () => void;
+  onSelectTimeframe: (timeframe: string) => void;
+  onOpenObjects: () => void;
+  onOpenDrawingTools: () => void;
+  onOpenChartType: () => void;
+  onOpenSettings: () => void;
+}) {
+  if (!anchor) {
+    return null;
+  }
+
+  const left = clampValue(
+    anchor.x - CHART_TAP_MENU_SIZE / 2,
+    CHART_TAP_MENU_PADDING,
+    bounds.width - CHART_TAP_MENU_SIZE - CHART_TAP_MENU_PADDING,
+  );
+  const top = clampValue(
+    anchor.y - CHART_TAP_MENU_SIZE / 2,
+    CHART_TAP_MENU_PADDING,
+    bounds.height - CHART_TAP_MENU_SIZE - CHART_TAP_MENU_PADDING,
+  );
+
+  const timeframeItems: Array<{ key: string; angle: number; width: number }> = [
+    { key: 'M1', angle: 312, width: 38 },
+    { key: 'M5', angle: 336, width: 38 },
+    { key: 'M15', angle: 0, width: 48 },
+    { key: 'M30', angle: 24, width: 48 },
+    { key: 'H1', angle: 48, width: 38 },
+    { key: 'H4', angle: 72, width: 38 },
+    { key: 'D1', angle: 96, width: 38 },
+    { key: 'W1', angle: 120, width: 38 },
+    { key: 'MN', angle: 144, width: 40 },
+  ];
+
+  const actionItems: Array<{
+    key: string;
+    angle: number;
+    radius?: number;
+    boxSize?: number;
+    render: (color: string) => React.ReactNode;
+    onPress: () => void;
+  }> = [
+    {
+      key: 'objects',
+      angle: 286,
+      boxSize: 24,
+      render: (color) => <TvRadialObjects color={color} />,
+      onPress: onOpenObjects,
+    },
+    {
+      key: 'draw',
+      angle: 252,
+      boxSize: 24,
+      render: (color) => <TvRadialShapes color={color} />,
+      onPress: onOpenDrawingTools,
+    },
+    {
+      key: 'settings',
+      angle: 222,
+      boxSize: 24,
+      render: (color) => <TvRadialSettings color={color} />,
+      onPress: onOpenSettings,
+    },
+    {
+      key: 'add',
+      angle: 194,
+      boxSize: 24,
+      render: (color) => <TvRadialPlus color={color} />,
+      onPress: onOpenDrawingTools,
+    },
+    {
+      key: 'type',
+      angle: 164,
+      boxSize: 24,
+      render: (color) => <TvRadialIndicators color={color} />,
+      onPress: onOpenChartType,
+    },
+  ];
+
+  return (
+    <View style={styles.chartTapMenuLayer} pointerEvents="box-none">
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onDismiss} />
+      <View style={[styles.chartTapMenu, { left, top }]}>
+        <View style={[styles.chartTapRing, { borderColor: accentColor, shadowColor: accentColor }]} />
+
+        {timeframeItems.map((item) => {
+          const position = getRadialItemPosition(
+            item.angle,
+            CHART_TAP_OUTER_ITEM_RADIUS,
+            item.width,
+            CHART_TAP_TIMEFRAME_HEIGHT,
+          );
+          const isActive = activeTimeframe === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => onSelectTimeframe(item.key)}
+              style={[
+                styles.chartTapTimeframeItem,
+                position,
+                {
+                  width: item.width,
+                  transform: [{ rotate: getRadialTextRotation(item.angle) }],
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chartTapTimeframeText,
+                  isActive && styles.chartTapTimeframeTextActive,
+                ]}
+              >
+                {item.key}
+              </Text>
+            </Pressable>
+          );
+        })}
+
+        {actionItems.map((item) => {
+          const itemBoxSize = item.boxSize ?? 30;
+          const position = getRadialItemPosition(
+            item.angle,
+            item.radius ?? CHART_TAP_ACTION_RADIUS,
+            itemBoxSize,
+          );
+          return (
+            <Pressable
+              key={item.key}
+              onPress={item.onPress}
+              style={[styles.chartTapActionItem, position, { width: itemBoxSize, height: itemBoxSize }]}
+            >
+              {item.render(mutedColor)}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
 
 const SYMBOL_FLAGS: Record<string, [string, string]> = {
@@ -425,6 +638,9 @@ const CH_HTML = `
       // line can tint themselves to match the live candle's direction.
       var barUpColor = '#2962FF';
       var barDownColor = '#ef5350';
+      var detachChartTapListeners = null;
+      var lastPostedChartTap = { x: NaN, y: NaN, at: 0 };
+      var pendingPointerTap = null;
       var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
 
       function postReady() {
@@ -437,6 +653,102 @@ const CH_HTML = `
         try {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CHART_READY' }));
         } catch (_e) {}
+      }
+
+      function postChartTap(x, y, price) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_TAP',
+            x: x,
+            y: y,
+            price: typeof price === 'number' && isFinite(price) ? price : null,
+          }));
+        } catch (_e) {}
+      }
+
+      function postDistinctChartTap(x, y, price) {
+        if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) {
+          return;
+        }
+        var now = Date.now();
+        if (
+          isFinite(lastPostedChartTap.x) &&
+          isFinite(lastPostedChartTap.y) &&
+          Math.abs(lastPostedChartTap.x - x) <= 8 &&
+          Math.abs(lastPostedChartTap.y - y) <= 8 &&
+          now - lastPostedChartTap.at <= 250
+        ) {
+          return;
+        }
+        lastPostedChartTap = { x: x, y: y, at: now };
+        postChartTap(x, y, price);
+      }
+
+      function emitChartTapAtPoint(x, y) {
+        if (!series || typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) {
+          return;
+        }
+        var price = null;
+        if (typeof series.coordinateToPrice === 'function') {
+          var nextPrice = series.coordinateToPrice(y);
+          if (typeof nextPrice === 'number' && isFinite(nextPrice)) {
+            price = nextPrice;
+          }
+        }
+        postDistinctChartTap(x, y, price);
+      }
+
+      function bindChartTapListeners(el) {
+        if (!el) return;
+        if (typeof detachChartTapListeners === 'function') {
+          try { detachChartTapListeners(); } catch (_e) {}
+        }
+
+        var getRelativePoint = function(clientX, clientY) {
+          var rect = el.getBoundingClientRect();
+          var x = clientX - rect.left;
+          var y = clientY - rect.top;
+          if (!isFinite(x) || !isFinite(y)) return null;
+          if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null;
+          return { x: x, y: y };
+        };
+
+        var onPointerDown = function(event) {
+          if (!event) return;
+          pendingPointerTap = {
+            x: event.clientX,
+            y: event.clientY,
+            at: Date.now(),
+          };
+        };
+
+        var onPointerUp = function(event) {
+          if (!event || !pendingPointerTap) return;
+          var elapsed = Date.now() - pendingPointerTap.at;
+          var dx = event.clientX - pendingPointerTap.x;
+          var dy = event.clientY - pendingPointerTap.y;
+          pendingPointerTap = null;
+          if (elapsed > 450 || Math.abs(dx) > 12 || Math.abs(dy) > 12) {
+            return;
+          }
+          var point = getRelativePoint(event.clientX, event.clientY);
+          if (!point) return;
+          emitChartTapAtPoint(point.x, point.y);
+        };
+
+        var onPointerCancel = function() {
+          pendingPointerTap = null;
+        };
+
+        el.addEventListener('pointerdown', onPointerDown, true);
+        el.addEventListener('pointerup', onPointerUp, true);
+        el.addEventListener('pointercancel', onPointerCancel, true);
+        detachChartTapListeners = function() {
+          el.removeEventListener('pointerdown', onPointerDown, true);
+          el.removeEventListener('pointerup', onPointerUp, true);
+          el.removeEventListener('pointercancel', onPointerCancel, true);
+          pendingPointerTap = null;
+        };
       }
 
       function postError(where, err) {
@@ -550,6 +862,10 @@ const CH_HTML = `
           moveDirectionPriceLine = null;
           _positionLinesArr = [];
         }
+        if (typeof detachChartTapListeners === 'function') {
+          try { detachChartTapListeners(); } catch (_e) {}
+          detachChartTapListeners = null;
+        }
         if (tickFlushHandle) {
           try { cancelAnimationFrame(tickFlushHandle); } catch (_) {}
           tickFlushHandle = 0;
@@ -567,6 +883,7 @@ const CH_HTML = `
         safeOpts.height = h;
 
         chart = LightweightCharts.createChart(el, safeOpts);
+        bindChartTapListeners(el);
 
         var priceFormat = makePriceFormat(displayDecimals);
         var colors = pickSeriesColors({ customColors: customCols }, seriesType);
@@ -685,6 +1002,17 @@ const CH_HTML = `
             window._drawingManager = new window.DrawingToolsManager(chart, series);
           }
         } catch (_dtErr) {}
+
+        try {
+          if (chart && typeof chart.subscribeClick === 'function') {
+            chart.subscribeClick(function(param) {
+              try {
+                if (!param || !param.point) return;
+                emitChartTapAtPoint(param.point.x, param.point.y);
+              } catch (_tapErr) {}
+            });
+          }
+        } catch (_chartTapErr) {}
 
         applyOverlayPayload(_overlayPayload);
         postChartReady();
@@ -1506,6 +1834,8 @@ export function ChartScreen() {
   const chartScrollRef = useRef<ScrollView>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
+  const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
+  const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
@@ -1547,13 +1877,29 @@ export function ChartScreen() {
     webViewRef.current?.injectJavaScript(`${script} true;`);
   };
 
+  const closeChartTapMenu = useCallback(() => {
+    setChartTapMenuAnchor(null);
+  }, []);
+
+  useEffect(() => {
+    if (activeTool !== 'crosshair') {
+      closeChartTapMenu();
+    }
+  }, [activeTool, closeChartTapMenu]);
+
+  useEffect(() => {
+    closeChartTapMenu();
+  }, [chartSymbol, chartTimeframe, chartVisualType, isChartExpanded, closeChartTapMenu]);
+
   const handleSetTool = (tool: string) => {
+    closeChartTapMenu();
     setActiveTool(tool);
     injectChartScript(`setDrawingTool(${JSON.stringify(tool)});`);
     setShowDrawingToolbar(false);
   };
 
   const handleClearDrawings = () => {
+    closeChartTapMenu();
     setActiveTool('crosshair');
     setChartDrawingRecordsForSymbol(chartSymbol, []);
     lastWebViewDrawingSignatureRef.current = '';
@@ -1562,18 +1908,21 @@ export function ChartScreen() {
   };
 
   const handleToggleMagnet = () => {
+    closeChartTapMenu();
     const next = !magnetEnabled;
     setMagnetEnabled(next);
     injectChartScript(`setMagnetMode(${next});`);
   };
 
   const handleToggleStickyMode = () => {
+    closeChartTapMenu();
     const next = !stickyDrawingMode;
     setStickyDrawingMode(next);
     injectChartScript(`setStayInDrawingMode(${next});`);
   };
 
   const handleToggleLock = () => {
+    closeChartTapMenu();
     const next = !chartLockAll;
     setChartLockAll(next);
     if (next) {
@@ -1583,12 +1932,14 @@ export function ChartScreen() {
   };
 
   const handleToggleHide = () => {
+    closeChartTapMenu();
     const next = !chartHideAll;
     setChartHideAll(next);
     injectChartScript(`setDrawingsHidden(${next});`);
   };
 
   const handleZoomTool = () => {
+    closeChartTapMenu();
     injectChartScript('zoomChart();');
   };
 
@@ -1700,16 +2051,18 @@ export function ChartScreen() {
   }, [applyNativeTimeRange]);
 
   const handleResetTimeRange = useCallback(() => {
+    closeChartTapMenu();
     setActiveDateRange('auto');
     setCustomDateValue(null);
     applyNativeTimeRange('auto', null);
-  }, [applyNativeTimeRange]);
+  }, [applyNativeTimeRange, closeChartTapMenu]);
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
+    closeChartTapMenu();
     setActiveDateRange('auto');
     setCustomDateValue(null);
     setChartTimeframe(nextTimeframe);
-  }, [setChartTimeframe]);
+  }, [closeChartTapMenu, setChartTimeframe]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -2208,17 +2561,13 @@ export function ChartScreen() {
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={[styles.inlineActionGroup, { flex: undefined, paddingRight: 4 }]}>
-                <Pressable style={styles.toolbarSymbolButton} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
-                </Pressable>
-                <Pressable style={styles.toolbarIconButton} onPress={() => setSymbolPickerOpen(true)}>
-                  <Ionicons name="add-outline" size={18} color={isDark ? '#D1D4DC' : '#131722'} />
-                </Pressable>
-                <View style={styles.toolbarSeparator} />
                 <Pressable style={styles.toolbarTimeframeButton} onPress={() => setTfOpen(true)} hitSlop={8}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: BLUE }}>{chartTimeframe}</Text>
                   <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
                 </Pressable>
+                <View style={styles.toolbarIconButton}>
+                  <Ionicons name="sync-outline" size={20} color={BLUE} />
+                </View>
                 <View style={styles.toolbarSeparator} />
                 <Pressable style={styles.toolbarComboButton} onPress={() => setShowChartTypeMenu(true)} hitSlop={8}>
                   <Ionicons name={chartType === 'candles' || chartType === 'hollow' ? 'stats-chart' : chartType === 'bars' ? 'bar-chart-outline' : 'trending-up-outline'} size={18} color={TEXT_MUTED} />
@@ -2262,31 +2611,37 @@ export function ChartScreen() {
                 contentContainerStyle={styles.leftToolbarContent}
               >
                 <Pressable style={[styles.toolIcon, styles.toolIconPrimary]} onPress={() => setShowDrawingQuickActions(true)}>
-                  <Ionicons name="add" size={18} color="#FFFFFF" />
+                  <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
                 </Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => handleSetTool('crosshair')}><TvCrosshair color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => handleSetTool('trendline')}><TvTrendLine color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => handleSetTool('fib')}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => handleSetTool('brush')}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => handleSetTool('text')}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => handleSetTool('patterns')}><TvPatterns color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => handleSetTool('prediction')}><TvPrediction color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => handleSetTool('pitchfork')}><TvPitchfork color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => handleSetTool('smiley')}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'crosshair' && styles.toolIconActive]} onPress={() => handleSetTool('crosshair')}><MaterialCommunityIcons name="crosshairs" size={22} color={activeTool === 'crosshair' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'trendline' && styles.toolIconActive]} onPress={() => handleSetTool('trendline')}><MaterialCommunityIcons name="vector-line" size={22} color={activeTool === 'trendline' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => handleSetTool('fib')}><MaterialCommunityIcons name="chart-timeline-variant" size={22} color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => handleSetTool('brush')}><MaterialCommunityIcons name="brush" size={22} color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => handleSetTool('text')}><MaterialCommunityIcons name="format-text" size={22} color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => handleSetTool('patterns')}><MaterialCommunityIcons name="chart-bell-curve-cumulative" size={22} color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => handleSetTool('prediction')}><MaterialCommunityIcons name="chart-box-outline" size={22} color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => handleSetTool('pitchfork')}><MaterialCommunityIcons name="pitchfork" size={22} color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => handleSetTool('smiley')}><MaterialCommunityIcons name="emoticon-outline" size={22} color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => handleSetTool('measure')}><TvMeasure color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={styles.toolIcon} onPress={handleZoomTool}><TvZoom color={TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, activeTool === 'measure' && styles.toolIconActive]} onPress={() => handleSetTool('measure')}><MaterialCommunityIcons name="ruler" size={22} color={activeTool === 'measure' ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={handleZoomTool}><MaterialCommunityIcons name="magnify-plus-outline" size={22} color={TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={[styles.toolIcon, magnetEnabled && styles.toolIconActive]} onPress={handleToggleMagnet}><TvMagnet color={magnetEnabled ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, stickyDrawingMode && styles.toolIconActive]} onPress={handleToggleStickyMode}><TvStayInDrawingMode color={stickyDrawingMode ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, chartLockAll && styles.toolIconActive]} onPress={handleToggleLock}><TvLock color={chartLockAll ? BLUE : TEXT_MUTED} /></Pressable>
-                <Pressable style={[styles.toolIcon, chartHideAll && styles.toolIconActive]} onPress={handleToggleHide}><TvHide color={chartHideAll ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, magnetEnabled && styles.toolIconActive]} onPress={handleToggleMagnet}><MaterialCommunityIcons name="magnet" size={22} color={magnetEnabled ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, stickyDrawingMode && styles.toolIconActive]} onPress={handleToggleStickyMode}><MaterialCommunityIcons name="pencil-lock" size={22} color={stickyDrawingMode ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, chartLockAll && styles.toolIconActive]} onPress={handleToggleLock}><MaterialCommunityIcons name="lock-outline" size={22} color={chartLockAll ? BLUE : TEXT_MUTED} /></Pressable>
+                <Pressable style={[styles.toolIcon, chartHideAll && styles.toolIconActive]} onPress={handleToggleHide}><MaterialCommunityIcons name="eye-off-outline" size={22} color={chartHideAll ? BLUE : TEXT_MUTED} /></Pressable>
                 <View style={styles.toolSeparator} />
-                <Pressable style={styles.toolIcon} onPress={handleClearDrawings}><TvTrash color={TEXT_MUTED} /></Pressable>
-                <Pressable style={styles.toolIcon} onPress={() => { setShowDrawingToolbar(false); router.push('/chart/objects'); }}><TvLayers color={TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={handleClearDrawings}><MaterialCommunityIcons name="trash-can-outline" size={22} color={TEXT_MUTED} /></Pressable>
+                <Pressable style={styles.toolIcon} onPress={() => { setShowDrawingToolbar(false); router.push('/chart/objects'); }}><MaterialCommunityIcons name="layers-outline" size={22} color={TEXT_MUTED} /></Pressable>
               </ScrollView>
             )}
-            <View style={{ flex: 1, position: 'relative' }}>
+            <View
+              style={styles.chartViewport}
+              onLayout={(event) => {
+                const { width, height } = event.nativeEvent.layout;
+                setChartTapMenuBounds({ width, height });
+              }}
+            >
               {showChartMetaRow && (
                 <View pointerEvents="none" style={styles.chartMetaOverlay}>
                   <View style={styles.chartMetaOhlc}>
@@ -2386,6 +2741,20 @@ export function ChartScreen() {
                       }
                     } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
                       setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
+                    } else if (msg.type === 'CHART_TAP') {
+                      if (activeTool !== 'crosshair') {
+                        return;
+                      }
+                      const x = typeof msg.x === 'number' ? msg.x : NaN;
+                      const y = typeof msg.y === 'number' ? msg.y : NaN;
+                      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                        return;
+                      }
+                      setChartTapMenuAnchor({
+                        x,
+                        y,
+                        price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
+                      });
                     } else if (msg.type === 'ERROR') {
                       // Log but don't alert — the watchdog will auto-retry.
                       console.warn('[CHART WEBVIEW ERROR]', msg.message);
@@ -2393,8 +2762,32 @@ export function ChartScreen() {
                   } catch (_e) { }
                 }}
               />
-
-
+              <ChartTapRadialMenu
+                anchor={chartTapMenuAnchor}
+                bounds={chartTapMenuBounds}
+                activeTimeframe={chartTimeframe}
+                accentColor={BLUE}
+                mutedColor="#FFFFFF"
+                styles={styles}
+                onDismiss={closeChartTapMenu}
+                onSelectTimeframe={handleTimeframeSelect}
+                onOpenObjects={() => {
+                  closeChartTapMenu();
+                  router.push('/chart/objects');
+                }}
+                onOpenDrawingTools={() => {
+                  closeChartTapMenu();
+                  setShowDrawingQuickActions(true);
+                }}
+                onOpenChartType={() => {
+                  closeChartTapMenu();
+                  setShowChartTypeMenu(true);
+                }}
+                onOpenSettings={() => {
+                  closeChartTapMenu();
+                  router.push('/chart/settings');
+                }}
+              />
 
             </View>
           </View>
@@ -2818,6 +3211,66 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: CHART_CANVAS_BG,
       position: 'relative',
     },
+    chartViewport: {
+      flex: 1,
+      position: 'relative',
+    },
+    chartTapMenuLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 40,
+    },
+    chartTapMenu: {
+      position: 'absolute',
+      width: CHART_TAP_MENU_SIZE,
+      height: CHART_TAP_MENU_SIZE,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chartTapRing: {
+      position: 'absolute',
+      width: CHART_TAP_MENU_SIZE,
+      height: CHART_TAP_MENU_SIZE,
+      borderRadius: CHART_TAP_MENU_SIZE / 2,
+      borderWidth: CHART_TAP_RING_WIDTH,
+      backgroundColor: 'transparent',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: isDark ? 0.3 : 0.18,
+      shadowRadius: 24,
+      elevation: 10,
+    },
+    chartTapTimeframeItem: {
+      position: 'absolute',
+      height: CHART_TAP_TIMEFRAME_HEIGHT,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chartTapTimeframeText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      lineHeight: 14,
+      fontWeight: '800',
+      letterSpacing: -0.1,
+      opacity: 0.95,
+      textAlign: 'center',
+      includeFontPadding: false,
+      textAlignVertical: 'center',
+      minWidth: '100%',
+      textShadowColor: 'rgba(0,0,0,0.18)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 1,
+    },
+    chartTapTimeframeTextActive: {
+      opacity: 1,
+    },
+    chartTapActionItem: {
+      position: 'absolute',
+      width: 30,
+      height: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 20,
+      elevation: 12,
+    },
     leftToolbar: {
       width: 54,
       minWidth: 54,
@@ -2861,7 +3314,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTopToolbar: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 6,
+      justifyContent: 'space-between',
+      paddingHorizontal: 8,
       paddingVertical: 6,
       marginTop: 16,
       backgroundColor: isDark ? '#080B11' : '#F8FAFC',
@@ -2918,32 +3372,39 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      minHeight: 28,
-      paddingHorizontal: 6,
+      minWidth: 48,
+      height: 30,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
     },
     toolbarComboButton: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      minHeight: 28,
+      minWidth: 42,
+      height: 30,
       paddingHorizontal: 6,
+      justifyContent: 'center',
     },
     toolbarIconButton: {
-      width: 32,
-      height: 28,
+      width: 30,
+      height: 30,
       alignItems: 'center',
       justifyContent: 'center',
     },
     toolbarTrailingGroup: {
+      flex: 1,
+      minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 2,
+      justifyContent: 'flex-end',
+      gap: 0,
     },
     toolbarSeparator: {
       width: 1,
       height: 16,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-      marginHorizontal: 6,
+      marginHorizontal: 4,
     },
     toolbarFlexSpacer: {
       flex: 1,

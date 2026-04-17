@@ -203,3 +203,46 @@ export const TvPitchfork = ({ color }: { color: string }) => (
     <Path d="M14 18v6" stroke={color} strokeWidth="1.5" />
   </Svg>
 );
+
+export const TvRadialObjects = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Rect x="4.1" y="7.4" width="7.8" height="5.9" rx="1.15" stroke={color} strokeWidth="1.35" />
+    <Rect x="8.5" y="4.7" width="7.8" height="5.9" rx="1.15" stroke={color} strokeWidth="1.35" />
+  </Svg>
+);
+
+export const TvRadialShapes = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Path d="M3.5 8.9L7.3 4.9L10.9 8.9H3.5Z" stroke={color} strokeWidth="1.3" strokeLinejoin="round" />
+    <Circle cx="6" cy="14.2" r="1.85" stroke={color} strokeWidth="1.3" />
+    <Rect x="11.8" y="11.2" width="4.1" height="4.1" rx="0.8" stroke={color} strokeWidth="1.3" />
+  </Svg>
+);
+
+export const TvRadialSettings = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Line x1="5" y1="4.2" x2="5" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
+    <Line x1="10" y1="4.2" x2="10" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
+    <Line x1="15" y1="4.2" x2="15" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
+    <Circle cx="5" cy="8.2" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
+    <Circle cx="10" cy="12.1" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
+    <Circle cx="15" cy="6.8" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
+  </Svg>
+);
+
+export const TvRadialPlus = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Line x1="10" y1="3.6" x2="10" y2="7.4" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="10" y1="12.6" x2="10" y2="16.4" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="3.6" y1="10" x2="7.4" y2="10" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="12.6" y1="10" x2="16.4" y2="10" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="10" y1="7.9" x2="10" y2="12.1" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="7.9" y1="10" x2="12.1" y2="10" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+  </Svg>
+);
+
+export const TvRadialIndicators = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Path d="M2.5 12.1H4.9L6.9 8.1L8.9 13.2L11.1 9.6L13.2 10.2L17.5 6.5" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);

@@ -233,6 +233,7 @@ type UserPreferencesState = {
   chartLockAll: boolean;
   chartHideAll: boolean;
   chartShowOnChart: ChartShowOnChartSettings;
+  historySummaryDetailsVisible: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
   /**
@@ -286,6 +287,7 @@ type UserPreferencesState = {
   setChartLockAll: (lock: boolean) => void;
   setChartHideAll: (hide: boolean) => void;
   setChartShowOnChartItem: <K extends ChartShowOnChartKey>(key: K, value: ChartShowOnChartSettings[K]) => void;
+  setHistorySummaryDetailsVisible: (visible: boolean) => void;
   setPriceSource: (source: 'bid' | 'ask') => void;
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
@@ -319,6 +321,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartLockAll: false,
       chartHideAll: false,
       chartShowOnChart: { ...DEFAULT_CHART_SHOW_ON_CHART },
+      historySummaryDetailsVisible: true,
       priceSource: 'bid',
       openOrderMode: 'Regular',
       oneClickAccepted: false,
@@ -448,6 +451,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             [key]: value,
           },
         })),
+      setHistorySummaryDetailsVisible: (visible) => set({ historySummaryDetailsVisible: visible }),
       setPriceSource: (source) => set({ priceSource: source }),
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
@@ -491,7 +495,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 8,
+      version: 10,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -499,6 +503,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartDisplay?: Partial<ChartDisplaySettings>;
           chartDrawingRecordsBySymbol?: PersistedChartDrawingsBySymbol;
           chartShowOnChart?: Partial<ChartShowOnChartSettings>;
+          historySummaryDetailsVisible?: boolean;
+          tradeSummaryDetailsVisible?: boolean;
         };
         const legacyShowOnChartState = {
           showOpenPositions: (state as any).showOpenPositions,
@@ -530,6 +536,10 @@ export const useUserPreferences = create<UserPreferencesState>()(
           ...state,
           hasHydrated: false,
           chartShowOnChart: nextChartShowOnChart,
+          historySummaryDetailsVisible:
+            state.historySummaryDetailsVisible ??
+            state.tradeSummaryDetailsVisible ??
+            true,
           chartDrawings: activeDrawingLabels.length > 0
             ? activeDrawingLabels
             : (state.chartDrawings ?? []),

@@ -40,4 +40,5 @@ Deliver history parity for Positions, Orders, and Deals with sorting, filtering,
 
 ## Progress Notes
 - 2026-04-17: Switched the History Positions view and the History Net P/L drill-in from live open-position data to closed-position history data so the History tab only reports closed trades for the selected range.
+- 2026-04-17: The History tab account summary now keeps `Balance` always visible while the remaining summary fields are controlled by a persisted show/hide toggle. The expanded section also includes `Symbol` using the current History filter scope (`All symbols` today), and the chosen visibility state is restored from local device storage.
 
