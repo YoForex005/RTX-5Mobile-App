@@ -13,7 +13,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, Image } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
@@ -34,6 +34,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
+import { useInstrumentMeta } from '../../query/instruments';
 import {
   createChart,
   createSeriesMarkers,
@@ -60,7 +61,19 @@ import {
   mapCandlesToRTX5CustomCandlestickData,
 } from './rendering/customCandlestickSeries';
 import { buildChartOverlayPayload } from './chartOverlays';
+import {
+  filterCandlesForChartTimeRange,
+  getChartTimeRangeLabel,
+  resolveChartVisibleRange,
+  type ChartTimeRange,
+} from './timeRangePresets';
 import { useShallow } from 'zustand/shallow';
+import {
+  formatTradeVolume,
+  incrementTradeVolume,
+  normalizeTradeVolume,
+  sanitizeTradeVolumeDraft,
+} from '../../utils/tradeVolume';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 type VolumeSourceCandle = {
@@ -448,9 +461,11 @@ export function ChartScreen() {
     chartColors,
     chartColorScheme,
     chartDisplay,
+    tradeVolume,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
+    setTradeVolume,
   } = useUserPreferences(
     useShallow((state) => ({
       chartSymbol: state.chartSymbol,
@@ -460,9 +475,11 @@ export function ChartScreen() {
       chartColors: state.chartColors,
       chartColorScheme: state.chartColorScheme,
       chartDisplay: state.chartDisplay,
+      tradeVolume: state.tradeVolume,
       setChartTimeframe: state.setChartTimeframe,
       setChartVisualType: state.setChartVisualType,
       setChartSymbol: state.setChartSymbol,
+      setTradeVolume: state.setTradeVolume,
     })),
   );
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
@@ -532,6 +549,16 @@ export function ChartScreen() {
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
+  const tradeVolumeBounds = useMemo(
+    () => ({
+      minVolume: chartInstrumentMeta?.minVolume,
+      maxVolume: chartInstrumentMeta?.maxVolume,
+      stepVolume: chartInstrumentMeta?.stepVolume,
+    }),
+    [chartInstrumentMeta?.maxVolume, chartInstrumentMeta?.minVolume, chartInstrumentMeta?.stepVolume],
+  );
+  const [lotInput, setLotInput] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
 
   useEffect(() => {
     if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
@@ -539,13 +566,49 @@ export function ChartScreen() {
     }
   }, [apiSymbols, chartSymbol, setChartSymbol]);
 
-  const [lotSize, setLotSize] = useState<number>(0.10);
+  useEffect(() => {
+    const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
+    if (Math.abs(normalized - tradeVolume) > 0.000001) {
+      setTradeVolume(normalized);
+      return;
+    }
+    setLotInput(formatTradeVolume(normalized, tradeVolumeBounds));
+  }, [setTradeVolume, tradeVolume, tradeVolumeBounds]);
+
+  const updateTradeVolume = useCallback(
+    (nextVolume: number | string) => {
+      const normalized = normalizeTradeVolume(nextVolume, tradeVolumeBounds);
+      setTradeVolume(normalized);
+      setLotInput(formatTradeVolume(normalized, tradeVolumeBounds));
+    },
+    [setTradeVolume, tradeVolumeBounds],
+  );
+
+  const commitLotDraft = useCallback(() => {
+    if (!lotInput.trim()) {
+      setLotInput(formatTradeVolume(tradeVolume, tradeVolumeBounds));
+      return;
+    }
+    updateTradeVolume(lotInput);
+  }, [lotInput, tradeVolume, tradeVolumeBounds, updateTradeVolume]);
+
+  const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
+  const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const hasCandles = candles.length > 0;
+  const timeRangeCandlesRef = useRef(candles);
+  const chartCandles = useMemo(
+    () => filterCandlesForChartTimeRange(activeDateRange, candles, customDateValue),
+    [activeDateRange, candles, customDateValue],
+  );
+  useEffect(() => {
+    timeRangeCandlesRef.current = candles;
+  }, [candles]);
   const formatChartValue = useCallback(
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
   );
-  const chartMetaLastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const chartMetaLastCandle = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartMetaItems = useMemo(
     () =>
@@ -815,44 +878,60 @@ export function ChartScreen() {
   }, [chartType, isDark, BLUE, RED, displayDecimals, resolvedChartColors]);
 
   const dataSignatureRef = useRef('');
-  const [activeDateRange, setActiveDateRange] = useState('auto');
 
-  const handleRangePress = (range: string) => {
-    setActiveDateRange(range);
-    if (!chartRef.current || candles.length === 0) return;
+  const applyWebTimeRange = useCallback((range: ChartTimeRange, nextCustomDateValue?: Date | null) => {
+    const visibleCandles = timeRangeCandlesRef.current;
+    if (!chartRef.current || visibleCandles.length === 0) return;
 
     if (range === 'auto') {
-      if (typeof chartRef.current?.priceScale === 'function') chartRef.current.priceScale('right').applyOptions({ autoScale: true });
-      if (typeof chartRef.current?.timeScale === 'function') chartRef.current.timeScale().scrollToRealTime();
+      if (typeof chartRef.current?.priceScale === 'function') {
+        chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+      }
+      if (typeof chartRef.current?.timeScale === 'function') {
+        chartRef.current.timeScale().scrollToRealTime();
+      }
       return;
     }
 
-    // TradingView logically links range selectors to intrinsic resolution swaps
-    if (range === '1d') { setChartTimeframe('M5'); } // 5-minute candles cover a day well
-    else if (range === '5d') { setChartTimeframe('H1'); } // 1-hour candles over 5 days
-    else if (range === '1m') { setChartTimeframe('H4'); } // 4-hour candles for a month
-    else if (range === '6m') { setChartTimeframe('D1'); } // Daily for 6mo
-    else if (range === '1y') { setChartTimeframe('W1'); } // Weekly for a year
+    if (range === 'all') {
+      chartRef.current.timeScale().fitContent();
+      return;
+    }
 
-    // Give react time to pull new network history, then snap the timeline bounds automatically
-    setTimeout(() => {
-      // chartRef.current?.timeScale().fitContent();
-    }, 500);
+    const visibleRange = resolveChartVisibleRange(range, visibleCandles, nextCustomDateValue ?? customDateValue);
+    if (!visibleRange) return;
+
+    chartRef.current.timeScale().setVisibleRange({
+      from: visibleRange.from as any,
+      to: visibleRange.to as any,
+    });
+  }, [customDateValue]);
+
+  const handleRangePress = (range: ChartTimeRange) => {
+    setActiveDateRange(range);
+    setCustomDateValue(null);
+    applyWebTimeRange(range, null);
   };
 
   const handleCustomDateRange = (e: any) => {
     const val = e.target.value;
-    if (!val || candles.length === 0) return;
-    const fromDate = new Date(val).getTime() / 1000;
-    const toDate = fromDate + (86400 * 7); // Default to a week view from chosen date
-    if (chartRef.current) {
-      chartRef.current.timeScale().setVisibleRange({
-        from: fromDate as any,
-        to: toDate as any,
-      });
-      setActiveDateRange('custom');
-    }
+    if (!val) return;
+    const selectedDate = new Date(val);
+    setCustomDateValue(selectedDate);
+    setActiveDateRange('custom');
+    applyWebTimeRange('custom', selectedDate);
   };
+
+  const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
+    setActiveDateRange('auto');
+    setCustomDateValue(null);
+    setChartTimeframe(nextTimeframe);
+  }, [setChartTimeframe]);
+
+  useEffect(() => {
+    if (!hasCandles) return;
+    applyWebTimeRange(activeDateRange, customDateValue);
+  }, [activeDateRange, applyWebTimeRange, chartTimeframe, customDateValue, hasCandles]);
 
   // Sync Data
   useEffect(() => {
@@ -1077,21 +1156,21 @@ export function ChartScreen() {
 
   // Dynamic X-axis labels from actual candle timestamps
   const xAxisLabels = useMemo(() => {
-    if (candles.length === 0) return [];
+    if (chartCandles.length === 0) return [];
     const labelCount = 3;
     const labels: { text: string; position: `${number}%` }[] = [];
     for (let i = 0; i < labelCount; i++) {
-      const idx = Math.floor((candles.length / (labelCount + 1)) * (i + 1));
-      const candle = candles[Math.min(idx, candles.length - 1)];
+      const idx = Math.floor((chartCandles.length / (labelCount + 1)) * (i + 1));
+      const candle = chartCandles[Math.min(idx, chartCandles.length - 1)];
       if (candle && candle.time) {
         labels.push({
           text: formatXLabel(candle.time, chartTimeframe),
-          position: `${Math.round(((idx + 0.5) / candles.length) * 100)}%`,
+          position: `${Math.round(((idx + 0.5) / chartCandles.length) * 100)}%`,
         });
       }
     }
     return labels;
-  }, [candles, chartTimeframe]);
+  }, [chartCandles, chartTimeframe]);
 
   const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
 
@@ -1322,7 +1401,7 @@ export function ChartScreen() {
             <View style={styles.tvRangesLeft}>
               <select
                 value={['1d', '5d', '1m', '6m', '1y'].includes(activeDateRange) ? activeDateRange : 'auto'}
-                onChange={(e) => handleRangePress(e.target.value)}
+                onChange={(e) => handleRangePress(e.target.value as ChartTimeRange)}
                 style={{
                   backgroundColor: 'transparent',
                   color: '#787B86',
@@ -1335,7 +1414,7 @@ export function ChartScreen() {
                   paddingLeft: 4,
                 }}
               >
-                <option value="auto" hidden style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>Time Range</option>
+                <option value="auto" hidden style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>{getChartTimeRangeLabel(activeDateRange)}</option>
                 <option value="1d" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>1 Day</option>
                 <option value="5d" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>5 Days</option>
                 <option value="1m" style={{ backgroundColor: isDark ? '#121212' : '#FFFFFF', color: isDark ? '#FFFFFF' : '#0F172A' }}>1 Month</option>
@@ -1346,7 +1425,9 @@ export function ChartScreen() {
             <View style={styles.tvRangesRight}>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginRight: 8 }}>
                 <div onClick={() => setShowCalendar(true)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                  <Text style={styles.tvRangeDropdownText}>Date Range</Text>
+                  <Text style={styles.tvRangeDropdownText}>
+                    {customDateValue ? customDateValue.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Date Range'}
+                  </Text>
                   <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
                 </div>
                 {/* Custom Overlay */}
@@ -1384,14 +1465,25 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} seriesRef={seriesRef} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} seriesRef={seriesRef} />
 
             <View style={styles.lotSelectorBar}>
-              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, Number(((prev || 0) - 0.01).toFixed(2))))}>
+              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, -1, tradeVolumeBounds))}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
-              <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>{(lotSize || 0).toFixed(2)}</Text></Text>
-              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Number(((prev || 0) + 0.01).toFixed(2)))}>
+              <Text style={styles.lotLabelText}>Lot:</Text>
+              <TextInput
+                style={styles.lotInput}
+                value={lotInput}
+                onChangeText={(text) => setLotInput(sanitizeTradeVolumeDraft(text))}
+                onBlur={commitLotDraft}
+                onSubmitEditing={commitLotDraft}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                placeholder={formatTradeVolume(tradeVolume, tradeVolumeBounds)}
+                placeholderTextColor={T.textMuted}
+              />
+              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, 1, tradeVolumeBounds))}>
                 <Ionicons name="add" size={18} color={T.textSub} />
               </Pressable>
             </View>
@@ -1414,7 +1506,7 @@ export function ChartScreen() {
         visible={tfOpen}
         onClose={() => setTfOpen(false)}
         title='Timeframes'
-        actions={timeframes.map((tf) => ({ label: tf, onPress: () => setChartTimeframe(tf) }))}
+        actions={timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) }))}
       />
 
       <ActionSheet
@@ -1989,17 +2081,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 6,
     },
     lotLabelText: {
-      flex: 1,
-      textAlign: 'center',
       fontSize: 12,
       fontWeight: '600',
       color: isDark ? '#64748B' : TEXT_MUTED,
     },
-    lotValueText: {
+    lotInput: {
+      flex: 1,
       color: isDark ? '#E2E8F0' : '#0F172A',
       fontSize: 14,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
+      textAlign: 'center',
+      paddingVertical: 0,
     },
     gridLine: {
       position: 'absolute',

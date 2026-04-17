@@ -16,6 +16,7 @@ import {
   getChartDrawingLabels,
   sanitizePersistedChartDrawings,
 } from '../features/chart/drawingPersistence';
+import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../utils/tradeVolume';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 export type LanguageCode =
@@ -225,6 +226,7 @@ type UserPreferencesState = {
   quoteViewMode: QuoteViewMode;
   chartSymbol: string;
   chartTimeframe: string;
+  tradeVolume: number;
   chartVisualType: ChartVisualType;
   chartDrawings: string[];
   chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
@@ -274,6 +276,7 @@ type UserPreferencesState = {
   setQuoteSymbols: (symbols: string[]) => void;
   setChartSymbol: (symbol: string) => void;
   setChartTimeframe: (timeframe: string) => void;
+  setTradeVolume: (volume: number) => void;
   setChartVisualType: (chartType: ChartVisualType) => void;
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
@@ -309,6 +312,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       quoteViewMode: 'list',
       chartSymbol: 'GBPUSD',
       chartTimeframe: 'H1',
+      tradeVolume: DEFAULT_TRADE_VOLUME,
       chartVisualType: 'candles',
       chartDrawings: [],
       chartDrawingRecordsBySymbol: {},
@@ -392,6 +396,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           };
         }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
+      setTradeVolume: (volume) => set({ tradeVolume: normalizeTradeVolume(volume) }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       addChartDrawing: (drawing) => {
         const list = get().chartDrawings;
@@ -486,7 +491,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 7,
+      version: 8,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -530,6 +535,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             : (state.chartDrawings ?? []),
           chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
           chartVisualType: state.chartVisualType ?? 'candles',
+          tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {
             ...DEFAULT_CHART_COLORS,

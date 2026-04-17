@@ -9,19 +9,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
 import { useAccountSummary } from '../../query/account';
+import { useInstrumentMeta } from '../../query/instruments';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
 import { useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import {
+  formatTradeVolume,
+  incrementTradeVolume,
+  normalizeTradeVolume,
+  sanitizeTradeVolumeDraft,
+} from '../../utils/tradeVolume';
 
 const ORDER_TYPES = [
   'Market Execution',
@@ -37,6 +44,8 @@ export function OrderTicketScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const tradeVolume = useUserPreferences((s) => s.tradeVolume);
+  const setTradeVolume = useUserPreferences((s) => s.setTradeVolume);
   const themeMode = useUserPreferences((s) => s.themeMode);
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const brokerId = useUserPreferences((s) => s.brokerId);
@@ -53,7 +62,17 @@ export function OrderTicketScreen() {
 
   const [orderType, setOrderType] = useState('Market Execution');
   const [typeOpen, setTypeOpen] = useState(false);
-  const [volume, setVolume] = useState(0.01);
+  const { data: instrumentMeta } = useInstrumentMeta(symbol);
+  const volumeBounds = useMemo(
+    () => ({
+      minVolume: instrumentMeta?.minVolume,
+      maxVolume: instrumentMeta?.maxVolume,
+      stepVolume: instrumentMeta?.stepVolume,
+    }),
+    [instrumentMeta?.maxVolume, instrumentMeta?.minVolume, instrumentMeta?.stepVolume],
+  );
+  const [volume, setVolume] = useState(() => normalizeTradeVolume(tradeVolume, volumeBounds));
+  const [volumeInput, setVolumeInput] = useState(() => formatTradeVolume(tradeVolume, volumeBounds));
   const [slEnabled, setSlEnabled] = useState(false);
   const [slPrice, setSlPrice] = useState(0);
   const [tpEnabled, setTpEnabled] = useState(false);
@@ -114,6 +133,12 @@ export function OrderTicketScreen() {
       if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    const normalized = normalizeTradeVolume(tradeVolume, volumeBounds);
+    setVolume(normalized);
+    setVolumeInput(formatTradeVolume(normalized, volumeBounds));
+  }, [tradeVolume, volumeBounds]);
 
   // Live WebSocket Pricing
   const latestTick = useLiveTick(symbol);
@@ -309,8 +334,30 @@ export function OrderTicketScreen() {
     }
   };
 
-  const adj = (delta: number) =>
-    setVolume(v => Math.min(100, Math.max(0.01, parseFloat(((v || 0) + delta).toFixed(2)))));
+  const updateVolume = useCallback(
+    (nextVolume: number | string) => {
+      const normalized = normalizeTradeVolume(nextVolume, volumeBounds);
+      setVolume(normalized);
+      setVolumeInput(formatTradeVolume(normalized, volumeBounds));
+      setTradeVolume(normalized);
+    },
+    [setTradeVolume, volumeBounds],
+  );
+
+  const commitVolumeInput = useCallback(() => {
+    if (!volumeInput.trim()) {
+      setVolumeInput(formatTradeVolume(volume, volumeBounds));
+      return;
+    }
+    updateVolume(volumeInput);
+  }, [updateVolume, volume, volumeBounds, volumeInput]);
+
+  const adj = useCallback(
+    (direction: -1 | 1) => {
+      updateVolume(incrementTradeVolume(volume, direction, volumeBounds));
+    },
+    [updateVolume, volume, volumeBounds],
+  );
 
   const spread = Math.round((ASK - BID) / 0.01);
 
@@ -410,13 +457,23 @@ export function OrderTicketScreen() {
         <View style={styles.volSection}>
           <Text style={styles.rowLabel}>Volume</Text>
           <View style={styles.volStepper}>
-            <Pressable style={styles.volBtn} onPress={() => adj(-0.01)} hitSlop={8}>
+            <Pressable style={styles.volBtn} onPress={() => adj(-1)} hitSlop={8}>
               <Ionicons name="remove" size={18} color={T.textSub} />
             </Pressable>
             <View style={styles.volCenter}>
-              <Text style={styles.volNum}>{(volume || 0).toFixed(2)}</Text>
+              <TextInput
+                style={styles.volInput}
+                value={volumeInput}
+                onChangeText={(text) => setVolumeInput(sanitizeTradeVolumeDraft(text))}
+                onBlur={commitVolumeInput}
+                onSubmitEditing={commitVolumeInput}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                placeholder={formatTradeVolume(volume, volumeBounds)}
+                placeholderTextColor={T.textMuted}
+              />
             </View>
-            <Pressable style={styles.volBtn} onPress={() => adj(+0.01)} hitSlop={8}>
+            <Pressable style={styles.volBtn} onPress={() => adj(1)} hitSlop={8}>
               <Ionicons name="add" size={18} color={T.textSub} />
             </Pressable>
           </View>
@@ -425,10 +482,10 @@ export function OrderTicketScreen() {
           {[0.01, 0.05, 0.10, 0.50, 1.00].map(v => (
             <Pressable
               key={v}
-              style={[styles.quickPill, volume === v && styles.quickPillActive]}
-              onPress={() => setVolume(v)}
+              style={[styles.quickPill, Math.abs(volume - v) < 0.000001 && styles.quickPillActive]}
+              onPress={() => updateVolume(v)}
             >
-              <Text style={[styles.quickTxt, volume === v && styles.quickTxtActive]}>
+              <Text style={[styles.quickTxt, Math.abs(volume - v) < 0.000001 && styles.quickTxtActive]}>
                 {(v || 0).toFixed(2)}
               </Text>
             </Pressable>
@@ -675,6 +732,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     volBtn: { width: 40, height: '100%', alignItems: 'center', justifyContent: 'center' },
     volCenter: { paddingHorizontal: 16, height: '100%', alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderRightWidth: 1, borderColor: LINE },
     volNum: { color: WHITE, fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
+    volInput: { color: WHITE, fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'], minWidth: 72, textAlign: 'center', paddingVertical: 0 },
     quickRow: { flexDirection: 'row', gap: 5, paddingBottom: 4 },
     quickPill: { flex: 1, paddingVertical: 6, borderRadius: 6, backgroundColor: ELEVATED, alignItems: 'center', borderWidth: 1, borderColor: T.border },
     quickPillActive: { backgroundColor: isDark ? 'rgba(59,130,246,0.12)' : T.glass3, borderColor: ACCENT },

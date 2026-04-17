@@ -9,10 +9,11 @@ import { apiClient } from './apiClient';
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
+  getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
 import type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 import { Candle } from '../state/tradingState';
-import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
+import { DEFAULT_CANDLE_HISTORY_LIMIT, getBucketGapCount, normalizeCandleSeries, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 
 /** Response shape from GET /api/v1/candles */
 export interface CandleHistoryResponse {
@@ -44,25 +45,48 @@ export async function getCandleHistory(
     options instanceof AbortSignal
       ? { signal: options }
       : options;
-  const params = buildCandleHistorySearchParams(requestedTimeframe, count, requestOptions);
+  const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
 
-  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal: requestOptions?.signal });
+  let extractedPayload = extractCandleHistoryPayload([]);
+  let resolvedTimeframe = requestedTimeframe;
+  let normalizedCandles: Candle[] = [];
+  let lastHttpError: Error | null = null;
 
-  if (!response.ok) {
-    let errorMsg = 'Failed to fetch candle history';
-    try {
-      const errorData = await response.json();
-      errorMsg = errorData.message || errorData.error || errorMsg;
-    } catch (_e) {
-      // Ignored
+  for (let index = 0; index < requestTimeframes.length; index += 1) {
+    const requestTimeframe = requestTimeframes[index];
+    const params = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
+    const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal: requestOptions?.signal });
+
+    if (!response.ok) {
+      let errorMsg = 'Failed to fetch candle history';
+      try {
+        const errorData = await response.json();
+        errorMsg = errorData.message || errorData.error || errorMsg;
+      } catch (_e) {
+        // Ignored
+      }
+      lastHttpError = new Error(`API Error ${response.status}: ${errorMsg}`);
+      continue;
     }
-    throw new Error(`API Error ${response.status}: ${errorMsg}`);
+
+    const payload = await response.json();
+    extractedPayload = extractCandleHistoryPayload(payload);
+    resolvedTimeframe = normalizeTimeframe(extractedPayload.timeframe ?? requestedTimeframe);
+    normalizedCandles = normalizeCandleSeries(extractedPayload.candles, resolvedTimeframe).slice(-count);
+
+    if (normalizedCandles.length > 0 || index === requestTimeframes.length - 1) {
+      if (requestTimeframe !== requestedTimeframe && normalizedCandles.length > 0) {
+        console.log(
+          `[api/candles] ${requestedSymbol} ${requestedTimeframe}: history loaded via fallback timeframe token ${requestTimeframe}`,
+        );
+      }
+      break;
+    }
   }
 
-  const payload = await response.json();
-  const extractedPayload = extractCandleHistoryPayload(payload);
-  const resolvedTimeframe = normalizeTimeframe(extractedPayload.timeframe ?? requestedTimeframe);
-  const normalizedCandles = normalizeCandleSeries(extractedPayload.candles, resolvedTimeframe).slice(-count);
+  if (normalizedCandles.length === 0 && lastHttpError) {
+    throw lastHttpError;
+  }
 
   const rawCount = Array.isArray(extractedPayload.candles) ? extractedPayload.candles.length : 0;
   if (rawCount > 0 && normalizedCandles.length === 0) {
@@ -81,24 +105,20 @@ export async function getCandleHistory(
   // returned a time-gappy response (→ backend issue) or if the bars are
   // contiguous (→ any visible chart gap is a frontend issue elsewhere).
   if (normalizedCandles.length >= 2) {
-    const intervalSec = (() => {
-      const tfMap: Record<string, number> = {
-        M1: 60, M5: 300, M15: 900, M30: 1800,
-        H1: 3600, H4: 14400, D1: 86400, W1: 604800, MN: 2592000,
-      };
-      return tfMap[resolvedTimeframe] ?? 60;
-    })();
     const gaps: { at: number; missedBuckets: number }[] = [];
+    let expectedBuckets = 1;
     for (let i = 1; i < normalizedCandles.length; i++) {
-      const delta = normalizedCandles[i].time - normalizedCandles[i - 1].time;
-      const missedBuckets = Math.floor(delta / intervalSec) - 1;
+      const missedBuckets = Math.max(
+        0,
+        getBucketGapCount(normalizedCandles[i - 1].time, normalizedCandles[i].time, resolvedTimeframe) - 1,
+      );
+      expectedBuckets += missedBuckets + 1;
       if (missedBuckets > 0) {
         gaps.push({ at: normalizedCandles[i - 1].time, missedBuckets });
       }
     }
     const first = normalizedCandles[0].time;
     const last = normalizedCandles[normalizedCandles.length - 1].time;
-    const expectedBuckets = Math.floor((last - first) / intervalSec) + 1;
     console.log(
       `[api/candles] ${requestedSymbol} ${resolvedTimeframe}: ` +
       `${normalizedCandles.length}/${expectedBuckets} bars ` +

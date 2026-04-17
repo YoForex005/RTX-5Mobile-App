@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildCandleHistorySearchParams, extractCandleHistoryPayload } from './candleHistoryQuery';
+import {
+  buildCandleHistorySearchParams,
+  extractCandleHistoryPayload,
+  getCandleHistoryRequestTimeframes,
+} from './candleHistoryQuery';
 
 test('extractCandleHistoryPayload accepts raw array responses from /api/v2/candles', () => {
   const candles = [
@@ -56,4 +60,10 @@ test('buildCandleHistorySearchParams anchors history requests to a bounded recen
   assert.equal(params.get('limit'), '500');
   assert.equal(params.get('from'), '1775738200');
   assert.equal(params.get('to'), '1775738800');
+});
+
+test('getCandleHistoryRequestTimeframes includes weekly and monthly fallback aliases', () => {
+  assert.deepEqual(getCandleHistoryRequestTimeframes('W1'), ['W1', '1W']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('MN'), ['MN', '1MO']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('M1'), ['M1']);
 });

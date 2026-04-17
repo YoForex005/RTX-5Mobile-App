@@ -13,7 +13,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, Vibration, View, Image, AppState, Platform } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Keyboard, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View, Image, AppState, Platform } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -45,6 +45,7 @@ import { resolveTradingLogin as resolveTradingLoginUtil } from '../../state/trad
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
+import { useInstrumentMeta } from '../../query/instruments';
 import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
@@ -63,6 +64,18 @@ import {
   getChartSeriesUpdateMode,
 } from './liveChartSync';
 import { useShallow } from 'zustand/shallow';
+import {
+  formatTradeVolume,
+  incrementTradeVolume,
+  normalizeTradeVolume,
+  sanitizeTradeVolumeDraft,
+} from '../../utils/tradeVolume';
+import {
+  filterCandlesForChartTimeRange,
+  getChartTimeRangeLabel,
+  resolveChartVisibleRange,
+  type ChartTimeRange,
+} from './timeRangePresets';
 
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -1345,9 +1358,11 @@ export function ChartScreen() {
     chartColorScheme,
     chartDisplay,
     chartDrawingRecordsBySymbol,
+    tradeVolume,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
+    setTradeVolume,
     chartLockAll,
     chartHideAll,
     setChartLockAll,
@@ -1363,9 +1378,11 @@ export function ChartScreen() {
       chartColorScheme: state.chartColorScheme,
       chartDisplay: state.chartDisplay,
       chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
+      tradeVolume: state.tradeVolume,
       setChartTimeframe: state.setChartTimeframe,
       setChartVisualType: state.setChartVisualType,
       setChartSymbol: state.setChartSymbol,
+      setTradeVolume: state.setTradeVolume,
       chartLockAll: state.chartLockAll,
       chartHideAll: state.chartHideAll,
       setChartLockAll: state.setChartLockAll,
@@ -1393,6 +1410,16 @@ export function ChartScreen() {
 
   const { data: apiSymbols = [] } = useMarketSymbols();
   const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
+  const tradeVolumeBounds = useMemo(
+    () => ({
+      minVolume: chartInstrumentMeta?.minVolume,
+      maxVolume: chartInstrumentMeta?.maxVolume,
+      stepVolume: chartInstrumentMeta?.stepVolume,
+    }),
+    [chartInstrumentMeta?.maxVolume, chartInstrumentMeta?.minVolume, chartInstrumentMeta?.stepVolume],
+  );
+  const [lotInput, setLotInput] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
 
   useEffect(() => {
     if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
@@ -1444,13 +1471,40 @@ export function ChartScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
-  const [lotSize, setLotSize] = useState(0.10);
+  useEffect(() => {
+    const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
+    if (Math.abs(normalized - tradeVolume) > 0.000001) {
+      setTradeVolume(normalized);
+      return;
+    }
+    setLotInput(formatTradeVolume(normalized, tradeVolumeBounds));
+  }, [setTradeVolume, tradeVolume, tradeVolumeBounds]);
+
+  const updateTradeVolume = useCallback(
+    (nextVolume: number | string) => {
+      const normalized = normalizeTradeVolume(nextVolume, tradeVolumeBounds);
+      setTradeVolume(normalized);
+      setLotInput(formatTradeVolume(normalized, tradeVolumeBounds));
+    },
+    [setTradeVolume, tradeVolumeBounds],
+  );
+
+  const commitLotDraft = useCallback(() => {
+    if (!lotInput.trim()) {
+      setLotInput(formatTradeVolume(tradeVolume, tradeVolumeBounds));
+      return;
+    }
+    updateTradeVolume(lotInput);
+  }, [lotInput, tradeVolume, tradeVolumeBounds, updateTradeVolume]);
+
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
   const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const safeInsets = useSafeAreaInsets();
+  const chartScrollRef = useRef<ScrollView>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
@@ -1462,6 +1516,32 @@ export function ChartScreen() {
     isChartExpanded || activeTool !== 'crosshair' || Boolean(pendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
+  const scrollLotEditorIntoView = useCallback((animated = false) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        chartScrollRef.current?.scrollToEnd({ animated });
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardInset(Math.max(0, event.endCoordinates.height - safeInsets.bottom + 12));
+      scrollLotEditorIntoView(false);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [safeInsets.bottom, scrollLotEditorIntoView]);
 
   const injectChartScript = (script: string) => {
     webViewRef.current?.injectJavaScript(`${script} true;`);
@@ -1517,14 +1597,26 @@ export function ChartScreen() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTimeRangeMenu, setShowTimeRangeMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
+  const [webViewReady, setWebViewReady] = useState(false);
+  const [chartCanvasReady, setChartCanvasReady] = useState(false);
 
   const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const hasCandles = candles.length > 0;
+  const timeRangeCandlesRef = useRef(candles);
+  const chartCandles = useMemo(
+    () => filterCandlesForChartTimeRange(activeDateRange, candles, customDateValue),
+    [activeDateRange, candles, customDateValue],
+  );
+  useEffect(() => {
+    timeRangeCandlesRef.current = candles;
+  }, [candles]);
   const formatChartValue = useCallback(
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
   );
-  const chartMetaLastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const chartMetaLastCandle = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartMetaItems = useMemo(
     () =>
@@ -1539,6 +1631,85 @@ export function ChartScreen() {
     [chartMetaLastCandle, formatChartValue],
   );
   const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
+  const applyNativeTimeRange = useCallback((range: ChartTimeRange, nextCustomDateValue?: Date | null) => {
+    const visibleCandles = timeRangeCandlesRef.current;
+    if (!webViewReady || !chartCanvasReady || visibleCandles.length === 0) {
+      return;
+    }
+
+    if (range === 'auto') {
+      injectChartScript(`
+        try {
+          if (typeof window.__rtx5ApplyRecentViewport === 'function') {
+            window.__rtx5ApplyRecentViewport();
+          } else if (chart && chart.timeScale) {
+            chart.timeScale().fitContent();
+            if (typeof chart.timeScale().scrollToRealTime === 'function') {
+              chart.timeScale().scrollToRealTime();
+            }
+          }
+        } catch (_) {}
+      `);
+      return;
+    }
+
+    if (range === 'all') {
+      injectChartScript(`
+        try {
+          if (chart && chart.timeScale) {
+            chart.timeScale().fitContent();
+            if (typeof chart.timeScale().scrollToRealTime === 'function') {
+              chart.timeScale().scrollToRealTime();
+            }
+          }
+        } catch (_) {}
+      `);
+      return;
+    }
+
+    const visibleRange = resolveChartVisibleRange(range, visibleCandles, nextCustomDateValue ?? customDateValue);
+    if (!visibleRange) {
+      return;
+    }
+
+    injectChartScript(`
+      try {
+        if (chart && chart.timeScale && typeof chart.timeScale().setVisibleRange === 'function') {
+          chart.timeScale().setVisibleRange({
+            from: ${visibleRange.from},
+            to: ${visibleRange.to},
+          });
+        }
+      } catch (_) {}
+    `);
+  }, [chartCanvasReady, customDateValue, webViewReady]);
+
+  const handleRangePress = useCallback((range: ChartTimeRange) => {
+    setShowTimeRangeMenu(false);
+    setActiveDateRange(range);
+    setCustomDateValue(null);
+
+    applyNativeTimeRange(range, null);
+  }, [applyNativeTimeRange]);
+
+  const handleCustomDateRange = useCallback((selectedDate: Date) => {
+    setCustomDateValue(selectedDate);
+    setActiveDateRange('custom');
+    setShowDatePicker(false);
+    applyNativeTimeRange('custom', selectedDate);
+  }, [applyNativeTimeRange]);
+
+  const handleResetTimeRange = useCallback(() => {
+    setActiveDateRange('auto');
+    setCustomDateValue(null);
+    applyNativeTimeRange('auto', null);
+  }, [applyNativeTimeRange]);
+
+  const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
+    setActiveDateRange('auto');
+    setCustomDateValue(null);
+    setChartTimeframe(nextTimeframe);
+  }, [setChartTimeframe]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -1582,8 +1753,6 @@ export function ChartScreen() {
     }
   }), [resolvedChartColors]);
 
-  const [webViewReady, setWebViewReady] = useState(false);
-  const [chartCanvasReady, setChartCanvasReady] = useState(false);
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
   // CHART_READY.  Used as a dependency in the overlay effect so it
@@ -1659,6 +1828,13 @@ export function ChartScreen() {
       setDrawingTool(${JSON.stringify(bridgedTool)});
     `);
   }, [activeTool, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
+
+  useEffect(() => {
+    if (!hasCandles || !webViewReady || !chartCanvasReady) {
+      return;
+    }
+    applyNativeTimeRange(activeDateRange, customDateValue);
+  }, [activeDateRange, applyNativeTimeRange, chartCanvasReady, chartReadyEpoch, chartTimeframe, customDateValue, hasCandles, webViewReady]);
 
   useEffect(() => {
     if (!pendingChartDrawingTool || !chartCanvasReady || !webViewReady) {
@@ -1763,7 +1939,7 @@ export function ChartScreen() {
   // Effect 1 — send initChart whenever data or config changes.
   useEffect(() => {
     sendInit();
-  }, [sendInit, candles]);
+  }, [candles, sendInit]);
 
   // Effect 2 — keep the WebView aligned with the canonical candle stream.
 
@@ -2011,14 +2187,23 @@ export function ChartScreen() {
         </View>
       )}
 
-      <ScrollView
-        style={styles.card}
-        contentContainerStyle={{ flex: 1 }}
-        nestedScrollEnabled
-        scrollEnabled={!shouldCaptureChartGestures}
-        bounces={!shouldCaptureChartGestures}
-        alwaysBounceVertical={!shouldCaptureChartGestures}
+      <KeyboardAvoidingView
+        style={styles.flex1}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
+        <ScrollView
+          ref={chartScrollRef}
+          style={styles.card}
+          contentContainerStyle={[
+            styles.chartScrollContent,
+            keyboardInset > 0 && { paddingBottom: keyboardInset },
+          ]}
+          nestedScrollEnabled
+          scrollEnabled={!shouldCaptureChartGestures}
+          bounces={!shouldCaptureChartGestures}
+          alwaysBounceVertical={!shouldCaptureChartGestures}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.chartContainer}>
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
@@ -2219,7 +2404,7 @@ export function ChartScreen() {
           <View style={styles.bottomArea}>
             <View style={styles.tvBottomToolbar}>
               <Pressable style={styles.tvRangesLeft} onPress={() => setShowTimeRangeMenu(true)}>
-                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>Time Range</Text>
+                <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>{getChartTimeRangeLabel(activeDateRange)}</Text>
                 <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
               </Pressable>
               <Pressable style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setShowDatePicker(true)}>
@@ -2232,22 +2417,7 @@ export function ChartScreen() {
                 <LiveClock styles={styles} />
                 <Pressable
                   hitSlop={10}
-                  onPress={() => {
-                    injectChartScript(`
-                      if (chart) {
-                        try {
-                          if (typeof window.__rtx5ApplyRecentViewport === 'function') {
-                            window.__rtx5ApplyRecentViewport();
-                          } else {
-                            chart.timeScale().fitContent();
-                            if (typeof chart.timeScale().scrollToRealTime === 'function') {
-                              chart.timeScale().scrollToRealTime();
-                            }
-                          }
-                        } catch(_){}
-                      }
-                    `);
-                  }}
+                  onPress={handleResetTimeRange}
                 >
                   <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>Reset</Text>
                 </Pressable>
@@ -2262,20 +2432,33 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={lotSize} onTradeResult={setTradeFeedback} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} onTradeResult={setTradeFeedback} />
 
             <View style={styles.lotSelectorBar}>
-              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => Math.max(0.01, +((prev || 0) - 0.01).toFixed(2)))}>
+              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, -1, tradeVolumeBounds))}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
-              <Text style={styles.lotLabelText}>Lot: <Text style={styles.lotValueText}>{(lotSize || 0).toFixed(2)}</Text></Text>
-              <Pressable style={styles.lotStepperBtn} onPress={() => setLotSize(prev => +((prev || 0) + 0.01).toFixed(2))}>
+              <Text style={styles.lotLabelText}>Lot:</Text>
+              <TextInput
+                style={styles.lotInput}
+                value={lotInput}
+                onChangeText={(text) => setLotInput(sanitizeTradeVolumeDraft(text))}
+                onFocus={() => scrollLotEditorIntoView(false)}
+                onBlur={commitLotDraft}
+                onSubmitEditing={commitLotDraft}
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+                placeholder={formatTradeVolume(tradeVolume, tradeVolumeBounds)}
+                placeholderTextColor={T.textMuted}
+              />
+              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, 1, tradeVolumeBounds))}>
                 <Ionicons name="add" size={18} color={T.textSub} />
               </Pressable>
             </View>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <ActionSheet
         visible={menuOpen}
@@ -2292,7 +2475,7 @@ export function ChartScreen() {
         visible={tfOpen}
         onClose={() => setTfOpen(false)}
         title='Timeframes'
-        actions={timeframes.map((tf) => ({ label: tf, onPress: () => setChartTimeframe(tf) }))}
+        actions={timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) }))}
       />
 
       <ActionSheet
@@ -2368,15 +2551,14 @@ export function ChartScreen() {
         onClose={() => setShowTimeRangeMenu(false)}
         title="Quick Time Range"
         actions={[
-          { label: '1 Day', onPress: () => { } },
-          { label: '5 Days', onPress: () => { } },
-          { label: '1 Month', onPress: () => { } },
-          { label: '3 Months', onPress: () => { } },
-          { label: '6 Months', onPress: () => { } },
-          { label: 'Year To Date', onPress: () => { } },
-          { label: '1 Year', onPress: () => { } },
-          { label: '5 Years', onPress: () => { } },
-          { label: 'All Data', onPress: () => { } },
+          { label: '1 Day', onPress: () => handleRangePress('1d') },
+          { label: '5 Days', onPress: () => handleRangePress('5d') },
+          { label: '1 Month', onPress: () => handleRangePress('1m') },
+          { label: '3 Months', onPress: () => handleRangePress('3m') },
+          { label: '6 Months', onPress: () => handleRangePress('6m') },
+          { label: 'Year To Date', onPress: () => handleRangePress('ytd') },
+          { label: '1 Year', onPress: () => handleRangePress('1y') },
+          { label: 'All Data', onPress: () => handleRangePress('all') },
         ]}
       />
 
@@ -2388,8 +2570,7 @@ export function ChartScreen() {
           <View style={styles.calendarContainer}>
             <Calendar
               onDayPress={(day: any) => {
-                setCustomDateValue(new Date(day.timestamp));
-                setShowDatePicker(false);
+                handleCustomDateRange(new Date(day.timestamp));
               }}
               maxDate={new Date().toISOString().split('T')[0]}
               theme={{
@@ -2427,6 +2608,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
   const TEXT_MUTED = T.textMuted;
 
   return StyleSheet.create({
+    flex1: {
+      flex: 1,
+    },
+    chartScrollContent: {
+      flexGrow: 1,
+    },
     calendarOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
@@ -2936,17 +3123,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
     },
     lotLabelText: {
-      flex: 1,
-      textAlign: 'center',
       fontSize: 12,
       fontWeight: '600',
       color: isDark ? '#64748B' : TEXT_MUTED,
     },
-    lotValueText: {
+    lotInput: {
+      flex: 1,
       color: isDark ? '#E2E8F0' : '#0F172A',
       fontSize: 15,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
+      textAlign: 'center',
+      paddingVertical: 0,
     },
     leftToolbarOverlay: {
       position: 'absolute',

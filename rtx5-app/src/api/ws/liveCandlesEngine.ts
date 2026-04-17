@@ -18,13 +18,14 @@ import type { QuoteTickEvent } from './quotesSocket';
 import {
   DEFAULT_CANDLE_HISTORY_LIMIT,
   MAX_CANDLE_SERIES_LENGTH,
+  alignTimeToBucket,
+  alignTimeToBucketWithReference,
   getExpectedNextCandleTime,
-  getTimeframeSeconds,
   materializeHistoryAndLiveCandles,
   mergeCandleUpdate,
   normalizeSymbol,
   normalizeTimeframe,
-  normalizeTimestampToBucket,
+  normalizeTimestampToSeconds,
   pruneLiveCandlesCoveredByHistory,
   sortAndDedupeCandles,
 } from '../../domain/candles';
@@ -296,6 +297,16 @@ class LiveCandlesEngine {
       };
 
       if (entry.status !== 'ready') {
+        if (entry.status === 'bootstrapping') {
+          // Keep every bootstrap quote for later replay once REST history
+          // arrives, but also render a provisional live candle immediately so
+          // cold chart startup does not wait behind the history request.
+          entry.queuedQuotes = clampPendingQuotes([...entry.queuedQuotes, pending]);
+          entry.pendingQuotes = clampPendingQuotes([...entry.pendingQuotes, pending]);
+          this.scheduleFlush(entry);
+          continue;
+        }
+
         entry.queuedQuotes = clampPendingQuotes([...entry.queuedQuotes, pending]);
         continue;
       }
@@ -321,12 +332,29 @@ class LiveCandlesEngine {
         this.commitVisibleCandles(entry);
       }
 
+      if (entry.status !== 'ready') {
+        return;
+      }
+
       if (outcome.detachedHistory) {
         this.requestGapRefresh(entry, 'detached_live_stream', outcome.anchorTime);
       } else if (outcome.bucketRolledOver) {
         this.schedulePostRolloverHeal(entry, outcome.anchorTime);
       }
     }, QUOTE_BATCH_INTERVAL_MS);
+  }
+
+  private drainBootstrapQuotes(entry: EngineEntry): PendingQuote[] {
+    if (entry.flushTimeout) {
+      clearTimeout(entry.flushTimeout);
+      entry.flushTimeout = null;
+    }
+
+    const queuedQuotes = entry.queuedQuotes;
+    entry.queuedQuotes = [];
+    entry.pendingQuotes = [];
+    entry.liveCandles = [];
+    return queuedQuotes;
   }
 
   private applyQuoteBatch(
@@ -353,12 +381,15 @@ class LiveCandlesEngine {
     entry: EngineEntry,
     quote: PendingQuote,
   ): { changed: boolean; bucketRolledOver: boolean; detachedHistory: boolean; anchorTime: number | null } {
-    const bucketTime = normalizeTimestampToBucket(quote.timestamp, entry.timeframe);
-    if (bucketTime === null) {
+    const baseTail = this.getBaseTail(entry);
+    const quoteTimeInSeconds = normalizeTimestampToSeconds(quote.timestamp);
+    if (quoteTimeInSeconds === null) {
       return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: null };
     }
 
-    const baseTail = this.getBaseTail(entry);
+    const bucketTime = baseTail
+      ? alignTimeToBucketWithReference(quoteTimeInSeconds, entry.timeframe, baseTail.time)
+      : alignTimeToBucket(quoteTimeInSeconds, entry.timeframe);
     const currentLiveTail = this.getLiveTail(entry);
     const liveByTime = entry.liveCandles.find((candle) => candle.time === bucketTime) ?? null;
 
@@ -505,26 +536,28 @@ class LiveCandlesEngine {
     const last = entry.candles[entry.candles.length - 1];
     if (!last) return true;
 
-    const interval = getTimeframeSeconds(entry.timeframe);
     const now = Math.floor(Date.now() / 1000);
-    return now - last.time > interval * RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS;
+    let bucketCursor = last.time;
+    for (let index = 0; index < RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS; index += 1) {
+      bucketCursor = getExpectedNextCandleTime(bucketCursor, entry.timeframe);
+    }
+
+    return now > bucketCursor;
   }
 
   private estimateHistoryAnchor(entry: EngineEntry): number {
-    const interval = getTimeframeSeconds(entry.timeframe);
     const now = Math.floor(Date.now() / 1000);
     const latestKnownTime =
       this.getLiveTail(entry)?.time ??
       this.getHistoryTail(entry)?.time ??
       now;
 
-    return Math.max(latestKnownTime, now) + interval;
+    return getExpectedNextCandleTime(Math.max(latestKnownTime, now), entry.timeframe);
   }
 
   private buildHistoryRequestOptions(entry: EngineEntry, signal: AbortSignal, anchorTo?: number): CandleHistoryRequestOptions {
-    const interval = getTimeframeSeconds(entry.timeframe);
     const now = Math.floor(Date.now() / 1000);
-    const to = Math.max(anchorTo ?? 0, now) + interval;
+    const to = getExpectedNextCandleTime(Math.max(anchorTo ?? 0, now), entry.timeframe);
     return { signal, to };
   }
 
@@ -532,6 +565,7 @@ class LiveCandlesEngine {
     if (!this.entries.has(entry.key)) return;
     entry.status = 'bootstrapping';
     entry.queuedQuotes = [];
+    entry.pendingQuotes = [];
     this.loadHistory(entry, { reason: 'bootstrap', bootstrap: true, anchorTo: this.estimateHistoryAnchor(entry) });
   }
 
@@ -605,21 +639,13 @@ class LiveCandlesEngine {
         if (!live || live.fetchEpoch !== epoch) return;
 
         live.historyCandles = asCandleParams(sortAndDedupeCandles(history.candles)).slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
-        live.liveCandles = asCandleParams(
-          pruneLiveCandlesCoveredByHistory(live.historyCandles, live.liveCandles),
-        );
 
         if (options.bootstrap) {
+          const queued = this.drainBootstrapQuotes(live);
           live.status = 'ready';
-          const queued = live.queuedQuotes;
-          live.queuedQuotes = [];
           if (queued.length > 0) {
             const outcome = this.applyQuoteBatch(live, queued);
-            if (outcome.changed) {
-              this.commitVisibleCandles(live);
-            } else {
-              this.commitVisibleCandles(live);
-            }
+            this.commitVisibleCandles(live);
 
             if (outcome.detachedHistory) {
               this.requestGapRefresh(live, 'bootstrap_detached_live_stream', outcome.anchorTime);
@@ -628,8 +654,14 @@ class LiveCandlesEngine {
             }
             return;
           }
+
+          this.commitVisibleCandles(live);
+          return;
         }
 
+        live.liveCandles = asCandleParams(
+          pruneLiveCandlesCoveredByHistory(live.historyCandles, live.liveCandles),
+        );
         live.status = 'ready';
         this.commitVisibleCandles(live);
       })
@@ -645,17 +677,7 @@ class LiveCandlesEngine {
 
         if (options.bootstrap) {
           live.status = 'ready';
-          const queued = live.queuedQuotes;
           live.queuedQuotes = [];
-          if (queued.length > 0) {
-            const outcome = this.applyQuoteBatch(live, queued);
-            if (outcome.changed) {
-              this.commitVisibleCandles(live);
-            }
-            if (outcome.detachedHistory) {
-              this.requestGapRefresh(live, 'bootstrap_fetch_failed_detached_live_stream', outcome.anchorTime);
-            }
-          }
         } else {
           live.status = 'ready';
         }

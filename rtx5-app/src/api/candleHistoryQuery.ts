@@ -82,7 +82,7 @@ export const buildCandleHistorySearchParams = (
   options?: CandleHistoryRequestOptions,
 ): URLSearchParams => {
   const params = new URLSearchParams();
-  params.set('timeframe', normalizeTimeframe(timeframe));
+  params.set('timeframe', timeframe.trim().toUpperCase());
   params.set('limit', String(count));
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
@@ -94,4 +94,14 @@ export const buildCandleHistorySearchParams = (
   }
 
   return params;
+};
+
+export const getCandleHistoryRequestTimeframes = (timeframe: string): string[] => {
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  const fallbacks: Record<string, string[]> = {
+    W1: ['W1', '1W'],
+    MN: ['MN', '1MO'],
+  };
+
+  return fallbacks[normalizedTimeframe] ?? [normalizedTimeframe];
 };

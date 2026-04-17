@@ -38,3 +38,6 @@ Deliver history parity for Positions, Orders, and Deals with sorting, filtering,
 ## Exit Criteria
 - History flows are parity-complete and validated in E2E suite.
 
+## Progress Notes
+- 2026-04-17: Switched the History Positions view and the History Net P/L drill-in from live open-position data to closed-position history data so the History tab only reports closed trades for the selected range.
+

@@ -64,6 +64,89 @@ export const getTimeframeSeconds = (timeframe: string): number => {
   return TIMEFRAME_SECONDS[normalizeTimeframe(timeframe)] ?? 60;
 };
 
+const DAY_SECONDS = 24 * 60 * 60;
+const WEEK_SECONDS = 7 * DAY_SECONDS;
+
+export const requiresHistoryAnchorForLiveBucketing = (timeframe: string): boolean => {
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  return normalizedTimeframe === 'D1' || normalizedTimeframe === 'W1' || normalizedTimeframe === 'MN';
+};
+
+const addUtcMonthsClamped = (timeInSeconds: number, monthOffset: number): number => {
+  const date = new Date(timeInSeconds * 1000);
+  const targetMonthIndex = date.getUTCMonth() + monthOffset;
+  const targetYear = date.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const targetDay = date.getUTCDate();
+  const lastDayOfSourceMonth = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const resolvedDay = targetDay === lastDayOfSourceMonth
+    ? lastDayOfTargetMonth
+    : Math.min(targetDay, lastDayOfTargetMonth);
+
+  return Math.floor(
+    Date.UTC(
+      targetYear,
+      targetMonth,
+      resolvedDay,
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+    ) / 1000,
+  );
+};
+
+const addTradingDaysPreservingTime = (timeInSeconds: number, dayOffset: number): number => {
+  const direction = dayOffset >= 0 ? 1 : -1;
+  let remainingDays = Math.abs(dayOffset);
+  const date = new Date(timeInSeconds * 1000);
+
+  while (remainingDays > 0) {
+    date.setUTCDate(date.getUTCDate() + direction);
+    const dayOfWeek = date.getUTCDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      remainingDays -= 1;
+    }
+  }
+
+  return Math.floor(date.getTime() / 1000);
+};
+
+const alignTimeToUtcWeek = (timeInSeconds: number): number => {
+  const date = new Date(timeInSeconds * 1000);
+  const startOfDay = Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 1000);
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  return startOfDay - daysSinceMonday * DAY_SECONDS;
+};
+
+const alignTimeToUtcMonth = (timeInSeconds: number): number => {
+  const date = new Date(timeInSeconds * 1000);
+  return Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000);
+};
+
+const alignMonthlyBucketWithReference = (timeInSeconds: number, referenceBucketTime: number): number => {
+  const referenceDate = new Date(referenceBucketTime * 1000);
+  const currentDate = new Date(timeInSeconds * 1000);
+  let monthOffset =
+    (currentDate.getUTCFullYear() - referenceDate.getUTCFullYear()) * 12 +
+    (currentDate.getUTCMonth() - referenceDate.getUTCMonth());
+  let candidate = addUtcMonthsClamped(referenceBucketTime, monthOffset);
+
+  while (candidate > timeInSeconds) {
+    monthOffset -= 1;
+    candidate = addUtcMonthsClamped(referenceBucketTime, monthOffset);
+  }
+
+  while (true) {
+    const nextCandidate = addUtcMonthsClamped(referenceBucketTime, monthOffset + 1);
+    if (nextCandidate > timeInSeconds) {
+      return candidate;
+    }
+    monthOffset += 1;
+    candidate = nextCandidate;
+  }
+};
+
 // ─── Stream event shape (consumed by candlesSocket) ─────────────────────────
 
 export type CandleStreamEvent =
@@ -112,11 +195,39 @@ const coerceTimestampToSeconds = (value: number): number => {
 // ─── Bucket alignment ───────────────────────────────────────────────────────
 
 export const alignTimeToBucket = (timeInSeconds: number, timeframe: string): number => {
-  const intervalSeconds = getTimeframeSeconds(timeframe);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  if (normalizedTimeframe === 'W1') {
+    return alignTimeToUtcWeek(timeInSeconds);
+  }
+
+  if (normalizedTimeframe === 'MN') {
+    return alignTimeToUtcMonth(timeInSeconds);
+  }
+
+  const intervalSeconds = getTimeframeSeconds(normalizedTimeframe);
   return Math.floor(timeInSeconds / intervalSeconds) * intervalSeconds;
 };
 
-const normalizeTimeValue = (value: unknown, timeframe: string): number | null => {
+export const alignTimeToBucketWithReference = (
+  timeInSeconds: number,
+  timeframe: string,
+  referenceBucketTime?: number | null,
+): number => {
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  if (!Number.isFinite(referenceBucketTime)) {
+    return alignTimeToBucket(timeInSeconds, normalizedTimeframe);
+  }
+
+  if (normalizedTimeframe === 'MN') {
+    return alignMonthlyBucketWithReference(timeInSeconds, Number(referenceBucketTime));
+  }
+
+  const intervalSeconds = getTimeframeSeconds(normalizedTimeframe);
+  const anchor = Number(referenceBucketTime);
+  return anchor + Math.floor((timeInSeconds - anchor) / intervalSeconds) * intervalSeconds;
+};
+
+export const normalizeTimestampToSeconds = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
 
   let seconds: number | null = null;
@@ -137,11 +248,26 @@ const normalizeTimeValue = (value: unknown, timeframe: string): number | null =>
 
   if (seconds === null || seconds <= 0) return null;
 
-  return alignTimeToBucket(seconds, timeframe);
+  return seconds;
 };
 
-export const normalizeTimestampToBucket = (value: unknown, timeframe: string): number | null => {
-  return normalizeTimeValue(value, timeframe);
+const normalizeTimeValue = (
+  value: unknown,
+  timeframe: string,
+  referenceBucketTime?: number | null,
+): number | null => {
+  const seconds = normalizeTimestampToSeconds(value);
+  if (seconds === null) return null;
+
+  return alignTimeToBucketWithReference(seconds, timeframe, referenceBucketTime);
+};
+
+export const normalizeTimestampToBucket = (
+  value: unknown,
+  timeframe: string,
+  referenceBucketTime?: number | null,
+): number | null => {
+  return normalizeTimeValue(value, timeframe, referenceBucketTime);
 };
 
 // ─── OHLC validation ────────────────────────────────────────────────────────
@@ -164,17 +290,29 @@ export const isStructurallyValidCandle = (
 };
 
 export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: string): boolean => {
-  return candle.time === alignTimeToBucket(candle.time, timeframe);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  if (normalizedTimeframe === 'D1' || normalizedTimeframe === 'W1' || normalizedTimeframe === 'MN') {
+    return Number.isFinite(candle.time);
+  }
+
+  return candle.time === alignTimeToBucket(candle.time, normalizedTimeframe);
 };
 
 // ─── Parsing ────────────────────────────────────────────────────────────────
 
 export const normalizeCandle = (input: Record<string, unknown>, timeframe: string): Candle | null => {
-  const time = normalizeTimeValue(input.time ?? input.timestamp ?? input.ts ?? input.t, timeframe);
-  const close = toFiniteNumber(input.close ?? input.c ?? input.price ?? input.p ?? input.bid ?? input.ask);
   const explicitOpen = toFiniteNumber(input.open ?? input.o);
   const explicitHigh = toFiniteNumber(input.high ?? input.h);
   const explicitLow = toFiniteNumber(input.low ?? input.l);
+  const hasExplicitBarShape = explicitOpen !== null || explicitHigh !== null || explicitLow !== null;
+  const rawTime = normalizeTimestampToSeconds(input.time ?? input.timestamp ?? input.ts ?? input.t);
+  const time =
+    rawTime === null
+      ? null
+      : hasExplicitBarShape
+        ? rawTime
+        : alignTimeToBucket(rawTime, timeframe);
+  const close = toFiniteNumber(input.close ?? input.c ?? input.price ?? input.p ?? input.bid ?? input.ask);
   const volume = toFiniteNumber(input.volume ?? input.v) ?? 0;
 
   if (time === null || close === null) return null;
@@ -196,7 +334,7 @@ export const normalizeCandle = (input: Record<string, unknown>, timeframe: strin
     volume: Math.max(volume, 0),
   };
 
-  return isStructurallyValidCandle(candle) && isBucketAlignedCandle(candle, timeframe) ? candle : null;
+  return isStructurallyValidCandle(candle) && (hasExplicitBarShape || isBucketAlignedCandle(candle, timeframe)) ? candle : null;
 };
 
 export const parseIncomingCandlePayload = (
@@ -338,7 +476,20 @@ export const normalizeCandleSeries = (candles: unknown[], timeframe: string): Ca
 // ─── Bucket horizon helpers ─────────────────────────────────────────────────
 
 export const getExpectedNextCandleTime = (lastTime: number, timeframe: string): number => {
-  return lastTime + getTimeframeSeconds(timeframe);
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  if (normalizedTimeframe === 'MN') {
+    return addUtcMonthsClamped(lastTime, 1);
+  }
+
+  if (normalizedTimeframe === 'W1') {
+    return lastTime + WEEK_SECONDS;
+  }
+
+  if (normalizedTimeframe === 'D1') {
+    return addTradingDaysPreservingTime(lastTime, 1);
+  }
+
+  return lastTime + getTimeframeSeconds(normalizedTimeframe);
 };
 
 export const getCurrentBucketTime = (
@@ -354,7 +505,7 @@ export const isWithinLiveBucketHorizon = (
   nowInSeconds: number = Math.floor(Date.now() / 1000),
 ): boolean => {
   const currentBucket = getCurrentBucketTime(timeframe, nowInSeconds);
-  return candleTime <= currentBucket + getTimeframeSeconds(timeframe);
+  return candleTime <= getExpectedNextCandleTime(currentBucket, timeframe);
 };
 
 /**
@@ -387,9 +538,29 @@ export const buildFlatGapCandles = (
 };
 
 export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: string): number => {
-  const intervalSeconds = getTimeframeSeconds(timeframe);
   if (toTime <= fromTime) return 0;
-  return Math.floor((toTime - fromTime) / intervalSeconds);
+
+  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  if (!requiresHistoryAnchorForLiveBucketing(normalizedTimeframe)) {
+    const intervalSeconds = getTimeframeSeconds(normalizedTimeframe);
+    return Math.floor((toTime - fromTime) / intervalSeconds);
+  }
+
+  let cursor = fromTime;
+  let bucketCount = 0;
+
+  while (cursor < toTime) {
+    const nextTime = getExpectedNextCandleTime(cursor, normalizedTimeframe);
+    bucketCount += 1;
+
+    if (nextTime >= toTime || nextTime <= cursor) {
+      return bucketCount;
+    }
+
+    cursor = nextTime;
+  }
+
+  return bucketCount;
 };
 
 export const hasExcessiveLivePriceGap = (
@@ -451,7 +622,7 @@ export const materializeHistoryAndLiveCandles = (
   const historyLastTime = normalizedHistory[normalizedHistory.length - 1].time;
   const firstLiveTime = normalizedLive[0].time;
 
-  if (firstLiveTime > getExpectedNextCandleTime(historyLastTime, timeframe)) {
+  if (getBucketGapCount(historyLastTime, firstLiveTime, timeframe) > 1) {
     return normalizedLive.slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 

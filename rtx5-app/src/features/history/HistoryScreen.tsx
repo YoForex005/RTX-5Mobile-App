@@ -14,13 +14,13 @@ import { AppHeader } from '../../components/AppHeader';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
-import { usePositionHistoryQuery, usePositionsQuery } from '../../query/positions';
+import { usePositionHistoryQuery } from '../../query/positions';
 import { useAccountDealsQuery } from '../../query/deals';
 import { useOrdersByLoginQuery } from '../../query/orders';
-import { useMarketData } from '../../query/websocket';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { Deal } from '../../api/deals';
 import { LoginOrder } from '../../api/orders';
+import { ClosedPosition } from '../../api/positions';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -123,6 +123,23 @@ function mapDealToRow(d: Deal): HistoryRow {
   };
 }
 
+function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
+  const isJpy = position.symbol?.includes('JPY');
+  const priceDecimals = isJpy ? 3 : 5;
+  const closePrice = position.price_close ?? position.price_current ?? position.price_open ?? 0;
+  const netProfit = (position.profit || 0) + (position.swap || 0) + (position.commission || 0);
+  const displayTime = position.time_close ?? position.time_update ?? position.time_create;
+
+  return {
+    id: `hp${position.ticket}`,
+    line1: `${position.symbol ?? ''} ${position.side ?? ''} ${(position.volume ?? 0).toFixed(2)}`,
+    line2: `${(position.price_open ?? 0).toFixed(priceDecimals)} → ${closePrice.toFixed(priceDecimals)}`,
+    time: safeTimeStr(displayTime),
+    profit: netProfit,
+    note: position.comment?.trim() || undefined,
+  };
+}
+
 export function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
@@ -145,7 +162,6 @@ export function HistoryScreen() {
   // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
   const accountLogin = resolveTradingLogin();
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin);
-  const { data: rawPositions = [], refetch: refetchPositions } = usePositionsQuery(accountLogin);
   const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery();
   const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin);
 
@@ -153,15 +169,11 @@ export function HistoryScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetchPositionHistory(), refetchPositions(), refetchDeals(), refetchOrders()]);
+      await Promise.all([refetchPositionHistory(), refetchDeals(), refetchOrders()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetchPositionHistory, refetchPositions, refetchDeals, refetchOrders]);
-
-  // Hook into live pricing feed for open positions parity
-  const activeSymbols = useMemo(() => Array.from(new Set(rawPositions.map(p => p.symbol))), [rawPositions]);
-  const quotesStore = useMarketData(activeSymbols);
+  }, [refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
   const balance = useLiveAccountState((s) => s.balance) || 0;
@@ -180,31 +192,8 @@ export function HistoryScreen() {
     // GET /api/v2/account/orders — real order history, replaces static mock
     if (tab === 'Orders') return rawOrders.map(mapOrderToRow);
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
-
-    // Positions tab — open positions with live prices ticking
-    const openRows = rawPositions.map((p) => {
-      const liveQuote = quotesStore[p.symbol];
-      const liveBid = liveQuote?.bid || p.currentPrice;
-      const liveAsk = liveQuote?.ask || liveBid + (p.symbol.includes('JPY') ? 0.015 : 0.00015);
-      const isBuy = p.side === 'buy';
-      const livePrice = isBuy ? liveBid : liveAsk;
-
-      const contractSize = p.symbol.includes('JPY') ? 1000 : 100000;
-      const priceDiff = isBuy ? (livePrice - p.openPrice) : (p.openPrice - livePrice);
-      const livePnl = priceDiff * (p.volume || 0.01) * contractSize;
-
-      const ts = p.openTime ? new Date(p.openTime).getTime() / 1000 : undefined;
-      return {
-        id: `hpo_${p.id}`,
-        line1: `${p.symbol} ${p.side} ${p.volume.toFixed(2)} (Open)`,
-        line2: `${fmt.price(p.openPrice)} → ${fmt.price(livePrice)}`,
-        time: safeTimeStr(ts),
-        profit: livePnl,
-      };
-    });
-
-    return openRows;
-  }, [tab, rawPositions, rawDeals, quotesStore]);
+    return rawPositionHistory.map(mapClosedPositionToRow);
+  }, [tab, rawDeals, rawOrders, rawPositionHistory]);
 
   const data = useMemo(() => sortHistoryRows(baseData, sortBy), [baseData, sortBy]);
   const profitRows = useMemo(

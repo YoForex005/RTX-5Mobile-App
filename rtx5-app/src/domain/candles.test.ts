@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  alignTimeToBucket,
+  alignTimeToBucketWithReference,
   applyLivePriceToCandleSeries,
   extractIncomingCandlePayloads,
+  getBucketGapCount,
+  getExpectedNextCandleTime,
   hasExcessiveLivePriceGap,
   mergeRecentHistoryIntoCandles,
   mergeCandleUpdate,
@@ -69,6 +73,175 @@ test('extractIncomingCandlePayloads accepts nested candle update events from /ws
     close: 4738.21,
     volume: 69,
   });
+});
+
+test('normalizeCandle preserves explicit weekly history candle timestamps', () => {
+  const weeklyOpenTime = Date.UTC(2026, 3, 13, 0, 0, 0) / 1000;
+  const candle = normalizeCandle(
+    {
+      time: weeklyOpenTime,
+      open: 1.1,
+      high: 1.3,
+      low: 1.0,
+      close: 1.25,
+      volume: 120,
+    },
+    'W1',
+  );
+
+  assert.deepEqual(candle, {
+    time: weeklyOpenTime,
+    open: 1.1,
+    high: 1.3,
+    low: 1.0,
+    close: 1.25,
+    volume: 120,
+  });
+});
+
+test('normalizeCandle preserves explicit monthly history candle timestamps', () => {
+  const monthlyOpenTime = Date.UTC(2026, 3, 1, 0, 0, 0) / 1000;
+  const candle = normalizeCandle(
+    {
+      time: monthlyOpenTime,
+      open: 1900,
+      high: 1955,
+      low: 1882,
+      close: 1942,
+      volume: 42,
+    },
+    'MN',
+  );
+
+  assert.deepEqual(candle, {
+    time: monthlyOpenTime,
+    open: 1900,
+    high: 1955,
+    low: 1882,
+    close: 1942,
+    volume: 42,
+  });
+});
+
+test('alignTimeToBucket uses UTC week boundaries for raw weekly quote ticks', () => {
+  const weeklyTickTime = Date.UTC(2026, 3, 15, 12, 0, 0) / 1000;
+
+  assert.equal(
+    alignTimeToBucket(weeklyTickTime, 'W1'),
+    Date.UTC(2026, 3, 13, 0, 0, 0) / 1000,
+  );
+});
+
+test('alignTimeToBucketWithReference advances monthly live buckets by calendar month', () => {
+  const monthlyAnchor = Date.UTC(2026, 0, 31, 0, 0, 0) / 1000;
+  const februaryTickTime = Date.UTC(2026, 1, 28, 12, 0, 0) / 1000;
+  const marchTickTime = Date.UTC(2026, 2, 31, 12, 0, 0) / 1000;
+
+  assert.equal(
+    alignTimeToBucketWithReference(februaryTickTime, 'MN', monthlyAnchor),
+    Date.UTC(2026, 1, 28, 0, 0, 0) / 1000,
+  );
+  assert.equal(
+    alignTimeToBucketWithReference(marchTickTime, 'MN', monthlyAnchor),
+    Date.UTC(2026, 2, 31, 0, 0, 0) / 1000,
+  );
+});
+
+test('getExpectedNextCandleTime advances monthly candles by calendar month length', () => {
+  const januaryMonthlyOpenTime = Date.UTC(2026, 0, 31, 0, 0, 0) / 1000;
+
+  assert.equal(
+    getExpectedNextCandleTime(januaryMonthlyOpenTime, 'MN'),
+    Date.UTC(2026, 1, 28, 0, 0, 0) / 1000,
+  );
+  assert.equal(
+    getExpectedNextCandleTime(Date.UTC(2026, 1, 28, 0, 0, 0) / 1000, 'MN'),
+    Date.UTC(2026, 2, 31, 0, 0, 0) / 1000,
+  );
+});
+
+test('getExpectedNextCandleTime skips weekend gaps for daily candles', () => {
+  const fridayDailyOpenTime = Date.UTC(2026, 3, 17, 21, 0, 0) / 1000;
+
+  assert.equal(
+    getExpectedNextCandleTime(fridayDailyOpenTime, 'D1'),
+    Date.UTC(2026, 3, 20, 21, 0, 0) / 1000,
+  );
+});
+
+test('getBucketGapCount treats friday-to-monday as one daily bucket', () => {
+  const fridayDailyOpenTime = Date.UTC(2026, 3, 17, 21, 0, 0) / 1000;
+  const mondayDailyOpenTime = Date.UTC(2026, 3, 20, 21, 0, 0) / 1000;
+
+  assert.equal(getBucketGapCount(fridayDailyOpenTime, mondayDailyOpenTime, 'D1'), 1);
+});
+
+test('materializeHistoryAndLiveCandles keeps daily history attached across weekend rollover', () => {
+  const fridayDailyOpenTime = Date.UTC(2026, 3, 17, 21, 0, 0) / 1000;
+  const mondayDailyOpenTime = Date.UTC(2026, 3, 20, 21, 0, 0) / 1000;
+
+  const materialized = materializeHistoryAndLiveCandles(
+    [
+      {
+        time: fridayDailyOpenTime,
+        open: 1.1,
+        high: 1.2,
+        low: 1.05,
+        close: 1.15,
+        volume: 100,
+      },
+    ],
+    [
+      {
+        time: mondayDailyOpenTime,
+        open: 1.15,
+        high: 1.22,
+        low: 1.12,
+        close: 1.2,
+        volume: 10,
+      },
+    ],
+    'D1',
+  );
+
+  assert.deepEqual(materialized.map((candle) => candle.time), [
+    fridayDailyOpenTime,
+    mondayDailyOpenTime,
+  ]);
+});
+
+test('materializeHistoryAndLiveCandles keeps monthly history attached after a short month boundary', () => {
+  const februaryMonthlyOpenTime = Date.UTC(2026, 1, 28, 0, 0, 0) / 1000;
+  const marchMonthlyOpenTime = Date.UTC(2026, 2, 31, 0, 0, 0) / 1000;
+
+  const materialized = materializeHistoryAndLiveCandles(
+    [
+      {
+        time: februaryMonthlyOpenTime,
+        open: 1900,
+        high: 1940,
+        low: 1880,
+        close: 1925,
+        volume: 50,
+      },
+    ],
+    [
+      {
+        time: marchMonthlyOpenTime,
+        open: 1925,
+        high: 1960,
+        low: 1910,
+        close: 1950,
+        volume: 5,
+      },
+    ],
+    'MN',
+  );
+
+  assert.deepEqual(materialized.map((candle) => candle.time), [
+    februaryMonthlyOpenTime,
+    marchMonthlyOpenTime,
+  ]);
 });
 
 test('extractIncomingCandlePayloads dedupes multiple quote ticks into one bucket-safe candle', () => {

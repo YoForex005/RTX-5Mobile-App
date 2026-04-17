@@ -38,7 +38,25 @@ export function BulkOperationScreen() {
 
   return (
     <Screen scroll style={isDark ? { backgroundColor: '#06080D' } : undefined}>
-      <Stack.Screen options={{ title, headerTitleAlign: 'center' }} />
+      <Stack.Screen
+        options={{
+          title,
+          headerTitleAlign: 'center',
+          headerRight: () => <View style={styles.navHeaderSpacer} />,
+          headerTitle: () => (
+            <View style={styles.navTitleWrap} pointerEvents="none">
+              <Text
+                style={[styles.navTitle, { color: T.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                {title}
+              </Text>
+            </View>
+          ),
+        }}
+      />
 
       <View style={styles.summaryCard}>
         <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
@@ -115,6 +133,22 @@ function Row({
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
+  navTitleWrap: {
+    width: 190,
+    maxWidth: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  navTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  navHeaderSpacer: {
+    width: 46,
+    height: 40,
+  },
   summaryCard: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,

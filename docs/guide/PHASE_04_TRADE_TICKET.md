@@ -53,4 +53,6 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - 2026-04-11: Fixed the V2 account websocket path so the app subscribes with the resolved MT5 login on `metrics.{LOGIN}` and `positions.{LOGIN}`, even when booting from legacy persisted sessions whose `accountDetails.id` still held a non-MT5 user id.
 - 2026-04-11: Stopped the Trade header and position rows from overriding authoritative websocket account metrics and live position P/L with local quote-based recalculations; the UI now renders the server-provided balance, equity, margin, free margin, margin level, floating P/L, and per-position net P/L.
 - 2026-04-11: Hardened websocket position upserts so partial `positions.{LOGIN}` payloads merge into the existing local position instead of wiping symbol, volume, open price, or net P/L fields when the backend only pushes ticket-level profit updates.
+- 2026-04-17: Added a persisted shared `tradeVolume` preference and made the order-ticket and chart quick-trade lot controls directly editable while still respecting instrument min/max/step metadata.
+- 2026-04-17: Replaced the bulk-operation header with a constrained fit-to-width title so long bulk mode labels stay centered on smaller phones instead of overflowing.
 
