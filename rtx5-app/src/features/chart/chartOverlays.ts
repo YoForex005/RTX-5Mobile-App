@@ -172,8 +172,35 @@ const inferContractSize = (symbol: string): number => {
   return 100000;
 };
 
+const resolvePointSize = (symbol: string): number => {
+  const precision = resolveDisplayPrecision(symbol);
+  if (!Number.isFinite(precision) || precision <= 0) return 1;
+  return Math.pow(10, -precision);
+};
+
 const formatPositionVolumeLabel = (value: number): string =>
   Number.isFinite(value) ? value.toFixed(2) : '0.00';
+
+const formatTpSlOverlayLabel = (
+  kind: 'tp' | 'sl',
+  symbol: string,
+  entryPrice: number,
+  targetPrice: number,
+  volume: number,
+): string => {
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(targetPrice) || targetPrice <= 0) {
+    return kind.toUpperCase();
+  }
+
+  const contractSize = inferContractSize(symbol);
+  const pointSize = resolvePointSize(symbol);
+  const safeVolume = Number.isFinite(volume) && volume > 0 ? volume : 0;
+  const usdValue = Math.abs(targetPrice - entryPrice) * contractSize * safeVolume;
+  const pointDistance = Math.max(1, Math.round(Math.abs(targetPrice - entryPrice) / pointSize));
+  const sign = kind === 'tp' ? '+' : '-';
+
+  return `${kind.toUpperCase()}, ${sign} ${usdValue.toFixed(2)} USD, ${pointDistance} points`;
+};
 
 const normalizeOrderType = (value: string | undefined): string =>
   String(value ?? '')
@@ -431,7 +458,6 @@ const buildPendingOrderLines = (
     const entryPrice = Number(order.price_open);
     const slValue = Number(order.price_sl);
     const tpValue = Number(order.price_tp);
-    const precision = resolveDisplayPrecision(order.symbol);
     const entryColor = order.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
 
     if (Number.isFinite(entryPrice) && entryPrice > 0) {
@@ -454,7 +480,7 @@ const buildPendingOrderLines = (
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Dashed,
         axisLabelVisible: true,
-        title: `TP ${tpValue.toFixed(precision)}`,
+        title: formatTpSlOverlayLabel('tp', order.symbol, entryPrice, tpValue, Number(order.volume)),
       });
     }
 
@@ -466,7 +492,7 @@ const buildPendingOrderLines = (
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Dashed,
         axisLabelVisible: true,
-        title: `SL ${slValue.toFixed(precision)}`,
+        title: formatTpSlOverlayLabel('sl', order.symbol, entryPrice, slValue, Number(order.volume)),
       });
     }
 
@@ -588,8 +614,6 @@ export const buildChartOverlayPayload = ({
       const parsedPrice = Number(position.openPrice);
       if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
 
-      const precision = resolveDisplayPrecision(position.symbol);
-
       if (showOnChart.openPositions) {
         addUniquePriceLine(priceLines, {
           id: `open-${position.id}`,
@@ -612,7 +636,7 @@ export const buildChartOverlayPayload = ({
             lineWidth: 1,
             lineStyle: CHART_LINE_STYLE.Dashed,
             axisLabelVisible: true,
-            title: `TP ${tpValue.toFixed(precision)}`,
+            title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
           });
         }
 
@@ -625,7 +649,7 @@ export const buildChartOverlayPayload = ({
             lineWidth: 1,
             lineStyle: CHART_LINE_STYLE.Dashed,
             axisLabelVisible: true,
-            title: `SL ${slValue.toFixed(precision)}`,
+            title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
           });
         }
       }

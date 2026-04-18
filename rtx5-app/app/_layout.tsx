@@ -87,6 +87,10 @@ function InnerLayout() {
           <Stack.Screen name='chart/open-order-mode' options={{ headerShown: false }} />
           <Stack.Screen name='chart/calculator' options={{ headerShown: false }} />
           <Stack.Screen name='chart/analytics' options={{ title: 'Analytics' }} />
+          <Stack.Screen name='chart/indicators' options={{ headerShown: false, animation: 'slide_from_left' }} />
+          <Stack.Screen name='chart/indicator-config' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/indicator-line-style' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/indicator-level' options={{ headerShown: false }} />
           <Stack.Screen name='chart/specification' options={{ headerShown: false }} />
           <Stack.Screen name='chart/alerts' options={{ headerShown: false }} />
           <Stack.Screen name='chart/menu-order' options={{ headerShown: false }} />

@@ -60,6 +60,18 @@ export const TvPrediction = ({ color }: { color: string }) => (
   </Svg>
 );
 
+export const TvTpSl = ({ color }: { color: string }) => (
+  <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+    <Path d="M8 9h10" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    <Path d="M8 19h10" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    <Path d="M14 6v16" stroke={color} strokeWidth="1.1" strokeLinecap="round" strokeDasharray="2 2" opacity="0.35" />
+    <Circle cx="8" cy="9" r="1.6" fill="#2962FF" />
+    <Circle cx="8" cy="19" r="1.6" fill="#F23645" />
+    <Path d="M20 12V6M20 6l-2.5 2.5M20 6l2.5 2.5" stroke="#2962FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M20 16v6M20 22l-2.5-2.5M20 22l2.5-2.5" stroke="#F23645" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const TvSmiley = ({ color }: { color: string }) => (
   <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
     <Circle cx="14" cy="14" r="8" stroke={color} strokeWidth="1.5" />
@@ -206,27 +218,96 @@ export const TvPitchfork = ({ color }: { color: string }) => (
 
 export const TvRadialObjects = ({ color }: { color: string }) => (
   <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-    <Rect x="4.1" y="7.4" width="7.8" height="5.9" rx="1.15" stroke={color} strokeWidth="1.35" />
-    <Rect x="8.5" y="4.7" width="7.8" height="5.9" rx="1.15" stroke={color} strokeWidth="1.35" />
+    <Path
+      d="M10 3.6L4.1 6.8L10 10L15.9 6.8L10 3.6Z"
+      stroke={color}
+      strokeWidth="1.35"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <Path
+      d="M4.6 10.2L10 13.2L15.4 10.2"
+      stroke={color}
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <Path
+      d="M4.6 13.5L10 16.4L15.4 13.5"
+      stroke={color}
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
   </Svg>
 );
 
 export const TvRadialShapes = ({ color }: { color: string }) => (
   <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-    <Path d="M3.5 8.9L7.3 4.9L10.9 8.9H3.5Z" stroke={color} strokeWidth="1.3" strokeLinejoin="round" />
-    <Circle cx="6" cy="14.2" r="1.85" stroke={color} strokeWidth="1.3" />
-    <Rect x="11.8" y="11.2" width="4.1" height="4.1" rx="0.8" stroke={color} strokeWidth="1.3" />
+    <Path
+      d="M6 3.5 H2.5 V16.5 H6"
+      stroke={color}
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <Circle
+      cx="13"
+      cy="7"
+      r="3"
+      stroke={color}
+      strokeWidth="1.35"
+      fill="none"
+    />
+    <Path
+      d="M13 10 L8 17 L18 17 Z"
+      stroke={color}
+      strokeWidth="1.35"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Svg>
+);
+
+export const TvRadialPencil = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Path
+      d="M5 13.9L4.2 16L6.3 15.2L14.8 6.7L13.5 5.4L5 13.9Z"
+      stroke={color}
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <Path
+      d="M12.7 4.8L14 3.5C14.5 3 15.2 3 15.7 3.5L16.7 4.5C17.2 5 17.2 5.7 16.7 6.2L15.4 7.5"
+      stroke={color}
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <Path
+      d="M11.9 6.9L15.2 10.2"
+      stroke={color}
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </Svg>
 );
 
 export const TvRadialSettings = ({ color }: { color: string }) => (
   <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-    <Line x1="5" y1="4.2" x2="5" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
-    <Line x1="10" y1="4.2" x2="10" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
-    <Line x1="15" y1="4.2" x2="15" y2="15.8" stroke={color} strokeWidth="1.3" strokeLinecap="round" />
-    <Circle cx="5" cy="8.2" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
-    <Circle cx="10" cy="12.1" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
-    <Circle cx="15" cy="6.8" r="1.25" fill="#FFFFFF" stroke={color} strokeWidth="1.15" />
+    <Line x1="3.5" y1="5.5" x2="16.5" y2="5.5" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="3.5" y1="10" x2="16.5" y2="10" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Line x1="3.5" y1="14.5" x2="16.5" y2="14.5" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    <Circle cx="7.5" cy="5.5" r="1.6" fill="#FFFFFF" stroke={color} strokeWidth="1.3" />
+    <Circle cx="12.5" cy="10" r="1.6" fill="#FFFFFF" stroke={color} strokeWidth="1.3" />
+    <Circle cx="8.5" cy="14.5" r="1.6" fill="#FFFFFF" stroke={color} strokeWidth="1.3" />
   </Svg>
 );
 

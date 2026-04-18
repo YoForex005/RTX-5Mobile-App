@@ -18,7 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
-  TvCandles, TvFx, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode
+  TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode, TvRadialObjects
 } from './components/ChartToolbarIcons';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../components/Screen';
@@ -505,7 +505,6 @@ export function ChartScreen() {
   }, [baseSymbol, chartLiveQuote?.digits]);
 
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [tfOpen, setTfOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
@@ -1247,8 +1246,11 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 5: FX / Indicators */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => setMenuOpen(true)}>
-                  <TvFx color={isDark ? '#D1D4DC' : '#131722'} />
+                <Pressable
+                  style={styles.toolbarIconButton}
+                  onPress={() => router.push('/chart/objects')}
+                >
+                  <TvLayers color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
 
@@ -1337,9 +1339,6 @@ export function ChartScreen() {
                 <View style={styles.toolSeparator} />
                 <div title="Remove Drawings" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                   <Pressable style={[styles.toolIcon]} onPress={() => { drawingToolsRef.current?.removeAllDrawings(); setActiveTool('crosshair'); }}><TvTrash color={TEXT_MUTED} /></Pressable>
-                </div>
-                <div title="Object Tree" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'layers' && styles.toolIconActive]} onPress={() => { setActiveTool('layers'); drawingToolsRef.current?.setActiveTool('layers'); setShowDrawingToolbar(false); }}><TvLayers color={activeTool === 'layers' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>
               </ScrollView>
             )}
@@ -1490,17 +1489,6 @@ export function ChartScreen() {
           </View>
         )}
       </View>
-
-      <ActionSheet
-        visible={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        title={`${chartSymbol}: active chart`}
-        actions={[
-          { label: 'Indicators' },
-          { label: 'Objects', onPress: () => router.push('/chart/objects') },
-          { label: 'Chart Preferences', onPress: () => router.push('/chart/settings') },
-        ]}
-      />
 
       <ActionSheet
         visible={tfOpen}
