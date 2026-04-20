@@ -10,6 +10,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { dealsApi } from '../api/deals';
+import { resolveEffectiveHistoryDateRange } from '../features/history/historyDateRange';
 import { useUserPreferences } from '../state/userPreferences';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,12 +27,14 @@ import { useUserPreferences } from '../state/userPreferences';
  * Polls every 10 seconds (deals change less often than live positions).
  */
 export function useAccountDealsQuery() {
+  const historyRange = useUserPreferences((s) => s.historyRange);
   const historyFromMs = useUserPreferences((s) => s.historyFromMs);
   const historyToMs = useUserPreferences((s) => s.historyToMs);
+  const { fromMs, toMs } = resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs);
 
   // Convert ms to Unix seconds for the API (null means omit the param)
-  const from = historyFromMs != null ? Math.floor(historyFromMs / 1000) : undefined;
-  const to = historyToMs != null ? Math.floor(historyToMs / 1000) : undefined;
+  const from = fromMs != null ? Math.floor(fromMs / 1000) : undefined;
+  const to = toMs != null ? Math.floor(toMs / 1000) : undefined;
 
   return useQuery({
     queryKey: ['accountDeals', from, to],

@@ -13,8 +13,16 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Image, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Dimensions, Image, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
@@ -2448,7 +2456,17 @@ export function ChartScreen() {
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const safeInsets = useSafeAreaInsets();
+  const screenHeight = Dimensions.get('window').height;
+  const chartTradeSheetMaxHeight = Math.max(
+    360,
+    Math.min(screenHeight - Math.max(safeInsets.top, 16) - 84, screenHeight * 0.76),
+  );
+  const chartTradeSheetCollapsedHeight = 72;
+  const chartTradeSheetExpandedTranslateY = 0;
+  const chartTradeSheetCollapsedTranslateY = Math.max(0, chartTradeSheetMaxHeight - chartTradeSheetCollapsedHeight);
+  const chartTradeSheetHiddenTranslateY = chartTradeSheetMaxHeight + 18;
   const chartScrollRef = useRef<ScrollView>(null);
+  const chartTradeSheetScrollRef = useRef<ScrollView>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
@@ -2466,19 +2484,31 @@ export function ChartScreen() {
   const webViewRef = useRef<WebView>(null);
   const chartViewportRef = useRef<View>(null);
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
-  const pendingScrollToEndRef = useRef<{ animated: boolean } | null>(null);
+  const pendingScrollToEndRef = useRef<{ animated: boolean; target: 'chart' | 'trade-sheet' } | null>(null);
+  const chartTradeSheetTranslateY = useSharedValue(chartTradeSheetHiddenTranslateY);
+  const chartTradeSheetDragStartY = useSharedValue(chartTradeSheetCollapsedTranslateY);
+  const chartTradeSheetLastVisibleOffsetRef = useRef(chartTradeSheetCollapsedTranslateY);
   const scrollLotEditorIntoView = useCallback((animated = false) => {
-    pendingScrollToEndRef.current = { animated };
+    const target = showChartTradeSheet ? 'trade-sheet' : 'chart';
+    pendingScrollToEndRef.current = { animated, target };
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        if (target === 'trade-sheet') {
+          chartTradeSheetScrollRef.current?.scrollToEnd({ animated });
+          return;
+        }
         chartScrollRef.current?.scrollToEnd({ animated });
       });
     });
-  }, []);
+  }, [showChartTradeSheet]);
   const handleChartScrollContentSizeChange = useCallback(() => {
     const pending = pendingScrollToEndRef.current;
     if (!pending) return;
     pendingScrollToEndRef.current = null;
+    if (pending.target === 'trade-sheet') {
+      chartTradeSheetScrollRef.current?.scrollToEnd({ animated: pending.animated });
+      return;
+    }
     chartScrollRef.current?.scrollToEnd({ animated: pending.animated });
   }, []);
   useEffect(() => {
@@ -2656,14 +2686,84 @@ export function ChartScreen() {
     injectChartScript('zoomChart();');
   };
 
+  const resolveChartTradeSheetTranslateY = useCallback(
+    (mode: 'hidden' | 'collapsed' | 'expanded') => {
+      if (mode === 'expanded') {
+        return chartTradeSheetExpandedTranslateY;
+      }
+      if (mode === 'collapsed') {
+        return chartTradeSheetCollapsedTranslateY;
+      }
+      return chartTradeSheetHiddenTranslateY;
+    },
+    [
+      chartTradeSheetCollapsedTranslateY,
+      chartTradeSheetExpandedTranslateY,
+      chartTradeSheetHiddenTranslateY,
+    ],
+  );
+
+  const finalizeChartTradeSheetHide = useCallback(() => {
+    chartTradeSheetLastVisibleOffsetRef.current = chartTradeSheetCollapsedTranslateY;
+    chartTradeSheetDragStartY.value = chartTradeSheetCollapsedTranslateY;
+    chartTradeSheetTranslateY.value = chartTradeSheetHiddenTranslateY;
+    setChartTradeSheetMode('hidden');
+    setShowChartTradeSheet(false);
+  }, [
+    chartTradeSheetCollapsedTranslateY,
+    chartTradeSheetCollapsedTranslateY,
+    chartTradeSheetDragStartY,
+    chartTradeSheetHiddenTranslateY,
+    chartTradeSheetLastVisibleOffsetRef,
+    chartTradeSheetTranslateY,
+  ]);
+
+  const commitChartTradeSheetOffset = useCallback((offset: number) => {
+    chartTradeSheetLastVisibleOffsetRef.current = offset;
+    setChartTradeSheetMode(offset >= chartTradeSheetCollapsedTranslateY - 12 ? 'collapsed' : 'expanded');
+  }, [chartTradeSheetCollapsedTranslateY]);
+
   const snapTradeSheet = useCallback((mode: 'hidden' | 'collapsed' | 'expanded') => {
-    setChartTradeSheetMode(mode);
+    const target = resolveChartTradeSheetTranslateY(mode);
+    chartTradeSheetDragStartY.value = target;
+
     if (mode === 'hidden') {
-      setShowChartTradeSheet(false);
+      if (!showChartTradeSheet) {
+        finalizeChartTradeSheetHide();
+        return;
+      }
+
+      chartTradeSheetTranslateY.value = withTiming(target, { duration: 180 }, (finished) => {
+        if (finished) {
+          runOnJS(finalizeChartTradeSheetHide)();
+        }
+      });
       return;
     }
-    setShowChartTradeSheet(true);
-  }, []);
+
+    if (!showChartTradeSheet) {
+      chartTradeSheetTranslateY.value = chartTradeSheetHiddenTranslateY;
+      setShowChartTradeSheet(true);
+    }
+
+    chartTradeSheetLastVisibleOffsetRef.current = target;
+    setChartTradeSheetMode(mode);
+    requestAnimationFrame(() => {
+      chartTradeSheetTranslateY.value = withSpring(target, {
+        damping: 26,
+        stiffness: 240,
+        overshootClamping: true,
+      });
+    });
+  }, [
+    chartTradeSheetDragStartY,
+    chartTradeSheetHiddenTranslateY,
+    chartTradeSheetLastVisibleOffsetRef,
+    chartTradeSheetTranslateY,
+    finalizeChartTradeSheetHide,
+    resolveChartTradeSheetTranslateY,
+    showChartTradeSheet,
+  ]);
 
   const resolveChartTradeEntryPrice = useCallback((orderType: ChartOrderType) => {
     if (isPendingChartOrderType(orderType)) {
@@ -2688,8 +2788,7 @@ export function ChartScreen() {
     closeChartTapMenu();
     resetChartTradePanelLevels();
     snapTradeSheet('collapsed');
-    scrollLotEditorIntoView(true);
-  }, [closeChartTapMenu, resetChartTradePanelLevels, scrollLotEditorIntoView, snapTradeSheet]);
+  }, [closeChartTapMenu, resetChartTradePanelLevels, snapTradeSheet]);
 
   const handleChartTradeOrderTypeSelect = useCallback((orderType: ChartOrderType) => {
     setChartTradeOrderType(orderType);
@@ -2769,34 +2868,90 @@ export function ChartScreen() {
     snapTradeSheet(chartTradeSheetMode === 'expanded' ? 'collapsed' : 'expanded');
   }, [chartTradeSheetMode, snapTradeSheet]);
 
-  const chartTradeSheetModeRef = useRef(chartTradeSheetMode);
   useEffect(() => {
-    chartTradeSheetModeRef.current = chartTradeSheetMode;
-  }, [chartTradeSheetMode]);
+    if (!showChartTradeSheet || chartTradeSheetMode === 'hidden') {
+      chartTradeSheetLastVisibleOffsetRef.current = chartTradeSheetCollapsedTranslateY;
+      chartTradeSheetTranslateY.value = chartTradeSheetHiddenTranslateY;
+      chartTradeSheetDragStartY.value = chartTradeSheetCollapsedTranslateY;
+      return;
+    }
 
-  const chartTradeSheetDragResponder = useMemo(
+    const nextTranslateY = Math.min(
+      chartTradeSheetCollapsedTranslateY,
+      Math.max(chartTradeSheetExpandedTranslateY, chartTradeSheetLastVisibleOffsetRef.current),
+    );
+    chartTradeSheetTranslateY.value = nextTranslateY;
+    chartTradeSheetDragStartY.value = nextTranslateY;
+  }, [
+    chartTradeSheetCollapsedTranslateY,
+    chartTradeSheetDragStartY,
+    chartTradeSheetExpandedTranslateY,
+    chartTradeSheetHiddenTranslateY,
+    chartTradeSheetLastVisibleOffsetRef,
+    chartTradeSheetMode,
+    chartTradeSheetTranslateY,
+    showChartTradeSheet,
+  ]);
+
+  const chartTradeSheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: chartTradeSheetTranslateY.value }],
+  }));
+
+  const chartTradeSheetDragGesture = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-        onMoveShouldSetPanResponderCapture: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-        onPanResponderRelease: (_e, g) => {
-          const mode = chartTradeSheetModeRef.current;
-          if (g.dy < -24) {
-            snapTradeSheet('expanded');
+      Gesture.Pan()
+        .activeOffsetY([-4, 4])
+        .failOffsetX([-24, 24])
+        .onBegin(() => {
+          chartTradeSheetDragStartY.value = chartTradeSheetTranslateY.value;
+        })
+        .onUpdate((event) => {
+          chartTradeSheetTranslateY.value = Math.min(
+            chartTradeSheetHiddenTranslateY,
+            Math.max(
+              chartTradeSheetExpandedTranslateY,
+              chartTradeSheetDragStartY.value + event.translationY,
+            ),
+          );
+        })
+        .onEnd((event) => {
+          const current = chartTradeSheetTranslateY.value;
+          const hideOffsetThreshold = chartTradeSheetCollapsedTranslateY + 24;
+
+          if (
+            current > hideOffsetThreshold ||
+            (event.velocityY > 900 && current > chartTradeSheetCollapsedTranslateY - 6)
+          ) {
+            runOnJS(snapTradeSheet)('hidden');
             return;
           }
-          if (g.dy > 24) {
-            if (mode === 'expanded') {
-              snapTradeSheet('collapsed');
-            } else {
-              snapTradeSheet('hidden');
-            }
-          }
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [snapTradeSheet],
+
+          const restingOffset = Math.min(
+            chartTradeSheetCollapsedTranslateY,
+            Math.max(chartTradeSheetExpandedTranslateY, current),
+          );
+
+          chartTradeSheetTranslateY.value = withSpring(restingOffset, {
+            damping: 28,
+            stiffness: 260,
+            overshootClamping: true,
+          });
+          chartTradeSheetDragStartY.value = restingOffset;
+          runOnJS(commitChartTradeSheetOffset)(restingOffset);
+        })
+        .onFinalize(() => {
+          chartTradeSheetDragStartY.value = chartTradeSheetTranslateY.value;
+        }),
+    [
+      chartTradeSheetCollapsedTranslateY,
+      commitChartTradeSheetOffset,
+      chartTradeSheetCollapsedTranslateY,
+      chartTradeSheetDragStartY,
+      chartTradeSheetExpandedTranslateY,
+      chartTradeSheetHiddenTranslateY,
+      chartTradeSheetTranslateY,
+      snapTradeSheet,
+    ],
   );
 
   const chartTradeSheetSide = getChartOrderSide(chartTradeOrderType);
@@ -3471,28 +3626,26 @@ export function ChartScreen() {
       {!isChartExpanded && (
         <View style={styles.headerWrapper}>
           <AppHeader title={t('Chart')} noBorder />
-          {chartTradeSheetMode !== 'expanded' && (
-            <View style={styles.compactHeader}>
-              {/* Left: Symbol Info */}
-              <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
-                <View>
-                  <View style={styles.symbolNameRow}>
-                    <Text style={[styles.symbolText, { opacity: 0.9 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
-                    <View style={styles.fxBadge}>
-                      <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
-                    </View>
-                    <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+          <View style={styles.compactHeader}>
+            {/* Left: Symbol Info */}
+            <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
+              <View>
+                <View style={styles.symbolNameRow}>
+                  <Text style={[styles.symbolText, { opacity: 0.9 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
+                  <View style={styles.fxBadge}>
+                    <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
                   </View>
-                  <Text style={styles.symbolSubText} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
+                  <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </View>
-              </Pressable>
-
-              {/* Right: Live Price */}
-              <View style={styles.rightSection}>
-                <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={candles} />
+                <Text style={styles.symbolSubText} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
               </View>
+            </Pressable>
+
+            {/* Right: Live Price */}
+            <View style={styles.rightSection}>
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={candles} />
             </View>
-          )}
+          </View>
         </View>
       )}
 
@@ -3517,7 +3670,7 @@ export function ChartScreen() {
           onContentSizeChange={handleChartScrollContentSizeChange}
         >
         <View style={styles.chartContainer}>
-          <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }, chartTradeSheetMode === 'expanded' && { display: 'none' }]}>
+          <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <View style={styles.toolbarButtonRow}>
               <View style={styles.toolbarSlotFirst}>
                 <Pressable style={styles.toolbarTimeframeButton} onPress={() => setTfOpen(true)} hitSlop={8}>
@@ -3576,7 +3729,7 @@ export function ChartScreen() {
               </View>
             </View>
           </View>
-          <View style={[{ flex: 1, flexDirection: 'row' }, chartTradeSheetMode === 'expanded' && { display: 'none' }]}>
+          <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
                 style={[styles.leftToolbar, !isChartExpanded && styles.leftToolbarOverlay]}
@@ -3721,7 +3874,7 @@ export function ChartScreen() {
                 }}
               />
               <DraggableChartMetaOverlay
-                visible={showChartMetaRow && chartTradeSheetMode !== 'expanded'}
+                visible={showChartMetaRow}
                 bounds={chartTapMenuBounds}
                 viewport={chartTapMenuViewport}
                 items={chartMetaItems}
@@ -3765,8 +3918,7 @@ export function ChartScreen() {
 
         {!isChartExpanded && (
           showChartTradeSheet ? (
-            <View style={styles.bottomArea}>
-              {chartTradeSheetMode !== 'expanded' && (
+            <View style={[styles.bottomArea, { paddingBottom: chartTradeSheetCollapsedHeight + 8 }]}>
                 <>
                   <View style={styles.tvBottomToolbar}>
                     <Pressable style={styles.tvRangesLeft} onPress={() => setShowTimeRangeMenu(true)}>
@@ -3795,18 +3947,21 @@ export function ChartScreen() {
                     <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
                   </View>
                 </>
-              )}
-              <View style={[styles.chartTradeSheet, styles.chartTradeSheetInline, { paddingBottom: Math.max(safeInsets.bottom, 14) }]}>
-                <View style={styles.chartTradeSheetDragRegion} {...chartTradeSheetDragResponder.panHandlers}>
-                  <Pressable style={styles.chartTradeSheetHandleWrap} onPress={handleToggleChartTradeSheetMode}>
-                    <View style={styles.chartTradeSheetHandle} />
-                  </Pressable>
-                  {chartTradeSheetMode === 'collapsed' && (
+              <Animated.View
+                style={[
+                  styles.chartTradeSheetFrame,
+                  { height: chartTradeSheetMaxHeight },
+                  chartTradeSheetAnimatedStyle,
+                ]}
+              >
+                <View style={[styles.chartTradeSheet, styles.chartTradeSheetInline, styles.chartTradeSheetInlineFloating]}>
+                  <GestureDetector gesture={chartTradeSheetDragGesture}>
+                    <View style={styles.chartTradeSheetDragRegion}>
+                      <Pressable style={styles.chartTradeSheetHandleWrap} onPress={handleToggleChartTradeSheetMode}>
+                        <View style={styles.chartTradeSheetHandle} />
+                      </Pressable>
                   <View style={styles.chartTradeQuickBar}>
-                    <Pressable style={styles.chartTradeSheetSymbolBtn} onPress={() => setSymbolPickerOpen(true)}>
-                      <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
-                      <Ionicons name="chevron-down" size={14} color={BLUE} />
-                    </Pressable>
+                    <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
                     <View style={styles.chartTradeQuickActions}>
                       <Pressable
                         style={[
@@ -3843,15 +3998,25 @@ export function ChartScreen() {
                         </Text>
                       </Pressable>
                       <Pressable style={styles.chartTradeQuickExpandButton} onPress={handleToggleChartTradeSheetMode}>
-                        <Ionicons name="arrow-forward" size={20} color={BLUE} />
+                        <Ionicons name={chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'} size={20} color={BLUE} />
                       </Pressable>
                     </View>
                   </View>
-                  )}
-                </View>
+                    </View>
+                  </GestureDetector>
 
-                {chartTradeSheetMode !== 'collapsed' && (
-                  <View style={styles.chartTradeSheetContent}>
+                  <ScrollView
+                    ref={chartTradeSheetScrollRef}
+                    style={styles.chartTradeSheetContentScroll}
+                    contentContainerStyle={[
+                      styles.chartTradeSheetContent,
+                      { paddingBottom: Math.max(safeInsets.bottom, 14) },
+                    ]}
+                    nestedScrollEnabled
+                    bounces={false}
+                    keyboardShouldPersistTaps='handled'
+                    onContentSizeChange={handleChartScrollContentSizeChange}
+                  >
                     <View style={styles.chartTradeSheetHeader}>
                       <Pressable style={styles.chartTradeSheetSymbolBtn} onPress={() => setSymbolPickerOpen(true)}>
                         <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
@@ -4036,9 +4201,9 @@ export function ChartScreen() {
                         </Pressable>
                       )}
                     </View>
-                  </View>
-                )}
-              </View>
+                  </ScrollView>
+                </View>
+              </Animated.View>
             </View>
           ) : (
             <View style={styles.bottomArea}>
@@ -4784,11 +4949,24 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowRadius: 16,
       elevation: 24,
     },
+    chartTradeSheetFrame: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 40,
+      elevation: 40,
+    },
     chartTradeSheetInline: {
       borderRadius: 18,
       marginTop: 10,
       marginBottom: 14,
       overflow: 'hidden',
+    },
+    chartTradeSheetInlineFloating: {
+      flex: 1,
+      marginTop: 0,
+      marginBottom: 0,
     },
     chartTradeSheetDragRegion: {
       borderBottomWidth: 1,
@@ -4797,6 +4975,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeSheetContent: {
       paddingBottom: 20,
+    },
+    chartTradeSheetContentScroll: {
+      flex: 1,
     },
     chartTradeSheetHandleWrap: {
       alignItems: 'center',
@@ -5411,6 +5592,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 8,
       paddingTop: 8,
       paddingBottom: 0,
+      overflow: 'visible',
       borderTopWidth: 1,
       borderTopColor: T.border,
     },
@@ -5580,5 +5762,3 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-
-

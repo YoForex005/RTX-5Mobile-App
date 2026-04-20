@@ -325,7 +325,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       priceSource: 'bid',
       openOrderMode: 'Regular',
       oneClickAccepted: false,
-      historyRange: 'Last 6 months',
+      historyRange: 'All time',
       historyFromMs: null,
       historyToMs: null,
       isDemoAccount: true,
@@ -495,7 +495,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 10,
+      version: 11,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -532,9 +532,20 @@ export const useUserPreferences = create<UserPreferencesState>()(
           nextDrawingRecordsBySymbol[getChartDrawingBucketKey(state.chartSymbol ?? 'GBPUSD')] ?? [],
         );
 
+        const nextHistoryRange =
+          (version ?? 0) < 11 &&
+          state.historyRange === 'Last 6 months' &&
+          state.historyFromMs == null &&
+          state.historyToMs == null
+            ? 'All time'
+            : (state.historyRange ?? 'All time');
+
         return {
           ...state,
           hasHydrated: false,
+          historyRange: nextHistoryRange,
+          historyFromMs: state.historyFromMs ?? null,
+          historyToMs: state.historyToMs ?? null,
           chartShowOnChart: nextChartShowOnChart,
           historySummaryDetailsVisible:
             state.historySummaryDetailsVisible ??

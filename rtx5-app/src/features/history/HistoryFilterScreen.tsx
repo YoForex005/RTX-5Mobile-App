@@ -16,7 +16,7 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 
-const presets = ['Today', 'Last week', 'Last month', 'Last 3 months', 'Last 6 months', 'Last year', 'Custom'];
+const presets = ['All time', 'Today', 'Last week', 'Last month', 'Last 3 months', 'Last 6 months', 'Last year', 'Custom'];
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -80,6 +80,13 @@ export function HistoryFilterScreen() {
 
     if (preset === 'Custom') {
       // Don't auto-set dates for custom — let user pick from calendar
+      setStartDate(null);
+      setEndDate(null);
+      setHistoryDateRange(null, null);
+      return;
+    }
+
+    if (preset === 'All time') {
       setStartDate(null);
       setEndDate(null);
       setHistoryDateRange(null, null);

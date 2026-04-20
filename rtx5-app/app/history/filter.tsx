@@ -6,7 +6,12 @@ export default function HistoryFilterRoute() {
   const params = useLocalSearchParams<{ view?: string }>();
 
   if (params.view === 'net-pnl') {
-    return <HistoryNetProfitLossScreen />;
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <HistoryNetProfitLossScreen />
+      </>
+    );
   }
 
   return (

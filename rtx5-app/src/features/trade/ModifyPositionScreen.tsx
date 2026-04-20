@@ -6,9 +6,26 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, Dimensions, TextInput } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Dimensions,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
@@ -33,6 +50,11 @@ function formatModifyPrice(val: number) {
     main: str.slice(0, -2), 
     huge: str.slice(-2) 
   };
+}
+
+function clamp(value: number, min: number, max: number) {
+  'worklet';
+  return Math.min(max, Math.max(min, value));
 }
 
 export function ModifyPositionScreen() {
@@ -120,16 +142,87 @@ export function ModifyPositionScreen() {
 
   // Chart Layout State (MUST be before any early returns!)
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
+  const screenHeight = Dimensions.get('window').height;
+  const sheetMaxHeight = Math.max(360, screenHeight - Math.max(insets.top, 16) - 12);
+  const sheetMinHeight = Math.min(sheetMaxHeight, Math.max(280, screenHeight * 0.34));
+  const sheetInitialHeight = Math.min(sheetMaxHeight, Math.max(sheetMinHeight, screenHeight * 0.46));
+  const sheetMaxTranslateY = Math.max(0, sheetMaxHeight - sheetMinHeight);
+  const sheetInitialTranslateY = clamp(sheetMaxHeight - sheetInitialHeight, 0, sheetMaxTranslateY);
+  const backdropOpacity = useSharedValue(0);
+  const sheetTranslateY = useSharedValue(sheetMaxHeight);
+  const dragStartTranslateY = useSharedValue(sheetInitialTranslateY);
+  const isClosingRef = useRef(false);
 
-  if (!position) {
-    return (
-      <View style={{ flex: 1, backgroundColor: T.bg, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: T.text }}>Loading...</Text>
-      </View>
-    );
-  }
+  const handleSheetClosed = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/trade');
+    }
+  }, []);
+
+  const dismissSheet = useCallback(() => {
+    if (isClosingRef.current) {
+      return;
+    }
+
+    isClosingRef.current = true;
+    backdropOpacity.value = withTiming(0, { duration: 140 });
+    sheetTranslateY.value = withTiming(sheetMaxHeight, { duration: 180 }, (finished) => {
+      if (finished) {
+        runOnJS(handleSheetClosed)();
+      }
+    });
+  }, [backdropOpacity, handleSheetClosed, sheetMaxHeight, sheetTranslateY]);
+
+  useEffect(() => {
+    isClosingRef.current = false;
+    dragStartTranslateY.value = sheetInitialTranslateY;
+    backdropOpacity.value = 0;
+    sheetTranslateY.value = sheetMaxHeight;
+
+    backdropOpacity.value = withTiming(1, { duration: 160 });
+    sheetTranslateY.value = withSpring(sheetInitialTranslateY, {
+      damping: 26,
+      stiffness: 240,
+      overshootClamping: true,
+    });
+  }, [backdropOpacity, dragStartTranslateY, sheetInitialTranslateY, sheetMaxHeight, sheetTranslateY]);
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslateY.value }],
+  }));
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.value,
+  }));
+
+  const sheetDragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-4, 4])
+        .failOffsetX([-24, 24])
+        .onBegin(() => {
+          dragStartTranslateY.value = sheetTranslateY.value;
+        })
+        .onUpdate((event) => {
+          sheetTranslateY.value = clamp(
+            dragStartTranslateY.value + event.translationY,
+            0,
+            sheetMaxTranslateY,
+          );
+        })
+        .onEnd(() => {
+          dragStartTranslateY.value = sheetTranslateY.value;
+        })
+        .onFinalize(() => {
+          dragStartTranslateY.value = sheetTranslateY.value;
+        }),
+    [dragStartTranslateY, sheetMaxTranslateY, sheetTranslateY],
+  );
 
   const handleStepSl = (delta: number) => {
+    if (!position) return;
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
       const livePrice = position.side === 'buy' ? BID : ASK;
@@ -144,6 +237,7 @@ export function ModifyPositionScreen() {
   };
 
   const handleStepTp = (delta: number) => {
+    if (!position) return;
     setTakeProfit((prev) => {
       const livePrice = position.side === 'buy' ? BID : ASK;
       let base = prev;
@@ -169,6 +263,10 @@ export function ModifyPositionScreen() {
   };
 
   const handleModify = async () => {
+    if (!position) {
+      return;
+    }
+
     if (!accountDetails?.credentials?.accessToken) {
       setSubmitMessage(
         formatTradingErrorFeedback(
@@ -203,8 +301,7 @@ export function ModifyPositionScreen() {
         ),
       }));
 
-      // Force UI back successfully
-      router.back();
+      dismissSheet();
     } catch (error: any) {
       setSubmitMessage(
         formatTradingErrorFeedback(
@@ -215,6 +312,44 @@ export function ModifyPositionScreen() {
       setIsSubmitting(false);
     }
   };
+
+  if (!position) {
+    return (
+      <View style={styles.modalRoot}>
+        <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
+        </Animated.View>
+        <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
+          <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
+            <GestureDetector gesture={sheetDragGesture}>
+              <View>
+                <View style={styles.dragZone}>
+                  <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
+                </View>
+                <View style={[styles.header, { paddingTop: 6 }]}>
+                  <View style={styles.headerTopRow}>
+                    <Pressable onPress={dismissSheet} hitSlop={20} style={styles.backBtn}>
+                      <Ionicons name="chevron-down" size={24} color={T.text} />
+                    </Pressable>
+                    <View style={styles.headerTitleWrap} pointerEvents="none">
+                      <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
+                        MODIFY POSITION
+                      </Text>
+                    </View>
+                    <View style={styles.backBtn} />
+                  </View>
+                </View>
+              </View>
+            </GestureDetector>
+            <View style={styles.loaderWrap}>
+              <ActivityIndicator color={T.accent} />
+              <Text style={[styles.loaderText, { color: T.textMuted }]}>Loading position...</Text>
+            </View>
+          </View>
+        </Animated.View>
+      </View>
+    );
+  }
 
   const slDisplay = stopLoss ? stopLoss.toFixed(decimals) : 'SL';
   const tpDisplay = takeProfit ? takeProfit.toFixed(decimals) : 'TP';
@@ -276,60 +411,67 @@ export function ModifyPositionScreen() {
   }
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
-      <Stack.Screen options={{ headerShown: false }} />
+    <View style={styles.modalRoot}>
+      <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
+      </Animated.View>
+      <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
+        <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
+          <GestureDetector gesture={sheetDragGesture}>
+            <View>
+              <View style={styles.dragZone}>
+                <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
+              </View>
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 20 }]}>
-        <View style={styles.headerTopRow}>
-          <Pressable
-            onPress={() => {
-              if (router.canGoBack()) {
-                router.back();
-              } else {
-                router.replace('/trade');
-              }
-            }}
-            hitSlop={20}
-            style={styles.backBtn}
+              {/* Header */}
+              <View style={[styles.header, { paddingTop: 6 }]}>
+                <View style={styles.headerTopRow}>
+                  <Pressable
+                    onPress={dismissSheet}
+                    hitSlop={20}
+                    style={styles.backBtn}
+                  >
+                    <Ionicons name="chevron-down" size={24} color={T.text} />
+                  </Pressable>
+
+                  <View style={styles.headerTitleWrap} pointerEvents="none">
+                    <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
+                      MODIFY POSITION
+                    </Text>
+                    <Text style={styles.headerTicketLabel} numberOfLines={1}>
+                      #{position.id}
+                    </Text>
+                  </View>
+
+                  <View style={styles.backBtn} />
+                </View>
+
+                <View style={styles.headerSubRow}>
+                  <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
+                    {position.side.toUpperCase()}
+                  </Text>
+                  <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
+                  <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
+                  <Text style={styles.headerAt}>at</Text>
+                  <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
+                </View>
+              </View>
+            </View>
+          </GestureDetector>
+
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: Math.max(insets.bottom, 20) + 8 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+            contentInsetAdjustmentBehavior="never"
           >
-            <Ionicons name="chevron-back" size={28} color={T.text} />
-          </Pressable>
-
-          <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
-              MODIFY POSITION
-            </Text>
-            <Text style={styles.headerTicketLabel} numberOfLines={1}>
-              #{position.id}
-            </Text>
-          </View>
-
-          {/* Right spacer to balance the back button so the title stays optically centered */}
-          <View style={styles.backBtn} />
-        </View>
-
-        {/* Payload Line */}
-        <View style={styles.headerSubRow}>
-          <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
-            {position.side.toUpperCase()}
-          </Text>
-          <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
-          <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
-          <Text style={styles.headerAt}>at</Text>
-          <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
-        </View>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 20) },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
 
       {/* Big Prices */}
       <View style={styles.priceHero}>
@@ -570,15 +712,64 @@ export function ModifyPositionScreen() {
           )}
         </Pressable>
       </View>
-      </ScrollView>
+          </ScrollView>
+        </View>
+      </Animated.View>
     </View>
   );
 }
 
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
-  root: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: T.bg, // Global app canvas background
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(2, 6, 23, 0.42)',
+  },
+  sheetFrame: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+  },
+  sheetSurface: {
+    flex: 1,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -6 },
+    elevation: 18,
+  },
+  dragZone: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  dragHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+  },
+  loaderWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+  },
+  loaderText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   scrollView: {
     flex: 1,

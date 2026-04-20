@@ -21,6 +21,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { Deal } from '../../api/deals';
 import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
+import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
@@ -33,6 +34,7 @@ type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
 type HistoryRow = {
   id: string;
+  ticketLabel: string;
   line1: string;
   line2: string;
   time: string;
@@ -56,6 +58,85 @@ function safeTimeStr(timestamp?: number): string {
   }
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeHistoryIdPart(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+
+  return String(value).trim();
+}
+
+function resolveHistoryTicketLabel(source: Record<string, unknown>): string | null {
+  const ticketLikeValues = [source.ticket, source.position_ticket, source.order_ticket, source.id];
+
+  for (const value of ticketLikeValues) {
+    const numeric = toFiniteNumber(value);
+    if (numeric !== undefined) {
+      return String(Math.trunc(numeric));
+    }
+
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function buildHistoryFallbackId(source: Record<string, unknown>, parts: unknown[]): string {
+  const normalized = parts
+    .map(normalizeHistoryIdPart)
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return normalized.join('-');
+  }
+
+  const sourceValues = [
+    source.symbol,
+    source.side,
+    source.time_close,
+    source.time_done,
+    source.time,
+    source.time_update,
+    source.time_create,
+    source.volume,
+  ]
+    .map(normalizeHistoryIdPart)
+    .filter(Boolean);
+
+  return sourceValues.join('-') || 'record';
+}
+
+function buildHistoryRowIdentity(prefix: string, source: Record<string, unknown>, fallbackParts: unknown[]) {
+  const ticketLabel = resolveHistoryTicketLabel(source);
+  const fallbackId = buildHistoryFallbackId(source, fallbackParts);
+
+  return {
+    id: `${prefix}-${ticketLabel ?? fallbackId}`,
+    ticketLabel: ticketLabel ?? fallbackId,
+  };
+}
+
 /**
  * Maps a LoginOrder DTO from GET /api/v2/orders/{login}
  * into the HistoryRow format used by the list renderer.
@@ -69,6 +150,7 @@ function safeTimeStr(timestamp?: number): string {
  * Comment forwarded as `note` — shows EA name or manual annotation.
  */
 function mapOrderToRow(o: LoginOrder): HistoryRow {
+  const source = o as unknown as Record<string, unknown>;
   const isJpy = o.symbol?.includes('JPY');
   const priceDecimals = isJpy ? 3 : 5;
 
@@ -76,9 +158,10 @@ function mapOrderToRow(o: LoginOrder): HistoryRow {
   // Filled/open orders: show time_setup (when order was placed).
   const isClosed = o.status === 'closed' || o.status === 'canceled';
   const displayTime = isClosed ? o.time_done : o.time_setup;
+  const identity = buildHistoryRowIdentity('ho', source, [o.symbol, o.side, displayTime, o.volume]);
 
   return {
-    id: `ho${o.ticket}`,
+    ...identity,
     line1: `${o.symbol ?? ''} ${o.side ?? ''} ${(o.volume ?? 0).toFixed(2)}`,
     line2: `${o.type ?? 'market'} at ${(o.price_open ?? 0).toFixed(priceDecimals)}`,
     time: safeTimeStr(displayTime),
@@ -97,6 +180,7 @@ function mapOrderToRow(o: LoginOrder): HistoryRow {
  * Comment: forwarded as a `note` so the EA or manual annotation is visible.
  */
 function mapDealToRow(d: Deal): HistoryRow {
+  const source = d as unknown as Record<string, unknown>;
   const direction = d.action === 'deal_buy' ? 'buy' : 'sell';
   const entry = d.entry === 'entry_in' ? 'in' : 'out';
   const timeStr = safeTimeStr(d.time);
@@ -111,9 +195,10 @@ function mapDealToRow(d: Deal): HistoryRow {
   // deals close the position and realise the full P&L including all costs.
   const netCosts = (d.swap || 0) + (d.commission || 0) + (d.fee || 0);
   const netProfit = d.entry === 'entry_out' ? d.profit + netCosts : null;
+  const identity = buildHistoryRowIdentity('hd', source, [d.symbol, d.action, d.entry, d.time, d.volume]);
 
   return {
-    id: `hd${d.ticket}`,
+    ...identity,
     line1: `${d.symbol} ${direction},${entry}`,
     line2: `${(d.volume ?? 0).toFixed(2)} at ${(d.price ?? 0).toFixed(priceDecimals)}`,
     time: timeStr,
@@ -124,14 +209,16 @@ function mapDealToRow(d: Deal): HistoryRow {
 }
 
 function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
+  const source = position as unknown as Record<string, unknown>;
   const isJpy = position.symbol?.includes('JPY');
   const priceDecimals = isJpy ? 3 : 5;
   const closePrice = position.price_close ?? position.price_current ?? position.price_open ?? 0;
   const netProfit = (position.profit || 0) + (position.swap || 0) + (position.commission || 0);
   const displayTime = position.time_close ?? position.time_update ?? position.time_create;
+  const identity = buildHistoryRowIdentity('hp', source, [position.symbol, position.side, displayTime, position.volume]);
 
   return {
-    id: `hp${position.ticket}`,
+    ...identity,
     line1: `${position.symbol ?? ''} ${position.side ?? ''} ${(position.volume ?? 0).toFixed(2)}`,
     line2: `${(position.price_open ?? 0).toFixed(priceDecimals)} → ${closePrice.toFixed(priceDecimals)}`,
     time: safeTimeStr(displayTime),
@@ -143,9 +230,11 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
 export function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
-  const { historyRange, accountDetails } = useUserPreferences(
+  const { historyRange, historyFromMs, historyToMs, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       historyRange: state.historyRange,
+      historyFromMs: state.historyFromMs,
+      historyToMs: state.historyToMs,
       accountDetails: state.accountDetails,
     })),
   );
@@ -180,11 +269,19 @@ export function HistoryScreen() {
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
   const balance = useLiveAccountState((s) => s.balance) || 0;
   const currency = 'USD';
+  const { fromMs: effectiveHistoryFromMs, toMs: effectiveHistoryToMs } = useMemo(
+    () => resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs),
+    [historyRange, historyFromMs, historyToMs],
+  );
+  const positionHistory = useMemo(
+    () => filterClosedRecordsByDateRange(rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs),
+    [rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs],
+  );
 
   // Calculate actual history summary stats from the raw API payload
-  const closedSwap = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.swap || 0), 0), [rawPositionHistory]);
-  const closedCommission = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.commission || 0), 0), [rawPositionHistory]);
-  const rawClosedProfit = useMemo(() => rawPositionHistory.reduce((acc, p) => acc + (p.profit || 0), 0), [rawPositionHistory]);
+  const closedSwap = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.swap || 0), 0), [positionHistory]);
+  const closedCommission = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.commission || 0), 0), [positionHistory]);
+  const rawClosedProfit = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.profit || 0), 0), [positionHistory]);
   const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
 
   // Approximate initial deposit using current balance & realized PNL
@@ -194,8 +291,8 @@ export function HistoryScreen() {
     // GET /api/v2/account/orders — real order history, replaces static mock
     if (tab === 'Orders') return rawOrders.map(mapOrderToRow);
     if (tab === 'Deals') return rawDeals.map(mapDealToRow);
-    return rawPositionHistory.map(mapClosedPositionToRow);
-  }, [tab, rawDeals, rawOrders, rawPositionHistory]);
+    return positionHistory.map(mapClosedPositionToRow);
+  }, [tab, rawDeals, rawOrders, positionHistory]);
 
   const data = useMemo(() => sortHistoryRows(baseData, sortBy), [baseData, sortBy]);
   const profitRows = useMemo(
@@ -222,28 +319,30 @@ export function HistoryScreen() {
       <Text style={styles.accountSummaryHeading}>Account Summary</Text>
       <View style={styles.summaryBlock}>
         <View style={styles.summaryTop}>
-          <View style={styles.summaryBalanceWrap}>
-            <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
-            <View style={styles.floatingRow}>
-              <Text style={[styles.floating, { color: T.text, opacity: 0.9 }]}>
-                {fmt.int(balance)}
-              </Text>
-              <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}> {currency}</Text>
-            </View>
-          </View>
           <Pressable
             onPress={toggleHistorySummaryDetails}
             style={({ pressed }) => [
-              styles.summaryToggle,
+              styles.summaryToggleInline,
               pressed && styles.summaryTogglePressed,
             ]}
           >
+            <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
             <Ionicons
               name={historySummaryDetailsVisible ? 'chevron-up' : 'chevron-down'}
               size={18}
               color={T.textMuted}
             />
           </Pressable>
+          <View style={styles.summaryBalanceInline}>
+            <Text
+              style={[styles.summaryBalanceValue, { color: T.text, opacity: 0.9 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {fmt.int(balance)}
+            </Text>
+            <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}>{currency}</Text>
+          </View>
         </View>
         {historySummaryDetailsVisible ? (
           <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
@@ -427,7 +526,7 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
       isDark && rStyles.cardShadowDark,
     ]}>
       <View style={rStyles.rowBody}>
-        <Text style={[rStyles.rowIdText, { color: T.textMuted }]}>#{extractTicket(item.id)}</Text>
+        <Text style={[rStyles.rowIdText, { color: T.textMuted }]}>#{item.ticketLabel}</Text>
         <View style={rStyles.rowTop}>
           <View style={rStyles.symbolLine}>
             <Text style={[rStyles.symbolText, { color: T.text }]}>{symbol}</Text>
@@ -525,11 +624,6 @@ function parseLine1(line1: string) {
   return { symbol, side, volume };
 }
 
-function extractTicket(id: string) {
-  const digits = id.replace(/\D/g, '');
-  return digits || id;
-}
-
 function shortTime(input: string) {
   const parts = input.split(' ');
   return parts[1] ?? input;
@@ -540,7 +634,7 @@ function sortHistoryRows(rows: HistoryRow[], sortBy: SortBy) {
   if (sortBy === 'Default') return sorted;
   sorted.sort((a, b) => {
     if (sortBy === 'Symbol') return parseLine1(a.line1).symbol.localeCompare(parseLine1(b.line1).symbol);
-    if (sortBy === 'Ticket') return extractTicket(a.id).localeCompare(extractTicket(b.id), undefined, { numeric: true });
+    if (sortBy === 'Ticket') return a.ticketLabel.localeCompare(b.ticketLabel, undefined, { numeric: true });
     if (sortBy === 'Type') return parseLine1(a.line1).side.localeCompare(parseLine1(b.line1).side);
     if (sortBy === 'Volume') {
       const av = Number(parseLine1(a.line1).volume) || 0;
@@ -613,20 +707,26 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowRadius: isDark ? 16 : 24, elevation: 4,
       overflow: 'hidden',
     },
-    summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent' },
-    summaryBalanceWrap: { flex: 1, minWidth: 0 },
+    summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent', gap: 12 },
     summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 1 },
-    floatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 0 },
-    floating: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
-    balanceQuickCurrency: { fontSize: 18, fontWeight: '500' },
-    summaryToggle: {
-      alignSelf: 'flex-start',
-      width: 28,
-      height: 28,
+    summaryToggleInline: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      marginLeft: 12,
+      gap: 4,
+      paddingVertical: 2,
+      paddingRight: 4,
+      flexShrink: 0,
     },
+    summaryBalanceInline: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'flex-end',
+      gap: 4,
+    },
+    summaryBalanceValue: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
+    balanceQuickCurrency: { fontSize: 20, fontWeight: '600', flexShrink: 0 },
     summaryTogglePressed: { opacity: 0.55 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },

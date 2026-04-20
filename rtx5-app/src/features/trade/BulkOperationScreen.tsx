@@ -1,14 +1,15 @@
 /**
  * Trade Feature UI: BulkOperationScreen
- * 
+ *
  * Provides an interface to execute bulk actions on multiple open positions simultaneously
  * such as "Close all profitable", "Close all losing", or "Close all".
  */
 
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
@@ -22,6 +23,7 @@ export function BulkOperationScreen() {
   const [submitted, setSubmitted] = useState(false);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
@@ -35,74 +37,105 @@ export function BulkOperationScreen() {
   // Live exposure stats
   const activeExposures: any[] = [];
   const totalNetExposure = 0;
+  const screenBg = isDark ? '#06080D' : T.bg;
 
   return (
-    <Screen scroll style={isDark ? { backgroundColor: '#06080D' } : undefined}>
-      <Stack.Screen
-        options={{
-          title,
-          headerTitleAlign: 'center',
-          headerRight: () => <View style={styles.navHeaderSpacer} />,
-          headerTitle: () => (
-            <View style={styles.navTitleWrap} pointerEvents="none">
-              <Text
-                style={[styles.navTitle, { color: T.text }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
-                {title}
-              </Text>
-            </View>
-          ),
-        }}
-      />
+    <View style={[styles.root, { backgroundColor: screenBg }]}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
 
-      <View style={styles.summaryCard}>
-        <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
-        <Row border label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
-        <Row border label='Active Exposures' value={String(activeExposures.length)} isDark={isDark} T={T} />
-        <Row border label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
-      </View>
-
-      <View style={styles.previewCard}>
-        {affectedPositions.slice(0, 6).map((position, i) => (
-          <View key={position.id} style={[styles.previewRow, i !== 0 && styles.previewRowBorder]}>
-            <View style={{ flex: 1 }}>
-               <Text style={[styles.rowIdText, { color: T.textMuted }]}>#{position.id}</Text>
-               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.symbolText, { color: T.text }]}>{position.symbol.replace(/\//g, '')}</Text>
-                  <Text style={[
-                     styles.sideText, 
-                     position.side === 'buy' ? { color: T.trading.buy.hover } : { color: T.trading.sell.hover }
-                  ]}>{position.side}</Text>
-                  <Text style={[styles.volumeText, { color: T.textMuted }]}>{(position.volume || 0).toFixed(2)}</Text>
-               </View>
-            </View>
-            <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-               <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
-            </View>
-          </View>
-        ))}
-        {affectedPositions.length === 0 ? (
-          <Text style={styles.emptyText}>No positions match this operation.</Text>
-        ) : null}
-      </View>
-
-      {submitted ? (
-        <View style={styles.success}>
-          <Text style={styles.successText}>Bulk operation simulated and queued for backend execution.</Text>
-        </View>
-      ) : null}
-
-      <Pressable
-        style={[styles.executeButton, affectedPositions.length === 0 && styles.executeDisabled]}
-        onPress={() => setSubmitted(true)}
-        disabled={affectedPositions.length === 0}
+      <View
+        style={[
+          styles.customHeader,
+          { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle },
+        ]}
       >
-        <Text style={styles.executeText}>Execute Bulk Operation</Text>
-      </Pressable>
-    </Screen>
+        <Pressable
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/trade');
+            }
+          }}
+          hitSlop={16}
+          style={styles.headerBtn}
+        >
+          <Ionicons name="arrow-back" size={24} color={T.text} />
+        </Pressable>
+
+        <View style={styles.headerTitleWrap} pointerEvents="none">
+          <Text
+            style={[styles.headerTitle, { color: T.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {title}
+          </Text>
+        </View>
+
+        <View style={styles.headerBtn} />
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
+        ]}
+        keyboardShouldPersistTaps='handled'
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.summaryCard}>
+          <Row label='Affected Positions' value={String(affectedPositions.length)} isDark={isDark} T={T} />
+          <Row border label='Total Exposure P/L' value={fmt.pnl(totalPnl)} danger={totalPnl < 0} positive={totalPnl > 0} isDark={isDark} T={T} />
+          <Row border label='Active Exposures' value={String(activeExposures.length)} isDark={isDark} T={T} />
+          <Row border label='Net Exposure (USD)' value={fmt.pnl(totalNetExposure)} danger={totalNetExposure < 0} positive={totalNetExposure > 0} isDark={isDark} T={T} />
+        </View>
+
+        <View style={styles.previewCard}>
+          {affectedPositions.slice(0, 6).map((position, i) => (
+            <View key={position.id} style={[styles.previewRow, i !== 0 && styles.previewRowBorder]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowIdText, { color: T.textMuted }]}>#{position.id}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.symbolText, { color: T.text }]}>{position.symbol.replace(/\//g, '')}</Text>
+                  <Text
+                    style={[
+                      styles.sideText,
+                      position.side === 'buy' ? { color: T.trading.buy.hover } : { color: T.trading.sell.hover },
+                    ]}
+                  >
+                    {position.side}
+                  </Text>
+                  <Text style={[styles.volumeText, { color: T.textMuted }]}>{(position.volume || 0).toFixed(2)}</Text>
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                <Text style={[styles.previewRight, position.pnl < 0 ? styles.danger : styles.positive]}>{fmt.pnl(position.pnl)}</Text>
+              </View>
+            </View>
+          ))}
+          {affectedPositions.length === 0 ? (
+            <Text style={styles.emptyText}>No positions match this operation.</Text>
+          ) : null}
+        </View>
+
+        {submitted ? (
+          <View style={styles.success}>
+            <Text style={styles.successText}>Bulk operation simulated and queued for backend execution.</Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={[styles.executeButton, affectedPositions.length === 0 && styles.executeDisabled]}
+          onPress={() => setSubmitted(true)}
+          disabled={affectedPositions.length === 0}
+        >
+          <Text style={styles.executeText}>Execute Bulk Operation</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -133,21 +166,37 @@ function Row({
 }
 
 const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
-  navTitleWrap: {
-    width: 190,
-    maxWidth: '100%',
+  root: {
+    flex: 1,
+  },
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerBtn: {
+    width: 40,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerTitleWrap: {
+    flex: 1,
     paddingHorizontal: 8,
   },
-  navTitle: {
+  headerTitle: {
+    textAlign: 'center',
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  navHeaderSpacer: {
-    width: 46,
-    height: 40,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   summaryCard: {
     marginHorizontal: spacing.md,

@@ -75,8 +75,17 @@ function InnerLayout() {
           <Stack.Screen name='trade/one-click-terms' options={{ title: 'One Click Trading' }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false }} />
           <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
-          <Stack.Screen name='trade/modify-position' options={{ title: 'Modify Position' }} />
-          <Stack.Screen name='trade/bulk' options={{ title: 'Bulk Operations' }} />
+          <Stack.Screen
+            name='trade/modify-position'
+            options={{
+              headerShown: false,
+              presentation: 'transparentModal',
+              animation: 'none',
+              gestureEnabled: false,
+              contentStyle: { backgroundColor: 'transparent' },
+            }}
+          />
+          <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
           <Stack.Screen name='contest-login' options={{ title: 'Contest Login', headerLeft: () => null }} />
           <Stack.Screen name='chart/objects' options={{ headerShown: false }} />

@@ -55,4 +55,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - 2026-04-11: Hardened websocket position upserts so partial `positions.{LOGIN}` payloads merge into the existing local position instead of wiping symbol, volume, open price, or net P/L fields when the backend only pushes ticket-level profit updates.
 - 2026-04-17: Added a persisted shared `tradeVolume` preference and made the order-ticket and chart quick-trade lot controls directly editable while still respecting instrument min/max/step metadata.
 - 2026-04-17: Replaced the bulk-operation header with a constrained fit-to-width title so long bulk mode labels stay centered on smaller phones instead of overflowing.
+- 2026-04-20: Moved the bulk-operation detail screen off the shared stack header and onto a fixed safe-area header with balanced left/right slots so the dynamic bulk titles stay centered reliably instead of drifting back after later navigation-shell changes.
+- 2026-04-20: Reworked the modify-position SL/TP flow into an MT5-style transparent bottom sheet with a draggable handle and continuous adjustable height, keeping the Trade screen visible behind it while allowing users to pull the sheet up or down and leave it at the height they want.
+- 2026-04-20: Switched the modify-position sheet drag from JS-thread height resizing to a fixed-height transform-driven gesture path, which keeps the SL/TP bottom sheet movement noticeably smoother during pull-up and pull-down interactions.
 
