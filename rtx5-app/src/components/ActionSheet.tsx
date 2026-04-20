@@ -6,7 +6,7 @@
  * rather than local component state.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Dimensions, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, ThemeColors } from '../theme/useTheme';
@@ -29,15 +29,46 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
   const [query, setQuery] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
+
+  const topInset = Math.max(insets.top, 12);
+  const bottomInset = Math.max(insets.bottom, 12);
+  const maxVisibleHeight = Math.max(260, SCREEN_HEIGHT - topInset - Math.max(0, keyboardHeight) - 12);
+  const sheetMaxHeight = Math.min(SCREEN_HEIGHT * 0.7, maxVisibleHeight);
+  const reservedChromeHeight =
+    (title ? 58 : 28) +
+    (searchable ? 56 : 0) +
+    84;
+  const actionsMaxHeight = Math.max(140, sheetMaxHeight - reservedChromeHeight);
 
   useEffect(() => {
     if (visible) setQuery('');
   }, [visible]);
 
   useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const handleKeyboardShow = (event: { endCoordinates?: { height?: number } }) => {
+      const nextKeyboardHeight = Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom);
+      setKeyboardHeight(nextKeyboardHeight);
+    };
+    const handleKeyboardHide = () => setKeyboardHeight(0);
+
+    const showSub = Keyboard.addListener(showEvent, handleKeyboardShow);
+    const hideSub = Keyboard.addListener(hideEvent, handleKeyboardHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [insets.bottom]);
+
+  useEffect(() => {
     if (!visible) {
+      setKeyboardHeight(0);
       overlayOpacity.setValue(0);
       sheetTranslateY.setValue(28);
       return;
@@ -74,6 +105,7 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
       transparent
       animationType="none"
       hardwareAccelerated
+      statusBarTranslucent
       onRequestClose={onClose}
     >
       <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
@@ -83,12 +115,13 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
           style={[
             styles.sheetContainer,
             {
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingTop: topInset,
+              paddingBottom: bottomInset,
               transform: [{ translateY: sheetTranslateY }],
             },
           ]}
         >
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { maxHeight: sheetMaxHeight }]}>
             <View style={styles.handle} />
 
             {title ? (
@@ -121,7 +154,13 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
               </View>
             ) : null}
 
-            <ScrollView style={styles.actionsScroll} showsVerticalScrollIndicator={false} bounces={false}>
+            <ScrollView
+              style={[styles.actionsScroll, { maxHeight: actionsMaxHeight }]}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            >
               {filteredActions.map((action, index) => (
                 <Pressable
                   key={action.label}

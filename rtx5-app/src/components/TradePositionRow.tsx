@@ -33,12 +33,14 @@ function TradePositionRowComponent({
   onPress,
   onLongPress,
   onBulkPress,
+  pnlCurrency = 'USD',
   selected = false,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
   onLongPress: (item: PositionItem) => void;
   onBulkPress?: () => void;
+  pnlCurrency?: string;
   selected?: boolean;
 }) {
   const T = useTheme();
@@ -186,7 +188,7 @@ function TradePositionRowComponent({
           </View>
           <View style={styles.rightCol}>
             <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-              {fmt.pnl(displayPnl)}
+              {fmt.pnlPrecise(displayPnl)} {pnlCurrency}
             </Text>
           </View>
         </View>
@@ -342,7 +344,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   pnl: {
-    minWidth: 88,
+    minWidth: 126,
     textAlign: 'right',
     fontSize: 16,
     fontWeight: '800',

@@ -5,6 +5,10 @@
 export const fmt = {
   price: (value: number) => (value || 0).toFixed(2),
   pnl: (value: number) => `${(value || 0) >= 0 ? '+' : ''}${(value || 0).toFixed(2)}`,
+  pnlPrecise: (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    return `${safe >= 0 ? '+' : ''}${safe.toFixed(2)}`;
+  },
   pct: (value: number) => `${(value || 0) >= 0 ? '+' : ''}${(value || 0).toFixed(2)}%`,
   int: (value: number) => {
     const fixed = (value || 0).toFixed(0);

@@ -184,11 +184,14 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 });
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, onTradeResult }: any) => {
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, onTradeResult, comment, onEditLot, onOpenLotEditor }: any) => {
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+  const formattedLotSize = formatTradeVolume(lotSize);
+  const hasLotEditorButton = typeof onOpenLotEditor === 'function';
+  const hasLotValueEditor = typeof onEditLot === 'function';
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
@@ -199,6 +202,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
     setActiveSide(side);
     setTimeout(() => setActiveSide(null), 800);
     const volume = Number(lotSize);
+    const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
     const authState = useUserPreferences.getState();
     const authToken = authState.accountDetails?.credentials?.accessToken;
     const tradingLogin = resolveTradingLogin();
@@ -269,6 +273,7 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
           symbol,
           side,
           volume,
+          ...(trimmedComment ? { comment: trimmedComment } : {}),
         },
         {
           onSuccess: (data: any) => {
@@ -307,7 +312,14 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
     } else {
       console.log('[Trade] navigate path → /trade/order-ticket');
       try {
-        router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+        router.push({
+          pathname: '/trade/order-ticket',
+          params: {
+            symbol,
+            side,
+            ...(trimmedComment ? { comment: trimmedComment } : {}),
+          },
+        });
       } catch (navErr: any) {
         console.warn('[Trade] navigation failed', navErr);
         onTradeResult?.({
@@ -335,7 +347,36 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize,
         <Text style={styles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
 
-      <View style={styles.actionSpacer} />
+      <View style={[styles.actionSpacer, hasLotEditorButton && styles.actionSpacerWide]}>
+        {hasLotEditorButton ? (
+          <View style={styles.actionLotControl}>
+            {hasLotValueEditor ? (
+              <Pressable
+                style={styles.actionLotPill}
+                onPress={onEditLot}
+                disabled={isPending}
+                hitSlop={8}
+              >
+                <Text style={styles.actionLotValue}>{formattedLotSize}</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.actionLotPill}>
+                <Text style={styles.actionLotValue}>{formattedLotSize}</Text>
+              </View>
+            )}
+            <Pressable style={styles.actionLotLaunchButton} onPress={onOpenLotEditor} disabled={isPending} hitSlop={8}>
+              <View style={styles.actionLotLaunchIconStack}>
+                <Ionicons name="chevron-up" size={12} color="#64748B" />
+                <Ionicons name="chevron-down" size={12} color="#64748B" />
+              </View>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.actionLotPill}>
+            <Text style={styles.actionLotValue}>{formattedLotSize}</Text>
+          </View>
+        )}
+      </View>
 
       <Pressable
         style={[styles.actionBtn, styles.actionBtnBuy, (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 }]}
@@ -403,6 +444,13 @@ type ChartTapMenuViewport = {
   height: number;
 };
 
+type ChartTapMenuPlotArea = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 const CHART_TAP_MENU_SIZE = 268;
 const CHART_TAP_RING_WIDTH = 42;
 const CHART_TAP_TIMEFRAME_HEIGHT = 30;
@@ -442,6 +490,7 @@ const getRadialTextRotation = (angleFromTop: number) => {
 function ChartTapRadialMenu({
   anchor,
   bounds,
+  plotArea,
   activeTimeframe,
   accentColor,
   mutedColor,
@@ -455,6 +504,7 @@ function ChartTapRadialMenu({
 }: {
   anchor: ChartTapMenuAnchor;
   bounds: ChartTapMenuBounds;
+  plotArea: ChartTapMenuPlotArea;
   activeTimeframe: string;
   accentColor: string;
   mutedColor: string;
@@ -468,6 +518,10 @@ function ChartTapRadialMenu({
 }) {
   const containerWidth = bounds.width;
   const containerHeight = bounds.height;
+  const plotAreaLeft = plotArea.width > 0 ? plotArea.left : 0;
+  const plotAreaTop = plotArea.height > 0 ? plotArea.top : 0;
+  const plotAreaWidth = plotArea.width > 0 ? plotArea.width : containerWidth;
+  const plotAreaHeight = plotArea.height > 0 ? plotArea.height : containerHeight;
 
   const resolveMenuPosition = React.useCallback(
     (left: number, top: number) => ({
@@ -478,17 +532,19 @@ function ChartTapRadialMenu({
   );
 
   const computeAnchorPosition = React.useCallback(() => {
-    const baseLeft = (containerWidth - CHART_TAP_MENU_SIZE) / 2;
-    const baseTop = (containerHeight - CHART_TAP_MENU_SIZE) / 2;
+    const baseLeft = plotAreaLeft + (plotAreaWidth - CHART_TAP_MENU_SIZE) / 2;
+    const baseTop = plotAreaTop + (plotAreaHeight - CHART_TAP_MENU_SIZE) / 2;
     return resolveMenuPosition(baseLeft, baseTop);
-  }, [containerHeight, containerWidth, resolveMenuPosition]);
+  }, [plotAreaHeight, plotAreaLeft, plotAreaTop, plotAreaWidth, resolveMenuPosition]);
 
   const [menuPosition, setMenuPositionState] = React.useState(computeAnchorPosition);
   const menuViewRef = React.useRef<View>(null);
   const menuPositionRef = React.useRef(menuPosition);
   const dragOriginRef = React.useRef(menuPosition);
   const dismissReadyAtRef = React.useRef(Date.now() + 180);
-  const lastAnchorKeyRef = React.useRef(`${anchor.x}:${anchor.y}`);
+  const lastAnchorKeyRef = React.useRef(
+    `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}:${plotAreaLeft}:${plotAreaTop}:${plotAreaWidth}:${plotAreaHeight}`,
+  );
   const syncFrameRef = React.useRef<number | null>(null);
 
   const applyMenuPosition = React.useCallback(
@@ -525,7 +581,7 @@ function ChartTapRadialMenu({
   }, [menuPosition]);
 
   React.useLayoutEffect(() => {
-    const key = `${anchor.x}:${anchor.y}`;
+    const key = `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}:${plotAreaLeft}:${plotAreaTop}:${plotAreaWidth}:${plotAreaHeight}`;
     if (lastAnchorKeyRef.current === key && menuPositionRef.current) {
       return;
     }
@@ -534,7 +590,17 @@ function ChartTapRadialMenu({
     const nextPosition = computeAnchorPosition();
     menuPositionRef.current = nextPosition;
     setMenuPositionState(nextPosition);
-  }, [anchor.x, anchor.y, computeAnchorPosition]);
+  }, [
+    anchor.x,
+    anchor.y,
+    computeAnchorPosition,
+    containerHeight,
+    containerWidth,
+    plotAreaHeight,
+    plotAreaLeft,
+    plotAreaTop,
+    plotAreaWidth,
+  ]);
 
   const panResponder = React.useMemo(
     () =>
@@ -1132,6 +1198,63 @@ const CH_HTML = `
         } catch (_e) {}
       }
 
+      function postChartGeometry() {
+        if (!chart) {
+          return;
+        }
+        try {
+          var chartElement = document.getElementById('chart');
+          var paneSize = typeof chart.paneSize === 'function' ? chart.paneSize(0) : null;
+          var timeScaleApi =
+            typeof chart.timeScale === 'function'
+              ? chart.timeScale()
+              : null;
+          var rightPriceScaleApi =
+            typeof chart.priceScale === 'function'
+              ? chart.priceScale('right')
+              : null;
+          var leftPriceScaleApi =
+            typeof chart.priceScale === 'function'
+              ? chart.priceScale('left')
+              : null;
+          var rightAxisWidth =
+            rightPriceScaleApi && typeof rightPriceScaleApi.width === 'function'
+              ? rightPriceScaleApi.width()
+              : 0;
+          var leftAxisWidth =
+            leftPriceScaleApi && typeof leftPriceScaleApi.width === 'function'
+              ? leftPriceScaleApi.width()
+              : 0;
+          var timeScaleHeight =
+            timeScaleApi && typeof timeScaleApi.height === 'function'
+              ? timeScaleApi.height()
+              : 0;
+          var fallbackWidth = Math.max(
+            0,
+            (chartElement && chartElement.clientWidth ? chartElement.clientWidth : 0) - leftAxisWidth - rightAxisWidth
+          );
+          var fallbackHeight = Math.max(
+            0,
+            (chartElement && chartElement.clientHeight ? chartElement.clientHeight : 0) - timeScaleHeight
+          );
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_GEOMETRY',
+            plotArea: {
+              left: leftAxisWidth,
+              top: 0,
+              width:
+                paneSize && typeof paneSize.width === 'number' && isFinite(paneSize.width) && paneSize.width > 0
+                  ? paneSize.width
+                  : fallbackWidth,
+              height:
+                paneSize && typeof paneSize.height === 'number' && isFinite(paneSize.height) && paneSize.height > 0
+                  ? paneSize.height
+                  : fallbackHeight,
+            },
+          }));
+        } catch (_e) {}
+      }
+
       function postChartTap(x, y, price) {
         try {
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -1545,6 +1668,7 @@ const CH_HTML = `
         } catch (_chartTapErr) {}
 
         applyOverlayPayload(_overlayPayload);
+        postChartGeometry();
         postChartReady();
       }
 
@@ -1574,6 +1698,33 @@ const CH_HTML = `
         }
       }
 
+      function resizeChartViewport(width, height) {
+        try {
+          var w = Math.round(Number(width));
+          var h = Math.round(Number(height));
+          if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return;
+
+          var chartElement = document.getElementById('chart');
+          if (chartElement) {
+            chartElement.style.width = w + 'px';
+            chartElement.style.height = h + 'px';
+          }
+
+          if (_pendingInit) {
+            _doInitChart(_pendingInit.opts, _pendingInit.chartType, _pendingInit.data, _pendingInit.displayDecimals);
+            return;
+          }
+
+          if (chart) {
+            chart.resize(w, h);
+            refreshOverlayDomLabels(_overlayPayload);
+            postChartGeometry();
+          }
+        } catch (e) {
+          postError('resizeChartViewport', e);
+        }
+      }
+
       // ResizeObserver — auto-resize the chart when the WebView container
       // dimensions change (orientation, tab switch, delayed layout).
       // Also catches the zero-dimension → real-dimension transition.
@@ -1592,6 +1743,7 @@ const CH_HTML = `
               try {
                 chart.resize(w, h);
                 refreshOverlayDomLabels(_overlayPayload);
+                postChartGeometry();
               } catch(_) {}
             }
           }
@@ -2215,6 +2367,7 @@ const CH_HTML = `
       window.setChartOverlays = setChartOverlays;
       window.setPriceLines = setPriceLines;
       window.updatePositionLines = updatePositionLines;
+      window.resizeChartViewport = resizeChartViewport;
 
       postReady();
     </script>
@@ -2358,6 +2511,9 @@ export function ChartScreen() {
     [chartInstrumentMeta?.maxVolume, chartInstrumentMeta?.minVolume, chartInstrumentMeta?.stepVolume],
   );
   const [lotInput, setLotInput] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
+  const [footerLotEditorFocused, setFooterLotEditorFocused] = useState(false);
+  const footerLotEditorInputRef = useRef<TextInput>(null);
+  const footerLotEditorSubmitIntentRef = useRef(false);
 
   useEffect(() => {
     if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
@@ -2434,6 +2590,23 @@ export function ChartScreen() {
     }
     updateTradeVolume(lotInput);
   }, [lotInput, tradeVolume, tradeVolumeBounds, updateTradeVolume]);
+  const handleFocusFooterLotEditor = useCallback(() => {
+    setFooterLotEditorFocused(true);
+  }, []);
+  const handleBlurFooterLotEditor = useCallback(() => {
+    if (footerLotEditorSubmitIntentRef.current) {
+      footerLotEditorSubmitIntentRef.current = false;
+      return;
+    }
+    commitLotDraft();
+    setFooterLotEditorFocused(false);
+  }, [commitLotDraft]);
+  const handleSubmitFooterLotEditor = useCallback(() => {
+    footerLotEditorSubmitIntentRef.current = false;
+    commitLotDraft();
+    setFooterLotEditorFocused(false);
+    Keyboard.dismiss();
+  }, [commitLotDraft]);
 
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
   const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
@@ -2446,6 +2619,7 @@ export function ChartScreen() {
   const [chartTradeTpEnabled, setChartTradeTpEnabled] = useState(false);
   const [chartTradeTpPrice, setChartTradeTpPrice] = useState(0);
   const [chartTradeComment, setChartTradeComment] = useState('');
+  const [chartTradeCommentFocused, setChartTradeCommentFocused] = useState(false);
   const [chartTradeExpiration, setChartTradeExpiration] = useState<'GTC' | 'Today' | 'Specified' | 'Specified Day'>('GTC');
   const [chartExpirationMenuOpen, setChartExpirationMenuOpen] = useState(false);
   const [chartStepperEditor, setChartStepperEditor] = useState<{ kind: 'price' | 'tp' | 'sl' | 'volume' } | null>(null);
@@ -2453,10 +2627,12 @@ export function ChartScreen() {
   const [chartTradeSlLocked, setChartTradeSlLocked] = useState(false);
   const [chartTradeTpLocked, setChartTradeTpLocked] = useState(false);
   const [chartTradeSheetMode, setChartTradeSheetMode] = useState<'hidden' | 'collapsed' | 'expanded'>('hidden');
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const safeInsets = useSafeAreaInsets();
   const screenHeight = Dimensions.get('window').height;
+  const fullscreenChartMinHeight = Math.max(320, screenHeight);
   const chartTradeSheetMaxHeight = Math.max(
     360,
     Math.min(screenHeight - Math.max(safeInsets.top, 16) - 84, screenHeight * 0.76),
@@ -2467,11 +2643,21 @@ export function ChartScreen() {
   const chartTradeSheetHiddenTranslateY = chartTradeSheetMaxHeight + 18;
   const chartScrollRef = useRef<ScrollView>(null);
   const chartTradeSheetScrollRef = useRef<ScrollView>(null);
-  const [keyboardInset, setKeyboardInset] = useState(0);
+  const chartTradeCommentInputRef = useRef<TextInput>(null);
+  const chartTradeCommentSubmitIntentRef = useRef(false);
+  const chartTradeSheetScrollOffsetRef = useRef(0);
+  const chartTradeCommentRestoreOffsetRef = useRef<number | null>(null);
+  const chartTradeCommentAutoScrolledRef = useRef(false);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
+  const [chartTapMenuPlotArea, setChartTapMenuPlotArea] = useState<ChartTapMenuPlotArea>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  });
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
@@ -2484,10 +2670,29 @@ export function ChartScreen() {
   const webViewRef = useRef<WebView>(null);
   const chartViewportRef = useRef<View>(null);
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
+  const lastChartViewportSizeRef = useRef({ width: 0, height: 0 });
   const pendingScrollToEndRef = useRef<{ animated: boolean; target: 'chart' | 'trade-sheet' } | null>(null);
   const chartTradeSheetTranslateY = useSharedValue(chartTradeSheetHiddenTranslateY);
   const chartTradeSheetDragStartY = useSharedValue(chartTradeSheetCollapsedTranslateY);
   const chartTradeSheetLastVisibleOffsetRef = useRef(chartTradeSheetCollapsedTranslateY);
+  const pushChartViewportResize = useCallback((width: number, height: number) => {
+    const nextWidth = Math.round(width);
+    const nextHeight = Math.round(height);
+    if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight) || nextWidth <= 0 || nextHeight <= 0) {
+      return;
+    }
+    const current = lastChartViewportSizeRef.current;
+    if (current.width === nextWidth && current.height === nextHeight) {
+      return;
+    }
+    lastChartViewportSizeRef.current = { width: nextWidth, height: nextHeight };
+    webViewRef.current?.injectJavaScript(`
+      if (typeof resizeChartViewport === 'function') {
+        resizeChartViewport(${nextWidth}, ${nextHeight});
+      }
+      true;
+    `);
+  }, []);
   const scrollLotEditorIntoView = useCallback((animated = false) => {
     const target = showChartTradeSheet ? 'trade-sheet' : 'chart';
     pendingScrollToEndRef.current = { animated, target };
@@ -2542,6 +2747,17 @@ export function ChartScreen() {
       });
     });
   }, []);
+  useEffect(() => {
+    const { width, height } = chartTapMenuBounds;
+    if (!isChartExpanded || width <= 0 || height <= 0) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      pushChartViewportResize(width, height);
+      syncChartViewportFrame();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chartTapMenuBounds, isChartExpanded, pushChartViewportResize, syncChartViewportFrame]);
   const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
   const latestChartClose = useMemo(() => candles[candles.length - 1]?.close ?? 0, [candles]);
   const quoteFallbackSpread =
@@ -2596,25 +2812,6 @@ export function ChartScreen() {
     },
     [chartAsk, chartBid, chartPendingOffset, latestChartClose, quoteFallbackSpread, roundTradePrice],
   );
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardInset(Math.max(0, event.endCoordinates.height - safeInsets.bottom + 12));
-      scrollLotEditorIntoView(false);
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardInset(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [safeInsets.bottom, scrollLotEditorIntoView]);
 
   const injectChartScript = (script: string) => {
     webViewRef.current?.injectJavaScript(`${script} true;`);
@@ -2782,6 +2979,7 @@ export function ChartScreen() {
     setChartTradeSlPrice(resolveTradeStopPreviewPrice('sl', entryPrice, side, chartStopOffset, roundTradePrice));
     setChartTradeTpPrice(resolveTradeStopPreviewPrice('tp', entryPrice, side, chartStopOffset, roundTradePrice));
     setChartTradeComment('');
+    setChartTradeCommentFocused(false);
   }, [chartStopOffset, chartTradeOrderType, resolveChartTradeEntryPrice, roundTradePrice]);
 
   const handleOpenChartTradeSheet = useCallback(() => {
@@ -2867,6 +3065,102 @@ export function ChartScreen() {
   const handleToggleChartTradeSheetMode = useCallback(() => {
     snapTradeSheet(chartTradeSheetMode === 'expanded' ? 'collapsed' : 'expanded');
   }, [chartTradeSheetMode, snapTradeSheet]);
+  const handleFocusChartTradeComment = useCallback(() => {
+    pendingScrollToEndRef.current = null;
+    if (chartTradeSheetMode !== 'expanded') {
+      snapTradeSheet('expanded');
+    }
+    chartTradeCommentRestoreOffsetRef.current = chartTradeSheetScrollOffsetRef.current;
+    chartTradeCommentAutoScrolledRef.current = false;
+    setChartTradeCommentFocused(true);
+  }, [chartTradeSheetMode, snapTradeSheet]);
+  const handleBlurChartTradeComment = useCallback(() => {
+    if (chartTradeCommentSubmitIntentRef.current) {
+      chartTradeCommentSubmitIntentRef.current = false;
+      return;
+    }
+    setChartTradeCommentFocused(false);
+  }, []);
+  const handleSubmitChartTradeComment = useCallback(() => {
+    chartTradeCommentSubmitIntentRef.current = false;
+    const nextComment = chartTradeComment.trim();
+    if (nextComment !== chartTradeComment) {
+      setChartTradeComment(nextComment);
+    }
+    setChartTradeCommentFocused(false);
+    Keyboard.dismiss();
+  }, [chartTradeComment]);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardInset(Math.max(0, event.endCoordinates.height - safeInsets.bottom + 12));
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [safeInsets.bottom]);
+  useEffect(() => {
+    if (!chartTradeCommentFocused || !showChartTradeSheet) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        chartTradeCommentInputRef.current?.focus();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chartTradeCommentFocused, showChartTradeSheet]);
+
+  useEffect(() => {
+    if (!footerLotEditorFocused || showChartTradeSheet) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        footerLotEditorInputRef.current?.focus();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [footerLotEditorFocused, showChartTradeSheet]);
+
+  useEffect(() => {
+    if (!showChartTradeSheet) {
+      return;
+    }
+    setFooterLotEditorFocused(false);
+  }, [showChartTradeSheet]);
+
+  useEffect(() => {
+    if (!chartTradeCommentFocused || !showChartTradeSheet || keyboardInset <= 0) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      chartTradeCommentAutoScrolledRef.current = true;
+      scrollLotEditorIntoView(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chartTradeCommentFocused, keyboardInset, scrollLotEditorIntoView, showChartTradeSheet]);
+
+  useEffect(() => {
+    if (keyboardInset > 0 || !chartTradeCommentAutoScrolledRef.current) {
+      return;
+    }
+    const restoreOffset = Math.max(0, chartTradeCommentRestoreOffsetRef.current ?? 0);
+    const frame = requestAnimationFrame(() => {
+      chartTradeSheetScrollRef.current?.scrollTo({ y: restoreOffset, animated: false });
+      chartTradeCommentRestoreOffsetRef.current = null;
+      chartTradeCommentAutoScrolledRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardInset]);
 
   useEffect(() => {
     if (!showChartTradeSheet || chartTradeSheetMode === 'hidden') {
@@ -3658,7 +3952,8 @@ export function ChartScreen() {
           style={styles.card}
           contentContainerStyle={[
             styles.chartScrollContent,
-            keyboardInset > 0 && { paddingBottom: keyboardInset },
+            isChartExpanded && { minHeight: fullscreenChartMinHeight },
+            keyboardInset > 0 && !showChartTradeSheet && { paddingBottom: keyboardInset },
           ]}
           nestedScrollEnabled
           scrollEnabled={!shouldCaptureChartGestures}
@@ -3669,7 +3964,7 @@ export function ChartScreen() {
           onScroll={() => syncChartViewportFrame()}
           onContentSizeChange={handleChartScrollContentSizeChange}
         >
-        <View style={styles.chartContainer}>
+        <View style={[styles.chartContainer, isChartExpanded && { minHeight: fullscreenChartMinHeight }]}>
           <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: safeInsets.top + 8, marginTop: 0 }]}>
             <View style={styles.toolbarButtonRow}>
               <View style={styles.toolbarSlotFirst}>
@@ -3766,6 +4061,7 @@ export function ChartScreen() {
               onLayout={(event) => {
                 const { width, height } = event.nativeEvent.layout;
                 setChartTapMenuBounds({ width, height });
+                pushChartViewportResize(width, height);
                 syncChartViewportFrame();
               }}
             >
@@ -3839,6 +4135,22 @@ export function ChartScreen() {
                           `);
                         }
                       } catch (_) { }
+                    } else if (msg.type === 'CHART_GEOMETRY') {
+                      const plotArea = msg.plotArea ?? {};
+                      const left = typeof plotArea.left === 'number' && Number.isFinite(plotArea.left) ? plotArea.left : 0;
+                      const top = typeof plotArea.top === 'number' && Number.isFinite(plotArea.top) ? plotArea.top : 0;
+                      const width = typeof plotArea.width === 'number' && Number.isFinite(plotArea.width) ? plotArea.width : 0;
+                      const height = typeof plotArea.height === 'number' && Number.isFinite(plotArea.height) ? plotArea.height : 0;
+                      if (width > 0 && height > 0) {
+                        setChartTapMenuPlotArea((current) =>
+                          current.left === left &&
+                          current.top === top &&
+                          current.width === width &&
+                          current.height === height
+                            ? current
+                            : { left, top, width, height },
+                        );
+                      }
                     } else if (msg.type === 'DRAWINGS_CHANGED') {
                       const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
                       const nextSignature = JSON.stringify(nextDrawings);
@@ -3887,6 +4199,7 @@ export function ChartScreen() {
               <ChartTapRadialMenu
                 anchor={chartTapMenuAnchor}
                 bounds={chartTapMenuBounds}
+                plotArea={chartTapMenuPlotArea}
                 activeTimeframe={chartTimeframe}
                 accentColor={BLUE}
                 mutedColor="#FFFFFF"
@@ -3921,11 +4234,11 @@ export function ChartScreen() {
             <View style={[styles.bottomArea, { paddingBottom: chartTradeSheetCollapsedHeight + 8 }]}>
                 <>
                   <View style={styles.tvBottomToolbar}>
-                    <Pressable style={styles.tvRangesLeft} onPress={() => setShowTimeRangeMenu(true)}>
+                    <Pressable style={styles.tvRangeButton} onPress={() => setShowTimeRangeMenu(true)}>
                       <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>{getChartTimeRangeLabel(activeDateRange)}</Text>
                       <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
                     </Pressable>
-                    <Pressable style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setShowDatePicker(true)}>
+                    <Pressable style={styles.tvRangeButton} onPress={() => setShowDatePicker(true)}>
                       <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>
                         {customDateValue ? customDateValue.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Date Range'}
                       </Text>
@@ -3933,8 +4246,8 @@ export function ChartScreen() {
                     </Pressable>
                     <View style={styles.tvRangesRight}>
                       <LiveClock styles={styles} />
-                      <Pressable hitSlop={10} onPress={handleResetTimeRange}>
-                        <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>Reset</Text>
+                      <Pressable style={styles.tvResetButton} hitSlop={10} onPress={handleResetTimeRange}>
+                        <Text style={styles.tvResetText}>Reset</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -3960,8 +4273,7 @@ export function ChartScreen() {
                       <Pressable style={styles.chartTradeSheetHandleWrap} onPress={handleToggleChartTradeSheetMode}>
                         <View style={styles.chartTradeSheetHandle} />
                       </Pressable>
-                  <View style={styles.chartTradeQuickBar}>
-                    <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
+                  <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
                     <View style={styles.chartTradeQuickActions}>
                       <Pressable
                         style={[
@@ -4010,24 +4322,32 @@ export function ChartScreen() {
                     style={styles.chartTradeSheetContentScroll}
                     contentContainerStyle={[
                       styles.chartTradeSheetContent,
-                      { paddingBottom: Math.max(safeInsets.bottom, 14) },
+                      { paddingBottom: 0 },
                     ]}
                     nestedScrollEnabled
                     bounces={false}
                     keyboardShouldPersistTaps='handled'
+                    scrollEventThrottle={16}
+                    onScroll={(event) => {
+                      chartTradeSheetScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+                    }}
                     onContentSizeChange={handleChartScrollContentSizeChange}
                   >
-                    <View style={styles.chartTradeSheetHeader}>
-                      <Pressable style={styles.chartTradeSheetSymbolBtn} onPress={() => setSymbolPickerOpen(true)}>
-                        <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
-                        <Ionicons name="swap-vertical" size={14} color={BLUE} />
-                      </Pressable>
-                      <View style={styles.chartTradeSheetPriceGroup}>
-                        <Text style={styles.chartTradeSheetBid}>{chartBid > 0 ? chartBid.toFixed(displayDecimals) : '--'}</Text>
-                        <Text style={styles.chartTradeSheetAsk}>{chartAsk > 0 ? chartAsk.toFixed(displayDecimals) : '--'}</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.chartTradeInstrumentMeta}>{symbolName}</Text>
+                    {!chartTradeCommentFocused ? (
+                      <>
+                        <View style={styles.chartTradeSheetHeader}>
+                          <Pressable style={styles.chartTradeSheetSymbolBtn} onPress={() => setSymbolPickerOpen(true)}>
+                            <Text style={styles.chartTradeSheetSymbolText}>{displaySymbol}</Text>
+                            <Ionicons name="swap-vertical" size={14} color={BLUE} />
+                          </Pressable>
+                          <View style={styles.chartTradeSheetPriceGroup}>
+                            <Text style={styles.chartTradeSheetBid}>{chartBid > 0 ? chartBid.toFixed(displayDecimals) : '--'}</Text>
+                            <Text style={styles.chartTradeSheetAsk}>{chartAsk > 0 ? chartAsk.toFixed(displayDecimals) : '--'}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.chartTradeInstrumentMeta}>{symbolName}</Text>
+                      </>
+                    ) : null}
 
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chartTradeTypeTabs}>
                       {CHART_ORDER_TYPES.map((option) => {
@@ -4050,19 +4370,37 @@ export function ChartScreen() {
                           <Text style={styles.chartTradeCardLabel}>Volume</Text>
                           <View style={styles.chartTradeVolumeValueGroup}>
                             <Text style={styles.chartTradeCardValue}>{lotInput || formatTradeVolume(tradeVolume, tradeVolumeBounds)}</Text>
-                            <View style={styles.chartTradeStepperStack}>
-                              <Ionicons name="chevron-up" size={14} color={TEXT_MUTED} />
-                              <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
-                            </View>
+                            <Pressable
+                              style={styles.chartTradeStepperLaunchButton}
+                              onPress={(event) => {
+                                event.stopPropagation?.();
+                                setChartStepperEditor({ kind: 'volume' });
+                              }}
+                              hitSlop={8}
+                            >
+                              <View style={styles.chartTradeStepperLaunchIconStack}>
+                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                              </View>
+                            </Pressable>
                           </View>
                         </View>
                         <View style={styles.chartTradeVolumeDivider} />
                         <View style={styles.chartTradeVolumeUnitSide}>
                           <Text style={styles.chartTradeCardValue}>Lots</Text>
-                          <View style={styles.chartTradeStepperStack}>
-                            <Ionicons name="chevron-up" size={14} color={TEXT_MUTED} />
-                            <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
-                          </View>
+                          <Pressable
+                            style={styles.chartTradeStepperLaunchButton}
+                            onPress={(event) => {
+                              event.stopPropagation?.();
+                              setChartStepperEditor({ kind: 'volume' });
+                            }}
+                            hitSlop={8}
+                          >
+                            <View style={styles.chartTradeStepperLaunchIconStack}>
+                              <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                              <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                            </View>
+                          </Pressable>
                         </View>
                       </Pressable>
 
@@ -4083,10 +4421,19 @@ export function ChartScreen() {
                           <Text style={styles.chartTradeCardLabel}>Price</Text>
                           <View style={styles.chartTradeVolumeValueGroup}>
                             <Text style={styles.chartTradePriceInput}>{chartTradePrice > 0 ? chartTradePrice.toFixed(displayDecimals) : (chartBid > 0 ? chartBid.toFixed(displayDecimals) : '--')}</Text>
-                            <View style={styles.chartTradeStepperStack}>
-                              <Ionicons name="chevron-up" size={14} color={TEXT_MUTED} />
-                              <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
-                            </View>
+                            <Pressable
+                              style={styles.chartTradeStepperLaunchButton}
+                              onPress={(event) => {
+                                event.stopPropagation?.();
+                                setChartStepperEditor({ kind: 'price' });
+                              }}
+                              hitSlop={8}
+                            >
+                              <View style={styles.chartTradeStepperLaunchIconStack}>
+                                <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
+                                <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+                              </View>
+                            </Pressable>
                           </View>
                         </Pressable>
                       )}
@@ -4177,21 +4524,78 @@ export function ChartScreen() {
                         <Ionicons name="swap-vertical" size={12} color={BLUE} />
                       </Pressable>
                       <View style={styles.chartTradeCommentBlock}>
-                        <Text style={styles.chartTradeInfoLabel}>Comment</Text>
-                        <TextInput
-                          style={styles.chartTradeCommentBox}
-                          value={chartTradeComment}
-                          onChangeText={setChartTradeComment}
-                          placeholder='Add comment'
-                          placeholderTextColor={T.textMuted}
-                          onFocus={() => scrollLotEditorIntoView(true)}
-                          multiline
-                          textAlignVertical='top'
-                        />
+                        {!chartTradeCommentFocused ? (
+                          <Pressable
+                            style={styles.chartTradeInfoRow}
+                            onPress={handleFocusChartTradeComment}
+                          >
+                            <Text
+                              style={[
+                                styles.chartTradeInfoLabel,
+                                styles.chartTradeCommentInlineLabel,
+                              ]}
+                            >
+                              Comment:
+                            </Text>
+                            <Text
+                              style={[
+                                styles.chartTradeCommentInlineValue,
+                                !chartTradeComment.trim() && styles.chartTradeCommentInlinePlaceholder,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {chartTradeComment.trim() || 'Add comment'}
+                            </Text>
+                          </Pressable>
+                        ) : (
+                          <View style={styles.chartTradeCommentEditorRow}>
+                            <View style={styles.chartTradeCommentEditorInputWrap}>
+                              <TextInput
+                                ref={chartTradeCommentInputRef}
+                                style={styles.chartTradeCommentEditorInput}
+                                value={chartTradeComment}
+                                onChangeText={(text) => setChartTradeComment(text.slice(0, 50))}
+                                onBlur={handleBlurChartTradeComment}
+                                placeholder='Comment'
+                                placeholderTextColor='#94A3B8'
+                                maxLength={50}
+                                multiline={false}
+                                returnKeyType='done'
+                                blurOnSubmit
+                                selectionColor={BLUE}
+                                onSubmitEditing={handleSubmitChartTradeComment}
+                              />
+                            </View>
+                            <Pressable
+                              onPressIn={() => {
+                                chartTradeCommentSubmitIntentRef.current = true;
+                              }}
+                              style={[
+                                styles.chartTradeCommentEditorSubmit,
+                                !chartTradeComment.trim() && styles.chartTradeCommentEditorSubmitDisabled,
+                              ]}
+                              disabled={!chartTradeComment.trim()}
+                              onPress={handleSubmitChartTradeComment}
+                            >
+                              <Ionicons
+                                name='checkmark'
+                                size={20}
+                                color={chartTradeComment.trim() ? BLUE : '#94A3B8'}
+                              />
+                            </Pressable>
+                          </View>
+                        )}
                       </View>
 
                       {chartTradeOrderType === 'Market Execution' ? (
-                        <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} onTradeResult={setTradeFeedback} />
+                        <LiveTradeButtons
+                          symbol={chartSymbol}
+                          styles={styles}
+                          displayDecimals={displayDecimals}
+                          lotSize={tradeVolume}
+                          comment={chartTradeComment}
+                          onTradeResult={setTradeFeedback}
+                        />
                       ) : (
                         <Pressable
                           style={[styles.chartTradePlaceButton, { backgroundColor: chartTradeCtaColor }]}
@@ -4208,11 +4612,11 @@ export function ChartScreen() {
           ) : (
             <View style={styles.bottomArea}>
             <View style={styles.tvBottomToolbar}>
-              <Pressable style={styles.tvRangesLeft} onPress={() => setShowTimeRangeMenu(true)}>
+              <Pressable style={styles.tvRangeButton} onPress={() => setShowTimeRangeMenu(true)}>
                 <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>{getChartTimeRangeLabel(activeDateRange)}</Text>
                 <Ionicons name="chevron-down" size={10} color="#787B86" style={{ marginLeft: 4 }} />
               </Pressable>
-              <Pressable style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setShowDatePicker(true)}>
+              <Pressable style={styles.tvRangeButton} onPress={() => setShowDatePicker(true)}>
                 <Text style={styles.tvRangeText} numberOfLines={1} adjustsFontSizeToFit>
                   {customDateValue ? customDateValue.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Date Range'}
                 </Text>
@@ -4221,51 +4625,62 @@ export function ChartScreen() {
               <View style={styles.tvRangesRight}>
                 <LiveClock styles={styles} />
                 <Pressable
+                  style={styles.tvResetButton}
                   hitSlop={10}
                   onPress={handleResetTimeRange}
                 >
-                  <Text style={{ color: BLUE, fontSize: 11, fontWeight: '500' }}>Reset</Text>
+                  <Text style={styles.tvResetText}>Reset</Text>
                 </Pressable>
               </View>
             </View>
-            <View style={styles.sentimentLabelsRow}>
-              <Text style={styles.sentimentLabelSell}>{sentiment.sellPct}% SELL</Text>
-              <Text style={styles.sentimentLabelBuy}>{sentiment.buyPct}% BUY</Text>
-            </View>
-            <View style={styles.sentimentBarRow}>
-              <View style={[styles.sentimentHalf, styles.sentimentSell, { flex: sentiment.sellPct }]} />
-              <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
-            </View>
-
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} onTradeResult={setTradeFeedback} />
-
-            <View style={styles.lotSelectorBar}>
-              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, -1, tradeVolumeBounds))}>
-                <Ionicons name="remove" size={18} color={T.textSub} />
-              </Pressable>
-              <Text style={styles.lotLabelText}>Lot:</Text>
-              <TextInput
-                style={styles.lotInput}
-                value={lotInput}
-                onChangeText={(text) => setLotInput(sanitizeTradeVolumeDraft(text))}
-                onFocus={() => scrollLotEditorIntoView(false)}
-                onBlur={commitLotDraft}
-                onSubmitEditing={commitLotDraft}
-                keyboardType="decimal-pad"
-                returnKeyType="done"
-                placeholder={formatTradeVolume(tradeVolume, tradeVolumeBounds)}
-                placeholderTextColor={T.textMuted}
-              />
-              <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, 1, tradeVolumeBounds))}>
-                <Ionicons name="add" size={18} color={T.textSub} />
-              </Pressable>
-            </View>
+            <LiveTradeButtons
+              symbol={chartSymbol}
+              styles={styles}
+              displayDecimals={displayDecimals}
+              lotSize={tradeVolume}
+              onTradeResult={setTradeFeedback}
+              onEditLot={handleFocusFooterLotEditor}
+              onOpenLotEditor={() => setChartStepperEditor({ kind: 'volume' })}
+            />
           </View>
           )
         )}
         </ScrollView>
       </KeyboardAvoidingView>
-
+      {footerLotEditorFocused && !showChartTradeSheet ? (
+        <View
+          pointerEvents='box-none'
+          style={[
+            styles.footerLotEditorDock,
+            { bottom: Math.max(12, keyboardInset) },
+          ]}
+        >
+          <View style={styles.footerLotEditorDockInner}>
+            <TextInput
+              ref={footerLotEditorInputRef}
+              style={styles.footerLotEditorInput}
+              value={lotInput}
+              onChangeText={(text) => setLotInput(sanitizeTradeVolumeDraft(text))}
+              onBlur={handleBlurFooterLotEditor}
+              placeholder={formatTradeVolume(tradeVolume, tradeVolumeBounds)}
+              placeholderTextColor={T.textMuted}
+              keyboardType='decimal-pad'
+              returnKeyType='done'
+              selectTextOnFocus
+              onSubmitEditing={handleSubmitFooterLotEditor}
+            />
+            <Pressable
+              onPressIn={() => {
+                footerLotEditorSubmitIntentRef.current = true;
+              }}
+              style={styles.footerLotEditorSubmit}
+              onPress={handleSubmitFooterLotEditor}
+            >
+              <Ionicons name='checkmark' size={18} color='#2563EB' />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       
               <ActionSheet
         visible={tfOpen}
@@ -4951,14 +5366,17 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeSheetFrame: {
       position: 'absolute',
-      left: 0,
-      right: 0,
+      left: -8,
+      right: -8,
       bottom: 0,
       zIndex: 40,
       elevation: 40,
     },
     chartTradeSheetInline: {
-      borderRadius: 18,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
       marginTop: 10,
       marginBottom: 14,
       overflow: 'hidden',
@@ -4974,7 +5392,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? '#F8FAFC' : '#FFFFFF',
     },
     chartTradeSheetContent: {
-      paddingBottom: 20,
+      paddingBottom: 14,
     },
     chartTradeSheetContentScroll: {
       flex: 1,
@@ -4995,8 +5413,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 16,
-      paddingBottom: 14,
-      gap: 12,
+      paddingBottom: 10,
+      gap: 10,
+    },
+    chartTradeQuickBarActionsOnly: {
+      justifyContent: 'flex-end',
     },
     chartTradeQuickActions: {
       flexDirection: 'row',
@@ -5045,7 +5466,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 16,
-      paddingTop: 10,
+      paddingTop: 8,
       paddingBottom: 2,
     },
     chartTradeOrderTypeSummary: {
@@ -5058,11 +5479,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 13,
       fontWeight: '500',
       paddingHorizontal: 16,
-      paddingBottom: 14,
+      paddingBottom: 10,
     },
     chartTradeSheetBody: {
       paddingHorizontal: 16,
-      gap: 14,
+      gap: 10,
     },
     chartTradeVolumeCard: {
       flexDirection: 'row',
@@ -5071,22 +5492,22 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: '#E2E8F0',
       borderRadius: 10,
       backgroundColor: '#FFFFFF',
-      minHeight: 58,
+      minHeight: 48,
     },
     chartTradeVolumeSide: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 14,
+      paddingHorizontal: 10,
     },
     chartTradeVolumeUnitSide: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 14,
-      minWidth: 110,
-      gap: 10,
+      paddingHorizontal: 10,
+      minWidth: 96,
+      gap: 6,
     },
     chartTradeVolumeDivider: {
       width: 1,
@@ -5095,7 +5516,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeVolumeValueGroup: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
+      gap: 8,
     },
     chartTradeStepperStack: {
       alignItems: 'center',
@@ -5122,7 +5543,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 10,
       backgroundColor: '#FFFFFF',
       paddingHorizontal: 14,
-      minHeight: 58,
+      minHeight: 52,
     },
     chartTradeMetaLink: {
       color: '#2563EB',
@@ -5144,16 +5565,17 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeSheetPriceGroup: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
+      gap: 10,
+      marginRight: 16,
     },
     chartTradeSheetBid: {
-      color: '#94A3B8',
+      color: '#0F172A',
       fontSize: 18,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     chartTradeSheetAsk: {
-      color: '#94A3B8',
+      color: '#0F172A',
       fontSize: 18,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
@@ -5166,8 +5588,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeTypeTabs: {
       paddingHorizontal: 12,
-      paddingBottom: 10,
-      gap: 16,
+      paddingBottom: 6,
+      gap: 10,
     },
     chartTradeTypeTab: {
       paddingVertical: 4,
@@ -5217,6 +5639,21 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#F1F5F9',
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    chartTradeStepperLaunchButton: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chartTradeStepperLaunchIconStack: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: -2,
     },
     chartTradeVolumeInput: {
       minWidth: 62,
@@ -5283,8 +5720,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      gap: 12,
-      marginTop: 4,
+      gap: 8,
+      marginTop: 0,
     },
     chartTradeMetaText: {
       color: '#64748B',
@@ -5294,7 +5731,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeStopButton: {
       borderRadius: 10,
       backgroundColor: '#EFF4FE',
-      paddingVertical: 16,
+      paddingVertical: 10,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -5304,11 +5741,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
     },
     chartTradeStopsBlock: {
-      gap: 10,
+      gap: 8,
     },
     chartTradeStopUnitRow: {
       flexDirection: 'row',
-      gap: 8,
+      gap: 6,
     },
     chartTradeStopUnitTab: {
       flex: 1,
@@ -5316,7 +5753,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderWidth: 1,
       borderColor: 'transparent',
       borderRadius: 8,
-      paddingVertical: 10,
+      paddingVertical: 8,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -5341,7 +5778,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 10,
       backgroundColor: '#FFFFFF',
       overflow: 'hidden',
-      minHeight: 64,
+      minHeight: 58,
     },
     chartTradeStopPairDivider: {
       width: 1,
@@ -5352,7 +5789,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 14,
-      gap: 10,
+      gap: 8,
     },
     chartTradeStopPairCardSl: {},
     chartTradeStopPairCardTp: {},
@@ -5396,7 +5833,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      paddingVertical: 4,
+      paddingVertical: 2,
     },
     chartTradeInfoLabel: {
       color: '#475569',
@@ -5418,20 +5855,59 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 0,
     },
     chartTradeCommentBlock: {
-      gap: 8,
-      paddingVertical: 4,
+      gap: 6,
+      paddingVertical: 2,
+      marginTop: -4,
     },
-    chartTradeCommentBox: {
-      minHeight: 72,
-      borderWidth: 1,
-      borderColor: '#E2E8F0',
-      borderRadius: 10,
-      backgroundColor: '#FFFFFF',
-      paddingHorizontal: 14,
-      paddingVertical: 10,
+    chartTradeCommentInlineLabel: {
+      minWidth: 74,
+    },
+    chartTradeCommentInlineValue: {
+      flex: 1,
       color: '#0F172A',
       fontSize: 15,
       fontWeight: '500',
+    },
+    chartTradeCommentInlinePlaceholder: {
+      color: '#2563EB',
+      fontWeight: '600',
+    },
+    chartTradeCommentEditorRow: {
+      minHeight: 46,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    chartTradeCommentEditorInputWrap: {
+      flex: 1,
+      minHeight: 46,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      backgroundColor: '#FFFFFF',
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+    },
+    chartTradeCommentEditorInput: {
+      flex: 1,
+      color: '#0F172A',
+      fontSize: 14,
+      fontWeight: '500',
+      paddingVertical: 0,
+    },
+    chartTradeCommentEditorSubmit: {
+      width: 46,
+      minHeight: 46,
+      borderRadius: 7,
+      backgroundColor: '#EFF6FF',
+      borderWidth: 1,
+      borderColor: '#DBEAFE',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chartTradeCommentEditorSubmitDisabled: {
+      backgroundColor: '#F8FAFC',
+      borderColor: '#E2E8F0',
     },
     stepperModalLayer: {
       ...StyleSheet.absoluteFillObject,
@@ -5538,11 +6014,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0.4,
     },
     chartTradePlaceButton: {
-      minHeight: 54,
+      minHeight: 50,
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 8,
+      marginTop: 4,
     },
     chartTradePlaceButtonText: {
       color: '#FFFFFF',
@@ -5601,11 +6077,26 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingBottom: 8,
+      gap: 10,
     },
     tvRangesLeft: { flexDirection: 'row', alignItems: 'center' },
-    tvRangesRight: { flexDirection: 'row', alignItems: 'center' },
+    tvRangesRight: { flexDirection: 'row', alignItems: 'center', gap: 12, marginLeft: 'auto' },
+    tvRangeButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minWidth: 0,
+      paddingRight: 2,
+    },
     tvRangeText: { fontSize: 11, fontWeight: '500', color: '#787B86' },
     tvRangeAutoText: { fontSize: 11, fontWeight: '500', color: '#787B86' },
+    tvResetButton: {
+      paddingLeft: 2,
+    },
+    tvResetText: {
+      color: BLUE,
+      fontSize: 11,
+      fontWeight: '500',
+    },
     sentimentLabelsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -5643,14 +6134,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     tradeControlsRow: {
       flexDirection: 'row',
-      marginBottom: 4,
-      gap: 6,
+      marginBottom: 2,
+      gap: 4,
+      paddingHorizontal: 0,
     },
     actionBtn: {
       flex: 1,
-      borderRadius: 10,
-      padding: 6,
-      paddingVertical: 6,
+      borderRadius: 8,
+      paddingHorizontal: 5,
+      paddingVertical: 3,
       borderWidth: 1,
     },
     actionBtnSell: {
@@ -5672,19 +6164,103 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       elevation: 0,
     },
     actionSpacer: {
-      width: 0,
+      width: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    actionSpacerWide: {
+      width: 78,
+    },
+    actionLotControl: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    actionLotPill: {
+      minWidth: 36,
+      height: 28,
+      borderRadius: 8,
+      paddingHorizontal: 6,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? '#111827' : '#FFFFFF',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0',
+    },
+    actionLotValue: {
+      color: isDark ? '#E2E8F0' : '#0F172A',
+      fontSize: 12,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    actionLotLaunchButton: {
+      width: 24,
+      height: 28,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? '#111827' : '#FFFFFF',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0',
+    },
+    actionLotLaunchIconStack: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: -2,
+    },
+    footerLotEditorDock: {
+      position: 'absolute',
+      left: 8,
+      right: 8,
+      zIndex: 220,
+      elevation: 220,
+    },
+    footerLotEditorDockInner: {
+      minHeight: 48,
+      borderRadius: 12,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      paddingLeft: 12,
+      paddingRight: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 10,
+    },
+    footerLotEditorInput: {
+      flex: 1,
+      color: '#0F172A',
+      fontSize: 15,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+      paddingVertical: 0,
+    },
+    footerLotEditorSubmit: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: '#EFF6FF',
+      borderWidth: 1,
+      borderColor: '#DBEAFE',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     actionBtnHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 4,
+      marginBottom: 1,
     },
     actionBtnLabelTitle: {
       color: '#FFFFFF',
-      fontSize: 16,
+      fontSize: 12,
       fontWeight: '800',
-      letterSpacing: 1,
+      letterSpacing: 0.6,
     },
     actionBtnLabelSell: {
       color: '#FFFFFF',

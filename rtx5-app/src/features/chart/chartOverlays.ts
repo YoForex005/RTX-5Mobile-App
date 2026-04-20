@@ -622,7 +622,7 @@ export const buildChartOverlayPayload = ({
           lineWidth: 1,
           lineStyle: CHART_LINE_STYLE.Dashed,
           axisLabelVisible: true,
-          title: `${position.side.toUpperCase()} ${formatPositionVolumeLabel(position.volume)}`,
+          title: '',
         });
       }
 

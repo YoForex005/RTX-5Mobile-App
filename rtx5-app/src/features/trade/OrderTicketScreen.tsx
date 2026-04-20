@@ -39,7 +39,7 @@ const ORDER_TYPES = [
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
-  const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
+  const { symbol: routeSymbol, comment: routeComment } = useLocalSearchParams<{ symbol?: string; comment?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -271,7 +271,7 @@ export function OrderTicketScreen() {
         volume: volume,
         ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
-        comment: '',
+        comment: routeComment?.trim() || '',
       });
 
       if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {

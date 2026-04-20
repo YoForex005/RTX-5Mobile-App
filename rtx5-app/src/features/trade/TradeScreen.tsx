@@ -63,7 +63,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
         <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
           {/* The Hero: Unrealized P/L */}
-          <View style={{ alignItems: 'flex-start', marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
               Floating P/L
             </Text>
@@ -73,12 +73,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                 fontWeight: '700',
                 color: safeFloating >= 0 ? T.up : T.down,
                 opacity: pulseAnim,
-                marginTop: 2,
                 letterSpacing: -0.2,
                 fontVariant: ['tabular-nums'],
-                marginLeft: 0
+                textAlign: 'right',
               }}>
-              {fmt.pnl(safeFloating)}
+              {fmt.pnlPrecise(safeFloating)} {account.currency || 'USD'}
             </Animated.Text>
           </View>
 
@@ -295,8 +294,9 @@ export function TradeScreen() {
       onPress={showPositionSheet}
       onLongPress={showPositionSheet}
       onBulkPress={showBulkSheet}
+      pnlCurrency={account.currency || 'USD'}
     />
-  ), [showBulkSheet, showPositionSheet]);
+  ), [account.currency, showBulkSheet, showPositionSheet]);
 
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
