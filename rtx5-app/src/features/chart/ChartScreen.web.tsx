@@ -11,11 +11,13 @@
  * - Drawing Manager: Bridges native interaction onto the chart canvas.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../components/ActionSheet';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode, TvRadialObjects
@@ -52,7 +54,6 @@ import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
-import { isStructurallyValidCandle } from '../../domain/candles';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
 import {
@@ -418,9 +419,50 @@ const mapTf = (tf: string) => {
   return tf;
 };
 
+const CHART_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const resolveChartDate = (value: number | string): Date | null => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      value = numeric;
+    } else {
+      const parsed = new Date(trimmed);
+      return Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+  }
+
+  if (!Number.isFinite(value)) return null;
+
+  const absValue = Math.abs(value);
+  if (absValue > 4.2e16) return new Date(Math.floor(value / 1_000_000));
+  if (absValue > 4.2e13) return new Date(Math.floor(value / 1_000));
+  if (absValue > 4.2e10) return new Date(value);
+  return new Date(value * 1000);
+};
+
+const formatChartTickLabel = (value: number | string, includeDate: boolean): string => {
+  const date = resolveChartDate(value);
+  if (!date || !Number.isFinite(date.getTime())) return '';
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = CHART_MONTHS[date.getMonth()] || '';
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  if (!includeDate) {
+    return `${hours}:${minutes}`;
+  }
+
+  return `${day} ${month} ${hours}:${minutes}`;
+};
+
 /** Format a Unix timestamp into a short time label for the x-axis */
 const formatXLabel = (time: number, tf: string): string => {
-  const d = new Date(time * 1000);
+  const d = resolveChartDate(time);
+  if (!d) return '';
   if (['D1', 'W1', 'MN'].includes(tf)) {
     return `${d.getDate()}/${d.getMonth() + 1}`;
   }
@@ -446,6 +488,7 @@ const getContainerChartDimensions = (container: { clientWidth: number; clientHei
 
 
 export function ChartScreen() {
+  const isScreenFocused = useIsFocused();
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -513,7 +556,7 @@ export function ChartScreen() {
   const refreshPositions = usePositionsState((s) => s.refreshPositions);
   const accountLogin = useResolvedTradingLogin();
   useEffect(() => {
-    if (!accountLogin) return;
+    if (!isScreenFocused || !accountLogin) return;
 
     refreshPositions(String(accountLogin));
     const interval = setInterval(() => {
@@ -521,7 +564,7 @@ export function ChartScreen() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [accountLogin, refreshPositions]);
+  }, [accountLogin, isScreenFocused, refreshPositions]);
   const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const chartContainerRef = useRef<any>(null);
@@ -622,10 +665,19 @@ export function ChartScreen() {
     [chartMetaLastCandle, formatChartValue],
   );
   const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
-  const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin);
-  const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin);
-  const { data: alerts = [], refetch: refetchAlerts } = useAlertsQuery();
-  const { data: accountSummary, refetch: refetchAccountSummary } = useAccountSummary(accountLogin ? String(accountLogin) : undefined);
+  const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
+    enabled: isScreenFocused,
+  });
+  const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
+    enabled: isScreenFocused,
+  });
+  const { data: alerts = [], refetch: refetchAlerts } = useAlertsQuery({
+    enabled: isScreenFocused,
+  });
+  const { data: accountSummary, refetch: refetchAccountSummary } = useAccountSummary(
+    accountLogin ? String(accountLogin) : undefined,
+    { enabled: isScreenFocused },
+  );
   const liveAccountEquity = useLiveAccountState((s) => s.equity);
   const liveAccountMargin = useLiveAccountState((s) => s.margin);
   const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
@@ -727,8 +779,7 @@ export function ChartScreen() {
       },
       localization: {
         timeFormatter: (timestamp: number) => {
-          const d = new Date(timestamp * 1000);
-          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+          return formatChartTickLabel(timestamp, true);
         },
       },
       timeScale: {
@@ -736,8 +787,7 @@ export function ChartScreen() {
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number) => {
-          const d = new Date(time * 1000);
-          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+          return formatChartTickLabel(time, true);
         },
         rightOffset: 12,
         barSpacing: 13,
@@ -944,9 +994,7 @@ export function ChartScreen() {
 
       if (shouldReloadSeries) {
         try {
-          const sanitized = candles.filter((c) => isStructurallyValidCandle(c));
-          const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
-          uniqueData.sort((a, b) => a.time - b.time);
+          const uniqueData = candles;
 
           let mappedData;
           if (chartType === 'line') {
@@ -1070,15 +1118,8 @@ export function ChartScreen() {
 
   // Canonical Candle Stream Sync
   useEffect(() => {
-    const getRenderableCandles = (sourceCandles: typeof candlesRef.current) => {
-      const sanitized = sourceCandles.filter((c) => isStructurallyValidCandle(c));
-      const uniqueData = Array.from(new Map(sanitized.map((item) => [item.time, item])).values());
-      uniqueData.sort((a, b) => a.time - b.time);
-      return uniqueData;
-    };
-
     const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
-      const uniqueData = getRenderableCandles(sourceCandles);
+      const uniqueData = sourceCandles;
 
       if (chartType === 'line') {
         return uniqueData.map((item) => ({
@@ -1104,7 +1145,7 @@ export function ChartScreen() {
     const syncSeriesFromCandles = (sourceCandles: typeof candlesRef.current = candlesRef.current) => {
       if (!seriesRef.current) return;
 
-      const uniqueData = getRenderableCandles(sourceCandles);
+      const uniqueData = sourceCandles;
       const mappedData = buildMappedData(sourceCandles);
       seriesRef.current.setData(mappedData as any);
 
@@ -1191,7 +1232,11 @@ export function ChartScreen() {
           {/* Row 2: Symbol | Price | Balance */}
           <View style={styles.compactHeader}>
             {/* Left: Symbol Info */}
-            <Pressable style={styles.symbolSection} onPress={() => setSymbolPickerOpen(true)}>
+            <Pressable
+              style={styles.symbolSection}
+              onPressIn={() => traceUiInteraction('chart.web.symbolPicker.open', () => setSymbolPickerOpen(true))}
+              unstable_pressDelay={0}
+            >
               <View>
                 <View style={styles.symbolNameRow}>
                   <Text style={[styles.symbolText, { opacity: 0.9 }]}>{displaySymbol}</Text>
@@ -1221,10 +1266,10 @@ export function ChartScreen() {
               <View style={styles.toolbarButtonRow}>
                 {/* 1: Symbol & Add */}
                 <View style={styles.toolbarLeadingGroup}>
-                  <Pressable style={styles.toolbarSymbolButton} onPress={() => setSymbolPickerOpen(true)} hitSlop={8}>
+                  <Pressable style={styles.toolbarSymbolButton} onPressIn={() => traceUiInteraction('chart.web.symbolPicker.open', () => setSymbolPickerOpen(true))} hitSlop={8} unstable_pressDelay={0}>
                     <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                   </Pressable>
-                  <Pressable style={styles.toolbarIconButton} onPress={() => setSymbolPickerOpen(true)}>
+                  <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.symbolPicker.add', () => setSymbolPickerOpen(true))} unstable_pressDelay={0}>
                     <Ionicons name="add-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                   </Pressable>
                 </View>
@@ -1232,14 +1277,14 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 3: Timeframe */}
-                <Pressable style={styles.toolbarTimeframeButton} onPress={() => setTfOpen(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarTimeframeButton} onPressIn={() => traceUiInteraction('chart.web.timeframePicker.open', () => setTfOpen(true))} hitSlop={8} unstable_pressDelay={0}>
                   <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 4: Candles Type */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => setShowChartTypeMenu(true)}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.chartType.open', () => setShowChartTypeMenu(true))} unstable_pressDelay={0}>
                   <TvCandles color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
@@ -1248,35 +1293,36 @@ export function ChartScreen() {
                 {/* 5: FX / Indicators */}
                 <Pressable
                   style={styles.toolbarIconButton}
-                  onPress={() => router.push('/chart/objects')}
+                  onPressIn={() => traceUiInteraction('chart.web.objects.open', () => router.push('/chart/objects'))}
+                  unstable_pressDelay={0}
                 >
                   <TvLayers color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
                 <View style={styles.toolbarSeparator} />
 
                 {/* 6: Grid/Templates */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => setShowTemplatesMenu(true)}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.templates.open', () => setShowTemplatesMenu(true))} unstable_pressDelay={0}>
                   <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 7: Chart Preferences */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => router.push('/chart/settings')} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.settings.open', () => router.push('/chart/settings'))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name="options-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 8: Expand */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => setIsChartExpanded(!isChartExpanded)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.expand.toggle', () => setIsChartExpanded(!isChartExpanded))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 9: More */}
-                <Pressable style={styles.toolbarIconButton} onPress={() => setShowMoreMenu(true)} hitSlop={8}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.moreMenu.open', () => setShowMoreMenu(true))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name="ellipsis-vertical" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
               </View>

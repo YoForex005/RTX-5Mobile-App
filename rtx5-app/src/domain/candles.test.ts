@@ -11,6 +11,7 @@ import {
   hasExcessiveLivePriceGap,
   mergeRecentHistoryIntoCandles,
   mergeCandleUpdate,
+  materializeCanonicalHistoryAndLiveCandles,
   materializeHistoryAndLiveCandles,
   normalizeCandle,
   normalizeSymbol,
@@ -241,6 +242,79 @@ test('materializeHistoryAndLiveCandles keeps monthly history attached after a sh
   assert.deepEqual(materialized.map((candle) => candle.time), [
     februaryMonthlyOpenTime,
     marchMonthlyOpenTime,
+  ]);
+});
+
+test('materializeCanonicalHistoryAndLiveCandles keeps daily history attached across weekend rollover', () => {
+  const fridayDailyOpenTime = Date.UTC(2026, 3, 17, 21, 0, 0) / 1000;
+  const mondayDailyOpenTime = Date.UTC(2026, 3, 20, 21, 0, 0) / 1000;
+
+  const materialized = materializeCanonicalHistoryAndLiveCandles(
+    [
+      {
+        time: fridayDailyOpenTime,
+        open: 1.1,
+        high: 1.2,
+        low: 1.05,
+        close: 1.15,
+        volume: 100,
+      },
+    ],
+    [
+      {
+        time: mondayDailyOpenTime,
+        open: 1.15,
+        high: 1.22,
+        low: 1.12,
+        close: 1.2,
+        volume: 10,
+      },
+    ],
+    'D1',
+  );
+
+  assert.deepEqual(materialized.map((candle) => candle.time), [
+    fridayDailyOpenTime,
+    mondayDailyOpenTime,
+  ]);
+});
+
+test('materializeCanonicalHistoryAndLiveCandles drops stale history when the live stream is detached', () => {
+  const materialized = materializeCanonicalHistoryAndLiveCandles(
+    [
+      { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+      { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+    ],
+    [
+      { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+      { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(materialized, [
+    { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+    { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+  ]);
+});
+
+test('materializeCanonicalHistoryAndLiveCandles lets the live bucket override overlapping history', () => {
+  const materialized = materializeCanonicalHistoryAndLiveCandles(
+    [
+      { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
+      { time: 120, open: 1.13, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+    ],
+    [
+      { time: 120, open: 1.12, high: 1.21, low: 1.09, close: 1.2, volume: 18 },
+      { time: 180, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(materialized, [
+    { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
+    { time: 120, open: 1.12, high: 1.21, low: 1.09, close: 1.2, volume: 18 },
+    { time: 180, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
   ]);
 });
 

@@ -7,7 +7,16 @@ import { getAccountSummary, AccountSummary } from '../api/account';
 
 export const ACCOUNT_SUMMARY_KEY = 'accountSummary';
 
-export function useAccountSummary(login?: string) {
+type PollingQueryOptions = {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+};
+
+export function useAccountSummary(
+  login?: string,
+  options: PollingQueryOptions = {},
+) {
+  const enabled = !!login && (options.enabled ?? true);
   return useQuery<AccountSummary, Error>({
     queryKey: [ACCOUNT_SUMMARY_KEY, login],
     queryFn: async () => {
@@ -16,8 +25,8 @@ export function useAccountSummary(login?: string) {
       }
       return getAccountSummary(login);
     },
-    enabled: !!login,
-    refetchInterval: 5000, // Live poll every 5 seconds for real-time MT5 stats
+    enabled,
+    refetchInterval: enabled ? (options.refetchInterval ?? 5000) : false, // Live poll every 5 seconds for real-time MT5 stats
     staleTime: 2000,
   });
 }

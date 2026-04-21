@@ -13,6 +13,7 @@ import { Screen } from '../../components/Screen';
 import { useTheme } from '../../theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../theme/glass';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import type { ChartColorsConfig } from '../../state/userPreferences';
 
 type ColorRow = { label: string; keyId: keyof ChartColorsConfig };
@@ -114,7 +115,13 @@ export function ChartColorsScreen() {
     
       
       
-      <Modal transparent visible={!!activeKey} animationType="slide" onRequestClose={() => setActiveKey(null)}>
+      <Modal
+        transparent
+        visible={!!activeKey}
+        animationType="slide"
+        {...OVERLAY_MODAL_PROPS}
+        onRequestClose={() => setActiveKey(null)}
+      >
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setActiveKey(null)}>
           <Pressable style={{ backgroundColor: isDark ? '#1E293B' : '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 48 }} onPress={(e) => e.stopPropagation()}>
             <Text style={{ fontSize: 16, fontWeight: '600', color: isDark ? '#FFFFFF' : '#000000', marginBottom: 16, textAlign: 'center' }}>Select Color</Text>
@@ -249,4 +256,3 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-

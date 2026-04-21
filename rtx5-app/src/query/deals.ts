@@ -13,6 +13,17 @@ import { dealsApi } from '../api/deals';
 import { resolveEffectiveHistoryDateRange } from '../features/history/historyDateRange';
 import { useUserPreferences } from '../state/userPreferences';
 
+type PollingQueryOptions = {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+};
+
+const resolvePollingRefetchInterval = (
+  enabled: boolean,
+  fallbackMs: number,
+  override?: number | false,
+) => (enabled ? (override ?? fallbackMs) : false);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query hook for account deal history (JWT-resolved, date-range aware).
 // Used by the History screen's "Deals" tab — respects the date range the user
@@ -26,7 +37,7 @@ import { useUserPreferences } from '../state/userPreferences';
  *
  * Polls every 10 seconds (deals change less often than live positions).
  */
-export function useAccountDealsQuery() {
+export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
   const historyRange = useUserPreferences((s) => s.historyRange);
   const historyFromMs = useUserPreferences((s) => s.historyFromMs);
   const historyToMs = useUserPreferences((s) => s.historyToMs);
@@ -36,10 +47,13 @@ export function useAccountDealsQuery() {
   const from = fromMs != null ? Math.floor(fromMs / 1000) : undefined;
   const to = toMs != null ? Math.floor(toMs / 1000) : undefined;
 
+  const enabled = options.enabled ?? true;
+
   return useQuery({
     queryKey: ['accountDeals', from, to],
     queryFn: () => dealsApi.getAccountDeals(500, 0, from, to),
-    refetchInterval: 10_000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
   });
 }
 
@@ -54,11 +68,15 @@ export function useAccountDealsQuery() {
  *
  * @param login - MT5 account login number (pass undefined to disable the query)
  */
-export function useDealsQuery(login: number | undefined) {
+export function useDealsQuery(
+  login: number | undefined,
+  options: PollingQueryOptions = {},
+) {
+  const enabled = !!login && (options.enabled ?? true);
   return useQuery({
     queryKey: ['deals', login],
     queryFn: () => dealsApi.getDeals(login!),
-    enabled: !!login,
-    refetchInterval: 5000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
   });
 }

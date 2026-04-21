@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
 import { useTheme } from '../theme/useTheme';
 import { useUserPreferences } from '../state/userPreferences';
 import { useUIState } from '../state/uiState';
@@ -91,7 +92,11 @@ export function AppHeader({
       ]}
     >
       {/* Hamburger menu button — in the same flex row as title */}
-      <Pressable style={styles.leftGutter} onPress={() => setSidebarOpen(true)}>
+      <Pressable
+        style={styles.leftGutter}
+        onPress={() => traceUiInteraction('header.openSidebar', () => setSidebarOpen(true))}
+        unstable_pressDelay={0}
+      >
         <Ionicons name="menu" size={28} color={T.text} />
       </Pressable>
 

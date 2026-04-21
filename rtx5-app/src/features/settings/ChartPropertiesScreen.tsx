@@ -28,6 +28,7 @@ import {
 } from '../../state/userPreferences';
 import { ThemeColors } from '../../theme/glass';
 import { useTheme } from '../../theme/useTheme';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { LiveChartPreview } from '../chart/preview';
 
 type SettingsTab = 'show' | 'colors';
@@ -444,7 +445,13 @@ export function ChartPropertiesScreen() {
         </View>
       </ScrollView>
 
-      <Modal transparent visible={schemeModalOpen} animationType="fade" onRequestClose={() => setSchemeModalOpen(false)}>
+      <Modal
+        transparent
+        visible={schemeModalOpen}
+        animationType="fade"
+        {...OVERLAY_MODAL_PROPS}
+        onRequestClose={() => setSchemeModalOpen(false)}
+      >
         <Pressable style={styles.modalBackdrop} onPress={() => setSchemeModalOpen(false)}>
           <View style={styles.modalCard}>
             {SCHEME_OPTIONS.map((option) => (
@@ -464,7 +471,13 @@ export function ChartPropertiesScreen() {
         </Pressable>
       </Modal>
 
-      <Modal transparent visible={activeColorKey !== null} animationType="slide" onRequestClose={() => applyDraftColor(draftColor)}>
+      <Modal
+        transparent
+        visible={activeColorKey !== null}
+        animationType="slide"
+        {...OVERLAY_MODAL_PROPS}
+        onRequestClose={() => applyDraftColor(draftColor)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <Pressable style={styles.modalBackdropBottom} onPress={() => applyDraftColor(draftColor)}>
             <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>

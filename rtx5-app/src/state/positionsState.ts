@@ -23,6 +23,7 @@ type PositionsState = {
   positionSnapshots: Record<string, PositionItem>;
   isLoading: boolean;
   lastFetchLogin: string | null;
+  hydratedLogin: string | null;
   lastError: TradingErrorFeedback | null;
   setPositions: (positions: PositionItem[]) => void;
   clearPositions: () => void;
@@ -39,9 +40,18 @@ export const usePositionsState = create<PositionsState>((set) => ({
   positionSnapshots: {},
   isLoading: false,
   lastFetchLogin: null,
+  hydratedLogin: null,
   lastError: null,
   setPositions: (positions) => set({ positions }),
-  clearPositions: () => set({ positions: [], positionSnapshots: {}, isLoading: false, lastError: null, lastFetchLogin: null }),
+  clearPositions: () =>
+    set({
+      positions: [],
+      positionSnapshots: {},
+      isLoading: false,
+      lastError: null,
+      lastFetchLogin: null,
+      hydratedLogin: null,
+    }),
   primePositionSnapshot: (position) =>
     set((state) => ({
       positionSnapshots: {
@@ -70,6 +80,7 @@ export const usePositionsState = create<PositionsState>((set) => ({
     set((state) => ({
       positions: buildMergedPositions(state.positions, Array.isArray(dtos) ? dtos : []),
       lastFetchLogin: accountLogin ?? state.lastFetchLogin,
+      hydratedLogin: accountLogin ?? state.hydratedLogin,
       lastError: null,
     })),
 
@@ -121,6 +132,9 @@ export const usePositionsState = create<PositionsState>((set) => ({
         positionSnapshots: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
           ? {}
           : state.positionSnapshots,
+        hydratedLogin: shouldClearPositionsForLoginSwitch(state.lastFetchLogin, accountLogin)
+          ? null
+          : state.hydratedLogin,
       }));
 
     try {
@@ -178,6 +192,7 @@ export const usePositionsState = create<PositionsState>((set) => ({
         return {
           positions: buildMergedPositions(state.positions, positionsArray),
           isLoading: false,
+          hydratedLogin: accountLogin,
           lastError: null,
         };
       });

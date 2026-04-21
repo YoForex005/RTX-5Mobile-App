@@ -21,7 +21,7 @@ import {
   alignTimeToBucket,
   alignTimeToBucketWithReference,
   getExpectedNextCandleTime,
-  materializeHistoryAndLiveCandles,
+  materializeCanonicalHistoryAndLiveCandles,
   mergeCandleUpdate,
   normalizeSymbol,
   normalizeTimeframe,
@@ -31,6 +31,12 @@ import {
 } from '../../domain/candles';
 import { useTradingState, type Candle } from '../../state/tradingState';
 import { syncMergedCandleCache } from '../../state/candleCache';
+import {
+  resolveVisibleSeriesMode,
+  shouldAdoptCachedSeries,
+  shouldKeepBootstrappingOnHistoryFailure,
+  shouldRenderBootstrapPreview,
+} from './liveCandlesEnginePolicy';
 
 export type CandleParams = Candle & {
   bid?: number;
@@ -69,9 +75,9 @@ type EngineEntry = {
 
 const QUOTE_BATCH_INTERVAL_MS = 16;
 const MAX_PENDING_QUOTES = 256;
-const ENTRY_RETENTION_MS = 60_000;
 const GAP_RESYNC_THROTTLE_MS = 4_000;
 const POST_ROLLOVER_HEAL_DELAY_MS = 350;
+const BOOTSTRAP_RETRY_DELAY_MS = 1_250;
 const RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS = 2;
 
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
@@ -181,6 +187,55 @@ class LiveCandlesEngine {
     this.requestHistoryRefresh(entry, 'manual_refresh', this.estimateHistoryAnchor(entry), 0);
   }
 
+  public hydrateFromCache(symbol: string, timeframe: string, candles: CandleParams[]): void {
+    const sym = normalizeSymbol(symbol);
+    const tf = normalizeTimeframe(timeframe);
+    if (!sym || !tf || candles.length === 0) return;
+
+    const entry = this.entries.get(entryKey(sym, tf));
+    if (!entry) return;
+
+    const cachedSeries = asCandleParams(sortAndDedupeCandles(candles)).slice(-MAX_CANDLE_SERIES_LENGTH);
+    if (cachedSeries.length === 0 || areSeriesEqual(entry.candles, cachedSeries)) {
+      return;
+    }
+
+    if (!shouldAdoptCachedSeries(entry.status, entry.historyCandles.length, entry.candles, cachedSeries)) {
+      return;
+    }
+
+    entry.historyCandles = cachedSeries.slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
+    entry.liveCandles = asCandleParams(
+      pruneLiveCandlesCoveredByHistory(entry.historyCandles, entry.liveCandles),
+    );
+
+    if (entry.status !== 'ready') {
+      if (entry.flushTimeout) {
+        clearTimeout(entry.flushTimeout);
+        entry.flushTimeout = null;
+      }
+
+      const queuedQuotes = clampPendingQuotes([...entry.queuedQuotes, ...entry.pendingQuotes]);
+      entry.queuedQuotes = [];
+      entry.pendingQuotes = [];
+      entry.status = 'ready';
+
+      if (queuedQuotes.length > 0) {
+        const outcome = this.applyQuoteBatch(entry, queuedQuotes);
+        this.commitVisibleCandles(entry);
+
+        if (outcome.detachedHistory) {
+          this.requestGapRefresh(entry, 'cache_seed_detached_live_stream', outcome.anchorTime);
+        } else if (outcome.bucketRolledOver) {
+          this.schedulePostRolloverHeal(entry, outcome.anchorTime);
+        }
+        return;
+      }
+    }
+
+    this.commitVisibleCandles(entry);
+  }
+
   private ensureEntry(symbol: string, timeframe: string): EngineEntry {
     const key = entryKey(symbol, timeframe);
     const existing = this.entries.get(key);
@@ -230,13 +285,11 @@ class LiveCandlesEngine {
     entry.listeners.delete(listener);
     entry.consumers = Math.max(0, entry.consumers - 1);
 
-    if (entry.consumers === 0 && !entry.releaseTimer) {
-      entry.releaseTimer = setTimeout(() => {
-        entry.releaseTimer = null;
-        if ((entry.consumers ?? 0) === 0) {
-          this.disposeEntry(key);
-        }
-      }, ENTRY_RETENTION_MS);
+    if (entry.consumers === 0) {
+      // Hidden chart routes should stop all live quote/candle work immediately.
+      // Keeping engine entries alive after unmount leaves websocket-driven merge
+      // work running in the background and eventually blocks taps/navigation.
+      this.disposeEntry(key);
     }
   }
 
@@ -299,11 +352,14 @@ class LiveCandlesEngine {
       if (entry.status !== 'ready') {
         if (entry.status === 'bootstrapping') {
           // Keep every bootstrap quote for later replay once REST history
-          // arrives, but also render a provisional live candle immediately so
-          // cold chart startup does not wait behind the history request.
+          // arrives. Only render during bootstrap if we already have seeded
+          // history; otherwise exposing a provisional live-only segment causes
+          // the detached history/live split the chart is trying to avoid.
           entry.queuedQuotes = clampPendingQuotes([...entry.queuedQuotes, pending]);
-          entry.pendingQuotes = clampPendingQuotes([...entry.pendingQuotes, pending]);
-          this.scheduleFlush(entry);
+          if (shouldRenderBootstrapPreview(entry.historyCandles.length, entry.candles.length)) {
+            entry.pendingQuotes = clampPendingQuotes([...entry.pendingQuotes, pending]);
+            this.scheduleFlush(entry);
+          }
           continue;
         }
 
@@ -506,10 +562,29 @@ class LiveCandlesEngine {
   }
 
   private commitVisibleCandles(entry: EngineEntry): void {
-    const nextVisible = asCandleParams(
-      materializeHistoryAndLiveCandles(entry.historyCandles, entry.liveCandles, entry.timeframe),
+    const visibleSeriesMode = resolveVisibleSeriesMode(
+      entry.historyCandles,
+      entry.liveCandles,
+      entry.candles,
+      entry.timeframe,
     );
-    const cacheChanged = syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible);
+    const nextVisible =
+      visibleSeriesMode === 'merged'
+        ? asCandleParams(
+            materializeCanonicalHistoryAndLiveCandles(entry.historyCandles, entry.liveCandles, entry.timeframe),
+          )
+        : visibleSeriesMode === 'history'
+          ? entry.historyCandles.slice(-MAX_CANDLE_SERIES_LENGTH)
+          : visibleSeriesMode === 'current'
+            ? (
+                entry.historyCandles.length === 0 && entry.liveCandles.length > 0
+                  ? entry.liveCandles
+                  : entry.candles
+              ).slice(-MAX_CANDLE_SERIES_LENGTH)
+            : [];
+    const cacheChanged = syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible, {
+      canonical: true,
+    });
 
     if (areSeriesEqual(entry.candles, nextVisible)) {
       if (cacheChanged) {
@@ -613,6 +688,24 @@ class LiveCandlesEngine {
     );
   }
 
+  private scheduleBootstrapRetry(entry: EngineEntry, delayMs: number = BOOTSTRAP_RETRY_DELAY_MS): void {
+    if (!this.entries.has(entry.key)) return;
+    if (entry.healTimer) {
+      clearTimeout(entry.healTimer);
+    }
+
+    entry.healTimer = setTimeout(() => {
+      entry.healTimer = null;
+      if (!this.entries.has(entry.key)) return;
+
+      this.loadHistory(entry, {
+        reason: 'bootstrap_retry',
+        bootstrap: true,
+        anchorTo: this.estimateHistoryAnchor(entry),
+      });
+    }, delayMs);
+  }
+
   private loadHistory(
     entry: EngineEntry,
     options: { reason: string; bootstrap: boolean; anchorTo?: number },
@@ -675,12 +768,16 @@ class LiveCandlesEngine {
           error instanceof Error ? error.message : String(error),
         );
 
-        if (options.bootstrap) {
-          live.status = 'ready';
-          live.queuedQuotes = [];
-        } else {
-          live.status = 'ready';
+        if (
+          options.bootstrap &&
+          shouldKeepBootstrappingOnHistoryFailure(live.historyCandles.length, live.candles.length)
+        ) {
+          live.status = 'bootstrapping';
+          this.scheduleBootstrapRetry(live);
+          return;
         }
+
+        live.status = 'ready';
       })
       .finally(() => {
         const live = this.entries.get(tracked.key);

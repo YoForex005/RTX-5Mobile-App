@@ -629,6 +629,76 @@ export const materializeHistoryAndLiveCandles = (
   return sortAndDedupeCandles([...normalizedHistory, ...normalizedLive]).slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
+/**
+ * Fast-path materializer for callers that already maintain both inputs as
+ * individually sorted + de-duplicated candle arrays.
+ *
+ * This preserves the same visible-series semantics as
+ * `materializeHistoryAndLiveCandles` but avoids re-sorting the entire merged
+ * history window on every live tick. Live candles override history buckets
+ * with the same timestamp, which is exactly what the chart needs once the live
+ * overlay starts mutating the active bar.
+ */
+export const materializeCanonicalHistoryAndLiveCandles = (
+  historyCandles: Candle[],
+  liveCandles: Candle[],
+  timeframe: string,
+): Candle[] => {
+  if (historyCandles.length === 0) {
+    return liveCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  if (liveCandles.length === 0) {
+    return historyCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  const historyLastTime = historyCandles[historyCandles.length - 1].time;
+  const firstLiveTime = liveCandles[0].time;
+
+  if (getBucketGapCount(historyLastTime, firstLiveTime, timeframe) > 1) {
+    return liveCandles.slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  const merged: Candle[] = [];
+  let historyIndex = 0;
+  let liveIndex = 0;
+
+  while (historyIndex < historyCandles.length && liveIndex < liveCandles.length) {
+    const history = historyCandles[historyIndex];
+    const live = liveCandles[liveIndex];
+
+    if (history.time < live.time) {
+      merged.push(history);
+      historyIndex += 1;
+      continue;
+    }
+
+    if (history.time > live.time) {
+      merged.push(live);
+      liveIndex += 1;
+      continue;
+    }
+
+    // Live overlay wins for the same bucket because it carries the freshest
+    // close/wick shape for the active candle.
+    merged.push(live);
+    historyIndex += 1;
+    liveIndex += 1;
+  }
+
+  while (historyIndex < historyCandles.length) {
+    merged.push(historyCandles[historyIndex]);
+    historyIndex += 1;
+  }
+
+  while (liveIndex < liveCandles.length) {
+    merged.push(liveCandles[liveIndex]);
+    liveIndex += 1;
+  }
+
+  return merged.slice(-MAX_CANDLE_SERIES_LENGTH);
+};
+
 // ─── Live tick application ──────────────────────────────────────────────────
 
 type ApplyLivePriceOptions = {

@@ -12,6 +12,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ordersApi, PlaceOrderPayload } from '../api/orders';
 
+type PollingQueryOptions = {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+};
+
+const resolvePollingRefetchInterval = (
+  enabled: boolean,
+  fallbackMs: number,
+  override?: number | false,
+) => (enabled ? (override ?? fallbackMs) : false);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query hook for login-based order history.
 // Uses GET /api/v2/orders/{login} — returns orders for a specific MT5 account.
@@ -25,12 +36,16 @@ import { ordersApi, PlaceOrderPayload } from '../api/orders';
  *
  * @param login - MT5 account login number (pass undefined to disable the query)
  */
-export function useOrdersByLoginQuery(login: number | undefined) {
+export function useOrdersByLoginQuery(
+  login: number | undefined,
+  options: PollingQueryOptions = {},
+) {
+  const enabled = !!login && (options.enabled ?? true);
   return useQuery({
     queryKey: ['ordersByLogin', login],
     queryFn: () => ordersApi.getOrdersByLogin(login!),
-    enabled: !!login,
-    refetchInterval: 10_000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
   });
 }
 
@@ -45,11 +60,13 @@ export function useOrdersByLoginQuery(login: number | undefined) {
  *
  * Polls every 10 seconds (orders change less frequently than positions/deals).
  */
-export function useAccountOrdersQuery() {
+export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useQuery({
     queryKey: ['accountOrders'],
     queryFn: () => ordersApi.getAccountOrders(),
-    refetchInterval: 10_000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
   });
 }
 import { usePositionsState } from '../state/positionsState';

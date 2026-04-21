@@ -9,8 +9,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
 import { useTheme, ThemeColors } from '../theme/useTheme';
 import { useUserPreferences } from '../state/userPreferences';
+import { OVERLAY_MODAL_PROPS } from '../ui/overlayModalProps';
 
 type ActionSheetProps = {
   visible: boolean;
@@ -21,6 +23,7 @@ type ActionSheetProps = {
 };
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const ACTION_SHEET_DISMISS_SETTLE_MS = 110;
 
 export function ActionSheet({ visible, title, actions, onClose, searchable }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
@@ -32,10 +35,15 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
+  const pendingActionRef = useRef<(() => void) | null>(null);
+  const pendingActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topInset = Math.max(insets.top, 12);
   const bottomInset = Math.max(insets.bottom, 12);
-  const maxVisibleHeight = Math.max(260, SCREEN_HEIGHT - topInset - Math.max(0, keyboardHeight) - 12);
+  const maxVisibleHeight = Math.max(
+    260,
+    SCREEN_HEIGHT - topInset - bottomInset - Math.max(0, keyboardHeight) - 12,
+  );
   const sheetMaxHeight = Math.min(SCREEN_HEIGHT * 0.7, maxVisibleHeight);
   const reservedChromeHeight =
     (title ? 58 : 28) +
@@ -46,6 +54,16 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
   useEffect(() => {
     if (visible) setQuery('');
   }, [visible]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingActionTimerRef.current) {
+        clearTimeout(pendingActionTimerRef.current);
+        pendingActionTimerRef.current = null;
+      }
+      pendingActionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -76,27 +94,45 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
 
     overlayOpacity.setValue(0);
     sheetTranslateY.setValue(28);
-    Animated.parallel([
+      Animated.parallel([
       Animated.timing(overlayOpacity, {
         toValue: 1,
-        duration: 110,
+        duration: 80,
         useNativeDriver: true,
       }),
       Animated.timing(sheetTranslateY, {
         toValue: 0,
-        duration: 140,
+        duration: 95,
         useNativeDriver: true,
       }),
     ]).start();
   }, [overlayOpacity, sheetTranslateY, visible]);
+
+  useEffect(() => {
+    if (visible || !pendingActionRef.current) {
+      return;
+    }
+
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+
+    pendingActionTimerRef.current = setTimeout(() => {
+      pendingActionTimerRef.current = null;
+      action?.();
+    }, ACTION_SHEET_DISMISS_SETTLE_MS);
+  }, [visible]);
 
   const filteredActions = searchable && query.trim()
     ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
     : actions;
 
   const handleActionPress = useCallback((actionPress?: () => void) => {
+    if (pendingActionTimerRef.current) {
+      clearTimeout(pendingActionTimerRef.current);
+      pendingActionTimerRef.current = null;
+    }
+    pendingActionRef.current = actionPress ?? null;
     onClose();
-    actionPress?.();
   }, [onClose]);
 
   return (
@@ -104,18 +140,20 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
       visible={visible}
       transparent
       animationType="none"
-      hardwareAccelerated
-      statusBarTranslucent
+      {...OVERLAY_MODAL_PROPS}
       onRequestClose={onClose}
     >
       <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={onClose}
+          unstable_pressDelay={0}
+        />
 
         <Animated.View
           style={[
             styles.sheetContainer,
             {
-              paddingTop: topInset,
               paddingBottom: bottomInset,
               transform: [{ translateY: sheetTranslateY }],
             },
@@ -164,7 +202,10 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
               {filteredActions.map((action, index) => (
                 <Pressable
                   key={action.label}
-                  onPress={() => handleActionPress(action.onPress)}
+                  onPress={() =>
+                    traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
+                  }
+                  unstable_pressDelay={0}
                   style={({ pressed }) => [
                     styles.action,
                     index < filteredActions.length - 1 && styles.actionDivider,
@@ -186,6 +227,7 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
             <Pressable
               style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
               onPress={onClose}
+              unstable_pressDelay={0}
             >
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>

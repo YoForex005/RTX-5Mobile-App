@@ -9,7 +9,7 @@ import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { useTradingState, Candle } from '../state/tradingState';
 import { mergeHistoryIntoCandleCache } from '../state/candleCache';
-import { quotes as mockQuotes } from '../mock/tradingData';
+import { quotes as mockQuotes, type QuoteItem } from '../mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
@@ -45,9 +45,10 @@ export function useWebSocketConnection() {
  * when the specific symbols it cares about update.
  */
 export function useMarketData(symbols: string[] = []) {
+  const symbolsKey = JSON.stringify(symbols);
   const normalizedSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))),
-    [JSON.stringify(symbols)],
+    [symbolsKey],
   );
 
   // Selector that picks ONLY the quotes this component cares about.
@@ -78,7 +79,7 @@ export function useMarketData(symbols: string[] = []) {
     return () => {
       quotesWsService.unsubscribe(normalizedSymbols);
     };
-  }, [JSON.stringify(normalizedSymbols)]);
+  }, [stableKey]);
 
   if (symbols.length === 0) return liveQuotes;
   return symbols.reduce((acc, sym) => {
@@ -90,6 +91,54 @@ export function useMarketData(symbols: string[] = []) {
     }
     return acc;
   }, {} as Record<string, any>);
+}
+
+function resolveMergedQuoteSnapshot(
+  requestedSymbol: string,
+  liveQuote?: Partial<QuoteItem>,
+): Partial<QuoteItem> | undefined {
+  const normalizedSymbol = normalizeSymbol(requestedSymbol);
+  if (!normalizedSymbol) {
+    return undefined;
+  }
+
+  const mock = mockQuotes.find((entry) => normalizeSymbol(entry.symbol) === normalizedSymbol);
+  if (!mock && !liveQuote) {
+    return undefined;
+  }
+
+  return {
+    ...(mock || {}),
+    ...(liveQuote || {}),
+    symbol: normalizedSymbol,
+  };
+}
+
+export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefined {
+  const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
+  const selector = React.useCallback(
+    (state: any) => (normalizedSymbol ? state.quotes[normalizedSymbol] : undefined),
+    [normalizedSymbol],
+  );
+  const liveQuote = useTradingState(selector);
+
+  useEffect(() => {
+    if (!normalizedSymbol) {
+      return;
+    }
+
+    quotesWsService.connect();
+    quotesWsService.subscribe([normalizedSymbol]);
+
+    return () => {
+      quotesWsService.unsubscribe([normalizedSymbol]);
+    };
+  }, [normalizedSymbol]);
+
+  return React.useMemo(
+    () => resolveMergedQuoteSnapshot(symbol, liveQuote),
+    [liveQuote, symbol],
+  );
 }
 
 /**

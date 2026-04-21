@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { ThemeColors } from '../theme/glass';
+import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../state/userPreferences';
 import { useUIState } from '../state/uiState';
 import { useTheme } from '../theme/useTheme';
@@ -76,12 +77,12 @@ export function SidebarDrawer() {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 120,
+          duration: 85,
           useNativeDriver: true,
         }),
         Animated.timing(overlayAnim, {
           toValue: 1,
-          duration: 120,
+          duration: 85,
           useNativeDriver: true,
         }),
       ]).start();
@@ -110,12 +111,12 @@ export function SidebarDrawer() {
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 110,
+        duration: 85,
         useNativeDriver: true,
       }),
       Animated.timing(overlayAnim, {
         toValue: 0,
-        duration: 110,
+        duration: 85,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -136,7 +137,11 @@ export function SidebarDrawer() {
             { opacity: overlayAnim },
           ]}
         >
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => handleClose()} />
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => traceUiInteraction('sidebar.closeOverlay', () => handleClose())}
+            unstable_pressDelay={0}
+          />
         </Animated.View>
 
         {/* Drawer */}
@@ -159,7 +164,13 @@ export function SidebarDrawer() {
                   {brokerConfig?.broker_name ? (
                     <Text style={[ds.accountDetails, { marginTop: 0, marginBottom: 4 }]} numberOfLines={1}>{brokerConfig.broker_name}</Text>
                   ) : null}
-                  <Pressable style={ds.manageBtn} onPress={() => handleClose(() => router.push('/settings/accounts'))}>
+                  <Pressable
+                    style={ds.manageBtn}
+                    onPress={() =>
+                      traceUiInteraction('sidebar.manageAccounts', () => handleClose(() => router.push('/settings/accounts')))
+                    }
+                    unstable_pressDelay={0}
+                  >
                     <Text style={ds.manageText}>Manage accounts</Text>
                   </Pressable>
                 </View>
@@ -168,13 +179,20 @@ export function SidebarDrawer() {
                   <Text style={ds.loginText}>Login to existing account or open demo account</Text>
                   <Pressable
                     style={ds.getStartedBtn}
-                    onPress={() => handleClose(() => router.push('/login'))}
+                    onPress={() =>
+                      traceUiInteraction('sidebar.getStarted', () => handleClose(() => router.push('/login')))
+                    }
+                    unstable_pressDelay={0}
                   >
                     <Text style={ds.getStartedText}>Get started</Text>
                   </Pressable>
                 </View>
               )}
-              <Pressable style={ds.closeBtn} onPress={() => handleClose()}>
+              <Pressable
+                style={ds.closeBtn}
+                onPress={() => traceUiInteraction('sidebar.closeButton', () => handleClose())}
+                unstable_pressDelay={0}
+              >
                 <Ionicons name="close" size={20} color={T.text} />
               </Pressable>
             </View>
@@ -186,14 +204,16 @@ export function SidebarDrawer() {
             <View style={ds.themePill}>
               <Pressable
                 style={!isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => setThemeMode('light')}
+                onPress={() => traceUiInteraction('sidebar.themeLight', () => setThemeMode('light'))}
+                unstable_pressDelay={0}
               >
                 <Ionicons name="sunny-outline" size={13} color={!isDark ? T.text : T.textMuted} />
                 <Text style={!isDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Light</Text>
               </Pressable>
               <Pressable
                 style={isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => setThemeMode('dark')}
+                onPress={() => traceUiInteraction('sidebar.themeDark', () => setThemeMode('dark'))}
+                unstable_pressDelay={0}
               >
                 <Ionicons name="moon-outline" size={13} color={isDark ? T.text : T.textMuted} />
                 <Text style={isDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Dark</Text>
@@ -217,7 +237,10 @@ export function SidebarDrawer() {
                   ds.menuItem,
                   pressed && ds.menuItemPressed,
                 ]}
-                onPress={() => handleClose(item.onPress)}
+                onPress={() =>
+                  traceUiInteraction(`sidebar.menu.${item.label}`, () => handleClose(item.onPress))
+                }
+                unstable_pressDelay={0}
               >
                 <Ionicons
                   name={item.icon}

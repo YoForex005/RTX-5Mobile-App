@@ -31,6 +31,7 @@ import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountRibbonLabel,
@@ -137,18 +138,33 @@ export function AccountsScreen() {
     <Screen>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable style={styles.iconBtn} hitSlop={15} onPress={() => router.back()}>
+          <Pressable style={styles.iconBtn} hitSlop={15} onPress={() => router.back()} unstable_pressDelay={0}>
             <Ionicons name="arrow-back" size={28} color={T.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Accounts</Text>
           <View style={styles.headerRight}>
-            <Pressable style={styles.iconBtn} hitSlop={10} onPress={() => Alert.alert('Certification', 'Certification info will be displayed here.')}>
+            <Pressable
+              style={styles.iconBtn}
+              hitSlop={10}
+              onPress={() => traceUiInteraction('accounts.certification.open', () => Alert.alert('Certification', 'Certification info will be displayed here.'))}
+              unstable_pressDelay={0}
+            >
               <Ionicons name="ribbon-outline" size={24} color={T.text} />
             </Pressable>
-            <Pressable style={styles.iconBtn} hitSlop={10} onPress={handleConnectAccount}>
+            <Pressable
+              style={styles.iconBtn}
+              hitSlop={10}
+              onPress={() => traceUiInteraction('accounts.connect.open', handleConnectAccount)}
+              unstable_pressDelay={0}
+            >
               <Ionicons name="add" size={30} color={T.text} />
             </Pressable>
-            <Pressable style={styles.iconBtn} hitSlop={10} onPress={openOptions}>
+            <Pressable
+              style={styles.iconBtn}
+              hitSlop={10}
+              onPress={() => traceUiInteraction('accounts.options.open', openOptions)}
+              unstable_pressDelay={0}
+            >
               <Ionicons name="ellipsis-vertical" size={24} color={T.text} />
             </Pressable>
           </View>

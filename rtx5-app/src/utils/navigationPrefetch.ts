@@ -21,7 +21,11 @@ export function prefetchAccountSummary(login?: string) {
 export function prefetchInstrument(symbol: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
 
-  void appQueryClient.prefetchQuery({
+  if (!normalizedSymbol) {
+    return Promise.resolve();
+  }
+
+  return appQueryClient.prefetchQuery({
     queryKey: ['instrument', normalizedSymbol],
     queryFn: () => fetchInstrumentMeta(normalizedSymbol),
     staleTime: 60 * 60_000,
@@ -32,9 +36,11 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeTimeframe(timeframe);
 
-  if (!normalizedSymbol || !normalizedTimeframe) return;
+  if (!normalizedSymbol || !normalizedTimeframe) {
+    return Promise.resolve();
+  }
 
-  void appQueryClient.prefetchQuery({
+  return appQueryClient.prefetchQuery({
     queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe),
     queryFn: async () => {
       const response = await getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_CANDLE_HISTORY_LIMIT);
@@ -43,6 +49,13 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
     },
     staleTime: 30_000,
   }).catch(() => {});
+}
+
+export async function prefetchChartContext(symbol: string, timeframe: string) {
+  await Promise.allSettled([
+    prefetchInstrument(symbol),
+    prefetchChartCandles(symbol, timeframe),
+  ]);
 }
 
 export function prefetchDailyCandles(symbol: string) {

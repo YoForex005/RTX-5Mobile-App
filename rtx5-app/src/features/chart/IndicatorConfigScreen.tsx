@@ -26,6 +26,7 @@ import { ActionSheet } from '../../components/ActionSheet';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../theme/useTheme';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import {
   Card,
   LinePreview,
@@ -453,6 +454,7 @@ function ConfigBody({
         visible={numberEdit !== null}
         transparent
         animationType="fade"
+        {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => setNumberEdit(null)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setNumberEdit(null)}>

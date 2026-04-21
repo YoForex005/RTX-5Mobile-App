@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:android:usb": "node ./scripts/android/start-dev-client-usb.js",
     "android": "node ./scripts/android/run-android.js",
     "bootstrap:android": "powershell -ExecutionPolicy Bypass -File .\\scripts\\android\\bootstrap-android-sdk.ps1",
     "doctor:android": "node ./scripts/android/doctor-android.js",

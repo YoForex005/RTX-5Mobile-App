@@ -1,11 +1,10 @@
 /**
  * Optimized list item rendering an individual Open Position.
  * 
- * Architectural Note: 
- * This component intentionally hooks its own `useMarketData([item.symbol])` listener.
- * This pattern ensures that when a high-frequency WebSocket tick arrives for "EURUSD", 
- * ONLY the specific `TradePositionRow` instances holding EURUSD will re-render,
- * bypassing a full `<FlatList>` re-render entirely.
+ * Architectural Note:
+ * This component intentionally hooks its own single-symbol quote listener.
+ * That keeps updates scoped to the affected row instead of forcing the whole
+ * trade list to re-render on every market tick.
  */
 import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
@@ -19,10 +18,11 @@ import { useTheme } from '../theme/useTheme';
 import { fmt } from '../utils/format';
 import { formatBrokerTime } from '../utils/brokerTime';
 import { useUserPreferences } from '../state/userPreferences';
-import { useMarketData } from '../query/websocket';
+import { useLiveSymbolQuote } from '../query/websocket';
 import { resolveTradingLoginString } from '../state/tradingLogin';
 import { usePositionsState } from '../state/positionsState';
 import { prefetchOrderTicketData } from '../utils/navigationPrefetch';
+import { resolveLivePositionPnl, resolveLivePositionPrice } from '../features/trade/livePositionMetrics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -81,25 +81,14 @@ function TradePositionRowComponent({
     };
   });
   
-  // Continuously hook into the global multi-symbol WebSocket Quotes stream!
-  // This extracts THIS specific symbol's exact nanosecond ask/bid feed.
-  const quotesStore = useMarketData([item.symbol]);
-  const liveQuote = quotesStore[item.symbol];
+  // Subscribe to only this row's symbol through the shared quote store.
+  const liveQuote = useLiveSymbolQuote(item.symbol);
   
-  // Real bids and asks mapping from the raw WebSocket, with extreme defensive fallback chains
-  const fallbackBid = typeof item.currentPrice === 'number' && !isNaN(item.currentPrice) ? item.currentPrice : item.openPrice;
-  const liveBid = typeof liveQuote?.bid === 'number' && !isNaN(liveQuote.bid) ? liveQuote.bid : fallbackBid;
-  
-  const fallbackAsk = liveBid + (item.symbol.includes('JPY') ? 0.015 : 0.00015);
-  const liveAsk = typeof liveQuote?.ask === 'number' && !isNaN(liveQuote.ask) ? liveQuote.ask : fallbackAsk;
-  
-  // For Buy positions, we close at the Bid price. For Sell positions, we close at the Ask price.
-  const rawLivePrice = isBuy ? liveBid : liveAsk;
-  const livePrice = Number.isFinite(rawLivePrice) ? rawLivePrice : item.openPrice;
+  const livePrice = resolveLivePositionPrice(item, liveQuote);
 
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
-  const displayPnl = Number.isFinite(item.pnl) ? item.pnl : 0;
+  const displayPnl = resolveLivePositionPnl(item, liveQuote);
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -273,6 +262,7 @@ function TradePositionRowComponent({
 
 export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => (
   prev.item === next.item &&
+  prev.pnlCurrency === next.pnlCurrency &&
   prev.selected === next.selected &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&

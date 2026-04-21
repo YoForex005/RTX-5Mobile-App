@@ -3,6 +3,7 @@ import { Modal, StyleSheet, Text, View, Pressable, Platform, Alert } from 'react
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
+import { OVERLAY_MODAL_PROPS } from '../ui/overlayModalProps';
 
 interface QRScannerModalProps {
   visible: boolean;
@@ -31,7 +32,13 @@ export function QRScannerModal({ visible, onClose, onScan }: QRScannerModalProps
   if (!permission.granted) {
     // Permission is not granted yet.
     return (
-      <Modal visible={visible} animationType="slide" transparent>
+      <Modal
+        visible={visible}
+        animationType="slide"
+        transparent
+        {...OVERLAY_MODAL_PROPS}
+        onRequestClose={onClose}
+      >
         <View style={[styles.container, { backgroundColor: T.bg }]}>
           <View style={styles.permissionBox}>
             <Ionicons name="camera-outline" size={48} color={T.text} style={{ marginBottom: 16 }} />
@@ -57,7 +64,13 @@ export function QRScannerModal({ visible, onClose, onScan }: QRScannerModalProps
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      {...OVERLAY_MODAL_PROPS}
+      onRequestClose={onClose}
+    >
       <View style={styles.cameraContainer}>
         {Platform.OS !== 'web' ? (
           <CameraView

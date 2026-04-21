@@ -6,6 +6,7 @@ import { PropsWithChildren, useEffect } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
+import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import * as Font from 'expo-font';
@@ -61,7 +62,12 @@ function InnerLayout() {
               const action = props.canGoBack ? () => router.back() : () => router.replace('/');
               return (
                 <View style={{ width: 46, height: 40, alignItems: 'flex-start', justifyContent: 'center' }}>
-                  <Pressable onPress={action} hitSlop={15} style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}>
+                  <Pressable
+                    onPress={() => traceUiInteraction('stack.back', action)}
+                    hitSlop={15}
+                    style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}
+                    unstable_pressDelay={0}
+                  >
                     <Ionicons name="arrow-back" size={24} color={T.text} />
                   </Pressable>
                 </View>
@@ -118,6 +124,7 @@ function InnerLayout() {
 }
 
 import { accountWsService } from '../src/api/ws/accountSocket';
+import { quotesWsService } from '../src/api/ws/quotesSocket';
 import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
@@ -144,6 +151,15 @@ export default function RootLayout() {
     if (!hasHydrated) return;
     prefetchChartCandles(chartSymbol, chartTimeframe);
   }, [hasHydrated, chartSymbol, chartTimeframe]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      quotesWsService.connect();
+      return;
+    }
+
+    quotesWsService.disconnect();
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (isLoggedIn) {

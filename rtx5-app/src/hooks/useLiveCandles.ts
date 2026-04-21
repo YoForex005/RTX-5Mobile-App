@@ -7,7 +7,7 @@
  * candle stream per symbol/timeframe.
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { liveCandlesEngine, CandleParams, EMPTY_CANDLES } from '../api/ws/liveCandlesEngine';
 import { normalizeCandle, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
 import { useMarketData } from '../query/websocket';
@@ -58,6 +58,13 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     () => (normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : ''),
     [normalizedSymbol, normalizedTimeframe],
   );
+  const cachedCandles = useMemo(
+    () =>
+      candleKey
+        ? (useTradingState.getState().candles[candleKey] as CandleParams[] | undefined) ?? emptyCandles
+        : emptyCandles,
+    [candleKey],
+  );
 
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -79,9 +86,15 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   }, [normalizedSymbol, normalizedTimeframe]);
 
   const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
-  const cachedCandles = useTradingState((state) =>
-    candleKey ? state.candles[candleKey] ?? emptyCandles : emptyCandles,
-  );
+
+  useEffect(() => {
+    if (!normalizedSymbol || !normalizedTimeframe || cachedCandles.length === 0) {
+      return;
+    }
+
+    liveCandlesEngine.hydrateFromCache(normalizedSymbol, normalizedTimeframe, cachedCandles);
+  }, [cachedCandles, normalizedSymbol, normalizedTimeframe]);
+
   const candles = useMemo(
     () => (engineCandles.length > 0 ? engineCandles : cachedCandles),
     [engineCandles, cachedCandles],

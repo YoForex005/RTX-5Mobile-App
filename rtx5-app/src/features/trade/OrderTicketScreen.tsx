@@ -23,6 +23,7 @@ import { useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -367,7 +368,12 @@ export function OrderTicketScreen() {
 
       {/* ── Compact Header ─────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
-        <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }} style={styles.backBtn}>
+        <Pressable
+          onPress={() => traceUiInteraction('orderTicket.back', () => router.canGoBack() ? router.back() : router.replace('/'))}
+          hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }}
+          style={styles.backBtn}
+          unstable_pressDelay={0}
+        >
           <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
@@ -423,7 +429,11 @@ export function OrderTicketScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Order Type */}
-        <Pressable style={styles.flatRow} onPress={() => setTypeOpen(v => !v)}>
+        <Pressable
+          style={styles.flatRow}
+          onPress={() => traceUiInteraction('orderTicket.orderType.toggle', () => setTypeOpen(v => !v))}
+          unstable_pressDelay={0}
+        >
           <Text style={styles.rowLabel}>Order Type</Text>
           <View style={styles.rowRight}>
             <Text style={styles.rowValueWhite}>{orderType}</Text>
@@ -441,7 +451,8 @@ export function OrderTicketScreen() {
                 <Pressable
                   key={opt}
                   style={[styles.dropOpt, isCur && styles.dropOptActive]}
-                  onPress={() => { setOrderType(opt); setTypeOpen(false); }}
+                  onPress={() => traceUiInteraction(`orderTicket.orderType.${opt}`, () => { setOrderType(opt); setTypeOpen(false); })}
+                  unstable_pressDelay={0}
                 >
                   <View style={[styles.dropDot, { backgroundColor: isSell ? SELL_C : BUY_C }]} />
                   <Text style={[styles.dropText, { color: isCur ? WHITE : SUB }]}>{opt}</Text>
@@ -457,7 +468,7 @@ export function OrderTicketScreen() {
         <View style={styles.volSection}>
           <Text style={styles.rowLabel}>Volume</Text>
           <View style={styles.volStepper}>
-            <Pressable style={styles.volBtn} onPress={() => adj(-1)} hitSlop={8}>
+            <Pressable style={styles.volBtn} onPress={() => traceUiInteraction('orderTicket.volume.decrement', () => adj(-1))} hitSlop={8} unstable_pressDelay={0}>
               <Ionicons name="remove" size={18} color={T.textSub} />
             </Pressable>
             <View style={styles.volCenter}>
@@ -473,7 +484,7 @@ export function OrderTicketScreen() {
                 placeholderTextColor={T.textMuted}
               />
             </View>
-            <Pressable style={styles.volBtn} onPress={() => adj(1)} hitSlop={8}>
+            <Pressable style={styles.volBtn} onPress={() => traceUiInteraction('orderTicket.volume.increment', () => adj(1))} hitSlop={8} unstable_pressDelay={0}>
               <Ionicons name="add" size={18} color={T.textSub} />
             </Pressable>
           </View>
@@ -483,7 +494,8 @@ export function OrderTicketScreen() {
             <Pressable
               key={v}
               style={[styles.quickPill, Math.abs(volume - v) < 0.000001 && styles.quickPillActive]}
-              onPress={() => updateVolume(v)}
+              onPress={() => traceUiInteraction(`orderTicket.volume.quick.${v.toFixed(2)}`, () => updateVolume(v))}
+              unstable_pressDelay={0}
             >
               <Text style={[styles.quickTxt, Math.abs(volume - v) < 0.000001 && styles.quickTxtActive]}>
                 {(v || 0).toFixed(2)}
@@ -502,13 +514,13 @@ export function OrderTicketScreen() {
         {slEnabled && (
           <View style={styles.riskInputRow}>
             <View style={styles.volStepper}>
-              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
               <View style={[styles.volCenter, { width: 120 }]}>
                 <Text style={styles.volNum}>{fmt.price(slPrice)}</Text>
               </View>
-              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
                 <Ionicons name="add" size={18} color={T.textSub} />
               </Pressable>
             </View>
@@ -522,13 +534,13 @@ export function OrderTicketScreen() {
         {tpEnabled && (
           <View style={styles.riskInputRow}>
             <View style={styles.volStepper}>
-              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
               </Pressable>
               <View style={[styles.volCenter, { width: 120 }]}>
                 <Text style={styles.volNum}>{fmt.price(tpPrice)}</Text>
               </View>
-              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8}>
+              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
                 <Ionicons name="add" size={18} color={T.textSub} />
               </Pressable>
             </View>
@@ -645,7 +657,7 @@ function ToggleRow({ label, icon, enabled, onToggle, T, isDark, styles }: {
         <Text style={styles.rowLabel}>{label}</Text>
       </View>
       <View style={styles.rowRight}>
-        <Pressable onPress={onToggle} style={[styles.track, enabled && styles.trackOn]}>
+        <Pressable onPress={() => traceUiInteraction(`orderTicket.toggle.${label}`, onToggle)} style={[styles.track, enabled && styles.trackOn]} unstable_pressDelay={0}>
           <View style={[styles.thumb, enabled && styles.thumbOn]} />
         </Pressable>
         <Text style={[styles.statusTxt, enabled && { color: T.accent }]}>

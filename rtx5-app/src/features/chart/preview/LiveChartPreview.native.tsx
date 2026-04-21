@@ -5,6 +5,7 @@ import { useLiveCandles } from '../../../hooks/useLiveCandles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
 import { isStructurallyValidCandle } from '../../../domain/candles';
 import { useMarketData } from '../../../query/websocket';
+import { getDevRefreshKey, hashDevRefreshSource } from '../../../dev/devRefreshKey';
 import {
   buildVolumeDatum,
   getLastPreviewCandleSignature,
@@ -284,6 +285,11 @@ const CH_HTML = `
 </html>
 `;
 
+const PREVIEW_DEV_SOURCE_KEY = getDevRefreshKey(
+  'chart-preview-webview',
+  hashDevRefreshSource(CH_HTML),
+);
+
 export default function LiveChartPreviewNative({
   symbol,
   timeframe,
@@ -453,6 +459,7 @@ export default function LiveChartPreviewNative({
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <WebView
+        key={PREVIEW_DEV_SOURCE_KEY}
         ref={webViewRef}
         source={{ html: CH_HTML }}
         style={{ flex: 1, backgroundColor: 'transparent' }}
@@ -468,7 +475,7 @@ export default function LiveChartPreviewNative({
         bounces={false}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
-        cacheEnabled={false}
+        cacheEnabled={!__DEV__}
         androidLayerType="hardware"
       />
     </View>

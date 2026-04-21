@@ -12,6 +12,17 @@ import { alertsApi, CreateAlertPayload } from '../api/alerts';
 
 const ALERTS_KEY = ['alerts'] as const;
 
+type PollingQueryOptions = {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+};
+
+const resolvePollingRefetchInterval = (
+  enabled: boolean,
+  fallbackMs: number,
+  override?: number | false,
+) => (enabled ? (override ?? fallbackMs) : false);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET — list alerts
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,11 +31,13 @@ const ALERTS_KEY = ['alerts'] as const;
  * Fetch all price alerts for the authenticated user.
  * Polls every 30 seconds to pick up newly triggered alerts.
  */
-export function useAlertsQuery() {
+export function useAlertsQuery(options: PollingQueryOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useQuery({
     queryKey: ALERTS_KEY,
     queryFn: () => alertsApi.getAlerts(),
-    refetchInterval: 30_000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 30_000, options.refetchInterval),
   });
 }
 

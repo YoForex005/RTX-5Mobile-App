@@ -6,8 +6,9 @@
  * Calculates and visualizes realized PL, Swaps, Commission, and Net Balance evolution.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { startTransition, useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
@@ -28,6 +29,7 @@ import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useShallow } from 'zustand/shallow';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
@@ -228,6 +230,7 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
 }
 
 export function HistoryScreen() {
+  const isScreenFocused = useIsFocused();
   const [tab, setTab] = useState<Tab>('Positions');
   const [sortBy, setSortBy] = useState<SortBy>('Default');
   const { historyRange, historyFromMs, historyToMs, accountDetails } = useUserPreferences(
@@ -252,9 +255,15 @@ export function HistoryScreen() {
   // GET /api/v2/account/deals             — deal history (JWT-resolved, date-range aware)
   // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
   const accountLogin = resolveTradingLogin();
-  const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin);
-  const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery();
-  const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin);
+  const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
+    enabled: isScreenFocused,
+  });
+  const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
+    enabled: isScreenFocused,
+  });
+  const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
+    enabled: isScreenFocused,
+  });
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -320,7 +329,8 @@ export function HistoryScreen() {
       <View style={styles.summaryBlock}>
         <View style={styles.summaryTop}>
           <Pressable
-            onPress={toggleHistorySummaryDetails}
+            onPress={() => traceUiInteraction('history.summary.toggle', toggleHistorySummaryDetails)}
+            unstable_pressDelay={0}
             style={({ pressed }) => [
               styles.summaryToggleInline,
               pressed && styles.summaryTogglePressed,
@@ -391,7 +401,8 @@ export function HistoryScreen() {
             <View style={styles.gridRow}>
               <Pressable
                 style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}
-                onPress={() => router.push('/history/filter')}
+                onPress={() => traceUiInteraction('history.filter.open', () => router.push('/history/filter'))}
+                unstable_pressDelay={0}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
@@ -435,7 +446,21 @@ export function HistoryScreen() {
             {/* ── Controls Card ── */}
             <View style={styles.topBlock}>
               <View style={styles.topControlsRow}>
-                <Pressable style={styles.iconButton} onPress={() => showActionSheet({ title: 'Sort By', actions: SORT_OPTIONS.map((option) => ({ label: option === sortBy ? `${option} ✓` : option, onPress: () => setSortBy(option) })) })}>
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() =>
+                    traceUiInteraction('history.sort.open', () =>
+                      showActionSheet({
+                        title: 'Sort By',
+                        actions: SORT_OPTIONS.map((option) => ({
+                          label: option === sortBy ? `${option} ✓` : option,
+                          onPress: () => startTransition(() => setSortBy(option)),
+                        })),
+                      })
+                    )
+                  }
+                  unstable_pressDelay={0}
+                >
                   <Ionicons name='swap-vertical-outline' size={20} color={T.text} />
                 </Pressable>
 
@@ -444,14 +469,21 @@ export function HistoryScreen() {
                     <Pressable
                       key={item}
                       style={[styles.segmentButton, tab === item && styles.segmentButtonActive]}
-                      onPress={() => setTab(item)}
+                      onPress={() =>
+                        traceUiInteraction(`history.tab.${item}`, () => startTransition(() => setTab(item)))
+                      }
+                      unstable_pressDelay={0}
                     >
                       <Text style={[styles.segmentText, { color: tab === item ? T.text : T.textMuted }]}>{item}</Text>
                     </Pressable>
                   ))}
                 </View>
 
-                <Pressable style={styles.iconButton} onPress={() => router.push('/history/filter')}>
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => traceUiInteraction('history.range.open', () => router.push('/history/filter'))}
+                  unstable_pressDelay={0}
+                >
                   <Ionicons name='time-outline' size={20} color={T.text} />
                 </Pressable>
               </View>
@@ -590,10 +622,34 @@ function MetricPill({
   onPress?: () => void;
 }) {
   const cardBg = T.glass1;
-  const Wrapper = onPress ? Pressable : View;
+  if (onPress) {
+    return (
+      <Pressable
+        style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]}
+        onPress={() => traceUiInteraction(`history.metric.${label}`, onPress)}
+        unstable_pressDelay={0}
+      >
+        <View style={mpS.metricTop}>
+          <Ionicons name={icon} size={12} color={T.textSub} />
+          <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
+        </View>
+        <Text
+          style={[
+            mpS.metricValue,
+            { color: T.text },
+            tone === 'positive' && { color: T.trading.profit },
+            tone === 'negative' && { color: T.down },
+          ]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+      </Pressable>
+    );
+  }
 
   return (
-    <Wrapper style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]} onPress={onPress}>
+    <View style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]}>
       <View style={mpS.metricTop}>
         <Ionicons name={icon} size={12} color={T.textSub} />
         <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
@@ -606,10 +662,10 @@ function MetricPill({
           tone === 'negative' && { color: T.down },
         ]}
         numberOfLines={1}
-      >
-        {value}
-      </Text>
-    </Wrapper>
+        >
+          {value}
+        </Text>
+    </View>
   );
 }
 

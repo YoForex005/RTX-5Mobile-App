@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/components/ActionSheet';
 import { SidebarDrawer } from '../../src/components/SidebarDrawer';
+import { traceUiInteraction } from '../../src/dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../src/state/userPreferences';
 import { useTheme } from '../../src/theme/useTheme';
 import { useTranslation } from '../../src/i18n/useTranslation';
@@ -47,7 +48,10 @@ export default function TabsLayout() {
   return (
     <View style={styles.root}>
       <Tabs
-        detachInactiveScreens={false}
+        // Heavy live tabs should release their native views when hidden.
+        // The screen routes themselves stay mounted, but their route wrappers
+        // now swap out the expensive Chart/Quotes/Trade subtrees on blur.
+        detachInactiveScreens
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle: shouldHideMenu ? { display: 'none' } : TAB_BAR_STYLE,
@@ -64,11 +68,20 @@ export default function TabsLayout() {
           },
           tabBarActiveBackgroundColor: 'transparent',
           tabBarItemStyle: { backgroundColor: 'transparent' },
-          // Keep every tab's React tree mounted across tab switches so the
-          // WebView (especially the chart) is never paused or detached. The
-          // user expects instant returns to the chart with no reload.
+          tabBarHideOnKeyboard: false,
+          // Blur-freezing prevents inactive routes from reacting to focus
+          // changes. Leave it off so the route wrappers can actually unmount
+          // the heavy live subtrees when the tab loses focus.
           freezeOnBlur: false,
-          lazy: false,
+          lazy: true,
+        })}
+        screenListeners={({ route }) => ({
+          tabPress: () => {
+            traceUiInteraction(`tabs.${route.name}.press`, () => {}, {
+              kind: 'navigation',
+              context: route.name,
+            });
+          },
         })}
       >
         <Tabs.Screen name='quotes' options={{ title: t('Quotes') }} />
@@ -76,11 +89,7 @@ export default function TabsLayout() {
           name='chart'
           options={{
             title: t('Chart'),
-            // Extra safety on the chart specifically: never freeze, never
-            // unmount, never detach. Even on aggressive Android memory
-            // pressure the WebView stays in the React tree.
-            freezeOnBlur: false,
-            lazy: false,
+            lazy: true,
           }}
         />
         <Tabs.Screen name='trade' options={{ title: t('Trade') }} />

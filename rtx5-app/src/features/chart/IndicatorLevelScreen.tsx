@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../theme/useTheme';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import {
   Card,
   LinePreview,
@@ -212,7 +213,13 @@ export function IndicatorLevelScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={edit !== null} transparent animationType="fade" onRequestClose={() => setEdit(null)}>
+      <Modal
+        visible={edit !== null}
+        transparent
+        animationType="fade"
+        {...OVERLAY_MODAL_PROPS}
+        onRequestClose={() => setEdit(null)}
+      >
         <Pressable style={styles.modalBackdrop} onPress={() => setEdit(null)}>
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>

@@ -59,13 +59,24 @@ const normalizeCandleKey = (symbol: string, timeframe: string) => {
   };
 };
 
-export const syncMergedCandleCache = (symbol: string, timeframe: string, candles: Candle[]): boolean => {
+type SyncMergedCandleCacheOptions = {
+  canonical?: boolean;
+};
+
+export const syncMergedCandleCache = (
+  symbol: string,
+  timeframe: string,
+  candles: Candle[],
+  options?: SyncMergedCandleCacheOptions,
+): boolean => {
   const normalized = normalizeCandleKey(symbol, timeframe);
   if (!normalized) {
     return false;
   }
 
-  const nextCandles = sortAndDedupeCandles(candles).slice(-MAX_CANDLE_SERIES_LENGTH);
+  const nextCandles = options?.canonical
+    ? candles.slice(-MAX_CANDLE_SERIES_LENGTH)
+    : sortAndDedupeCandles(candles).slice(-MAX_CANDLE_SERIES_LENGTH);
   const currentCandles = useTradingState.getState().candles[normalized.key] ?? [];
   if (areSeriesEqual(currentCandles, nextCandles)) {
     return false;

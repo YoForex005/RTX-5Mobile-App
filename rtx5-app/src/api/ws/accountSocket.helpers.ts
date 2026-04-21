@@ -38,38 +38,7 @@ function pickFiniteNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
-export function resolveAccountWsSession(
-  accountDetails: AccountDetails,
-  liveLogin?: number,
-): AccountWsSession | null {
-  const token = accountDetails?.credentials?.accessToken?.trim();
-  if (!token) {
-    return null;
-  }
-
-  const persistedLogin = pickFiniteNumber(accountDetails?.id);
-  const resolvedLiveLogin = pickFiniteNumber(liveLogin);
-  const resolvedLogin =
-    persistedLogin !== undefined && persistedLogin >= 100000
-      ? persistedLogin
-      : (resolvedLiveLogin ?? persistedLogin);
-
-  if (resolvedLogin === undefined || resolvedLogin <= 0) {
-    return null;
-  }
-
-  return {
-    token,
-    login: String(Math.trunc(resolvedLogin)),
-  };
-}
-
-export function extractLiveAccountMetrics(data: unknown): Partial<LiveAccountData> | null {
-  if (!data || typeof data !== 'object') {
-    return null;
-  }
-
-  const source = data as Record<string, unknown>;
+function extractMetricsFromRecord(source: Record<string, unknown>): Partial<LiveAccountData> | null {
   const metrics: Partial<LiveAccountData> = {};
 
   const login = pickFiniteNumber(source.login, source.account_login, source.accountLogin);
@@ -101,4 +70,61 @@ export function extractLiveAccountMetrics(data: unknown): Partial<LiveAccountDat
   if (floating !== undefined) metrics.floating = floating;
 
   return Object.keys(metrics).length > 0 ? metrics : null;
+}
+
+function extractNestedLiveAccountMetrics(
+  data: unknown,
+  seen: WeakSet<object>,
+): Partial<LiveAccountData> | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  if (seen.has(data)) {
+    return null;
+  }
+
+  seen.add(data);
+  const source = data as Record<string, unknown>;
+  const directMetrics = extractMetricsFromRecord(source);
+
+  for (const key of ['data', 'account', 'snapshot', 'metrics', 'payload']) {
+    const nested = source[key];
+    const nestedMetrics = extractNestedLiveAccountMetrics(nested, seen);
+    if (nestedMetrics) {
+      return directMetrics ? { ...directMetrics, ...nestedMetrics } : nestedMetrics;
+    }
+  }
+
+  return directMetrics;
+}
+
+export function resolveAccountWsSession(
+  accountDetails: AccountDetails,
+  liveLogin?: number,
+): AccountWsSession | null {
+  const token = accountDetails?.credentials?.accessToken?.trim();
+  if (!token) {
+    return null;
+  }
+
+  const persistedLogin = pickFiniteNumber(accountDetails?.id);
+  const resolvedLiveLogin = pickFiniteNumber(liveLogin);
+  const resolvedLogin =
+    persistedLogin !== undefined && persistedLogin >= 100000
+      ? persistedLogin
+      : (resolvedLiveLogin ?? persistedLogin);
+
+  if (resolvedLogin === undefined || resolvedLogin <= 0) {
+    return null;
+  }
+
+  return {
+    token,
+    login: String(Math.trunc(resolvedLogin)),
+  };
+}
+
+export function extractLiveAccountMetrics(data: unknown): Partial<LiveAccountData> | null {
+  return extractNestedLiveAccountMetrics(data, new WeakSet<object>());
 }

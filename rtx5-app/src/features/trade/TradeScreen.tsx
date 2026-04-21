@@ -30,9 +30,14 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
+import { useMarketData } from '../../query/websocket';
 import { useUIState } from '../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../api/tradingErrors';
-import { buildTradeAccountSummary } from './accountSummary';
+import {
+  buildTradeAccountSummary,
+  resolveRenderableTradeAccountSummary,
+  resolveTradeFloatingPnl,
+} from './accountSummary';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { useShallow } from 'zustand/shallow';
 
@@ -195,6 +200,60 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   );
 });
 
+const TradeSummaryHeader = React.memo(({
+  positions,
+  hydratedLogin,
+  resolvedLogin,
+  s,
+  T,
+  isDark,
+  totalVolume,
+  onBulkPress,
+}: {
+  positions: PositionItem[];
+  hydratedLogin: string | null;
+  resolvedLogin: number | undefined;
+  s: ReturnType<typeof makeStyles>;
+  T: ThemeColors;
+  isDark: boolean;
+  totalVolume: number;
+  onBulkPress: () => void;
+}) => {
+  const tradingAccount = useTradingState((state: any) => state.account);
+  const liveAcc = useLiveAccountState(
+    useShallow((state) => ({
+      balance: state.balance,
+      floating: state.floating,
+      equity: state.equity,
+      margin: state.margin,
+      margin_free: state.margin_free,
+      margin_level: state.margin_level,
+    })),
+  );
+  const liveQuoteSymbols = useMemo(
+    () => Array.from(new Set(positions.map((position) => position.symbol))),
+    [positions],
+  );
+  const liveQuotes = useMarketData(liveQuoteSymbols);
+  const account = useMemo(() => {
+    const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
+    const floating = resolveTradeFloatingPnl(summary.floating, positions, hydratedLogin, resolvedLogin, liveQuotes);
+    return resolveRenderableTradeAccountSummary(summary, floating);
+  }, [hydratedLogin, liveAcc, liveQuotes, positions, resolvedLogin, tradingAccount]);
+
+  return (
+    <LiveUnrealizedPnLHeader
+      positions={positions}
+      account={account}
+      s={s}
+      T={T}
+      isDark={isDark}
+      totalVolume={totalVolume}
+      onBulkPress={onBulkPress}
+    />
+  );
+});
+
 export function TradeScreen() {
   const T = useTheme();
   const { t } = useTranslation();
@@ -206,12 +265,13 @@ export function TradeScreen() {
   const showActionSheet = useUIState((st) => st.showActionSheet);
 
   // ── Pull-to-refresh & Live Fetch ────────────────────────────────────────
-  const { positions, refreshPositions, isLoading, lastFetchLogin, lastError } = usePositionsState(
+  const { positions, refreshPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
       positions: state.positions,
       refreshPositions: state.refreshPositions,
       isLoading: state.isLoading,
       lastFetchLogin: state.lastFetchLogin,
+      hydratedLogin: state.hydratedLogin,
       lastError: state.lastError,
     })),
   );
@@ -247,18 +307,7 @@ export function TradeScreen() {
     }
   }, [resolvedLogin, fetchPositions]);
 
-  const tradingAccount = useTradingState((state: any) => state.account);
-  const liveAcc = useLiveAccountState(
-    useShallow((state) => ({
-      balance: state.balance,
-      floating: state.floating,
-      equity: state.equity,
-      margin: state.margin,
-      margin_free: state.margin_free,
-      margin_level: state.margin_level,
-    })),
-  );
-  const account = buildTradeAccountSummary(liveAcc, tradingAccount);
+  const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
 
   const showBulkSheet = useCallback(() => {
@@ -294,16 +343,17 @@ export function TradeScreen() {
       onPress={showPositionSheet}
       onLongPress={showPositionSheet}
       onBulkPress={showBulkSheet}
-      pnlCurrency={account.currency || 'USD'}
+      pnlCurrency={pnlCurrency}
     />
-  ), [account.currency, showBulkSheet, showPositionSheet]);
+  ), [pnlCurrency, showBulkSheet, showPositionSheet]);
 
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('Trade')} noBorder />
-      <LiveUnrealizedPnLHeader
+      <TradeSummaryHeader
         positions={positions}
-        account={account}
+        hydratedLogin={hydratedLogin}
+        resolvedLogin={resolvedLogin}
         s={s}
         T={T}
         isDark={isDark}

@@ -104,8 +104,11 @@ class AccountWebSocketService {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
-        this.send({ action: 'subscribe', channel: `metrics.${session.login}` });
-        this.send({ action: 'subscribe', channel: `positions.${session.login}` });
+        // Different backend deployments still expose either `metrics.LOGIN`
+        // or `account.LOGIN` for the same live account-summary stream.
+        ['metrics', 'account', 'positions'].forEach((channelPrefix) => {
+          this.send({ action: 'subscribe', channel: `${channelPrefix}.${session.login}` });
+        });
       };
 
       this.ws.onmessage = (event) => {

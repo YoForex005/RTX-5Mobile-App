@@ -5,7 +5,9 @@
 import { useTradingState } from '../../state/tradingState';
 import { AppState, NativeEventSubscription } from 'react-native';
 import { quotes as mockQuotes } from '../../mock/tradingData';
+import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
+import { resolveQuoteTickTimestamp } from './quoteTimestamp';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -27,10 +29,11 @@ export class QuotesWebSocketService {
   private stickySymbols: Set<string> = new Set();
   private symbolConsumerCounts: Map<string, number> = new Map();
   private pendingUpdates: Map<string, any> = new Map();
-  private flushTimer: NodeJS.Timeout | null = null;
+  private flushScheduled = false;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: NativeEventSubscription | null = null;
   private lastMessageAt: number = Date.now();
+  private lastRecordedFeedGapAt: number = 0;
   private watchdogInterval: NodeJS.Timeout | null = null;
   private tickListeners: Set<(tick: QuoteTickEvent) => void> = new Set();
 
@@ -104,7 +107,10 @@ export class QuotesWebSocketService {
 
       this.ws.onmessage = (event) => {
         try {
-          this.lastMessageAt = Date.now();
+          const now = Date.now();
+          const feedGapMs = now - this.lastMessageAt;
+          this.lastMessageAt = now;
+          this.recordFeedGapIfNeeded(feedGapMs);
           const payload = JSON.parse(event.data as string);
           this.applyPayload(payload);
         } catch (e) {
@@ -180,6 +186,28 @@ export class QuotesWebSocketService {
       clearInterval(this.watchdogInterval);
       this.watchdogInterval = null;
     }
+  }
+
+  private recordFeedGapIfNeeded(feedGapMs: number): void {
+    if (this.activeSymbols.size === 0) {
+      return;
+    }
+
+    if (feedGapMs < 1_200) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastRecordedFeedGapAt < 5_000) {
+      return;
+    }
+
+    this.lastRecordedFeedGapAt = now;
+    recordUiFeedGap(
+      'quotes.ws.gap',
+      feedGapMs,
+      `${this.activeSymbols.size} active symbol(s)`,
+    );
   }
 
   /**
@@ -268,14 +296,19 @@ export class QuotesWebSocketService {
 
   private applyTick(data: any): boolean {
     if (!data.symbol || data.bid == null || data.ask == null) return false;
-    // Normalize timestamp: some servers send `t` instead of `time`
-    if (data.t != null && data.time == null) data = { ...data, time: data.t };
+    const normalizedTimestamp = resolveQuoteTickTimestamp(data);
+    data = {
+      ...data,
+      time: normalizedTimestamp,
+      timestamp: normalizedTimestamp,
+      t: normalizedTimestamp,
+    };
 
     this.emitTick({
       symbol: String(data.symbol),
       bid: data.bid,
       ask: data.ask,
-      timestamp: data.time ?? data.timestamp ?? data.t ?? Date.now(),
+      timestamp: normalizedTimestamp,
     });
 
     // Preserve intra-flush wick extremes. When several ticks arrive within
@@ -311,23 +344,22 @@ export class QuotesWebSocketService {
   }
 
   private scheduleFlush(): void {
-    if (!this.flushTimer) {
-      // Use queueMicrotask for near-instant flush (<1ms) instead of
-      // setTimeout(16) which adds 0-16ms delay. Ticks arriving in the
-      // same JS event loop turn are automatically batched because
-      // flushTimer stays set until the microtask runs.
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null;
-        this.flushUpdates();
-      }, 0);
+    if (this.flushScheduled) {
+      return;
     }
+
+    // Flush in the same JS turn instead of going through RN's timer queue.
+    // That removes a visible delay on the Trade rows where the arrow price
+    // and floating P/L are driven directly from quote ticks.
+    this.flushScheduled = true;
+    queueMicrotask(() => {
+      this.flushScheduled = false;
+      this.flushUpdates();
+    });
   }
 
   private cancelFlush(): void {
-    if (this.flushTimer !== null) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
+    this.flushScheduled = false;
     this.pendingUpdates.clear();
   }
 
@@ -390,7 +422,7 @@ export type QuoteTickEvent = {
   symbol: string;
   bid: number;
   ask: number;
-  timestamp: unknown;
+  timestamp: number;
 };
 
 export const quotesWsService = QuotesWebSocketService.getInstance();

@@ -6,6 +6,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { positionsApi, Position, ClosedPosition } from '../api/positions';
 import { PositionItem } from '../mock/tradingData';
 
+type PollingQueryOptions = {
+  enabled?: boolean;
+  refetchInterval?: number | false;
+};
+
+const resolvePollingRefetchInterval = (
+  enabled: boolean,
+  fallbackMs: number,
+  override?: number | false,
+) => (enabled ? (override ?? fallbackMs) : false);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query hooks for the Positions API.
 // These hooks wrap the positionsApi functions and provide:
@@ -40,12 +51,16 @@ function mapPositionToItem(dto: Position): PositionItem {
  *
  * @param login - MT5 account login number (pass undefined to disable the query)
  */
-export function usePositionsQuery(login: number | undefined) {
+export function usePositionsQuery(
+  login: number | undefined,
+  options: PollingQueryOptions = {},
+) {
+  const enabled = !!login && (options.enabled ?? true);
   return useQuery({
     queryKey: ['positions', login],
     queryFn: () => positionsApi.getPositions(login!),
-    enabled: !!login,
-    refetchInterval: 5000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
     select: (data: Position[]) => data.map(mapPositionToItem),
   });
 }
@@ -55,12 +70,16 @@ export function usePositionsQuery(login: number | undefined) {
  *
  * @param login - MT5 account login number (pass undefined to disable the query)
  */
-export function usePositionHistoryQuery(login: number | undefined) {
+export function usePositionHistoryQuery(
+  login: number | undefined,
+  options: PollingQueryOptions = {},
+) {
+  const enabled = !!login && (options.enabled ?? true);
   return useQuery({
     queryKey: ['positionHistory', login],
     queryFn: () => positionsApi.getPositionHistory(login!),
-    enabled: !!login,
-    refetchInterval: 5000,
+    enabled,
+    refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
   });
 }
 

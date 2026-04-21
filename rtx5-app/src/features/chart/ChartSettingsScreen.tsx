@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../theme/glass';
 import { useTheme } from '../../theme/useTheme';
@@ -50,7 +51,8 @@ const ToggleRow = React.memo(function ToggleRow({
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-      onPress={onToggle}
+      onPress={() => traceUiInteraction(`chartSettings.toggle.${label}`, onToggle)}
+      unstable_pressDelay={0}
     >
       <Text style={styles.rowLabel}>{label}</Text>
       <View pointerEvents="none">
@@ -78,7 +80,7 @@ export function ChartSettingsScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => traceUiInteraction('chartSettings.back', () => router.back())} hitSlop={16} style={styles.headerBackBtn} unstable_pressDelay={0}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -183,7 +185,11 @@ function NavRow({
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={() => traceUiInteraction(`chartSettings.nav.${label}`, onPress)}
+      unstable_pressDelay={0}
+    >
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.navRight}>
         {value !== '' && <Text style={styles.navValue}>{value}</Text>}

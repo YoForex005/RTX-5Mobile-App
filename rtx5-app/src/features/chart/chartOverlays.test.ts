@@ -9,7 +9,7 @@ import {
   CHART_LINE_STYLE,
   normalizeChartOverlaySymbol,
   type ChartOverlayCandle,
-} from './chartOverlays';
+} from './chartOverlays.ts';
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -251,6 +251,66 @@ test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind tog
   assert.ok(payload.markers.some((marker) => marker.id.startsWith('signal-')));
   assert.ok(payload.markers.some((marker) => marker.id.startsWith('hmr-')));
   assert.ok(payload.markers.some((marker) => marker.id.startsWith('pattern-')));
+});
+
+test('buildChartOverlayPayload returns one shared empty payload when all overlays are disabled', () => {
+  const baseInput = {
+    chartSymbol: 'BTCUSD',
+    candles,
+    positions: [
+      {
+        id: '1',
+        symbol: 'BTCUSD',
+        side: 'buy' as const,
+        volume: 0.1,
+        openPrice: 71234.5,
+        currentPrice: 71300,
+        pnl: 6.5,
+        swap: 0,
+        openTime: new Date(candles[5].time * 1000).toISOString(),
+      },
+    ],
+    orders: [
+      {
+        ticket: 55,
+        account_login: 1,
+        symbol: 'BTCUSD',
+        type: 'buy_limit',
+        side: 'buy' as const,
+        volume: 0.1,
+        price_open: 71000,
+        status: 'pending',
+        comment: '',
+        time_setup: candles[8].time,
+        time_done: 0,
+      },
+    ] satisfies LoginOrder[],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: {
+      equity: 5_000,
+      margin: 1_000,
+      marginLevel: 500,
+    },
+    showOnChart: {
+      openPositions: false,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
+  };
+
+  const payloadA = buildChartOverlayPayload(baseInput);
+  const payloadB = buildChartOverlayPayload({
+    ...baseInput,
+    candles: candles.slice(0, 10),
+  });
+
+  assert.equal(payloadA, payloadB);
+  assert.deepEqual(payloadA, { priceLines: [], markers: [] });
 });
 
 test('buildChartOverlayPayload follows the show-on-chart flags without any secondary trade-level gate', () => {

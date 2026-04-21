@@ -44,3 +44,6 @@ Establish the RTX5 frontend baseline so the app can build, run, and enforce qual
 - Stable baseline merged to mainline.
 - Team can start feature phases without tooling blockers.
 
+## Progress Notes
+- 2026-04-21: Tightened the bottom-tab lifecycle so screens mount lazily on first visit, detach when hidden, and the heavy live-data tabs (`Quotes`, `Chart`, `Trade`) stop rendering their screen content while unfocused. This prevents hidden quote listeners, timers, and chart WebView work from accumulating in the background and stalling later tab navigation.
+

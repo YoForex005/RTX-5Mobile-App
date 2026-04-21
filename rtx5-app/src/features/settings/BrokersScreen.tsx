@@ -23,6 +23,7 @@ import {
 import { Screen } from '../../components/Screen';
 import { brokers } from '../../mock/tradingData';
 import { useTheme } from '../../theme/useTheme';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { ThemeColors } from '../../theme/glass';
 import { spacing } from '../../theme';
 
@@ -306,6 +307,7 @@ export function BrokersScreen() {
         visible={Boolean(selectedBroker)}
         transparent
         animationType='fade'
+        {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => setSelectedBroker(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setSelectedBroker(null)}>

@@ -61,3 +61,57 @@ test('extractLiveAccountMetrics normalizes backend account aliases', () => {
     floating: 28.6,
   });
 });
+
+test('extractLiveAccountMetrics unwraps nested account metric payloads', () => {
+  const metrics = extractLiveAccountMetrics({
+    data: {
+      snapshot: {
+        account: {
+          login: '100003',
+          balance: '1250.5',
+          equity: '1279.1',
+          used_margin: '145.25',
+          free_margin: '1133.85',
+          margin_level: '880.5',
+          floating_pnl: '28.6',
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(metrics, {
+    login: 100003,
+    balance: 1250.5,
+    equity: 1279.1,
+    margin: 145.25,
+    margin_free: 1133.85,
+    margin_level: 880.5,
+    floating: 28.6,
+  });
+});
+
+test('extractLiveAccountMetrics merges top-level login with nested account metrics', () => {
+  const metrics = extractLiveAccountMetrics({
+    login: '100003',
+    payload: {
+      account: {
+        balance: 1250.5,
+        equity: 1279.1,
+        margin: 145.25,
+        margin_free: 1133.85,
+        margin_level: 880.5,
+        floating: 28.6,
+      },
+    },
+  });
+
+  assert.deepEqual(metrics, {
+    login: 100003,
+    balance: 1250.5,
+    equity: 1279.1,
+    margin: 145.25,
+    margin_free: 1133.85,
+    margin_level: 880.5,
+    floating: 28.6,
+  });
+});

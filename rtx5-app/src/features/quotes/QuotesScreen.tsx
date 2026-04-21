@@ -10,6 +10,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, {
   startTransition,
@@ -52,7 +53,9 @@ import {
 import { fmt } from '../../utils/format';
 import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
+import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 
 /* ───── Helpers ───── */
 
@@ -164,7 +167,7 @@ function interpolateThemeColor(
   });
 }
 
-function useQuotesThemeRotation(isDark: boolean) {
+function useQuotesThemeRotation(isDark: boolean, enabled: boolean) {
   const QUOTES_THEME_ROTATION = isDark
     ? QUOTES_THEME_ROTATION_DARK
     : QUOTES_THEME_ROTATION_LIGHT;
@@ -174,6 +177,13 @@ function useQuotesThemeRotation(isDark: boolean) {
   const activeIndexRef = useRef(0);
 
   useEffect(() => {
+    if (!enabled) {
+      transition.stopAnimation();
+      return () => {
+        transition.stopAnimation();
+      };
+    }
+
     const interval = setInterval(() => {
       const currentIndex = activeIndexRef.current;
       const nextIndex = (currentIndex + 1) % QUOTES_THEME_ROTATION.length;
@@ -197,7 +207,7 @@ function useQuotesThemeRotation(isDark: boolean) {
       clearInterval(interval);
       transition.stopAnimation();
     };
-  }, [transition]);
+  }, [enabled, transition]);
 
   const previousTheme = QUOTES_THEME_ROTATION[previousIndex];
   const activeTheme = QUOTES_THEME_ROTATION[activeIndex];
@@ -641,7 +651,8 @@ function AddSymbolModal({
         >
           <Text style={{ fontSize: 18, fontWeight: '700', color: T.text }}>Add Asset</Text>
           <Pressable
-            onPress={onClose}
+            onPress={() => traceUiInteraction('quotes.addAsset.close', onClose)}
+            unstable_pressDelay={0}
             style={[
               s.headerActionButton,
               { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
@@ -745,7 +756,13 @@ function AddSymbolModal({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      {...OVERLAY_MODAL_PROPS}
+      onRequestClose={onClose}
+    >
       {content}
     </Modal>
   );
@@ -755,6 +772,7 @@ function AddSymbolModal({
 
 export function QuotesScreen() {
   const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -763,7 +781,7 @@ export function QuotesScreen() {
   const {
     animatedFullscreenBackground,
     animatedCardBackground,
-  } = useQuotesThemeRotation(isDark);
+  } = useQuotesThemeRotation(isDark, isScreenFocused);
 
   const quoteSymbols = useUserPreferences((st) => st.quoteSymbols);
   const addQuoteSymbol = useUserPreferences((st) => st.addQuoteSymbol);
@@ -787,16 +805,29 @@ export function QuotesScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Re-subscribe to the quote stream and refetch the symbols list.
-      quotesWsService.setSubscriptions(quoteSymbols);
+      // Refresh should not create sticky global subscriptions. The focused
+      // screen subscription effect below already keeps the visible watchlist
+      // live; forcing sticky symbols here keeps the whole watchlist active
+      // across every screen and makes touches/navigation feel blocked later.
+      quotesWsService.connect();
       await refetchSymbols();
     } finally {
       setRefreshing(false);
     }
-  }, [quoteSymbols, refetchSymbols]);
+  }, [refetchSymbols]);
 
   const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
+
+  useEffect(() => {
+    // Clear any legacy sticky watchlist subscriptions. Quotes rows already
+    // subscribe through focused-screen effects and detail/chart hooks, so
+    // leaving sticky symbols behind only causes unnecessary global quote fan-out.
+    quotesWsService.setSubscriptions([]);
+    return () => {
+      quotesWsService.setSubscriptions([]);
+    };
+  }, []);
 
   // Read quoteSymbols via a ref so the seeding effect can access the current
   // value without listing it as a dependency — listing it caused an infinite
@@ -910,7 +941,7 @@ export function QuotesScreen() {
   // (parent re-render forces all FlatList items to re-evaluate).
 
   useEffect(() => {
-    if (trackedSymbols.length === 0) return;
+    if (!isScreenFocused || trackedSymbols.length === 0) return;
     quotesWsService.connect();
     // Use subscribe (additive) so it coexists with useMarketData subscriptions
     // from other screens (ChartScreen, SymbolDetailsScreen, etc.)
@@ -918,7 +949,7 @@ export function QuotesScreen() {
     return () => {
       quotesWsService.unsubscribe(trackedSymbols);
     };
-  }, [trackedSymbols]);
+  }, [isScreenFocused, trackedSymbols]);
 
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
@@ -959,8 +990,9 @@ export function QuotesScreen() {
             rightActions={
               <View style={s.headerActions}>
                 <Pressable
-                  onPress={() => setShowAddModal(true)}
+                  onPress={() => traceUiInteraction('quotes.addAsset.open', () => setShowAddModal(true))}
                   hitSlop={12}
+                  unstable_pressDelay={0}
                   style={[
                     s.headerActionButton,
                     { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
@@ -970,8 +1002,9 @@ export function QuotesScreen() {
                 </Pressable>
 
                 <Pressable
-                  onPress={toggleEditMode}
+                  onPress={() => traceUiInteraction('quotes.editMode.toggle', toggleEditMode)}
                   hitSlop={12}
+                  unstable_pressDelay={0}
                   style={[
                     s.headerActionButton,
                     { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
@@ -988,10 +1021,10 @@ export function QuotesScreen() {
           />
 
           <View style={s.subheaderRow}>
-            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} />
+            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active={isScreenFocused} />
 
             <View style={{ alignItems: 'flex-end' }}>
-              <TickCounter T={T} palette={palette} />
+              <TickCounter T={T} palette={palette} active={isScreenFocused} />
             </View>
           </View>
           <View
@@ -1011,7 +1044,7 @@ export function QuotesScreen() {
               autoCorrect={false}
             />
             {search.length > 0 && (
-              <Pressable onPress={() => setSearch('')}>
+              <Pressable onPress={() => traceUiInteraction('quotes.search.clear', () => setSearch(''))} unstable_pressDelay={0}>
                 <Ionicons name="close-circle" size={16} color={T.textMuted} />
               </Pressable>
             )}
@@ -1045,7 +1078,6 @@ export function QuotesScreen() {
                   T={T}
                   isDark={isDark}
                   cardBackground={animatedCardBackground}
-                  onPressIn={() => prefetchQuoteDetails(sym)}
                   onPress={() => goDetail(sym)}
                   onLongPress={() =>
                     showActionSheet({
@@ -1324,27 +1356,47 @@ const sc = StyleSheet.create({
 });
 
 /** Isolated 1-second clock so the timer doesn't re-render the parent QuotesScreen. */
-function GmtClock({ style }: { style: any }) {
+function GmtClock({ style, active }: { style: any; active: boolean }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+    setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [active]);
   return <Text style={style}>Updated: {gmtClock(now)} GMT</Text>;
 }
 
-function TickCounter({ T, palette }: { T: ThemeColors; palette: QuotesPalette }) {
+function TickCounter({
+  T,
+  palette,
+  active,
+}: {
+  T: ThemeColors;
+  palette: QuotesPalette;
+  active: boolean;
+}) {
   const [tps, setTps] = useState(0);
   const tickCountRef = useRef(useTradingState.getState().tickCount);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+    tickCountRef.current = useTradingState.getState().tickCount;
     const unsub = useTradingState.subscribe((state) => {
       tickCountRef.current = state.tickCount;
     });
     return unsub;
-  }, []);
+  }, [active]);
 
   useEffect(() => {
+    if (!active) {
+      setTps(0);
+      return;
+    }
     let lastTicks = tickCountRef.current;
     const interval = setInterval(() => {
       const current = tickCountRef.current;
@@ -1352,7 +1404,7 @@ function TickCounter({ T, palette }: { T: ThemeColors; palette: QuotesPalette })
       lastTicks = current;
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [active]);
 
   return (
     <View style={s.subRight}>

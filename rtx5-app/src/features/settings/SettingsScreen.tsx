@@ -25,6 +25,7 @@ import { useBrokerConfig } from '../../query/broker';
 import { useAccounts } from '../../query/accounts';
 import { accountWsService } from '../../api/ws/accountSocket';
 import { candlesWsService } from '../../api/ws/candlesSocket';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useShallow } from 'zustand/shallow';
 
 export function SettingsScreen() {
@@ -91,16 +92,20 @@ export function SettingsScreen() {
   }, [setSearchActive]);
 
   const enableSearch = () => {
-    setIsSearching(true);
-    setSearchActive(true);
-    setTimeout(() => searchInputRef.current?.focus(), 100);
+    traceUiInteraction('settings.search.open', () => {
+      setIsSearching(true);
+      setSearchActive(true);
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    });
   };
 
   const disableSearch = () => {
-    setIsSearching(false);
-    setSearchActive(false);
-    setSearchQuery('');
-    Keyboard.dismiss();
+    traceUiInteraction('settings.search.close', () => {
+      setIsSearching(false);
+      setSearchActive(false);
+      setSearchQuery('');
+      Keyboard.dismiss();
+    });
   };
 
   const SEARCHABLE_ITEMS = useMemo(() => [
@@ -154,7 +159,7 @@ export function SettingsScreen() {
           paddingBottom={isSearching ? 8 : 12}
           rightActions={
             !isSearching ? (
-              <Pressable onPress={enableSearch} hitSlop={12}>
+              <Pressable onPress={enableSearch} hitSlop={12} unstable_pressDelay={0}>
                 <Ionicons name="search" size={22} color={T.textMuted} />
               </Pressable>
             ) : null
@@ -174,7 +179,7 @@ export function SettingsScreen() {
                 autoCapitalize="none"
                 returnKeyType="search"
               />
-              <Pressable onPress={disableSearch} hitSlop={10}>
+              <Pressable onPress={disableSearch} hitSlop={10} unstable_pressDelay={0}>
                 <Ionicons name="close-circle" size={18} color={T.textMuted} />
               </Pressable>
             </View>
@@ -202,7 +207,10 @@ export function SettingsScreen() {
         ) : (
           <View>
             {/* ── Main Account Card ─────────────────────────────────── */}
-            <Pressable onPress={() => router.push('/settings/accounts')}>
+            <Pressable
+              onPress={() => traceUiInteraction('settings.accounts.open', () => router.push('/settings/accounts'))}
+              unstable_pressDelay={0}
+            >
               <View style={[styles.accountCard, styles.cardShadow]}>
                 {/* Top-Right Diagonal Ribbon */}
                 <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
@@ -310,7 +318,11 @@ export function SettingsScreen() {
 
             {/* ── ACCOUNT SECTION ───────────────────────────────────── */}
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
-            <Pressable style={[styles.singleRowCard, styles.cardShadow]} onPress={() => router.push('/register')}>
+            <Pressable
+              style={[styles.singleRowCard, styles.cardShadow]}
+              onPress={() => traceUiInteraction('settings.register.open', () => router.push('/register'))}
+              unstable_pressDelay={0}
+            >
               <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
                 <Ionicons name="person-outline" size={20} color="#1D4ED8" />
               </View>
@@ -423,7 +435,11 @@ export function SettingsScreen() {
 
             {/* ── LOGOUT SECTION ────────────────────────────────────── */}
             <View style={styles.logoutContainer}>
-              <Pressable style={styles.singleRowCardLogout} onPress={handleLogout}>
+              <Pressable
+                style={styles.singleRowCardLogout}
+                onPress={() => traceUiInteraction('settings.logout.prompt', handleLogout)}
+                unstable_pressDelay={0}
+              >
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                   <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                 </View>
@@ -455,7 +471,11 @@ export function SettingsScreen() {
 
 function SettingRow({ icon, color, title, sub, badge, rightElement, onPress, T, styles }: { icon: any, color: string, title: string, sub?: string, badge?: string, rightElement?: React.ReactNode, onPress?: () => void, T: ThemeColors, styles: any }) {
   return (
-    <Pressable style={styles.row} onPress={onPress}>
+    <Pressable
+      style={styles.row}
+      onPress={onPress ? () => traceUiInteraction(`settings.row.${title}`, onPress) : undefined}
+      unstable_pressDelay={0}
+    >
       <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
         <Ionicons name={icon} size={20} color={color} />
       </View>

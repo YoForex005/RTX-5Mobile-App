@@ -1,7 +1,7 @@
 import type { PriceAlert } from '../../api/alerts';
 import type { LoginOrder } from '../../api/orders';
 import type { ClosedPosition } from '../../api/positions';
-import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeSymbol } from '../../domain/symbols.ts';
 import type { PositionItem } from '../../mock/tradingData';
 import type { ChartColorsConfig } from '../../state/userPreferences';
 import type { ChartShowOnChartSettings } from './chartShowOnChart';
@@ -13,6 +13,15 @@ export const CHART_LINE_STYLE = {
   LargeDashed: 3,
   SparseDotted: 4,
 } as const;
+
+const CHART_OVERLAY_DEBUG = false;
+const EMPTY_OVERLAY_PRICE_LINES: ChartOverlayPriceLine[] = [];
+const EMPTY_OVERLAY_MARKERS: ChartOverlayMarker[] = [];
+const EMPTY_OVERLAY_CANDLES: ChartOverlayCandle[] = [];
+const EMPTY_CHART_OVERLAY_PAYLOAD: ChartOverlayPayload = {
+  priceLines: EMPTY_OVERLAY_PRICE_LINES,
+  markers: EMPTY_OVERLAY_MARKERS,
+};
 
 export type ChartOverlayPriceLine = {
   id: string;
@@ -109,6 +118,15 @@ const sanitizeCandles = (candles: ChartOverlayCandle[]): ChartOverlayCandle[] =>
     .sort((left, right) => left.time - right.time);
 
 const toUpper = (value: string): string => value.trim().toUpperCase();
+
+const hasEnabledOverlayFeatures = (showOnChart: ChartShowOnChartSettings): boolean =>
+  showOnChart.openPositions ||
+  showOnChart.tpSlStopLimit ||
+  showOnChart.closedPositions ||
+  showOnChart.tradingSignals ||
+  showOnChart.hmrPeriods ||
+  showOnChart.priceAlerts ||
+  showOnChart.potentialStopOut;
 
 // Known base symbols that are NOT 6 characters (the standard XXXYYY forex
 // format). Everything else is assumed to be 6-char forex (EURUSD, GBPUSD…).
@@ -582,14 +600,31 @@ export const buildChartOverlayPayload = ({
   showOnChart,
   activeTool,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
-  const sanitizedCandles = sanitizeCandles(candles);
-  const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
-  const symbolPositions = positions.filter(
-    (position) => normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol,
-  );
-  const symbolOrders = orders.filter((order) => normalizeChartOverlaySymbol(order.symbol) === normalizedChartSymbol);
+  const needsPatternMarkers = activeTool === 'patterns';
+  if (!hasEnabledOverlayFeatures(showOnChart) && !needsPatternMarkers) {
+    return EMPTY_CHART_OVERLAY_PAYLOAD;
+  }
 
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  const needsCandleData =
+    needsPatternMarkers ||
+    showOnChart.closedPositions ||
+    showOnChart.tradingSignals ||
+    showOnChart.hmrPeriods ||
+    showOnChart.potentialStopOut;
+  const sanitizedCandles = needsCandleData ? sanitizeCandles(candles) : EMPTY_OVERLAY_CANDLES;
+  const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
+  const needsPositionData =
+    showOnChart.openPositions ||
+    showOnChart.tpSlStopLimit ||
+    showOnChart.potentialStopOut;
+  const symbolPositions = needsPositionData
+    ? positions.filter((position) => normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol)
+    : [];
+  const symbolOrders = showOnChart.tpSlStopLimit
+    ? orders.filter((order) => normalizeChartOverlaySymbol(order.symbol) === normalizedChartSymbol)
+    : [];
+
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
     console.log(
       `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
       `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
@@ -683,14 +718,20 @@ export const buildChartOverlayPayload = ({
     buildHmrMarkers(sanitizedCandles).forEach((marker) => addUniqueMarker(markers, marker));
   }
 
-  buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));
+  if (needsPatternMarkers) {
+    buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));
+  }
 
   const result = {
     priceLines: Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
     markers: Array.from(markers.values()).sort((left, right) => left.time - right.time),
   };
 
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  if (result.priceLines.length === 0 && result.markers.length === 0) {
+    return EMPTY_CHART_OVERLAY_PAYLOAD;
+  }
+
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
     console.log(
       `[ChartOverlay] OUTPUT: ${result.priceLines.length} priceLines, ${result.markers.length} markers`,
     );
