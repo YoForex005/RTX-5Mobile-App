@@ -993,10 +993,22 @@ const CHART_TAP_TIMEFRAME_HEIGHT = 30;
 const CHART_TAP_OUTER_ITEM_RADIUS = CHART_TAP_MENU_SIZE / 2 - CHART_TAP_RING_WIDTH / 2;
 const CHART_TAP_ACTION_RADIUS = CHART_TAP_OUTER_ITEM_RADIUS;
 const CHART_TAP_MENU_PADDING = 10;
+const CHART_TAP_MENU_VISUAL_OFFSET_X = 8;
+const CHART_TAP_MENU_VISUAL_OFFSET_Y = 8;
 const CHART_META_DEFAULT_LEFT = 12;
 const CHART_META_DEFAULT_TOP = 10;
 const CHART_META_FALLBACK_WIDTH = 196;
 const CHART_META_FALLBACK_HEIGHT = 34;
+
+const clampMenuCenter = (value: number, containerSize: number) =>
+  clampValue(
+    value,
+    CHART_TAP_MENU_PADDING + CHART_TAP_MENU_SIZE / 2,
+    Math.max(
+      CHART_TAP_MENU_PADDING + CHART_TAP_MENU_SIZE / 2,
+      containerSize - CHART_TAP_MENU_SIZE / 2 - CHART_TAP_MENU_PADDING,
+    ),
+  );
 
 const getRadialItemPosition = (
   angleFromTop: number,
@@ -1054,38 +1066,44 @@ function ChartTapRadialMenu({
 }) {
   const containerWidth = bounds.width;
   const containerHeight = bounds.height;
-  const plotAreaLeft = plotArea.width > 0 ? plotArea.left : 0;
-  const plotAreaTop = plotArea.height > 0 ? plotArea.top : 0;
-  const plotAreaWidth = plotArea.width > 0 ? plotArea.width : containerWidth;
-  const plotAreaHeight = plotArea.height > 0 ? plotArea.height : containerHeight;
 
   const resolveMenuPosition = React.useCallback(
-    (left: number, top: number) => ({
-      left: clampOverlayOffset(left, containerWidth, CHART_TAP_MENU_SIZE),
-      top: clampOverlayOffset(top, containerHeight, CHART_TAP_MENU_SIZE),
-    }),
+    (centerX: number, centerY: number) => {
+      const clampedCenterX = clampMenuCenter(centerX, containerWidth);
+      const clampedCenterY = clampMenuCenter(centerY, containerHeight);
+      return {
+        left: Math.round(clampedCenterX - CHART_TAP_MENU_SIZE / 2),
+        top: Math.round(clampedCenterY - CHART_TAP_MENU_SIZE / 2),
+      };
+    },
     [containerHeight, containerWidth],
   );
 
-  const computeAnchorPosition = React.useCallback(() => {
-    const baseLeft = plotAreaLeft + (plotAreaWidth - CHART_TAP_MENU_SIZE) / 2;
-    const baseTop = plotAreaTop + (plotAreaHeight - CHART_TAP_MENU_SIZE) / 2;
-    return resolveMenuPosition(baseLeft, baseTop);
-  }, [plotAreaHeight, plotAreaLeft, plotAreaTop, plotAreaWidth, resolveMenuPosition]);
+  const computeCenteredPosition = React.useCallback(
+    () =>
+      resolveMenuPosition(
+        containerWidth / 2 + CHART_TAP_MENU_VISUAL_OFFSET_X,
+        containerHeight / 2 + CHART_TAP_MENU_VISUAL_OFFSET_Y,
+      ),
+    [containerHeight, containerWidth, resolveMenuPosition],
+  );
 
-  const [menuPosition, setMenuPositionState] = React.useState(computeAnchorPosition);
+  const [menuPosition, setMenuPositionState] = React.useState(computeCenteredPosition);
   const menuViewRef = React.useRef<View>(null);
   const menuPositionRef = React.useRef(menuPosition);
   const dragOriginRef = React.useRef(menuPosition);
   const dismissReadyAtRef = React.useRef(Date.now() + 180);
   const lastAnchorKeyRef = React.useRef(
-    `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}:${plotAreaLeft}:${plotAreaTop}:${plotAreaWidth}:${plotAreaHeight}`,
+    `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}`,
   );
   const syncFrameRef = React.useRef<number | null>(null);
 
   const applyMenuPosition = React.useCallback(
     (left: number, top: number, commitToState = false) => {
-      const nextPosition = resolveMenuPosition(left, top);
+      const nextPosition = resolveMenuPosition(
+        left + CHART_TAP_MENU_SIZE / 2,
+        top + CHART_TAP_MENU_SIZE / 2,
+      );
       menuPositionRef.current = nextPosition;
       menuViewRef.current?.setNativeProps({
         style: { top: nextPosition.top, left: nextPosition.left },
@@ -1117,25 +1135,21 @@ function ChartTapRadialMenu({
   }, [menuPosition]);
 
   React.useLayoutEffect(() => {
-    const key = `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}:${plotAreaLeft}:${plotAreaTop}:${plotAreaWidth}:${plotAreaHeight}`;
+    const key = `${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}`;
     if (lastAnchorKeyRef.current === key && menuPositionRef.current) {
       return;
     }
     lastAnchorKeyRef.current = key;
     dismissReadyAtRef.current = Date.now() + 180;
-    const nextPosition = computeAnchorPosition();
+    const nextPosition = computeCenteredPosition();
     menuPositionRef.current = nextPosition;
     setMenuPositionState(nextPosition);
   }, [
     anchor.x,
     anchor.y,
-    computeAnchorPosition,
+    computeCenteredPosition,
     containerHeight,
     containerWidth,
-    plotAreaHeight,
-    plotAreaLeft,
-    plotAreaTop,
-    plotAreaWidth,
   ]);
 
   const panResponder = React.useMemo(
@@ -4446,6 +4460,8 @@ export function ChartScreen() {
       setChartExpirationMenuOpen(false);
     }
   }, [showChartTradeExpiration]);
+  const showChartTradeStopLabelsOnChart =
+    showChartTradeSheet && chartTradeSheetMode !== 'expanded';
   const chartTradePreviewLines = useMemo<ChartOverlayPriceLine[]>(() => {
     if (!showChartTradeSheet) {
       return [];
@@ -4493,8 +4509,10 @@ export function ChartScreen() {
         color: resolvedChartColors.tradeTpSl || '#089981',
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Dashed,
-        axisLabelVisible: true,
-        title: `TP, + ${usdFor(chartTradeTpPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeTpPrice)} points`,
+        axisLabelVisible: showChartTradeStopLabelsOnChart,
+        title: showChartTradeStopLabelsOnChart
+          ? `TP, + ${usdFor(chartTradeTpPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeTpPrice)} points`
+          : '',
       });
     }
 
@@ -4505,8 +4523,10 @@ export function ChartScreen() {
         color: resolvedChartColors.tradeStopOut || '#F23645',
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Dashed,
-        axisLabelVisible: true,
-        title: `SL, - ${usdFor(chartTradeSlPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeSlPrice)} points`,
+        axisLabelVisible: showChartTradeStopLabelsOnChart,
+        title: showChartTradeStopLabelsOnChart
+          ? `SL, - ${usdFor(chartTradeSlPrice).toFixed(2)} ${accountCurrency}, ${pointsFor(chartTradeSlPrice)} points`
+          : '',
       });
     }
 
@@ -4529,6 +4549,7 @@ export function ChartScreen() {
     isDark,
     resolvedChartColors.tradeStopOut,
     resolvedChartColors.tradeTpSl,
+    showChartTradeStopLabelsOnChart,
     showChartTradeSheet,
     tradeVolume,
   ]);
@@ -4723,6 +4744,15 @@ export function ChartScreen() {
       setShowChartTypeMenu(true);
     });
   }, [closeChartTapMenu]);
+  const handleCloseChartTypePicker = useCallback(() => {
+    setShowChartTypeMenu(false);
+  }, []);
+  const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
+    traceUiInteraction(`chart.chartType.select.${nextType}`, () => {
+      setChartVisualType(nextType);
+      setShowChartTypeMenu(false);
+    });
+  }, [setChartVisualType]);
 
   const handleOpenObjectsScreen = useCallback(() => {
     traceUiInteraction('chart.objects.open', () => {
@@ -6041,6 +6071,59 @@ export function ChartScreen() {
               </View>
             </View>
           </View>
+          {showChartTypeMenu ? (
+            <View pointerEvents="box-none" style={styles.chartTypeMenuLayer}>
+              <Pressable
+                style={StyleSheet.absoluteFillObject}
+                onPress={handleCloseChartTypePicker}
+                unstable_pressDelay={0}
+              />
+              <View
+                style={[
+                  styles.chartTypeMenuCard,
+                  { top: isChartExpanded ? safeInsets.top + 52 : 56 },
+                ]}
+              >
+                {[
+                  { key: 'candles' as const, label: 'Candlestick', icon: 'stats-chart' as const },
+                  { key: 'hollow' as const, label: 'Hollow Candles', icon: 'stats-chart-outline' as const },
+                  { key: 'bars' as const, label: 'OHLC Bars', icon: 'bar-chart-outline' as const },
+                  { key: 'line' as const, label: 'Line', icon: 'trending-up-outline' as const },
+                ].map((option, index, arr) => {
+                  const active = chartType === option.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      style={[
+                        styles.chartTypeMenuOption,
+                        index < arr.length - 1 && styles.chartTypeMenuOptionDivider,
+                        active && styles.chartTypeMenuOptionActive,
+                      ]}
+                      onPress={() => handleSelectChartType(option.key)}
+                      unstable_pressDelay={0}
+                    >
+                      <View style={styles.chartTypeMenuOptionLeft}>
+                        <Ionicons
+                          name={option.icon}
+                          size={16}
+                          color={active ? BLUE : TEXT_MUTED}
+                        />
+                        <Text
+                          style={[
+                            styles.chartTypeMenuOptionText,
+                            active && styles.chartTypeMenuOptionTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </View>
+                      {active ? <Ionicons name="checkmark" size={16} color={BLUE} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
           <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
@@ -6863,18 +6946,6 @@ export function ChartScreen() {
       />
 
       <ActionSheet
-        visible={showChartTypeMenu}
-        onClose={() => setShowChartTypeMenu(false)}
-        title='Chart Type'
-        actions={[
-          { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
-          { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
-          { label: 'OHLC Bars', onPress: () => setChartVisualType('bars') },
-          { label: 'Line', onPress: () => setChartVisualType('line') },
-        ]}
-      />
-
-      <ActionSheet
         visible={chartExpirationMenuOpen}
         onClose={() => setChartExpirationMenuOpen(false)}
         title='Expiration'
@@ -7311,6 +7382,55 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       ...StyleSheet.absoluteFillObject,
       zIndex: 40,
       elevation: 120,
+    },
+    chartTypeMenuLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 48,
+      elevation: 140,
+    },
+    chartTypeMenuCard: {
+      position: 'absolute',
+      alignSelf: 'center',
+      width: 228,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#D7DEE7',
+      backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+      shadowColor: '#000000',
+      shadowOpacity: isDark ? 0.3 : 0.12,
+      shadowOffset: { width: 0, height: 10 },
+      shadowRadius: 24,
+      elevation: 18,
+      overflow: 'hidden',
+    },
+    chartTypeMenuOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      minHeight: 46,
+      paddingHorizontal: 14,
+      backgroundColor: 'transparent',
+    },
+    chartTypeMenuOptionDivider: {
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+    },
+    chartTypeMenuOptionActive: {
+      backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.08)',
+    },
+    chartTypeMenuOptionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flexShrink: 1,
+    },
+    chartTypeMenuOptionText: {
+      color: isDark ? '#E5E7EB' : '#0F172A',
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    chartTypeMenuOptionTextActive: {
+      color: BLUE,
     },
     chartTapMenu: {
       position: 'absolute',
