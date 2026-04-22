@@ -7,7 +7,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -31,7 +31,10 @@ export function ClosePositionScreen() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [actionLocked, setActionLocked] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const actionLockRef = useRef(false);
+  const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
 
@@ -59,6 +62,89 @@ export function ClosePositionScreen() {
       void usePositionsState.getState().refreshPositions(resolvedLogin);
     }
   }, [position, resolvedLogin]);
+
+  useEffect(() => () => {
+    if (actionReleaseTimeoutRef.current) {
+      clearTimeout(actionReleaseTimeoutRef.current);
+      actionReleaseTimeoutRef.current = null;
+    }
+  }, []);
+
+  const releaseActionLock = useCallback((delay = 0) => {
+    if (actionReleaseTimeoutRef.current) {
+      clearTimeout(actionReleaseTimeoutRef.current);
+      actionReleaseTimeoutRef.current = null;
+    }
+    const finalize = () => {
+      actionLockRef.current = false;
+      setActionLocked(false);
+      actionReleaseTimeoutRef.current = null;
+    };
+    if (delay > 0) {
+      actionReleaseTimeoutRef.current = setTimeout(finalize, delay);
+      return;
+    }
+    finalize();
+  }, []);
+
+  const handleClosePosition = useCallback(async () => {
+    if (!position || actionLockRef.current || isClosing) {
+      return;
+    }
+
+    actionLockRef.current = true;
+    setActionLocked(true);
+
+    const ticketId = position.id;
+    if (!accountDetails?.credentials?.accessToken) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            'Authentication Error',
+            'The app does not have a valid local trading session. Log in again before closing a position.',
+          ),
+        ),
+      );
+      releaseActionLock();
+      return;
+    }
+
+    setIsClosing(true);
+    setCloseError(null);
+    try {
+      await positionsApi.closePosition(ticketId);
+
+      const state = usePositionsState.getState();
+      state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
+      setSubmitted(true);
+      router.back();
+
+      if (resolvedLogin) {
+        state.refreshPositions(resolvedLogin);
+      }
+    } catch (error: any) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          classifyTradingError(error, { action: 'close-position' }),
+        ),
+      );
+    } finally {
+      setIsClosing(false);
+      releaseActionLock();
+    }
+  }, [accountDetails?.credentials?.accessToken, isClosing, position, releaseActionLock, resolvedLogin]);
+
+  const handleOpenCloseBy = useCallback(() => {
+    if (!position || actionLockRef.current || isClosing) {
+      return;
+    }
+
+    actionLockRef.current = true;
+    setActionLocked(true);
+    primePositionSnapshot(position);
+    router.push({ pathname: '/trade/close-by', params: { positionId: position.id } });
+    releaseActionLock(320);
+  }, [isClosing, position, primePositionSnapshot, releaseActionLock]);
 
   const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -139,45 +225,10 @@ export function ClosePositionScreen() {
 
         <View style={styles.buttonRow}>
           <Pressable
-            style={[styles.actionButton, styles.closeButton, isClosing && { opacity: 0.6 }]}
-            disabled={isClosing}
-            onPress={async () => {
-              const ticketId = position.id;
-              if (!accountDetails?.credentials?.accessToken) {
-                setCloseError(
-                  formatTradingErrorFeedback(
-                    createFrontendTradingError(
-                      'Authentication Error',
-                      'The app does not have a valid local trading session. Log in again before closing a position.',
-                    ),
-                  ),
-                );
-                return;
-              }
-
-              setIsClosing(true);
-              setCloseError(null);
-              try {
-                await positionsApi.closePosition(ticketId);
-
-                const state = usePositionsState.getState();
-                state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
-                setSubmitted(true);
-                router.back();
-
-                if (resolvedLogin) {
-                  state.refreshPositions(resolvedLogin);
-                }
-              } catch (error: any) {
-                setCloseError(
-                  formatTradingErrorFeedback(
-                    classifyTradingError(error, { action: 'close-position' }),
-                  ),
-                );
-              } finally {
-                setIsClosing(false);
-              }
-            }}
+            style={[styles.actionButton, styles.closeButton, (isClosing || actionLocked) && { opacity: 0.6 }]}
+            disabled={isClosing || actionLocked}
+            onPressIn={handleClosePosition}
+            unstable_pressDelay={0}
           >
             {isClosing ? (
               <ActivityIndicator color={T.trading.sell.primary} />
@@ -187,11 +238,10 @@ export function ClosePositionScreen() {
           </Pressable>
 
           <Pressable
-            style={[styles.actionButton, styles.closeByButton]}
-            onPress={() => {
-              primePositionSnapshot(position);
-              router.push({ pathname: '/trade/close-by', params: { positionId: position.id } });
-            }}
+            style={[styles.actionButton, styles.closeByButton, actionLocked && { opacity: 0.6 }]}
+            disabled={isClosing || actionLocked}
+            onPressIn={handleOpenCloseBy}
+            unstable_pressDelay={0}
           >
             <Text style={styles.closeByButtonText}>Close By</Text>
           </Pressable>

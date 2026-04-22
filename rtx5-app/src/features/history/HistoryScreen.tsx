@@ -337,11 +337,6 @@ export function HistoryScreen() {
             ]}
           >
             <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
-            <Ionicons
-              name={historySummaryDetailsVisible ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={T.textMuted}
-            />
           </Pressable>
           <View style={styles.summaryBalanceInline}>
             <Text
@@ -768,9 +763,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     summaryToggleInline: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
-      paddingVertical: 2,
-      paddingRight: 4,
+      gap: 0,
+      paddingVertical: 6,
+      paddingRight: 0,
       flexShrink: 0,
     },
     summaryBalanceInline: {

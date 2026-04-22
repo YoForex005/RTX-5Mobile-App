@@ -48,4 +48,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - 2026-04-08: Removed the large market-desk hero panel from the quotes screen while preserving the updated dark background treatment.
 - 2026-04-08: Retuned the quotes search bar color in dark mode to a clearer blue-slate field for better contrast against the background.
 - 2026-04-08: Removed the floating orb shapes from the quotes screen background while keeping the full-screen theme wash intact.
+- 2026-04-22: Symbol details `Market Sentiment` no longer uses a UI-local clamped placeholder path. The buyers/sellers split now comes from one typed domain calculator shared with the day-range logic, using the current quote plus the latest `D1` candle range when available and falling back to the quote snapshot only when daily history is unavailable.
+- 2026-04-22: Removed the decorative dot separator that was rendered immediately before `Spread` on the main Quotes card stats row, so the spread label now displays directly without the extra ornament.
+- 2026-04-22: Added a fixed inline gap between the `Vol` and `Spread` stats on the main Quotes card row after removing the decorative separator, so the two values remain visually separated without reintroducing the dot.
 

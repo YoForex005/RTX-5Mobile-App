@@ -11,11 +11,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Animated, Pressable, RefreshControl, StyleSheet, Text, View, FlatList } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import { MetricRow } from '../../components/MetricRow';
+import React, { useMemo, useRef, useEffect, useCallback } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View, FlatList } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -261,10 +258,9 @@ export function TradeScreen() {
   const s = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
-  const setSidebarOpen = useUIState((st) => st.setSidebarOpen);
   const showActionSheet = useUIState((st) => st.showActionSheet);
 
-  // ── Pull-to-refresh & Live Fetch ────────────────────────────────────────
+  // ── Position Hydration & Live Fetch ─────────────────────────────────────
   const { positions, refreshPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
       positions: state.positions,
@@ -276,31 +272,19 @@ export function TradeScreen() {
     })),
   );
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
-  const [refreshing, setRefreshing] = useState(false);
   const resolvedLogin = resolveTradingLogin();
 
   const fetchPositions = useCallback(async () => {
     const mt5Login = resolveTradingLogin();
     if (!mt5Login) {
-      setRefreshing(false);
       return;
     }
 
-    setRefreshing(true);
-    try {
-      await refreshPositions(String(mt5Login));
-    } finally {
-      setRefreshing(false);
-    }
+    await refreshPositions(String(mt5Login));
   }, [refreshPositions]);
 
-  const onRefresh = useCallback(async () => {
-    await fetchPositions();
-  }, [fetchPositions]);
-
-  // Initial fetch when the account login is first available. Tab focus
-  // should NOT trigger an auto-refetch — the user has explicit control via
-  // pull-to-refresh.
+  // Initial fetch when the account login is first available. After that,
+  // live position updates flow through the websocket/store pipeline.
   useEffect(() => {
     if (resolvedLogin) {
       fetchPositions();
@@ -366,15 +350,6 @@ export function TradeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={isDark ? '#D1D4DC' : '#131722'}
-            colors={[isDark ? '#D1D4DC' : '#131722']}
-            progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
-          />
-        }
         initialNumToRender={15}
         maxToRenderPerBatch={10}
         windowSize={5}

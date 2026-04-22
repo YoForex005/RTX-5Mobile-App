@@ -114,31 +114,149 @@ function resolveMergedQuoteSnapshot(
   };
 }
 
+const areQuoteSnapshotsEqual = (
+  left: Partial<QuoteItem> | undefined,
+  right: Partial<QuoteItem> | undefined,
+): boolean => {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return !left && !right;
+  }
+
+  return (
+    left.symbol === right.symbol &&
+    left.bid === right.bid &&
+    left.ask === right.ask &&
+    left.digits === right.digits &&
+    left.lastTickAt === right.lastTickAt &&
+    left.spread === right.spread &&
+    left.volume === right.volume &&
+    left.changePct === right.changePct
+  );
+};
+
+const mergeQuoteTickIntoSnapshot = (
+  requestedSymbol: string,
+  currentSnapshot: Partial<QuoteItem> | undefined,
+  tick: { bid: number; ask: number; timestamp: number },
+): Partial<QuoteItem> | undefined => {
+  const normalizedSymbol = normalizeSymbol(requestedSymbol);
+  if (!normalizedSymbol) {
+    return undefined;
+  }
+
+  const digits =
+    typeof currentSnapshot?.digits === 'number' && Number.isFinite(currentSnapshot.digits)
+      ? currentSnapshot.digits
+      : undefined;
+
+  return resolveMergedQuoteSnapshot(requestedSymbol, {
+    ...(currentSnapshot || {}),
+    symbol: normalizedSymbol,
+    bid: tick.bid,
+    ask: tick.ask,
+    lastTickAt: tick.timestamp,
+    spread:
+      digits !== undefined
+        ? (tick.ask - tick.bid) * Math.pow(10, digits)
+        : currentSnapshot?.spread,
+  });
+};
+
 export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefined {
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
-  const selector = React.useCallback(
-    (state: any) => (normalizedSymbol ? state.quotes[normalizedSymbol] : undefined),
-    [normalizedSymbol],
+  const seedQuote = React.useMemo(
+    () =>
+      resolveMergedQuoteSnapshot(
+        symbol,
+        normalizedSymbol ? useTradingState.getState().quotes[normalizedSymbol] : undefined,
+      ),
+    [normalizedSymbol, symbol],
   );
-  const liveQuote = useTradingState(selector);
+  const [liveQuote, setLiveQuote] = React.useState<Partial<QuoteItem> | undefined>(seedQuote);
+  const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
+  const quoteCommitAnimationFrameRef = React.useRef<number | null>(null);
+  const quoteCommitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelScheduledCommit = React.useCallback(() => {
+    if (quoteCommitAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(quoteCommitAnimationFrameRef.current);
+      quoteCommitAnimationFrameRef.current = null;
+    }
+    if (quoteCommitTimerRef.current) {
+      clearTimeout(quoteCommitTimerRef.current);
+      quoteCommitTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleQuoteCommit = React.useCallback(() => {
+    if (quoteCommitAnimationFrameRef.current !== null || quoteCommitTimerRef.current) {
+      return;
+    }
+
+    const commit = () => {
+      quoteCommitAnimationFrameRef.current = null;
+      if (quoteCommitTimerRef.current) {
+        clearTimeout(quoteCommitTimerRef.current);
+        quoteCommitTimerRef.current = null;
+      }
+
+      const nextSnapshot = liveQuoteRef.current;
+      React.startTransition(() => {
+        setLiveQuote((current) => (areQuoteSnapshotsEqual(current, nextSnapshot) ? current : nextSnapshot));
+      });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      quoteCommitAnimationFrameRef.current = requestAnimationFrame(() => {
+        commit();
+      });
+      return;
+    }
+
+    quoteCommitTimerRef.current = setTimeout(() => {
+      commit();
+    }, 16);
+  }, []);
+
+  useEffect(() => {
+    liveQuoteRef.current = seedQuote;
+    setLiveQuote((current) => (areQuoteSnapshotsEqual(current, seedQuote) ? current : seedQuote));
+  }, [seedQuote]);
 
   useEffect(() => {
     if (!normalizedSymbol) {
+      cancelScheduledCommit();
+      liveQuoteRef.current = undefined;
+      setLiveQuote(undefined);
       return;
     }
 
     quotesWsService.connect();
     quotesWsService.subscribe([normalizedSymbol]);
 
-    return () => {
-      quotesWsService.unsubscribe([normalizedSymbol]);
-    };
-  }, [normalizedSymbol]);
+    const listener = (tick: { symbol: string; bid: number; ask: number; timestamp: number }) => {
+      if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
+        return;
+      }
 
-  return React.useMemo(
-    () => resolveMergedQuoteSnapshot(symbol, liveQuote),
-    [liveQuote, symbol],
-  );
+      liveQuoteRef.current = mergeQuoteTickIntoSnapshot(symbol, liveQuoteRef.current, tick);
+      scheduleQuoteCommit();
+    };
+
+    quotesWsService.addTickListener(listener);
+
+    return () => {
+      quotesWsService.removeTickListener(listener);
+      quotesWsService.unsubscribe([normalizedSymbol]);
+      cancelScheduledCommit();
+    };
+  }, [cancelScheduledCommit, normalizedSymbol, scheduleQuoteCommit, symbol]);
+
+  return liveQuote;
 }
 
 /**

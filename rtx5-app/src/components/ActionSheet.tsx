@@ -6,7 +6,7 @@
  * rather than local component state.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
@@ -20,31 +20,82 @@ type ActionSheetProps = {
   actions: Array<{ label: string; danger?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
   searchable?: boolean;
+  runActionAfterClose?: boolean;
 };
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const ACTION_SHEET_DISMISS_SETTLE_MS = 110;
+const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 2;
+const ACTION_SHEET_FRAME_FALLBACK_MS = 16;
 
-export function ActionSheet({ visible, title, actions, onClose, searchable }: ActionSheetProps) {
+function scheduleDismissSettledAction(callback: () => void): () => void {
+  let cancelled = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let frameHandle: number | null = null;
+  let framesRemaining = ACTION_SHEET_DISMISS_SETTLE_FRAMES;
+
+  const step = () => {
+    if (cancelled) {
+      return;
+    }
+
+    if (framesRemaining <= 0) {
+      callback();
+      return;
+    }
+
+    framesRemaining -= 1;
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameHandle = globalThis.requestAnimationFrame(step);
+      return;
+    }
+
+    timeoutHandle = setTimeout(step, ACTION_SHEET_FRAME_FALLBACK_MS);
+  };
+
+  step();
+
+  return () => {
+    cancelled = true;
+
+    if (frameHandle !== null && typeof globalThis.cancelAnimationFrame === 'function') {
+      globalThis.cancelAnimationFrame(frameHandle);
+    }
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  };
+}
+
+export function ActionSheet({
+  visible,
+  title,
+  actions,
+  onClose,
+  searchable,
+  runActionAfterClose = true,
+}: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
   const themeMode = useUserPreferences((s) => s.themeMode);
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
+  const { height: windowHeight } = useWindowDimensions();
   const [query, setQuery] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
   const pendingActionRef = useRef<(() => void) | null>(null);
-  const pendingActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingActionCancelRef = useRef<(() => void) | null>(null);
 
+  const keyboardLift = Platform.OS === 'android' ? Math.max(0, keyboardHeight) : 0;
   const topInset = Math.max(insets.top, 12);
   const bottomInset = Math.max(insets.bottom, 12);
   const maxVisibleHeight = Math.max(
     260,
-    SCREEN_HEIGHT - topInset - bottomInset - Math.max(0, keyboardHeight) - 12,
+    windowHeight - topInset - bottomInset - 12,
   );
-  const sheetMaxHeight = Math.min(SCREEN_HEIGHT * 0.7, maxVisibleHeight);
+  const sheetMaxHeight = Math.min(windowHeight * 0.7, maxVisibleHeight);
   const reservedChromeHeight =
     (title ? 58 : 28) +
     (searchable ? 56 : 0) +
@@ -57,17 +108,18 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
 
   useEffect(() => {
     return () => {
-      if (pendingActionTimerRef.current) {
-        clearTimeout(pendingActionTimerRef.current);
-        pendingActionTimerRef.current = null;
+      if (pendingActionCancelRef.current) {
+        pendingActionCancelRef.current();
+        pendingActionCancelRef.current = null;
       }
       pendingActionRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    if (Platform.OS !== 'android') {
+      return;
+    }
 
     const handleKeyboardShow = (event: { endCoordinates?: { height?: number } }) => {
       const nextKeyboardHeight = Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom);
@@ -75,8 +127,8 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
     };
     const handleKeyboardHide = () => setKeyboardHeight(0);
 
-    const showSub = Keyboard.addListener(showEvent, handleKeyboardShow);
-    const hideSub = Keyboard.addListener(hideEvent, handleKeyboardHide);
+    const showSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+    const hideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
 
     return () => {
       showSub.remove();
@@ -116,10 +168,10 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
     const action = pendingActionRef.current;
     pendingActionRef.current = null;
 
-    pendingActionTimerRef.current = setTimeout(() => {
-      pendingActionTimerRef.current = null;
+    pendingActionCancelRef.current = scheduleDismissSettledAction(() => {
+      pendingActionCancelRef.current = null;
       action?.();
-    }, ACTION_SHEET_DISMISS_SETTLE_MS);
+    });
   }, [visible]);
 
   const filteredActions = searchable && query.trim()
@@ -127,13 +179,21 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
     : actions;
 
   const handleActionPress = useCallback((actionPress?: () => void) => {
-    if (pendingActionTimerRef.current) {
-      clearTimeout(pendingActionTimerRef.current);
-      pendingActionTimerRef.current = null;
+    if (pendingActionCancelRef.current) {
+      pendingActionCancelRef.current();
+      pendingActionCancelRef.current = null;
     }
+
+    if (!runActionAfterClose) {
+      pendingActionRef.current = null;
+      actionPress?.();
+      onClose();
+      return;
+    }
+
     pendingActionRef.current = actionPress ?? null;
     onClose();
-  }, [onClose]);
+  }, [onClose, runActionAfterClose]);
 
   return (
     <Modal
@@ -150,15 +210,19 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
           unstable_pressDelay={0}
         />
 
-        <Animated.View
-          style={[
-            styles.sheetContainer,
-            {
-              paddingBottom: bottomInset,
-              transform: [{ translateY: sheetTranslateY }],
-            },
-          ]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.sheetHost}
         >
+          <Animated.View
+            style={[
+              styles.sheetContainer,
+              {
+                paddingBottom: bottomInset + keyboardLift,
+                transform: [{ translateY: sheetTranslateY }],
+              },
+            ]}
+          >
           <View style={[styles.sheet, { maxHeight: sheetMaxHeight }]}>
             <View style={styles.handle} />
 
@@ -192,13 +256,13 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
               </View>
             ) : null}
 
-            <ScrollView
-              style={[styles.actionsScroll, { maxHeight: actionsMaxHeight }]}
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            >
+              <ScrollView
+                style={[styles.actionsScroll, { maxHeight: actionsMaxHeight }]}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                keyboardShouldPersistTaps={searchable ? 'always' : 'handled'}
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              >
               {filteredActions.map((action, index) => (
                 <Pressable
                   key={action.label}
@@ -233,6 +297,7 @@ export function ActionSheet({ visible, title, actions, onClose, searchable }: Ac
             </Pressable>
           </View>
         </Animated.View>
+        </KeyboardAvoidingView>
       </Animated.View>
     </Modal>
   );
@@ -247,10 +312,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
       justifyContent: 'flex-end',
     },
+    sheetHost: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
     sheetContainer: {
       width: '100%',
       justifyContent: 'flex-end',
-      backgroundColor: isDark ? '#0E141F' : T.glass2,
     },
     sheet: {
       width: '100%',
@@ -259,7 +327,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderTopWidth: 1,
       borderColor: T.border,
       backgroundColor: isDark ? '#0E141F' : T.glass2,
-      maxHeight: SCREEN_HEIGHT * 0.7,
     },
     handle: {
       alignSelf: 'center',
@@ -309,7 +376,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       height: '100%',
     },
     actionsScroll: {
-      maxHeight: SCREEN_HEIGHT * 0.55,
+      flexGrow: 0,
     },
     action: {
       minHeight: 56,

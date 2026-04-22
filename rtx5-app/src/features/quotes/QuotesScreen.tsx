@@ -439,8 +439,6 @@ const QuoteCard = React.memo(function QuoteCard({
               Vol <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
             </Text>
 
-            <View style={[sc.statDot, { backgroundColor: T.textMuted }]} />
-
             <Text
               style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
               numberOfLines={1}
@@ -1310,19 +1308,12 @@ const sc = StyleSheet.create({
   cardRow2: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
 
   volText: { fontSize: 12, fontWeight: '600' },
   spreadText: { fontSize: 12, fontWeight: '600' },
   statValue: { fontSize: 12, fontWeight: '700' },
-
-  statDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginLeft: 6,
-    marginRight: 3,
-  },
 
   pricesRow: {
     flexDirection: 'row',

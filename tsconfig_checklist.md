@@ -1,6 +1,5 @@
 # RTX5 Mobile App Development Status Checklist
 
-Snapshot date: 2026-04-21
 
 Status rule used in this file:
 - `Completed` means the screen work is marked complete in this tracker.

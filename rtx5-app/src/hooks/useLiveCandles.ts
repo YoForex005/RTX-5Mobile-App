@@ -58,12 +58,14 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     () => (normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : ''),
     [normalizedSymbol, normalizedTimeframe],
   );
-  const cachedCandles = useMemo(
-    () =>
-      candleKey
-        ? (useTradingState.getState().candles[candleKey] as CandleParams[] | undefined) ?? emptyCandles
-        : emptyCandles,
-    [candleKey],
+  const cachedCandles = useTradingState(
+    useCallback(
+      (state) =>
+        candleKey
+          ? (state.candles[candleKey] as CandleParams[] | undefined) ?? emptyCandles
+          : emptyCandles,
+      [candleKey],
+    ),
   );
 
   const subscribe = useCallback(

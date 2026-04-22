@@ -6,12 +6,12 @@
  * That keeps updates scoped to the affected row instead of forcing the whole
  * trade list to re-render on every market tick.
  */
-import { memo, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { GestureDetector, Gesture, TouchableOpacity } from 'react-native-gesture-handler';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { PositionItem } from '../mock/tradingData';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
@@ -49,6 +49,9 @@ function TradePositionRowComponent({
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   const isBuy = item.side === 'buy';
   const [expanded, setExpanded] = useState(false);
+  const [overlayActionLocked, setOverlayActionLocked] = useState(false);
+  const overlayActionLockRef = useRef(false);
+  const overlayActionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const ACTIONS_WIDTH = 270;
   const translateX = useSharedValue(ACTIONS_WIDTH); // Start deeply closed (pushed right)
@@ -56,6 +59,41 @@ function TradePositionRowComponent({
 
   const closeOverlay = () => {
     translateX.value = withSpring(ACTIONS_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+  };
+
+  useEffect(() => () => {
+    if (overlayActionReleaseTimeoutRef.current) {
+      clearTimeout(overlayActionReleaseTimeoutRef.current);
+      overlayActionReleaseTimeoutRef.current = null;
+    }
+  }, []);
+
+  const releaseOverlayActionLock = (delay = 0) => {
+    if (overlayActionReleaseTimeoutRef.current) {
+      clearTimeout(overlayActionReleaseTimeoutRef.current);
+      overlayActionReleaseTimeoutRef.current = null;
+    }
+    const finalize = () => {
+      overlayActionLockRef.current = false;
+      setOverlayActionLocked(false);
+      overlayActionReleaseTimeoutRef.current = null;
+    };
+    if (delay > 0) {
+      overlayActionReleaseTimeoutRef.current = setTimeout(finalize, delay);
+      return;
+    }
+    finalize();
+  };
+
+  const runOverlayAction = (action: () => void) => {
+    if (overlayActionLockRef.current) {
+      return;
+    }
+    overlayActionLockRef.current = true;
+    setOverlayActionLocked(true);
+    closeOverlay();
+    action();
+    releaseOverlayActionLock(320);
   };
 
   const panGesture = Gesture.Pan()
@@ -113,25 +151,106 @@ function TradePositionRowComponent({
   const renderOverlayActions = () => {
     return (
       <Animated.View style={[styles.overlayMenu, overlayStyle, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderLeftColor: dividerColor, zIndex: 100 }]}>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/close-position'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+        <Pressable
+          hitSlop={12}
+          disabled={overlayActionLocked}
+          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-position'))}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            styles.actionBtnContainer,
+            styles.actionBtnPressable,
+            overlayActionLocked && styles.actionBtnDisabled,
+            pressed && styles.actionBtnPressed,
+          ]}
+        >
+          <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="close" size={20} color={T.down} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/close-by'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          </View>
+        </Pressable>
+        <Pressable
+          hitSlop={12}
+          disabled={overlayActionLocked}
+          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-by'))}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            styles.actionBtnContainer,
+            styles.actionBtnPressable,
+            overlayActionLocked && styles.actionBtnDisabled,
+            pressed && styles.actionBtnPressed,
+          ]}
+        >
+          <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="swap-horizontal" size={20} color={T.text} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateWithSnapshot('/trade/modify-position'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          </View>
+        </Pressable>
+        <Pressable
+          hitSlop={12}
+          disabled={overlayActionLocked}
+          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/modify-position'))}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            styles.actionBtnContainer,
+            styles.actionBtnPressable,
+            overlayActionLocked && styles.actionBtnDisabled,
+            pressed && styles.actionBtnPressed,
+          ]}
+        >
+          <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="create" size={20} color={T.text} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); navigateToOrderTicket(); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          </View>
+        </Pressable>
+        <Pressable
+          hitSlop={12}
+          disabled={overlayActionLocked}
+          onPressIn={() => runOverlayAction(navigateToOrderTicket)}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            styles.actionBtnContainer,
+            styles.actionBtnPressable,
+            overlayActionLocked && styles.actionBtnDisabled,
+            pressed && styles.actionBtnPressed,
+          ]}
+        >
+          <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="add" size={20} color={T.text} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); setChartSymbol(item.symbol); router.push('/(tabs)/chart'); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          </View>
+        </Pressable>
+        <Pressable
+          hitSlop={12}
+          disabled={overlayActionLocked}
+          onPressIn={() => runOverlayAction(() => {
+            setChartSymbol(item.symbol);
+            router.push('/(tabs)/chart');
+          })}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            styles.actionBtnContainer,
+            styles.actionBtnPressable,
+            overlayActionLocked && styles.actionBtnDisabled,
+            pressed && styles.actionBtnPressed,
+          ]}
+        >
+          <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
           <Ionicons name="bar-chart" size={20} color={T.text} />
-        </TouchableOpacity>
+          </View>
+        </Pressable>
         {onBulkPress && (
-          <TouchableOpacity activeOpacity={0.7} onPress={() => { closeOverlay(); onBulkPress(); }} containerStyle={styles.actionBtnContainer} style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
+          <Pressable
+            hitSlop={12}
+            disabled={overlayActionLocked}
+            onPressIn={() => runOverlayAction(onBulkPress)}
+            unstable_pressDelay={0}
+            style={({ pressed }) => [
+              styles.actionBtnContainer,
+              styles.actionBtnPressable,
+              overlayActionLocked && styles.actionBtnDisabled,
+              pressed && styles.actionBtnPressed,
+            ]}
+          >
+            <View style={[styles.actionBtn, { backgroundColor: isDark ? T.glass1 : T.glass2, borderColor: T.border }]}>
              <Ionicons name="layers" size={20} color={T.text} />
-          </TouchableOpacity>
+            </View>
+          </Pressable>
         )}
       </Animated.View>
     );
@@ -465,6 +584,9 @@ const styles = StyleSheet.create({
   actionBtnContainer: {
     marginLeft: 6,
   },
+  actionBtnPressable: {
+    borderRadius: 19,
+  },
   actionBtn: {
     width: 38,
     height: 38,
@@ -477,5 +599,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+  },
+  actionBtnPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.96 }],
+  },
+  actionBtnDisabled: {
+    opacity: 0.55,
   },
 });

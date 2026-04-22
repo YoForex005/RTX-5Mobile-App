@@ -34,6 +34,7 @@ import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
+import { useCandleHistory } from '../../query/candles';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -69,6 +70,7 @@ import {
   type ChartTimeRange,
 } from './timeRangePresets';
 import { useShallow } from 'zustand/shallow';
+import { calculateMarketSentiment } from '../../domain/marketSentiment';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -301,16 +303,6 @@ const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: a
     </View>
   );
 });
-
-const getSentimentForSymbol = (symbol: string) => {
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i++) {
-    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const seed = Math.abs(hash + new Date().getDate());
-  const buyPct = 15 + (seed % 71);
-  return { buyPct, sellPct: 100 - buyPct };
-};
 
 const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, borderColor }: any) => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -637,6 +629,11 @@ export function ChartScreen() {
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { data: chartDailyCandles } = useCandleHistory(chartSymbol, 'D1');
+  const chartDailyRangeCandle = useMemo(
+    () => (chartDailyCandles && chartDailyCandles.length > 0 ? chartDailyCandles[chartDailyCandles.length - 1] : null),
+    [chartDailyCandles],
+  );
   const hasCandles = candles.length > 0;
   const timeRangeCandlesRef = useRef(candles);
   const chartCandles = useMemo(
@@ -651,6 +648,25 @@ export function ChartScreen() {
     [displayDecimals],
   );
   const chartMetaLastCandle = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
+  const chartSentimentQuote = useMemo(
+    () => ({
+      bid:
+        typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+          ? chartLiveQuote.bid
+          : chartMetaLastCandle?.close ?? 0,
+      ask:
+        typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+          ? chartLiveQuote.ask
+          : chartMetaLastCandle?.close ?? 0,
+      high: chartLiveQuote?.high,
+      low: chartLiveQuote?.low,
+    }),
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, chartLiveQuote?.high, chartLiveQuote?.low, chartMetaLastCandle?.close],
+  );
+  const sentiment = useMemo(
+    () => calculateMarketSentiment(chartSentimentQuote, chartDailyRangeCandle),
+    [chartDailyRangeCandle, chartSentimentQuote],
+  );
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartMetaItems = useMemo(
     () =>
@@ -1212,8 +1228,6 @@ export function ChartScreen() {
     return labels;
   }, [chartCandles, chartTimeframe]);
 
-  const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
-
   return (
     <Screen style={styles.screen}>
       {!isChartExpanded && (
@@ -1548,6 +1562,7 @@ export function ChartScreen() {
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
         searchable={true}
+        runActionAfterClose={false}
         actions={availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => setChartSymbol(sym),
@@ -1625,7 +1640,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: { backgroundColor: APP_BG, paddingHorizontal: 0 },
 
-    /* ── Header Wrapper (2-row) ──────────────────────────────────── */
+    /* â”€â”€ Header Wrapper (2-row) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     headerWrapper: {
       backgroundColor: isDark ? '#000000' : '#FFFFFF',
       borderBottomWidth: 1,
@@ -1645,7 +1660,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginLeft: -4,
     },
 
-    /* ── Compact Header (Row 2) ──────────────────────────────────── */
+    /* â”€â”€ Compact Header (Row 2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     compactHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1706,7 +1721,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginTop: 1,
     },
 
-    /* ── Center: Live Price ──────────────────────────────────────── */
+    /* â”€â”€ Center: Live Price â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     priceSection: {
       alignItems: 'center',
       justifyContent: 'center',
@@ -1726,7 +1741,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginTop: 1,
     },
 
-    /* ── Right: Price Change ─────────────────────────────────────── */
+    /* â”€â”€ Right: Price Change â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     rightSection: {
       alignItems: 'flex-end',
       flex: 1,
@@ -1799,7 +1814,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: isDark ? '#FACC15' : '#D97706',
     },
 
-    /* ── Card (main body) ────────────────────────────────────────── */
+    /* â”€â”€ Card (main body) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     card: {
       flex: 1,
       backgroundColor: 'transparent',

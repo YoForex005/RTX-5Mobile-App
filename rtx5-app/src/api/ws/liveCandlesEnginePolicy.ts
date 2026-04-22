@@ -26,9 +26,9 @@ const areSeriesStructurallyEqual = (
 };
 
 export const shouldRenderBootstrapPreview = (
-  _historyCandlesLength: number,
-  _visibleCandlesLength: number,
-): boolean => true;
+  historyCandlesLength: number,
+  visibleCandlesLength: number,
+): boolean => historyCandlesLength > 0 || visibleCandlesLength > 0;
 
 export const shouldAdoptCachedSeries = (
   status: 'idle' | 'bootstrapping' | 'ready',
@@ -72,10 +72,30 @@ export const resolveVisibleSeriesMode = (
   const firstLiveTime = liveCandles[0]?.time ?? 0;
 
   if (getBucketGapCount(historyLastTime, firstLiveTime, timeframe) > 1) {
-    return currentCandles.length > 0 ? 'current' : 'history';
+    return 'current';
   }
 
   return 'merged';
+};
+
+export const resolveCurrentVisibleSeries = <TCandle extends MinimalEngineCandle>(
+  historyCandles: readonly TCandle[],
+  liveCandles: readonly TCandle[],
+  currentCandles: readonly TCandle[],
+): readonly TCandle[] => {
+  if (liveCandles.length > 0) {
+    return liveCandles;
+  }
+
+  if (currentCandles.length > 0) {
+    return currentCandles;
+  }
+
+  if (historyCandles.length > 0) {
+    return historyCandles;
+  }
+
+  return [];
 };
 
 export const shouldKeepBootstrappingOnHistoryFailure = (

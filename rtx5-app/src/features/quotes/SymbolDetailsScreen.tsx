@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { quotes } from '../../mock/tradingData';
+import { quotes, type QuoteItem } from '../../mock/tradingData';
 import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
@@ -17,15 +17,16 @@ import { useCandleHistory } from '../../query/candles';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
 import { Alert } from 'react-native';
+import { calculateMarketSentiment, type MarketSentimentSnapshot } from '../../domain/marketSentiment';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const dCol = (c: number, T: ThemeColors) => c > 0 ? T.up : c < 0 ? T.down : T.textMuted;
 const sgn = (c: number) => c > 0 ? '+' : '';
 
-// ─── Flag helpers ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Flag helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CC: Record<string, string> = {
   EUR: 'eu', USD: 'us', GBP: 'gb', JPY: 'jp', CHF: 'ch', AUD: 'au',
   NZD: 'nz', CAD: 'ca', TRY: 'tr', ZAR: 'za', MXN: 'mx', SEK: 'se',
@@ -75,16 +76,16 @@ function SymbolFlags({ symbol }: { symbol: string }) {
   );
 }
 
-// ─── Instrument meta ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Instrument meta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type Meta = { name: string; category: string; sector: string; spreadMode: string; stopsLevel: string; calculation: string; chartMode: string; sessions: Array<[string, string]>; };
-const DEFAULT_SESSIONS: Array<[string, string]> = [['Sunday', '23:05 – 24:00'], ['Monday', '00:00 – 24:00'], ['Tuesday', '00:00 – 24:00'], ['Wednesday', '00:00 – 24:00'], ['Thursday', '00:00 – 24:00'], ['Friday', '00:00 – 22:59']];
+const DEFAULT_SESSIONS: Array<[string, string]> = [['Sunday', '23:05 â€“ 24:00'], ['Monday', '00:00 â€“ 24:00'], ['Tuesday', '00:00 â€“ 24:00'], ['Wednesday', '00:00 â€“ 24:00'], ['Thursday', '00:00 â€“ 24:00'], ['Friday', '00:00 â€“ 22:59']];
 const META: Record<string, Partial<Meta>> = {
   BTCUSD: { name: 'Bitcoin vs US Dollar', category: 'Crypto', sector: 'Digital Asset', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Exchange', chartMode: 'By Last' },
   XAUUSD: { name: 'Gold vs US Dollar', category: 'Commodity', sector: 'Precious Metal', spreadMode: 'Floating', stopsLevel: '0', calculation: 'CFD', chartMode: 'By Bid' },
 };
 function getMeta(sym: string): Meta { return { name: sym.replace(/m$/i, '') + ' Instrument', category: 'Major', sector: 'Currency', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Forex', chartMode: 'By Bid', sessions: DEFAULT_SESSIONS, ...META[sym] }; }
 
-// ─── Section Card ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Section Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Section({ title, icon, children }: { title: string; icon: keyof typeof Ionicons.glyphMap; children: React.ReactNode }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -108,7 +109,7 @@ function Section({ title, icon, children }: { title: string; icon: keyof typeof 
   );
 }
 
-// ─── Row ──────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Row({ label, value, accent, last = false }: { label: string; value: string; accent?: string; last?: boolean }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -122,7 +123,7 @@ function Row({ label, value, accent, last = false }: { label: string; value: str
   );
 }
 
-// ─── Metric Pill ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Metric Pill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function MetricPill({ label, value, accent, icon }: { label: string; value: string; accent?: string; icon: keyof typeof Ionicons.glyphMap }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -139,7 +140,7 @@ function MetricPill({ label, value, accent, icon }: { label: string; value: stri
   );
 }
 
-// ─── Range Bar ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Range Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RangeBar({ pos, color }: { pos: number; color: string }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -157,26 +158,12 @@ function RangeBar({ pos, color }: { pos: number; color: string }) {
   );
 }
 
-// ─── Momentum Indicator ──────────────────────────────────────────────────────
-function MomentumBar({ q }: { q: any }) {
+// â”€â”€â”€ Momentum Indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function MomentumBar({ sentiment }: { sentiment: MarketSentimentSnapshot }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const mom = useMemo(() => makeStyles(T, isDark).mom, [T, isDark]);
-
-  const { buyPct, sellPct } = useMemo(() => {
-    const dynHigh = Math.max(q.high || 0, q.bid, q.ask);
-    const dynLow = Math.min(q.low || Infinity, q.bid, q.ask);
-    const rng = dynHigh - dynLow;
-
-    if (rng <= 0 || dynLow === Infinity) return { buyPct: 50, sellPct: 50 };
-
-    const mid = (q.bid + q.ask) / 2;
-    // Calculate buying pressure based on daily position, constrained nicely
-    let b = Math.round(((mid - dynLow) / rng) * 100);
-    b = Math.max(12, Math.min(88, b));
-
-    return { buyPct: b, sellPct: 100 - b };
-  }, [q.bid, q.ask, q.high, q.low]);
+  const { buyPct, sellPct } = sentiment;
 
   return (
     <View style={mom.container}>
@@ -199,7 +186,7 @@ function MomentumBar({ q }: { q: any }) {
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function SymbolDetailsScreen() {
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
@@ -219,10 +206,10 @@ export function SymbolDetailsScreen() {
 
   const { data: remoteMeta } = useInstrumentMeta(symbol);
 
-  const q = useMemo(() => {
-    const live = liveQuotes[symbol];
+  const q = useMemo<QuoteItem>(() => {
+    const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
     const mock = quotes.find(i => i.symbol === symbol) ?? quotes[0];
-    const base = { ...mock, ...live } as any;
+    const base: QuoteItem = { ...mock, ...live, symbol };
     if (remoteMeta) {
       base.contractSize = remoteMeta.contractSize ?? base.contractSize;
       base.minVolume = remoteMeta.minVolume ?? base.minVolume;
@@ -254,48 +241,43 @@ export function SymbolDetailsScreen() {
     };
   }, [symbol, remoteMeta]);
 
-  // ─── Fetch Tru Daily Range from Candles API ──────────────────────────
+  // â”€â”€â”€ Fetch Tru Daily Range from Candles API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { data: d1Candles } = useCandleHistory(symbol, 'D1');
+  const dailyRangeCandle = useMemo(
+    () => (d1Candles && d1Candles.length > 0 ? d1Candles[d1Candles.length - 1] : null),
+    [d1Candles],
+  );
 
   const d = 2;
   const col = dCol(q.changePct, T);
   const mid = ((q.bid || 0) + (q.ask || 0)) / 2;
 
-  const dynHigh = useMemo(() => {
-    let baseHigh = q.high || 0;
-    if (d1Candles && d1Candles.length > 0) {
-      baseHigh = d1Candles[d1Candles.length - 1].high;
-    }
-    return Math.max(baseHigh, q.bid || 0, q.ask || 0);
-  }, [q.high, q.bid, q.ask, d1Candles]);
-
-  const dynLow = useMemo(() => {
-    let baseLow = q.low || Infinity;
-    if (d1Candles && d1Candles.length > 0) {
-      baseLow = d1Candles[d1Candles.length - 1].low;
-    }
-    return Math.min(baseLow, q.bid || Infinity, q.ask || Infinity);
-  }, [q.low, q.bid, q.ask, d1Candles]);
+  const marketSentiment = useMemo(
+    () => calculateMarketSentiment(q, dailyRangeCandle),
+    [dailyRangeCandle, q],
+  );
+  const dynHigh = marketSentiment.dayHigh;
+  const dynLow = marketSentiment.dayLow;
 
   const dynOpen = useMemo(() => {
     let baseOpen = q.open ?? q.close ?? q.bid ?? 0;
-    if (d1Candles && d1Candles.length > 0) {
-      baseOpen = d1Candles[d1Candles.length - 1].open;
+    if (dailyRangeCandle) {
+      baseOpen = dailyRangeCandle.open;
     }
     return baseOpen;
-  }, [q.open, q.close, q.bid, d1Candles]);
+  }, [dailyRangeCandle, q.bid, q.close, q.open]);
 
   const dynVol = useMemo(() => {
     let baseVol = q.volume ?? 0;
-    if (d1Candles && d1Candles.length > 0) {
-      baseVol = d1Candles[d1Candles.length - 1].volume;
+    if (dailyRangeCandle) {
+      baseVol = dailyRangeCandle.volume;
     }
     return baseVol;
-  }, [q.volume, d1Candles]);
+  }, [dailyRangeCandle, q.volume]);
 
   const rng = dynHigh - dynLow;
   const rPct = dynLow > 0 && dynLow !== Infinity ? (rng / dynLow) * 100 : 0;
-  const vol = rng > 0 ? Math.min(100, Math.max(0, ((mid - dynLow) / rng) * 100)) : 50;
+  const rangePositionPct = marketSentiment.rangePositionPct;
   const pip = 1 / Math.pow(10, d);
   const spp = ((q.spread || 0) * (pip || 1)).toFixed(1);
   const ctk = q.tickValue ?? (10 / mid);
@@ -315,11 +297,11 @@ export function SymbolDetailsScreen() {
       const spreadVal = parseFloat(Number(q.spread || 0).toFixed(2)).toString();
 
       const message = [
-        `📊 ${displayName}`,
+        `ðŸ“Š ${displayName}`,
         ``,
-        `💰 Bid: ${bidPrice}  |  Ask: ${askPrice}`,
-        `📈 Change: ${changeSign}${changePct}%`,
-        `📉 Spread: ${spreadVal}`,
+        `ðŸ’° Bid: ${bidPrice}  |  Ask: ${askPrice}`,
+        `ðŸ“ˆ Change: ${changeSign}${changePct}%`,
+        `ðŸ“‰ Spread: ${spreadVal}`,
         ``,
         `Shared from RTX5 Trading App`,
       ].join('\n');
@@ -378,7 +360,7 @@ export function SymbolDetailsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      {/* ── Fixed custom header — permanent, never shifts ── */}
+      {/* â”€â”€ Fixed custom header â€” permanent, never shifts â”€â”€ */}
       <View style={{
         paddingTop: insets.top,
         backgroundColor: T.bg,
@@ -406,7 +388,7 @@ export function SymbolDetailsScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
 
-        {/* ════ ENTERPRISE HERO SECTION ════ */}
+        {/* â•â•â•â• ENTERPRISE HERO SECTION â•â•â•â• */}
         <View style={s.glassHero.container}>
           {/* Base Blur and Gradient */}
           {isDark && <BlurView intensity={50} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}
@@ -539,16 +521,16 @@ export function SymbolDetailsScreen() {
               </View>
             </View>
             <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>
-              <RangeBar pos={vol} color={col} />
+              <RangeBar pos={rangePositionPct} color={col} />
             </View>
           </View>
 
           {/* 6. SENTIMENT */}
-          <MomentumBar q={q} />
+          <MomentumBar sentiment={marketSentiment} />
 
         </View>
 
-        {/* ── Action Buttons ───── */}
+        {/* â”€â”€ Action Buttons â”€â”€â”€â”€â”€ */}
         <View style={s.act.row}>
           <Pressable style={({ pressed }) => [s.act.btn, s.act.buyBtn, pressed && { opacity: 0.85 }]} onPress={() => { prefetchOrderTicketData(resolveTradingLoginString(), symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol } }); }}>
             <LinearGradient colors={['#2563EB', '#1D4ED8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
@@ -561,7 +543,7 @@ export function SymbolDetailsScreen() {
           </Pressable>
         </View>
 
-        {/* ── Data Sections ────────────── */}
+        {/* â”€â”€ Data Sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section title="Contract Specification" icon="reader-outline">
           <Row label="Contract Size" value={q.contractSize >= 1000 ? `${((q.contractSize || 0) / 1000).toFixed(0)}K units` : String(q.contractSize)} />
           <Row label="Min Volume" value={String(q.minVolume ?? '0.01') + ' lot'} />
@@ -611,7 +593,7 @@ export function SymbolDetailsScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = T.glass2;
   return {

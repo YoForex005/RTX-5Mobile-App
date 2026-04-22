@@ -7,7 +7,6 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useMemo } from 'react';
 import {
   Animated,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -128,8 +127,12 @@ export function SidebarDrawer() {
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <View style={ds.container} pointerEvents={visible ? 'auto' : 'none'}>
+    <View style={ds.container}>
         {/* Overlay */}
         <Animated.View
           style={[

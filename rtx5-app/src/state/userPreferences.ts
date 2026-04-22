@@ -228,6 +228,7 @@ type UserPreferencesState = {
   chartTimeframe: string;
   tradeVolume: number;
   chartVisualType: ChartVisualType;
+  chartViewportShowVolumePane: boolean;
   chartDrawings: string[];
   chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
   chartLockAll: boolean;
@@ -279,6 +280,7 @@ type UserPreferencesState = {
   setChartTimeframe: (timeframe: string) => void;
   setTradeVolume: (volume: number) => void;
   setChartVisualType: (chartType: ChartVisualType) => void;
+  setChartViewportShowVolumePane: (visible: boolean) => void;
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
   setChartDrawings: (drawings: string[]) => void;
@@ -316,6 +318,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartTimeframe: 'H1',
       tradeVolume: DEFAULT_TRADE_VOLUME,
       chartVisualType: 'candles',
+      chartViewportShowVolumePane: false,
       chartDrawings: [],
       chartDrawingRecordsBySymbol: {},
       chartLockAll: false,
@@ -401,6 +404,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
       setTradeVolume: (volume) => set({ tradeVolume: normalizeTradeVolume(volume) }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
+      setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),
       addChartDrawing: (drawing) => {
         const list = get().chartDrawings;
         set({ chartDrawings: [...list, drawing] });
@@ -556,6 +560,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             : (state.chartDrawings ?? []),
           chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
           chartVisualType: state.chartVisualType ?? 'candles',
+          chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
           tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {

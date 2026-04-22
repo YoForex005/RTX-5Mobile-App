@@ -9,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Alert, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
@@ -19,10 +19,10 @@ import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
-import { useLiveTick } from '../../hooks/useLiveCandles';
+import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
-import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import {
   formatTradeVolume,
@@ -30,13 +30,11 @@ import {
   normalizeTradeVolume,
   sanitizeTradeVolumeDraft,
 } from '../../utils/tradeVolume';
-
-const ORDER_TYPES = [
-  'Market Execution',
-  'Buy Limit', 'Sell Limit',
-  'Buy Stop', 'Sell Stop',
-  'Buy Stop Limit', 'Sell Stop Limit',
-];
+import {
+  CHART_ORDER_TYPES,
+  type ChartOrderType,
+} from '../chart/chartTradeOrderUtils';
+import { OrderTypePreviewCard } from './OrderTypePreviewCard';
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
@@ -61,9 +59,12 @@ export function OrderTicketScreen() {
   const WHITE = T.text;
   const SUB = T.textSub;
 
-  const [orderType, setOrderType] = useState('Market Execution');
-  const [typeOpen, setTypeOpen] = useState(false);
+  const [orderType, setOrderType] = useState<ChartOrderType>('Market Execution');
+  const orderTypeTabsRef = useRef<ScrollView | null>(null);
+  const orderTypeTabsViewportWidthRef = useRef(0);
+  const orderTypeTabLayoutsRef = useRef<Partial<Record<ChartOrderType, { x: number; width: number }>>>({});
   const { data: instrumentMeta } = useInstrumentMeta(symbol);
+  const { candles: previewCandles } = useLiveCandles(symbol, 'M1');
   const volumeBounds = useMemo(
     () => ({
       minVolume: instrumentMeta?.minVolume,
@@ -149,6 +150,7 @@ export function OrderTicketScreen() {
 
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
+  const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
   const { data: accountSummary } = useAccountSummary(loginStr);
@@ -172,6 +174,26 @@ export function OrderTicketScreen() {
   const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
   const displayDecimals = 2;
   const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
+  const priceTickSize = instrumentMeta?.tickSize && instrumentMeta.tickSize > 0 ? instrumentMeta.tickSize : pipSize;
+
+  const scrollOrderTypeTabsToSelection = useCallback(
+    (selected: ChartOrderType, animated: boolean) => {
+      const layout = orderTypeTabLayoutsRef.current[selected];
+      const viewportWidth = orderTypeTabsViewportWidthRef.current;
+
+      if (!layout || viewportWidth <= 0) {
+        return;
+      }
+
+      const targetX = Math.max(0, layout.x - (viewportWidth - layout.width) / 2);
+      orderTypeTabsRef.current?.scrollTo({ x: targetX, animated });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    scrollOrderTypeTabsToSelection(orderType, false);
+  }, [orderType, scrollOrderTypeTabsToSelection]);
 
   // Synthesize dynamic live order book updates tied to actual ticking price streams
   // Seed DOM simulation values once so they don't strobe with every tick
@@ -202,6 +224,10 @@ export function OrderTicketScreen() {
   }, [ASK, BID, pipSize, displayDecimals]);
 
   const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
+  const [tradeActionLocked, setTradeActionLocked] = useState(false);
+  const tradeTapLockRef = useRef(false);
+  const tradeActionDisabled = pendingSide !== null || tradeActionLocked;
+  const pricePanelActionDisabled = tradeActionDisabled || !oneClickAccepted || !isMarketExecution;
 
   const syncOpenedPosition = async (login: string, ticketId?: number) => {
     const maxAttempts = 15;
@@ -222,12 +248,25 @@ export function OrderTicketScreen() {
   };
 
   const handlePlaceOrder = async (side: 'buy' | 'sell') => {
+    if (!isMarketExecution) {
+      return;
+    }
+    if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) {
+      return;
+    }
+    tradeTapLockRef.current = true;
+    setTradeActionLocked(true);
+    setPendingSide(side);
+
     if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
       const feedback = createFrontendTradingError(
         'Authentication Error',
         'The app does not have a valid local trading session. Log in again before placing an order.',
       );
       showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
+      tradeTapLockRef.current = false;
+      setTradeActionLocked(false);
+      setPendingSide(null);
       return;
     }
 
@@ -238,13 +277,11 @@ export function OrderTicketScreen() {
         'The app could not resolve the active trading account from local state. Select an account and try again.',
       );
       showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
+      tradeTapLockRef.current = false;
+      setTradeActionLocked(false);
+      setPendingSide(null);
       return;
     }
-
-    setPendingSide(side);
-
-    // Yield control to the UI thread so the ActivityIndicator visually mounts instantly
-    await new Promise(resolve => setTimeout(resolve, 0));
 
     try {
       // Live API Integration: POST /api/v2/orders
@@ -331,6 +368,8 @@ export function OrderTicketScreen() {
       const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
       showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg });
     } finally {
+      tradeTapLockRef.current = false;
+      setTradeActionLocked(false);
       setPendingSide(null);
     }
   };
@@ -389,11 +428,10 @@ export function OrderTicketScreen() {
       <View style={styles.pricePanel}>
         {/* SELL side */}
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
-          disabled={pendingSide !== null}
-          onPress={() => {
-            if (oneClickAccepted) handlePlaceOrder('sell');
-          }}
+          style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
+          disabled={pricePanelActionDisabled}
+          onPressIn={() => { void handlePlaceOrder('sell'); }}
+          unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
           <Text style={styles.priceMain}>{fmt.price(BID)}</Text>
@@ -409,11 +447,10 @@ export function OrderTicketScreen() {
 
         {/* BUY side */}
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pendingSide !== null ? 0.5 : 1 }]}
-          disabled={pendingSide !== null}
-          onPress={() => {
-            if (oneClickAccepted) handlePlaceOrder('buy');
-          }}
+          style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
+          disabled={pricePanelActionDisabled}
+          onPressIn={() => { void handlePlaceOrder('buy'); }}
+          unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
           <Text style={styles.priceMain}>{fmt.price(ASK)}</Text>
@@ -429,40 +466,62 @@ export function OrderTicketScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Order Type */}
-        <Pressable
-          style={styles.flatRow}
-          onPress={() => traceUiInteraction('orderTicket.orderType.toggle', () => setTypeOpen(v => !v))}
-          unstable_pressDelay={0}
+        <Text style={styles.sectionTitle}>ORDER TYPE</Text>
+        <ScrollView
+          ref={orderTypeTabsRef}
+          horizontal
+          directionalLockEnabled
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          style={styles.orderTypeTabsScroll}
+          contentContainerStyle={styles.orderTypeTabs}
+          onLayout={(event) => {
+            orderTypeTabsViewportWidthRef.current = event.nativeEvent.layout.width;
+            scrollOrderTypeTabsToSelection(orderType, false);
+          }}
         >
-          <Text style={styles.rowLabel}>Order Type</Text>
-          <View style={styles.rowRight}>
-            <Text style={styles.rowValueWhite}>{orderType}</Text>
-            <Ionicons name={typeOpen ? 'chevron-up' : 'chevron-down'} size={14} color={T.textMuted} />
-          </View>
-        </Pressable>
-        <View style={styles.hairline} />
+          {CHART_ORDER_TYPES.map((option) => {
+            const active = option === orderType;
+            const isSell = option.toLowerCase().startsWith('sell');
+            return (
+              <Pressable
+                key={option}
+                onLayout={(event) => {
+                  orderTypeTabLayoutsRef.current[option] = {
+                    x: event.nativeEvent.layout.x,
+                    width: event.nativeEvent.layout.width,
+                  };
+                }}
+                style={[
+                  styles.orderTypeTab,
+                  active && styles.orderTypeTabActive,
+                  active && { borderColor: isSell ? SELL_C : BUY_C },
+                ]}
+                onPress={() =>
+                  traceUiInteraction(`orderTicket.orderType.${option}`, () => {
+                    setOrderType(option);
+                    scrollOrderTypeTabsToSelection(option, true);
+                  })
+                }
+                unstable_pressDelay={0}
+              >
+                <View style={[styles.orderTypeTabDot, { backgroundColor: isSell ? SELL_C : BUY_C }]} />
+                <Text style={[styles.orderTypeTabText, active && styles.orderTypeTabTextActive]}>{option}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
-        {typeOpen && (
-          <View style={styles.dropdown}>
-            {ORDER_TYPES.map((opt, i) => {
-              const isSell = opt.toLowerCase().includes('sell');
-              const isCur = opt === orderType;
-              return (
-                <Pressable
-                  key={opt}
-                  style={[styles.dropOpt, isCur && styles.dropOptActive]}
-                  onPress={() => traceUiInteraction(`orderTicket.orderType.${opt}`, () => { setOrderType(opt); setTypeOpen(false); })}
-                  unstable_pressDelay={0}
-                >
-                  <View style={[styles.dropDot, { backgroundColor: isSell ? SELL_C : BUY_C }]} />
-                  <Text style={[styles.dropText, { color: isCur ? WHITE : SUB }]}>{opt}</Text>
-                  {isCur && <Ionicons name="checkmark" size={16} color={T.accent} />}
-                </Pressable>
-              );
-            })}
-            <View style={styles.hairline} />
-          </View>
-        )}
+        <OrderTypePreviewCard
+          symbol={symbol}
+          candles={previewCandles}
+          bid={BID}
+          ask={ASK}
+          tickSize={priceTickSize}
+          T={T}
+          isDark={isDark}
+        />
 
         {/* Volume */}
         <View style={styles.volSection}>
@@ -585,44 +644,58 @@ export function OrderTicketScreen() {
         </View>
 
         {/* Execution Buttons */}
-        <View style={styles.execRow}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.execBtn,
-              styles.execSell,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
-            ]}
-            onPress={() => handlePlaceOrder('sell')}
-            disabled={pendingSide !== null}
-          >
-            {pendingSide === 'sell' ? (
-              <ActivityIndicator color={T.text} />
-            ) : (
-              <>
-                <Text style={styles.execCta}>SELL BY MARKET</Text>
-                <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
-              </>
-            )}
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.execBtn,
-              styles.execBuy,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
-            ]}
-            onPress={() => handlePlaceOrder('buy')}
-            disabled={pendingSide !== null}
-          >
-            {pendingSide === 'buy' ? (
-              <ActivityIndicator color={T.text} />
-            ) : (
-              <>
-                <Text style={styles.execCta}>BUY BY MARKET</Text>
-                <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
+        {isMarketExecution ? (
+          <View style={styles.execRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.execBtn,
+                styles.execSell,
+                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+              ]}
+              onPressIn={() => { void handlePlaceOrder('sell'); }}
+              disabled={tradeActionDisabled}
+              unstable_pressDelay={0}
+            >
+              {pendingSide === 'sell' ? (
+                <ActivityIndicator color={T.text} />
+              ) : (
+                <>
+                  <Text style={styles.execCta}>SELL BY MARKET</Text>
+                  <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.execBtn,
+                styles.execBuy,
+                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+              ]}
+              onPressIn={() => { void handlePlaceOrder('buy'); }}
+              disabled={tradeActionDisabled}
+              unstable_pressDelay={0}
+            >
+              {pendingSide === 'buy' ? (
+                <ActivityIndicator color={T.text} />
+              ) : (
+                <>
+                  <Text style={styles.execCta}>BUY BY MARKET</Text>
+                  <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.pendingSubmitPlaceholder}>
+            <Ionicons name='analytics-outline' size={18} color={T.accent} />
+            <View style={styles.pendingSubmitCopy}>
+              <Text style={styles.pendingSubmitTitle}>{orderType}</Text>
+              <Text style={styles.pendingSubmitText}>
+                Use the new graph to inspect where the trigger sits relative to the live market stream.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Disclaimer */}
         <View style={styles.disclaimer}>
@@ -732,12 +805,35 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     rowValueWhite: { color: WHITE, fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
     hairline: { height: 1, backgroundColor: LINE },
 
-    dropdown: { backgroundColor: ELEVATED, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: T.border },
-    dropOpt: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-    dropOptActive: { backgroundColor: isDark ? 'rgba(59,130,246,0.1)' : T.glass3 },
-    dropDot: { width: 6, height: 6, borderRadius: 3 },
-    dropText: { flex: 1, fontSize: 14, fontWeight: '500' },
-
+    orderTypeTabsScroll: { marginTop: 2 },
+    orderTypeTabs: { gap: 8, paddingTop: 6, paddingBottom: 2, paddingRight: 6 },
+    orderTypeTab: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 999,
+      backgroundColor: ELEVATED,
+      borderWidth: 1,
+      borderColor: T.border,
+    },
+    orderTypeTabActive: {
+      backgroundColor: isDark ? 'rgba(59,130,246,0.1)' : T.glass3,
+    },
+    orderTypeTabDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    orderTypeTabText: {
+      color: SUB,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    orderTypeTabTextActive: {
+      color: WHITE,
+    },
     riskInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 12, paddingRight: 4 },
     volSection: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
     volStepper: { flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 8, backgroundColor: ELEVATED, overflow: 'hidden', borderWidth: 1, borderColor: T.border },
@@ -776,6 +872,33 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
+    pendingSubmitPlaceholder: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 12,
+      marginHorizontal: 12,
+      marginTop: 4,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      borderRadius: 12,
+      backgroundColor: SURFACE,
+      borderWidth: 1,
+      borderColor: T.border,
+    },
+    pendingSubmitCopy: {
+      flex: 1,
+    },
+    pendingSubmitTitle: {
+      color: WHITE,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    pendingSubmitText: {
+      color: SUB,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 4,
+    },
 
     /* Success / Error Modal */
     modalOverlay: {

@@ -7,7 +7,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
@@ -30,7 +30,10 @@ export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [actionLocked, setActionLocked] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const actionLockRef = useRef(false);
+  const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
@@ -66,6 +69,13 @@ export function CloseByScreen() {
     }
   }, [resolvedLogin, sourcePosition]);
 
+  useEffect(() => () => {
+    if (actionReleaseTimeoutRef.current) {
+      clearTimeout(actionReleaseTimeoutRef.current);
+      actionReleaseTimeoutRef.current = null;
+    }
+  }, []);
+
   // Auto-select the first candidate if none is selected
   const activePairId = selectedPairId || candidates[0]?.id || '';
   const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
@@ -73,6 +83,70 @@ export function CloseByScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const screenBg = isDark ? T.bg : '#F1F5F9';
+
+  const releaseActionLock = useCallback((delay = 0) => {
+    if (actionReleaseTimeoutRef.current) {
+      clearTimeout(actionReleaseTimeoutRef.current);
+      actionReleaseTimeoutRef.current = null;
+    }
+    const finalize = () => {
+      actionLockRef.current = false;
+      setActionLocked(false);
+      actionReleaseTimeoutRef.current = null;
+    };
+    if (delay > 0) {
+      actionReleaseTimeoutRef.current = setTimeout(finalize, delay);
+      return;
+    }
+    finalize();
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    if (!sourcePosition || !selectedPair || actionLockRef.current || isClosing) return;
+
+    actionLockRef.current = true;
+    setActionLocked(true);
+
+    if (!accountDetails?.credentials?.accessToken) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            'Authentication Error',
+            'The app does not have a valid local trading session. Log in again before using Close By.',
+          ),
+        ),
+      );
+      releaseActionLock();
+      return;
+    }
+
+    setIsClosing(true);
+    setCloseError(null);
+    try {
+      await positionsApi.closePosition(sourcePosition.id, selectedPair.id);
+
+      const state = usePositionsState.getState();
+      state.setPositions(state.positions.filter(p =>
+        String(p.id) !== String(sourcePosition.id) && String(p.id) !== String(selectedPair.id)
+      ));
+
+      setSubmitted(true);
+      router.back();
+
+      if (resolvedLogin) {
+        state.refreshPositions(resolvedLogin);
+      }
+    } catch (error: any) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          classifyTradingError(error, { action: 'close-by' }),
+        ),
+      );
+    } finally {
+      setIsClosing(false);
+      releaseActionLock();
+    }
+  }, [accountDetails?.credentials?.accessToken, isClosing, releaseActionLock, resolvedLogin, selectedPair, sourcePosition]);
 
   if (!sourcePosition) return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
@@ -89,48 +163,6 @@ export function CloseByScreen() {
       </View>
     </View>
   );
-
-  const handleSubmit = async () => {
-    if (!sourcePosition || !selectedPair) return;
-    
-    if (!accountDetails?.credentials?.accessToken) {
-      setCloseError(
-        formatTradingErrorFeedback(
-          createFrontendTradingError(
-            'Authentication Error',
-            'The app does not have a valid local trading session. Log in again before using Close By.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    setIsClosing(true);
-    setCloseError(null);
-    try {
-      await positionsApi.closePosition(sourcePosition.id, selectedPair.id);
-
-      const state = usePositionsState.getState();
-      state.setPositions(state.positions.filter(p => 
-        String(p.id) !== String(sourcePosition.id) && String(p.id) !== String(selectedPair.id)
-      ));
-      
-      setSubmitted(true);
-      router.back();
-
-      if (resolvedLogin) {
-        state.refreshPositions(resolvedLogin);
-      }
-    } catch (error: any) {
-      setCloseError(
-        formatTradingErrorFeedback(
-          classifyTradingError(error, { action: 'close-by' }),
-        ),
-      );
-    } finally {
-      setIsClosing(false);
-    }
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
@@ -219,11 +251,12 @@ export function CloseByScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.submitButton,
-          (!activePairId || candidates.length === 0 || isClosing) && styles.submitDisabled,
+          (!activePairId || candidates.length === 0 || isClosing || actionLocked) && styles.submitDisabled,
           pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
         ]}
-        disabled={!activePairId || candidates.length === 0 || isClosing}
-        onPress={handleSubmit}
+        disabled={!activePairId || candidates.length === 0 || isClosing || actionLocked}
+        onPressIn={handleSubmit}
+        unstable_pressDelay={0}
       >
         {isClosing ? (
           <ActivityIndicator color="#FFF" />

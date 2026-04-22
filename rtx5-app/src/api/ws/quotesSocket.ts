@@ -4,6 +4,7 @@
 
 import { useTradingState } from '../../state/tradingState';
 import { AppState, NativeEventSubscription } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { quotes as mockQuotes } from '../../mock/tradingData';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
@@ -23,15 +24,21 @@ export class QuotesWebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
+  private reconnectCooldownMs = 60000;
   private isConnected = false;
+  private shouldReconnect = false;
 
   private activeSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();
   private symbolConsumerCounts: Map<string, number> = new Map();
   private pendingUpdates: Map<string, any> = new Map();
   private flushScheduled = false;
+  private flushAnimationFrame: number | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: NativeEventSubscription | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private netInfoUnsubscribe: (() => void) | null = null;
   private lastMessageAt: number = Date.now();
   private lastRecordedFeedGapAt: number = 0;
   private watchdogInterval: NodeJS.Timeout | null = null;
@@ -39,7 +46,7 @@ export class QuotesWebSocketService {
 
   private constructor() {
     this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
+      if (nextAppState === 'active' && this.shouldReconnect && this.hasActiveDemand()) {
         console.log('[Quotes WS] App wake up detected. Reconnecting feed...');
         this.triggerInvisibleReconnect();
       }
@@ -47,18 +54,15 @@ export class QuotesWebSocketService {
   }
 
   private triggerInvisibleReconnect() {
-    if (this.ws) {
-      this.ws.onclose = null;
-      try { this.ws.close(); } catch (e) {}
-      this.ws = null;
+    if (!this.shouldReconnect || !this.hasActiveDemand()) {
+      return;
     }
-    this.isConnected = false;
-    this.stopHeartbeat();
-    this.stopWatchdog();
-    setTimeout(() => {
-      this.reconnectAttempts = 0;
-      this.connect();
-    }, 500);
+
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
+    this.reconnectAttempts = 0;
+    this.teardownSocket();
+    this.scheduleReconnect(500);
   }
 
   public static getInstance(): QuotesWebSocketService {
@@ -84,6 +88,14 @@ export class QuotesWebSocketService {
    * Dispatches the initial connection sequence and applies auto-reconnect logic.
    */
   public connect(): void {
+    if (!this.hasActiveDemand()) {
+      this.shouldReconnect = false;
+      return;
+    }
+
+    this.shouldReconnect = true;
+    this.clearReconnectTimer();
+
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
@@ -96,6 +108,7 @@ export class QuotesWebSocketService {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastMessageAt = Date.now();
+        this.clearNetInfoListener();
         
         this.startHeartbeat();
         this.startWatchdog();
@@ -120,11 +133,7 @@ export class QuotesWebSocketService {
 
       this.ws.onclose = () => {
         console.log('[Quotes WS] Closed');
-        this.stopHeartbeat();
-        this.stopWatchdog();
-        this.isConnected = false;
-        this.ws = null;
-        this.cancelFlush();
+        this.teardownSocket(false);
         this.attemptReconnect();
       };
 
@@ -132,23 +141,21 @@ export class QuotesWebSocketService {
         console.warn('[Quotes WS] Connection error (will auto-reconnect)');
       };
     } catch (e) {
-      console.error('[Quotes WS] Connection failed', e);
+      console.warn('[Quotes WS] Connection failed during initialization. Will retry.', e);
+      this.teardownSocket();
       this.attemptReconnect();
     }
   }
 
   public disconnect(): void {
-    this.cancelFlush();
-    this.stopHeartbeat();
-    this.stopWatchdog();
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
     this.activeSymbols.clear();
     this.stickySymbols.clear();
     this.symbolConsumerCounts.clear();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.isConnected = false;
+    this.teardownSocket();
   }
 
   private startHeartbeat(): void {
@@ -250,9 +257,21 @@ export class QuotesWebSocketService {
     }
 
     this.activeSymbols = nextActiveSymbols;
+    if (this.activeSymbols.size === 0) {
+      this.shouldReconnect = false;
+      this.reconnectAttempts = 0;
+      this.clearReconnectTimer();
+      this.clearNetInfoListener();
+      this.teardownSocket();
+      return;
+    }
+
     if (this.isConnected) {
       this.sendSubscription();
+      return;
     }
+
+    this.connect();
   }
 
   private send(msg: any): void {
@@ -262,13 +281,110 @@ export class QuotesWebSocketService {
   }
 
   private attemptReconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-      console.log(`[Quotes WS] Reconnecting in ${Math.round(delay)}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-      setTimeout(() => this.connect(), delay);
-    } else {
-      console.error('[Quotes WS] Max reconnect attempts reached.');
+    if (!this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
+      return;
+    }
+
+    NetInfo.fetch()
+      .then((state) => {
+        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+          return;
+        }
+
+        if (state.isConnected === false) {
+          console.log('[Quotes WS] Network offline. Pausing reconnect attempts.');
+          if (!this.netInfoUnsubscribe) {
+            this.netInfoUnsubscribe = NetInfo.addEventListener((nextState) => {
+              if (nextState.isConnected && this.shouldReconnect && this.hasActiveDemand()) {
+                console.log('[Quotes WS] Network restored. Resuming connection...');
+                this.clearNetInfoListener();
+                this.reconnectAttempts = 0;
+                this.connect();
+              }
+            });
+          }
+          return;
+        }
+
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          console.warn(
+            `[Quotes WS] Reconnect budget exhausted. Cooling down for ${Math.round(this.reconnectCooldownMs / 1000)}s before retrying.`,
+          );
+          this.reconnectAttempts = 0;
+          this.scheduleReconnect(this.reconnectCooldownMs);
+          return;
+        }
+
+        this.reconnectAttempts += 1;
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 45000);
+        console.log(`[Quotes WS] Reconnecting in ${Math.round(delay)}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        this.scheduleReconnect(delay);
+      })
+      .catch(() => {
+        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+          return;
+        }
+
+        const fallbackDelay = Math.min(this.reconnectDelay * Math.pow(1.5, Math.max(this.reconnectAttempts, 1) - 1), 15000);
+        console.warn(`[Quotes WS] Network status check failed. Retrying in ${Math.round(fallbackDelay)}ms.`);
+        this.scheduleReconnect(fallbackDelay);
+      });
+  }
+
+  private hasActiveDemand(): boolean {
+    return this.activeSymbols.size > 0;
+  }
+
+  private scheduleReconnect(delayMs: number): void {
+    if (!this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
+      return;
+    }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delayMs);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private clearNetInfoListener(): void {
+    if (this.netInfoUnsubscribe) {
+      this.netInfoUnsubscribe();
+      this.netInfoUnsubscribe = null;
+    }
+  }
+
+  private teardownSocket(resetDemand: boolean = false): void {
+    const currentSocket = this.ws;
+
+    this.stopHeartbeat();
+    this.stopWatchdog();
+    this.cancelFlush();
+    this.isConnected = false;
+    this.ws = null;
+
+    if (currentSocket) {
+      currentSocket.onopen = null;
+      currentSocket.onmessage = null;
+      currentSocket.onerror = null;
+      currentSocket.onclose = null;
+      try {
+        currentSocket.close();
+      } catch (error) {
+        console.warn('[Quotes WS] Socket close failed', error);
+      }
+    }
+
+    if (resetDemand) {
+      this.activeSymbols.clear();
+      this.stickySymbols.clear();
+      this.symbolConsumerCounts.clear();
     }
   }
 
@@ -348,17 +464,42 @@ export class QuotesWebSocketService {
       return;
     }
 
-    // Flush in the same JS turn instead of going through RN's timer queue.
-    // That removes a visible delay on the Trade rows where the arrow price
-    // and floating P/L are driven directly from quote ticks.
+    // UI consumers do not need every inbound socket message to force a React
+    // render immediately. The canonical candle engine already receives ticks
+    // synchronously via `emitTick()`, so the store/UI path can safely coalesce
+    // to the next visual frame and avoid saturating the JS thread.
     this.flushScheduled = true;
-    queueMicrotask(() => {
+    const commitFlush = () => {
+      this.flushAnimationFrame = null;
+      if (this.flushTimer) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
       this.flushScheduled = false;
       this.flushUpdates();
-    });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      this.flushAnimationFrame = requestAnimationFrame(() => {
+        commitFlush();
+      });
+      return;
+    }
+
+    this.flushTimer = setTimeout(() => {
+      commitFlush();
+    }, 16);
   }
 
   private cancelFlush(): void {
+    if (this.flushAnimationFrame !== null) {
+      cancelAnimationFrame(this.flushAnimationFrame);
+      this.flushAnimationFrame = null;
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     this.flushScheduled = false;
     this.pendingUpdates.clear();
   }

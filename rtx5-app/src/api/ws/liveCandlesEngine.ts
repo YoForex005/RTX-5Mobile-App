@@ -32,6 +32,7 @@ import {
 import { useTradingState, type Candle } from '../../state/tradingState';
 import { syncMergedCandleCache } from '../../state/candleCache';
 import {
+  resolveCurrentVisibleSeries,
   resolveVisibleSeriesMode,
   shouldAdoptCachedSeries,
   shouldKeepBootstrappingOnHistoryFailure,
@@ -576,11 +577,9 @@ class LiveCandlesEngine {
         : visibleSeriesMode === 'history'
           ? entry.historyCandles.slice(-MAX_CANDLE_SERIES_LENGTH)
           : visibleSeriesMode === 'current'
-            ? (
-                entry.historyCandles.length === 0 && entry.liveCandles.length > 0
-                  ? entry.liveCandles
-                  : entry.candles
-              ).slice(-MAX_CANDLE_SERIES_LENGTH)
+            ? resolveCurrentVisibleSeries(entry.historyCandles, entry.liveCandles, entry.candles).slice(
+                -MAX_CANDLE_SERIES_LENGTH,
+              )
             : [];
     const cacheChanged = syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible, {
       canonical: true,

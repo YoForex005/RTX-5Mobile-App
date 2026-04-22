@@ -181,6 +181,25 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
   );
 });
 
+const LiveQuotePairHeader = React.memo(({ bid, ask, changePct, styles, displayDecimals }: any) => {
+  const tone = typeof changePct === 'number' && changePct >= 0 ? '#089981' : '#F23645';
+  const hasBid = Number.isFinite(bid) && bid > 0;
+  const hasAsk = Number.isFinite(ask) && ask > 0;
+
+  return (
+    <View style={styles.quoteSection}>
+      <View style={styles.quoteRow}>
+        <Text style={[styles.quoteValueText, !hasBid && styles.quoteValuePlaceholder, hasBid && { color: tone }]} numberOfLines={1}>
+          {hasBid ? bid.toFixed(displayDecimals) : '---'}
+        </Text>
+        <Text style={[styles.quoteValueText, !hasAsk && styles.quoteValuePlaceholder, hasAsk && { color: tone }]} numberOfLines={1}>
+          {hasAsk ? ask.toFixed(displayDecimals) : '---'}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTradeButtons = React.memo(({
   symbol,
@@ -5261,6 +5280,32 @@ export function ChartScreen() {
   const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
   const symbolCategory = SYMBOL_CATEGORY[baseSymbol] ?? 'FX';
   const symbolLogo = SYMBOL_LOGOS[baseSymbol] ?? null;
+  const renderChartTradeSheetTopHeader = () => (
+    <View style={styles.chartTradeSheetHeader}>
+      <Pressable
+        style={styles.chartTradeSheetSymbolBlock}
+        onPress={handleOpenSymbolPicker}
+        unstable_pressDelay={0}
+      >
+        <View style={styles.chartTradeSheetSymbolRow}>
+          <Text style={styles.chartTradeSheetSymbolText} numberOfLines={1} adjustsFontSizeToFit>
+            {displaySymbol}
+          </Text>
+          <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
+        </View>
+        <Text style={styles.chartTradeSheetSymbolMeta} numberOfLines={1} adjustsFontSizeToFit>
+          {symbolName}
+        </Text>
+      </Pressable>
+      <LiveQuotePairHeader
+        bid={chartBid}
+        ask={chartAsk}
+        changePct={chartLiveQuote?.changePct}
+        styles={styles}
+        displayDecimals={displayDecimals}
+      />
+    </View>
+  );
 
   const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
   const chartTradeSheetOverlay = showChartTradeSheet ? (
@@ -5353,6 +5398,7 @@ export function ChartScreen() {
               chartTradeSheetScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
             }}
           >
+            {renderChartTradeSheetTopHeader()}
             <ScrollView
               ref={chartTradeTypeTabsOverlayScrollRef}
               horizontal
@@ -5743,15 +5789,33 @@ export function ChartScreen() {
               ) : null}
 
               {chartTradeOrderType === 'Market Execution' ? (
-                <LiveTradeButtons
-                  symbol={chartSymbol}
-                  styles={styles}
-                  displayDecimals={displayDecimals}
-                  lotSize={tradeVolume}
-                  volumeBounds={tradeVolumeBounds}
-                  variant='mt5-market'
-                  onTradeResult={setTradeFeedback}
-                />
+                <>
+                  <LiveTradeButtons
+                    symbol={chartSymbol}
+                    styles={styles}
+                    displayDecimals={displayDecimals}
+                    lotSize={tradeVolume}
+                    volumeBounds={tradeVolumeBounds}
+                    variant='mt5-market'
+                    onTradeResult={setTradeFeedback}
+                  />
+                  <PendingOrderPreviewChart
+                    styles={styles}
+                    candles={candles}
+                    bid={chartBid}
+                    ask={chartAsk}
+                    entryPrice={chartTradeEntryPrice}
+                    stopLimitPriceEnabled={false}
+                    stopLimitPrice={chartTradeStopLimitPrice}
+                    stopLossEnabled={chartTradeSlEnabled}
+                    stopLossPrice={chartTradeSlPrice}
+                    takeProfitEnabled={chartTradeTpEnabled}
+                    takeProfitPrice={chartTradeTpPrice}
+                    displayDecimals={displayDecimals}
+                    buyColor={BLUE}
+                    sellColor={T.trading.sell.primary}
+                  />
+                </>
               ) : (
                 <>
                   <Pressable
@@ -6289,6 +6353,7 @@ export function ChartScreen() {
                       chartTradeSheetScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
                     }}
                   >
+                    {renderChartTradeSheetTopHeader()}
                     <ScrollView
                       ref={chartTradeTypeTabsInlineScrollRef}
                       horizontal
@@ -6678,15 +6743,33 @@ export function ChartScreen() {
                       ) : null}
 
                       {chartTradeOrderType === 'Market Execution' ? (
-                        <LiveTradeButtons
-                          symbol={chartSymbol}
-                          styles={styles}
-                          displayDecimals={displayDecimals}
-                          lotSize={tradeVolume}
-                          volumeBounds={tradeVolumeBounds}
-                          variant='mt5-market'
-                          onTradeResult={setTradeFeedback}
-                        />
+                        <>
+                          <LiveTradeButtons
+                            symbol={chartSymbol}
+                            styles={styles}
+                            displayDecimals={displayDecimals}
+                            lotSize={tradeVolume}
+                            volumeBounds={tradeVolumeBounds}
+                            variant='mt5-market'
+                            onTradeResult={setTradeFeedback}
+                          />
+                          <PendingOrderPreviewChart
+                            styles={styles}
+                            candles={candles}
+                            bid={chartBid}
+                            ask={chartAsk}
+                            entryPrice={chartTradeEntryPrice}
+                            stopLimitPriceEnabled={false}
+                            stopLimitPrice={chartTradeStopLimitPrice}
+                            stopLossEnabled={chartTradeSlEnabled}
+                            stopLossPrice={chartTradeSlPrice}
+                            takeProfitEnabled={chartTradeTpEnabled}
+                            takeProfitPrice={chartTradeTpPrice}
+                            displayDecimals={displayDecimals}
+                            buyColor={BLUE}
+                            sellColor={T.trading.sell.primary}
+                          />
+                        </>
                       ) : (
                         <>
                           <Pressable
@@ -7105,6 +7188,26 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       flex: 1,
+    },
+    quoteSection: {
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+    },
+    quoteRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 10,
+    },
+    quoteValueText: {
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      fontSize: 15,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -0.2,
+    },
+    quoteValuePlaceholder: {
+      color: isDark ? '#94A3B8' : '#64748B',
     },
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
@@ -7582,8 +7685,32 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 16,
-      paddingTop: 4,
-      paddingBottom: 0,
+      paddingTop: 8,
+      paddingBottom: 2,
+      gap: 12,
+    },
+    chartTradeSheetSymbolBlock: {
+      flex: 1,
+      minWidth: 0,
+      paddingRight: 10,
+    },
+    chartTradeSheetSymbolRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    chartTradeSheetSymbolText: {
+      color: BLUE,
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.2,
+      flexShrink: 1,
+    },
+    chartTradeSheetSymbolMeta: {
+      color: '#6B7280',
+      fontSize: 11,
+      fontWeight: '500',
+      marginTop: 2,
     },
     chartTradeOrderTypeSummary: {
       color: '#334155',
@@ -7606,7 +7733,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeTypeTabsScrollPending: {
       minHeight: 42,
       maxHeight: 48,
-      marginTop: 2,
+      marginTop: 8,
     },
     chartTradeSheetBody: {
       paddingHorizontal: 16,
@@ -7614,7 +7741,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeSheetBodyPending: {
       paddingHorizontal: 28,
-      gap: 16,
+      gap: 10,
     },
     chartTradeVolumeCard: {
       flexDirection: 'row',
@@ -7626,7 +7753,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minHeight: 44,
     },
     chartTradeVolumeCardPending: {
-      minHeight: 92,
+      minHeight: 58,
       borderRadius: 10,
       borderColor: '#D9DEE5',
     },
@@ -7638,7 +7765,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 10,
     },
     chartTradeVolumeSidePending: {
-      paddingHorizontal: 20,
+      paddingHorizontal: 16,
     },
     chartTradeVolumeUnitSide: {
       flexDirection: 'row',
@@ -7649,9 +7776,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 6,
     },
     chartTradeVolumeUnitSidePending: {
-      paddingHorizontal: 18,
-      minWidth: 132,
-      gap: 8,
+      paddingHorizontal: 14,
+      minWidth: 120,
+      gap: 6,
     },
     chartTradeVolumeDivider: {
       width: 1,
@@ -7703,7 +7830,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#FFFDFD',
     },
     chartTradePriceCardPendingMt: {
-      minHeight: 88,
+      minHeight: 60,
       borderRadius: 10,
       borderColor: '#E85A4F',
       backgroundColor: '#FFFFFF',
@@ -7717,41 +7844,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeMetaLinkPending: {
       fontSize: 14,
       textDecorationLine: 'underline',
-    },
-    chartTradeSheetSymbolBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-    },
-    chartTradeSheetSymbolText: {
-      color: '#2563EB',
-      fontSize: 20,
-      fontWeight: '700',
-      letterSpacing: 0.3,
-    },
-    chartTradeSheetPriceGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      marginRight: 16,
-    },
-    chartTradeSheetBid: {
-      color: '#0F172A',
-      fontSize: 18,
-      fontWeight: '600',
-      fontVariant: ['tabular-nums'],
-    },
-    chartTradeSheetAsk: {
-      color: '#0F172A',
-      fontSize: 18,
-      fontWeight: '600',
-      fontVariant: ['tabular-nums'],
-    },
-    chartTradeSheetScroll: {
-      flex: 1,
-    },
-    chartTradeSheetScrollContent: {
-      paddingBottom: 20,
     },
     chartTradeTypeTabs: {
       paddingHorizontal: 14,
@@ -7937,7 +8029,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '500',
     },
     chartTradeMetaRowPending: {
-      marginTop: 2,
+      marginTop: 0,
     },
     chartTradeMetaTextPending: {
       color: '#5C6470',
@@ -7951,7 +8043,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     chartTradeStopButtonPending: {
-      minHeight: 78,
+      minHeight: 56,
       borderRadius: 8,
       backgroundColor: '#E8F0FE',
     },
@@ -8060,7 +8152,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeInfoRowPending: {
       gap: 6,
-      paddingVertical: 4,
+      paddingVertical: 1,
     },
     chartTradeInfoLabel: {
       color: '#475569',

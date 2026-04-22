@@ -39,6 +39,10 @@ type UIState = {
   isSearchActive: boolean;
   setSearchActive: (active: boolean) => void;
 
+  /** Tracks whether the chart is running an inline text-entry flow that should hide the tab bar */
+  isChartInlineInputActive: boolean;
+  setChartInlineInputActive: (active: boolean) => void;
+
   /** Tool selection requested from the objects screen and consumed by the chart */
   pendingChartDrawingTool: ChartDrawingKind | null;
   queueChartDrawingTool: (tool: ChartDrawingKind) => void;
@@ -65,6 +69,9 @@ export const useUIState = create<UIState>((set) => ({
 
   isSearchActive: false,
   setSearchActive: (active) => set({ isSearchActive: active }),
+
+  isChartInlineInputActive: false,
+  setChartInlineInputActive: (active) => set({ isChartInlineInputActive: active }),
 
   pendingChartDrawingTool: null,
   queueChartDrawingTool: (tool) => set({ pendingChartDrawingTool: tool }),

@@ -23,6 +23,7 @@ export default function TabsLayout() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isSearchActive = useUIState((s) => s.isSearchActive);
+  const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const { t } = useTranslation();
@@ -30,7 +31,10 @@ export default function TabsLayout() {
   const pathname = usePathname();
 
   const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
-  const shouldHideMenu = (isChartFullscreen && isChartTab) || isSearchActive;
+  const shouldHideMenu =
+    (isChartFullscreen && isChartTab) ||
+    (isChartTab && isChartInlineInputActive) ||
+    isSearchActive;
 
   // Tab bar height adapts to the device's bottom inset (home indicator / pill)
   // Base: 56dp icon+label zone + real bottom inset + 2dp breathing room
@@ -68,7 +72,7 @@ export default function TabsLayout() {
           },
           tabBarActiveBackgroundColor: 'transparent',
           tabBarItemStyle: { backgroundColor: 'transparent' },
-          tabBarHideOnKeyboard: false,
+          tabBarHideOnKeyboard: true,
           // Blur-freezing prevents inactive routes from reacting to focus
           // changes. Leave it off so the route wrappers can actually unmount
           // the heavy live subtrees when the tab loses focus.

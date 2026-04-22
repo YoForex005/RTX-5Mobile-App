@@ -46,6 +46,9 @@ function InnerLayout() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const router = useRouter();
+  const chartPageScreenOptions = {
+    headerShown: false,
+  };
 
   return (
     <>
@@ -94,21 +97,21 @@ function InnerLayout() {
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
           <Stack.Screen name='contest-login' options={{ title: 'Contest Login', headerLeft: () => null }} />
-          <Stack.Screen name='chart/objects' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/settings' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/preferences' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/settings' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/preferences' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/colors' options={{ title: 'Colors' }} />
-          <Stack.Screen name='chart/price-source' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/open-order-mode' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/calculator' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/analytics' options={{ title: 'Analytics' }} />
-          <Stack.Screen name='chart/indicators' options={{ headerShown: false, animation: 'slide_from_left' }} />
+          <Stack.Screen name='chart/price-source' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/open-order-mode' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/calculator' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/analytics' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/indicators' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/indicator-config' options={{ headerShown: false }} />
           <Stack.Screen name='chart/indicator-line-style' options={{ headerShown: false }} />
           <Stack.Screen name='chart/indicator-level' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/specification' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/alerts' options={{ headerShown: false }} />
-          <Stack.Screen name='chart/menu-order' options={{ headerShown: false }} />
+          <Stack.Screen name='chart/specification' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/alerts' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/menu-order' options={chartPageScreenOptions} />
           <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />
           <Stack.Screen name='settings/accounts' options={{ title: 'Accounts' }} />
           <Stack.Screen name='settings/mailbox' options={{ title: 'Mailbox' }} />
