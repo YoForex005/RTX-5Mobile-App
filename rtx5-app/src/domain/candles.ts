@@ -26,6 +26,7 @@ import { normalizeSymbol as normalizeMarketSymbol } from './symbols';
 
 export const DEFAULT_CANDLE_HISTORY_LIMIT = 500;
 export const MAX_CANDLE_SERIES_LENGTH = 2500;
+export const MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT = 8;
 
 // ─── Timeframes ─────────────────────────────────────────────────────────────
 
@@ -562,6 +563,98 @@ export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: s
 
   return bucketCount;
 };
+
+/**
+ * Detect the specific split-cache shape we want to suppress on chart bootstrap:
+ * an old history cluster followed by only a short detached tail of recent bars.
+ *
+ * We intentionally keep this narrow so ordinary session/holiday gaps do not
+ * cause a full cache drop. The canonical engine will rebuild a trustworthy
+ * series from REST history + live quotes when this guard trips.
+ */
+export const hasDetachedShortCandleTail = (
+  candles: Candle[],
+  timeframe: string,
+  maxDetachedTailCandles: number = 3,
+): boolean => {
+  if (candles.length <= 1 || maxDetachedTailCandles <= 0) {
+    return false;
+  }
+
+  const normalized = sortAndDedupeCandles(candles);
+  for (let index = normalized.length - 2; index >= 0; index -= 1) {
+    if (getBucketGapCount(normalized[index].time, normalized[index + 1].time, timeframe) <= 1) {
+      continue;
+    }
+
+    return normalized.length - (index + 1) <= maxDetachedTailCandles;
+  }
+
+  return false;
+};
+
+/**
+ * Thin current-view slices are not safe startup seeds. They usually represent
+ * a detached live-only segment captured mid-session, not authoritative chart
+ * history, and reopening from them produces oversized or contextless candles
+ * until REST history repairs the series.
+ */
+export const isTrustworthyCandleBootstrapSeed = (
+  candles: Candle[],
+  timeframe: string,
+  minCandles: number = MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT,
+): boolean => {
+  if (candles.length === 0) {
+    return false;
+  }
+
+  const normalized = sortAndDedupeCandles(candles);
+  if (normalized.length < minCandles) {
+    return false;
+  }
+
+  return !hasDetachedShortCandleTail(normalized, timeframe);
+};
+
+/**
+ * A startup seed also needs to be recent enough for the current session.
+ * Reopening a chart from a cache that ends far behind "now" makes the first
+ * screen paint look stale until fresh history arrives, which is exactly the
+ * old-candle flash users are seeing on chart open.
+ */
+export const isRecentCandleBootstrapSeed = (
+  candles: Candle[],
+  timeframe: string,
+  maxStalenessBuckets: number = 2,
+  nowInSeconds: number = Math.floor(Date.now() / 1000),
+): boolean => {
+  if (candles.length === 0) {
+    return false;
+  }
+
+  const normalized = sortAndDedupeCandles(candles);
+  const lastTime = normalized[normalized.length - 1]?.time;
+  if (!Number.isFinite(lastTime)) {
+    return false;
+  }
+
+  let allowedTime = lastTime;
+  for (let index = 0; index < maxStalenessBuckets; index += 1) {
+    allowedTime = getExpectedNextCandleTime(allowedTime, timeframe);
+  }
+
+  return nowInSeconds <= allowedTime;
+};
+
+export const isRenderableCandleBootstrapSeed = (
+  candles: Candle[],
+  timeframe: string,
+  minCandles: number = MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT,
+  maxStalenessBuckets: number = 2,
+  nowInSeconds: number = Math.floor(Date.now() / 1000),
+): boolean =>
+  isTrustworthyCandleBootstrapSeed(candles, timeframe, minCandles) &&
+  isRecentCandleBootstrapSeed(candles, timeframe, maxStalenessBuckets, nowInSeconds);
 
 export const hasExcessiveLivePriceGap = (
   candles: Candle[],

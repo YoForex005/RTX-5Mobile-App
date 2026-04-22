@@ -19,7 +19,7 @@ This file maps each screenshot in `/Users/epic1st/Documents/rtx5 mobileapp/scree
 | `IMG_3034.PNG` | Bulk operations compact menu | Reduced bulk actions + cancel | Compact variant renders correctly | Phase 04 |
 | `IMG_3035.PNG` | Market execution ticket | Order type, lot step controls, SL/TP, Buy/Sell CTA | Market ticket fields and CTA layout parity | Phase 04 |
 | `IMG_3036.PNG` | Ticket order type menu | Expanded order type selector | All supported order types selectable | Phase 04 |
-| `IMG_3037.PNG` | Pending order ticket (Buy Limit) | Pending ticket fields + Place CTA | Pending fields/validation/state parity | Phase 04 |
+| `IMG_3037.PNG` | Pending order ticket (Buy Limit) | Pending ticket fields, draggable trigger graph, + Place CTA | Pending fields, trigger-line graph interaction, validation, and state parity | Phase 04 |
 | `IMG_3038.PNG` | Stop limit ticket + expiration | Expiration options and stop-limit inputs | Expiration and stop-limit flows work | Phase 04 |
 | `IMG_3039.PNG` | Chart base screen | Candle surface, axes, top tools, radial quick menu | Chart baseline layout, direct `SL/TP` toolbar affordance, draggable radial/OHLC overlays, on-line trade labels, and drawing-tools popup match | Phase 03 |
 | `IMG_3040.PNG` | Objects manager | Lock/hide controls, add object/text rows | Objects manager controls functional | Phase 03 |

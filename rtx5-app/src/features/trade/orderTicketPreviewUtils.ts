@@ -1,4 +1,5 @@
 import type { CandleParams } from '../../hooks/useLiveCandles';
+import type { ChartOrderType } from '../chart/chartTradeOrderUtils';
 
 export type OrderTicketPreviewPoint = {
   bid: number;
@@ -41,6 +42,57 @@ export const roundOrderTicketPrice = (
   }
 
   return Number(value.toFixed(decimals));
+};
+
+export const resolveOrderTicketPendingOffset = (
+  baseSymbol: string,
+  pointSize: number,
+) => {
+  if (baseSymbol.includes('BTC')) return 350;
+  if (baseSymbol.includes('XAU') || baseSymbol.includes('XAG')) return 2;
+  return pointSize * 90;
+};
+
+export const resolveOrderTicketStopLimitOffset = (
+  baseSymbol: string,
+  pointSize: number,
+  pendingOffset: number,
+) => {
+  if (baseSymbol.includes('BTC')) return 125;
+  if (baseSymbol.includes('XAU') || baseSymbol.includes('XAG')) return 0.75;
+  return Math.max(pointSize * 35, pendingOffset / 2);
+};
+
+export const resolveOrderTicketDefaultPendingPrice = ({
+  orderType,
+  bid,
+  ask,
+  pendingOffset,
+  roundPrice,
+}: {
+  orderType: ChartOrderType;
+  bid: number;
+  ask: number;
+  pendingOffset: number;
+  roundPrice: (value: number) => number;
+}) => {
+  const safeBid = Number.isFinite(bid) && bid > 0 ? bid : Number.isFinite(ask) && ask > 0 ? ask : 0;
+  const safeAsk = Number.isFinite(ask) && ask > 0 ? ask : safeBid;
+
+  switch (orderType) {
+    case 'Buy Limit':
+      return roundPrice(Math.max(0, safeAsk - pendingOffset));
+    case 'Sell Limit':
+      return roundPrice(safeBid + pendingOffset);
+    case 'Buy Stop':
+    case 'Buy Stop Limit':
+      return roundPrice(safeAsk + pendingOffset);
+    case 'Sell Stop':
+    case 'Sell Stop Limit':
+      return roundPrice(Math.max(0, safeBid - pendingOffset));
+    default:
+      return roundPrice(safeAsk);
+  }
 };
 
 export const buildOrderTicketPreviewSeries = ({

@@ -327,17 +327,18 @@ export function HistoryScreen() {
       {/* ── Account Summary (fixed) ── */}
       <Text style={styles.accountSummaryHeading}>Account Summary</Text>
       <View style={styles.summaryBlock}>
-        <View style={styles.summaryTop}>
-          <Pressable
-            onPress={() => traceUiInteraction('history.summary.toggle', toggleHistorySummaryDetails)}
-            unstable_pressDelay={0}
-            style={({ pressed }) => [
-              styles.summaryToggleInline,
-              pressed && styles.summaryTogglePressed,
-            ]}
-          >
-            <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
-          </Pressable>
+        <Pressable
+          onPress={() => traceUiInteraction('history.summary.toggle', toggleHistorySummaryDetails)}
+          unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle account summary details"
+          accessibilityState={{ expanded: historySummaryDetailsVisible }}
+          style={({ pressed }) => [
+            styles.summaryTop,
+            pressed && styles.summaryTogglePressed,
+          ]}
+        >
+          <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
           <View style={styles.summaryBalanceInline}>
             <Text
               style={[styles.summaryBalanceValue, { color: T.text, opacity: 0.9 }]}
@@ -348,7 +349,7 @@ export function HistoryScreen() {
             </Text>
             <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}>{currency}</Text>
           </View>
-        </View>
+        </Pressable>
         {historySummaryDetailsVisible ? (
           <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
             <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
@@ -760,14 +761,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent', gap: 12 },
     summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 1 },
-    summaryToggleInline: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 0,
-      paddingVertical: 6,
-      paddingRight: 0,
-      flexShrink: 0,
-    },
     summaryBalanceInline: {
       flex: 1,
       minWidth: 0,

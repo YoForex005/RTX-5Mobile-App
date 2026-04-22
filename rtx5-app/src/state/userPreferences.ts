@@ -235,6 +235,7 @@ type UserPreferencesState = {
   chartHideAll: boolean;
   chartShowOnChart: ChartShowOnChartSettings;
   historySummaryDetailsVisible: boolean;
+  tradeSummaryDetailsVisible: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
   /**
@@ -290,6 +291,7 @@ type UserPreferencesState = {
   setChartHideAll: (hide: boolean) => void;
   setChartShowOnChartItem: <K extends ChartShowOnChartKey>(key: K, value: ChartShowOnChartSettings[K]) => void;
   setHistorySummaryDetailsVisible: (visible: boolean) => void;
+  setTradeSummaryDetailsVisible: (visible: boolean) => void;
   setPriceSource: (source: 'bid' | 'ask') => void;
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
@@ -325,6 +327,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartHideAll: false,
       chartShowOnChart: { ...DEFAULT_CHART_SHOW_ON_CHART },
       historySummaryDetailsVisible: true,
+      tradeSummaryDetailsVisible: true,
       priceSource: 'bid',
       openOrderMode: 'Regular',
       oneClickAccepted: false,
@@ -456,6 +459,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           },
         })),
       setHistorySummaryDetailsVisible: (visible) => set({ historySummaryDetailsVisible: visible }),
+      setTradeSummaryDetailsVisible: (visible) => set({ tradeSummaryDetailsVisible: visible }),
       setPriceSource: (source) => set({ priceSource: source }),
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
@@ -499,7 +503,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 11,
+      version: 12,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -553,6 +557,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartShowOnChart: nextChartShowOnChart,
           historySummaryDetailsVisible:
             state.historySummaryDetailsVisible ??
+            ((version ?? 0) < 11 ? state.tradeSummaryDetailsVisible : undefined) ??
+            true,
+          tradeSummaryDetailsVisible:
             state.tradeSummaryDetailsVisible ??
             true,
           chartDrawings: activeDrawingLabels.length > 0

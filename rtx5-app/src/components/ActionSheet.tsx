@@ -6,7 +6,21 @@
  * rather than local component state.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
@@ -20,11 +34,13 @@ type ActionSheetProps = {
   actions: Array<{ label: string; danger?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
   searchable?: boolean;
+  detent?: 'auto' | 'adaptive' | 'large';
   runActionAfterClose?: boolean;
 };
 
 const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 2;
 const ACTION_SHEET_FRAME_FALLBACK_MS = 16;
+const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
 
 function scheduleDismissSettledAction(callback: () => void): () => void {
   let cancelled = false;
@@ -73,6 +89,7 @@ export function ActionSheet({
   actions,
   onClose,
   searchable,
+  detent = 'adaptive',
   runActionAfterClose = true,
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
@@ -81,29 +98,93 @@ export function ActionSheet({
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
   const { height: windowHeight } = useWindowDimensions();
+  const screenHeight = Dimensions.get('screen').height;
+  const androidWindowHeightFloor = Platform.OS === 'android'
+    ? Math.max(windowHeight, screenHeight)
+    : windowHeight;
   const [query, setQuery] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [stableWindowHeight, setStableWindowHeight] = useState(androidWindowHeightFloor);
+  const [presentedWindowHeight, setPresentedWindowHeight] = useState<number | null>(null);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingActionCancelRef = useRef<(() => void) | null>(null);
 
-  const keyboardLift = Platform.OS === 'android' ? Math.max(0, keyboardHeight) : 0;
+  const filteredActions = searchable && query.trim()
+    ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
+    : actions;
+  const keyboardLift = Platform.OS === 'android' && searchable ? Math.max(0, keyboardHeight) : 0;
   const topInset = Math.max(insets.top, 12);
   const bottomInset = Math.max(insets.bottom, 12);
+  const usesLargeDetent = detent === 'large';
+  const usesAdaptiveDetent = detent === 'adaptive';
+  const effectiveWindowHeight = Platform.OS === 'android'
+    ? (presentedWindowHeight ?? Math.max(windowHeight, stableWindowHeight, androidWindowHeightFloor))
+    : windowHeight;
+  const availableWindowHeight = Platform.OS === 'android'
+    ? Math.max(260, effectiveWindowHeight - keyboardLift)
+    : effectiveWindowHeight;
   const maxVisibleHeight = Math.max(
     260,
-    windowHeight - topInset - bottomInset - 12,
+    availableWindowHeight - topInset - bottomInset - 12,
   );
-  const sheetMaxHeight = Math.min(windowHeight * 0.7, maxVisibleHeight);
   const reservedChromeHeight =
     (title ? 58 : 28) +
     (searchable ? 56 : 0) +
     84;
+  const estimatedActionsHeight = filteredActions.length * ACTION_SHEET_ROW_MIN_HEIGHT;
+  const estimatedSheetHeight = reservedChromeHeight + estimatedActionsHeight;
+  const adaptiveSheetFloor = usesLargeDetent
+    ? Math.max(360, availableWindowHeight * 0.62)
+    : usesAdaptiveDetent && searchable
+      ? Math.max(320, availableWindowHeight * 0.54)
+      : 0;
+  const sheetTargetHeight = Math.max(estimatedSheetHeight, adaptiveSheetFloor);
+  const sheetMaxHeight = Math.min(maxVisibleHeight, sheetTargetHeight);
+  const sheetMinHeight = usesLargeDetent && sheetMaxHeight > estimatedSheetHeight
+    ? Math.min(sheetMaxHeight, Math.max(360, availableWindowHeight * 0.62))
+    : undefined;
   const actionsMaxHeight = Math.max(140, sheetMaxHeight - reservedChromeHeight);
+  const actionsMinHeight = usesLargeDetent && sheetMaxHeight > estimatedSheetHeight
+    ? Math.max(180, sheetMaxHeight - reservedChromeHeight)
+    : undefined;
 
   useEffect(() => {
-    if (visible) setQuery('');
+    setStableWindowHeight((current) => {
+      if (Platform.OS !== 'android') {
+        return windowHeight;
+      }
+      if (keyboardHeight > 0 && windowHeight < current) {
+        return current;
+      }
+      return Math.max(current, windowHeight, androidWindowHeightFloor);
+    });
+  }, [androidWindowHeightFloor, keyboardHeight, windowHeight]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      setPresentedWindowHeight(null);
+      return;
+    }
+
+    if (!visible) {
+      setPresentedWindowHeight(null);
+      return;
+    }
+
+    const nextHeight = Math.max(windowHeight, stableWindowHeight, androidWindowHeightFloor);
+    setPresentedWindowHeight((current) => (
+      current === null
+        ? nextHeight
+        : Math.max(current, nextHeight)
+    ));
+  }, [androidWindowHeightFloor, stableWindowHeight, visible, windowHeight]);
+
+  useEffect(() => {
+    if (visible) {
+      setQuery('');
+    }
   }, [visible]);
 
   useEffect(() => {
@@ -146,7 +227,7 @@ export function ActionSheet({
 
     overlayOpacity.setValue(0);
     sheetTranslateY.setValue(28);
-      Animated.parallel([
+    Animated.parallel([
       Animated.timing(overlayOpacity, {
         toValue: 1,
         duration: 80,
@@ -174,10 +255,6 @@ export function ActionSheet({
     });
   }, [visible]);
 
-  const filteredActions = searchable && query.trim()
-    ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
-    : actions;
-
   const handleActionPress = useCallback((actionPress?: () => void) => {
     if (pendingActionCancelRef.current) {
       pendingActionCancelRef.current();
@@ -195,6 +272,109 @@ export function ActionSheet({
     onClose();
   }, [onClose, runActionAfterClose]);
 
+  const androidPresentationStyle = Platform.OS === 'android'
+    ? { minHeight: effectiveWindowHeight, height: effectiveWindowHeight, flex: 0 as const }
+    : null;
+  const sheetBody = (
+    <Animated.View
+      style={[
+        styles.sheetContainer,
+        {
+          paddingBottom: bottomInset + keyboardLift,
+          transform: [{ translateY: sheetTranslateY }],
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.sheet,
+          { maxHeight: sheetMaxHeight },
+          sheetMinHeight ? { minHeight: sheetMinHeight } : null,
+        ]}
+      >
+        <View style={styles.handle} />
+
+        {title ? (
+          <View style={styles.titleContainer}>
+            {title.includes(': ') ? (
+              <Text>
+                <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
+                <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
+              </Text>
+            ) : (
+              <Text style={styles.titlePrefix}>{title}</Text>
+            )}
+          </View>
+        ) : (
+          <View style={{ height: 16 }} />
+        )}
+
+        {searchable ? (
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
+            <TextInput
+              style={[styles.searchInput, { outlineStyle: 'none' } as any]}
+              placeholder="Search symbol..."
+              placeholderTextColor={T.textMuted}
+              value={query}
+              onChangeText={setQuery}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+          </View>
+        ) : null}
+
+        <ScrollView
+          style={[
+            styles.actionsScroll,
+            { maxHeight: actionsMaxHeight },
+            actionsMinHeight ? { minHeight: actionsMinHeight } : null,
+          ]}
+          contentContainerStyle={[
+            styles.actionsContent,
+            usesLargeDetent && styles.actionsContentLarge,
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          keyboardShouldPersistTaps={searchable ? 'always' : 'handled'}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        >
+          {filteredActions.map((action, index) => (
+            <Pressable
+              key={action.label}
+              onPress={() =>
+                traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
+              }
+              unstable_pressDelay={0}
+              style={({ pressed }) => [
+                styles.action,
+                index < filteredActions.length - 1 && styles.actionDivider,
+                action.danger && styles.actionDanger,
+                pressed && styles.actionPressed,
+              ]}
+            >
+              <View style={styles.actionLeft}>
+                {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
+                <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
+                  {action.label}
+                </Text>
+              </View>
+              {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Pressable
+          style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
+          onPress={onClose}
+          unstable_pressDelay={0}
+        >
+          <Text style={styles.cancelText}>Cancel</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -203,101 +383,31 @@ export function ActionSheet({
       {...OVERLAY_MODAL_PROPS}
       onRequestClose={onClose}
     >
-      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
+      <Animated.View
+        style={[
+          styles.overlay,
+          { opacity: overlayOpacity },
+          androidPresentationStyle,
+        ]}
+      >
         <Pressable
           style={StyleSheet.absoluteFillObject}
           onPress={onClose}
           unstable_pressDelay={0}
         />
 
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.sheetHost}
-        >
-          <Animated.View
-            style={[
-              styles.sheetContainer,
-              {
-                paddingBottom: bottomInset + keyboardLift,
-                transform: [{ translateY: sheetTranslateY }],
-              },
-            ]}
+        {Platform.OS === 'ios' ? (
+          <KeyboardAvoidingView
+            behavior='padding'
+            style={styles.sheetHost}
           >
-          <View style={[styles.sheet, { maxHeight: sheetMaxHeight }]}>
-            <View style={styles.handle} />
-
-            {title ? (
-              <View style={styles.titleContainer}>
-                {title.includes(': ') ? (
-                  <Text>
-                    <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
-                    <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
-                  </Text>
-                ) : (
-                  <Text style={styles.titlePrefix}>{title}</Text>
-                )}
-              </View>
-            ) : (
-              <View style={{ height: 16 }} />
-            )}
-
-            {searchable ? (
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
-                <TextInput
-                  style={[styles.searchInput, { outlineStyle: 'none' } as any]}
-                  placeholder="Search symbol..."
-                  placeholderTextColor={T.textMuted}
-                  value={query}
-                  onChangeText={setQuery}
-                  autoCorrect={false}
-                  autoCapitalize="none"
-                />
-              </View>
-            ) : null}
-
-              <ScrollView
-                style={[styles.actionsScroll, { maxHeight: actionsMaxHeight }]}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-                keyboardShouldPersistTaps={searchable ? 'always' : 'handled'}
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              >
-              {filteredActions.map((action, index) => (
-                <Pressable
-                  key={action.label}
-                  onPress={() =>
-                    traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
-                  }
-                  unstable_pressDelay={0}
-                  style={({ pressed }) => [
-                    styles.action,
-                    index < filteredActions.length - 1 && styles.actionDivider,
-                    action.danger && styles.actionDanger,
-                    pressed && styles.actionPressed,
-                  ]}
-                >
-                  <View style={styles.actionLeft}>
-                    {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
-                    <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
-                      {action.label}
-                    </Text>
-                  </View>
-                  {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            <Pressable
-              style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
-              onPress={onClose}
-              unstable_pressDelay={0}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
+            {sheetBody}
+          </KeyboardAvoidingView>
+        ) : (
+          <View style={[styles.sheetHost, androidPresentationStyle]}>
+            {sheetBody}
           </View>
-        </Animated.View>
-        </KeyboardAvoidingView>
+        )}
       </Animated.View>
     </Modal>
   );
@@ -306,7 +416,8 @@ export function ActionSheet({
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     overlay: {
-      ...StyleSheet.absoluteFillObject,
+      flex: 1,
+      width: '100%',
       zIndex: 9999,
       elevation: 9999,
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
@@ -314,6 +425,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     sheetHost: {
       flex: 1,
+      width: '100%',
       justifyContent: 'flex-end',
     },
     sheetContainer: {
@@ -377,6 +489,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     actionsScroll: {
       flexGrow: 0,
+    },
+    actionsContent: {
+      paddingBottom: 0,
+    },
+    actionsContentLarge: {
+      flexGrow: 1,
     },
     action: {
       minHeight: 56,

@@ -7,6 +7,7 @@ import {
   shouldAdoptCachedSeries,
   shouldKeepBootstrappingOnHistoryFailure,
   shouldRenderBootstrapPreview,
+  shouldSyncVisibleSeriesCache,
 } from './liveCandlesEnginePolicy';
 
 const makeCandle = (time: number) => ({ time });
@@ -46,15 +47,15 @@ test('resolveVisibleSeriesMode preserves the current visible series when history
   assert.equal(resolveVisibleSeriesMode([], [], [], 'M1'), 'empty');
 });
 
-test('resolveVisibleSeriesMode preserves the current visible series when live candles detach from history', () => {
+test('resolveVisibleSeriesMode keeps trusted history visible when live candles detach from history', () => {
   assert.equal(
     resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [makeCandle(220)], 'M1'),
-    'current',
+    'history',
   );
 });
 
-test('resolveVisibleSeriesMode enters detached live mode immediately even before a current series exists', () => {
-  assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [], 'M1'), 'current');
+test('resolveVisibleSeriesMode keeps the chart empty on cold start when history is detached from live', () => {
+  assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [], 'M1'), 'empty');
 });
 
 test('resolveCurrentVisibleSeries prefers the fresh live-only segment when history is detached', () => {
@@ -78,6 +79,33 @@ test('resolveVisibleSeriesMode merges history and live candles when they stay co
     resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(220)], [makeCandle(160)], 'M1'),
     'merged',
   );
+});
+
+test('shouldSyncVisibleSeriesCache rejects detached current slices from the shared bootstrap cache', () => {
+  assert.equal(shouldSyncVisibleSeriesCache('current', [makeCandle(340)], 'M1'), false);
+  assert.equal(
+    shouldSyncVisibleSeriesCache(
+      'current',
+      [
+        makeCandle(60),
+        makeCandle(120),
+        makeCandle(180),
+        makeCandle(240),
+        makeCandle(300),
+        makeCandle(360),
+        makeCandle(420),
+        makeCandle(480),
+      ],
+      'M1',
+    ),
+    false,
+  );
+});
+
+test('shouldSyncVisibleSeriesCache keeps merged and history snapshots cacheable', () => {
+  assert.equal(shouldSyncVisibleSeriesCache('history', [makeCandle(100)], 'M1'), true);
+  assert.equal(shouldSyncVisibleSeriesCache('merged', [makeCandle(100), makeCandle(160)], 'M1'), true);
+  assert.equal(shouldSyncVisibleSeriesCache('empty', [], 'M1'), false);
 });
 
 test('shouldKeepBootstrappingOnHistoryFailure stays true until the engine has a safe visible series', () => {

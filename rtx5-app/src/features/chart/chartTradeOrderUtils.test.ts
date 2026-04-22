@@ -6,6 +6,7 @@ import {
   isPendingChartOrderType,
   isPendingChartTradeValid,
   isStopLimitChartOrderType,
+  resolveStablePendingChartTradeEnabled,
   resolveDefaultStopLimitPrice,
   resolveChartTradeFillPolicyLabel,
   supportsChartTradeFillPolicy,
@@ -82,4 +83,50 @@ test('pending order validation matches MT5-style trigger direction rules', () =>
   invalidCases.forEach((input) => {
     assert.equal(isPendingChartTradeValid({ ...sharedInput, ...input }), false, input.orderType);
   });
+});
+
+test('stable pending order validation adds hysteresis around the live boundary', () => {
+  const sharedInput = {
+    orderType: 'Buy Limit' as ChartOrderType,
+    entryPrice: 1.2,
+    bid: 1.1997,
+    stopLimitPrice: undefined,
+    pointSize: 0.00001,
+  };
+
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: 1.1999,
+      previouslyEnabled: true,
+    }),
+    true,
+  );
+
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: 1.1999,
+      previouslyEnabled: false,
+    }),
+    false,
+  );
+
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: 1.2003,
+      previouslyEnabled: false,
+    }),
+    true,
+  );
+
+  assert.equal(
+    resolveStablePendingChartTradeEnabled({
+      ...sharedInput,
+      ask: 1.1996,
+      previouslyEnabled: true,
+    }),
+    false,
+  );
 });

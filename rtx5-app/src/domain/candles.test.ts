@@ -8,7 +8,11 @@ import {
   extractIncomingCandlePayloads,
   getBucketGapCount,
   getExpectedNextCandleTime,
+  hasDetachedShortCandleTail,
   hasExcessiveLivePriceGap,
+  isRecentCandleBootstrapSeed,
+  isRenderableCandleBootstrapSeed,
+  isTrustworthyCandleBootstrapSeed,
   mergeRecentHistoryIntoCandles,
   mergeCandleUpdate,
   materializeCanonicalHistoryAndLiveCandles,
@@ -175,6 +179,170 @@ test('getBucketGapCount treats friday-to-monday as one daily bucket', () => {
   const mondayDailyOpenTime = Date.UTC(2026, 3, 20, 21, 0, 0) / 1000;
 
   assert.equal(getBucketGapCount(fridayDailyOpenTime, mondayDailyOpenTime, 'D1'), 1);
+});
+
+test('hasDetachedShortCandleTail detects a short detached live tail', () => {
+  assert.equal(
+    hasDetachedShortCandleTail(
+      [
+        { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+        { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+        { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+      ],
+      'M1',
+    ),
+    true,
+  );
+  assert.equal(
+    hasDetachedShortCandleTail(
+      [
+        { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+        { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+        { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+        { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+      ],
+      'M1',
+    ),
+    true,
+  );
+});
+
+test('hasDetachedShortCandleTail ignores contiguous and longer-tail series', () => {
+  assert.equal(
+    hasDetachedShortCandleTail(
+      [
+        { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+        { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+        { time: 180, open: 1.16, high: 1.19, low: 1.14, close: 1.17, volume: 7 },
+      ],
+      'M1',
+    ),
+    false,
+  );
+  assert.equal(
+    hasDetachedShortCandleTail(
+      [
+        { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+        { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+        { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+        { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+        { time: 420, open: 1.25, high: 1.28, low: 1.24, close: 1.27, volume: 6 },
+        { time: 480, open: 1.27, high: 1.3, low: 1.26, close: 1.29, volume: 7 },
+      ],
+      'M1',
+    ),
+    false,
+  );
+  assert.equal(
+    hasDetachedShortCandleTail(
+      [
+        {
+          time: Date.UTC(2026, 3, 17, 21, 0, 0) / 1000,
+          open: 1.1,
+          high: 1.2,
+          low: 1.05,
+          close: 1.15,
+          volume: 100,
+        },
+        {
+          time: Date.UTC(2026, 3, 20, 21, 0, 0) / 1000,
+          open: 1.15,
+          high: 1.22,
+          low: 1.12,
+          close: 1.2,
+          volume: 10,
+        },
+      ],
+      'D1',
+    ),
+    false,
+  );
+});
+
+test('isTrustworthyCandleBootstrapSeed rejects thin live-only slices and detached short tails', () => {
+  assert.equal(
+    isTrustworthyCandleBootstrapSeed(
+      [
+        { time: 60, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 4 },
+        { time: 120, open: 1.11, high: 1.14, low: 1.1, close: 1.13, volume: 5 },
+        { time: 180, open: 1.13, high: 1.15, low: 1.12, close: 1.14, volume: 6 },
+      ],
+      'M1',
+    ),
+    false,
+  );
+  assert.equal(
+    isTrustworthyCandleBootstrapSeed(
+      [
+        { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.12, volume: 10 },
+        { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
+        { time: 180, open: 1.16, high: 1.19, low: 1.14, close: 1.17, volume: 7 },
+        { time: 240, open: 1.17, high: 1.2, low: 1.16, close: 1.18, volume: 9 },
+        { time: 300, open: 1.18, high: 1.21, low: 1.17, close: 1.2, volume: 11 },
+        { time: 360, open: 1.2, high: 1.22, low: 1.19, close: 1.21, volume: 8 },
+        { time: 600, open: 1.3, high: 1.34, low: 1.29, close: 1.33, volume: 4 },
+        { time: 660, open: 1.33, high: 1.36, low: 1.32, close: 1.35, volume: 5 },
+      ],
+      'M1',
+    ),
+    false,
+  );
+});
+
+test('isTrustworthyCandleBootstrapSeed accepts contiguous chart seeds with enough context', () => {
+  assert.equal(
+    isTrustworthyCandleBootstrapSeed(
+      [
+        { time: 60, open: 1.1, high: 1.12, low: 1.08, close: 1.11, volume: 4 },
+        { time: 120, open: 1.11, high: 1.14, low: 1.09, close: 1.13, volume: 5 },
+        { time: 180, open: 1.13, high: 1.16, low: 1.12, close: 1.15, volume: 6 },
+        { time: 240, open: 1.15, high: 1.18, low: 1.14, close: 1.17, volume: 7 },
+        { time: 300, open: 1.17, high: 1.19, low: 1.16, close: 1.18, volume: 8 },
+        { time: 360, open: 1.18, high: 1.2, low: 1.17, close: 1.19, volume: 9 },
+        { time: 420, open: 1.19, high: 1.22, low: 1.18, close: 1.21, volume: 10 },
+        { time: 480, open: 1.21, high: 1.24, low: 1.2, close: 1.23, volume: 11 },
+      ],
+      'M1',
+    ),
+    true,
+  );
+});
+
+test('isRecentCandleBootstrapSeed rejects cache seeds that end far behind the current session', () => {
+  assert.equal(
+    isRecentCandleBootstrapSeed(
+      [
+        { time: 60, open: 1.1, high: 1.12, low: 1.08, close: 1.11, volume: 4 },
+        { time: 120, open: 1.11, high: 1.14, low: 1.09, close: 1.13, volume: 5 },
+        { time: 180, open: 1.13, high: 1.16, low: 1.12, close: 1.15, volume: 6 },
+        { time: 240, open: 1.15, high: 1.18, low: 1.14, close: 1.17, volume: 7 },
+        { time: 300, open: 1.17, high: 1.19, low: 1.16, close: 1.18, volume: 8 },
+        { time: 360, open: 1.18, high: 1.2, low: 1.17, close: 1.19, volume: 9 },
+        { time: 420, open: 1.19, high: 1.22, low: 1.18, close: 1.21, volume: 10 },
+        { time: 480, open: 1.21, high: 1.24, low: 1.2, close: 1.23, volume: 11 },
+      ],
+      'M1',
+      2,
+      900,
+    ),
+    false,
+  );
+});
+
+test('isRenderableCandleBootstrapSeed requires both a healthy shape and recent tail', () => {
+  const contiguousSeed = [
+    { time: 60, open: 1.1, high: 1.12, low: 1.08, close: 1.11, volume: 4 },
+    { time: 120, open: 1.11, high: 1.14, low: 1.09, close: 1.13, volume: 5 },
+    { time: 180, open: 1.13, high: 1.16, low: 1.12, close: 1.15, volume: 6 },
+    { time: 240, open: 1.15, high: 1.18, low: 1.14, close: 1.17, volume: 7 },
+    { time: 300, open: 1.17, high: 1.19, low: 1.16, close: 1.18, volume: 8 },
+    { time: 360, open: 1.18, high: 1.2, low: 1.17, close: 1.19, volume: 9 },
+    { time: 420, open: 1.19, high: 1.22, low: 1.18, close: 1.21, volume: 10 },
+    { time: 480, open: 1.21, high: 1.24, low: 1.2, close: 1.23, volume: 11 },
+  ];
+
+  assert.equal(isRenderableCandleBootstrapSeed(contiguousSeed, 'M1', 8, 2, 540), true);
+  assert.equal(isRenderableCandleBootstrapSeed(contiguousSeed, 'M1', 8, 2, 900), false);
 });
 
 test('materializeHistoryAndLiveCandles keeps daily history attached across weekend rollover', () => {

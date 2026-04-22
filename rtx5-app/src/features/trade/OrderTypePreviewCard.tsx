@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { LayoutChangeEvent, PanResponder, StyleSheet, Text, View } from 'react-native';
 import Svg, {
+  Circle,
   Defs,
   G,
   Line,
@@ -14,14 +15,22 @@ import Svg, {
 import type { CandleParams } from '../../hooks/useLiveCandles';
 import type { ThemeColors } from '../../theme/useTheme';
 import {
+  getChartOrderSide,
+  isPendingChartOrderType,
+  type ChartOrderType,
+} from '../chart/chartTradeOrderUtils';
+import {
   buildOrderTicketPreviewSeries,
   resolveOrderTicketPriceDecimals,
+  roundOrderTicketPrice,
 } from './orderTicketPreviewUtils';
 
 const CHART_HEIGHT = 166;
 const RIGHT_AXIS_WIDTH = 88;
 const HORIZONTAL_PADDING = 6;
 const VERTICAL_PADDING = 14;
+const TRIGGER_PILL_WIDTH = 96;
+const TRIGGER_PILL_HEIGHT = 28;
 
 type OrderTypePreviewCardProps = {
   symbol: string;
@@ -29,6 +38,9 @@ type OrderTypePreviewCardProps = {
   bid: number;
   ask: number;
   tickSize?: number;
+  orderType: ChartOrderType;
+  pendingEntryPrice: number;
+  onPendingEntryPriceChange?: (next: number) => void;
   T: ThemeColors;
   isDark: boolean;
 };
@@ -39,6 +51,9 @@ export function OrderTypePreviewCard({
   bid,
   ask,
   tickSize,
+  orderType,
+  pendingEntryPrice,
+  onPendingEntryPriceChange,
   T,
   isDark,
 }: OrderTypePreviewCardProps) {
@@ -54,6 +69,16 @@ export function OrderTypePreviewCard({
     [ask, bid, tickSize],
   );
 
+  const isPendingOrder = isPendingChartOrderType(orderType);
+  const orderSide = getChartOrderSide(orderType);
+  const triggerColor = orderSide === 'buy' ? T.trading.buy.primary : T.trading.sell.primary;
+  const fallbackTriggerPrice = orderSide === 'buy'
+    ? (Number.isFinite(ask) && ask > 0 ? ask : bid)
+    : (Number.isFinite(bid) && bid > 0 ? bid : ask);
+  const resolvedTriggerPrice = Number.isFinite(pendingEntryPrice) && pendingEntryPrice > 0
+    ? pendingEntryPrice
+    : roundOrderTicketPrice(fallbackTriggerPrice, tickSize, decimals);
+
   const visibleLevels = useMemo(() => {
     const values = [
       bid,
@@ -61,8 +86,12 @@ export function OrderTypePreviewCard({
       ...previewPoints.flatMap((point) => [point.bid, point.ask]),
     ];
 
+    if (isPendingOrder) {
+      values.push(resolvedTriggerPrice);
+    }
+
     return values.filter((value) => Number.isFinite(value) && value > 0);
-  }, [ask, bid, previewPoints]);
+  }, [ask, bid, isPendingOrder, previewPoints, resolvedTriggerPrice]);
 
   const range = useMemo(() => {
     const minPrice = visibleLevels.length > 0 ? Math.min(...visibleLevels) : Math.min(bid, ask, 0);
@@ -110,14 +139,65 @@ export function OrderTypePreviewCard({
   const askPath = layoutWidth > 0 ? buildPath(previewPoints.map((point) => point.ask)) : '';
   const midPath = layoutWidth > 0 ? buildPath(midpointSeries) : '';
   const areaPath = layoutWidth > 0 ? buildAreaPath(midPath, midpointSeries.length) : '';
+  const triggerY = yPos(resolvedTriggerPrice);
+  const triggerPillY = Math.min(
+    chartBottomY - TRIGGER_PILL_HEIGHT - 4,
+    Math.max(chartTopY + 4, triggerY - TRIGGER_PILL_HEIGHT - 6),
+  );
   const spreadText =
     Number.isFinite(ask) && Number.isFinite(bid) && ask > bid
       ? `Spread ${(ask - bid).toFixed(decimals)}`
       : 'Spread --';
+  const footerText = isPendingOrder
+    ? 'Drag the dotted trigger line up or down to set the pending price on the live graph.'
+    : 'Live bid and ask data update this same graph on every order-type tab.';
 
   const handleLayout = (event: LayoutChangeEvent) => {
     setLayoutWidth(event.nativeEvent.layout.width);
   };
+
+  const applyPendingEntryFromTouchY = useCallback(
+    (touchY: number) => {
+      if (!isPendingOrder || !onPendingEntryPriceChange || layoutWidth <= 0) {
+        return;
+      }
+
+      const clampedY = Math.min(chartBottomY, Math.max(chartTopY, touchY));
+      const progress = (chartBottomY - clampedY) / Math.max(chartBottomY - chartTopY, 1);
+      const rawPrice = range.min + progress * rangeSpan;
+      const roundedPrice = roundOrderTicketPrice(rawPrice, tickSize, decimals);
+
+      if (roundedPrice > 0) {
+        onPendingEntryPriceChange(roundedPrice);
+      }
+    },
+    [
+      chartBottomY,
+      chartTopY,
+      decimals,
+      isPendingOrder,
+      layoutWidth,
+      onPendingEntryPriceChange,
+      range.min,
+      rangeSpan,
+      tickSize,
+    ],
+  );
+
+  const pendingLinePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => isPendingOrder && layoutWidth > 0,
+        onStartShouldSetPanResponderCapture: () => isPendingOrder && layoutWidth > 0,
+        onMoveShouldSetPanResponder: () => isPendingOrder && layoutWidth > 0,
+        onMoveShouldSetPanResponderCapture: () => isPendingOrder && layoutWidth > 0,
+        onPanResponderGrant: (event) => applyPendingEntryFromTouchY(event.nativeEvent.locationY),
+        onPanResponderMove: (event) => applyPendingEntryFromTouchY(event.nativeEvent.locationY),
+        onPanResponderRelease: (event) => applyPendingEntryFromTouchY(event.nativeEvent.locationY),
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [applyPendingEntryFromTouchY, isPendingOrder, layoutWidth],
+  );
 
   return (
     <View style={styles.card} onLayout={handleLayout}>
@@ -127,7 +207,7 @@ export function OrderTypePreviewCard({
           <Text style={styles.title}>{symbol.replace(/\//g, '')} - {spreadText}</Text>
         </View>
         <View style={styles.typePill}>
-          <Text style={styles.typePillText}>LIVE</Text>
+          <Text style={styles.typePillText}>{isPendingOrder ? 'DRAG PRICE' : 'LIVE'}</Text>
         </View>
       </View>
 
@@ -135,6 +215,7 @@ export function OrderTypePreviewCard({
         <Legend swatch={T.trading.sell.primary} label='Bid' styles={styles} />
         <Legend swatch={T.trading.buy.primary} label='Ask' styles={styles} />
         <Legend swatch={T.accent} label='Mid' styles={styles} />
+        {isPendingOrder ? <Legend swatch={triggerColor} label='Trigger' styles={styles} /> : null}
       </View>
 
       <View style={styles.canvasWrap}>
@@ -168,6 +249,62 @@ export function OrderTypePreviewCard({
             {bidPath ? <Path d={bidPath} stroke={T.trading.sell.primary} strokeWidth='1.4' fill='none' /> : null}
             {askPath ? <Path d={askPath} stroke={T.trading.buy.primary} strokeWidth='1.4' fill='none' /> : null}
 
+            {isPendingOrder ? (
+              <>
+                <Line
+                  x1={HORIZONTAL_PADDING}
+                  y1={triggerY}
+                  x2={chartRightX}
+                  y2={triggerY}
+                  stroke={triggerColor}
+                  strokeWidth='1.5'
+                  strokeDasharray='7 5'
+                  strokeLinecap='round'
+                />
+                <Rect
+                  x={HORIZONTAL_PADDING + 8}
+                  y={triggerPillY}
+                  width={TRIGGER_PILL_WIDTH}
+                  height={TRIGGER_PILL_HEIGHT}
+                  rx={8}
+                  fill={isDark ? 'rgba(15,23,42,0.88)' : 'rgba(255,255,255,0.94)'}
+                  stroke={triggerColor}
+                  strokeWidth='1'
+                />
+                <SvgText
+                  x={HORIZONTAL_PADDING + 8 + TRIGGER_PILL_WIDTH / 2}
+                  y={triggerPillY + 10}
+                  fill={triggerColor}
+                  fontSize='8'
+                  fontWeight='700'
+                  letterSpacing='0.6'
+                  textAnchor='middle'
+                >
+                  TRIGGER
+                </SvgText>
+                <SvgText
+                  x={HORIZONTAL_PADDING + 8 + TRIGGER_PILL_WIDTH / 2}
+                  y={triggerPillY + 21}
+                  fill={T.text}
+                  fontSize='9'
+                  fontWeight='800'
+                  textAnchor='middle'
+                >
+                  {resolvedTriggerPrice.toFixed(decimals)}
+                </SvgText>
+                <Circle cx={chartRightX - 8} cy={triggerY} r={5.5} fill={triggerColor} />
+                <Circle
+                  cx={chartRightX - 8}
+                  cy={triggerY}
+                  r={10}
+                  fill='transparent'
+                  stroke={triggerColor}
+                  strokeOpacity={0.24}
+                  strokeWidth='1'
+                />
+              </>
+            ) : null}
+
             <G x={chartRightX + 8} y={yPos(ask) - 13}>
               <Rect width={RIGHT_AXIS_WIDTH - 16} height={26} rx={7} fill={T.trading.buy.primary} />
               <SvgText x={(RIGHT_AXIS_WIDTH - 16) / 2} y={11} fill='#FFFFFF' fontSize='8' fontWeight='700' letterSpacing='0.6' textAnchor='middle'>
@@ -189,10 +326,12 @@ export function OrderTypePreviewCard({
             </G>
           </Svg>
         ) : null}
+
+        {isPendingOrder ? <View style={styles.dragLayer} {...pendingLinePanResponder.panHandlers} /> : null}
       </View>
 
       <Text style={styles.footerText}>
-        Live bid and ask data update this same graph on every order-type tab.
+        {footerText}
       </Text>
     </View>
   );
@@ -290,10 +429,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '600',
     },
     canvasWrap: {
+      position: 'relative',
       height: CHART_HEIGHT,
       overflow: 'hidden',
       borderRadius: 12,
       backgroundColor: isDark ? 'rgba(15,23,42,0.3)' : 'rgba(255,255,255,0.55)',
+    },
+    dragLayer: {
+      ...StyleSheet.absoluteFillObject,
     },
     footerText: {
       marginTop: 10,

@@ -6,7 +6,7 @@
  *   - WebSocket quotes build only a live overlay segment.
  *   - The chart consumes a materialized series derived from:
  *       recent history + live overlay when contiguous
- *       live overlay only when history is detached/stale
+ *       recent trusted history only while detached live heals in the background
  *
  * This avoids exposing half-merged arrays to the chart and prevents the
  * detached old-history + fresh-live cluster artifacts seen on mobile.
@@ -16,11 +16,17 @@ import { CandleHistoryRequestOptions, getCandleHistory } from '../candles';
 import { quotesWsService } from './quotesSocket';
 import type { QuoteTickEvent } from './quotesSocket';
 import {
+  buildQuoteRolloverCandle,
+  mergeFetchedHistoryIntoWindow,
+  shouldAcceptBootstrapHistory,
+} from './liveCandlesEngine.helpers';
+import {
   DEFAULT_CANDLE_HISTORY_LIMIT,
   MAX_CANDLE_SERIES_LENGTH,
   alignTimeToBucket,
   alignTimeToBucketWithReference,
   getExpectedNextCandleTime,
+  isRenderableCandleBootstrapSeed,
   materializeCanonicalHistoryAndLiveCandles,
   mergeCandleUpdate,
   normalizeSymbol,
@@ -37,6 +43,7 @@ import {
   shouldAdoptCachedSeries,
   shouldKeepBootstrappingOnHistoryFailure,
   shouldRenderBootstrapPreview,
+  shouldSyncVisibleSeriesCache,
 } from './liveCandlesEnginePolicy';
 
 export type CandleParams = Candle & {
@@ -101,7 +108,12 @@ const getSeedHistoryCandles = (symbol: string, timeframe: string): CandleParams[
     return [];
   }
 
-  return asCandleParams(sortAndDedupeCandles(cachedCandles)).slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
+  const normalizedCandles = asCandleParams(sortAndDedupeCandles(cachedCandles));
+  if (!isRenderableCandleBootstrapSeed(normalizedCandles, normalizedTimeframe)) {
+    return [];
+  }
+
+  return normalizedCandles.slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
 };
 
 const areCandlesEqual = (a: CandleParams, b: CandleParams): boolean =>
@@ -197,7 +209,11 @@ class LiveCandlesEngine {
     if (!entry) return;
 
     const cachedSeries = asCandleParams(sortAndDedupeCandles(candles)).slice(-MAX_CANDLE_SERIES_LENGTH);
-    if (cachedSeries.length === 0 || areSeriesEqual(entry.candles, cachedSeries)) {
+    if (
+      cachedSeries.length === 0 ||
+      !isRenderableCandleBootstrapSeed(cachedSeries, tf) ||
+      areSeriesEqual(entry.candles, cachedSeries)
+    ) {
       return;
     }
 
@@ -222,11 +238,21 @@ class LiveCandlesEngine {
       entry.status = 'ready';
 
       if (queuedQuotes.length > 0) {
+        const hadVisibleSeries = entry.candles.length > 0;
         const outcome = this.applyQuoteBatch(entry, queuedQuotes);
         this.commitVisibleCandles(entry);
 
         if (outcome.detachedHistory) {
-          this.requestGapRefresh(entry, 'cache_seed_detached_live_stream', outcome.anchorTime);
+          if (!hadVisibleSeries && entry.candles.length === 0) {
+            this.requestHistoryRefresh(
+              entry,
+              'cache_seed_detached_live_stream',
+              outcome.anchorTime ?? this.estimateHistoryAnchor(entry),
+              0,
+            );
+          } else {
+            this.requestGapRefresh(entry, 'cache_seed_detached_live_stream', outcome.anchorTime);
+          }
         } else if (outcome.bucketRolledOver) {
           this.schedulePostRolloverHeal(entry, outcome.anchorTime);
         }
@@ -423,7 +449,28 @@ class LiveCandlesEngine {
     let detachedHistory = false;
     let anchorTime: number | null = null;
 
-    for (const quote of quotes) {
+    const orderedQuotes = quotes
+      .map((quote, index) => ({
+        quote,
+        index,
+        normalizedTimestamp: normalizeTimestampToSeconds(quote.timestamp),
+      }))
+      .sort((left, right) => {
+        if (left.normalizedTimestamp === null && right.normalizedTimestamp === null) {
+          return left.index - right.index;
+        }
+        if (left.normalizedTimestamp === null) {
+          return 1;
+        }
+        if (right.normalizedTimestamp === null) {
+          return -1;
+        }
+        return left.normalizedTimestamp === right.normalizedTimestamp
+          ? left.index - right.index
+          : left.normalizedTimestamp - right.normalizedTimestamp;
+      });
+
+    for (const { quote } of orderedQuotes) {
       const outcome = this.applyQuote(entry, quote);
       changed = changed || outcome.changed;
       bucketRolledOver = bucketRolledOver || outcome.bucketRolledOver;
@@ -455,7 +502,7 @@ class LiveCandlesEngine {
       return { changed: true, bucketRolledOver: true, detachedHistory: true, anchorTime: bucketTime };
     }
 
-    if (liveByTime) {
+    if (liveByTime && currentLiveTail?.time === bucketTime) {
       const merged = mergeCandleUpdate(
         liveByTime,
         {
@@ -477,31 +524,10 @@ class LiveCandlesEngine {
     }
 
     if (bucketTime < baseTail.time) {
-      const matchingHistory = entry.historyCandles.find((candle) => candle.time === bucketTime);
-      if (!matchingHistory) {
-        this.requestGapRefresh(entry, 'late_tick_missing_history_bucket', baseTail.time);
-        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: baseTail.time };
-      }
-
-      const overlayBase = matchingHistory;
-      const merged = mergeCandleUpdate(
-        overlayBase,
-        {
-          time: bucketTime,
-          open: overlayBase.open,
-          high: Math.max(overlayBase.high, quote.price),
-          low: Math.min(overlayBase.low, quote.price),
-          close: quote.price,
-          volume: Math.max(overlayBase.volume + 1, 1),
-        },
-      );
-
-      if (!merged) {
-        return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
-      }
-
-      this.upsertLiveCandle(entry, merged as CandleParams);
-      return { changed: true, bucketRolledOver: false, detachedHistory: false, anchorTime: bucketTime };
+      // Professional live charts do not let raw quote ticks rewrite already
+      // closed buckets. Older-bar corrections must come from authoritative
+      // history reloads, not from delayed/out-of-order socket prices.
+      return { changed: false, bucketRolledOver: false, detachedHistory: false, anchorTime: baseTail.time };
     }
 
     if (bucketTime === baseTail.time) {
@@ -528,7 +554,15 @@ class LiveCandlesEngine {
 
     const expectedNextTime = getExpectedNextCandleTime(baseTail.time, entry.timeframe);
     if (bucketTime === expectedNextTime) {
-      const nextCandle = createLiveCandle(bucketTime, baseTail.close, quote.price, 1);
+      // If we are still stepping out of a pure-history view, we have not
+      // actually observed this new bucket open yet. Starting it from the
+      // first seen quote avoids a fabricated giant body on cold start.
+      const nextCandle = buildQuoteRolloverCandle(
+        bucketTime,
+        baseTail.close,
+        quote.price,
+        entry.liveCandles.length > 0,
+      ) as CandleParams;
       this.upsertLiveCandle(entry, nextCandle);
       return { changed: true, bucketRolledOver: true, detachedHistory: false, anchorTime: bucketTime };
     }
@@ -581,9 +615,15 @@ class LiveCandlesEngine {
                 -MAX_CANDLE_SERIES_LENGTH,
               )
             : [];
-    const cacheChanged = syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible, {
-      canonical: true,
-    });
+    const cacheChanged = shouldSyncVisibleSeriesCache(visibleSeriesMode, nextVisible, entry.timeframe)
+      ? syncMergedCandleCache(entry.symbol, entry.timeframe, nextVisible, {
+          canonical: true,
+        })
+      : visibleSeriesMode === 'current'
+        ? syncMergedCandleCache(entry.symbol, entry.timeframe, [], {
+            canonical: true,
+          })
+      : false;
 
     if (areSeriesEqual(entry.candles, nextVisible)) {
       if (cacheChanged) {
@@ -730,17 +770,36 @@ class LiveCandlesEngine {
         const live = this.entries.get(tracked.key);
         if (!live || live.fetchEpoch !== epoch) return;
 
-        live.historyCandles = asCandleParams(sortAndDedupeCandles(history.candles)).slice(-DEFAULT_CANDLE_HISTORY_LIMIT);
+        const fetchedHistory = asCandleParams(sortAndDedupeCandles(history.candles)).slice(
+          -DEFAULT_CANDLE_HISTORY_LIMIT,
+        );
 
         if (options.bootstrap) {
+          if (!shouldAcceptBootstrapHistory(fetchedHistory, live.timeframe)) {
+            live.status = 'bootstrapping';
+            this.scheduleBootstrapRetry(live);
+            return;
+          }
+
+          live.historyCandles = fetchedHistory;
           const queued = this.drainBootstrapQuotes(live);
           live.status = 'ready';
           if (queued.length > 0) {
+            const hadVisibleSeries = live.candles.length > 0;
             const outcome = this.applyQuoteBatch(live, queued);
             this.commitVisibleCandles(live);
 
             if (outcome.detachedHistory) {
-              this.requestGapRefresh(live, 'bootstrap_detached_live_stream', outcome.anchorTime);
+              if (!hadVisibleSeries && live.candles.length === 0) {
+                this.requestHistoryRefresh(
+                  live,
+                  'bootstrap_detached_live_stream',
+                  outcome.anchorTime ?? this.estimateHistoryAnchor(live),
+                  0,
+                );
+              } else {
+                this.requestGapRefresh(live, 'bootstrap_detached_live_stream', outcome.anchorTime);
+              }
             } else if (outcome.bucketRolledOver) {
               this.schedulePostRolloverHeal(live, outcome.anchorTime);
             }
@@ -751,11 +810,32 @@ class LiveCandlesEngine {
           return;
         }
 
+        live.historyCandles = asCandleParams(
+          mergeFetchedHistoryIntoWindow(live.historyCandles, fetchedHistory, live.timeframe),
+        );
         live.liveCandles = asCandleParams(
           pruneLiveCandlesCoveredByHistory(live.historyCandles, live.liveCandles),
         );
         live.status = 'ready';
         this.commitVisibleCandles(live);
+
+        if (live.liveCandles.length > 0) {
+          const visibleMode = resolveVisibleSeriesMode(
+            live.historyCandles,
+            live.liveCandles,
+            live.candles,
+            live.timeframe,
+          );
+
+          if (visibleMode !== 'merged') {
+            const anchorTime = this.getLiveTail(live)?.time ?? this.estimateHistoryAnchor(live);
+            if (live.candles.length === 0) {
+              this.requestHistoryRefresh(live, 'history_refresh_still_detached', anchorTime, 0);
+            } else {
+              this.requestGapRefresh(live, 'history_refresh_still_detached', anchorTime);
+            }
+          }
+        }
       })
       .catch((error) => {
         const live = this.entries.get(tracked.key);

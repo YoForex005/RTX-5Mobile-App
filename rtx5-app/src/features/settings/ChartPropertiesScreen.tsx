@@ -47,8 +47,6 @@ const SHOW_FIELDS: Array<{ key: keyof ChartDisplaySettings; label: string }> = [
   { key: 'showLastPriceLine', label: 'Show last price line' },
   { key: 'showPeriodSeparators', label: 'Show period separators' },
   { key: 'showGrid', label: 'Show grid' },
-  { key: 'showTickVolumes', label: 'Show tick volumes' },
-  { key: 'showRealVolumes', label: 'Show real volumes' },
   { key: 'showObjectDescriptions', label: 'Show object descriptions' },
   { key: 'showTradeLevels', label: 'Show trade levels' },
 ];
@@ -127,6 +125,7 @@ export function ChartPropertiesScreen() {
   const chartVisualType = useUserPreferences((s) => s.chartVisualType);
   const priceSource = useUserPreferences((s) => s.priceSource);
   const chartDisplay = useUserPreferences((s) => s.chartDisplay);
+  const chartViewportShowVolumePane = useUserPreferences((s) => s.chartViewportShowVolumePane);
   const chartColors = useUserPreferences((s) => s.chartColors);
   const chartColorScheme = useUserPreferences((s) => s.chartColorScheme);
   const setChartColorScheme = useUserPreferences((s) => s.setChartColorScheme);
@@ -205,6 +204,14 @@ export function ChartPropertiesScreen() {
     `Source: ${priceSource === 'bid' ? 'Bid price' : 'Ask price'}`,
     `Candles: ${candles.length}`,
   ];
+  const previewDisplay = useMemo(
+    () => ({
+      ...chartDisplay,
+      showTickVolumes: chartViewportShowVolumePane,
+      showRealVolumes: false,
+    }),
+    [chartDisplay, chartViewportShowVolumePane],
+  );
 
   const rgbaToHex = (rgba: string): string => {
     const match = rgba.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
@@ -307,7 +314,7 @@ export function ChartPropertiesScreen() {
               chartType={chartVisualType}
               priceSource={priceSource}
               colors={resolvedChartColors}
-              display={chartDisplay}
+              display={previewDisplay}
               isDark={isDark}
             />
           </View>

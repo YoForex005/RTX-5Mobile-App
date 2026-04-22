@@ -32,9 +32,19 @@ import {
 } from '../../utils/tradeVolume';
 import {
   CHART_ORDER_TYPES,
+  isPendingChartOrderType,
+  isStopLimitChartOrderType,
+  resolveDefaultStopLimitPrice,
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
 import { OrderTypePreviewCard } from './OrderTypePreviewCard';
+import {
+  resolveOrderTicketDefaultPendingPrice,
+  resolveOrderTicketPendingOffset,
+  resolveOrderTicketPriceDecimals,
+  resolveOrderTicketStopLimitOffset,
+  roundOrderTicketPrice,
+} from './orderTicketPreviewUtils';
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 export function OrderTicketScreen() {
@@ -175,6 +185,110 @@ export function OrderTicketScreen() {
   const displayDecimals = 2;
   const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
   const priceTickSize = instrumentMeta?.tickSize && instrumentMeta.tickSize > 0 ? instrumentMeta.tickSize : pipSize;
+  const priceDecimals = useMemo(
+    () => resolveOrderTicketPriceDecimals(priceTickSize, BID, ASK),
+    [ASK, BID, priceTickSize],
+  );
+  const pricePointSize = useMemo(() => {
+    if (priceTickSize > 0) {
+      return priceTickSize;
+    }
+    return Math.pow(10, -Math.max(priceDecimals, 0));
+  }, [priceDecimals, priceTickSize]);
+  const pendingOffset = useMemo(
+    () => resolveOrderTicketPendingOffset(baseSymbol, pricePointSize),
+    [baseSymbol, pricePointSize],
+  );
+  const stopLimitOffset = useMemo(
+    () => resolveOrderTicketStopLimitOffset(baseSymbol, pricePointSize, pendingOffset),
+    [baseSymbol, pendingOffset, pricePointSize],
+  );
+  const roundPendingPrice = useCallback(
+    (value: number) => roundOrderTicketPrice(value, priceTickSize, priceDecimals),
+    [priceDecimals, priceTickSize],
+  );
+  const resolveDefaultPendingPrice = useCallback(
+    (type: ChartOrderType) =>
+      resolveOrderTicketDefaultPendingPrice({
+        orderType: type,
+        bid: BID,
+        ask: ASK,
+        pendingOffset,
+        roundPrice: roundPendingPrice,
+      }),
+    [ASK, BID, pendingOffset, roundPendingPrice],
+  );
+  const [pendingEntryPrice, setPendingEntryPrice] = useState(0);
+  const [pendingStopLimitPrice, setPendingStopLimitPrice] = useState(0);
+  const lastConfiguredPendingOrderTypeRef = useRef<ChartOrderType | null>(null);
+  const isPendingOrderType = isPendingChartOrderType(orderType);
+  const isStopLimitOrderType = isStopLimitChartOrderType(orderType);
+
+  useEffect(() => {
+    if (!isPendingOrderType) {
+      lastConfiguredPendingOrderTypeRef.current = null;
+      return;
+    }
+
+    const nextEntry = resolveDefaultPendingPrice(orderType);
+    if (!Number.isFinite(nextEntry) || nextEntry <= 0) {
+      return;
+    }
+
+    const shouldResetPendingDefaults =
+      lastConfiguredPendingOrderTypeRef.current !== orderType || pendingEntryPrice <= 0;
+
+    if (!shouldResetPendingDefaults) {
+      return;
+    }
+
+    setPendingEntryPrice(nextEntry);
+    setPendingStopLimitPrice(
+      resolveDefaultStopLimitPrice(orderType, nextEntry, stopLimitOffset, roundPendingPrice),
+    );
+    lastConfiguredPendingOrderTypeRef.current = orderType;
+  }, [
+    isPendingOrderType,
+    orderType,
+    pendingEntryPrice,
+    resolveDefaultPendingPrice,
+    roundPendingPrice,
+    stopLimitOffset,
+  ]);
+
+  const handlePendingEntryPriceChange = useCallback(
+    (nextPrice: number) => {
+      const roundedEntry = roundPendingPrice(nextPrice);
+      if (!Number.isFinite(roundedEntry) || roundedEntry <= 0) {
+        return;
+      }
+
+      setPendingEntryPrice(roundedEntry);
+      setPendingStopLimitPrice(
+        resolveDefaultStopLimitPrice(orderType, roundedEntry, stopLimitOffset, roundPendingPrice),
+      );
+    },
+    [orderType, roundPendingPrice, stopLimitOffset],
+  );
+  const pendingPreviewSummary = useMemo(() => {
+    const triggerValue = pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--';
+    if (!isPendingOrderType) {
+      return '';
+    }
+
+    if (isStopLimitOrderType) {
+      const stopLimitValue = pendingStopLimitPrice > 0 ? pendingStopLimitPrice.toFixed(priceDecimals) : '--';
+      return `Drag the dotted trigger line in the graph to move the pending price.\nTrigger: ${triggerValue}\nStop Limit: ${stopLimitValue}`;
+    }
+
+    return `Drag the dotted trigger line in the graph to move the pending price.\nTrigger: ${triggerValue}`;
+  }, [
+    isPendingOrderType,
+    isStopLimitOrderType,
+    pendingEntryPrice,
+    pendingStopLimitPrice,
+    priceDecimals,
+  ]);
 
   const scrollOrderTypeTabsToSelection = useCallback(
     (selected: ChartOrderType, animated: boolean) => {
@@ -430,7 +544,7 @@ export function OrderTicketScreen() {
         <Pressable
           style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
           disabled={pricePanelActionDisabled}
-          onPressIn={() => { void handlePlaceOrder('sell'); }}
+          onPress={() => { void handlePlaceOrder('sell'); }}
           unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
@@ -449,7 +563,7 @@ export function OrderTicketScreen() {
         <Pressable
           style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
           disabled={pricePanelActionDisabled}
-          onPressIn={() => { void handlePlaceOrder('buy'); }}
+          onPress={() => { void handlePlaceOrder('buy'); }}
           unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
@@ -519,6 +633,9 @@ export function OrderTicketScreen() {
           bid={BID}
           ask={ASK}
           tickSize={priceTickSize}
+          orderType={orderType}
+          pendingEntryPrice={pendingEntryPrice}
+          onPendingEntryPriceChange={handlePendingEntryPriceChange}
           T={T}
           isDark={isDark}
         />
@@ -650,9 +767,9 @@ export function OrderTicketScreen() {
               style={({ pressed }) => [
                 styles.execBtn,
                 styles.execSell,
-                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+                pressed && { opacity: 0.88 }
               ]}
-              onPressIn={() => { void handlePlaceOrder('sell'); }}
+              onPress={() => { void handlePlaceOrder('sell'); }}
               disabled={tradeActionDisabled}
               unstable_pressDelay={0}
             >
@@ -669,9 +786,9 @@ export function OrderTicketScreen() {
               style={({ pressed }) => [
                 styles.execBtn,
                 styles.execBuy,
-                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+                pressed && { opacity: 0.88 }
               ]}
-              onPressIn={() => { void handlePlaceOrder('buy'); }}
+              onPress={() => { void handlePlaceOrder('buy'); }}
               disabled={tradeActionDisabled}
               unstable_pressDelay={0}
             >
@@ -691,7 +808,7 @@ export function OrderTicketScreen() {
             <View style={styles.pendingSubmitCopy}>
               <Text style={styles.pendingSubmitTitle}>{orderType}</Text>
               <Text style={styles.pendingSubmitText}>
-                Use the new graph to inspect where the trigger sits relative to the live market stream.
+                {pendingPreviewSummary}
               </Text>
             </View>
           </View>
@@ -806,12 +923,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     hairline: { height: 1, backgroundColor: LINE },
 
     orderTypeTabsScroll: { marginTop: 2 },
-    orderTypeTabs: { gap: 8, paddingTop: 6, paddingBottom: 2, paddingRight: 6 },
+    orderTypeTabs: { gap: 4, paddingTop: 6, paddingBottom: 2, paddingRight: 0 },
     orderTypeTab: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 14,
+      gap: 4,
+      paddingHorizontal: 10,
       paddingVertical: 10,
       borderRadius: 999,
       backgroundColor: ELEVATED,

@@ -31,6 +31,7 @@ export type ChartOverlayPriceLine = {
   lineStyle: number;
   axisLabelVisible: boolean;
   title: string;
+  dragKey?: 'entry' | 'stopLimit' | 'sl' | 'tp';
 };
 
 export type ChartOverlayMarkerPosition =

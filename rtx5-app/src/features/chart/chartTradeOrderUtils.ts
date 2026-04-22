@@ -21,6 +21,10 @@ type PendingChartTradeValidationInput = {
   pointSize: number;
 };
 
+type StablePendingChartTradeValidationInput = PendingChartTradeValidationInput & {
+  previouslyEnabled: boolean;
+};
+
 export const isPendingChartOrderType = (orderType: ChartOrderType) => orderType !== 'Market Execution';
 
 export const supportsChartTradeFillPolicy = (orderType: ChartOrderType) =>
@@ -177,6 +181,62 @@ export const isPendingChartTradeValid = ({
         Number.isFinite(stopLimitPrice) &&
         stopLimitPrice! > 0 &&
         stopLimitPrice! > entryPrice + epsilon
+      );
+    default:
+      return false;
+  }
+};
+
+export const resolveStablePendingChartTradeEnabled = ({
+  orderType,
+  entryPrice,
+  stopLimitPrice,
+  bid,
+  ask,
+  pointSize,
+  previouslyEnabled,
+}: StablePendingChartTradeValidationInput) => {
+  if (!isPendingChartOrderType(orderType) || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+    return false;
+  }
+
+  const epsilon = Math.max(pointSize / 10, 1e-9);
+  const hysteresisBuffer = Math.max(pointSize * 25, epsilon);
+  const liveBid = Number.isFinite(bid) && bid > 0 ? bid : null;
+  const liveAsk = Number.isFinite(ask) && ask > 0 ? ask : null;
+
+  const applyDirectionalHysteresis = (distanceFromBoundary: number | null) => {
+    if (distanceFromBoundary === null) {
+      return true;
+    }
+
+    return previouslyEnabled
+      ? distanceFromBoundary >= -hysteresisBuffer
+      : distanceFromBoundary >= hysteresisBuffer;
+  };
+
+  switch (orderType) {
+    case 'Buy Limit':
+      return applyDirectionalHysteresis(liveAsk === null ? null : liveAsk - entryPrice);
+    case 'Sell Limit':
+      return applyDirectionalHysteresis(liveBid === null ? null : entryPrice - liveBid);
+    case 'Buy Stop':
+      return applyDirectionalHysteresis(liveAsk === null ? null : entryPrice - liveAsk);
+    case 'Sell Stop':
+      return applyDirectionalHysteresis(liveBid === null ? null : liveBid - entryPrice);
+    case 'Buy Stop Limit':
+      return (
+        Number.isFinite(stopLimitPrice) &&
+        stopLimitPrice! > 0 &&
+        stopLimitPrice! < entryPrice - epsilon &&
+        applyDirectionalHysteresis(liveAsk === null ? null : entryPrice - liveAsk)
+      );
+    case 'Sell Stop Limit':
+      return (
+        Number.isFinite(stopLimitPrice) &&
+        stopLimitPrice! > 0 &&
+        stopLimitPrice! > entryPrice + epsilon &&
+        applyDirectionalHysteresis(liveBid === null ? null : liveBid - entryPrice)
       );
     default:
       return false;

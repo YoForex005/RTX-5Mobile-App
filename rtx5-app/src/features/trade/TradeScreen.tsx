@@ -36,6 +36,7 @@ import {
   resolveTradeFloatingPnl,
 } from './accountSummary';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
+import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useShallow } from 'zustand/shallow';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
@@ -46,6 +47,8 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   const safeMargin = Number.isFinite(account.margin) ? account.margin : 0;
   const safeFreeMargin = Number.isFinite(account.freeMargin) ? account.freeMargin : 0;
   const safeMarginLevel = Number.isFinite(account.marginLevel) ? account.marginLevel : 0;
+  const tradeSummaryDetailsVisible = useUserPreferences((state) => state.tradeSummaryDetailsVisible);
+  const setTradeSummaryDetailsVisible = useUserPreferences((state) => state.setTradeSummaryDetailsVisible);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -58,14 +61,31 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
     loop.start();
     return () => loop.stop();
   }, [pulseAnim]);
+  const toggleTradeSummaryDetails = useCallback(() => {
+    setTradeSummaryDetailsVisible(!tradeSummaryDetailsVisible);
+  }, [setTradeSummaryDetailsVisible, tradeSummaryDetailsVisible]);
 
   return (
     <>
       <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-
-        <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+        <Pressable
+          onPress={() => traceUiInteraction('trade.summary.toggle', toggleTradeSummaryDetails)}
+          unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle trade summary details"
+          accessibilityState={{ expanded: tradeSummaryDetailsVisible }}
+          style={({ pressed }) => [
+            s.summaryTop,
+            tradeSummaryDetailsVisible && {
+              marginBottom: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
+            },
+            pressed && s.summaryTogglePressed,
+          ]}
+        >
           {/* The Hero: Unrealized P/L */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
               Floating P/L
             </Text>
@@ -82,9 +102,9 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
               {fmt.pnlPrecise(safeFloating)} {account.currency || 'USD'}
             </Animated.Text>
           </View>
-
-          {/* Horizontal rows for each metric */}
-          <View style={{ gap: 8 }}>
+        </Pressable>
+        {tradeSummaryDetailsVisible ? (
+          <View style={s.summaryMetrics}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Balance <Text style={{ fontSize: 10, color: T.textFaint }}>({account.currency || 'USD'})</Text>
@@ -155,7 +175,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
               </Text>
             </View>
 
-            {account.credit > 0 && (
+            {account.credit > 0 ? (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Credit
@@ -169,9 +189,9 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
                   {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
                 </Text>
               </View>
-            )}
+            ) : null}
           </View>
-        </View>
+        ) : null}
       </View>
 
       <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
@@ -398,7 +418,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowRadius: isDark ? 16 : 24, elevation: 4, overflow: 'hidden',
     },
     summaryTop: {
-      paddingHorizontal: spacing.md, paddingVertical: spacing.md + 2,
+      paddingHorizontal: spacing.md, paddingVertical: 14,
       flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
       backgroundColor: 'transparent',
     },
@@ -407,6 +427,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     floatingPositive: { color: T.up },
     floatingNegative: { color: T.down },
     summaryHint: { marginTop: 4, fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
+    summaryMetrics: { paddingHorizontal: 16, paddingBottom: 14, gap: 8 },
+    summaryTogglePressed: { opacity: 0.55 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: T.glass1, overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
