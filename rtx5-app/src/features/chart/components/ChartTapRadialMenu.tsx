@@ -31,6 +31,7 @@ type ChartTapRadialMenuProps = {
   onOpenObjects: () => void;
   onOpenDrawingTools: () => void;
   onOpenIndicators: () => void;
+
   onOpenSettings: () => void;
 };
 
@@ -157,6 +158,29 @@ const createStyles = (isDark: boolean) =>
       zIndex: 20,
       elevation: 12,
     },
+    centerAction: {
+      position: 'absolute',
+      width: 66,
+      height: 66,
+      borderRadius: 33,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#2962FF',
+      borderWidth: 2,
+      borderColor: '#2962FF',
+      shadowColor: '#000000',
+      shadowOpacity: isDark ? 0.26 : 0.18,
+      shadowOffset: { width: 0, height: 8 },
+      shadowRadius: 18,
+      elevation: 18,
+      gap: 1,
+    },
+    centerActionLabel: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
   });
 
 export function ChartTapRadialMenu({
@@ -171,6 +195,7 @@ export function ChartTapRadialMenu({
   onOpenObjects,
   onOpenDrawingTools,
   onOpenIndicators,
+
   onOpenSettings,
 }: ChartTapRadialMenuProps) {
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);

@@ -78,12 +78,28 @@ function SymbolFlags({ symbol }: { symbol: string }) {
 
 // â”€â”€â”€ Instrument meta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type Meta = { name: string; category: string; sector: string; spreadMode: string; stopsLevel: string; calculation: string; chartMode: string; sessions: Array<[string, string]>; };
-const DEFAULT_SESSIONS: Array<[string, string]> = [['Sunday', '23:05 â€“ 24:00'], ['Monday', '00:00 â€“ 24:00'], ['Tuesday', '00:00 â€“ 24:00'], ['Wednesday', '00:00 â€“ 24:00'], ['Thursday', '00:00 â€“ 24:00'], ['Friday', '00:00 â€“ 22:59']];
+const DEFAULT_SESSIONS: Array<[string, string]> = [['Sunday', '23:05 - 24:00'], ['Monday', '00:00 - 24:00'], ['Tuesday', '00:00 - 24:00'], ['Wednesday', '00:00 - 24:00'], ['Thursday', '00:00 - 24:00'], ['Friday', '00:00 - 22:59']];
 const META: Record<string, Partial<Meta>> = {
   BTCUSD: { name: 'Bitcoin vs US Dollar', category: 'Crypto', sector: 'Digital Asset', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Exchange', chartMode: 'By Last' },
   XAUUSD: { name: 'Gold vs US Dollar', category: 'Commodity', sector: 'Precious Metal', spreadMode: 'Floating', stopsLevel: '0', calculation: 'CFD', chartMode: 'By Bid' },
 };
-function getMeta(sym: string): Meta { return { name: sym.replace(/m$/i, '') + ' Instrument', category: 'Major', sector: 'Currency', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Forex', chartMode: 'By Bid', sessions: DEFAULT_SESSIONS, ...META[sym] }; }
+const normalizeSessionHours = (hours: string) =>
+  hours
+    .replace(/â€“|â€”|–|—/g, ' - ')
+    .replace(/\s*-\s*/g, ' - ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeTradingSessions = (sessions: Array<[string, string]>) =>
+  sessions.map(([day, hours]) => [day, normalizeSessionHours(hours)] as [string, string]);
+
+function getMeta(sym: string): Meta {
+  const base = { name: sym.replace(/m$/i, '') + ' Instrument', category: 'Major', sector: 'Currency', spreadMode: 'Floating', stopsLevel: '0', calculation: 'Forex', chartMode: 'By Bid', sessions: DEFAULT_SESSIONS, ...META[sym] };
+  return {
+    ...base,
+    sessions: normalizeTradingSessions(base.sessions),
+  };
+}
 
 // â”€â”€â”€ Section Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Section({ title, icon, children }: { title: string; icon: keyof typeof Ionicons.glyphMap; children: React.ReactNode }) {
@@ -237,7 +253,7 @@ export function SymbolDetailsScreen() {
       stopsLevel: remoteMeta.stopsLevel !== undefined ? String(remoteMeta.stopsLevel) : localMeta.stopsLevel,
       calculation: remoteMeta.calculation ?? localMeta.calculation,
       chartMode: remoteMeta.chartMode ?? localMeta.chartMode,
-      sessions: remoteMeta.sessions ?? localMeta.sessions,
+      sessions: normalizeTradingSessions(remoteMeta.sessions ?? localMeta.sessions),
     };
   }, [symbol, remoteMeta]);
 

@@ -149,7 +149,7 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
     payload.priceLines.map((line) => line.id).sort(),
     ['sl-1', 'open-1', 'tp-1', 'alert-7', 'potential-stop-out'].sort(),
   );
-  assert.equal(payload.priceLines.find((line) => line.id === 'open-1')?.lineStyle, CHART_LINE_STYLE.Dashed);
+  assert.equal(payload.priceLines.find((line) => line.id === 'open-1')?.lineStyle, CHART_LINE_STYLE.Solid);
   assert.equal(payload.priceLines.find((line) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
   assert.equal(payload.markers.length, 1);
   assert.equal(payload.markers[0].id, 'closed-99');
@@ -211,7 +211,7 @@ test('buildChartOverlayPayload adds active pending stop and limit orders to TP/S
     ['order-entry-55', 'order-sl-55', 'order-tp-55'].sort(),
   );
   assert.equal(payload.priceLines.find((line) => line.id === 'order-entry-55')?.title, 'BUY LIMIT 0.15');
-  assert.equal(payload.priceLines.find((line) => line.id === 'order-entry-55')?.lineStyle, CHART_LINE_STYLE.Dotted);
+  assert.equal(payload.priceLines.find((line) => line.id === 'order-entry-55')?.lineStyle, CHART_LINE_STYLE.Solid);
 });
 
 test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind toggle state', () => {

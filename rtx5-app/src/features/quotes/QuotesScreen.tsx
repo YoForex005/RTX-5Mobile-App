@@ -13,7 +13,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, {
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -971,6 +970,10 @@ export function QuotesScreen() {
     router.push({ pathname: '/quotes/details', params: { symbol: sym } });
   };
 
+  const handleSearchChange = useCallback((text: string) => {
+    setSearch(text);
+  }, []);
+
   return (
     <View style={s.root}>
       <Animated.View
@@ -1034,18 +1037,21 @@ export function QuotesScreen() {
             <Ionicons name="search" size={18} color={T.textMuted} />
             <TextInput
               value={search}
-              onChangeText={(text) => startTransition(() => setSearch(text))}
+              onChangeText={handleSearchChange}
               style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
               placeholder="Search symbols ..."
               placeholderTextColor={palette.searchPlaceholder}
               autoCapitalize="characters"
               autoCorrect={false}
             />
-            {search.length > 0 && (
-              <Pressable onPress={() => traceUiInteraction('quotes.search.clear', () => setSearch(''))} unstable_pressDelay={0}>
-                <Ionicons name="close-circle" size={16} color={T.textMuted} />
-              </Pressable>
-            )}
+            <Pressable
+              onPress={() => traceUiInteraction('quotes.search.clear', () => setSearch(''))}
+              unstable_pressDelay={0}
+              disabled={search.length === 0}
+              style={[s.searchClearButton, search.length === 0 && s.searchClearButtonHidden]}
+            >
+              <Ionicons name="close-circle" size={16} color={T.textMuted} />
+            </Pressable>
           </View>
 
           <FlatList
@@ -1213,7 +1219,16 @@ const s = StyleSheet.create({
     gap: 10,
   },
 
-  searchInput: { flex: 1, fontSize: 15, fontWeight: '500' },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '500' },
+  searchClearButton: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchClearButtonHidden: {
+    opacity: 0,
+  },
 
   list: { flex: 1, paddingHorizontal: 16 },
   listPad: { paddingBottom: 32 },

@@ -484,8 +484,8 @@ const buildPendingOrderLines = (
         id: `order-entry-${order.ticket}`,
         price: entryPrice,
         color: entryColor,
-        lineWidth: 1,
-        lineStyle: CHART_LINE_STYLE.Dotted,
+        lineWidth: 2,
+        lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: true,
         title: buildPendingOrderLabel(order),
       });
@@ -497,7 +497,7 @@ const buildPendingOrderLines = (
         price: tpValue,
         color: colors.tradeTpSl || '#089981',
         lineWidth: 1,
-        lineStyle: CHART_LINE_STYLE.Dashed,
+        lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: true,
         title: formatTpSlOverlayLabel('tp', order.symbol, entryPrice, tpValue, Number(order.volume)),
       });
@@ -509,7 +509,7 @@ const buildPendingOrderLines = (
         price: slValue,
         color: colors.tradeStopOut || '#F23645',
         lineWidth: 1,
-        lineStyle: CHART_LINE_STYLE.Dashed,
+        lineStyle: CHART_LINE_STYLE.Solid,
         axisLabelVisible: true,
         title: formatTpSlOverlayLabel('sl', order.symbol, entryPrice, slValue, Number(order.volume)),
       });
@@ -655,8 +655,8 @@ export const buildChartOverlayPayload = ({
           id: `open-${position.id}`,
           price: parsedPrice,
           color: position.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor,
-          lineWidth: 1,
-          lineStyle: CHART_LINE_STYLE.Dashed,
+          lineWidth: 2,
+          lineStyle: CHART_LINE_STYLE.Solid,
           axisLabelVisible: true,
           title: '',
         });
@@ -670,7 +670,7 @@ export const buildChartOverlayPayload = ({
             price: tpValue,
             color: colors.tradeTpSl || '#089981',
             lineWidth: 1,
-            lineStyle: CHART_LINE_STYLE.Dashed,
+            lineStyle: CHART_LINE_STYLE.Solid,
             axisLabelVisible: true,
             title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
           });
@@ -683,7 +683,7 @@ export const buildChartOverlayPayload = ({
             price: slValue,
             color: colors.tradeStopOut || '#F23645',
             lineWidth: 1,
-            lineStyle: CHART_LINE_STYLE.Dashed,
+            lineStyle: CHART_LINE_STYLE.Solid,
             axisLabelVisible: true,
             title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
           });

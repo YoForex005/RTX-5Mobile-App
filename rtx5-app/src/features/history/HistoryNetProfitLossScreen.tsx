@@ -316,7 +316,7 @@ export function HistoryNetProfitLossScreen() {
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
           <Text style={[styles.sectionTitle, { color: T.text }]}>Top Movers</Text>
           {topWinner ? (
-            <View style={[styles.leaderRow, { borderBottomColor: T.borderSubtle }]}>
+            <View style={[styles.leaderRow, topLoser ? styles.leaderRowDivider : null, { borderBottomColor: T.borderSubtle }]}>
               <View style={styles.leaderLeft}>
                 <View style={[styles.leaderIcon, { backgroundColor: 'rgba(34,197,94,0.14)' }]}>
                   <Ionicons name="arrow-up" size={14} color={T.up} />
@@ -555,6 +555,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingVertical: 10,
+    },
+    leaderRowDivider: {
       borderBottomWidth: 1,
     },
     leaderLeft: {

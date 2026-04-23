@@ -35,6 +35,7 @@ type ActionSheetProps = {
   onClose: () => void;
   searchable?: boolean;
   detent?: 'auto' | 'adaptive' | 'large';
+  minimumTopInset?: number;
   runActionAfterClose?: boolean;
 };
 
@@ -90,6 +91,7 @@ export function ActionSheet({
   onClose,
   searchable,
   detent = 'adaptive',
+  minimumTopInset,
   runActionAfterClose = true,
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
@@ -99,32 +101,31 @@ export function ActionSheet({
   const styles = makeStyles(T, isDark);
   const { height: windowHeight } = useWindowDimensions();
   const screenHeight = Dimensions.get('screen').height;
-  const androidWindowHeightFloor = Platform.OS === 'android'
-    ? Math.max(windowHeight, screenHeight)
-    : windowHeight;
   const [query, setQuery] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [stableWindowHeight, setStableWindowHeight] = useState(androidWindowHeightFloor);
-  const [presentedWindowHeight, setPresentedWindowHeight] = useState<number | null>(null);
+  // Measured height from the Modal's actual onLayout – the real usable space.
+  // Initialized to screenHeight (the full physical display height, never
+  // affected by adjustResize). The first onLayout will correct this to
+  // the precise Modal interior height.
+  const [measuredHeight, setMeasuredHeight] = useState(screenHeight);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingActionCancelRef = useRef<(() => void) | null>(null);
+  // On Android, the entry animation is deferred until onLayout fires so the
+  // sheet is never shown at the wrong (pre-layout) size.
+  const layoutReadyRef = useRef(false);
 
   const filteredActions = searchable && query.trim()
     ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
     : actions;
   const keyboardLift = Platform.OS === 'android' && searchable ? Math.max(0, keyboardHeight) : 0;
-  const topInset = Math.max(insets.top, 12);
+  const topInset = Math.max(insets.top, minimumTopInset ?? 12);
   const bottomInset = Math.max(insets.bottom, 12);
   const usesLargeDetent = detent === 'large';
   const usesAdaptiveDetent = detent === 'adaptive';
-  const effectiveWindowHeight = Platform.OS === 'android'
-    ? (presentedWindowHeight ?? Math.max(windowHeight, stableWindowHeight, androidWindowHeightFloor))
-    : windowHeight;
-  const availableWindowHeight = Platform.OS === 'android'
-    ? Math.max(260, effectiveWindowHeight - keyboardLift)
-    : effectiveWindowHeight;
+  // Use the measured layout height – this is the real space inside the Modal.
+  const availableWindowHeight = Math.max(260, measuredHeight - keyboardLift);
   const maxVisibleHeight = Math.max(
     260,
     availableWindowHeight - topInset - bottomInset - 12,
@@ -150,40 +151,65 @@ export function ActionSheet({
     ? Math.max(180, sheetMaxHeight - reservedChromeHeight)
     : undefined;
 
-  useEffect(() => {
-    setStableWindowHeight((current) => {
-      if (Platform.OS !== 'android') {
-        return windowHeight;
-      }
-      if (keyboardHeight > 0 && windowHeight < current) {
-        return current;
-      }
-      return Math.max(current, windowHeight, androidWindowHeightFloor);
-    });
-  }, [androidWindowHeightFloor, keyboardHeight, windowHeight]);
+  // Capture the Modal's actual available height. Only ratchet upward so a
+  // transient keyboard-shrunk frame can never reduce the sheet size.
+  // On Android, also start the entry animation here (deferred until layout).
+  const runEntryAnimation = useCallback(() => {
+    overlayOpacity.setValue(0);
+    sheetTranslateY.setValue(28);
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 1,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: 95,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [overlayOpacity, sheetTranslateY]);
 
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      setPresentedWindowHeight(null);
-      return;
+  const deferredAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
+    const h = event.nativeEvent.layout.height;
+    if (h > 0) {
+      // Always ratchet upward — never let a keyboard-shrunken onLayout
+      // reduce the sheet's available space. The first onLayout after
+      // Keyboard.dismiss() may still report the compressed height;
+      // subsequent layouts will report the correct full height.
+      setMeasuredHeight((prev) => Math.max(prev, h));
     }
-
-    if (!visible) {
-      setPresentedWindowHeight(null);
-      return;
+    // On Android, defer the animation start. Keyboard.dismiss() is async —
+    // the window restores its full height ~100-200ms after the call. By
+    // waiting, we ensure the final onLayout (at full height) has fired
+    // before we animate the sheet in. This prevents the visible
+    // shrink-then-expand flicker.
+    if (Platform.OS === 'android' && !layoutReadyRef.current) {
+      layoutReadyRef.current = true;
+      // Clear any prior timer (shouldn't happen, but safety)
+      if (deferredAnimTimerRef.current) clearTimeout(deferredAnimTimerRef.current);
+      deferredAnimTimerRef.current = setTimeout(() => {
+        deferredAnimTimerRef.current = null;
+        requestAnimationFrame(() => runEntryAnimation());
+      }, 150);
     }
+  }, [runEntryAnimation]);
 
-    const nextHeight = Math.max(windowHeight, stableWindowHeight, androidWindowHeightFloor);
-    setPresentedWindowHeight((current) => (
-      current === null
-        ? nextHeight
-        : Math.max(current, nextHeight)
-    ));
-  }, [androidWindowHeightFloor, stableWindowHeight, visible, windowHeight]);
-
+  // Dismiss keyboard when the ActionSheet opens and reset measured height
+  // so the first onLayout of this open cycle sets it to the actual value.
   useEffect(() => {
     if (visible) {
+      Keyboard.dismiss();
       setQuery('');
+      // Reset measuredHeight to screenHeight (the full physical display,
+      // unaffected by adjustResize). This avoids initializing to a
+      // keyboard-shrunken windowHeight when the sheet opens while the
+      // keyboard is still dismissing. The first onLayout will set the
+      // precise real value.
+      setMeasuredHeight(Dimensions.get('screen').height);
     }
   }, [visible]);
 
@@ -222,24 +248,21 @@ export function ActionSheet({
       setKeyboardHeight(0);
       overlayOpacity.setValue(0);
       sheetTranslateY.setValue(28);
+      layoutReadyRef.current = false;
+      // Cancel any pending deferred animation from a previous open cycle.
+      if (deferredAnimTimerRef.current) {
+        clearTimeout(deferredAnimTimerRef.current);
+        deferredAnimTimerRef.current = null;
+      }
       return;
     }
 
-    overlayOpacity.setValue(0);
-    sheetTranslateY.setValue(28);
-    Animated.parallel([
-      Animated.timing(overlayOpacity, {
-        toValue: 1,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.timing(sheetTranslateY, {
-        toValue: 0,
-        duration: 95,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [overlayOpacity, sheetTranslateY, visible]);
+    // On iOS, start animation immediately (no adjustResize issue).
+    // On Android, animation is deferred to handleOverlayLayout.
+    if (Platform.OS !== 'android') {
+      runEntryAnimation();
+    }
+  }, [overlayOpacity, runEntryAnimation, sheetTranslateY, visible]);
 
   useEffect(() => {
     if (visible || !pendingActionRef.current) {
@@ -272,9 +295,8 @@ export function ActionSheet({
     onClose();
   }, [onClose, runActionAfterClose]);
 
-  const androidPresentationStyle = Platform.OS === 'android'
-    ? { minHeight: effectiveWindowHeight, height: effectiveWindowHeight, flex: 0 as const }
-    : null;
+  // No fixed height on Android – the overlay uses flex:1 to fill the Modal
+  // (which is always at full height because we dismissed the keyboard above).
   const sheetBody = (
     <Animated.View
       style={[
@@ -387,8 +409,8 @@ export function ActionSheet({
         style={[
           styles.overlay,
           { opacity: overlayOpacity },
-          androidPresentationStyle,
         ]}
+        onLayout={handleOverlayLayout}
       >
         <Pressable
           style={StyleSheet.absoluteFillObject}
@@ -404,7 +426,7 @@ export function ActionSheet({
             {sheetBody}
           </KeyboardAvoidingView>
         ) : (
-          <View style={[styles.sheetHost, androidPresentationStyle]}>
+          <View style={styles.sheetHost}>
             {sheetBody}
           </View>
         )}

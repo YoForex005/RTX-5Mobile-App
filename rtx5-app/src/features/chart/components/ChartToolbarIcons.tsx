@@ -322,6 +322,19 @@ export const TvRadialPlus = ({ color }: { color: string }) => (
   </Svg>
 );
 
+export const TvRadialOneClick = ({ color }: { color: string }) => (
+  <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+    <Path
+      d="M10.9 2.8L5.8 10.1H9.2L8.2 17.2L14.4 9.1H10.8L10.9 2.8Z"
+      stroke={color}
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Svg>
+);
+
 export const TvRadialIndicators = ({ color }: { color: string }) => (
   <Svg width="18" height="18" viewBox="0 0 20 20" fill="none">
     <Path d="M2.5 12.1H4.9L6.9 8.1L8.9 13.2L11.1 9.6L13.2 10.2L17.5 6.5" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />

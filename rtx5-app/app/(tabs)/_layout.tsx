@@ -111,6 +111,10 @@ export default function TabsLayout() {
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
         onClose={hideActionSheet}
+        searchable={actionSheet?.searchable}
+        detent={actionSheet?.detent}
+        minimumTopInset={actionSheet?.minimumTopInset}
+        runActionAfterClose={actionSheet?.runActionAfterClose}
       />
     </View>
   );

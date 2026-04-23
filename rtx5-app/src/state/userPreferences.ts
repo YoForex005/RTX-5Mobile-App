@@ -229,6 +229,7 @@ type UserPreferencesState = {
   tradeVolume: number;
   chartVisualType: ChartVisualType;
   chartViewportShowVolumePane: boolean;
+  chartViewportShowDrawingToolbar: boolean;
   chartDrawings: string[];
   chartDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol;
   chartLockAll: boolean;
@@ -282,6 +283,7 @@ type UserPreferencesState = {
   setTradeVolume: (volume: number) => void;
   setChartVisualType: (chartType: ChartVisualType) => void;
   setChartViewportShowVolumePane: (visible: boolean) => void;
+  setChartViewportShowDrawingToolbar: (visible: boolean) => void;
   addChartDrawing: (drawing: string) => void;
   removeChartDrawing: (drawing: string) => void;
   setChartDrawings: (drawings: string[]) => void;
@@ -321,6 +323,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       tradeVolume: DEFAULT_TRADE_VOLUME,
       chartVisualType: 'candles',
       chartViewportShowVolumePane: false,
+      chartViewportShowDrawingToolbar: false,
       chartDrawings: [],
       chartDrawingRecordsBySymbol: {},
       chartLockAll: false,
@@ -408,6 +411,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setTradeVolume: (volume) => set({ tradeVolume: normalizeTradeVolume(volume) }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),
+      setChartViewportShowDrawingToolbar: (visible) => set({ chartViewportShowDrawingToolbar: visible }),
       addChartDrawing: (drawing) => {
         const list = get().chartDrawings;
         set({ chartDrawings: [...list, drawing] });
@@ -503,7 +507,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 12,
+      version: 13,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -568,6 +572,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
           chartVisualType: state.chartVisualType ?? 'candles',
           chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
+          chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar ?? false,
           tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {

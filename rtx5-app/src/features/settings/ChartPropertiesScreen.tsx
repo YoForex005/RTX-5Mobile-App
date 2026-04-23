@@ -485,7 +485,7 @@ export function ChartPropertiesScreen() {
         {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => applyDraftColor(draftColor)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <Pressable style={styles.modalBackdropBottom} onPress={() => applyDraftColor(draftColor)}>
             <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
               <ScrollView showsVerticalScrollIndicator={false}>

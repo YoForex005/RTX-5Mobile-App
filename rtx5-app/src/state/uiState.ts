@@ -2,6 +2,7 @@
  * Core module: uiState.ts
  */
 
+import React from 'react';
 import { create } from 'zustand';
 import type { ChartDrawingKind } from '../features/chart/drawingPersistence';
 
@@ -12,7 +13,9 @@ type ActionSheetAction = {
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
   /** Callback fired when the user taps this action */
-  onPress?: () => void
+  onPress?: () => void;
+  /** Optional leading icon element */
+  icon?: React.ReactNode;
 };
 
 /** Configuration object for triggering the global ActionSheet component */
@@ -21,6 +24,14 @@ type ActionSheetConfig = {
   title?: string;
   /** List of buttons to render */
   actions: ActionSheetAction[];
+  /** Enable search filtering in the sheet */
+  searchable?: boolean;
+  /** Sheet sizing detent */
+  detent?: 'auto' | 'adaptive' | 'large';
+  /** Minimum distance from the top of the screen */
+  minimumTopInset?: number;
+  /** If true, defers action execution until after sheet dismiss animation */
+  runActionAfterClose?: boolean;
 };
 
 /**
@@ -81,4 +92,3 @@ export const useUIState = create<UIState>((set) => ({
   showActionSheet: (config) => set({ actionSheet: config }),
   hideActionSheet: () => set({ actionSheet: null }),
 }));
-
