@@ -61,6 +61,15 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf",
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"
+          ]
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow RTX-5 to access your camera to scan QR codes."

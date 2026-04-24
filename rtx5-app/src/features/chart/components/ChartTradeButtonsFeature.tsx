@@ -16,10 +16,9 @@ import { resolveTradingLogin } from '../../../state/tradingLogin';
 import { useUserPreferences } from '../../../state/userPreferences';
 import {
   formatTradeVolume,
-  normalizeTradeVolume,
-  resolveTradeVolumeBounds,
   type TradeVolumeBounds,
 } from '../../../utils/tradeVolume';
+import { resolveFooterLotChevronState } from '../chartTradeInteractionUtils';
 
 type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
@@ -52,6 +51,7 @@ type ChartTradeButtonsProps = {
   onLotDraftBlur?: () => void;
   onLotDraftEndEditing?: (event: any) => void;
   onLotDraftSubmit?: (event?: any) => void;
+  useExternalLotInput?: boolean;
   onDecreaseLot?: () => void;
   onIncreaseLot?: () => void;
   variant?: 'compact' | 'mt5-market';
@@ -64,23 +64,23 @@ const baseStyles = StyleSheet.create({
   chartTradeMarketActionRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 4,
+    marginTop: 2,
   },
   chartTradeMarketActionButton: {
     flex: 1,
-    minHeight: 68,
-    borderRadius: 10,
+    minHeight: 48,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   chartTradeMarketActionButtonBusy: {
     opacity: 0.5,
   },
   chartTradeMarketActionTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.2,
     textTransform: 'uppercase',
@@ -88,16 +88,16 @@ const baseStyles = StyleSheet.create({
   },
   chartTradeMarketActionMeta: {
     color: 'rgba(255,255,255,0.88)',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 1,
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
   },
   tradeControlsRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    marginBottom: 2,
+    marginBottom: 0,
     gap: 4,
     paddingHorizontal: 0,
   },
@@ -194,6 +194,9 @@ const lightStyles = StyleSheet.create({
   actionLotAdjustIcon: {
     color: '#475569',
   },
+  actionLotAdjustIconDisabled: {
+    color: '#94A3B8',
+  },
   actionLotInput: {
     color: '#0F172A',
   },
@@ -212,6 +215,9 @@ const darkStyles = StyleSheet.create({
   },
   actionLotAdjustIcon: {
     color: '#E2E8F0',
+  },
+  actionLotAdjustIconDisabled: {
+    color: '#64748B',
   },
   actionLotInput: {
     color: '#F8FAFC',
@@ -250,6 +256,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onLotDraftBlur,
   onLotDraftEndEditing,
   onLotDraftSubmit,
+  useExternalLotInput = false,
   onDecreaseLot,
   onIncreaseLot,
   variant = 'compact',
@@ -265,19 +272,23 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const hasLotValueEditor = typeof onEditLot === 'function';
   const lotEditorAction = hasLotValueEditor ? onEditLot : undefined;
   const lotPickerAction = typeof onOpenLotEditor === 'function' ? onOpenLotEditor : undefined;
-  const lotBounds = resolveTradeVolumeBounds(volumeBounds);
-  const normalizedLotSize = normalizeTradeVolume(lotSize, volumeBounds);
-  const lotStepEpsilon = lotBounds.stepVolume / 1000;
-  const canDecreaseLot =
-    typeof onDecreaseLot === 'function' &&
-    normalizedLotSize - lotBounds.minVolume > lotStepEpsilon;
-  const canIncreaseLot =
-    typeof onIncreaseLot === 'function' &&
-    lotBounds.maxVolume - normalizedLotSize > lotStepEpsilon;
+  const hasDecreaseLotAction = typeof onDecreaseLot === 'function' || typeof lotPickerAction === 'function';
+  const hasIncreaseLotAction = typeof onIncreaseLot === 'function' || typeof lotPickerAction === 'function';
+  const { canDecreaseLot, canIncreaseLot } = resolveFooterLotChevronState({
+    lotSize,
+    bounds: volumeBounds,
+    hasLotPickerAction: typeof lotPickerAction === 'function',
+    hasDecreaseAction: hasDecreaseLotAction,
+    hasIncreaseAction: hasIncreaseLotAction,
+  });
   const handleLotCenterPress = lotEditorAction ?? (lotPickerAction ? () => lotPickerAction('absolute') : undefined);
   const handleLotCenterLongPress = lotPickerAction ? () => lotPickerAction('absolute') : undefined;
-  const handleDecreaseLotPress = lotPickerAction ? () => lotPickerAction('decrease') : onDecreaseLot;
-  const handleIncreaseLotPress = lotPickerAction ? () => lotPickerAction('increase') : onIncreaseLot;
+  const handleDecreaseLotPress = canDecreaseLot
+    ? (lotPickerAction ? () => lotPickerAction('decrease') : onDecreaseLot)
+    : undefined;
+  const handleIncreaseLotPress = canIncreaseLot
+    ? (lotPickerAction ? () => lotPickerAction('increase') : onIncreaseLot)
+    : undefined;
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
@@ -484,11 +495,31 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             ]}
             onPress={handleDecreaseLotPress}
             disabled={!canDecreaseLot || isPending}
+            accessibilityState={{ disabled: !canDecreaseLot || isPending }}
             hitSlop={8}
           >
-            <Ionicons name="chevron-down" size={16} style={themeStyles.actionLotAdjustIcon} />
+            <Ionicons
+              name="chevron-down"
+              size={16}
+              style={[
+                themeStyles.actionLotAdjustIcon,
+                (!canDecreaseLot || isPending) && themeStyles.actionLotAdjustIconDisabled,
+              ]}
+            />
           </Pressable>
-          {isLotEditing ? (
+          {isLotEditing && useExternalLotInput ? (
+            <Pressable
+              style={baseStyles.actionLotPill}
+              onPress={() => lotInputRef?.current?.focus()}
+              disabled={isPending}
+              hitSlop={8}
+              unstable_pressDelay={0}
+            >
+              <Text style={[textBaseStyles.actionLotValue, themeStyles.actionLotValue]}>
+                {lotDraft || formattedLotSize}
+              </Text>
+            </Pressable>
+          ) : isLotEditing ? (
             <View style={baseStyles.actionLotInputWrap}>
               <TextInput
                 ref={lotInputRef}
@@ -500,6 +531,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 keyboardType="decimal-pad"
                 returnKeyType="done"
                 selectTextOnFocus
+                autoFocus
+                showSoftInputOnFocus
                 onSubmitEditing={onLotDraftSubmit}
                 placeholder={formattedLotSize}
                 placeholderTextColor="#94A3B8"
@@ -513,6 +546,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               delayLongPress={220}
               disabled={isPending || typeof handleLotCenterPress !== 'function'}
               hitSlop={8}
+              unstable_pressDelay={0}
             >
               <Text style={[textBaseStyles.actionLotValue, themeStyles.actionLotValue]}>{formattedLotSize}</Text>
             </Pressable>
@@ -528,9 +562,17 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             ]}
             onPress={handleIncreaseLotPress}
             disabled={!canIncreaseLot || isPending}
+            accessibilityState={{ disabled: !canIncreaseLot || isPending }}
             hitSlop={8}
           >
-            <Ionicons name="chevron-up" size={16} style={themeStyles.actionLotAdjustIcon} />
+            <Ionicons
+              name="chevron-up"
+              size={16}
+              style={[
+                themeStyles.actionLotAdjustIcon,
+                (!canIncreaseLot || isPending) && themeStyles.actionLotAdjustIconDisabled,
+              ]}
+            />
           </Pressable>
         </View>
       </View>

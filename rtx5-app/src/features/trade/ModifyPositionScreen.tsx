@@ -322,7 +322,7 @@ export function ModifyPositionScreen() {
         <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
           <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
             <GestureDetector gesture={sheetDragGesture}>
-              <View>
+              <View collapsable={false}>
                 <View style={styles.dragZone}>
                   <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
                 </View>
@@ -418,7 +418,7 @@ export function ModifyPositionScreen() {
       <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
         <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
           <GestureDetector gesture={sheetDragGesture}>
-            <View>
+            <View collapsable={false}>
               <View style={styles.dragZone}>
                 <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
               </View>

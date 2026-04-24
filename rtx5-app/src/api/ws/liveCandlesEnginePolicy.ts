@@ -72,10 +72,10 @@ export const resolveVisibleSeriesMode = (
   const firstLiveTime = liveCandles[0]?.time ?? 0;
 
   if (getBucketGapCount(historyLastTime, firstLiveTime, timeframe) > 1) {
-    // Cold-start detached history should not paint a stale old chart first and
-    // only heal later. If nothing trustworthy is visible yet, keep the series
-    // empty until a history refresh catches up to the live anchor.
-    return currentCandles.length === 0 ? 'empty' : 'history';
+    // Paint trusted REST history immediately, but do not merge detached live
+    // ticks until a history refresh closes the gap. This avoids both a blank
+    // first chart and the split history/live artifact.
+    return 'history';
   }
 
   return 'merged';

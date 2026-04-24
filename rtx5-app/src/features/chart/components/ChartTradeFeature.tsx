@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -11,8 +12,14 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
+import {
+  shouldShowChartTradeSheetHandle,
+  shouldShowChartTradeSheetMarketExecutionButtons,
+} from '../chartTradeInteractionUtils';
+import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
+const FOOTER_TRADE_DOCK_EDIT_GAP = 40;  // gap between the sell, lot, buy layout to the keyboard 
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -23,6 +30,60 @@ type TradeFeatureComponents = {
   ChartTradeVolumeSlider: React.ComponentType<any>;
   ChartFooterLotPicker: React.ComponentType<any>;
 };
+
+function ChartTradeSheetHeaderActions({
+  styles,
+  colors,
+  sheet,
+  handlers,
+}: {
+  styles: any;
+  colors: { blue: string; textMuted: string; sellPrimary: string };
+  sheet: any;
+  handlers: any;
+}) {
+  return (
+    <View style={styles.chartTradeQuickActions}>
+      <Pressable
+        style={[
+          styles.chartTradeQuickChip,
+          styles.chartTradeQuickChipSl,
+          styles.chartTradeQuickChipSlActive,
+        ]}
+        onPress={() => handlers.onToggleStopLevel('sl')}
+        unstable_pressDelay={0}
+      >
+        <Text style={[styles.chartTradeQuickChipText, styles.chartTradeQuickChipTextActive]}>
+          SL
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[
+          styles.chartTradeQuickChip,
+          styles.chartTradeQuickChipTp,
+          styles.chartTradeQuickChipTpActive,
+        ]}
+        onPress={() => handlers.onToggleStopLevel('tp')}
+        unstable_pressDelay={0}
+      >
+        <Text style={[styles.chartTradeQuickChipText, styles.chartTradeQuickChipTextActive]}>
+          TP
+        </Text>
+      </Pressable>
+      <Pressable
+        style={styles.chartTradeQuickExpandButton}
+        onPress={handlers.onToggleSheetMode}
+        unstable_pressDelay={0}
+      >
+        <Ionicons
+          name={sheet.chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
+          size={20}
+          color={colors.blue}
+        />
+      </Pressable>
+    </View>
+  );
+}
 
 type ChartTradeSheetContentProps = {
   components: TradeFeatureComponents;
@@ -51,6 +112,119 @@ type ChartTradeSheetContentProps = {
   sheetScrollRef?: React.RefObject<ScrollView | null>;
 };
 
+function ChartTradeVolumeSection({
+  ChartTradeVolumeSlider,
+  styles,
+  colors,
+  sheet,
+  handlers,
+  useMtPendingTradeSheetLayout,
+}: {
+  ChartTradeVolumeSlider: React.ComponentType<any>;
+  styles: any;
+  colors: { blue: string; textMuted: string; sellPrimary: string };
+  sheet: any;
+  handlers: any;
+  useMtPendingTradeSheetLayout: boolean;
+}) {
+  const isMarginMode = sheet.chartTradeVolumeDisplayMode === 'margin';
+
+  return (
+    <>
+      <Pressable
+        style={[styles.chartTradeVolumeCard, useMtPendingTradeSheetLayout && styles.chartTradeVolumeCardPending]}
+        onPress={handlers.onOpenVolumeStepper}
+        unstable_pressDelay={0}
+      >
+        <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
+          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Volume</Text>
+          <View style={styles.chartTradeVolumeValueGroup}>
+            <Text
+              style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {sheet.chartTradeVolumePrimaryDisplay}
+            </Text>
+            <Pressable
+              style={[
+                styles.chartTradeStepperLaunchButton,
+                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+              ]}
+              onPress={(event) => {
+                event.stopPropagation?.();
+                handlers.onOpenVolumeStepper();
+              }}
+              hitSlop={8}
+              unstable_pressDelay={0}
+            >
+              <View style={styles.chartTradeStepperLaunchIconStack}>
+                <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
+                <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+              </View>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.chartTradeVolumeDivider} />
+        <Pressable
+          style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}
+          onPress={(event) => {
+            event.stopPropagation?.();
+            handlers.onToggleTradeVolumeDisplayMode();
+          }}
+          hitSlop={8}
+          unstable_pressDelay={0}
+        >
+          <Text
+            style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {sheet.chartTradeVolumeModeLabel}
+          </Text>
+          <View
+            style={[
+              styles.chartTradeStepperLaunchButton,
+              useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
+            ]}
+          >
+            <View style={styles.chartTradeStepperLaunchIconStack}>
+              <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
+              <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+            </View>
+          </View>
+        </Pressable>
+      </Pressable>
+
+      <ChartTradeVolumeSlider
+        styles={styles}
+        value={sheet.tradeVolume}
+        bounds={sheet.tradeVolumeBounds}
+        onChange={handlers.onChangeTradeVolume}
+      />
+
+      <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
+        {isMarginMode ? (
+          <Text
+            style={[styles.chartTradeMetaText, styles.chartTradeMetaSummary, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}
+            numberOfLines={1}
+          >
+            Lots: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.passiveLotDisplay}</Text>{'  '}
+            Max: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.chartTradeMaxVolumeDisplay}</Text>
+          </Text>
+        ) : (
+          <Text style={[styles.chartTradeMetaLink, useMtPendingTradeSheetLayout && styles.chartTradeMetaLinkPending]}>
+            Margin <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text>
+          </Text>
+        )}
+        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+          Free: {sheet.accountFreeMargin} {sheet.accountCurrency}
+        </Text>
+      </View>
+    </>
+  );
+}
+
 function ChartTradeSheetContent({
   components,
   styles,
@@ -63,12 +237,14 @@ function ChartTradeSheetContent({
   sheetScrollRef,
 }: ChartTradeSheetContentProps) {
   const {
-    LiveQuotePairHeader,
     LiveTradeButtons,
-    PendingOrderPreviewChart,
     ChartTradeVolumeSlider,
   } = components;
   const useMtPendingTradeSheetLayout = sheet.useMtPendingTradeSheetLayout;
+  const shouldShowMarketExecutionButtons = shouldShowChartTradeSheetMarketExecutionButtons({
+    chartTradeOrderType: sheet.chartTradeOrderType,
+    showInlineFooterWhileSheetOpen: !!sheet.showInlineFooterWhileSheetOpen,
+  });
 
   return (
     <>
@@ -94,12 +270,11 @@ function ChartTradeSheetContent({
               {symbolHeader.symbolName}
             </Text>
           </Pressable>
-          <LiveQuotePairHeader
-            bid={symbolHeader.chartBid}
-            ask={symbolHeader.chartAsk}
-            changePct={symbolHeader.changePct}
+          <ChartTradeSheetHeaderActions
             styles={styles}
-            displayDecimals={symbolHeader.displayDecimals}
+            colors={colors}
+            sheet={sheet}
+            handlers={handlers}
           />
         </View>
       ) : null}
@@ -125,6 +300,7 @@ function ChartTradeSheetContent({
       >
         {CHART_ORDER_TYPES.map((option) => {
           const active = option === sheet.chartTradeOrderType;
+          const isMarketExecution = option === 'Market Execution';
           return (
             <Pressable
               key={option}
@@ -137,6 +313,7 @@ function ChartTradeSheetContent({
               style={[
                 styles.chartTradeTypeTab,
                 useMtPendingTradeSheetLayout && styles.chartTradeTypeTabPending,
+                useMtPendingTradeSheetLayout && isMarketExecution && styles.chartTradeTypeTabPendingMarketExecution,
                 active && styles.chartTradeTypeTabActive,
                 useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
               ]}
@@ -147,6 +324,9 @@ function ChartTradeSheetContent({
                 style={[
                   styles.chartTradeTypeTabText,
                   useMtPendingTradeSheetLayout && styles.chartTradeTypeTabTextPending,
+                  useMtPendingTradeSheetLayout
+                  && isMarketExecution
+                  && styles.chartTradeTypeTabTextPendingMarketExecution,
                   active && styles.chartTradeTypeTabTextActive,
                   useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
                 ]}
@@ -160,66 +340,14 @@ function ChartTradeSheetContent({
       </ScrollView>
 
       <View style={[styles.chartTradeSheetBody, useMtPendingTradeSheetLayout && styles.chartTradeSheetBodyPending]}>
-        <Pressable
-          style={styles.chartTradeVolumeCard}
-          onPress={handlers.onOpenVolumeStepper}
-          unstable_pressDelay={0}
-        >
-          <View style={styles.chartTradeVolumeSide}>
-            <Text style={styles.chartTradeCardLabel}>Volume</Text>
-            <View style={styles.chartTradeVolumeValueGroup}>
-              <Text style={styles.chartTradeCardValue}>
-                {sheet.passiveLotDisplay}
-              </Text>
-              <Pressable
-                style={styles.chartTradeStepperLaunchButton}
-                onPress={(event) => {
-                  event.stopPropagation?.();
-                  handlers.onOpenVolumeStepper();
-                }}
-                hitSlop={8}
-                unstable_pressDelay={0}
-              >
-                <View style={styles.chartTradeStepperLaunchIconStack}>
-                  <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
-                  <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-                </View>
-              </Pressable>
-            </View>
-          </View>
-          <View style={styles.chartTradeVolumeDivider} />
-          <View style={styles.chartTradeVolumeUnitSide}>
-            <Text style={styles.chartTradeCardValue}>Lots</Text>
-            <Pressable
-              style={styles.chartTradeStepperLaunchButton}
-              onPress={(event) => {
-                event.stopPropagation?.();
-                handlers.onOpenVolumeStepper();
-              }}
-              hitSlop={8}
-              unstable_pressDelay={0}
-            >
-              <View style={styles.chartTradeStepperLaunchIconStack}>
-                <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
-                <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-              </View>
-            </Pressable>
-          </View>
-        </Pressable>
-
-        <ChartTradeVolumeSlider
+        <ChartTradeVolumeSection
+          ChartTradeVolumeSlider={ChartTradeVolumeSlider}
           styles={styles}
-          value={sheet.tradeVolume}
-          bounds={sheet.tradeVolumeBounds}
-          onChange={handlers.onChangeTradeVolume}
+          colors={colors}
+          sheet={sheet}
+          handlers={handlers}
+          useMtPendingTradeSheetLayout={useMtPendingTradeSheetLayout}
         />
-
-        <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
-          <Text style={styles.chartTradeMetaLink}>Margin <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text></Text>
-          <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-            Free: {sheet.accountFreeMargin} {sheet.accountCurrency}
-          </Text>
-        </View>
 
         {isPendingChartOrderType(sheet.chartTradeOrderType) ? (
           <Pressable
@@ -440,7 +568,7 @@ function ChartTradeSheetContent({
                 >
                   <Ionicons
                     name='checkmark'
-                    size={20}
+                    size={18}
                     color={sheet.chartTradeComment.trim() ? colors.blue : '#94A3B8'}
                   />
                 </Pressable>
@@ -481,7 +609,7 @@ function ChartTradeSheetContent({
         ) : null}
 
         {sheet.chartTradeOrderType === 'Market Execution' ? (
-          <>
+          shouldShowMarketExecutionButtons ? (
             <LiveTradeButtons
               symbol={sheet.chartSymbol}
               displayDecimals={symbolHeader.displayDecimals}
@@ -494,24 +622,7 @@ function ChartTradeSheetContent({
               buyColor={colors.blue}
               sellColor={colors.sellPrimary}
             />
-            <PendingOrderPreviewChart
-              styles={styles}
-              candles={sheet.candles}
-              bid={sheet.chartBid}
-              ask={sheet.chartAsk}
-              entryPrice={sheet.chartTradeEntryPrice}
-              entryLabel="Price"
-              stopLimitPriceEnabled={false}
-              stopLimitPrice={sheet.chartTradeStopLimitPrice}
-              stopLossEnabled={sheet.chartTradeSlEnabled}
-              stopLossPrice={sheet.chartTradeSlPrice}
-              takeProfitEnabled={sheet.chartTradeTpEnabled}
-              takeProfitPrice={sheet.chartTradeTpPrice}
-              displayDecimals={symbolHeader.displayDecimals}
-              buyColor={colors.blue}
-              sellColor={colors.sellPrimary}
-            />
-          </>
+          ) : null
         ) : (
           <>
             <Pressable
@@ -534,25 +645,20 @@ function ChartTradeSheetContent({
                 {`Place ${sheet.chartTradeOrderType}`}
               </Text>
             </Pressable>
-            <PendingOrderPreviewChart
-              styles={styles}
-              candles={sheet.candles}
-              bid={sheet.chartBid}
-              ask={sheet.chartAsk}
-              entryPrice={sheet.chartTradeEntryPrice}
-              entryLabel={sheet.chartTradeOrderType.toUpperCase()}
-              stopLimitPriceEnabled={sheet.isStopLimitChartOrder}
-              stopLimitPrice={sheet.chartTradeStopLimitPrice}
-              stopLossEnabled={sheet.chartTradeSlEnabled}
-              stopLossPrice={sheet.chartTradeSlPrice}
-              takeProfitEnabled={sheet.chartTradeTpEnabled}
-              takeProfitPrice={sheet.chartTradeTpPrice}
-              displayDecimals={symbolHeader.displayDecimals}
-              buyColor={colors.blue}
-              sellColor={colors.sellPrimary}
-            />
           </>
         )}
+
+        <LiveOrderTickExecutionGraph
+          symbol={sheet.chartSymbol}
+          bid={sheet.chartBid}
+          ask={sheet.chartAsk}
+          timestamp={sheet.chartTradeTickTimestamp}
+          enabled={sheet.showChartTradeSheet}
+          priceDecimals={symbolHeader.displayDecimals}
+          bidColor="#2563EB"
+          askColor="#EF4444"
+          height={286}
+        />
       </View>
     </>
   );
@@ -560,7 +666,7 @@ function ChartTradeSheetContent({
 
 /**
  * Pinned header rendered OUTSIDE the ScrollView so it never scrolls away.
- * Contains: symbol selector + bid/ask quote + order type tabs.
+ * Contains: symbol selector + SL/TP shortcuts + order type tabs.
  */
 function ChartTradeSheetPinnedHeader({
   styles,
@@ -590,7 +696,6 @@ function ChartTradeSheetPinnedHeader({
   };
   components: TradeFeatureComponents;
 }) {
-  const { LiveQuotePairHeader } = components;
   const useMtPendingTradeSheetLayout = sheet.useMtPendingTradeSheetLayout;
 
   return (
@@ -617,12 +722,11 @@ function ChartTradeSheetPinnedHeader({
             {symbolHeader.symbolName}
           </Text>
         </Pressable>
-        <LiveQuotePairHeader
-          bid={symbolHeader.chartBid}
-          ask={symbolHeader.chartAsk}
-          changePct={symbolHeader.changePct}
+        <ChartTradeSheetHeaderActions
           styles={styles}
-          displayDecimals={symbolHeader.displayDecimals}
+          colors={colors}
+          sheet={sheet}
+          handlers={handlers}
         />
       </View>
 
@@ -648,6 +752,7 @@ function ChartTradeSheetPinnedHeader({
       >
         {CHART_ORDER_TYPES.map((option) => {
           const active = option === sheet.chartTradeOrderType;
+          const isMarketExecution = option === 'Market Execution';
           return (
             <Pressable
               key={option}
@@ -660,6 +765,7 @@ function ChartTradeSheetPinnedHeader({
               style={[
                 styles.chartTradeTypeTab,
                 useMtPendingTradeSheetLayout && styles.chartTradeTypeTabPending,
+                useMtPendingTradeSheetLayout && isMarketExecution && styles.chartTradeTypeTabPendingMarketExecution,
                 active && styles.chartTradeTypeTabActive,
                 useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabPendingActive,
               ]}
@@ -670,6 +776,9 @@ function ChartTradeSheetPinnedHeader({
                 style={[
                   styles.chartTradeTypeTabText,
                   useMtPendingTradeSheetLayout && styles.chartTradeTypeTabTextPending,
+                  useMtPendingTradeSheetLayout
+                  && isMarketExecution
+                  && styles.chartTradeTypeTabTextPendingMarketExecution,
                   active && styles.chartTradeTypeTabTextActive,
                   useMtPendingTradeSheetLayout && active && styles.chartTradeTypeTabTextPendingActive,
                 ]}
@@ -714,79 +823,24 @@ function ChartTradeSheetBody({
 }) {
   const {
     LiveTradeButtons,
-    PendingOrderPreviewChart,
     ChartTradeVolumeSlider,
   } = components;
   const useMtPendingTradeSheetLayout = sheet.useMtPendingTradeSheetLayout;
+  const shouldShowMarketExecutionButtons = shouldShowChartTradeSheetMarketExecutionButtons({
+    chartTradeOrderType: sheet.chartTradeOrderType,
+    showInlineFooterWhileSheetOpen: !!sheet.showInlineFooterWhileSheetOpen,
+  });
 
   return (
     <View style={[styles.chartTradeSheetBody, useMtPendingTradeSheetLayout && styles.chartTradeSheetBodyPending]}>
-      <Pressable
-        style={[styles.chartTradeVolumeCard, useMtPendingTradeSheetLayout && styles.chartTradeVolumeCardPending]}
-        onPress={handlers.onOpenVolumeStepper}
-        unstable_pressDelay={0}
-      >
-        <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
-          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Volume</Text>
-          <View style={styles.chartTradeVolumeValueGroup}>
-            <Text style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}>
-              {sheet.passiveLotDisplay}
-            </Text>
-            <Pressable
-              style={[
-                styles.chartTradeStepperLaunchButton,
-                useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-              ]}
-              onPress={(event) => {
-                event.stopPropagation?.();
-                handlers.onOpenVolumeStepper();
-              }}
-              hitSlop={8}
-              unstable_pressDelay={0}
-            >
-              <View style={styles.chartTradeStepperLaunchIconStack}>
-                <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
-                <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-              </View>
-            </Pressable>
-          </View>
-        </View>
-        <View style={styles.chartTradeVolumeDivider} />
-        <View style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}>
-          <Text style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}>Lots</Text>
-          <Pressable
-            style={[
-              styles.chartTradeStepperLaunchButton,
-              useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
-            ]}
-            onPress={(event) => {
-              event.stopPropagation?.();
-              handlers.onOpenVolumeStepper();
-            }}
-            hitSlop={8}
-            unstable_pressDelay={0}
-          >
-            <View style={styles.chartTradeStepperLaunchIconStack}>
-              <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
-              <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-            </View>
-          </Pressable>
-        </View>
-      </Pressable>
-
-      <ChartTradeVolumeSlider
+      <ChartTradeVolumeSection
+        ChartTradeVolumeSlider={ChartTradeVolumeSlider}
         styles={styles}
-        value={sheet.tradeVolume}
-        bounds={sheet.tradeVolumeBounds}
-        onChange={handlers.onChangeTradeVolume}
+        colors={colors}
+        sheet={sheet}
+        handlers={handlers}
+        useMtPendingTradeSheetLayout={useMtPendingTradeSheetLayout}
       />
-
-      <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
-        <Text style={styles.chartTradeMetaLink}>Margin <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text></Text>
-        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-          Free: {sheet.accountFreeMargin} {sheet.accountCurrency}
-        </Text>
-      </View>
 
       {isPendingChartOrderType(sheet.chartTradeOrderType) ? (
         <Pressable
@@ -1007,7 +1061,7 @@ function ChartTradeSheetBody({
               >
                 <Ionicons
                   name='checkmark'
-                  size={20}
+                  size={18}
                   color={sheet.chartTradeComment.trim() ? colors.blue : '#94A3B8'}
                 />
               </Pressable>
@@ -1048,7 +1102,7 @@ function ChartTradeSheetBody({
       ) : null}
 
       {sheet.chartTradeOrderType === 'Market Execution' ? (
-        <>
+        shouldShowMarketExecutionButtons ? (
           <LiveTradeButtons
             symbol={sheet.chartSymbol}
             displayDecimals={symbolHeader.displayDecimals}
@@ -1061,24 +1115,7 @@ function ChartTradeSheetBody({
             buyColor={colors.blue}
             sellColor={colors.sellPrimary}
           />
-          <PendingOrderPreviewChart
-            styles={styles}
-              candles={sheet.candles}
-              bid={sheet.chartBid}
-              ask={sheet.chartAsk}
-              entryPrice={sheet.chartTradeEntryPrice}
-              entryLabel="Price"
-              stopLimitPriceEnabled={false}
-              stopLimitPrice={sheet.chartTradeStopLimitPrice}
-            stopLossEnabled={sheet.chartTradeSlEnabled}
-            stopLossPrice={sheet.chartTradeSlPrice}
-            takeProfitEnabled={sheet.chartTradeTpEnabled}
-            takeProfitPrice={sheet.chartTradeTpPrice}
-            displayDecimals={symbolHeader.displayDecimals}
-            buyColor={colors.blue}
-            sellColor={colors.sellPrimary}
-          />
-        </>
+        ) : null
       ) : (
         <>
           <Pressable
@@ -1101,25 +1138,52 @@ function ChartTradeSheetBody({
               {`Place ${sheet.chartTradeOrderType}`}
             </Text>
           </Pressable>
-          <PendingOrderPreviewChart
-            styles={styles}
-              candles={sheet.candles}
-              bid={sheet.chartBid}
-              ask={sheet.chartAsk}
-              entryPrice={sheet.chartTradeEntryPrice}
-              entryLabel={sheet.chartTradeOrderType.toUpperCase()}
-              stopLimitPriceEnabled={sheet.isStopLimitChartOrder}
-              stopLimitPrice={sheet.chartTradeStopLimitPrice}
-            stopLossEnabled={sheet.chartTradeSlEnabled}
-            stopLossPrice={sheet.chartTradeSlPrice}
-            takeProfitEnabled={sheet.chartTradeTpEnabled}
-            takeProfitPrice={sheet.chartTradeTpPrice}
-            displayDecimals={symbolHeader.displayDecimals}
-            buyColor={colors.blue}
-            sellColor={colors.sellPrimary}
-          />
         </>
       )}
+
+      <LiveOrderTickExecutionGraph
+        symbol={sheet.chartSymbol}
+        bid={sheet.chartBid}
+        ask={sheet.chartAsk}
+        timestamp={sheet.chartTradeTickTimestamp}
+        enabled={sheet.showChartTradeSheet}
+        priceDecimals={symbolHeader.displayDecimals}
+        bidColor="#2563EB"
+        askColor="#EF4444"
+        height={286}
+      />
+    </View>
+  );
+}
+
+function ChartTradeSheetDragHeader({
+  styles,
+  sheet,
+  handlers,
+}: {
+  styles: any;
+  colors: { blue: string; textMuted: string; sellPrimary: string };
+  sheet: any;
+  handlers: any;
+}) {
+  if (!shouldShowChartTradeSheetHandle({ chartTradeSheetMode: sheet.chartTradeSheetMode })) {
+    return null;
+  }
+
+  return (
+    <View
+      style={[
+        styles.chartTradeSheetDragRegion,
+        sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
+      ]}
+    >
+      <Pressable
+        style={styles.chartTradeSheetHandleWrap}
+        onPress={handlers.onToggleSheetMode}
+        unstable_pressDelay={0}
+      >
+        <View style={styles.chartTradeSheetHandle} />
+      </Pressable>
     </View>
   );
 }
@@ -1160,6 +1224,24 @@ export function ChartTradeOverlayLayer({
     LiveTradeButtons,
     ChartFooterLotPicker,
   } = components;
+  const showInlineFooterDock = !!sheet.showInlineFooterDockWhileSheetOpen;
+  const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
+  const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
+  const tradeFooterDockEditGap =
+    footer.footerLotEditorFocused && footer.showFloatingFooterTradeRow && !showInlineFooterDock
+      ? FOOTER_TRADE_DOCK_EDIT_GAP
+      : 0;
+  const tradeFooterDockBottom =
+    footer.showFloatingFooterTradeRow && !showInlineFooterDock
+      ? footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap
+      : 0;
+  const tradeSheetBottomInset =
+    Number.isFinite(sheet.chartTradeSheetBottomInset) && sheet.chartTradeSheetBottomInset > 0
+      ? sheet.chartTradeSheetBottomInset
+      : 0;
+  // Optional bottom reservation for callers that deliberately keep a footer
+  // visible. The toolbar SL/TP flow passes 0 so the sheet covers that area.
+  const tradeSheetFrameBottom = tradeSheetBottomInset;
 
   return (
     <>
@@ -1176,11 +1258,13 @@ export function ChartTradeOverlayLayer({
               styles.chartTradeSheetFrame,
               styles.chartTradeSheetOverlayFrame,
               { height: sheet.chartTradeSheetMaxHeight },
+              tradeSheetFrameBottom > 0 && { bottom: tradeSheetFrameBottom },
               sheet.chartTradeSheetAnimatedStyle,
             ]}
           >
             <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
               <View
+                collapsable={false}
                 style={[
                   styles.chartTradeSheet,
                   styles.chartTradeSheetInline,
@@ -1188,116 +1272,55 @@ export function ChartTradeOverlayLayer({
                   sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
                 ]}
               >
-              {sheet.showChartTradeSheetHeader ? (
-                  <View
-                    style={[
-                      styles.chartTradeSheetDragRegion,
-                      sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
-                    ]}
-                  >
-                    <Pressable
-                      style={styles.chartTradeSheetHandleWrap}
-                      onPress={handlers.onToggleSheetMode}
-                      unstable_pressDelay={0}
-                    >
-                      <View style={styles.chartTradeSheetHandle} />
-                    </Pressable>
-                    <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
-                      <View style={styles.chartTradeQuickActions}>
-                        <Pressable
-                          style={[
-                            styles.chartTradeQuickChip,
-                            styles.chartTradeQuickChipSl,
-                            sheet.chartTradeSlEnabled && styles.chartTradeQuickChipSlActive,
-                          ]}
-                          onPress={() => handlers.onToggleStopLevel('sl')}
-                          unstable_pressDelay={0}
-                        >
-                          <Text
-                            style={[
-                              styles.chartTradeQuickChipText,
-                              sheet.chartTradeSlEnabled && styles.chartTradeQuickChipTextActive,
-                            ]}
-                          >
-                            SL
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          style={[
-                            styles.chartTradeQuickChip,
-                            styles.chartTradeQuickChipTp,
-                            sheet.chartTradeTpEnabled && styles.chartTradeQuickChipTpActive,
-                          ]}
-                          onPress={() => handlers.onToggleStopLevel('tp')}
-                          unstable_pressDelay={0}
-                        >
-                          <Text
-                            style={[
-                              styles.chartTradeQuickChipText,
-                              sheet.chartTradeTpEnabled && styles.chartTradeQuickChipTextActive,
-                            ]}
-                          >
-                            TP
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.chartTradeQuickExpandButton}
-                          onPress={handlers.onToggleSheetMode}
-                          unstable_pressDelay={0}
-                        >
-                          <Ionicons
-                            name={sheet.chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
-                            size={20}
-                            color={colors.blue}
-                          />
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
-              ) : null}
-
-              {/* Pinned symbol header — always visible, never scrolls away */}
-              <ChartTradeSheetPinnedHeader
-                styles={styles}
-                colors={colors}
-                symbolHeader={symbolHeader}
-                sheet={sheet}
-                handlers={handlers}
-                tabs={{
-                  scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
-                  onViewportLayout: handlers.onOverlayTabsViewportLayout,
-                  onTabLayout: handlers.onOverlayTabLayout,
-                }}
-                components={components}
-              />
-
-              <ScrollView
-                ref={sheet.chartTradeSheetScrollRef}
-                style={styles.chartTradeSheetContentScroll}
-                contentContainerStyle={[
-                  styles.chartTradeSheetContent,
-                  { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
-                ]}
-                nestedScrollEnabled
-                bounces={false}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
-                keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                scrollEventThrottle={16}
-                onScroll={(event) => {
-                  handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
-                }}
-              >
-                <ChartTradeSheetBody
-                  components={components}
+                <ChartTradeSheetDragHeader
                   styles={styles}
-                  isDark={isDark}
+                  colors={colors}
+                  sheet={sheet}
+                  handlers={handlers}
+                />
+
+                {/* Pinned symbol header — always visible, never scrolls away */}
+                <ChartTradeSheetPinnedHeader
+                  styles={styles}
                   colors={colors}
                   symbolHeader={symbolHeader}
                   sheet={sheet}
                   handlers={handlers}
+                  tabs={{
+                    scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
+                    onViewportLayout: handlers.onOverlayTabsViewportLayout,
+                    onTabLayout: handlers.onOverlayTabLayout,
+                  }}
+                  components={components}
                 />
-              </ScrollView>
+
+                <ScrollView
+                  ref={sheet.chartTradeSheetScrollRef}
+                  style={styles.chartTradeSheetContentScroll}
+                  contentContainerStyle={[
+                    styles.chartTradeSheetContent,
+                    { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
+                  ]}
+                  nestedScrollEnabled
+                  bounces={false}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
+                  keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  scrollEventThrottle={16}
+                  onScroll={(event) => {
+                    handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
+                  }}
+                >
+                  <ChartTradeSheetBody
+                    components={components}
+                    styles={styles}
+                    isDark={isDark}
+                    colors={colors}
+                    symbolHeader={symbolHeader}
+                    sheet={sheet}
+                    handlers={handlers}
+                  />
+                </ScrollView>
               </View>
             </GestureDetector>
           </Animated.View>
@@ -1310,6 +1333,7 @@ export function ChartTradeOverlayLayer({
             { display: 'none' },
             styles.chartTradeSheetFrame,
             { height: sheet.chartTradeSheetMaxHeight },
+            tradeSheetFrameBottom > 0 && { bottom: tradeSheetFrameBottom },
             sheet.chartTradeSheetAnimatedStyle,
           ]}
         >
@@ -1321,72 +1345,15 @@ export function ChartTradeOverlayLayer({
               sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
             ]}
           >
-            {sheet.showChartTradeSheetHeader ? (
+            {shouldShowChartTradeSheetHandle({ chartTradeSheetMode: sheet.chartTradeSheetMode }) ? (
               <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
-                <View
-                  style={[
-                    styles.chartTradeSheetDragRegion,
-                    sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
-                  ]}
-                >
-                  <Pressable
-                    style={styles.chartTradeSheetHandleWrap}
-                    onPress={handlers.onToggleSheetMode}
-                    unstable_pressDelay={0}
-                  >
-                    <View style={styles.chartTradeSheetHandle} />
-                  </Pressable>
-                  <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
-                    <View style={styles.chartTradeQuickActions}>
-                      <Pressable
-                        style={[
-                          styles.chartTradeQuickChip,
-                          styles.chartTradeQuickChipSl,
-                          sheet.chartTradeSlEnabled && styles.chartTradeQuickChipSlActive,
-                        ]}
-                        onPress={() => handlers.onToggleStopLevel('sl')}
-                        unstable_pressDelay={0}
-                      >
-                        <Text
-                          style={[
-                            styles.chartTradeQuickChipText,
-                            sheet.chartTradeSlEnabled && styles.chartTradeQuickChipTextActive,
-                          ]}
-                        >
-                          SL
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={[
-                          styles.chartTradeQuickChip,
-                          styles.chartTradeQuickChipTp,
-                          sheet.chartTradeTpEnabled && styles.chartTradeQuickChipTpActive,
-                        ]}
-                        onPress={() => handlers.onToggleStopLevel('tp')}
-                        unstable_pressDelay={0}
-                      >
-                        <Text
-                          style={[
-                            styles.chartTradeQuickChipText,
-                            sheet.chartTradeTpEnabled && styles.chartTradeQuickChipTextActive,
-                          ]}
-                        >
-                          TP
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={styles.chartTradeQuickExpandButton}
-                        onPress={handlers.onToggleSheetMode}
-                        unstable_pressDelay={0}
-                      >
-                        <Ionicons
-                          name={sheet.chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
-                          size={20}
-                          color={colors.blue}
-                        />
-                      </Pressable>
-                    </View>
-                  </View>
+                <View collapsable={false}>
+                  <ChartTradeSheetDragHeader
+                    styles={styles}
+                    colors={colors}
+                    sheet={sheet}
+                    handlers={handlers}
+                  />
                 </View>
               </GestureDetector>
             ) : null}
@@ -1425,17 +1392,17 @@ export function ChartTradeOverlayLayer({
         </Animated.View>
       ) : null}
 
-      {footer.showFloatingFooterTradeRow ? (
+      {showTradeFooterDock ? (
         <View
-          pointerEvents={footer.floatingFooterTradeRowVisible ? 'box-none' : 'none'}
+          pointerEvents={tradeFooterDockVisible ? 'box-none' : 'none'}
           style={styles.footerTradeDockLayer}
         >
           <View
             style={[
               styles.footerTradeDock,
               {
-                bottom: footer.footerTradeRowKeyboardOffset,
-                opacity: footer.floatingFooterTradeRowVisible ? 1 : 0,
+                bottom: tradeFooterDockBottom,
+                opacity: tradeFooterDockVisible ? 1 : 0,
               },
             ]}
           >
@@ -1445,6 +1412,7 @@ export function ChartTradeOverlayLayer({
               lotSize={sheet.tradeVolume}
               volumeBounds={sheet.tradeVolumeBounds}
               onTradeResult={sheet.onTradeResult}
+              comment={sheet.chartTradeComment}
               onEditLot={handlers.onEditLot}
               onOpenLotEditor={handlers.onOpenLotEditor}
               isLotEditing={footer.footerLotEditorFocused}
@@ -1489,6 +1457,7 @@ type ChartTradeInlineFooterProps = {
   LiveTradeButtons: React.ComponentType<any>;
   styles: any;
   animatedStyle: any;
+  containerRef?: React.RefObject<View | null>;
   isDark: boolean;
   buyColor: string;
   sellColor: string;
@@ -1510,12 +1479,14 @@ type ChartTradeInlineFooterProps = {
   onLotDraftSubmit: (event?: any) => void;
   onDecreaseLot: () => void;
   onIncreaseLot: () => void;
+  onLayout?: (event: LayoutChangeEvent) => void;
 };
 
 export function ChartTradeInlineFooter({
   LiveTradeButtons,
   styles,
   animatedStyle,
+  containerRef,
   isDark,
   buyColor,
   sellColor,
@@ -1537,9 +1508,10 @@ export function ChartTradeInlineFooter({
   onLotDraftSubmit,
   onDecreaseLot,
   onIncreaseLot,
+  onLayout,
 }: ChartTradeInlineFooterProps) {
   return (
-    <Animated.View style={[styles.bottomArea, animatedStyle]}>
+    <Animated.View ref={containerRef} onLayout={onLayout} style={[styles.bottomArea, animatedStyle]}>
       {!showFloatingFooterTradeRow && !hideInlineTradeRow ? (
         <LiveTradeButtons
           symbol={chartSymbol}

@@ -54,8 +54,8 @@ test('resolveVisibleSeriesMode keeps trusted history visible when live candles d
   );
 });
 
-test('resolveVisibleSeriesMode keeps the chart empty on cold start when history is detached from live', () => {
-  assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [], 'M1'), 'empty');
+test('resolveVisibleSeriesMode paints trusted history on cold start when live is detached', () => {
+  assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [], 'M1'), 'history');
 });
 
 test('resolveCurrentVisibleSeries prefers the fresh live-only segment when history is detached', () => {

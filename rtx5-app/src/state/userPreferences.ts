@@ -19,6 +19,7 @@ import {
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../utils/tradeVolume';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
+export type ChartTradeVolumeDisplayMode = 'lots' | 'margin';
 export type LanguageCode =
   | 'en'
   | 'es'
@@ -227,6 +228,7 @@ type UserPreferencesState = {
   chartSymbol: string;
   chartTimeframe: string;
   tradeVolume: number;
+  chartTradeVolumeDisplayMode: ChartTradeVolumeDisplayMode;
   chartVisualType: ChartVisualType;
   chartViewportShowVolumePane: boolean;
   chartViewportShowDrawingToolbar: boolean;
@@ -281,6 +283,7 @@ type UserPreferencesState = {
   setChartSymbol: (symbol: string) => void;
   setChartTimeframe: (timeframe: string) => void;
   setTradeVolume: (volume: number) => void;
+  setChartTradeVolumeDisplayMode: (mode: ChartTradeVolumeDisplayMode) => void;
   setChartVisualType: (chartType: ChartVisualType) => void;
   setChartViewportShowVolumePane: (visible: boolean) => void;
   setChartViewportShowDrawingToolbar: (visible: boolean) => void;
@@ -321,6 +324,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartSymbol: 'GBPUSD',
       chartTimeframe: 'H1',
       tradeVolume: DEFAULT_TRADE_VOLUME,
+      chartTradeVolumeDisplayMode: 'lots',
       chartVisualType: 'candles',
       chartViewportShowVolumePane: false,
       chartViewportShowDrawingToolbar: false,
@@ -409,6 +413,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
         }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
       setTradeVolume: (volume) => set({ tradeVolume: normalizeTradeVolume(volume) }),
+      setChartTradeVolumeDisplayMode: (mode) => set({ chartTradeVolumeDisplayMode: mode }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),
       setChartViewportShowDrawingToolbar: (visible) => set({ chartViewportShowDrawingToolbar: visible }),
@@ -507,7 +512,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 13,
+      version: 14,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -574,6 +579,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
           chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar ?? false,
           tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
+          chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode === 'margin' ? 'margin' : 'lots',
           chartColorScheme: state.chartColorScheme ?? 'custom',
           chartColors: {
             ...DEFAULT_CHART_COLORS,

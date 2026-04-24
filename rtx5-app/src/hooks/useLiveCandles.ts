@@ -16,6 +16,7 @@ import {
   normalizeTimeframe,
 } from '../domain/candles';
 import { useMarketData } from '../query/websocket';
+import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { useTradingState } from '../state/tradingState';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
@@ -100,6 +101,27 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   }, [normalizedSymbol, normalizedTimeframe]);
 
   const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
+
+  useEffect(() => {
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
+
+    let cancelled = false;
+    void hydratePersistedCandleCache(normalizedSymbol, normalizedTimeframe).then((hydratedCandles) => {
+      if (!cancelled && hydratedCandles.length > 0) {
+        liveCandlesEngine.hydrateFromCache(
+          normalizedSymbol,
+          normalizedTimeframe,
+          hydratedCandles as CandleParams[],
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
     if (!normalizedSymbol || !normalizedTimeframe || safeCachedCandles.length === 0) {

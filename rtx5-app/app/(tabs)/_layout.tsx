@@ -72,7 +72,7 @@ export default function TabsLayout() {
           },
           tabBarActiveBackgroundColor: 'transparent',
           tabBarItemStyle: { backgroundColor: 'transparent' },
-          tabBarHideOnKeyboard: true,
+          tabBarHideOnKeyboard: !isChartTab,
           // Blur-freezing prevents inactive routes from reacting to focus
           // changes. Leave it off so the route wrappers can actually unmount
           // the heavy live subtrees when the tab loses focus.

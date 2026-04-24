@@ -133,6 +133,7 @@ import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navigationPrefetch';
 import { isDemoTradingAccount } from '../src/domain/accountType';
+import { hydratePersistedCandleCache } from '../src/state/persistedCandleCache';
 
 export default function RootLayout() {
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
@@ -152,6 +153,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!hasHydrated) return;
+    void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
     prefetchChartCandles(chartSymbol, chartTimeframe);
   }, [hasHydrated, chartSymbol, chartTimeframe]);
 

@@ -1,4 +1,4 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
   Pressable,
@@ -7,6 +7,25 @@ import {
   View,
 } from 'react-native';
 import { ActionSheet } from '../../../components/ActionSheet';
+import {
+  TvBrush,
+  TvCrosshair,
+  TvFib,
+  TvHide,
+  TvLock,
+  TvMagnet,
+  TvMeasure,
+  TvPatterns,
+  TvPitchfork,
+  TvPrediction,
+  TvRadialPlus,
+  TvSmiley,
+  TvStayInDrawingMode,
+  TvText,
+  TvTrash,
+  TvTrendLine,
+  TvZoom,
+} from './ChartToolbarIcons';
 
 type ChartDrawingToolbarButtonProps = {
   isDark: boolean;
@@ -56,25 +75,25 @@ type ChartDrawingToolsActionSheetProps = {
 
 type DrawingToolOption = {
   actionLabel: string;
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  renderIcon: (color: string) => React.ReactNode;
   tool: string;
 };
 
 const DRAWING_TOOL_OPTIONS: DrawingToolOption[] = [
-  { actionLabel: 'Crosshair', icon: 'crosshairs', tool: 'crosshair' },
-  { actionLabel: 'Trend Line', icon: 'vector-line', tool: 'trendline' },
-  { actionLabel: 'Fib Zone', icon: 'chart-timeline-variant', tool: 'fib' },
-  { actionLabel: 'Highlight Box', icon: 'brush', tool: 'brush' },
-  { actionLabel: 'Text Label', icon: 'format-text', tool: 'text' },
-  { actionLabel: 'Pattern Path', icon: 'chart-bell-curve-cumulative', tool: 'patterns' },
-  { actionLabel: 'Long Position', icon: 'chart-box-outline', tool: 'prediction' },
-  { actionLabel: 'Pitchfork', icon: 'pitchfork', tool: 'pitchfork' },
-  { actionLabel: 'Sticker', icon: 'emoticon-outline', tool: 'smiley' },
+  { actionLabel: 'Crosshair', renderIcon: (color) => <TvCrosshair color={color} />, tool: 'crosshair' },
+  { actionLabel: 'Trend Line', renderIcon: (color) => <TvTrendLine color={color} />, tool: 'trendline' },
+  { actionLabel: 'Fib Zone', renderIcon: (color) => <TvFib color={color} />, tool: 'fib' },
+  { actionLabel: 'Highlight Box', renderIcon: (color) => <TvBrush color={color} />, tool: 'brush' },
+  { actionLabel: 'Text Label', renderIcon: (color) => <TvText color={color} />, tool: 'text' },
+  { actionLabel: 'Pattern Path', renderIcon: (color) => <TvPatterns color={color} />, tool: 'patterns' },
+  { actionLabel: 'Long Position', renderIcon: (color) => <TvPrediction color={color} />, tool: 'prediction' },
+  { actionLabel: 'Pitchfork', renderIcon: (color) => <TvPitchfork color={color} />, tool: 'pitchfork' },
+  { actionLabel: 'Sticker', renderIcon: (color) => <TvSmiley color={color} />, tool: 'smiley' },
 ];
 
 export const DRAWING_SHEET_OPTIONS: DrawingToolOption[] = [
   ...DRAWING_TOOL_OPTIONS,
-  { actionLabel: 'Measure Range', icon: 'ruler', tool: 'measure' },
+  { actionLabel: 'Measure Range', renderIcon: (color) => <TvMeasure color={color} />, tool: 'measure' },
 ];
 
 const baseStyles = StyleSheet.create({
@@ -238,10 +257,11 @@ export function ChartDrawingToolsSidebar({
         ]}
         onPress={onOpenDrawingTools}
       >
-        <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+        <TvRadialPlus color="#FFFFFF" />
       </Pressable>
       {DRAWING_TOOL_OPTIONS.map((option) => {
         const active = activeTool === option.tool;
+        const iconColor = active ? colors.blue : colors.textMuted;
 
         return (
           <Pressable
@@ -249,11 +269,7 @@ export function ChartDrawingToolsSidebar({
             style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
             onPress={() => onSelectTool(option.tool)}
           >
-            <MaterialCommunityIcons
-              name={option.icon}
-              size={22}
-              color={active ? colors.blue : colors.textMuted}
-            />
+            {option.renderIcon(iconColor)}
           </Pressable>
           );
         })}
@@ -262,31 +278,27 @@ export function ChartDrawingToolsSidebar({
         style={[baseStyles.toolIcon, activeTool === 'measure' && themeStyles.toolIconActive]}
         onPress={() => onSelectTool('measure')}
       >
-        <MaterialCommunityIcons
-          name="ruler"
-          size={22}
-          color={activeTool === 'measure' ? colors.blue : colors.textMuted}
-        />
+        <TvMeasure color={activeTool === 'measure' ? colors.blue : colors.textMuted} />
       </Pressable>
       <Pressable style={baseStyles.toolIcon} onPress={onZoomTool}>
-        <MaterialCommunityIcons name="magnify-plus-outline" size={22} color={colors.textMuted} />
+        <TvZoom color={colors.textMuted} />
       </Pressable>
       <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
       <Pressable style={[baseStyles.toolIcon, magnetEnabled && themeStyles.toolIconActive]} onPress={onToggleMagnet}>
-        <MaterialCommunityIcons name="magnet" size={22} color={magnetEnabled ? colors.blue : colors.textMuted} />
+        <TvMagnet color={magnetEnabled ? colors.blue : colors.textMuted} />
       </Pressable>
       <Pressable style={[baseStyles.toolIcon, stickyDrawingMode && themeStyles.toolIconActive]} onPress={onToggleStickyMode}>
-        <MaterialCommunityIcons name="pencil-lock" size={22} color={stickyDrawingMode ? colors.blue : colors.textMuted} />
+        <TvStayInDrawingMode color={stickyDrawingMode ? colors.blue : colors.textMuted} />
       </Pressable>
       <Pressable style={[baseStyles.toolIcon, chartLockAll && themeStyles.toolIconActive]} onPress={onToggleLock}>
-        <MaterialCommunityIcons name="lock-outline" size={22} color={chartLockAll ? colors.blue : colors.textMuted} />
+        <TvLock color={chartLockAll ? colors.blue : colors.textMuted} />
       </Pressable>
       <Pressable style={[baseStyles.toolIcon, chartHideAll && themeStyles.toolIconActive]} onPress={onToggleHide}>
-        <MaterialCommunityIcons name="eye-off-outline" size={22} color={chartHideAll ? colors.blue : colors.textMuted} />
+        <TvHide color={chartHideAll ? colors.blue : colors.textMuted} />
       </Pressable>
       <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
       <Pressable style={baseStyles.toolIcon} onPress={onClearDrawings}>
-        <MaterialCommunityIcons name="trash-can-outline" size={22} color={colors.textMuted} />
+        <TvTrash color={colors.textMuted} />
       </Pressable>
     </ScrollView>
   );

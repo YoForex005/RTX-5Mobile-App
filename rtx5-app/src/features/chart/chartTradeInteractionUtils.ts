@@ -1,4 +1,34 @@
-import { sanitizeTradeVolumeDraft } from '../../utils/tradeVolume';
+import {
+  formatTradeVolume,
+  incrementTradeVolume,
+  normalizeTradeVolume,
+  resolveTradeVolumeBounds,
+  sanitizeTradeVolumeDraft,
+  type TradeVolumeBounds,
+} from '../../utils/tradeVolume';
+
+const KEYBOARD_HOST_RESIZE_MIN_DELTA = 64;
+const KEYBOARD_HOST_RESIZE_RATIO = 0.25;
+const FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS = [1, 10, 50] as const;
+const FOOTER_LOT_PICKER_GRID_MULTIPLIER = 10;
+const FOOTER_LOT_PICKER_GRID_ENTRY_COUNT = 10;
+
+export type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
+
+export type FooterLotPickerQuickAdjustment = {
+  key: string;
+  label: string;
+  nextValue: number;
+  multiplier: number;
+};
+
+export type FooterLotPickerValueOption = {
+  key: string;
+  label: string;
+  value: number;
+  multiplier: number;
+  rangeMultiplier?: number;
+};
 
 type FooterLotCommitDraftInput = {
   draftOverride?: string;
@@ -9,8 +39,16 @@ type FooterLotCommitDraftInput = {
 type FooterTradeRowStateInput = {
   platform: string;
   footerLotEditorFocused: boolean;
+  footerLotEditorOpening: boolean;
   showChartTradeSheet: boolean;
+  keyboardVisibleHeight: number;
   keyboardDockOffset: number;
+  keyboardResizesHost?: boolean;
+};
+
+type ChartTradeInlineInputVisibilityInput = {
+  showChartTradeSheet: boolean;
+  chartTradeCommentFocused: boolean;
 };
 
 type ChartTradePreviewVisibilityInput = {
@@ -27,9 +65,52 @@ type KeyboardDockOffsetInput = {
   safeAreaBottom: number;
 };
 
+type KeyboardHostResizeInput = {
+  platform: string;
+  footerLotEditorFocused: boolean;
+  showChartTradeSheet: boolean;
+  keyboardVisibleHeight: number;
+  keyboardFreeHostHeight: number;
+  currentHostHeight: number;
+};
+
 type ChartTradeSheetHeaderVisibilityInput = {
   chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
 };
+
+type ChartTradeSheetHandleVisibilityInput = {
+  chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
+};
+
+type ChartTradeSheetMarketExecutionButtonsVisibilityInput = {
+  chartTradeOrderType: string;
+  showInlineFooterWhileSheetOpen: boolean;
+};
+
+type ChartTradeSheetMaxHeightInput = {
+  collapsedHeight: number;
+  hostHeight: number;
+  topInset: number;
+  headerLift: number;
+  bottomInset: number;
+};
+
+type FooterLotChevronStateInput = {
+  lotSize: number;
+  bounds?: TradeVolumeBounds;
+  hasLotPickerAction: boolean;
+  hasDecreaseAction: boolean;
+  hasIncreaseAction: boolean;
+};
+
+const formatTradeVolumePickerLabel = (value: number, bounds?: TradeVolumeBounds) =>
+  formatTradeVolume(value, bounds).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+
+const formatSignedTradeVolumePickerLabel = (value: number, bounds?: TradeVolumeBounds) =>
+  `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatTradeVolumePickerLabel(Math.abs(value), bounds)}`;
+
+const roundLotPickerAmount = (value: number, decimals: number) =>
+  Number(value.toFixed(Math.max(decimals, 6)));
 
 export function resolveFooterLotCommitDraft({
   draftOverride,
@@ -54,25 +135,35 @@ export function resolveFooterLotCommitDraft({
 export function resolveFooterTradeRowState({
   platform,
   footerLotEditorFocused,
+  footerLotEditorOpening,
   showChartTradeSheet,
+  keyboardVisibleHeight,
   keyboardDockOffset,
+  keyboardResizesHost = false,
 }: FooterTradeRowStateInput) {
   const shouldMountFloatingFooterTradeRow =
     footerLotEditorFocused &&
     !showChartTradeSheet;
   const resolvedKeyboardDockOffset =
     keyboardDockOffset > 0 ? Math.max(0, keyboardDockOffset) : 0;
+  const resolvedKeyboardVisibleHeight =
+    Number.isFinite(keyboardVisibleHeight) && keyboardVisibleHeight > 0
+      ? keyboardVisibleHeight
+      : 0;
   const isFloatingFooterTradeRowVisible =
     shouldMountFloatingFooterTradeRow &&
-    (platform !== 'android' || resolvedKeyboardDockOffset > 0 || footerLotEditorFocused);
-  // On Android with adjustResize the window is already above the keyboard,
-  // so the floating row sits at bottom: 0 in the resized window.
+    (
+      platform !== 'android' ||
+      footerLotEditorOpening ||
+      resolvedKeyboardDockOffset > 0 ||
+      resolvedKeyboardVisibleHeight > 0
+    );
   const footerTradeRowKeyboardOffset =
-    platform === 'android'
-      ? 0
-      : isFloatingFooterTradeRowVisible && resolvedKeyboardDockOffset > 0
-        ? resolvedKeyboardDockOffset
-        : 0;
+    isFloatingFooterTradeRowVisible &&
+    resolvedKeyboardDockOffset > 0 &&
+    !(platform === 'android' && keyboardResizesHost)
+      ? resolvedKeyboardDockOffset
+      : 0;
 
   return {
     shouldMountFloatingFooterTradeRow,
@@ -81,11 +172,206 @@ export function resolveFooterTradeRowState({
   };
 }
 
+export function resolveFooterLotChevronState({
+  lotSize,
+  bounds,
+  hasLotPickerAction,
+  hasDecreaseAction,
+  hasIncreaseAction,
+}: FooterLotChevronStateInput) {
+  const { stepVolume } = resolveTradeVolumeBounds(bounds);
+  const normalizedLotSize = normalizeTradeVolume(lotSize, bounds);
+  const lotStepEpsilon = stepVolume / 1000;
+  const nextDecreaseLot = incrementTradeVolume(normalizedLotSize, -1, bounds);
+  const nextIncreaseLot = incrementTradeVolume(normalizedLotSize, 1, bounds);
+
+  return {
+    canDecreaseLot:
+      hasDecreaseAction &&
+      normalizedLotSize - nextDecreaseLot > lotStepEpsilon,
+    canIncreaseLot:
+      hasIncreaseAction &&
+      nextIncreaseLot - normalizedLotSize > lotStepEpsilon,
+  };
+}
+
+export function buildFooterLotPickerQuickAdjustments(
+  value: number,
+  mode: FooterLotPickerMode,
+  bounds?: TradeVolumeBounds,
+) {
+  const resolved = resolveTradeVolumeBounds(bounds);
+  const currentValue = normalizeTradeVolume(value, bounds);
+  const epsilon = resolved.stepVolume / 1000;
+  const seen = new Set<number>();
+  const options: FooterLotPickerQuickAdjustment[] = [];
+
+  for (const multiplier of FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS) {
+    const rawAmount = roundLotPickerAmount(resolved.stepVolume * multiplier, resolved.decimals);
+    const signedAmount = mode === 'decrease' ? -rawAmount : rawAmount;
+    const nextValue = normalizeTradeVolume(currentValue + signedAmount, bounds);
+    const actualAmount = roundLotPickerAmount(nextValue - currentValue, resolved.decimals);
+
+    if (Math.abs(actualAmount) <= epsilon) {
+      continue;
+    }
+
+    if (mode !== 'absolute' && Math.abs(actualAmount - signedAmount) > epsilon) {
+      continue;
+    }
+
+    if (seen.has(nextValue)) {
+      continue;
+    }
+
+    seen.add(nextValue);
+    options.push({
+      key: `${mode}:${multiplier}:${nextValue}`,
+      label: formatSignedTradeVolumePickerLabel(actualAmount, bounds),
+      nextValue,
+      multiplier,
+    });
+  }
+
+  return options;
+}
+
+export function buildFooterLotPickerValues(
+  value: number,
+  mode: FooterLotPickerMode,
+  bounds?: TradeVolumeBounds,
+  selectedQuickMultiplier?: number,
+) {
+  const resolved = resolveTradeVolumeBounds(bounds);
+  const currentValue = normalizeTradeVolume(value, bounds);
+  const seen = new Set<number>();
+  const values: FooterLotPickerValueOption[] = [];
+
+  if (mode === 'absolute') {
+    const coarseStep = resolved.stepVolume * FOOTER_LOT_PICKER_GRID_MULTIPLIER;
+
+    for (let index = 1; index <= FOOTER_LOT_PICKER_GRID_ENTRY_COUNT; index += 1) {
+      const candidate = normalizeTradeVolume(coarseStep * index, bounds);
+      if (candidate < resolved.minVolume || candidate > resolved.maxVolume || seen.has(candidate)) {
+        continue;
+      }
+      seen.add(candidate);
+      values.push({
+        key: `${mode}:${candidate}`,
+        label: formatTradeVolumePickerLabel(candidate, bounds),
+        value: candidate,
+        multiplier: index,
+      });
+    }
+
+    if (values.length === 0) {
+      values.push({
+        key: `${mode}:${resolved.minVolume}`,
+        label: formatTradeVolumePickerLabel(resolved.minVolume, bounds),
+        value: resolved.minVolume,
+        multiplier: 1,
+      });
+    }
+
+    return values;
+  }
+
+  const direction = mode === 'decrease' ? -1 : 1;
+  const selectedMultiplier =
+    typeof selectedQuickMultiplier === 'number' && Number.isFinite(selectedQuickMultiplier)
+      ? Math.max(1, Math.floor(selectedQuickMultiplier))
+      : FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS[0];
+  const startMultiplier = Math.max(1, selectedMultiplier - FOOTER_LOT_PICKER_GRID_ENTRY_COUNT + 1);
+  const endMultiplier =
+    selectedMultiplier === 1
+      ? FOOTER_LOT_PICKER_GRID_MULTIPLIER
+      : selectedMultiplier + FOOTER_LOT_PICKER_GRID_ENTRY_COUNT;
+
+  for (let multiplier = startMultiplier; multiplier <= endMultiplier; multiplier += 1) {
+    const amount = roundLotPickerAmount(resolved.stepVolume * multiplier, resolved.decimals);
+    const candidate = normalizeTradeVolume(currentValue + direction * amount, bounds);
+    const actualAmount = roundLotPickerAmount(candidate - currentValue, resolved.decimals);
+    const nextAmount = roundLotPickerAmount(resolved.stepVolume * (multiplier + 1), resolved.decimals);
+    const nextCandidate = normalizeTradeVolume(currentValue + direction * nextAmount, bounds);
+    const actualNextAmount = roundLotPickerAmount(nextCandidate - currentValue, resolved.decimals);
+    const hasNextRangeValue =
+      nextCandidate >= resolved.minVolume &&
+      nextCandidate <= resolved.maxVolume &&
+      Math.abs(actualNextAmount) > resolved.stepVolume / 1000 &&
+      Math.abs(actualNextAmount - direction * nextAmount) <= resolved.stepVolume / 1000;
+    const rangeMultiplier =
+      multiplier === 1 || (multiplier % FOOTER_LOT_PICKER_GRID_MULTIPLIER === 0 && hasNextRangeValue)
+        ? multiplier
+        : undefined;
+
+    if (
+      candidate < resolved.minVolume ||
+      candidate > resolved.maxVolume ||
+      seen.has(candidate) ||
+      Math.abs(actualAmount) <= resolved.stepVolume / 1000
+    ) {
+      continue;
+    }
+
+    seen.add(candidate);
+    values.push({
+      key: `${mode}:${selectedMultiplier}:${candidate}`,
+      label: formatSignedTradeVolumePickerLabel(actualAmount, bounds),
+      value: candidate,
+      multiplier,
+      rangeMultiplier,
+    });
+  }
+
+  return values;
+}
+
+export function shouldHideChartTabBarForTradeInput({
+  showChartTradeSheet,
+  chartTradeCommentFocused,
+}: ChartTradeInlineInputVisibilityInput) {
+  return showChartTradeSheet && chartTradeCommentFocused;
+}
+
 export function shouldShowChartTradePreviewOnChart({
   showChartTradeSheet,
   chartTradeSheetMode,
 }: ChartTradePreviewVisibilityInput) {
   return showChartTradeSheet && chartTradeSheetMode === 'collapsed';
+}
+
+export function resolveChartTradeSheetMaxHeight({
+  collapsedHeight,
+  hostHeight,
+  topInset,
+  headerLift,
+  bottomInset,
+}: ChartTradeSheetMaxHeightInput) {
+  const normalizedCollapsedHeight =
+    Number.isFinite(collapsedHeight) && collapsedHeight > 0
+      ? collapsedHeight
+      : 0;
+  const normalizedHostHeight =
+    Number.isFinite(hostHeight) && hostHeight > 0
+      ? hostHeight
+      : 0;
+  const normalizedTopInset =
+    Number.isFinite(topInset) && topInset > 0
+      ? topInset
+      : 0;
+  const normalizedHeaderLift =
+    Number.isFinite(headerLift) && headerLift > 0
+      ? headerLift
+      : 0;
+  const normalizedBottomInset =
+    Number.isFinite(bottomInset) && bottomInset > 0
+      ? bottomInset
+      : 0;
+
+  return Math.max(
+    normalizedCollapsedHeight,
+    normalizedHostHeight - normalizedTopInset - normalizedBottomInset + normalizedHeaderLift,
+  );
 }
 
 export function resolveKeyboardDockOffset({
@@ -115,20 +401,15 @@ export function resolveKeyboardDockOffset({
 
   if (
     platform === 'android' &&
-    Number.isFinite(keyboardScreenY) &&
-    Number.isFinite(containerBottom)
+    Number.isFinite(keyboardScreenY)
   ) {
-    return Math.max(0, (containerBottom as number) - (keyboardScreenY as number));
-  }
+    const effectiveWindowBottom = Math.min(
+      Number.isFinite(containerBottom) ? (containerBottom as number) : Number.POSITIVE_INFINITY,
+      normalizedScreenHeight > 0 ? normalizedScreenHeight : Number.POSITIVE_INFINITY,
+    );
 
-  if (
-    platform === 'android' &&
-    Number.isFinite(keyboardScreenY) &&
-    normalizedScreenHeight > 0
-  ) {
-    const overlap = normalizedScreenHeight - (keyboardScreenY as number);
-    if (overlap > 0) {
-      return Math.max(0, overlap);
+    if (Number.isFinite(effectiveWindowBottom)) {
+      return Math.max(0, effectiveWindowBottom - (keyboardScreenY as number));
     }
   }
 
@@ -138,8 +419,62 @@ export function resolveKeyboardDockOffset({
   );
 }
 
+export function resolveKeyboardResizesHost({
+  platform,
+  footerLotEditorFocused,
+  showChartTradeSheet,
+  keyboardVisibleHeight,
+  keyboardFreeHostHeight,
+  currentHostHeight,
+}: KeyboardHostResizeInput) {
+  const normalizedKeyboardHeight =
+    Number.isFinite(keyboardVisibleHeight) && keyboardVisibleHeight > 0
+      ? keyboardVisibleHeight
+      : 0;
+  const normalizedKeyboardFreeHostHeight =
+    Number.isFinite(keyboardFreeHostHeight) && keyboardFreeHostHeight > 0
+      ? keyboardFreeHostHeight
+      : 0;
+  const normalizedCurrentHostHeight =
+    Number.isFinite(currentHostHeight) && currentHostHeight > 0
+      ? currentHostHeight
+      : 0;
+
+  if (
+    platform !== 'android' ||
+    !footerLotEditorFocused ||
+    showChartTradeSheet ||
+    normalizedKeyboardHeight <= 0 ||
+    normalizedKeyboardFreeHostHeight <= 0 ||
+    normalizedCurrentHostHeight <= 0
+  ) {
+    return false;
+  }
+
+  const hostShrink = normalizedKeyboardFreeHostHeight - normalizedCurrentHostHeight;
+  const resizeThreshold = Math.min(
+    normalizedKeyboardHeight,
+    Math.max(KEYBOARD_HOST_RESIZE_MIN_DELTA, normalizedKeyboardHeight * KEYBOARD_HOST_RESIZE_RATIO),
+  );
+
+  return hostShrink >= resizeThreshold;
+}
+
 export function shouldShowChartTradeSheetHeader({
   chartTradeSheetMode,
 }: ChartTradeSheetHeaderVisibilityInput) {
   return chartTradeSheetMode !== 'expanded';
+}
+
+export function shouldShowChartTradeSheetHandle({
+  chartTradeSheetMode,
+}: ChartTradeSheetHandleVisibilityInput) {
+  return chartTradeSheetMode !== 'hidden';
+}
+
+export function shouldShowChartTradeSheetMarketExecutionButtons({
+  chartTradeOrderType,
+  showInlineFooterWhileSheetOpen,
+}: ChartTradeSheetMarketExecutionButtonsVisibilityInput) {
+  return chartTradeOrderType !== 'Market Execution' || !showInlineFooterWhileSheetOpen;
 }

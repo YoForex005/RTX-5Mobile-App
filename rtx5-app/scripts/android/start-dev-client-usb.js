@@ -16,6 +16,17 @@ if (state.issues.length) {
 }
 
 const env = buildAndroidEnv(process.env, state);
+const extraArgs = process.argv.slice(2);
+
+function hasExplicitHostArg(args) {
+  return args.includes('--localhost')
+    || args.includes('--lan')
+    || args.includes('--tunnel')
+    || args.includes('--offline')
+    || args.includes('--host');
+}
+
+let reverseSucceeded = false;
 
 if (state.tools.adb) {
   const reverseResult = spawnSync(
@@ -28,12 +39,26 @@ if (state.tools.adb) {
     },
   );
 
-  if (reverseResult.status !== 0) {
-    console.warn('\n[android:usb] `adb reverse tcp:8081 tcp:8081` failed. Metro may fall back to LAN and Fast Refresh can become unreliable.');
+  reverseSucceeded = reverseResult.status === 0;
+
+  if (!reverseSucceeded) {
+    console.warn('\n[android:usb] `adb reverse tcp:8081 tcp:8081` failed. Falling back to LAN host mode so asset/font requests do not target 127.0.0.1 on the device.');
   }
 }
 
-const expoArgs = ['expo', 'start', '--dev-client', '--localhost', ...process.argv.slice(2)];
+const hostArg = hasExplicitHostArg(extraArgs)
+  ? null
+  : reverseSucceeded
+    ? '--localhost'
+    : '--lan';
+
+const expoArgs = ['expo', 'start', '--dev-client'];
+
+if (hostArg) {
+  expoArgs.push(hostArg);
+}
+
+expoArgs.push(...extraArgs);
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const child = spawn(command, expoArgs, {
   cwd: projectRoot,

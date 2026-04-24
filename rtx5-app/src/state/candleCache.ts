@@ -17,6 +17,7 @@ import {
   sortAndDedupeCandles,
 } from '../domain/candles';
 import { Candle, useTradingState } from './tradingState';
+import { persistCanonicalCandleCache } from './persistedCandleCache';
 
 const areCandlesEqual = (left: Candle, right: Candle): boolean =>
   left.time === right.time &&
@@ -83,6 +84,7 @@ export const syncMergedCandleCache = (
   }
 
   useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
+  persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
   return true;
 };
 
@@ -107,6 +109,7 @@ export const mergeHistoryIntoCandleCache = (
 
   if (!areSeriesEqual(currentCandles, nextCandles)) {
     useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
+    persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
   }
 
   return nextCandles;

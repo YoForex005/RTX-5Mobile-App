@@ -19,7 +19,7 @@ import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
-import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
@@ -37,7 +37,7 @@ import {
   resolveDefaultStopLimitPrice,
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
-import { OrderTypePreviewCard } from './OrderTypePreviewCard';
+import { LiveOrderTickExecutionGraph } from './OrderTickExecutionGraph';
 import {
   resolveOrderTicketDefaultPendingPrice,
   resolveOrderTicketPendingOffset,
@@ -74,7 +74,6 @@ export function OrderTicketScreen() {
   const orderTypeTabsViewportWidthRef = useRef(0);
   const orderTypeTabLayoutsRef = useRef<Partial<Record<ChartOrderType, { x: number; width: number }>>>({});
   const { data: instrumentMeta } = useInstrumentMeta(symbol);
-  const { candles: previewCandles } = useLiveCandles(symbol, 'M1');
   const volumeBounds = useMemo(
     () => ({
       minVolume: instrumentMeta?.minVolume,
@@ -160,6 +159,11 @@ export function OrderTicketScreen() {
 
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
+  const tickTimestamp =
+    (latestTick as any)?.timestamp
+    ?? (latestTick as any)?.time
+    ?? (latestTick as any)?.t
+    ?? null;
   const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
@@ -627,19 +631,6 @@ export function OrderTicketScreen() {
           })}
         </ScrollView>
 
-        <OrderTypePreviewCard
-          symbol={symbol}
-          candles={previewCandles}
-          bid={BID}
-          ask={ASK}
-          tickSize={priceTickSize}
-          orderType={orderType}
-          pendingEntryPrice={pendingEntryPrice}
-          onPendingEntryPriceChange={handlePendingEntryPriceChange}
-          T={T}
-          isDark={isDark}
-        />
-
         {/* Volume */}
         <View style={styles.volSection}>
           <Text style={styles.rowLabel}>Volume</Text>
@@ -813,6 +804,19 @@ export function OrderTicketScreen() {
             </View>
           </View>
         )}
+
+        <View style={styles.executionGraphWrap}>
+          <LiveOrderTickExecutionGraph
+            symbol={symbol}
+            bid={BID}
+            ask={ASK}
+            timestamp={tickTimestamp}
+            priceDecimals={priceDecimals}
+            bidColor="#2563EB"
+            askColor="#EF4444"
+            height={300}
+          />
+        </View>
 
         {/* Disclaimer */}
         <View style={styles.disclaimer}>
@@ -989,6 +993,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
+    executionGraphWrap: { marginTop: 12 },
     pendingSubmitPlaceholder: {
       flexDirection: 'row',
       alignItems: 'flex-start',

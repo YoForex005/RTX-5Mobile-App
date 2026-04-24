@@ -1,8 +1,8 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
 import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   TvRadialIndicators,
+  TvLayers,
   TvRadialPencil,
   TvRadialPlus,
   TvRadialSettings,
@@ -339,8 +339,8 @@ export function ChartTapRadialMenu({
     {
       key: 'objects',
       angle: 282,
-      boxSize: 24,
-      render: (color) => <MaterialCommunityIcons name="layers-outline" size={18} color={color} />,
+      boxSize: 26,
+      render: (color) => <TvLayers color={color} />,
       onPress: onOpenObjects,
     },
     {

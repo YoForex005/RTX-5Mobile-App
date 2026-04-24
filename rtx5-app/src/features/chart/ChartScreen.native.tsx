@@ -38,6 +38,10 @@ import {
   DRAWING_SHEET_OPTIONS,
 } from './components/ChartDrawingToolsFeature';
 import {
+  ChartFixedHorizontalGridOverlay,
+  type FixedHorizontalGridPlotArea,
+} from './components/ChartFixedHorizontalGridOverlay';
+import {
   ChartToolbarMoreButton,
   ChartToolbarObjectsButton,
 } from './components/ChartToolbarMenuFeature';
@@ -46,10 +50,15 @@ import {
   ChartTradeOverlayLayer,
 } from './components/ChartTradeFeature';
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
+import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../components/Screen';
 import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
-import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
+import {
+  type ChartTradeVolumeDisplayMode,
+  resolveChartColorsForTheme,
+  useUserPreferences,
+} from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
@@ -116,9 +125,15 @@ import {
   type ChartOrderType,
 } from './chartTradeOrderUtils';
 import {
+  buildFooterLotPickerQuickAdjustments,
+  buildFooterLotPickerValues,
+  type FooterLotPickerMode,
+  resolveChartTradeSheetMaxHeight,
   resolveFooterLotCommitDraft as resolveFooterLotCommitDraftValue,
   resolveKeyboardDockOffset,
+  resolveKeyboardResizesHost,
   resolveFooterTradeRowState,
+  shouldHideChartTabBarForTradeInput,
   shouldShowChartTradePreviewOnChart,
   shouldShowChartTradeSheetHeader,
 } from './chartTradeInteractionUtils';
@@ -148,102 +163,41 @@ const clampOverlayOffset = (value: number, containerSize: number, overlaySize: n
   );
 };
 
-const FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS = [1, 10, 50] as const;
-const FOOTER_LOT_PICKER_GRID_MULTIPLIER = 10;
-const FOOTER_LOT_PICKER_GRID_ENTRY_COUNT = 10;
-type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
-type FooterLotPickerQuickAdjustment = {
-  key: string;
-  label: string;
-  nextValue: number;
+const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 58;
+const CHART_TRADE_SHEET_TOP_GAP = 10;
+const FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH = 64;
+
+const formatLooseTradeVolumeLabel = (value: number, bounds?: TradeVolumeBounds) => {
+  const { decimals } = resolveTradeVolumeBounds(bounds);
+  return Number(value.toFixed(decimals)).toString();
 };
 
-const formatTradeVolumePickerLabel = (value: number, bounds?: TradeVolumeBounds) =>
-  formatTradeVolume(value, bounds).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
-
-const formatSignedTradeVolumePickerLabel = (value: number, bounds?: TradeVolumeBounds) =>
-  `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatTradeVolumePickerLabel(Math.abs(value), bounds)}`;
-
-function buildFooterLotPickerQuickAdjustments(
-  value: number,
-  mode: FooterLotPickerMode,
-  bounds?: TradeVolumeBounds,
-) {
-  const { stepVolume } = resolveTradeVolumeBounds(bounds);
-  const currentValue = normalizeTradeVolume(value, bounds);
-  const epsilon = stepVolume / 1000;
-  const seen = new Set<number>();
-
-  return FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS
-    .map((multiplier) => {
-      const rawAmount = Number((stepVolume * multiplier).toFixed(6));
-      const signedAmount =
-        mode === 'decrease'
-          ? -rawAmount
-          : rawAmount;
-      const nextValue = normalizeTradeVolume(currentValue + signedAmount, bounds);
-      const actualAmount = Number((nextValue - currentValue).toFixed(6));
-      if (Math.abs(actualAmount) <= epsilon) {
-        return null;
-      }
-      const key = `${mode}:${nextValue}`;
-      return {
-        key,
-        label: formatSignedTradeVolumePickerLabel(actualAmount, bounds),
-        nextValue,
-      } satisfies FooterLotPickerQuickAdjustment;
-    })
-    .filter((option): option is FooterLotPickerQuickAdjustment => Boolean(option))
-    .filter((option) => {
-      if (seen.has(option.nextValue)) {
-        return false;
-      }
-      seen.add(option.nextValue);
-      return true;
-    });
-}
-
-function buildFooterLotPickerValues(
-  value: number,
-  mode: FooterLotPickerMode,
+function resolveMaxTradeVolumeForMargin(
+  freeMargin: number,
+  marginPerLot: number,
   bounds?: TradeVolumeBounds,
 ) {
   const resolved = resolveTradeVolumeBounds(bounds);
-  const currentValue = normalizeTradeVolume(value, bounds);
-  const coarseStep = resolved.stepVolume * FOOTER_LOT_PICKER_GRID_MULTIPLIER;
-  const seen = new Set<number>();
-  const values: number[] = [];
-
-  const direction = mode === 'decrease' ? -1 : 1;
-
-  for (let index = 1; index <= FOOTER_LOT_PICKER_GRID_ENTRY_COUNT; index += 1) {
-    const candidate = normalizeTradeVolume(
-      mode === 'absolute'
-        ? coarseStep * index
-        : currentValue + direction * coarseStep * index,
-      bounds,
-    );
-    if (candidate < resolved.minVolume || candidate > resolved.maxVolume || seen.has(candidate)) {
-      continue;
-    }
-    if (mode !== 'absolute' && Math.abs(candidate - currentValue) <= resolved.stepVolume / 1000) {
-      continue;
-    }
-    seen.add(candidate);
-    values.push(candidate);
+  if (!Number.isFinite(freeMargin) || freeMargin <= 0 || !Number.isFinite(marginPerLot) || marginPerLot <= 0) {
+    return 0;
   }
 
-  if (values.length === 0) {
-    if (mode === 'increase' && resolved.maxVolume - currentValue > resolved.stepVolume / 1000) {
-      values.push(resolved.maxVolume);
-    } else if (mode === 'decrease' && currentValue - resolved.minVolume > resolved.stepVolume / 1000) {
-      values.push(resolved.minVolume);
-    } else if (mode === 'absolute') {
-      values.push(resolved.minVolume);
-    }
+  const rawMaxVolume = Math.min(resolved.maxVolume, freeMargin / marginPerLot);
+  if (rawMaxVolume < resolved.minVolume) {
+    return 0;
   }
 
-  return values;
+  const steppedMaxVolume =
+    resolved.minVolume +
+    Math.floor((rawMaxVolume - resolved.minVolume) / resolved.stepVolume + 1e-9) * resolved.stepVolume;
+
+  return Math.max(
+    0,
+    Math.min(
+      resolved.maxVolume,
+      Number(steppedMaxVolume.toFixed(resolved.decimals)),
+    ),
+  );
 }
 
 const getChartTradeContractSize = (symbol: string) => {
@@ -916,19 +870,42 @@ function ChartFooterLotPicker({
   onSelect: (next: number) => void;
 }) {
   const screenWidth = Dimensions.get('window').width;
+  const valueScrollRef = React.useRef<ScrollView>(null);
+  const [activeRangeMultiplier, setActiveRangeMultiplier] = React.useState<number | null>(null);
   const resolved = React.useMemo(() => resolveTradeVolumeBounds(bounds), [bounds]);
   const quickAdjustments = React.useMemo(
     () => buildFooterLotPickerQuickAdjustments(value, mode, bounds),
     [bounds, mode, value],
   );
+  const defaultRangeMultiplier = quickAdjustments[0]?.multiplier ?? 1;
+  const selectedRangeMultiplier = mode === 'absolute'
+    ? undefined
+    : activeRangeMultiplier ?? defaultRangeMultiplier;
   const valueOptions = React.useMemo(
-    () => buildFooterLotPickerValues(value, mode, bounds),
-    [bounds, mode, value],
+    () => buildFooterLotPickerValues(value, mode, bounds, selectedRangeMultiplier),
+    [bounds, mode, selectedRangeMultiplier, value],
   );
   const normalizedValue = normalizeTradeVolume(value, bounds);
   const selectionEpsilon = resolved.stepVolume / 1000;
-  const columnSize = Math.max(1, Math.ceil(valueOptions.length / 2));
-  const columns = [valueOptions.slice(0, columnSize), valueOptions.slice(columnSize)];
+  const activeValueStartIndex = mode === 'absolute'
+    ? 0
+    : Math.max(0, valueOptions.findIndex((option) => option.multiplier > (selectedRangeMultiplier ?? 0)));
+
+  React.useEffect(() => {
+    setActiveRangeMultiplier(null);
+  }, [bounds, mode, value, visible]);
+
+  React.useEffect(() => {
+    if (!visible || mode === 'absolute' || activeValueStartIndex < 0) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      valueScrollRef.current?.scrollTo({
+        x: activeValueStartIndex * FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH,
+        animated: true,
+      });
+    });
+  }, [activeValueStartIndex, mode, selectedRangeMultiplier, visible]);
 
   if (!visible) {
     return null;
@@ -956,38 +933,70 @@ function ChartFooterLotPicker({
         ]}
       >
         <View style={styles.footerLotPickerQuickRow}>
-          {quickAdjustments.map((option) => (
-            <Pressable
-              key={option.key}
-              style={styles.footerLotPickerQuickButton}
-              onPress={() => onSelect(option.nextValue)}
-              hitSlop={6}
-            >
-              <Text style={styles.footerLotPickerQuickText}>{option.label}</Text>
-            </Pressable>
-          ))}
+          {quickAdjustments.map((option) => {
+            const active = mode !== 'absolute' && option.multiplier === selectedRangeMultiplier;
+            return (
+              <Pressable
+                key={option.key}
+                style={[styles.footerLotPickerQuickButton, active && styles.footerLotPickerQuickButtonActive]}
+                onPress={() => {
+                  if (mode === 'absolute') {
+                    onSelect(option.nextValue);
+                    return;
+                  }
+                  setActiveRangeMultiplier(option.multiplier);
+                }}
+                hitSlop={6}
+              >
+                <Text style={[styles.footerLotPickerQuickText, active && styles.footerLotPickerQuickTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
-        <View style={styles.footerLotPickerValuesRow}>
-          {columns.map((column, columnIndex) => (
-            <View key={columnIndex} style={styles.footerLotPickerColumn}>
-              {column.map((option) => {
-                const active = Math.abs(option - normalizedValue) <= selectionEpsilon;
-                return (
-                  <Pressable
-                    key={option}
-                    style={[styles.footerLotPickerValueButton, active && styles.footerLotPickerValueButtonActive]}
-                    onPress={() => onSelect(option)}
-                    hitSlop={6}
-                  >
-                    <Text style={[styles.footerLotPickerValueText, active && styles.footerLotPickerValueTextActive]}>
-                      {formatTradeVolumePickerLabel(option, bounds)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ))}
-        </View>
+        <ScrollView
+          ref={valueScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.footerLotPickerValuesScroll}
+          contentContainerStyle={styles.footerLotPickerValuesContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {valueOptions.map((option) => {
+            const active = mode === 'absolute' && Math.abs(option.value - normalizedValue) <= selectionEpsilon;
+            const isRangeBoundary = mode !== 'absolute' && typeof option.rangeMultiplier === 'number';
+            return (
+              <Pressable
+                key={option.key}
+                style={[
+                  styles.footerLotPickerValueButton,
+                  styles.footerLotPickerValueButtonHorizontal,
+                  active && styles.footerLotPickerValueButtonActive,
+                  isRangeBoundary && styles.footerLotPickerValueButtonRange,
+                ]}
+                onPress={() => {
+                  if (isRangeBoundary && typeof option.rangeMultiplier === 'number') {
+                    setActiveRangeMultiplier(option.rangeMultiplier);
+                    return;
+                  }
+                  onSelect(option.value);
+                }}
+                hitSlop={6}
+              >
+                <Text
+                  style={[
+                    styles.footerLotPickerValueText,
+                    active && styles.footerLotPickerValueTextActive,
+                    isRangeBoundary && styles.footerLotPickerValueTextRange,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
@@ -1334,6 +1343,9 @@ const CH_HTML = `
       var OVERLAY_LABEL_LINE_GAP = 1;
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
+      var MARKET_PRICE_BADGE_HEIGHT = 20;
+      var MARKET_PRICE_BADGE_MIN_GAP = 4;
+      var MARKET_PRICE_BADGE_RIGHT_INSET = 4;
 
       function getRightPriceScaleApi() {
         return chart && typeof chart.priceScale === 'function'
@@ -1677,8 +1689,9 @@ const CH_HTML = `
           // Calculate how much the finger moved in pixels.
           var deltaPixels = clientY - vertPanState.startY;
           // Convert pixel delta to price delta.
-          // Moving the finger DOWN should move candles UP (show lower prices)
-          // and vice versa — this matches how price axes work in all charting apps.
+          // Dragging UP decreases the visible price range values, which moves
+          // candles upward on screen. Dragging DOWN increases the visible
+          // price range values, which moves candles downward on screen.
           var rangeSpan = vertPanState.startRange.to - vertPanState.startRange.from;
           var chartElement = document.getElementById('chart');
           var chartHeight = chartElement ? chartElement.clientHeight : window.innerHeight;
@@ -3108,6 +3121,7 @@ const CH_HTML = `
         } else {
           askPriceLine = removeMarketPriceLine(askPriceLine);
         }
+        scheduleOverlayDomRefresh();
       }
 
       // Re-tint the custom BID price line in place when the active candle
@@ -3382,6 +3396,105 @@ const CH_HTML = `
           minTop: minTop,
           maxTop: maxTop,
         };
+      }
+
+      function formatMarketPriceLabel(price) {
+        if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return '';
+        }
+        var decimals =
+          typeof lastRequestedDisplayDecimals === 'number' && isFinite(lastRequestedDisplayDecimals)
+            ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
+            : 5;
+        return Number(price).toFixed(decimals);
+      }
+
+      function renderMarketPriceBadges(layer) {
+        if (!layer || !series || typeof series.priceToCoordinate !== 'function') {
+          return;
+        }
+
+        var metrics = resolvePrimaryPaneMetrics();
+        var plotTop = metrics.plotTop || 0;
+        var plotBottom = plotTop + (metrics.plotHeight || 0);
+        var layerHeight = layer && layer.clientHeight ? layer.clientHeight : metrics.chartHeight || 0;
+        var minTop = Math.max(0, plotTop + 1);
+        var maxTop = Math.max(
+          minTop,
+          Math.min(layerHeight - MARKET_PRICE_BADGE_HEIGHT - 1, plotBottom - MARKET_PRICE_BADGE_HEIGHT - 1)
+        );
+        var badges = [];
+
+        if (typeof lastAskPrice === 'number' && isFinite(lastAskPrice) && lastAskPrice > 0) {
+          var askY = series.priceToCoordinate(lastAskPrice);
+          if (typeof askY === 'number' && isFinite(askY)) {
+            badges.push({
+              color: marketAskColor,
+              text: formatMarketPriceLabel(lastAskPrice),
+              y: askY,
+            });
+          }
+        }
+
+        if (typeof lastBidPrice === 'number' && isFinite(lastBidPrice) && lastBidPrice > 0) {
+          var bidY = series.priceToCoordinate(lastBidPrice);
+          if (typeof bidY === 'number' && isFinite(bidY)) {
+            badges.push({
+              color: marketBidColor,
+              text: formatMarketPriceLabel(lastBidPrice),
+              y: bidY,
+            });
+          }
+        }
+
+        if (badges.length === 0) {
+          return;
+        }
+
+        badges.sort(function(left, right) { return left.y - right.y; });
+        var step = MARKET_PRICE_BADGE_HEIGHT + MARKET_PRICE_BADGE_MIN_GAP;
+        var tops = [];
+
+        for (var badgeIndex = 0; badgeIndex < badges.length; badgeIndex++) {
+          var desiredTop = Math.round(badges[badgeIndex].y - MARKET_PRICE_BADGE_HEIGHT / 2);
+          if (badgeIndex > 0) {
+            desiredTop = Math.max(desiredTop, tops[badgeIndex - 1] + step);
+          }
+          tops[badgeIndex] = Math.max(minTop, Math.min(maxTop, desiredTop));
+        }
+
+        if (tops.length > 0 && tops[tops.length - 1] > maxTop) {
+          tops[tops.length - 1] = maxTop;
+          for (var backIndex = tops.length - 2; backIndex >= 0; backIndex--) {
+            tops[backIndex] = Math.min(tops[backIndex], tops[backIndex + 1] - step);
+          }
+          if (tops[0] < minTop) {
+            tops[0] = minTop;
+            for (var forwardIndex = 1; forwardIndex < tops.length; forwardIndex++) {
+              tops[forwardIndex] = Math.max(tops[forwardIndex], tops[forwardIndex - 1] + step);
+            }
+          }
+        }
+
+        for (var renderIndex = 0; renderIndex < badges.length; renderIndex++) {
+          var badge = badges[renderIndex];
+          var badgeNode = document.createElement('div');
+          badgeNode.textContent = badge.text;
+          badgeNode.style.position = 'absolute';
+          badgeNode.style.right = MARKET_PRICE_BADGE_RIGHT_INSET + 'px';
+          badgeNode.style.top = Math.max(minTop, Math.min(maxTop, tops[renderIndex])) + 'px';
+          badgeNode.style.height = MARKET_PRICE_BADGE_HEIGHT + 'px';
+          badgeNode.style.lineHeight = MARKET_PRICE_BADGE_HEIGHT + 'px';
+          badgeNode.style.padding = '0 6px';
+          badgeNode.style.borderRadius = '4px';
+          badgeNode.style.background = badge.color;
+          badgeNode.style.color = '#FFFFFF';
+          badgeNode.style.fontSize = '11px';
+          badgeNode.style.fontWeight = '700';
+          badgeNode.style.whiteSpace = 'nowrap';
+          badgeNode.style.boxShadow = '0 1px 2px rgba(15, 23, 42, 0.18)';
+          layer.appendChild(badgeNode);
+        }
       }
 
       function refreshOverlayDomLabels(payload) {
@@ -3706,12 +3819,14 @@ export function ChartScreen() {
     chartViewportShowDrawingToolbar,
     chartDrawingRecordsBySymbol,
     tradeVolume,
+    chartTradeVolumeDisplayMode,
     setChartTimeframe,
     setChartVisualType,
     setChartSymbol,
     setChartViewportShowVolumePane,
     setChartViewportShowDrawingToolbar,
     setTradeVolume,
+    setChartTradeVolumeDisplayMode,
     chartLockAll,
     chartHideAll,
     setChartLockAll,
@@ -3730,12 +3845,14 @@ export function ChartScreen() {
       chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar,
       chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
       tradeVolume: state.tradeVolume,
+      chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode,
       setChartTimeframe: state.setChartTimeframe,
       setChartVisualType: state.setChartVisualType,
       setChartSymbol: state.setChartSymbol,
       setChartViewportShowVolumePane: state.setChartViewportShowVolumePane,
       setChartViewportShowDrawingToolbar: state.setChartViewportShowDrawingToolbar,
       setTradeVolume: state.setTradeVolume,
+      setChartTradeVolumeDisplayMode: state.setChartTradeVolumeDisplayMode,
       chartLockAll: state.chartLockAll,
       chartHideAll: state.chartHideAll,
       setChartLockAll: state.setChartLockAll,
@@ -3775,6 +3892,7 @@ export function ChartScreen() {
   const [lotInput, setLotInput] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
   const footerLotDraftRef = useRef(lotInput);
   const [footerLotEditorFocused, setFooterLotEditorFocused] = useState(false);
+  const [footerLotEditorOpening, setFooterLotEditorOpening] = useState(false);
   const footerLotEditorInputRef = useRef<TextInput>(null);
   const [footerLotPickerMode, setFooterLotPickerMode] = useState<FooterLotPickerMode | null>(null);
   const showFooterLotPicker = footerLotPickerMode !== null;
@@ -3878,6 +3996,7 @@ export function ChartScreen() {
   const handleOpenFooterLotPicker = useCallback((mode: FooterLotPickerMode = 'absolute') => {
     commitLotDraft();
     setFooterLotEditorFocused(false);
+    setFooterLotEditorOpening(false);
     Keyboard.dismiss();
     setFooterLotPickerMode((current) => (current === mode ? null : mode));
   }, [commitLotDraft]);
@@ -3898,11 +4017,13 @@ export function ChartScreen() {
   const handleFocusFooterLotEditor = useCallback(() => {
     setFooterLotPickerMode(null);
     setFooterLotDraft(formatTradeVolume(tradeVolume, tradeVolumeBounds));
+    setFooterLotEditorOpening(Platform.OS === 'android');
     setFooterLotEditorFocused(true);
   }, [setFooterLotDraft, tradeVolume, tradeVolumeBounds]);
   const finishFooterLotEditor = useCallback((draftOverride?: string) => {
     // Always prefer the ref (latest typed value) when no explicit override given
     commitLotDraft(draftOverride ?? footerLotDraftRef.current);
+    setFooterLotEditorOpening(false);
     setFooterLotEditorFocused(false);
   }, [commitLotDraft]);
   const handleBlurFooterLotEditor = useCallback(() => {
@@ -3950,6 +4071,9 @@ export function ChartScreen() {
   const [keyboardVisibleHeight, setKeyboardVisibleHeight] = useState(0);
   const [keyboardDockOffset, setKeyboardDockOffset] = useState(0);
   const [chartTradeSheetHostHeight, setChartTradeSheetHostHeight] = useState(0);
+  const [chartTradeKeyboardFreeHostHeight, setChartTradeKeyboardFreeHostHeight] = useState(0);
+  const [chartTradeInlineFooterHeight, setChartTradeInlineFooterHeight] = useState(0);
+  const [chartTradeTopToolbarBottomOffset, setChartTradeTopToolbarBottomOffset] = useState(0);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
@@ -3961,14 +4085,33 @@ export function ChartScreen() {
     () => (keyboardVisibleHeight > 0 ? Math.max(0, keyboardVisibleHeight - safeInsets.bottom + 12) : 0),
     [keyboardVisibleHeight, safeInsets.bottom],
   );
-  const resolveKeyboardDockOffsetForFrame = useCallback((coords?: { height?: number; screenY?: number | null }) => resolveKeyboardDockOffset({
-    platform: Platform.OS,
-    keyboardHeight: Math.max(0, coords?.height ?? 0),
-    keyboardScreenY: typeof coords?.screenY === 'number' ? coords.screenY : null,
-    containerBottom: chartTradeHostBottomRef.current,
-    screenHeight: windowFrameHeight,
-    safeAreaBottom: safeInsets.bottom,
-  }), [safeInsets.bottom, windowFrameHeight]);
+  const androidFooterHostResizedForKeyboard = useMemo(() => {
+    return resolveKeyboardResizesHost({
+      platform: Platform.OS,
+      footerLotEditorFocused,
+      showChartTradeSheet,
+      keyboardVisibleHeight,
+      keyboardFreeHostHeight: chartTradeKeyboardFreeHostHeight,
+      currentHostHeight: chartTradeSheetHostHeight,
+    });
+  }, [
+    chartTradeKeyboardFreeHostHeight,
+    chartTradeSheetHostHeight,
+    footerLotEditorFocused,
+    keyboardVisibleHeight,
+    showChartTradeSheet,
+  ]);
+  const resolveKeyboardDockOffsetForFrame = useCallback((coords?: { height?: number; screenY?: number | null }) => {
+    const liveWindowHeight = Dimensions.get('window').height;
+    return resolveKeyboardDockOffset({
+      platform: Platform.OS,
+      keyboardHeight: Math.max(0, coords?.height ?? 0),
+      keyboardScreenY: typeof coords?.screenY === 'number' ? coords.screenY : null,
+      containerBottom: footerTradeRowAnchorBottomRef.current ?? chartTradeHostBottomRef.current,
+      screenHeight: liveWindowHeight,
+      safeAreaBottom: safeInsets.bottom,
+    });
+  }, [safeInsets.bottom]);
   const measureChartTradeHostFrame = useCallback((onMeasured?: () => void) => {
     if (!chartTradeHostRef.current) {
       onMeasured?.();
@@ -3982,6 +4125,24 @@ export function ChartScreen() {
       onMeasured?.();
     });
   }, []);
+  const measureFooterTradeRowAnchorFrame = useCallback((onMeasured?: () => void) => {
+    if (!footerTradeRowAnchorRef.current) {
+      onMeasured?.();
+      return;
+    }
+
+    footerTradeRowAnchorRef.current.measureInWindow((_x, y, _width, height) => {
+      if (Number.isFinite(y) && Number.isFinite(height) && height > 0) {
+        footerTradeRowAnchorBottomRef.current = y + height;
+      }
+      onMeasured?.();
+    });
+  }, []);
+  const measureKeyboardDockAnchors = useCallback((onMeasured?: () => void) => {
+    measureChartTradeHostFrame(() => {
+      measureFooterTradeRowAnchorFrame(onMeasured);
+    });
+  }, [measureChartTradeHostFrame, measureFooterTradeRowAnchorFrame]);
   const recomputeKeyboardDockOffset = useCallback((frameOverride?: { height: number; screenY: number | null }) => {
     const nextDockOffset = resolveKeyboardDockOffsetForFrame(frameOverride ?? keyboardFrameRef.current);
     setKeyboardDockOffset(nextDockOffset);
@@ -4017,26 +4178,42 @@ export function ChartScreen() {
   const screenHeight = Dimensions.get('window').height;
   const fullscreenChartMinHeight = Math.max(320, screenHeight);
   const chartTradeSheetCollapsedHeight = 186;
-  const chartTradeSheetTopInset = isChartExpanded ? safeInsets.top + 12 : 0;
+  const fullscreenToolbarTouchBuffer = 18;
+  const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
+  const chartTradeSheetFallbackTopInset = isChartExpanded ? fullscreenToolbarTopPadding + 36 : 48;
+  const chartTradeSheetToolbarBottomInset =
+    chartTradeTopToolbarBottomOffset > 0
+      ? Math.max(chartTradeTopToolbarBottomOffset, chartTradeSheetFallbackTopInset)
+      : chartTradeSheetFallbackTopInset;
+  const chartTradeSheetTopInset = chartTradeSheetToolbarBottomInset + CHART_TRADE_SHEET_TOP_GAP;
   const chartTradeSheetFallbackHostHeight = Math.max(
     chartTradeSheetCollapsedHeight + 180,
     screenHeight - Math.max(safeInsets.top, 0),
   );
   const resolvedChartTradeSheetHostHeight =
     chartTradeSheetHostHeight > 0 ? chartTradeSheetHostHeight : chartTradeSheetFallbackHostHeight;
-  const chartTradeSheetMaxHeight = Math.max(
-    chartTradeSheetCollapsedHeight,
-    resolvedChartTradeSheetHostHeight - chartTradeSheetTopInset,
-  );
+  const chartTradeSheetHeaderLift = 0;
+  // The SL/TP sheet is opened from the chart toolbar and covers the footer
+  // area while open, so the sell/lot/buy row never shows through a cutout.
+  const showInlineFooterWhileChartTradeSheetOpen = false;
+  const chartTradeSheetBottomInset = !isChartExpanded && showInlineFooterWhileChartTradeSheetOpen
+    ? (chartTradeInlineFooterHeight > 0 ? chartTradeInlineFooterHeight : CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT)
+    : 0;
+  const chartTradeSheetMaxHeight = resolveChartTradeSheetMaxHeight({
+    collapsedHeight: chartTradeSheetCollapsedHeight,
+    hostHeight: resolvedChartTradeSheetHostHeight,
+    topInset: chartTradeSheetTopInset,
+    headerLift: chartTradeSheetHeaderLift,
+    bottomInset: chartTradeSheetBottomInset,
+  });
   const chartTradeSheetExpandedTranslateY = 0;
   const chartTradeSheetCollapsedTranslateY = Math.max(0, chartTradeSheetMaxHeight - chartTradeSheetCollapsedHeight);
   const chartTradeSheetHiddenTranslateY = chartTradeSheetMaxHeight + 18;
-  const fullscreenToolbarTouchBuffer = 18;
-  const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
   const fullscreenChartTypeMenuTop = safeInsets.top + 52 + (fullscreenToolbarTouchBuffer - 8);
   const fullscreenDrawingToolsSheetTopInset = fullscreenToolbarTopPadding + 72;
   const chartScrollRef = useRef<ScrollView>(null);
   const chartTradeHostRef = useRef<View>(null);
+  const footerTradeRowAnchorRef = useRef<View>(null);
   const chartTradeSheetScrollRef = useRef<ScrollView>(null);
   const chartTradeTypeTabsOverlayScrollRef = useRef<ScrollView>(null);
   const chartTradeTypeTabsInlineScrollRef = useRef<ScrollView>(null);
@@ -4049,10 +4226,12 @@ export function ChartScreen() {
   const chartTradeSheetScrollOffsetRef = useRef(0);
   const keyboardFrameRef = useRef<{ height: number; screenY: number | null }>({ height: 0, screenY: null });
   const chartTradeHostBottomRef = useRef<number | null>(null);
+  const footerTradeRowAnchorBottomRef = useRef<number | null>(null);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
+  const [chartPlotArea, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
   const [showDrawingQuickActions, setShowDrawingQuickActions] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
@@ -4137,8 +4316,17 @@ export function ChartScreen() {
       cancelAnimationFrame(chartViewportTouchReleaseFrameRef.current);
       chartViewportTouchReleaseFrameRef.current = null;
     }
+    if (!showChartTradeSheet) {
+      if (footerLotPickerMode !== null) {
+        setFooterLotPickerMode(null);
+      }
+      if (footerLotEditorFocused) {
+        finishFooterLotEditor();
+        Keyboard.dismiss();
+      }
+    }
     setChartViewportTouchActive((current) => (current ? current : true));
-  }, []);
+  }, [finishFooterLotEditor, footerLotEditorFocused, footerLotPickerMode, showChartTradeSheet]);
   const handleChartViewportTouchEnd = useCallback(() => {
     if (chartViewportTouchReleaseFrameRef.current !== null) {
       cancelAnimationFrame(chartViewportTouchReleaseFrameRef.current);
@@ -4294,6 +4482,27 @@ export function ChartScreen() {
     const liveAsk = typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0 ? chartLiveQuote.ask : null;
     return liveAsk ?? (chartBid > 0 ? chartBid + quoteFallbackSpread : 0);
   }, [chartBid, chartLiveQuote?.ask, quoteFallbackSpread]);
+  const chartTradeTickTimestamp = useMemo(() => {
+    const candidates = [
+      chartLiveQuote?.time,
+      chartLiveQuote?.timestamp,
+      chartLiveQuote?.t,
+      chartLiveQuote?.lastTickAt,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }, [
+    chartLiveQuote?.lastTickAt,
+    chartLiveQuote?.t,
+    chartLiveQuote?.time,
+    chartLiveQuote?.timestamp,
+  ]);
   const chartPointSize = useMemo(() => {
     if (displayDecimals <= 0) return 1;
     return Math.pow(10, -displayDecimals);
@@ -4467,7 +4676,7 @@ export function ChartScreen() {
     }
 
     if (!showChartTradeSheet) {
-      chartTradeSheetTranslateY.value = chartTradeSheetHiddenTranslateY;
+      chartTradeSheetTranslateY.value = mode === 'expanded' ? target : chartTradeSheetHiddenTranslateY;
       setShowChartTradeSheet(true);
     }
 
@@ -4515,10 +4724,24 @@ export function ChartScreen() {
 
   const openChartTradeSheet = useCallback((orderType: ChartOrderType = chartTradeOrderType) => {
     closeChartTapMenu();
+    setFooterLotPickerMode(null);
+    if (footerLotEditorFocused) {
+      finishFooterLotEditor();
+    } else {
+      setFooterLotEditorOpening(false);
+    }
+    Keyboard.dismiss();
     setChartTradeOrderType(orderType);
     resetChartTradePanelLevels(orderType);
-    snapTradeSheet('collapsed');
-  }, [chartTradeOrderType, closeChartTapMenu, resetChartTradePanelLevels, snapTradeSheet]);
+    snapTradeSheet('expanded');
+  }, [
+    chartTradeOrderType,
+    closeChartTapMenu,
+    finishFooterLotEditor,
+    footerLotEditorFocused,
+    resetChartTradePanelLevels,
+    snapTradeSheet,
+  ]);
 
   const handleOpenChartTradeSheet = useCallback(() => {
     traceUiInteraction('chart.tradeSheet.open', openChartTradeSheet);
@@ -4777,7 +5000,8 @@ export function ChartScreen() {
         screenY: typeof event.endCoordinates.screenY === 'number' ? event.endCoordinates.screenY : null,
       };
       setKeyboardVisibleHeight(nextHeight);
-      measureChartTradeHostFrame(() => {
+      setFooterLotEditorOpening(false);
+      measureKeyboardDockAnchors(() => {
         recomputeKeyboardDockOffset(keyboardFrameRef.current);
       });
     });
@@ -4789,13 +5013,14 @@ export function ChartScreen() {
       keyboardFrameRef.current = { height: 0, screenY: null };
       setKeyboardVisibleHeight(0);
       setKeyboardDockOffset(0);
+      setFooterLotEditorOpening(false);
     });
 
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [measureChartTradeHostFrame, recomputeKeyboardDockOffset]);
+  }, [measureKeyboardDockAnchors, recomputeKeyboardDockOffset]);
   useEffect(() => {
     if (!chartTradeCommentFocused || !showChartTradeSheet) {
       return;
@@ -4812,14 +5037,53 @@ export function ChartScreen() {
     if (!footerLotEditorFocused || showChartTradeSheet) {
       return;
     }
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        footerLotEditorInputRef.current?.focus();
-        syncKeyboardHeightFromMetrics();
-      });
+    let cancelled = false;
+    let frame: number | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const maxAttempts = Platform.OS === 'android' ? 8 : 2;
+
+    const focusLotInput = () => {
+      if (cancelled) {
+        return;
+      }
+
+      attempts += 1;
+      footerLotEditorInputRef.current?.focus();
+      syncKeyboardHeightFromMetrics();
+
+      if (attempts < maxAttempts) {
+        timeoutId = setTimeout(focusLotInput, 80);
+      }
+    };
+
+    frame = requestAnimationFrame(() => {
+      requestAnimationFrame(focusLotInput);
     });
-    return () => cancelAnimationFrame(frame);
+
+    return () => {
+      cancelled = true;
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [footerLotEditorFocused, showChartTradeSheet, syncKeyboardHeightFromMetrics]);
+  useEffect(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !footerLotEditorOpening ||
+      showChartTradeSheet
+    ) {
+      return;
+    }
+
+    if (keyboardVisibleHeight > 0 || keyboardDockOffset > 0) {
+      setFooterLotEditorOpening(false);
+    }
+  }, [footerLotEditorOpening, keyboardDockOffset, keyboardVisibleHeight, showChartTradeSheet]);
   useEffect(() => {
     if (
       Platform.OS !== 'android' ||
@@ -4840,7 +5104,7 @@ export function ChartScreen() {
       }
 
       attempts += 1;
-      measureChartTradeHostFrame(() => {
+      measureKeyboardDockAnchors(() => {
         const metrics = syncKeyboardHeightFromMetrics();
         if (metrics.dockOffset > 0 || metrics.height > 0 || attempts >= 24 || cancelled) {
           return;
@@ -4858,12 +5122,81 @@ export function ChartScreen() {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [footerLotEditorFocused, keyboardDockOffset, measureChartTradeHostFrame, showChartTradeSheet, syncKeyboardHeightFromMetrics]);
+  }, [footerLotEditorFocused, keyboardDockOffset, measureKeyboardDockAnchors, showChartTradeSheet, syncKeyboardHeightFromMetrics]);
+  useEffect(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !footerLotEditorFocused ||
+      showChartTradeSheet ||
+      keyboardVisibleHeight <= 0 ||
+      keyboardDockOffset <= 0
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let rafId: number | null = null;
+    let attempts = 0;
+
+    const syncUntilDockSettles = () => {
+      if (cancelled) {
+        return;
+      }
+
+      attempts += 1;
+      measureKeyboardDockAnchors(() => {
+        const metrics = syncKeyboardHeightFromMetrics();
+        if (cancelled || metrics.dockOffset <= 0 || attempts >= 16) {
+          return;
+        }
+
+        rafId = requestAnimationFrame(syncUntilDockSettles);
+      });
+    };
+
+    rafId = requestAnimationFrame(syncUntilDockSettles);
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [
+    footerLotEditorFocused,
+    keyboardDockOffset,
+    keyboardVisibleHeight,
+    measureKeyboardDockAnchors,
+    showChartTradeSheet,
+    syncKeyboardHeightFromMetrics,
+  ]);
+  useEffect(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !footerLotEditorFocused ||
+      footerLotEditorOpening ||
+      showChartTradeSheet ||
+      keyboardVisibleHeight > 0 ||
+      keyboardDockOffset > 0
+    ) {
+      return;
+    }
+
+    finishFooterLotEditor();
+  }, [
+    finishFooterLotEditor,
+    footerLotEditorFocused,
+    footerLotEditorOpening,
+    keyboardDockOffset,
+    keyboardVisibleHeight,
+    showChartTradeSheet,
+  ]);
 
   useEffect(() => {
     if (showChartTradeSheet) {
       setFooterLotPickerMode(null);
       setFooterLotEditorFocused(false);
+      setFooterLotEditorOpening(false);
       return;
     }
     setChartTradeCommentFocused(false);
@@ -5030,15 +5363,21 @@ export function ChartScreen() {
     ? !stablePendingTradePlaceButtonEnabled
     : false;
   const chartTradeCtaColor = chartTradeSheetSide === 'buy' ? BLUE : T.trading.sell.primary;
-  const chartTradeMarginEstimate = useMemo(() => {
+  const chartTradeMarginPerLot = useMemo(() => {
     const leverage = accountSummary?.leverage || 100;
     const contractSize = getChartTradeContractSize(chartSymbol);
     const referencePrice = chartTradeEntryPrice > 0 ? chartTradeEntryPrice : chartAsk;
     if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
       return 0;
     }
-    return (tradeVolume * contractSize * referencePrice) / leverage;
-  }, [accountSummary?.leverage, chartAsk, chartSymbol, chartTradeEntryPrice, tradeVolume]);
+    return (contractSize * referencePrice) / leverage;
+  }, [accountSummary?.leverage, chartAsk, chartSymbol, chartTradeEntryPrice]);
+  const chartTradeMarginEstimate = useMemo(() => {
+    if (!Number.isFinite(chartTradeMarginPerLot) || chartTradeMarginPerLot <= 0) {
+      return 0;
+    }
+    return tradeVolume * chartTradeMarginPerLot;
+  }, [chartTradeMarginPerLot, tradeVolume]);
   const applyChartTradePreviewDragPrice = useCallback(
     (dragKey: ChartTradePreviewDragKey, rawPrice: number) => {
       if (!showChartTradeSheet || !Number.isFinite(rawPrice) || rawPrice <= 0) {
@@ -5111,6 +5450,14 @@ export function ChartScreen() {
     [applyChartTradePreviewDragPrice, closeChartTapMenu],
   );
   const accountFreeMargin = Number((accountSummary as any)?.freeMargin ?? (accountSummary as any)?.free_margin ?? 0);
+  const chartTradeMaxVolume = useMemo(
+    () => resolveMaxTradeVolumeForMargin(accountFreeMargin, chartTradeMarginPerLot, tradeVolumeBounds),
+    [accountFreeMargin, chartTradeMarginPerLot, tradeVolumeBounds],
+  );
+  const chartTradeMaxVolumeDisplay = useMemo(
+    () => (chartTradeMaxVolume > 0 ? formatLooseTradeVolumeLabel(chartTradeMaxVolume, tradeVolumeBounds) : '0'),
+    [chartTradeMaxVolume, tradeVolumeBounds],
+  );
   // The comment editor is always inline inside the trade sheet ScrollView.
   // No floating/detached comment editor – the ScrollView auto-scrolls to
   // keep the focused TextInput visible, and keyboard compensation keeps
@@ -5134,10 +5481,11 @@ export function ChartScreen() {
     Platform.OS === 'android' && shouldFreezeChartTradeSheetHostHeight && resolvedChartTradeSheetHostHeight > 0
       ? resolvedChartTradeSheetHostHeight
       : 0;
-  const chartTradeSheetContentBottomPadding = safeInsets.bottom + (
-    keyboardInset > 0
-      ? keyboardInset + 16
-      : 14
+  const chartTradeSheetFooterDockReserve = 0;
+  const chartTradeSheetContentBottomPadding = (
+    safeInsets.bottom +
+    chartTradeSheetFooterDockReserve +
+    (keyboardInset > 0 ? keyboardInset + 16 : 14)
   );
   const {
     shouldMountFloatingFooterTradeRow,
@@ -5146,19 +5494,54 @@ export function ChartScreen() {
   } = resolveFooterTradeRowState({
     platform: Platform.OS,
     footerLotEditorFocused,
+    footerLotEditorOpening,
     showChartTradeSheet,
+    keyboardVisibleHeight,
     keyboardDockOffset,
+    keyboardResizesHost: androidFooterHostResizedForKeyboard,
+  });
+  const shouldHideChartTabBarForInlineInput = shouldHideChartTabBarForTradeInput({
+    showChartTradeSheet,
+    chartTradeCommentFocused,
   });
   const floatingFooterTradeReserveHeight = useSharedValue(0);
   const floatingFooterTradeReserveAnimatedStyle = useAnimatedStyle(() => ({
     minHeight: floatingFooterTradeReserveHeight.value,
   }));
   const accountCurrency = accountSummary?.currency || 'USD';
-  const chartTradeStopUnitOptions = [
-    { key: 'Price' as const, label: 'Price' },
-    { key: 'Pips' as const, label: 'Pips' },
-    { key: 'Currency' as const, label: 'Currency' },
-  ];
+  const isChartTradeMarginMode = chartTradeVolumeDisplayMode === 'margin';
+  const chartTradeVolumePrimaryDisplay = isChartTradeMarginMode
+    ? `${fmt.price(chartTradeMarginEstimate)} ${accountCurrency}`
+    : passiveLotDisplay;
+  const chartTradeVolumeModeLabel = isChartTradeMarginMode ? 'Margin' : 'Lots';
+  const handleToggleChartTradeVolumeDisplayMode = useCallback(() => {
+    traceUiInteraction('chart.tradeSheet.volumeDisplay.toggle', () => {
+      const nextMode: ChartTradeVolumeDisplayMode =
+        chartTradeVolumeDisplayMode === 'margin'
+          ? 'lots'
+          : 'margin';
+      setChartTradeVolumeDisplayMode(nextMode);
+    });
+  }, [chartTradeVolumeDisplayMode, setChartTradeVolumeDisplayMode]);
+  const chartTradeStopUnitOptions = useMemo(() => {
+    if (!isPendingChartOrder) {
+      return [
+        { key: 'Price' as const, label: 'Price' },
+        { key: 'Pips' as const, label: 'Pips' },
+      ];
+    }
+
+    return [
+      { key: 'Price' as const, label: 'Price' },
+      { key: 'Pips' as const, label: 'Pips' },
+      { key: 'Currency' as const, label: 'Currency' },
+    ];
+  }, [isPendingChartOrder]);
+  useEffect(() => {
+    if (!isPendingChartOrder && chartTradeStopUnit === 'Currency') {
+      setChartTradeStopUnit('Price');
+    }
+  }, [chartTradeStopUnit, isPendingChartOrder]);
   useEffect(() => {
     if (!showChartTradeComment) {
       setChartTradeCommentFocused(false);
@@ -5168,11 +5551,11 @@ export function ChartScreen() {
   // When expiration visibility toggles off (e.g. order type changed), no need
   // to call hideActionSheet() — the global sheet manages its own lifecycle.
   useEffect(() => {
-    setChartInlineInputActive(footerLotEditorFocused || chartTradeCommentFocused);
+    setChartInlineInputActive(shouldHideChartTabBarForInlineInput);
     return () => {
       setChartInlineInputActive(false);
     };
-  }, [chartTradeCommentFocused, footerLotEditorFocused, setChartInlineInputActive]);
+  }, [setChartInlineInputActive, shouldHideChartTabBarForInlineInput]);
   useEffect(() => {
     floatingFooterTradeReserveHeight.value = withTiming(shouldMountFloatingFooterTradeRow ? 58 : 0, {
       duration: 220,
@@ -5676,8 +6059,10 @@ export function ChartScreen() {
       fontSize: 11,
     },
     grid: {
-      vertLines: { color: resolvedChartColors.grid },
-      horzLines: { color: resolvedChartColors.grid },
+      vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent' },
+      // Horizontal grid lines are rendered in a fixed overlay layer so they
+      // stay locked to screen space during vertical price-range panning.
+      horzLines: { color: 'transparent' },
     },
     crosshair: {
       mode: 0,
@@ -5685,7 +6070,7 @@ export function ChartScreen() {
       horzLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
     },
     timeScale: {
-      borderColor: resolvedChartColors.grid,
+      borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
       rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET,
@@ -5707,7 +6092,7 @@ export function ChartScreen() {
       axisPressedMouseMove: true,
     },
     rightPriceScale: {
-      borderColor: resolvedChartColors.grid,
+      borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
       autoScale: true,
       entireTextOnly: true,
       scaleMargins: {
@@ -5723,7 +6108,7 @@ export function ChartScreen() {
       barsDowntrend: resolvedChartColors.barsDowntrend,
       lineBody: resolvedChartColors.lineBody,
     }
-  }), [chartType, resolvedChartColors, showChartVolumePane]);
+  }), [chartDisplay.showGrid, chartType, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -5848,6 +6233,7 @@ export function ChartScreen() {
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     lastInjectedLiveQuoteSignatureRef.current = '';
     setChartCanvasReady(false);
+    setChartPlotArea(null);
   };
 
   useEffect(() => {
@@ -6215,6 +6601,7 @@ export function ChartScreen() {
   const renderChartTradeSheetDragHeader = () => (
     <GestureDetector gesture={chartTradeSheetDragGesture}>
       <View
+        collapsable={false}
         style={[
           styles.chartTradeSheetDragRegion,
           useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
@@ -6310,10 +6697,13 @@ export function ChartScreen() {
       sheet={{
         showChartTradeSheet,
         showHiddenInlineTradeSheet: !isChartExpanded && showChartTradeSheet,
+        showInlineFooterWhileSheetOpen: showInlineFooterWhileChartTradeSheetOpen && !isChartExpanded && showChartTradeSheet,
+        showInlineFooterDockWhileSheetOpen: false,
         chartTradeSheetFrozenLayerHeight,
         chartTradeSheetMaxHeight,
         chartTradeSheetAnimatedStyle,
         chartTradeSheetContentBottomPadding,
+        chartTradeSheetBottomInset,
         showChartTradeSheetHeader,
         chartTradeCommentFocused,
         chartTradeSheetDragGesture,
@@ -6326,7 +6716,11 @@ export function ChartScreen() {
         passiveLotDisplay,
         tradeVolume,
         tradeVolumeBounds,
+        chartTradeVolumeDisplayMode,
+        chartTradeVolumePrimaryDisplay,
+        chartTradeVolumeModeLabel,
         chartTradeMarginEstimate: fmt.price(chartTradeMarginEstimate),
+        chartTradeMaxVolumeDisplay,
         accountFreeMargin: fmt.price(accountFreeMargin),
         accountCurrency,
         chartTradePrice,
@@ -6353,6 +6747,7 @@ export function ChartScreen() {
         chartSymbol,
         chartBid,
         chartAsk,
+        chartTradeTickTimestamp,
         onTradeResult: setTradeFeedback,
       }}
       footer={{
@@ -6377,6 +6772,7 @@ export function ChartScreen() {
         onInlineTabLayout: handleInlineTradeTypeTabLayout,
         onSelectOrderType: handleChartTradeOrderTypeSelect,
         onOpenVolumeStepper: handleOpenChartTradeVolumeStepper,
+        onToggleTradeVolumeDisplayMode: handleToggleChartTradeVolumeDisplayMode,
         onChangeTradeVolume: updateTradeVolume,
         onOpenPriceStepper: handleOpenChartTradePriceStepper,
         onOpenStopLimitPriceStepper: handleOpenChartTradeStopLimitPriceStepper,
@@ -6444,6 +6840,21 @@ export function ChartScreen() {
         style={styles.flex1}
         onLayout={(event) => {
           const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+          const shouldRecordKeyboardFreeHostHeight =
+            Platform.OS !== 'android' ||
+            (
+              keyboardVisibleHeight <= 0 &&
+              !footerLotEditorFocused &&
+              !footerLotEditorOpening &&
+              !chartTradeCommentFocused
+            );
+
+          if (nextHeight > 0 && shouldRecordKeyboardFreeHostHeight) {
+            setChartTradeKeyboardFreeHostHeight((current) => (
+              current === nextHeight ? current : nextHeight
+            ));
+          }
+
           setChartTradeSheetHostHeight((current) => {
             if (current === nextHeight) {
               return current;
@@ -6454,7 +6865,7 @@ export function ChartScreen() {
             return nextHeight;
           });
           requestAnimationFrame(() => {
-            measureChartTradeHostFrame(() => {
+            measureKeyboardDockAnchors(() => {
               recomputeKeyboardDockOffset();
             });
           });
@@ -6476,7 +6887,14 @@ export function ChartScreen() {
           onScroll={() => syncChartViewportFrame()}
         >
         <View style={[styles.chartContainer, isChartExpanded && { minHeight: fullscreenChartMinHeight }]}>
-          <View style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: fullscreenToolbarTopPadding, marginTop: 0 }]}>
+          <View
+            style={[styles.chartTopToolbar, isChartExpanded && { paddingTop: fullscreenToolbarTopPadding, marginTop: 0 }]}
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout;
+              const nextOffset = Math.max(0, Math.round(y + height));
+              setChartTradeTopToolbarBottomOffset((current) => (current === nextOffset ? current : nextOffset));
+            }}
+          >
             <View style={styles.toolbarButtonRow}>
               <View style={styles.toolbarSlotFirst}>
                 <Pressable
@@ -6767,12 +7185,51 @@ export function ChartScreen() {
                       syncChartViewportFrame(() => {
                         setChartTapMenuAnchor(nextAnchor);
                       });
+                    } else if (msg.type === 'CHART_GEOMETRY') {
+                      const nextPlotArea =
+                        msg.plotArea
+                        && typeof msg.plotArea.left === 'number'
+                        && Number.isFinite(msg.plotArea.left)
+                        && typeof msg.plotArea.top === 'number'
+                        && Number.isFinite(msg.plotArea.top)
+                        && typeof msg.plotArea.width === 'number'
+                        && Number.isFinite(msg.plotArea.width)
+                        && msg.plotArea.width > 0
+                        && typeof msg.plotArea.height === 'number'
+                        && Number.isFinite(msg.plotArea.height)
+                        && msg.plotArea.height > 0
+                          ? {
+                              left: msg.plotArea.left,
+                              top: msg.plotArea.top,
+                              width: msg.plotArea.width,
+                              height: msg.plotArea.height,
+                            }
+                          : null;
+
+                      setChartPlotArea((current) => {
+                        if (
+                          current
+                          && nextPlotArea
+                          && current.left === nextPlotArea.left
+                          && current.top === nextPlotArea.top
+                          && current.width === nextPlotArea.width
+                          && current.height === nextPlotArea.height
+                        ) {
+                          return current;
+                        }
+                        return nextPlotArea;
+                      });
                     } else if (msg.type === 'ERROR') {
                       // Log but don't alert — the watchdog will auto-retry.
                       console.warn('[CHART WEBVIEW ERROR]', msg.message);
                     }
                   } catch (_e) { }
                 }}
+              />
+              <ChartFixedHorizontalGridOverlay
+                visible={chartDisplay.showGrid}
+                plotArea={chartPlotArea}
+                color={resolvedChartColors.grid}
               />
               <DraggableChartMetaOverlay
                 visible={showChartMetaRow}
@@ -6828,7 +7285,12 @@ export function ChartScreen() {
 
         {!isChartExpanded && (
           showChartTradeSheet ? (
-            <View style={[styles.bottomArea, { paddingBottom: chartTradeSheetCollapsedHeight + 4 }]}>
+            <View
+              style={[
+                styles.bottomArea,
+                { display: 'none', paddingBottom: 0 },
+              ]}
+            >
               <Animated.View
                 style={[
                   { display: 'none' },
@@ -6927,8 +7389,12 @@ export function ChartScreen() {
                         <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
                           <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Volume</Text>
                           <View style={styles.chartTradeVolumeValueGroup}>
-                            <Text style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}>
-                              {passiveLotDisplay}
+                            <Text
+                              style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                            >
+                              {chartTradeVolumePrimaryDisplay}
                             </Text>
                             <Pressable
                               style={[
@@ -6950,26 +7416,34 @@ export function ChartScreen() {
                           </View>
                         </View>
                         <View style={styles.chartTradeVolumeDivider} />
-                        <View style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}>
-                          <Text style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}>Lots</Text>
-                          <Pressable
+                        <Pressable
+                          style={[styles.chartTradeVolumeUnitSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeUnitSidePending]}
+                          onPress={(event) => {
+                            event.stopPropagation?.();
+                            handleToggleChartTradeVolumeDisplayMode();
+                          }}
+                          hitSlop={8}
+                          unstable_pressDelay={0}
+                        >
+                          <Text
+                            style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                          >
+                            {chartTradeVolumeModeLabel}
+                          </Text>
+                          <View
                             style={[
                               styles.chartTradeStepperLaunchButton,
                               useMtPendingTradeSheetLayout && styles.chartTradeStepperLaunchButtonPending,
                             ]}
-                            onPress={(event) => {
-                              event.stopPropagation?.();
-                              traceUiInteraction('chart.tradeSheet.stepper.volume', () => setChartStepperEditor({ kind: 'volume' }));
-                            }}
-                            hitSlop={8}
-                            unstable_pressDelay={0}
                           >
                             <View style={styles.chartTradeStepperLaunchIconStack}>
                               <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
                               <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                             </View>
-                          </Pressable>
-                        </View>
+                          </View>
+                        </Pressable>
                       </Pressable>
 
                       <ChartTradeVolumeSlider
@@ -6980,7 +7454,19 @@ export function ChartScreen() {
                       />
 
                       <View style={[styles.chartTradeMetaRow, useMtPendingTradeSheetLayout && styles.chartTradeMetaRowPending]}>
-                        <Text style={styles.chartTradeMetaLink}>Margin <Text style={styles.chartTradeMetaText}>≈ {fmt.price(chartTradeMarginEstimate)} {accountCurrency}</Text></Text>
+                        {isChartTradeMarginMode ? (
+                          <Text
+                            style={[styles.chartTradeMetaText, styles.chartTradeMetaSummary, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}
+                            numberOfLines={1}
+                          >
+                            Lots: <Text style={styles.chartTradeMetaSummaryValue}>{passiveLotDisplay}</Text>{'  '}
+                            Max: <Text style={styles.chartTradeMetaSummaryValue}>{chartTradeMaxVolumeDisplay}</Text>
+                          </Text>
+                        ) : (
+                          <Text style={[styles.chartTradeMetaLink, useMtPendingTradeSheetLayout && styles.chartTradeMetaLinkPending]}>
+                            Margin <Text style={styles.chartTradeMetaText}>≈ {fmt.price(chartTradeMarginEstimate)} {accountCurrency}</Text>
+                          </Text>
+                        )}
                         <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
                           Free: {fmt.price(accountFreeMargin)} {accountCurrency}
                         </Text>
@@ -7246,37 +7732,18 @@ export function ChartScreen() {
                       ) : null}
 
                       {chartTradeOrderType === 'Market Execution' ? (
-                        <>
-                          <ChartTradeButtons
-                            symbol={chartSymbol}
-                            displayDecimals={displayDecimals}
-                            lotSize={tradeVolume}
-                            volumeBounds={tradeVolumeBounds}
-                            comment={chartTradeComment}
-                            variant='mt5-market'
-                            onTradeResult={setTradeFeedback}
-                            isDark={isDark}
-                            buyColor={BLUE}
-                            sellColor={T.trading.sell.primary}
-                          />
-                          <PendingOrderPreviewChart
-                            styles={styles}
-                            candles={candles}
-                            bid={chartBid}
-                            ask={chartAsk}
-                            entryPrice={chartTradeEntryPrice}
-                            entryLabel="Price"
-                            stopLimitPriceEnabled={false}
-                            stopLimitPrice={chartTradeStopLimitPrice}
-                            stopLossEnabled={chartTradeSlEnabled}
-                            stopLossPrice={chartTradeSlPrice}
-                            takeProfitEnabled={chartTradeTpEnabled}
-                            takeProfitPrice={chartTradeTpPrice}
-                            displayDecimals={displayDecimals}
-                            buyColor={BLUE}
-                            sellColor={T.trading.sell.primary}
-                          />
-                        </>
+                        <ChartTradeButtons
+                          symbol={chartSymbol}
+                          displayDecimals={displayDecimals}
+                          lotSize={tradeVolume}
+                          volumeBounds={tradeVolumeBounds}
+                          comment={chartTradeComment}
+                          variant='mt5-market'
+                          onTradeResult={setTradeFeedback}
+                          isDark={isDark}
+                          buyColor={BLUE}
+                          sellColor={T.trading.sell.primary}
+                        />
                       ) : (
                         <>
                           <Pressable
@@ -7299,25 +7766,19 @@ export function ChartScreen() {
                               {`Place ${chartTradeOrderType}`}
                             </Text>
                           </Pressable>
-                          <PendingOrderPreviewChart
-                            styles={styles}
-                            candles={candles}
-                            bid={chartBid}
-                            ask={chartAsk}
-                            entryPrice={chartTradeEntryPrice}
-                            entryLabel={chartTradeOrderType.toUpperCase()}
-                            stopLimitPriceEnabled={isStopLimitChartOrder}
-                            stopLimitPrice={chartTradeStopLimitPrice}
-                            stopLossEnabled={chartTradeSlEnabled}
-                            stopLossPrice={chartTradeSlPrice}
-                            takeProfitEnabled={chartTradeTpEnabled}
-                            takeProfitPrice={chartTradeTpPrice}
-                            displayDecimals={displayDecimals}
-                            buyColor={BLUE}
-                            sellColor={T.trading.sell.primary}
-                          />
                         </>
                       )}
+                      <LiveOrderTickExecutionGraph
+                        symbol={chartSymbol}
+                        bid={chartBid}
+                        ask={chartAsk}
+                        timestamp={chartTradeTickTimestamp}
+                        enabled={showChartTradeSheet}
+                        priceDecimals={displayDecimals}
+                        bidColor="#2563EB"
+                        askColor="#EF4444"
+                        height={286}
+                      />
                     </View>
                   </ScrollView>
                 </View>
@@ -7328,6 +7789,7 @@ export function ChartScreen() {
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
               animatedStyle={floatingFooterTradeReserveAnimatedStyle}
+              containerRef={footerTradeRowAnchorRef}
               isDark={isDark}
               buyColor={BLUE}
               sellColor={T.trading.sell.primary}
@@ -7349,9 +7811,51 @@ export function ChartScreen() {
               onLotDraftSubmit={handleSubmitFooterLotEditor}
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
+              onLayout={(event) => {
+                const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+                if (nextHeight > 0) {
+                  setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
+                }
+                measureFooterTradeRowAnchorFrame();
+              }}
             />
           )
         )}
+        {!isChartExpanded && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
+          <ChartTradeInlineFooter
+            LiveTradeButtons={ChartTradeButtons}
+            styles={styles}
+            animatedStyle={undefined}
+            containerRef={footerTradeRowAnchorRef}
+            isDark={isDark}
+            buyColor={BLUE}
+            sellColor={T.trading.sell.primary}
+            showFloatingFooterTradeRow={false}
+            chartSymbol={chartSymbol}
+            displayDecimals={displayDecimals}
+            tradeVolume={tradeVolume}
+            tradeVolumeBounds={tradeVolumeBounds}
+            onTradeResult={setTradeFeedback}
+            onEditLot={handleFocusFooterLotEditor}
+            onOpenLotEditor={handleOpenFooterLotPicker}
+            isLotEditing={footerLotEditorFocused}
+            lotDraft={lotInput}
+            lotInputRef={footerLotEditorInputRef}
+            onLotDraftChange={handleFooterLotDraftChange}
+            onLotDraftBlur={handleBlurFooterLotEditor}
+            onLotDraftEndEditing={handleEndFooterLotEditor}
+            onLotDraftSubmit={handleSubmitFooterLotEditor}
+            onDecreaseLot={() => handleStepFooterLotEditor(-1)}
+            onIncreaseLot={() => handleStepFooterLotEditor(1)}
+            onLayout={(event) => {
+              const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+              if (nextHeight > 0) {
+                setChartTradeInlineFooterHeight((current) => (current === nextHeight ? current : nextHeight));
+              }
+              measureFooterTradeRowAnchorFrame();
+            }}
+          />
+        ) : null}
         </ScrollView>
         {chartTradeOverlayLayer}
       </View>
@@ -7707,6 +8211,20 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       position: 'relative',
       overflow: 'hidden',
+    },
+    footerLotKeyboardProxyInput: {
+      position: 'absolute',
+      top: 1,
+      left: 1,
+      width: 2,
+      height: 2,
+      padding: 0,
+      margin: 0,
+      opacity: 0.01,
+      color: 'transparent',
+      backgroundColor: 'transparent',
+      zIndex: 180,
+      elevation: 180,
     },
     chartTypeMenuLayer: {
       ...StyleSheet.absoluteFillObject,
@@ -8109,6 +8627,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 6,
       backgroundColor: '#FFFFFF',
       minHeight: 44,
+      marginTop: 6,
     },
     chartTradeVolumeCardPending: {
       minHeight: 58,
@@ -8130,12 +8649,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 10,
-      minWidth: 96,
+      minWidth: 112,
       gap: 6,
     },
     chartTradeVolumeUnitSidePending: {
       paddingHorizontal: 14,
-      minWidth: 120,
+      minWidth: 128,
       gap: 6,
     },
     chartTradeVolumeDivider: {
@@ -8240,6 +8759,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    chartTradeTypeTabPendingMarketExecution: {
+      minWidth: 132,
+      width: 132,
+      paddingHorizontal: 10,
+    },
     chartTradeTypeTabActive: {
       borderBottomColor: '#2563EB',
     },
@@ -8259,6 +8783,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       textAlign: 'center',
       width: '100%',
+    },
+    chartTradeTypeTabTextPendingMarketExecution: {
+      fontSize: 13,
     },
     chartTradeTypeTabTextActive: {
       color: '#2563EB',
@@ -8401,6 +8928,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: '#64748B',
       fontSize: 14,
       fontWeight: '500',
+    },
+    chartTradeMetaSummary: {
+      flex: 1,
+      textDecorationLine: 'none',
+    },
+    chartTradeMetaSummaryValue: {
+      color: '#0F172A',
+      fontWeight: '700',
     },
     chartTradeMetaRowPending: {
       marginTop: 0,
@@ -8570,7 +9105,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 8,
       backgroundColor: '#EFF6FF',
       paddingHorizontal: 8,
-      paddingVertical: 6,
+      paddingVertical: 4,
     },
     chartTradeCommentInlineLabel: {
       minWidth: 74,
@@ -8578,7 +9113,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeCommentInlineValue: {
       flex: 1,
       color: '#0F172A',
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '500',
     },
     chartTradeCommentInlinePlaceholder: {
@@ -8590,32 +9125,32 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '600',
     },
     chartTradeCommentEditorInlineRow: {
-      minHeight: 58,
+      minHeight: 50,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
+      gap: 8,
       marginTop: 2,
     },
     chartTradeCommentEditorInlineInputWrap: {
       flex: 1,
-      minHeight: 58,
+      minHeight: 50,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: '#E2E8F0',
       backgroundColor: '#FFFFFF',
       justifyContent: 'center',
-      paddingHorizontal: 14,
+      paddingHorizontal: 12,
     },
     chartTradeCommentEditorInlineInput: {
       flex: 1,
       color: '#0F172A',
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '500',
       paddingVertical: 0,
     },
     chartTradeCommentEditorInlineSubmit: {
-      width: 58,
-      minHeight: 58,
+      width: 48,
+      minHeight: 48,
       borderRadius: 8,
       backgroundColor: '#EFF6FF',
       borderWidth: 1,
@@ -8924,7 +9459,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       right: 0,
       paddingHorizontal: 8,
       paddingTop: 6,
-      paddingBottom: 6,
+      paddingBottom: 0,
       backgroundColor: isDark ? '#080B11' : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,
@@ -8966,6 +9501,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minHeight: 30,
       alignItems: 'center',
       justifyContent: 'center',
+      borderRadius: 8,
+    },
+    footerLotPickerQuickButtonActive: {
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.14)' : '#E8F1FF',
     },
     footerLotPickerQuickText: {
       color: '#3B82F6',
@@ -8973,15 +9512,17 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '500',
       fontVariant: ['tabular-nums'],
     },
-    footerLotPickerValuesRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      gap: 18,
+    footerLotPickerQuickTextActive: {
+      color: '#2563EB',
+      fontWeight: '700',
     },
-    footerLotPickerColumn: {
-      flex: 1,
+    footerLotPickerValuesScroll: {
+      marginHorizontal: -4,
+    },
+    footerLotPickerValuesContent: {
+      alignItems: 'center',
       gap: 6,
+      paddingHorizontal: 4,
     },
     footerLotPickerValueButton: {
       minHeight: 54,
@@ -8990,16 +9531,27 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 10,
       paddingHorizontal: 8,
     },
+    footerLotPickerValueButtonHorizontal: {
+      width: FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH,
+      minHeight: 46,
+    },
     footerLotPickerValueButtonActive: {
       backgroundColor: isDark ? 'rgba(59, 130, 246, 0.18)' : '#E8F1FF',
     },
+    footerLotPickerValueButtonRange: {
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.1)' : '#F3F7FF',
+    },
     footerLotPickerValueText: {
       color: isDark ? '#F8FAFC' : '#111827',
-      fontSize: 18,
+      fontSize: 15,
       fontWeight: '500',
       fontVariant: ['tabular-nums'],
     },
     footerLotPickerValueTextActive: {
+      color: '#2563EB',
+      fontWeight: '700',
+    },
+    footerLotPickerValueTextRange: {
       color: '#2563EB',
       fontWeight: '700',
     },

@@ -259,6 +259,7 @@ function TradePositionRowComponent({
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View
+        collapsable={false}
         style={[
           styles.row,
           {
