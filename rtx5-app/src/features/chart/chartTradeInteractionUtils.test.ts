@@ -4,13 +4,16 @@ import test from 'node:test';
 import {
   buildFooterLotPickerQuickAdjustments,
   buildFooterLotPickerValues,
+  resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
+  resolveChartTradeSheetHostHeight,
   resolveFooterLotChevronState,
   resolveFooterLotCommitDraft,
   resolveFooterTradeRowState,
   resolveKeyboardDockOffset,
   resolveKeyboardResizesHost,
   shouldHideChartTabBarForTradeInput,
+  shouldRenderChartTradeSheetBody,
   shouldSuppressChartTapMenu,
   shouldShowChartTradePreviewOnChart,
   shouldShowChartTradeSheetHandle,
@@ -317,13 +320,13 @@ test('resolveFooterTradeRowState disables the floating row when the editor is cl
   );
 });
 
-test('shouldHideChartTabBarForTradeInput only hides the chart tab bar for inline sheet text input', () => {
+test('shouldHideChartTabBarForTradeInput keeps the chart route stable for overlay comment input', () => {
   assert.equal(
     shouldHideChartTabBarForTradeInput({
       showChartTradeSheet: true,
       chartTradeCommentFocused: true,
     }),
-    true,
+    false,
   );
 
   assert.equal(
@@ -490,6 +493,65 @@ test('resolveChartTradeSheetMaxHeight reserves both the chart heading gap and vi
   );
 });
 
+test('resolveChartTradeSheetHeaderLift lets max expanded sheet stop below the chart title', () => {
+  assert.equal(
+    resolveChartTradeSheetHeaderLift({
+      topInset: 58,
+      compactHeaderHeight: 64,
+      isFullscreen: false,
+    }),
+    122,
+  );
+  assert.equal(
+    resolveChartTradeSheetMaxHeight({
+      collapsedHeight: 120,
+      hostHeight: 620,
+      topInset: 58,
+      headerLift: 122,
+      bottomInset: 0,
+    }),
+    684,
+  );
+});
+
+test('resolveChartTradeSheetHeaderLift does not move fullscreen sheet into the status toolbar', () => {
+  assert.equal(
+    resolveChartTradeSheetHeaderLift({
+      topInset: 84,
+      compactHeaderHeight: 64,
+      isFullscreen: true,
+    }),
+    0,
+  );
+});
+
+test('resolveChartTradeSheetHostHeight freezes both shrink and growth while sheet input is focused', () => {
+  assert.equal(
+    resolveChartTradeSheetHostHeight({
+      currentHostHeight: 620,
+      nextHostHeight: 430,
+      freezeHostHeight: true,
+    }),
+    620,
+  );
+  assert.equal(
+    resolveChartTradeSheetHostHeight({
+      currentHostHeight: 620,
+      nextHostHeight: 700,
+      freezeHostHeight: true,
+    }),
+    620,
+  );
+  assert.equal(
+    resolveChartTradeSheetHostHeight({
+      currentHostHeight: 620,
+      nextHostHeight: 700,
+      freezeHostHeight: false,
+    }),
+    700,
+  );
+});
+
 test('resolveKeyboardDockOffset prefers real keyboard overlap from screenY on Android', () => {
   assert.equal(
     resolveKeyboardDockOffset({
@@ -597,6 +659,12 @@ test('chart trade sheet grab handle stays visible while the sheet is open', () =
   assert.equal(shouldShowChartTradeSheetHandle({ chartTradeSheetMode: 'collapsed' }), true);
   assert.equal(shouldShowChartTradeSheetHandle({ chartTradeSheetMode: 'expanded' }), true);
   assert.equal(shouldShowChartTradeSheetHandle({ chartTradeSheetMode: 'hidden' }), false);
+});
+
+test('chart trade sheet body renders only after expanding from compact SL/TP mode', () => {
+  assert.equal(shouldRenderChartTradeSheetBody({ chartTradeSheetMode: 'collapsed' }), false);
+  assert.equal(shouldRenderChartTradeSheetBody({ chartTradeSheetMode: 'expanded' }), true);
+  assert.equal(shouldRenderChartTradeSheetBody({ chartTradeSheetMode: 'hidden' }), false);
 });
 
 test('chart trade sheet hides duplicated market execution buttons when the compact footer stays mounted', () => {

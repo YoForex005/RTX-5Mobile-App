@@ -89,6 +89,7 @@ const GAP_RESYNC_THROTTLE_MS = 4_000;
 const POST_ROLLOVER_HEAL_DELAY_MS = 350;
 const BOOTSTRAP_RETRY_DELAY_MS = 1_250;
 const BOOTSTRAP_FULL_BACKFILL_DELAY_MS = 750;
+const FAST_SWITCH_ENTRY_RETENTION_MS = 3_000;
 const RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS = 2;
 
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
@@ -316,10 +317,17 @@ class LiveCandlesEngine {
     entry.consumers = Math.max(0, entry.consumers - 1);
 
     if (entry.consumers === 0) {
-      // Hidden chart routes should stop all live quote/candle work immediately.
-      // Keeping engine entries alive after unmount leaves websocket-driven merge
-      // work running in the background and eventually blocks taps/navigation.
-      this.disposeEntry(key);
+      if (entry.releaseTimer) {
+        clearTimeout(entry.releaseTimer);
+      }
+
+      entry.releaseTimer = setTimeout(() => {
+        const retained = this.entries.get(key);
+        if (!retained || retained.consumers > 0) {
+          return;
+        }
+        this.disposeEntry(key);
+      }, FAST_SWITCH_ENTRY_RETENTION_MS);
     }
   }
 

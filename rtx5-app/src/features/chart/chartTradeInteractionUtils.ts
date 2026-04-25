@@ -82,6 +82,10 @@ type ChartTradeSheetHandleVisibilityInput = {
   chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
 };
 
+type ChartTradeSheetBodyVisibilityInput = {
+  chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
+};
+
 type ChartTradeSheetMarketExecutionButtonsVisibilityInput = {
   chartTradeOrderType: string;
   showInlineFooterWhileSheetOpen: boolean;
@@ -102,6 +106,18 @@ type ChartTradeSheetMaxHeightInput = {
   topInset: number;
   headerLift: number;
   bottomInset: number;
+};
+
+type ChartTradeSheetHeaderLiftInput = {
+  topInset: number;
+  compactHeaderHeight: number;
+  isFullscreen: boolean;
+};
+
+type ChartTradeSheetHostHeightInput = {
+  currentHostHeight: number;
+  nextHostHeight: number;
+  freezeHostHeight: boolean;
 };
 
 type FooterLotChevronStateInput = {
@@ -339,7 +355,9 @@ export function shouldHideChartTabBarForTradeInput({
   showChartTradeSheet,
   chartTradeCommentFocused,
 }: ChartTradeInlineInputVisibilityInput) {
-  return showChartTradeSheet && chartTradeCommentFocused;
+  void showChartTradeSheet;
+  void chartTradeCommentFocused;
+  return false;
 }
 
 export function shouldShowChartTradePreviewOnChart({
@@ -407,6 +425,52 @@ export function resolveChartTradeSheetMaxHeight({
     normalizedCollapsedHeight,
     normalizedHostHeight - normalizedTopInset - normalizedBottomInset + normalizedHeaderLift,
   );
+}
+
+export function resolveChartTradeSheetHeaderLift({
+  topInset,
+  compactHeaderHeight,
+  isFullscreen,
+}: ChartTradeSheetHeaderLiftInput) {
+  if (isFullscreen) {
+    return 0;
+  }
+
+  const normalizedTopInset =
+    Number.isFinite(topInset) && topInset > 0
+      ? topInset
+      : 0;
+  const normalizedCompactHeaderHeight =
+    Number.isFinite(compactHeaderHeight) && compactHeaderHeight > 0
+      ? compactHeaderHeight
+      : 0;
+
+  return normalizedTopInset + normalizedCompactHeaderHeight;
+}
+
+export function resolveChartTradeSheetHostHeight({
+  currentHostHeight,
+  nextHostHeight,
+  freezeHostHeight,
+}: ChartTradeSheetHostHeightInput) {
+  const normalizedCurrentHeight =
+    Number.isFinite(currentHostHeight) && currentHostHeight > 0
+      ? currentHostHeight
+      : 0;
+  const normalizedNextHeight =
+    Number.isFinite(nextHostHeight) && nextHostHeight > 0
+      ? nextHostHeight
+      : 0;
+
+  if (normalizedNextHeight <= 0) {
+    return normalizedCurrentHeight;
+  }
+
+  if (freezeHostHeight && normalizedCurrentHeight > 0) {
+    return normalizedCurrentHeight;
+  }
+
+  return normalizedNextHeight;
 }
 
 export function resolveKeyboardDockOffset({
@@ -505,6 +569,12 @@ export function shouldShowChartTradeSheetHandle({
   chartTradeSheetMode,
 }: ChartTradeSheetHandleVisibilityInput) {
   return chartTradeSheetMode !== 'hidden';
+}
+
+export function shouldRenderChartTradeSheetBody({
+  chartTradeSheetMode,
+}: ChartTradeSheetBodyVisibilityInput) {
+  return chartTradeSheetMode === 'expanded';
 }
 
 export function shouldShowChartTradeSheetMarketExecutionButtons({

@@ -6,7 +6,7 @@ import {
 } from '../../domain/candles';
 import type { Candle } from '../../state/tradingState';
 
-export const FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT = Math.min(DEFAULT_CANDLE_HISTORY_LIMIT, 180);
+export const FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT = Math.min(DEFAULT_CANDLE_HISTORY_LIMIT, 96);
 
 export const shouldBackfillBootstrapHistory = (
   loadedCount: number,

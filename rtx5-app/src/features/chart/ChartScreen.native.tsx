@@ -97,7 +97,7 @@ import {
   getChartSeriesUpdateMode,
 } from './liveChartSync';
 import { useShallow } from 'zustand/shallow';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { recordUiFeedGap, traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import {
@@ -128,7 +128,9 @@ import {
   buildFooterLotPickerQuickAdjustments,
   buildFooterLotPickerValues,
   type FooterLotPickerMode,
+  resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
+  resolveChartTradeSheetHostHeight,
   resolveFooterLotCommitDraft as resolveFooterLotCommitDraftValue,
   resolveKeyboardDockOffset,
   resolveKeyboardResizesHost,
@@ -4077,6 +4079,7 @@ export function ChartScreen() {
   const [chartTradeKeyboardFreeHostHeight, setChartTradeKeyboardFreeHostHeight] = useState(0);
   const [chartTradeInlineFooterHeight, setChartTradeInlineFooterHeight] = useState(0);
   const [chartTradeTopToolbarBottomOffset, setChartTradeTopToolbarBottomOffset] = useState(0);
+  const [chartTradeCompactHeaderHeight, setChartTradeCompactHeaderHeight] = useState(0);
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
@@ -4180,7 +4183,7 @@ export function ChartScreen() {
   }, [readKeyboardMetricsFrame, recomputeKeyboardDockOffset]);
   const screenHeight = Dimensions.get('window').height;
   const fullscreenChartMinHeight = Math.max(320, screenHeight);
-  const chartTradeSheetCollapsedHeight = 186;
+  const chartTradeSheetCollapsedHeight = 120;
   const fullscreenToolbarTouchBuffer = 18;
   const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
   const chartTradeSheetFallbackTopInset = isChartExpanded ? fullscreenToolbarTopPadding + 36 : 48;
@@ -4195,7 +4198,11 @@ export function ChartScreen() {
   );
   const resolvedChartTradeSheetHostHeight =
     chartTradeSheetHostHeight > 0 ? chartTradeSheetHostHeight : chartTradeSheetFallbackHostHeight;
-  const chartTradeSheetHeaderLift = 0;
+  const chartTradeSheetHeaderLift = resolveChartTradeSheetHeaderLift({
+    topInset: chartTradeSheetTopInset,
+    compactHeaderHeight: chartTradeCompactHeaderHeight,
+    isFullscreen: isChartExpanded,
+  });
   // The SL/TP sheet is opened from the chart toolbar and covers the footer
   // area while open, so the sell/lot/buy row never shows through a cutout.
   const showInlineFooterWhileChartTradeSheetOpen = false;
@@ -4481,7 +4488,7 @@ export function ChartScreen() {
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const { candles, refresh: refreshCandles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
   const latestChartClose = useMemo(() => candles[candles.length - 1]?.close ?? 0, [candles]);
   const quoteFallbackSpread =
     baseSymbol.includes('BTC') ? 25 : baseSymbol.includes('XAU') || baseSymbol.includes('XAG') ? 0.3 : 0.00015;
@@ -4744,7 +4751,7 @@ export function ChartScreen() {
     Keyboard.dismiss();
     setChartTradeOrderType(orderType);
     resetChartTradePanelLevels(orderType);
-    snapTradeSheet('expanded');
+    snapTradeSheet('collapsed');
   }, [
     chartTradeOrderType,
     closeChartTapMenu,
@@ -5913,6 +5920,7 @@ export function ChartScreen() {
         title: 'Select Symbol',
         searchable: true,
         detent: 'large',
+        runActionAfterClose: false,
         actions: availableSymbols.map((sym) => ({
           label: sym,
           onPress: () => handleSymbolSelect(sym),
@@ -5926,6 +5934,7 @@ export function ChartScreen() {
       resetChartActionSheetContext();
       showActionSheet({
         title: 'Timeframes',
+        runActionAfterClose: false,
         actions: timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) })),
       });
     });
@@ -6218,8 +6227,6 @@ export function ChartScreen() {
   //     arrived within 2 seconds. Repeats every 3s until success.
   //   • On data arrival: always sends initChart (WebView is idempotent).
   //   • On WebView reload: READY resets state, next data push re-inits.
-  //   • Mock fallback: if no candles after 4s, generate mock data
-  //     so the chart area is never blank.
   // ─────────────────────────────────────────────────────────────────
   const candlesRef = useRef(candles);
   const chartInitializedRef = useRef(false);
@@ -6227,6 +6234,11 @@ export function ChartScreen() {
   const lastInitSigRef = useRef('');
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const lastInjectedLiveQuoteSignatureRef = useRef('');
+  const chartCandleFrontendPaintRef = useRef<{
+    availableAt: number;
+    length: number;
+    signature: string;
+  } | null>(null);
 
   const resetChartBridgeState = () => {
     chartInitializedRef.current = false;
@@ -6261,6 +6273,25 @@ export function ChartScreen() {
     () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${showChartVolumePane ? 'vol' : 'novol'}-${chartColorsSignature}`,
     [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane],
   );
+  useEffect(() => {
+    const lastCandle = candles[candles.length - 1];
+    if (!lastCandle) {
+      chartCandleFrontendPaintRef.current = null;
+      return;
+    }
+
+    const signature = `${currentSig}:${candles.length}:${lastCandle.time}:${lastCandle.open}:${lastCandle.high}:${lastCandle.low}:${lastCandle.close}`;
+    if (chartCandleFrontendPaintRef.current?.signature === signature) {
+      return;
+    }
+
+    chartCandleFrontendPaintRef.current = {
+      availableAt: Date.now(),
+      length: candles.length,
+      signature,
+    };
+  }, [candles, currentSig]);
+
   useEffect(() => {
     // Config changed — previous CHART_READY is stale.
     if (lastInitSigRef.current !== currentSig) {
@@ -6410,19 +6441,6 @@ export function ChartScreen() {
       if (watchdogRef.current) clearInterval(watchdogRef.current);
     };
   }, [isScreenFocused, webViewReady, sendInit]);
-
-  // Mock data fallback — if no candles after 4 seconds, generate mock
-  // data so the chart is never blank. Real data will replace it when it arrives.
-  useEffect(() => {
-    if (candles.length > 0) return;
-    const tmr = setTimeout(() => {
-      if (candlesRef.current.length === 0) {
-        console.log('[CHART] No candles after 4s, forcing refresh');
-        refreshCandles();
-      }
-    }, 4000);
-    return () => clearTimeout(tmr);
-  }, [candles.length, refreshCandles]);
 
   const overlayPayload = useMemo(
     () => {
@@ -6809,7 +6827,15 @@ export function ChartScreen() {
       {!isChartExpanded && (
         <View style={styles.headerWrapper}>
           <AppHeader title={t('Chart')} noBorder />
-          <View style={styles.compactHeader}>
+          <View
+            style={styles.compactHeader}
+            onLayout={(event) => {
+              const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
+              if (nextHeight > 0) {
+                setChartTradeCompactHeaderHeight((current) => (current === nextHeight ? current : nextHeight));
+              }
+            }}
+          >
             {/* Left: Symbol Info */}
             <Pressable
               style={styles.symbolSection}
@@ -6857,13 +6883,11 @@ export function ChartScreen() {
           }
 
           setChartTradeSheetHostHeight((current) => {
-            if (current === nextHeight) {
-              return current;
-            }
-            if (shouldFreezeChartTradeSheetHostHeight && current > 0 && nextHeight < current) {
-              return current;
-            }
-            return nextHeight;
+            return resolveChartTradeSheetHostHeight({
+              currentHostHeight: current,
+              nextHostHeight: nextHeight,
+              freezeHostHeight: shouldFreezeChartTradeSheetHostHeight,
+            });
           });
           requestAnimationFrame(() => {
             measureKeyboardDockAnchors(() => {
@@ -7129,6 +7153,21 @@ export function ChartScreen() {
                       lastInitSigRef.current = currentSig;
                       setChartCanvasReady(true);
                       lastInjectedLiveQuoteSignatureRef.current = '';
+                      const frontendPaint = chartCandleFrontendPaintRef.current;
+                      if (frontendPaint) {
+                        const frontendMs = Date.now() - frontendPaint.availableAt;
+                        recordUiFeedGap(
+                          'chart.candles.frontend.paint',
+                          frontendMs,
+                          `${chartSymbol} ${chartTimeframe} ${frontendPaint.length} candle(s)`,
+                        );
+                        if (typeof __DEV__ !== 'undefined' && __DEV__ && frontendMs > 3000) {
+                          console.warn(
+                            `[CHART] Frontend candle paint exceeded 3s after data was available: ${frontendMs}ms for ${chartSymbol} ${chartTimeframe}`,
+                          );
+                        }
+                        chartCandleFrontendPaintRef.current = null;
+                      }
                       // Bump epoch so the overlay effect always re-fires
                       // after every (re-)initialization, even when the
                       // payload itself hasn't changed.
@@ -7700,7 +7739,7 @@ export function ChartScreen() {
                               >
                                 <Ionicons
                                   name='checkmark'
-                                  size={20}
+                                  size={16}
                                   color={chartTradeComment.trim() ? BLUE : '#94A3B8'}
                                 />
                               </Pressable>
@@ -9100,9 +9139,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 0,
     },
     chartTradeCommentBlock: {
-      gap: 6,
-      paddingVertical: 2,
-      marginTop: -4,
+      gap: 4,
+      paddingVertical: 1,
+      marginTop: -3,
     },
     chartTradeCommentBlockPending: {
       gap: 0,
@@ -9133,33 +9172,33 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '600',
     },
     chartTradeCommentEditorInlineRow: {
-      minHeight: 50,
+      minHeight: 40,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 6,
       marginTop: 2,
     },
     chartTradeCommentEditorInlineInputWrap: {
       flex: 1,
-      minHeight: 50,
-      borderRadius: 8,
+      minHeight: 40,
+      borderRadius: 7,
       borderWidth: 1,
       borderColor: '#E2E8F0',
       backgroundColor: '#FFFFFF',
       justifyContent: 'center',
-      paddingHorizontal: 12,
+      paddingHorizontal: 10,
     },
     chartTradeCommentEditorInlineInput: {
       flex: 1,
       color: '#0F172A',
-      fontSize: 15,
+      fontSize: 13,
       fontWeight: '500',
       paddingVertical: 0,
     },
     chartTradeCommentEditorInlineSubmit: {
-      width: 48,
-      minHeight: 48,
-      borderRadius: 8,
+      width: 40,
+      minHeight: 40,
+      borderRadius: 7,
       backgroundColor: '#EFF6FF',
       borderWidth: 1,
       borderColor: '#DBEAFE',

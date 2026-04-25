@@ -10,7 +10,6 @@ import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { useTranslation } from '../src/i18n/useTranslation';
-import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 
 
@@ -144,15 +143,6 @@ export default function RootLayout() {
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);
   const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
-
-  useEffect(() => {
-    if (Platform.OS === 'web') return; // expo-web automatically mounts vector-icons via DOM style blocks
-
-    // Preload Ionicons font for Native UI
-    Font.loadAsync(Ionicons.font).catch(() => {
-      console.warn('Ionicons font failed to load on native');
-    });
-  }, []);
 
   useEffect(() => {
     if (!hasHydrated) return;

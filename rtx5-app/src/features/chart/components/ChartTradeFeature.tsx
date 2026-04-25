@@ -13,6 +13,7 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
 import {
+  shouldRenderChartTradeSheetBody,
   shouldShowChartTradeSheetHandle,
   shouldShowChartTradeSheetMarketExecutionButtons,
 } from '../chartTradeInteractionUtils';
@@ -20,7 +21,7 @@ import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph
 import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
-const FOOTER_TRADE_DOCK_EDIT_GAP = 40;  // gap between the sell, lot, buy layout to the keyboard 
+const FOOTER_TRADE_DOCK_EDIT_GAP = 45;  // gap between the sell, lot, buy layout to the keyboard 
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -571,7 +572,7 @@ function ChartTradeSheetContent({
                 >
                   <Ionicons
                     name='checkmark'
-                    size={18}
+                    size={16}
                     color={sheet.chartTradeComment.trim() ? colors.blue : '#94A3B8'}
                   />
                 </Pressable>
@@ -957,7 +958,7 @@ function ChartTradeSheetBody({
                   onPress={() => handlers.onSelectStopUnit(unit.key)}
                   unstable_pressDelay={0}
                 >
-                <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
+                  <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
                 </Pressable>
               );
             })}
@@ -1066,7 +1067,7 @@ function ChartTradeSheetBody({
               >
                 <Ionicons
                   name='checkmark'
-                  size={18}
+                  size={16}
                   color={sheet.chartTradeComment.trim() ? colors.blue : '#94A3B8'}
                 />
               </Pressable>
@@ -1230,7 +1231,15 @@ export function ChartTradeOverlayLayer({
     ChartFooterLotPicker,
   } = components;
   const showInlineFooterDock = !!sheet.showInlineFooterDockWhileSheetOpen;
+  const showSheetBody = shouldRenderChartTradeSheetBody({
+    chartTradeSheetMode: sheet.chartTradeSheetMode,
+  });
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
+  const useFooterLotExternalInput =
+    Platform.OS === 'android' &&
+    footer.footerLotEditorFocused &&
+    footer.showFloatingFooterTradeRow &&
+    !showInlineFooterDock;
   const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
   const tradeFooterDockEditGap =
     footer.footerLotEditorFocused && footer.showFloatingFooterTradeRow && !showInlineFooterDock
@@ -1299,33 +1308,35 @@ export function ChartTradeOverlayLayer({
                   components={components}
                 />
 
-                <ScrollView
-                  ref={sheet.chartTradeSheetScrollRef}
-                  style={styles.chartTradeSheetContentScroll}
-                  contentContainerStyle={[
-                    styles.chartTradeSheetContent,
-                    { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
-                  ]}
-                  nestedScrollEnabled
-                  bounces={false}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
-                  keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                  scrollEventThrottle={16}
-                  onScroll={(event) => {
-                    handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
-                  }}
-                >
-                  <ChartTradeSheetBody
-                    components={components}
-                    styles={styles}
-                    isDark={isDark}
-                    colors={colors}
-                    symbolHeader={symbolHeader}
-                    sheet={sheet}
-                    handlers={handlers}
-                  />
-                </ScrollView>
+                {showSheetBody ? (
+                  <ScrollView
+                    ref={sheet.chartTradeSheetScrollRef}
+                    style={styles.chartTradeSheetContentScroll}
+                    contentContainerStyle={[
+                      styles.chartTradeSheetContent,
+                      { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
+                    ]}
+                    nestedScrollEnabled
+                    bounces={false}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
+                    keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    scrollEventThrottle={16}
+                    onScroll={(event) => {
+                      handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
+                    }}
+                  >
+                    <ChartTradeSheetBody
+                      components={components}
+                      styles={styles}
+                      isDark={isDark}
+                      colors={colors}
+                      symbolHeader={symbolHeader}
+                      sheet={sheet}
+                      handlers={handlers}
+                    />
+                  </ScrollView>
+                ) : null}
               </View>
             </GestureDetector>
           </Animated.View>
@@ -1402,6 +1413,27 @@ export function ChartTradeOverlayLayer({
           pointerEvents={tradeFooterDockVisible ? 'box-none' : 'none'}
           style={styles.footerTradeDockLayer}
         >
+          {useFooterLotExternalInput ? (
+            <TextInput
+              ref={footer.footerLotEditorInputRef}
+              style={styles.footerLotKeyboardProxyInput}
+              value={footer.lotInput}
+              onChangeText={handlers.onLotDraftChange}
+              onBlur={handlers.onLotDraftBlur}
+              onEndEditing={handlers.onLotDraftEndEditing}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              blurOnSubmit
+              caretHidden
+              selectTextOnFocus
+              autoFocus
+              showSoftInputOnFocus
+              onSubmitEditing={handlers.onLotDraftSubmit}
+              placeholder={String(sheet.tradeVolume)}
+              placeholderTextColor="transparent"
+              importantForAccessibility="no-hide-descendants"
+            />
+          ) : null}
           <View
             style={[
               styles.footerTradeDock,
@@ -1427,6 +1459,7 @@ export function ChartTradeOverlayLayer({
               onLotDraftBlur={handlers.onLotDraftBlur}
               onLotDraftEndEditing={handlers.onLotDraftEndEditing}
               onLotDraftSubmit={handlers.onLotDraftSubmit}
+              useExternalLotInput={useFooterLotExternalInput}
               onDecreaseLot={handlers.onDecreaseLot}
               onIncreaseLot={handlers.onIncreaseLot}
               isDark={isDark}

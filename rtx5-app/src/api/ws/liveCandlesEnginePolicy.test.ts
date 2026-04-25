@@ -54,8 +54,28 @@ test('resolveVisibleSeriesMode keeps trusted history visible when live candles d
   );
 });
 
+test('resolveVisibleSeriesMode never merges detached live candles into existing history', () => {
+  const history = [makeCandle(100), makeCandle(160), makeCandle(220)];
+  const detachedLive = [makeCandle(520), makeCandle(580)];
+  const currentVisibleHistory = history;
+
+  assert.equal(
+    resolveVisibleSeriesMode(history, detachedLive, currentVisibleHistory, 'M1'),
+    'history',
+  );
+  assert.equal(shouldSyncVisibleSeriesCache('history', history, 'M1'), true);
+  assert.equal(shouldSyncVisibleSeriesCache('current', detachedLive, 'M1'), false);
+});
+
 test('resolveVisibleSeriesMode paints trusted history on cold start when live is detached', () => {
   assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(340)], [], 'M1'), 'history');
+});
+
+test('resolveVisibleSeriesMode allows live-only candles only when backend history is absent', () => {
+  const liveOnly = [makeCandle(520), makeCandle(580)];
+
+  assert.equal(resolveVisibleSeriesMode([], liveOnly, [], 'M1'), 'current');
+  assert.equal(shouldSyncVisibleSeriesCache('current', liveOnly, 'M1'), false);
 });
 
 test('resolveCurrentVisibleSeries prefers the fresh live-only segment when history is detached', () => {
