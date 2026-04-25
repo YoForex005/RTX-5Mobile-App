@@ -32,6 +32,8 @@ import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { useTranslation } from '../../i18n/useTranslation';
+import { translateAccountCardName } from '../../i18n/translations';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountRibbonLabel,
@@ -47,6 +49,7 @@ export function AccountsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const T = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
@@ -62,8 +65,8 @@ export function AccountsScreen() {
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
   const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
-  const activeRibbonLabel = activeIsDemo ? 'Demo' : 'Real';
-  const activeBadgeLabel = activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live');
+  const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
+  const activeBadgeLabel = t(activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live'));
 
   // Filter out the active account to render the other connected accounts
   const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
@@ -76,7 +79,8 @@ export function AccountsScreen() {
 
   // Extract the essential display values — prefer live WS data, fall back to REST API
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
-  const displayName = activeAccount?.name?.trim() || (displayLogin !== '---' ? `Account ${displayLogin}` : '---');
+  const rawDisplayName = activeAccount?.name?.trim() || (displayLogin !== '---' ? `Account ${displayLogin}` : '---');
+  const displayName = rawDisplayName === '---' ? rawDisplayName : translateAccountCardName(rawDisplayName, t);
   const displayCurrency = activeAccount?.currency ?? 'USD';
   const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
   const displayEquity = liveEquity > 0 ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
@@ -96,11 +100,11 @@ export function AccountsScreen() {
 
   const handleConnectAccount = () => {
     showActionSheet({
-      title: 'Connect account',
+      title: t('Connect account'),
       actions: [
-        { label: 'Login Real Account', onPress: () => router.push('/login') },
-        { label: 'Login Contest Account', onPress: () => router.push('/contest-login') },
-        { label: 'Open Demo Account', onPress: () => router.push('/register') },
+        { label: t('Login Real Account'), onPress: () => router.push('/login') },
+        { label: t('Login Contest Account'), onPress: () => router.push('/contest-login') },
+        { label: t('Open Demo Account'), onPress: () => router.push('/register') },
       ],
     });
   };
@@ -124,12 +128,12 @@ export function AccountsScreen() {
 
   const openOptions = () => {
     showActionSheet({
-      title: 'Settings',
+      title: t('Settings'),
       actions: [
-        { label: 'Change master password', onPress: () => openPasswordSheet('master') },
-        { label: 'Change investor password', onPress: () => openPasswordSheet('investor') },
-        { label: 'Clear saved password' },
-        { label: 'Delete account', danger: true },
+        { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
+        { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
+        { label: t('Clear saved password') },
+        { label: t('Delete account'), danger: true },
       ],
     });
   };
@@ -141,12 +145,12 @@ export function AccountsScreen() {
           <Pressable style={styles.iconBtn} hitSlop={15} onPress={() => router.back()} unstable_pressDelay={0}>
             <Ionicons name="arrow-back" size={28} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Accounts</Text>
+          <Text style={styles.headerTitle}>{t('Accounts')}</Text>
           <View style={styles.headerRight}>
             <Pressable
               style={styles.iconBtn}
               hitSlop={10}
-              onPress={() => traceUiInteraction('accounts.certification.open', () => Alert.alert('Certification', 'Certification info will be displayed here.'))}
+              onPress={() => traceUiInteraction('accounts.certification.open', () => Alert.alert(t('Certification'), t('Certification info will be displayed here.')))}
               unstable_pressDelay={0}
             >
               <Ionicons name="ribbon-outline" size={24} color={T.text} />
@@ -194,7 +198,7 @@ export function AccountsScreen() {
                     </View>
                     <View style={styles.connectedBadge}>
                       <View style={styles.connectedDot} />
-                      <Text style={styles.connectedLabel}>Connected</Text>
+                      <Text style={styles.connectedLabel}>{t('Connected')}</Text>
                     </View>
                   </View>
                 </View>
@@ -204,26 +208,26 @@ export function AccountsScreen() {
 
             {/* Balance — hero section */}
             <View style={styles.balanceSection}>
-              <Text style={styles.balanceLabel}>Balance</Text>
+              <Text style={styles.balanceLabel}>{t('Balance')}</Text>
               <Text style={styles.balanceValue}>{displayBalance} <Text style={styles.balanceCurrency}>{displayCurrency}</Text></Text>
             </View>
 
             {/* Metrics grid */}
             <View style={styles.metricsGrid}>
               <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Equity</Text>
+                <Text style={styles.metricLabel}>{t('Equity')}</Text>
                 <Text style={styles.metricValue}>{displayEquity}</Text>
               </View>
               <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Free Margin</Text>
+                <Text style={styles.metricLabel}>{t('Free Margin')}</Text>
                 <Text style={styles.metricValue}>{displayFreeMargin}</Text>
               </View>
               <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Leverage</Text>
+                <Text style={styles.metricLabel}>{t('Leverage')}</Text>
                 <Text style={styles.metricValue}>{displayLeverage}</Text>
               </View>
               <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Floating P/L</Text>
+                <Text style={styles.metricLabel}>{t('Floating P/L')}</Text>
                 <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}</Text>
               </View>
             </View>
@@ -240,7 +244,7 @@ export function AccountsScreen() {
               </View>
               <View style={styles.detailChip}>
                 <Ionicons name="briefcase-outline" size={13} color={T.textMuted} />
-                <Text style={styles.detailChipText}>{displayOpenPositions} open</Text>
+                <Text style={styles.detailChipText}>{displayOpenPositions} {t('open')}</Text>
               </View>
             </View>
 
@@ -254,7 +258,7 @@ export function AccountsScreen() {
                 <Text style={styles.statusText}>MT5</Text>
                 <View style={styles.statusSep} />
                 <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
-                <Text style={styles.statusText}>Gateway</Text>
+                <Text style={styles.statusText}>{t('Gateway')}</Text>
               </View>
               <View style={styles.activeActions}>
                 <Pressable style={styles.actionIcon} onPress={() => openQRSheet(displayLogin)} hitSlop={12}>
@@ -270,14 +274,15 @@ export function AccountsScreen() {
           {/* ── Other Accounts ── */}
           {otherAccounts.length > 0 && (
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionLabel}>Other Accounts</Text>
+              <Text style={styles.sectionLabel}>{t('Other Accounts')}</Text>
               <Text style={styles.sectionCount}>{otherAccounts.length}</Text>
             </View>
           )}
 
           {otherAccounts.map((account) => {
             const isDemo = isDemoTradingAccount(account.group);
-            const ribbonLabel = getTradingAccountRibbonLabel(account.group);
+            const ribbonLabel = t(getTradingAccountRibbonLabel(account.group));
+            const accountDisplayName = translateAccountCardName(account.name || `Account ${account.login}`, t);
             const isExpanded = expandedLogin === account.login;
 
             return (
@@ -297,7 +302,7 @@ export function AccountsScreen() {
                     </View>
                     <View style={styles.secondaryInfo}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={styles.secondaryName} numberOfLines={1}>{account.name || `Account ${account.login}`}</Text>
+                        <Text style={styles.secondaryName} numberOfLines={1}>{accountDisplayName}</Text>
                         <Ionicons
                           name={isExpanded ? 'chevron-up' : 'chevron-down'}
                           size={14}
@@ -319,26 +324,26 @@ export function AccountsScreen() {
 
                     {/* Balance hero like active card */}
                     <View style={styles.expandedBalanceSection}>
-                      <Text style={styles.expandedBalanceLabel}>Balance</Text>
+                      <Text style={styles.expandedBalanceLabel}>{t('Balance')}</Text>
                       <Text style={styles.expandedBalanceValue}>{fmt.price(account.balance)} <Text style={styles.expandedBalanceCurrency}>{account.currency}</Text></Text>
                     </View>
 
                     {/* Metrics grid */}
                     <View style={styles.expandedGrid}>
                       <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>Equity</Text>
+                        <Text style={styles.expandedLabel}>{t('Equity')}</Text>
                         <Text style={styles.expandedValue}>{fmt.price(account.equity)}</Text>
                       </View>
                       <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>Free Margin</Text>
+                        <Text style={styles.expandedLabel}>{t('Free Margin')}</Text>
                         <Text style={styles.expandedValue}>{fmt.price(account.freeMargin)}</Text>
                       </View>
                       <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>Leverage</Text>
+                        <Text style={styles.expandedLabel}>{t('Leverage')}</Text>
                         <Text style={styles.expandedValue}>1:{account.leverage}</Text>
                       </View>
                       <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>Floating P/L</Text>
+                        <Text style={styles.expandedLabel}>{t('Floating P/L')}</Text>
                         <Text style={[styles.expandedValue, { color: account.floatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{account.floatingPnl >= 0 ? '+' : ''}{fmt.price(account.floatingPnl)}</Text>
                       </View>
                     </View>
@@ -347,7 +352,7 @@ export function AccountsScreen() {
                     <View style={styles.expandedChips}>
                       <View style={styles.detailChip}>
                         <Ionicons name="briefcase-outline" size={12} color={T.textMuted} />
-                        <Text style={styles.detailChipText}>{account.openPositions} open</Text>
+                        <Text style={styles.detailChipText}>{account.openPositions} {t('open')}</Text>
                       </View>
                       <View style={styles.detailChip}>
                         <Ionicons name="server-outline" size={12} color={T.textMuted} />
@@ -363,7 +368,7 @@ export function AccountsScreen() {
                         <Text style={styles.statusText}>MT5</Text>
                         <View style={styles.statusSep} />
                         <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
-                        <Text style={styles.statusText}>Gateway</Text>
+                        <Text style={styles.statusText}>{t('Gateway')}</Text>
                       </View>
                       <View style={styles.activeActions}>
                         <Pressable style={styles.actionIcon} onPress={() => openQRSheet(String(account.login))} hitSlop={12}>
@@ -395,7 +400,7 @@ export function AccountsScreen() {
               onClose={() => setPasswordSheetVisible(false)}
               onSuccess={() => {
                 setPasswordSheetVisible(false);
-                setSuccessMessage(`${passwordType === 'master' ? 'Master' : 'Investor'} password change successfully`);
+                setSuccessMessage(`${t(passwordType === 'master' ? 'Master' : 'Investor')} ${t('password change successfully')}`);
               }}
             />
           </View>
@@ -419,10 +424,10 @@ export function AccountsScreen() {
             <View style={styles.successIconBox}>
               <Ionicons name="checkmark" size={32} color="#fff" />
             </View>
-            <Text style={styles.successTitle}>Success</Text>
+            <Text style={styles.successTitle}>{t('Success')}</Text>
             <Text style={styles.successDesc}>{successMessage}</Text>
             <Pressable style={styles.successBtn} onPress={() => setSuccessMessage('')}>
-              <Text style={styles.successBtnText}>OK</Text>
+              <Text style={styles.successBtnText}>{t('OK')}</Text>
             </Pressable>
           </View>
         </View>

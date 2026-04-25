@@ -1,3 +1,5 @@
+import { ENHANCED_DRAWING_TOOLS_RUNTIME_JS } from '../drawingTools/runtime';
+
 export const ENHANCED_DRAWING_TOOLS_JS = `
 (function () {
   function safeNotify(type, payload) {
@@ -47,19 +49,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return (safe >= 0 ? '+' : '') + safe.toFixed(digits);
   }
 
+  var ENHANCED_DRAWING_TOOL_SPECS = [];
+  var ENHANCED_DRAWING_TOOL_SPECS_BY_KIND = {};
+
+  function registerEnhancedDrawingTool(spec) {
+    if (!spec || !spec.kind) return;
+    ENHANCED_DRAWING_TOOL_SPECS.push(spec);
+    ENHANCED_DRAWING_TOOL_SPECS_BY_KIND[spec.kind] = spec;
+  }
+
   function defaultLabel(kind, index) {
-    var names = {
-      trendline: 'Trend Line',
-      patterns: 'Pattern',
-      fib: 'Fib Zone',
-      brush: 'Highlight',
-      text: 'Text',
-      prediction: 'Position',
-      pitchfork: 'Pitchfork',
-      smiley: 'Sticker',
-      measure: 'Measure'
-    };
-    return (names[kind] || 'Object') + ' ' + index;
+    var spec = ENHANCED_DRAWING_TOOL_SPECS_BY_KIND[kind];
+    var name = spec && spec.defaultLabel ? spec.defaultLabel : 'Object';
+    return name + ' ' + index;
   }
 
   function clonePoint(point) {
@@ -657,124 +659,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
   };
 
-  function TrendLineTool(chart, series, manager) {
-    BaseTool.call(this, 'trendline', chart, series, manager);
-    this._points = [];
-    this._preview = null;
-    this._handleClick = this._handleClick.bind(this);
-    this._handleMove = this._handleMove.bind(this);
-    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
-    if (this._usesNativeChartInput) {
-      this._chart.subscribeClick(this._handleClick);
-      this._chart.subscribeCrosshairMove(this._handleMove);
-    }
-  }
-
-  TrendLineTool.prototype = Object.create(BaseTool.prototype);
-  TrendLineTool.prototype.constructor = TrendLineTool;
-  TrendLineTool.prototype.startDrawing = function () {
-    BaseTool.prototype.startDrawing.call(this);
-    this._resetDrawingSession();
-  };
-  TrendLineTool.prototype._resetDrawingSession = function () {
-    this._points = [];
-    this._removePreview();
-  };
-  TrendLineTool.prototype.stopDrawing = function () {
-    BaseTool.prototype.stopDrawing.call(this);
-    this._resetDrawingSession();
-  };
-  TrendLineTool.prototype._removePreview = function () {
-    if (this._preview) {
-      try { this._series.detachPrimitive(this._preview); } catch (_error) {}
-      this._preview = null;
-    }
-  };
-  TrendLineTool.prototype._handleClick = function (param) {
-    if (!this._drawing) return;
-    var point = this._resolvePoint(param);
-    if (!point) return;
-    this._points.push(point);
-    if (this._points.length === 1) {
-      this._preview = createLinePrimitive(point, point, {
-        color: '#3B82F6',
-        width: 2,
-        label: ''
-      });
-      this._series.attachPrimitive(this._preview);
-      return;
-    }
-    if (this._points.length >= 2) {
-      this._removePreview();
-      this._completeDrawing(createLinePrimitive(this._points[0], this._points[1], {
-        color: '#3B82F6',
-        width: 2,
-        label: formatDelta(this._points[1].price - this._points[0].price)
-      }), null, {
-        points: clonePoints(this._points.slice(0, 2))
-      });
-    }
-  };
-  TrendLineTool.prototype._handleMove = function (param) {
-    if (!this._drawing || !this._preview || this._points.length !== 1) return;
-    var point = this._resolvePoint(param);
-    if (!point) return;
-    this._preview.updatePoints(this._points[0], point);
-  };
-  TrendLineTool.prototype.remove = function () {
-    this.stopDrawing();
-    if (this._usesNativeChartInput) {
-      this._chart.unsubscribeClick(this._handleClick);
-      this._chart.unsubscribeCrosshairMove(this._handleMove);
-    }
-  };
-
-  function PatternTool(chart, series, manager) {
-    BaseTool.call(this, 'patterns', chart, series, manager);
-    this._points = [];
-    this._handleClick = this._handleClick.bind(this);
-    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
-    if (this._usesNativeChartInput) {
-      this._chart.subscribeClick(this._handleClick);
-    }
-  }
-
-  PatternTool.prototype = Object.create(BaseTool.prototype);
-  PatternTool.prototype.constructor = PatternTool;
-  PatternTool.prototype.startDrawing = function () {
-    BaseTool.prototype.startDrawing.call(this);
-    this._points = [];
-  };
-  PatternTool.prototype.stopDrawing = function () {
-    BaseTool.prototype.stopDrawing.call(this);
-    this._points = [];
-  };
-  PatternTool.prototype._handleClick = function (param) {
-    if (!this._drawing) return;
-    var point = this._resolvePoint(param);
-    if (!point) return;
-    this._points.push(point);
-    if (this._points.length >= 3) {
-      var points = this._points.slice(0, 3);
-      var patternLabel = 'Pattern ' + formatDelta(points[points.length - 1].price - points[0].price);
-      this._completeDrawing(createPolylinePrimitive(points, {
-        color: '#A855F7',
-        width: 1.8,
-        label: patternLabel,
-        labelBackgroundColor: 'rgba(88, 28, 135, 0.92)',
-        labelTextColor: '#F3E8FF'
-      }), patternLabel, {
-        points: clonePoints(points)
-      });
-    }
-  };
-  PatternTool.prototype.remove = function () {
-    this.stopDrawing();
-    if (this._usesNativeChartInput) {
-      this._chart.unsubscribeClick(this._handleClick);
-    }
-  };
-
   function BoxTool(kind, chart, series, manager, options) {
     BaseTool.call(this, kind, chart, series, manager);
     this._points = [];
@@ -895,46 +779,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
   };
 
-  function PitchforkTool(chart, series, manager) {
-    BaseTool.call(this, 'pitchfork', chart, series, manager);
-    this._points = [];
-    this._handleClick = this._handleClick.bind(this);
-    this._usesNativeChartInput = !manager.shouldUseDirectTouchInput();
-    if (this._usesNativeChartInput) {
-      this._chart.subscribeClick(this._handleClick);
-    }
-  }
-
-  PitchforkTool.prototype = Object.create(BaseTool.prototype);
-  PitchforkTool.prototype.constructor = PitchforkTool;
-  PitchforkTool.prototype.startDrawing = function () {
-    BaseTool.prototype.startDrawing.call(this);
-    this._points = [];
-  };
-  PitchforkTool.prototype.stopDrawing = function () {
-    BaseTool.prototype.stopDrawing.call(this);
-    this._points = [];
-  };
-  PitchforkTool.prototype._handleClick = function (param) {
-    if (!this._drawing) return;
-    var point = this._resolvePoint(param);
-    if (!point) return;
-    this._points.push(point);
-    if (this._points.length >= 3) {
-      this._completeDrawing(createPitchforkPrimitive(this._points[0], this._points[1], this._points[2], {
-        color: '#8B5CF6',
-        width: 1.6
-      }), null, {
-        points: clonePoints(this._points.slice(0, 3))
-      });
-    }
-  };
-  PitchforkTool.prototype.remove = function () {
-    this.stopDrawing();
-    if (this._usesNativeChartInput) {
-      this._chart.unsubscribeClick(this._handleClick);
-    }
-  };
+  ${ENHANCED_DRAWING_TOOLS_RUNTIME_JS}
 
   function AdvancedDrawingToolsManager(chart, series) {
     this._chart = chart;
@@ -954,65 +799,19 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._handleTouchMove = this._handleTouchMove.bind(this);
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
     this._handleTouchCancel = this._handleTouchCancel.bind(this);
-    this._tools = {
-      trendline: new TrendLineTool(chart, series, this),
-      patterns: new PatternTool(chart, series, this),
-      fib: new BoxTool('fib', chart, series, this, {
-        fillColor: 'rgba(245, 158, 11, 0.16)',
-        previewFillColor: 'rgba(245, 158, 11, 0.08)',
-        borderColor: '#F59E0B',
-        borderWidth: 1.3,
-        label: 'Fib Zone',
-        labelBackgroundColor: 'rgba(146, 64, 14, 0.92)',
-        labelTextColor: '#FDE68A'
-      }),
-      brush: new BoxTool('brush', chart, series, this, {
-        fillColor: 'rgba(59, 130, 246, 0.16)',
-        previewFillColor: 'rgba(59, 130, 246, 0.08)',
-        borderColor: '#3B82F6',
-        borderWidth: 1.2,
-        label: 'Highlight',
-        labelBackgroundColor: 'rgba(30, 64, 175, 0.92)',
-        labelTextColor: '#DBEAFE'
-      }),
-      prediction: new BoxTool('prediction', chart, series, this, {
-        fillColor: 'rgba(16, 185, 129, 0.15)',
-        previewFillColor: 'rgba(16, 185, 129, 0.08)',
-        borderColor: '#10B981',
-        borderWidth: 1.4,
-        labelBuilder: function (p1, p2) {
-          var delta = p2.price - p1.price;
-          var pct = p1.price ? (delta / p1.price) * 100 : 0;
-          return 'Long ' + formatDelta(delta) + ' (' + pct.toFixed(2) + '%)';
-        },
-        labelBackgroundColor: 'rgba(6, 95, 70, 0.92)',
-        labelTextColor: '#D1FAE5'
-      }),
-      measure: new BoxTool('measure', chart, series, this, {
-        fillColor: 'rgba(148, 163, 184, 0.08)',
-        previewFillColor: 'rgba(148, 163, 184, 0.04)',
-        borderColor: '#94A3B8',
-        borderWidth: 1.1,
-        labelBuilder: function (p1, p2) {
-          return formatDelta(p2.price - p1.price) + ' / ' + formatDuration(Math.abs(Number(p2.time) - Number(p1.time)));
-        },
-        labelBackgroundColor: 'rgba(15, 23, 42, 0.9)',
-        labelTextColor: '#E2E8F0'
-      }),
-      text: new LabelTool('text', chart, series, this, {
-        text: 'TXT',
-        backgroundColor: 'rgba(37, 99, 235, 0.94)',
-        textColor: '#FFFFFF',
-        anchorColor: '#60A5FA'
-      }),
-      smiley: new LabelTool('smiley', chart, series, this, {
-        text: ':)',
-        backgroundColor: 'rgba(245, 158, 11, 0.94)',
-        textColor: '#0F172A',
-        anchorColor: '#F59E0B'
-      }),
-      pitchfork: new PitchforkTool(chart, series, this)
-    };
+    this._tools = {};
+    ENHANCED_DRAWING_TOOL_SPECS.forEach(function (spec) {
+      if (!spec || !spec.kind || typeof spec.createTool !== 'function') return;
+      var tool = spec.createTool(chart, series, this);
+      if (
+        tool &&
+        typeof tool.startDrawing === 'function' &&
+        typeof tool.stopDrawing === 'function' &&
+        typeof tool.remove === 'function'
+      ) {
+        this._tools[spec.kind] = tool;
+      }
+    }, this);
     this._bindTouchBridge();
     this._emitDrawingsChanged();
     this._applyChartInteractionMode();
@@ -1020,7 +819,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype._stopAllTools = function () {
     Object.keys(this._tools).forEach(function (key) {
-      this._tools[key].stopDrawing();
+      var tool = this._tools[key];
+      if (tool && typeof tool.stopDrawing === 'function') {
+        tool.stopDrawing();
+      }
     }, this);
   };
 
@@ -1372,17 +1174,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._requiredPointCount = function (kind) {
-    return {
-      trendline: 2,
-      patterns: 3,
-      fib: 2,
-      brush: 2,
-      prediction: 2,
-      measure: 2,
-      text: 1,
-      smiley: 1,
-      pitchfork: 3
-    }[kind] || 0;
+    var spec = ENHANCED_DRAWING_TOOL_SPECS_BY_KIND[kind];
+    return spec && typeof spec.requiredPointCount === 'number' ? spec.requiredPointCount : 0;
   };
 
   AdvancedDrawingToolsManager.prototype._detachRecord = function (record) {
@@ -1431,86 +1224,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._createPrimitiveForRecord = function (record) {
-    var points = record.points || [];
-    switch (record.kind) {
-      case 'trendline':
-        return createLinePrimitive(points[0], points[1], {
-          color: '#3B82F6',
-          width: 2,
-          label: formatDelta(points[1].price - points[0].price)
-        });
-      case 'patterns':
-        return createPolylinePrimitive(points, {
-          color: '#A855F7',
-          width: 1.8,
-          label: 'Pattern ' + formatDelta(points[points.length - 1].price - points[0].price),
-          labelBackgroundColor: 'rgba(88, 28, 135, 0.92)',
-          labelTextColor: '#F3E8FF'
-        });
-      case 'fib':
-        return createBoxPrimitive(points[0], points[1], {
-          fillColor: 'rgba(245, 158, 11, 0.16)',
-          borderColor: '#F59E0B',
-          borderWidth: 1.3,
-          label: 'Fib Zone',
-          labelBackgroundColor: 'rgba(146, 64, 14, 0.92)',
-          labelTextColor: '#FDE68A',
-          fontSize: 11
-        });
-      case 'brush':
-        return createBoxPrimitive(points[0], points[1], {
-          fillColor: 'rgba(59, 130, 246, 0.16)',
-          borderColor: '#3B82F6',
-          borderWidth: 1.2,
-          label: 'Highlight',
-          labelBackgroundColor: 'rgba(30, 64, 175, 0.92)',
-          labelTextColor: '#DBEAFE',
-          fontSize: 11
-        });
-      case 'prediction':
-        return createBoxPrimitive(points[0], points[1], {
-          fillColor: 'rgba(16, 185, 129, 0.15)',
-          borderColor: '#10B981',
-          borderWidth: 1.4,
-          label: 'Long ' + formatDelta(points[1].price - points[0].price) + ' (' + (points[0].price ? (((points[1].price - points[0].price) / points[0].price) * 100).toFixed(2) : '0.00') + '%)',
-          labelBackgroundColor: 'rgba(6, 95, 70, 0.92)',
-          labelTextColor: '#D1FAE5',
-          fontSize: 11
-        });
-      case 'measure':
-        return createBoxPrimitive(points[0], points[1], {
-          fillColor: 'rgba(148, 163, 184, 0.08)',
-          borderColor: '#94A3B8',
-          borderWidth: 1.1,
-          label: formatDelta(points[1].price - points[0].price) + ' / ' + formatDuration(Math.abs(Number(points[1].time) - Number(points[0].time))),
-          labelBackgroundColor: 'rgba(15, 23, 42, 0.9)',
-          labelTextColor: '#E2E8F0',
-          fontSize: 11
-        });
-      case 'text':
-        return createPointLabelPrimitive(points[0], {
-          text: record.text || 'TXT',
-          backgroundColor: 'rgba(37, 99, 235, 0.94)',
-          textColor: '#FFFFFF',
-          anchorColor: '#60A5FA',
-          fontSize: 11
-        });
-      case 'smiley':
-        return createPointLabelPrimitive(points[0], {
-          text: record.text || ':)',
-          backgroundColor: 'rgba(245, 158, 11, 0.94)',
-          textColor: '#0F172A',
-          anchorColor: '#F59E0B',
-          fontSize: 11
-        });
-      case 'pitchfork':
-        return createPitchforkPrimitive(points[0], points[1], points[2], {
-          color: '#8B5CF6',
-          width: 1.6
-        });
-      default:
-        return null;
-    }
+    var spec = ENHANCED_DRAWING_TOOL_SPECS_BY_KIND[record.kind];
+    return spec && typeof spec.createPrimitiveFromRecord === 'function'
+      ? spec.createPrimitiveFromRecord(record)
+      : null;
   };
 
   AdvancedDrawingToolsManager.prototype._emitDrawingsChanged = function () {
@@ -1562,7 +1279,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._activeTool = 'crosshair';
     } else if (this._locked) {
       this._activeTool = 'crosshair';
-    } else if (this._tools[tool]) {
+    } else if (this._tools[tool] && typeof this._tools[tool].startDrawing === 'function') {
       this._activeTool = tool;
       this._tools[tool].startDrawing();
     } else {
@@ -1667,7 +1384,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this.removeAllDrawings();
     this._unbindTouchBridge();
     Object.keys(this._tools).forEach(function (key) {
-      this._tools[key].remove();
+      var tool = this._tools[key];
+      if (tool && typeof tool.remove === 'function') {
+        tool.remove();
+      }
     }, this);
   };
 

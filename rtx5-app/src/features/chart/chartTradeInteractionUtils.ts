@@ -87,6 +87,15 @@ type ChartTradeSheetMarketExecutionButtonsVisibilityInput = {
   showInlineFooterWhileSheetOpen: boolean;
 };
 
+type ChartTapMenuSuppressionInput = {
+  activeTool: string;
+  footerLotEditorFocused: boolean;
+  footerLotEditorOpening: boolean;
+  footerLotPickerOpen: boolean;
+  suppressUntil?: number | null;
+  now?: number;
+};
+
 type ChartTradeSheetMaxHeightInput = {
   collapsedHeight: number;
   hostHeight: number;
@@ -338,6 +347,32 @@ export function shouldShowChartTradePreviewOnChart({
   chartTradeSheetMode,
 }: ChartTradePreviewVisibilityInput) {
   return showChartTradeSheet && chartTradeSheetMode === 'collapsed';
+}
+
+export function shouldSuppressChartTapMenu({
+  activeTool,
+  footerLotEditorFocused,
+  footerLotEditorOpening,
+  footerLotPickerOpen,
+  suppressUntil,
+  now,
+}: ChartTapMenuSuppressionInput) {
+  const resolvedNow =
+    typeof now === 'number' && Number.isFinite(now)
+      ? now
+      : Date.now();
+  const resolvedSuppressUntil =
+    typeof suppressUntil === 'number' && Number.isFinite(suppressUntil)
+      ? suppressUntil
+      : 0;
+
+  return (
+    activeTool !== 'crosshair' ||
+    footerLotEditorFocused ||
+    footerLotEditorOpening ||
+    footerLotPickerOpen ||
+    resolvedSuppressUntil > resolvedNow
+  );
 }
 
 export function resolveChartTradeSheetMaxHeight({

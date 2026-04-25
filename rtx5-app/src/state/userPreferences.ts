@@ -17,6 +17,7 @@ import {
   sanitizePersistedChartDrawings,
 } from '../features/chart/drawingPersistence';
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../utils/tradeVolume';
+import { normalizeLanguageCode } from '../i18n/translations';
 export type QuoteViewMode = 'list' | 'table' | 'edit';
 export type ThemeMode = 'light' | 'dark';
 export type ChartTradeVolumeDisplayMode = 'lots' | 'margin';
@@ -31,6 +32,7 @@ export type LanguageCode =
   | 'tr'
   | 'ar'
   | 'hi'
+  | 'bn'
   | 'zh'
   | 'ja'
   | 'ko'
@@ -350,7 +352,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       chartColors: DEFAULT_CHART_COLORS,
       chartDisplay: DEFAULT_CHART_DISPLAY_SETTINGS,
       language: 'en' as LanguageCode,
-      setLanguage: (lang) => set({ language: lang }),
+      setLanguage: (lang) => set({ language: normalizeLanguageCode(lang) }),
       login: (id, name, server, tokens, brokerId) =>
         set((state) => ({
           isLoggedIn: true,
@@ -589,6 +591,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             ...DEFAULT_CHART_DISPLAY_SETTINGS,
             ...(state.chartDisplay ?? {}),
           },
+          language: normalizeLanguageCode(state.language),
         } as UserPreferencesState;
       },
       onRehydrateStorage: () => (state, error) => {

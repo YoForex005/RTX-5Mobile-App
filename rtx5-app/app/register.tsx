@@ -22,11 +22,13 @@ import { useTheme, type ThemeColors } from '../src/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY } from '../src/query/broker';
+import { useTranslation } from '../src/i18n/useTranslation';
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
   const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [brokerId, setBrokerId] = useState('');
   const [name, setName] = useState('');
@@ -43,7 +45,7 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!brokerId.trim() || !name.trim() || !email.trim() || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('Error'), t('Please fill in all fields'));
       return;
     }
 
@@ -98,7 +100,7 @@ export default function RegisterScreen() {
         router.replace('/');
       }
     } catch (error: any) {
-      Alert.alert('Registration Failed', error.message || 'Unable to register account.');
+      Alert.alert(t('Registration Failed'), error.message || t('Unable to register account.'));
     } finally {
       setIsLoading(false);
     }
@@ -137,7 +139,7 @@ export default function RegisterScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Demo Account</Text>
+          <Text style={styles.headerTitle}>{t('Demo Account')}</Text>
         </View>
 
         <KeyboardAvoidingView
@@ -148,7 +150,7 @@ export default function RegisterScreen() {
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>Register a new demo account</Text>
+              <Text style={styles.sectionTitle}>{t('Register a new demo account')}</Text>
             </View>
 
             {/* ── Form Body ── */}
@@ -156,7 +158,7 @@ export default function RegisterScreen() {
 
               {/* Broker ID Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Broker ID</Text>
+                <Text style={styles.inputLabel}>{t('Broker ID')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={brokerId}
@@ -177,7 +179,7 @@ export default function RegisterScreen() {
 
               {/* Name Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Name</Text>
+                <Text style={styles.inputLabel}>{t('Name')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={name}
@@ -198,7 +200,7 @@ export default function RegisterScreen() {
 
               {/* Email Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Email</Text>
+                <Text style={styles.inputLabel}>{t('Email')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={email}
@@ -220,7 +222,7 @@ export default function RegisterScreen() {
 
               {/* Password Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Password</Text>
+                <Text style={styles.inputLabel}>{t('Password')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={password}
@@ -254,7 +256,7 @@ export default function RegisterScreen() {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.registerBtnText}>REGISTER</Text>
+                  <Text style={styles.registerBtnText}>{t('REGISTER')}</Text>
                 )}
               </Pressable>
             </View>

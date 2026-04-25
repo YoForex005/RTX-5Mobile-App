@@ -10,17 +10,23 @@
  */
 import { useCallback } from 'react';
 import { useUserPreferences } from '../state/userPreferences';
-import { DICTIONARIES, type TranslationKey } from './translations';
+import { normalizeLanguageCode, translate, type TranslationKey } from './translations';
 
 export function useTranslation() {
-  const language = useUserPreferences((s) => s.language);
-  const setLanguage = useUserPreferences((s) => s.setLanguage);
+  const storedLanguage = useUserPreferences((s) => s.language);
+  const setStoredLanguage = useUserPreferences((s) => s.setLanguage);
+  const language = normalizeLanguageCode(storedLanguage);
+
+  const setLanguage = useCallback(
+    (nextLanguage: unknown) => {
+      setStoredLanguage(normalizeLanguageCode(nextLanguage));
+    },
+    [setStoredLanguage],
+  );
 
   const t = useCallback(
     (key: TranslationKey | string): string => {
-      const dict = DICTIONARIES[language];
-      const translated = dict?.[key as TranslationKey];
-      return translated ?? key;
+      return translate(key, language);
     },
     [language],
   );

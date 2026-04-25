@@ -316,7 +316,8 @@ export function HistoryScreen() {
   }, [profitRows.length, wins]);
   const filledCount = useMemo(() => data.filter((item) => item.status === 'filled').length, [data]);
   const netTone: Tone = netProfit > 0 ? 'positive' : netProfit < 0 ? 'negative' : 'neutral';
-  const historySymbolLabel = 'All symbols';
+  const historyRangeLabel = t(historyRange);
+  const historySymbolLabel = t('All symbols');
   const toggleHistorySummaryDetails = useCallback(() => {
     setHistorySummaryDetailsVisible(!historySummaryDetailsVisible);
   }, [historySummaryDetailsVisible, setHistorySummaryDetailsVisible]);
@@ -325,7 +326,7 @@ export function HistoryScreen() {
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('History')} noBorder />
       {/* ── Account Summary (fixed) ── */}
-      <Text style={styles.accountSummaryHeading}>Account Summary</Text>
+      <Text style={styles.accountSummaryHeading}>{t('Account Summary')}</Text>
       <View style={styles.summaryBlock}>
         <Pressable
           onPress={() => traceUiInteraction('history.summary.toggle', toggleHistorySummaryDetails)}
@@ -333,12 +334,9 @@ export function HistoryScreen() {
           accessibilityRole="button"
           accessibilityLabel="Toggle account summary details"
           accessibilityState={{ expanded: historySummaryDetailsVisible }}
-          style={({ pressed }) => [
-            styles.summaryTop,
-            pressed && styles.summaryTogglePressed,
-          ]}
+          style={styles.summaryTop}
         >
-          <Text style={[styles.summaryLabel, { color: T.textMuted }]}>Balance</Text>
+          <Text style={[styles.summaryLabel, { color: T.textMuted }]}>{t('Balance')}</Text>
           <View style={styles.summaryBalanceInline}>
             <Text
               style={[styles.summaryBalanceValue, { color: T.text, opacity: 0.9 }]}
@@ -355,13 +353,13 @@ export function HistoryScreen() {
             <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
               <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Account ID:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Account ID')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{accountLoginStr}</Text>
               </View>
               <View style={styles.gridCol}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Symbol:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Symbol')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{historySymbolLabel}</Text>
               </View>
@@ -369,13 +367,13 @@ export function HistoryScreen() {
             <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
               <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Deposit:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Deposit')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.int(deposit)}</Text>
               </View>
               <View style={styles.gridCol}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Closed P/L:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Closed P/L')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: totalClosedPnl >= 0 ? T.up : T.down, opacity: 0.9 }]}>{fmt.pnl(totalClosedPnl)}</Text>
               </View>
@@ -383,13 +381,13 @@ export function HistoryScreen() {
             <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
               <View style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Swap:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Swap')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedSwap)}</Text>
               </View>
               <View style={styles.gridCol}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Commission:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Commission')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.text, opacity: 0.7 }]}>{fmt.pnl(closedCommission)}</Text>
               </View>
@@ -401,13 +399,13 @@ export function HistoryScreen() {
                 unstable_pressDelay={0}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Range:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Range')}:</Text>
                 </View>
-                <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRange}</Text>
+                <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRangeLabel}</Text>
               </Pressable>
               <View style={styles.gridCol}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>Net P/L:</Text>
+                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Net P/L')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: netProfit >= 0 ? T.up : T.down, opacity: 0.9 }]}>
                   {fmt.pnl(netProfit)}
@@ -447,9 +445,9 @@ export function HistoryScreen() {
                   onPress={() =>
                     traceUiInteraction('history.sort.open', () =>
                       showActionSheet({
-                        title: 'Sort By',
+                        title: t('Sort By'),
                         actions: SORT_OPTIONS.map((option) => ({
-                          label: option === sortBy ? `${option} ✓` : option,
+                          label: option === sortBy ? `${t(option)} ✓` : t(option),
                           onPress: () => startTransition(() => setSortBy(option)),
                         })),
                       })
@@ -470,7 +468,7 @@ export function HistoryScreen() {
                       }
                       unstable_pressDelay={0}
                     >
-                      <Text style={[styles.segmentText, { color: tab === item ? T.text : T.textMuted }]}>{item}</Text>
+                      <Text style={[styles.segmentText, { color: tab === item ? T.text : T.textMuted }]}>{t(item)}</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -486,8 +484,8 @@ export function HistoryScreen() {
 
               <View style={styles.metricsRow}>
                 <MetricPill
-                  label='Range'
-                  value={historyRange}
+                  label={t('Range')}
+                  value={historyRangeLabel}
                   icon='calendar-outline'
                   tone='neutral'
                   T={T}
@@ -495,16 +493,16 @@ export function HistoryScreen() {
                   onPress={() => router.push('/history/filter')}
                 />
                 <MetricPill
-                  label={tab === 'Orders' ? 'Filled' : 'Win Rate'}
+                  label={tab === 'Orders' ? t('Filled') : t('Win Rate')}
                   value={tab === 'Orders' ? `${filledCount} / ${data.length}` : winRate}
                   icon={tab === 'Orders' ? 'checkmark-done-outline' : 'stats-chart-outline'}
                   tone={tab === 'Orders' ? (filledCount > 0 ? 'positive' : 'neutral') : 'positive'}
                   T={T}
                   isDark={isDark}
                 />
-                <MetricPill label='Trades' value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
+                <MetricPill label={t('Trades')} value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
                 <MetricPill
-                  label='Net P/L'
+                  label={t('Net P/L')}
                   value={fmt.pnl(netProfit)}
                   icon='wallet-outline'
                   tone={netTone}
@@ -522,14 +520,14 @@ export function HistoryScreen() {
             {/* ── Section Header ── */}
             <View style={[styles.sectionHeader, { borderBottomColor: T.border }]}>
               <View>
-                <Text style={[styles.sectionTitle, { color: T.text }]}>Trade Records</Text>
-                <Text style={[styles.sectionMeta, { color: T.textMuted }]}>{data.length} records</Text>
+                <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Trade Records')}</Text>
+                <Text style={[styles.sectionMeta, { color: T.textMuted }]}>{data.length} {t('records')}</Text>
               </View>
             </View>
           </>
         )}
         renderItem={({ item }) => <HistoryItemRow item={item} T={T} isDark={isDark} />}
-        ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>No history records</Text>}
+        ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No history records')}</Text>}
       />
     </Screen>
   );
@@ -771,7 +769,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     summaryBalanceValue: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
     balanceQuickCurrency: { fontSize: 20, fontWeight: '600', flexShrink: 0 },
-    summaryTogglePressed: { opacity: 0.55 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

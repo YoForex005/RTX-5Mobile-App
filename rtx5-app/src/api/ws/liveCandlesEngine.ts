@@ -16,8 +16,10 @@ import { CandleHistoryRequestOptions, getCandleHistory } from '../candles';
 import { quotesWsService } from './quotesSocket';
 import type { QuoteTickEvent } from './quotesSocket';
 import {
+  FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT,
   buildQuoteRolloverCandle,
   mergeFetchedHistoryIntoWindow,
+  shouldBackfillBootstrapHistory,
   shouldAcceptBootstrapHistory,
 } from './liveCandlesEngine.helpers';
 import {
@@ -86,6 +88,7 @@ const MAX_PENDING_QUOTES = 256;
 const GAP_RESYNC_THROTTLE_MS = 4_000;
 const POST_ROLLOVER_HEAL_DELAY_MS = 350;
 const BOOTSTRAP_RETRY_DELAY_MS = 1_250;
+const BOOTSTRAP_FULL_BACKFILL_DELAY_MS = 750;
 const RECENT_HISTORY_ANCHOR_SAFETY_BUCKETS = 2;
 
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
@@ -680,7 +683,13 @@ class LiveCandlesEngine {
     entry.status = 'bootstrapping';
     entry.queuedQuotes = [];
     entry.pendingQuotes = [];
-    this.loadHistory(entry, { reason: 'bootstrap', bootstrap: true, anchorTo: this.estimateHistoryAnchor(entry) });
+    this.loadHistory(entry, {
+      reason: 'bootstrap',
+      bootstrap: true,
+      anchorTo: this.estimateHistoryAnchor(entry),
+      limit: FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT,
+      backfillAfterBootstrap: true,
+    });
   }
 
   private requestGapRefresh(entry: EngineEntry, reason: string, anchorTime: number | null | undefined): void {
@@ -727,6 +736,29 @@ class LiveCandlesEngine {
     );
   }
 
+  private scheduleBootstrapBackfill(
+    entry: EngineEntry,
+    options: { backfillAfterBootstrap?: boolean },
+    requestedLimit: number,
+  ): void {
+    if (
+      !options.backfillAfterBootstrap ||
+      !this.entries.has(entry.key) ||
+      entry.healTimer ||
+      entry.gapRefreshTimer ||
+      !shouldBackfillBootstrapHistory(entry.historyCandles.length, requestedLimit)
+    ) {
+      return;
+    }
+
+    this.requestHistoryRefresh(
+      entry,
+      'bootstrap_full_history_backfill',
+      this.estimateHistoryAnchor(entry),
+      BOOTSTRAP_FULL_BACKFILL_DELAY_MS,
+    );
+  }
+
   private scheduleBootstrapRetry(entry: EngineEntry, delayMs: number = BOOTSTRAP_RETRY_DELAY_MS): void {
     if (!this.entries.has(entry.key)) return;
     if (entry.healTimer) {
@@ -741,13 +773,21 @@ class LiveCandlesEngine {
         reason: 'bootstrap_retry',
         bootstrap: true,
         anchorTo: this.estimateHistoryAnchor(entry),
+        limit: FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT,
+        backfillAfterBootstrap: true,
       });
     }, delayMs);
   }
 
   private loadHistory(
     entry: EngineEntry,
-    options: { reason: string; bootstrap: boolean; anchorTo?: number },
+    options: {
+      reason: string;
+      bootstrap: boolean;
+      anchorTo?: number;
+      limit?: number;
+      backfillAfterBootstrap?: boolean;
+    },
   ): void {
     const tracked = this.entries.get(entry.key);
     if (!tracked) return;
@@ -759,11 +799,12 @@ class LiveCandlesEngine {
     tracked.fetchController = controller;
 
     const requestOptions = this.buildHistoryRequestOptions(tracked, controller.signal, options.anchorTo);
+    const historyLimit = options.limit ?? DEFAULT_CANDLE_HISTORY_LIMIT;
 
     void getCandleHistory(
       tracked.symbol,
       tracked.timeframe,
-      DEFAULT_CANDLE_HISTORY_LIMIT,
+      historyLimit,
       requestOptions,
     )
       .then((history) => {
@@ -771,7 +812,7 @@ class LiveCandlesEngine {
         if (!live || live.fetchEpoch !== epoch) return;
 
         const fetchedHistory = asCandleParams(sortAndDedupeCandles(history.candles)).slice(
-          -DEFAULT_CANDLE_HISTORY_LIMIT,
+          -historyLimit,
         );
 
         if (options.bootstrap) {
@@ -803,10 +844,12 @@ class LiveCandlesEngine {
             } else if (outcome.bucketRolledOver) {
               this.schedulePostRolloverHeal(live, outcome.anchorTime);
             }
+            this.scheduleBootstrapBackfill(live, options, historyLimit);
             return;
           }
 
           this.commitVisibleCandles(live);
+          this.scheduleBootstrapBackfill(live, options, historyLimit);
           return;
         }
 

@@ -142,6 +142,13 @@ export function ChartSettingsScreen() {
         </View>
         <View style={styles.card}>
           <NavRow
+            label="Chart Schema & Colors"
+            value=""
+            onPress={() => router.push('/chart/schema-colors')}
+            styles={styles}
+          />
+          <View style={styles.separator} />
+          <NavRow
             label="Chart"
             value="RTX-5"
             onPress={() => router.push('/(tabs)/chart')}

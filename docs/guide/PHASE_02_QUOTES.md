@@ -36,6 +36,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 
 ## Test Checklist
 - [ ] Unit: quote mappers and formatters.
+- [x] Unit: active-language dictionary coverage includes Quotes freshness/status labels, symbol card microcopy, add-asset modal, and context actions.
 - [ ] Integration: search + filter + mode switching.
 - [ ] E2E: swipe action and context menu flow.
 
@@ -51,4 +52,5 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - 2026-04-22: Symbol details `Market Sentiment` no longer uses a UI-local clamped placeholder path. The buyers/sellers split now comes from one typed domain calculator shared with the day-range logic, using the current quote plus the latest `D1` candle range when available and falling back to the quote snapshot only when daily history is unavailable.
 - 2026-04-22: Removed the decorative dot separator that was rendered immediately before `Spread` on the main Quotes card stats row, so the spread label now displays directly without the extra ornament.
 - 2026-04-22: Added a fixed inline gap between the `Vol` and `Spread` stats on the main Quotes card row after removing the decorative separator, so the two values remain visually separated without reintroducing the dot.
+- 2026-04-25: Routed Quotes runtime labels through i18n: quote freshness/status (`Updated`, `Speed`, `Status`, `LIVE`), symbol card microcopy, add-asset modal, search/empty states, and context actions now follow the active language while live symbol/price data remains API-owned.
 

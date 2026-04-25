@@ -1,5 +1,5 @@
 /**
- * Settings → Interface (Language picker)
+ * Settings -> Language Preference (Language picker)
  *
  * Lets the user pick from the supported language list. Selection is
  * persisted to userPreferences and applied immediately app-wide via the
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
-import { useUserPreferences, type LanguageCode } from '../../state/userPreferences';
+import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
 
@@ -34,7 +34,7 @@ export function InterfaceScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>{t('Interface')}</Text>
+        <View style={styles.headerTitleSpacer} />
         <View style={{ width: 40 }} />
       </View>
 
@@ -42,13 +42,16 @@ export function InterfaceScreen() {
 
       <FlatList
         data={SUPPORTED_LANGUAGES}
+        extraData={language}
         keyExtractor={(item) => item.code}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => {
           const selected = item.code === language;
           return (
             <Pressable
-              onPress={() => setLanguage(item.code as LanguageCode)}
+              onPress={() => setLanguage(item.code)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
             >
               <View style={styles.rowText}>
@@ -84,7 +87,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       justifyContent: 'center',
       backgroundColor: T.glass1,
     },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: T.text },
+    headerTitleSpacer: { flex: 1 },
     sectionLabel: {
       fontSize: 12,
       fontWeight: '700',

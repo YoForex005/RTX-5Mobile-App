@@ -11,6 +11,7 @@ import {
   resolveKeyboardDockOffset,
   resolveKeyboardResizesHost,
   shouldHideChartTabBarForTradeInput,
+  shouldSuppressChartTapMenu,
   shouldShowChartTradePreviewOnChart,
   shouldShowChartTradeSheetHandle,
   shouldShowChartTradeSheetMarketExecutionButtons,
@@ -365,6 +366,62 @@ test('chart trade preview stays visible only while the trade sheet is collapsed'
       chartTradeSheetMode: 'collapsed',
     }),
     false,
+  );
+});
+
+test('chart tap radial menu is suppressed while the footer lot editor is active', () => {
+  assert.equal(
+    shouldSuppressChartTapMenu({
+      activeTool: 'crosshair',
+      footerLotEditorFocused: true,
+      footerLotEditorOpening: false,
+      footerLotPickerOpen: false,
+      suppressUntil: 0,
+      now: 100,
+    }),
+    true,
+  );
+});
+
+test('chart tap radial menu is suppressed during the lot picker close tap', () => {
+  assert.equal(
+    shouldSuppressChartTapMenu({
+      activeTool: 'crosshair',
+      footerLotEditorFocused: false,
+      footerLotEditorOpening: false,
+      footerLotPickerOpen: false,
+      suppressUntil: 150,
+      now: 100,
+    }),
+    true,
+  );
+});
+
+test('chart tap radial menu opens only after lot interaction suppression expires', () => {
+  assert.equal(
+    shouldSuppressChartTapMenu({
+      activeTool: 'crosshair',
+      footerLotEditorFocused: false,
+      footerLotEditorOpening: false,
+      footerLotPickerOpen: false,
+      suppressUntil: 150,
+      now: 151,
+    }),
+    false,
+  );
+});
+
+test('chart tap radial menu remains disabled for drawing tools', () => {
+  assert.equal(
+    shouldSuppressChartTapMenu({
+      activeTool: 'trend-line',
+      footerLotEditorFocused: false,
+      footerLotEditorOpening: false,
+      footerLotPickerOpen: false,
+      suppressUntil: 0,
+      now: 100,
+    }),
+    true,
   );
 });
 

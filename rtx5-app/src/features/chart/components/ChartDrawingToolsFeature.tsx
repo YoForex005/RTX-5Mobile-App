@@ -8,24 +8,16 @@ import {
 } from 'react-native';
 import { ActionSheet } from '../../../components/ActionSheet';
 import {
-  TvBrush,
-  TvCrosshair,
-  TvFib,
-  TvHide,
-  TvLock,
-  TvMagnet,
-  TvMeasure,
-  TvPatterns,
-  TvPitchfork,
-  TvPrediction,
   TvRadialPlus,
-  TvSmiley,
-  TvStayInDrawingMode,
-  TvText,
-  TvTrash,
-  TvTrendLine,
-  TvZoom,
 } from './ChartToolbarIcons';
+import {
+  createDrawingToolsActionSheetActions,
+  createDrawingToolsCommandHandlers,
+  DRAWING_TOOL_SIDEBAR_GROUPS,
+  type DrawingToolCommandHandlers,
+  type DrawingToolSidebarEntry,
+  type DrawingToolsCommandState,
+} from '../drawingTools';
 
 type ChartDrawingToolbarButtonProps = {
   isDark: boolean;
@@ -73,28 +65,6 @@ type ChartDrawingToolsActionSheetProps = {
   visible: boolean;
 };
 
-type DrawingToolOption = {
-  actionLabel: string;
-  renderIcon: (color: string) => React.ReactNode;
-  tool: string;
-};
-
-const DRAWING_TOOL_OPTIONS: DrawingToolOption[] = [
-  { actionLabel: 'Crosshair', renderIcon: (color) => <TvCrosshair color={color} />, tool: 'crosshair' },
-  { actionLabel: 'Trend Line', renderIcon: (color) => <TvTrendLine color={color} />, tool: 'trendline' },
-  { actionLabel: 'Fib Zone', renderIcon: (color) => <TvFib color={color} />, tool: 'fib' },
-  { actionLabel: 'Highlight Box', renderIcon: (color) => <TvBrush color={color} />, tool: 'brush' },
-  { actionLabel: 'Text Label', renderIcon: (color) => <TvText color={color} />, tool: 'text' },
-  { actionLabel: 'Pattern Path', renderIcon: (color) => <TvPatterns color={color} />, tool: 'patterns' },
-  { actionLabel: 'Long Position', renderIcon: (color) => <TvPrediction color={color} />, tool: 'prediction' },
-  { actionLabel: 'Pitchfork', renderIcon: (color) => <TvPitchfork color={color} />, tool: 'pitchfork' },
-  { actionLabel: 'Sticker', renderIcon: (color) => <TvSmiley color={color} />, tool: 'smiley' },
-];
-
-export const DRAWING_SHEET_OPTIONS: DrawingToolOption[] = [
-  ...DRAWING_TOOL_OPTIONS,
-  { actionLabel: 'Measure Range', renderIcon: (color) => <TvMeasure color={color} />, tool: 'measure' },
-];
 
 const baseStyles = StyleSheet.create({
   toolbarSlot: {
@@ -233,6 +203,47 @@ export function ChartDrawingToolsSidebar({
   stickyDrawingMode,
 }: ChartDrawingToolsSidebarProps) {
   const themeStyles = isDark ? darkStyles : lightStyles;
+  const commandState: DrawingToolsCommandState = {
+    chartHideAll,
+    chartLockAll,
+    magnetEnabled,
+    stickyDrawingMode,
+  };
+  const commandHandlers: DrawingToolCommandHandlers = createDrawingToolsCommandHandlers({
+    onClearDrawings,
+    onToggleHide,
+    onToggleLock,
+    onToggleMagnet,
+    onToggleStickyMode,
+    onZoomTool,
+  });
+  const renderSidebarEntry = (entry: DrawingToolSidebarEntry) => {
+    if (entry.kind === 'selectable') {
+      const active = activeTool === entry.definition.tool;
+
+      return (
+        <Pressable
+          key={entry.definition.tool}
+          style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
+          onPress={() => onSelectTool(entry.definition.tool)}
+        >
+          {entry.definition.renderIcon(active ? colors.blue : colors.textMuted)}
+        </Pressable>
+      );
+    }
+
+    const active = entry.definition.isActive?.(commandState) ?? false;
+
+    return (
+      <Pressable
+        key={entry.definition.key}
+        style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
+        onPress={commandHandlers[entry.definition.key]}
+      >
+        {entry.definition.renderIcon(active ? colors.blue : colors.textMuted)}
+      </Pressable>
+    );
+  };
 
   if (!showDrawingToolbar) {
     return null;
@@ -259,47 +270,14 @@ export function ChartDrawingToolsSidebar({
       >
         <TvRadialPlus color="#FFFFFF" />
       </Pressable>
-      {DRAWING_TOOL_OPTIONS.map((option) => {
-        const active = activeTool === option.tool;
-        const iconColor = active ? colors.blue : colors.textMuted;
-
-        return (
-          <Pressable
-            key={option.tool}
-            style={[baseStyles.toolIcon, active && themeStyles.toolIconActive]}
-            onPress={() => onSelectTool(option.tool)}
-          >
-            {option.renderIcon(iconColor)}
-          </Pressable>
-          );
-        })}
-      <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
-      <Pressable
-        style={[baseStyles.toolIcon, activeTool === 'measure' && themeStyles.toolIconActive]}
-        onPress={() => onSelectTool('measure')}
-      >
-        <TvMeasure color={activeTool === 'measure' ? colors.blue : colors.textMuted} />
-      </Pressable>
-      <Pressable style={baseStyles.toolIcon} onPress={onZoomTool}>
-        <TvZoom color={colors.textMuted} />
-      </Pressable>
-      <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
-      <Pressable style={[baseStyles.toolIcon, magnetEnabled && themeStyles.toolIconActive]} onPress={onToggleMagnet}>
-        <TvMagnet color={magnetEnabled ? colors.blue : colors.textMuted} />
-      </Pressable>
-      <Pressable style={[baseStyles.toolIcon, stickyDrawingMode && themeStyles.toolIconActive]} onPress={onToggleStickyMode}>
-        <TvStayInDrawingMode color={stickyDrawingMode ? colors.blue : colors.textMuted} />
-      </Pressable>
-      <Pressable style={[baseStyles.toolIcon, chartLockAll && themeStyles.toolIconActive]} onPress={onToggleLock}>
-        <TvLock color={chartLockAll ? colors.blue : colors.textMuted} />
-      </Pressable>
-      <Pressable style={[baseStyles.toolIcon, chartHideAll && themeStyles.toolIconActive]} onPress={onToggleHide}>
-        <TvHide color={chartHideAll ? colors.blue : colors.textMuted} />
-      </Pressable>
-      <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
-      <Pressable style={baseStyles.toolIcon} onPress={onClearDrawings}>
-        <TvTrash color={colors.textMuted} />
-      </Pressable>
+      {DRAWING_TOOL_SIDEBAR_GROUPS.map((group, groupIndex) => (
+        <React.Fragment key={group.key}>
+          {group.entries.map(renderSidebarEntry)}
+          {groupIndex < DRAWING_TOOL_SIDEBAR_GROUPS.length - 1 ? (
+            <View style={[baseStyles.toolSeparator, themeStyles.toolSeparator]} />
+          ) : null}
+        </React.Fragment>
+      ))}
     </ScrollView>
   );
 }
@@ -326,30 +304,19 @@ export function ChartDrawingToolsActionSheet({
       onClose={onClose}
       title="Drawing Tools"
       minimumTopInset={minimumTopInset}
-      actions={[
-        ...DRAWING_SHEET_OPTIONS.map((option) => ({
-          label: option.actionLabel,
-          onPress: () => onSelectTool(option.tool),
-        })),
-        { label: 'Zoom To Fit', onPress: onZoomTool },
-        {
-          label: magnetEnabled ? 'Disable Magnet Mode' : 'Enable Magnet Mode',
-          onPress: onToggleMagnet,
-        },
-        {
-          label: stickyDrawingMode ? 'Disable Stay in Drawing Mode' : 'Enable Stay in Drawing Mode',
-          onPress: onToggleStickyMode,
-        },
-        {
-          label: chartLockAll ? 'Unlock All Drawings' : 'Lock All Drawings',
-          onPress: onToggleLock,
-        },
-        {
-          label: chartHideAll ? 'Show All Drawings' : 'Hide All Drawings',
-          onPress: onToggleHide,
-        },
-        { label: 'Clear Drawings', danger: true, onPress: onClearDrawings },
-      ]}
+      actions={createDrawingToolsActionSheetActions({
+        chartHideAll,
+        chartLockAll,
+        magnetEnabled,
+        onClearDrawings,
+        onSelectTool,
+        onToggleHide,
+        onToggleLock,
+        onToggleMagnet,
+        onToggleStickyMode,
+        onZoomTool,
+        stickyDrawingMode,
+      })}
     />
   );
 }

@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../components/Screen';
+import { useTranslation } from '../../i18n/useTranslation';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
@@ -51,7 +52,38 @@ function formatDate(d: Date): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
 }
 
+function formatLocalizedDate(d: Date, locale: string): string {
+  try {
+    return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+  } catch {
+    return formatDate(d);
+  }
+}
+
+function formatMonthYear(year: number, month: number, locale: string): string {
+  try {
+    return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(year, month, 1));
+  } catch {
+    return `${MONTHS[month]} ${year}`;
+  }
+}
+
+function getWeekdayLabels(locale: string): string[] {
+  try {
+    const formatter = new Intl.DateTimeFormat(locale, { weekday: 'short' });
+    const monday = new Date(2021, 7, 2);
+    return DAYS.map((_, offset) => {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + offset);
+      return formatter.format(day);
+    });
+  } catch {
+    return DAYS;
+  }
+}
+
 export function HistoryFilterScreen() {
+  const { t, language } = useTranslation();
   const historyRange = useUserPreferences((s) => s.historyRange);
   const setHistoryRange = useUserPreferences((s) => s.setHistoryRange);
   const setHistoryDateRange = useUserPreferences((s) => s.setHistoryDateRange);
@@ -67,6 +99,12 @@ export function HistoryFilterScreen() {
 
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate, setEndDate] = useState<string | null>(null);
+  const translatedHistoryRange = useMemo(
+    () => (presets.includes(historyRange) ? t(historyRange) : historyRange),
+    [historyRange, t],
+  );
+  const weekdayLabels = useMemo(() => getWeekdayLabels(language), [language]);
+  const monthLabel = useMemo(() => formatMonthYear(calYear, calMonth, language), [calYear, calMonth, language]);
 
   const today = useMemo(() => {
     const d = new Date();
@@ -165,8 +203,8 @@ export function HistoryFilterScreen() {
       const sDate = new Date(startDate);
       const eDate = endDate ? new Date(endDate) : new Date(startDate);
       const label = startDate === endDate
-        ? formatDate(sDate)
-        : `${formatDate(sDate)} – ${formatDate(eDate)}`;
+        ? formatLocalizedDate(sDate, language)
+        : `${formatLocalizedDate(sDate, language)} - ${formatLocalizedDate(eDate, language)}`;
       setHistoryRange(label);
       // Persist Unix-ms timestamps for the custom range so API queries can use them
       setHistoryDateRange(sDate.setHours(0, 0, 0, 0), eDate.setHours(23, 59, 59, 999));
@@ -233,7 +271,7 @@ export function HistoryFilterScreen() {
             </Pressable>
             <View style={s.headerTitleWrap} pointerEvents="none">
               <Text style={s.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
-                History Filter
+                {t('History Filter')}
               </Text>
             </View>
             <View style={s.headerBackButton} />
@@ -242,14 +280,14 @@ export function HistoryFilterScreen() {
 
         <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.symbolRow}>
-          <Text style={s.label}>Symbol:</Text>
-          <Text style={s.value}>All symbols</Text>
+          <Text style={s.label}>{t('Symbol')}:</Text>
+          <Text style={s.value}>{t('All symbols')}</Text>
         </View>
 
         <View style={s.card}>
           {presets.map((preset) => (
             <Pressable key={preset} onPress={() => handlePresetPress(preset)} style={s.option}>
-              <Text style={s.optionText}>{preset}</Text>
+              <Text style={s.optionText}>{t(preset)}</Text>
               <Text style={s.check}>
           {historyRange === preset || (preset === 'Custom' && isCustom) ? '✓' : ''}
               </Text>
@@ -269,7 +307,7 @@ export function HistoryFilterScreen() {
                   onPress={() => { setSelectionMode(mode); setStartDate(null); setEndDate(null); }}
                 >
                   <Text style={[s.modePillText, selectionMode === mode && s.modePillTextActive]}>
-                    {mode === 'single' ? 'Single' : mode === 'range' ? 'Range' : 'Week'}
+                    {mode === 'single' ? t('Single') : mode === 'range' ? t('Range') : t('Week')}
                   </Text>
                 </Pressable>
               ))}
@@ -281,7 +319,7 @@ export function HistoryFilterScreen() {
             <Pressable onPress={prevMonth} hitSlop={12}>
               <Ionicons name="chevron-back" size={22} color={T.text} />
             </Pressable>
-            <Text style={s.monthLabel}>{MONTHS[calMonth]} {calYear}</Text>
+            <Text style={s.monthLabel}>{monthLabel}</Text>
             <Pressable onPress={nextMonth} hitSlop={12}>
               <Ionicons name="chevron-forward" size={22} color={T.text} />
             </Pressable>
@@ -289,7 +327,7 @@ export function HistoryFilterScreen() {
 
           {/* Day Headers */}
           <View style={s.dayHeaderRow}>
-            {DAYS.map((d) => (
+            {weekdayLabels.map((d) => (
               <Text key={d} style={s.dayHeaderText}>{d}</Text>
             ))}
           </View>
@@ -345,8 +383,8 @@ export function HistoryFilterScreen() {
             <View style={s.selectionInfo}>
               <Text style={s.selectionLabel}>
                 {!endDate || startDate === endDate
-                  ? formatDate(new Date(startDate))
-                  : `${formatDate(new Date(startDate))}  →  ${formatDate(new Date(endDate!))}`
+                  ? formatLocalizedDate(new Date(startDate), language)
+                  : `${formatLocalizedDate(new Date(startDate), language)} -> ${formatLocalizedDate(new Date(endDate!), language)}`
                 }
               </Text>
             </View>
@@ -359,14 +397,14 @@ export function HistoryFilterScreen() {
               onPress={applyCustomRange}
               disabled={!startDate}
             >
-              <Text style={s.applyBtnText}>Apply Custom Range</Text>
+              <Text style={s.applyBtnText}>{t('Apply Custom Range')}</Text>
             </Pressable>
           )}
         </View>
 
         <Pressable style={s.reportBtn}>
-          <Text style={s.reportTitle}>Create a trade report</Text>
-          <Text style={s.reportSub}>{historyRange}</Text>
+          <Text style={s.reportTitle}>{t('Create a trade report')}</Text>
+          <Text style={s.reportSub}>{translatedHistoryRange}</Text>
         </Pressable>
         </ScrollView>
       </View>

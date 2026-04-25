@@ -26,6 +26,7 @@ import { useTheme } from '../../theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { ThemeColors } from '../../theme/glass';
 import { spacing } from '../../theme';
+import { useTranslation } from '../../i18n/useTranslation';
 
 type BrokerFilter = 'all' | 'popular' | 'regulated';
 
@@ -157,12 +158,26 @@ function formatServerFromName(name: string) {
   return `${compact.slice(0, 16)}-Live`;
 }
 
+function translateBrokerRegion(region: string, t: (key: string) => string) {
+  return t(region);
+}
+
+function translateBrokerSpread(spread: string, t: (key: string) => string) {
+  const spreadMatch = spread.match(/^from\s+(.+)\s+pips$/i);
+  if (spreadMatch) {
+    return `${t('from')} ${spreadMatch[1]} ${t('pips')}`;
+  }
+
+  return t(spread);
+}
+
 export function BrokersScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<BrokerFilter>('all');
   const [selectedBroker, setSelectedBroker] = useState<BrokerRecord | null>(null);
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
   const T = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const brokerRecords = useMemo<BrokerRecord[]>(
@@ -221,14 +236,14 @@ export function BrokersScreen() {
     <Screen>
       <View style={styles.page}>
         <View style={styles.headerCard}>
-          <Text style={styles.title}>Brokers</Text>
-          <Text style={styles.subtitle}>Select a company, review details, then connect your account</Text>
+          <Text style={styles.title}>{t('Brokers')}</Text>
+          <Text style={styles.subtitle}>{t('Select a company, review details, then connect your account')}</Text>
 
           <View style={styles.searchWrap}>
             <Ionicons name='search-outline' size={17} color='#7f93b2' />
             <TextInput
               style={styles.search}
-              placeholder='Enter company or server name'
+              placeholder={t('Enter company or server name')}
               placeholderTextColor={T.textMuted}
               value={search}
               onChangeText={setSearch}
@@ -241,12 +256,12 @@ export function BrokersScreen() {
           </View>
 
           <View style={styles.filterRow}>
-            <FilterPill label='All' active={filter === 'all'} onPress={() => setFilter('all')} />
-            <FilterPill label='Popular' active={filter === 'popular'} onPress={() => setFilter('popular')} />
-            <FilterPill label='Regulated' active={filter === 'regulated'} onPress={() => setFilter('regulated')} />
+            <FilterPill label={t('All')} active={filter === 'all'} onPress={() => setFilter('all')} />
+            <FilterPill label={t('Popular')} active={filter === 'popular'} onPress={() => setFilter('popular')} />
+            <FilterPill label={t('Regulated')} active={filter === 'regulated'} onPress={() => setFilter('regulated')} />
           </View>
 
-          <Text style={styles.resultMeta}>{visibleBrokers.length} brokers available</Text>
+          <Text style={styles.resultMeta}>{visibleBrokers.length} {t('brokers available')}</Text>
         </View>
 
         <FlatList
@@ -272,7 +287,7 @@ export function BrokersScreen() {
                   <Text style={styles.name}>{item.name}</Text>
                   {item.popular ? (
                     <View style={[styles.badge, styles.badgeBlue]}>
-                      <Text style={styles.badgeText}>Popular</Text>
+                      <Text style={styles.badgeText}>{t('Popular')}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -280,9 +295,9 @@ export function BrokersScreen() {
                 <Text style={styles.server}>{item.server}</Text>
 
                 <View style={styles.metaRow}>
-                  <MetaBadge icon='earth-outline' label={item.region} />
-                  <MetaBadge icon='stats-chart-outline' label={item.spread} />
-                  {item.regulated ? <MetaBadge icon='shield-checkmark-outline' label='Regulated' /> : null}
+                  <MetaBadge icon='earth-outline' label={translateBrokerRegion(item.region, t)} />
+                  <MetaBadge icon='stats-chart-outline' label={translateBrokerSpread(item.spread, t)} />
+                  {item.regulated ? <MetaBadge icon='shield-checkmark-outline' label={t('Regulated')} /> : null}
                 </View>
               </View>
 
@@ -297,7 +312,7 @@ export function BrokersScreen() {
           ListEmptyComponent={(
             <View style={styles.emptyState}>
               <Ionicons name='search-outline' size={20} color='#6f7f98' />
-              <Text style={styles.emptyText}>No broker matched your search</Text>
+              <Text style={styles.emptyText}>{t('No broker matched your search')}</Text>
             </View>
           )}
         />
@@ -332,9 +347,9 @@ export function BrokersScreen() {
             </View>
 
             <View style={styles.modalStatsRow}>
-              <DetailStat label='Region' value={selectedBroker?.region ?? 'Global'} />
-              <DetailStat label='Spread' value={selectedBroker?.spread ?? '-'} />
-              <DetailStat label='Min Deposit' value={selectedBroker?.minDeposit ?? '-'} />
+              <DetailStat label={t('Region')} value={translateBrokerRegion(selectedBroker?.region ?? 'Global', t)} />
+              <DetailStat label={t('Spread')} value={selectedBroker ? translateBrokerSpread(selectedBroker.spread, t) : '-'} />
+              <DetailStat label={t('Min Deposit')} value={selectedBroker?.minDeposit ?? '-'} />
             </View>
 
             <Pressable
@@ -342,7 +357,7 @@ export function BrokersScreen() {
               onPress={() => connectBroker('live')}
             >
               <Ionicons name='link-outline' size={16} color='#ebf5ff' />
-              <Text style={styles.primaryButtonText}>Connect Live Account</Text>
+              <Text style={styles.primaryButtonText}>{t('Connect Live Account')}</Text>
             </Pressable>
 
             <Pressable
@@ -350,7 +365,7 @@ export function BrokersScreen() {
               onPress={() => connectBroker('demo')}
             >
               <Ionicons name='beaker-outline' size={16} color='#0a84ff' />
-              <Text style={styles.secondaryButtonText}>Open Demo Account</Text>
+              <Text style={styles.secondaryButtonText}>{t('Open Demo Account')}</Text>
             </Pressable>
 
             <Pressable
@@ -365,7 +380,7 @@ export function BrokersScreen() {
               }}
             >
               <Ionicons name='open-outline' size={14} color='#89a1c4' />
-              <Text style={styles.linkText}>Visit broker website</Text>
+              <Text style={styles.linkText}>{t('Visit broker website')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

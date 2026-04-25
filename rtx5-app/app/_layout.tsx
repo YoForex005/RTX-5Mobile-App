@@ -9,6 +9,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
 import { useTheme } from '../src/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useTranslation } from '../src/i18n/useTranslation';
 import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -45,6 +46,7 @@ function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: str
 function InnerLayout() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const { t } = useTranslation();
   const router = useRouter();
   const chartPageScreenOptions = {
     headerShown: false,
@@ -80,8 +82,8 @@ function InnerLayout() {
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
           <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
-          <Stack.Screen name='trade/order-ticket' options={{ title: 'Trade' }} />
-          <Stack.Screen name='trade/one-click-terms' options={{ title: 'One Click Trading' }} />
+          <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade') }} />
+          <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false }} />
           <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
           <Stack.Screen
@@ -95,12 +97,13 @@ function InnerLayout() {
             }}
           />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
-          <Stack.Screen name='login' options={{ title: 'Login', headerLeft: () => null }} />
-          <Stack.Screen name='contest-login' options={{ title: 'Contest Login', headerLeft: () => null }} />
+          <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
+          <Stack.Screen name='contest-login' options={{ title: t('Contest Login'), headerLeft: () => null }} />
           <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/settings' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/preferences' options={chartPageScreenOptions} />
-          <Stack.Screen name='chart/colors' options={{ title: 'Colors' }} />
+          <Stack.Screen name='chart/schema-colors' options={chartPageScreenOptions} />
+          <Stack.Screen name='chart/colors' options={{ title: t('Colors') }} />
           <Stack.Screen name='chart/price-source' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/open-order-mode' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/calculator' options={chartPageScreenOptions} />
@@ -112,13 +115,13 @@ function InnerLayout() {
           <Stack.Screen name='chart/specification' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/alerts' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/menu-order' options={chartPageScreenOptions} />
-          <Stack.Screen name='history/filter' options={{ title: 'History Filter' }} />
-          <Stack.Screen name='settings/accounts' options={{ title: 'Accounts' }} />
-          <Stack.Screen name='settings/mailbox' options={{ title: 'Mailbox' }} />
-          <Stack.Screen name='settings/news' options={{ title: 'News' }} />
-          <Stack.Screen name='settings/brokers' options={{ title: 'Brokers' }} />
-          <Stack.Screen name='settings/charts' options={{ title: 'Charts' }} />
-          <Stack.Screen name='settings/economic-calendar' options={{ title: 'Tradays' }} />
+          <Stack.Screen name='history/filter' options={{ title: t('History Filter') }} />
+          <Stack.Screen name='settings/accounts' options={{ title: t('Accounts') }} />
+          <Stack.Screen name='settings/mailbox' options={{ title: t('Mailbox') }} />
+          <Stack.Screen name='settings/news' options={{ title: t('News') }} />
+          <Stack.Screen name='settings/brokers' options={{ title: t('Brokers') }} />
+          <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
+          <Stack.Screen name='settings/economic-calendar' options={{ title: t('Tradays') }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
         </Stack>
       </WebIPhoneFrame>

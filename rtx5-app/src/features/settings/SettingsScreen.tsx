@@ -19,7 +19,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { QRScannerModal } from '../../components/QRScannerModal';
 import { useTranslation } from '../../i18n/useTranslation';
-import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
+import { SUPPORTED_LANGUAGES, translateAccountCardName } from '../../i18n/translations';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useBrokerConfig } from '../../query/broker';
 import { useAccounts } from '../../query/accounts';
@@ -48,7 +48,7 @@ export function SettingsScreen() {
   const { data: accounts } = useAccounts(isLoggedIn);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
-  const displayAccountName = activeAccount?.name ?? 'Account';
+  const rawAccountName = activeAccount?.name ?? 'Account';
   const displayEmail = accountDetails?.name ?? '---';
   const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : '---';
   const displayCurrency = 'USD';
@@ -57,6 +57,7 @@ export function SettingsScreen() {
   const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
   const { t, language } = useTranslation();
+  const displayAccountName = translateAccountCardName(rawAccountName, t);
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const styles = useMemo(() => makeStyles(T, themeMode), [T, themeMode]);
 
@@ -67,12 +68,12 @@ export function SettingsScreen() {
 
   const handleLogout = () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout? You will need to sign in again.',
+      t('Logout'),
+      t('Are you sure you want to logout? You will need to sign in again.'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: 'Logout',
+          text: t('Logout'),
           style: 'destructive',
           onPress: () => {
             accountWsService.disconnect();
@@ -119,18 +120,22 @@ export function SettingsScreen() {
     { title: 'Theme', sub: 'Light/Dark Mode toggle', icon: 'color-palette-outline' },
     { title: 'OTP', sub: 'Passcode Generator', icon: 'shield-checkmark-outline' },
     { title: 'QR Scanner', sub: 'Scan to connect or log in', icon: 'qr-code-outline' },
-    { title: 'Interface', sub: 'English', icon: 'browsers-outline' },
-    { title: 'Charts', sub: '', icon: 'stats-chart-outline' },
+    { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline' },
     { title: 'Journal', sub: '', icon: 'reader-outline' },
     { title: 'Support', sub: 'Contact our dedicated team', icon: 'help-buoy-outline' },
     { title: 'Help', sub: 'FAQs & Documentation', icon: 'information-circle-outline' },
-  ], []);
+  ], [currentLanguageNative]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery) return SEARCHABLE_ITEMS;
     const q = searchQuery.toLowerCase();
-    return SEARCHABLE_ITEMS.filter(it => it.title.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q));
-  }, [searchQuery, SEARCHABLE_ITEMS]);
+    return SEARCHABLE_ITEMS.filter((it) => (
+      it.title.toLowerCase().includes(q) ||
+      it.sub.toLowerCase().includes(q) ||
+      t(it.title).toLowerCase().includes(q) ||
+      t(it.sub).toLowerCase().includes(q)
+    ));
+  }, [searchQuery, SEARCHABLE_ITEMS, t]);
 
   const searchBarStyle: any = themeMode === 'dark' ? {
     backgroundColor: 'rgba(30, 41, 59, 0.55)', // Deep translucent slate glass
@@ -173,7 +178,7 @@ export function SettingsScreen() {
                 ref={searchInputRef}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search settings..."
+                placeholder={t('Search settings')}
                 placeholderTextColor={themeMode === 'dark' ? 'rgba(255, 255, 255, 0.4)' : T.textMuted}
                 style={[{ flex: 1, color: T.text, fontSize: 15, fontWeight: '500' }, { outlineStyle: 'none' } as any]}
                 autoCapitalize="none"
@@ -193,13 +198,13 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
               {searchResults.length > 0 ? searchResults.map((item, index) => (
                 <View key={item.title}>
-                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={item.title} sub={item.sub} />
+                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
                 </View>
               )) : (
                 <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
                   <Ionicons name="search-outline" size={48} color={T.borderMedium} />
-                  <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>No settings found matching "{searchQuery}"</Text>
+                  <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
                 </View>
               )}
             </View>
@@ -214,7 +219,7 @@ export function SettingsScreen() {
               <View style={[styles.accountCard, styles.cardShadow]}>
                 {/* Top-Right Diagonal Ribbon */}
                 <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
-                  <Text style={styles.ribbonText}>{isDemoAccount ? 'Demo' : 'Real'}</Text>
+                  <Text style={styles.ribbonText}>{isDemoAccount ? t('Demo') : t('Real')}</Text>
                 </View>
 
                 <LinearGradient
@@ -233,7 +238,7 @@ export function SettingsScreen() {
                   </Text>
                   <View style={styles.connectedPill}>
                     <View style={styles.greenDot} />
-                    <Text style={styles.connectedText}>Connected</Text>
+                    <Text style={styles.connectedText}>{t('Connected')}</Text>
                   </View>
                 </View>
 
@@ -252,7 +257,7 @@ export function SettingsScreen() {
                     </Text>
                     <View style={styles.accServerDot} />
                     <Text style={[styles.accServer, themeMode === 'light' && { color: 'rgba(255,255,255,0.8)' }]}>
-                      {accountDetails?.server || 'Server'}
+                      {accountDetails?.server || t('Server')}
                     </Text>
                   </View>
                 </View>
@@ -264,7 +269,7 @@ export function SettingsScreen() {
                   </View>
                   <View style={styles.chip}>
                     <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
-                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Secure</Text>
+                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>{t('Secure')}</Text>
                   </View>
                 </View>
               </View>
@@ -278,7 +283,7 @@ export function SettingsScreen() {
                   <View style={styles.metricIconCircle}>
                     <Ionicons name="list" size={18} color="#1D4ED8" />
                   </View>
-                  <Text style={styles.metricLabel}>Quotes</Text>
+                  <Text style={styles.metricLabel}>{t('Quotes')}</Text>
                 </View>
                 <Text style={styles.metricValue}>{quoteSymbols?.length || 0}</Text>
               </View>
@@ -289,7 +294,7 @@ export function SettingsScreen() {
                   <View style={styles.metricIconCircle}>
                     <Ionicons name="analytics" size={18} color="#1D4ED8" />
                   </View>
-                  <Text style={styles.metricLabel}>Drawings</Text>
+                  <Text style={styles.metricLabel}>{t('Drawings')}</Text>
                 </View>
                 <Text style={styles.metricValue}>{chartDrawings?.length || 0}</Text>
               </View>
@@ -300,10 +305,10 @@ export function SettingsScreen() {
                   <View style={[styles.metricIconCircle, oneClickAccepted && styles.metricIconCircleActive]}>
                     <Ionicons name="flash" size={18} color={oneClickAccepted ? '#3B82F6' : '#1D4ED8'} />
                   </View>
-                  <Text style={styles.metricLabel}>One-Click</Text>
+                  <Text style={styles.metricLabel}>{t('One-Click')}</Text>
                 </View>
                 <View style={styles.toggleRow}>
-                  <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? 'On' : 'Off'}</Text>
+                  <Text style={[styles.toggleText, oneClickAccepted && { color: '#3B82F6' }]}>{oneClickAccepted ? t('On') : t('Off')}</Text>
                   <Switch
                     value={oneClickAccepted}
                     onValueChange={setOneClickAccepted}
@@ -336,7 +341,7 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="mail-outline" color="#1D4ED8"
-                title={t('Mailbox')} sub="High Importance News"
+                title={t('Mailbox')} sub={t('High Importance News')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
@@ -346,7 +351,7 @@ export function SettingsScreen() {
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="calendar-outline" color="#1D4ED8"
-                title={t('Tradays')} sub="Economic Calendar"
+                title={t('Tradays')} sub={t('Economic Calendar')}
                 onPress={() => router.push('/settings/economic-calendar')}
               />
             </View>
@@ -356,7 +361,7 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="chatbubble-outline" color="#1D4ED8"
-                title={t('Chat & Messages')} sub="Sign in to MQL5.community"
+                title={t('Chat & Messages')} sub={t('Sign in to MQL5.community')}
 
 
               />
@@ -377,7 +382,7 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="color-palette-outline" color="#1D4ED8"
-                title={t('Theme')} sub={themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
+                title={t('Theme')} sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
                 rightElement={
                   <Switch
                     value={themeMode === 'light'}
@@ -392,25 +397,19 @@ export function SettingsScreen() {
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="shield-checkmark-outline" color="#1D4ED8"
-                title={t('OTP')} sub="Passcode Generator"
+                title={t('OTP')} sub={t('Passcode Generator')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="qr-code-outline" color="#1D4ED8"
-                title={t('QR Scanner')} sub="Scan code to connect"
+                title={t('QR Scanner')} sub={t('Scan code to connect')}
                 onPress={() => setShowScanner(true)}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="browsers-outline" color="#1D4ED8"
-                title={t('Interface')} sub={currentLanguageNative}
+                title={t('Language Preference')} sub={currentLanguageNative}
                 onPress={() => router.push('/settings/interface')}
-              />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles}
-                icon="stats-chart-outline" color="#1D4ED8"
-                title={t('Charts')}
-                onPress={() => router.push('/settings/charts')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
@@ -424,12 +423,12 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles}
                 icon="help-buoy-outline" color="#1D4ED8"
-                title={t('Support')} sub="Contact our dedicated team"
+                title={t('Support')} sub={t('Contact our dedicated team')}
               />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="information-circle-outline" color="#1D4ED8"
-                title={t('Help')} sub="FAQs & Documentation"
+                title={t('Help')} sub={t('FAQs & Documentation')}
               />
             </View>
 
@@ -443,7 +442,7 @@ export function SettingsScreen() {
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                   <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                 </View>
-                <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>Logout</Text>
+                <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
               </Pressable>
             </View>
 
@@ -459,7 +458,7 @@ export function SettingsScreen() {
           setShowScanner(false);
           // Small delay before alert to ensure modal closes smoothly first
           setTimeout(() => {
-            Alert.alert('Scanned Success', data);
+            Alert.alert(t('Scanned Success'), data);
           }, 300);
         }}
       />

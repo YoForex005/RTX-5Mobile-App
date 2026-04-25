@@ -257,7 +257,7 @@ export function ChartPropertiesScreen() {
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
-            <Text style={styles.headerTitle} numberOfLines={1}>Charts</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>Chart Schema & Colors</Text>
           </View>
           <View style={styles.headerBackBtn} />
         </View>

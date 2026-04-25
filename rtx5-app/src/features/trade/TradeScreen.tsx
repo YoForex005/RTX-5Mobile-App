@@ -41,6 +41,7 @@ import { useShallow } from 'zustand/shallow';
 
 // ── Live PNL Header Component ─────────────────────────────────────────────
 const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
+  const { t } = useTranslation();
   const safeBalance = Number.isFinite(account.balance) ? account.balance : 0;
   const safeFloating = Number.isFinite(account.floating) ? account.floating : 0;
   const safeEquity = Number.isFinite(account.equity) ? account.equity : 0;
@@ -74,20 +75,19 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           accessibilityRole="button"
           accessibilityLabel="Toggle trade summary details"
           accessibilityState={{ expanded: tradeSummaryDetailsVisible }}
-          style={({ pressed }) => [
+          style={[
             s.summaryTop,
             tradeSummaryDetailsVisible && {
               marginBottom: 14,
               borderBottomWidth: 1,
               borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.border,
             },
-            pressed && s.summaryTogglePressed,
           ]}
         >
           {/* The Hero: Unrealized P/L */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-              Floating P/L
+              {t('Floating P/L')}
             </Text>
             <Animated.Text
               style={{
@@ -107,7 +107,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           <View style={s.summaryMetrics}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Balance <Text style={{ fontSize: 10, color: T.textFaint }}>({account.currency || 'USD'})</Text>
+                {t('Balance')} <Text style={{ fontSize: 10, color: T.textFaint }}>({account.currency || 'USD'})</Text>
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -121,7 +121,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Equity
+                {t('Equity')}
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -135,7 +135,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Margin
+                {t('Margin')}
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -149,7 +149,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Free Margin
+                {t('Free Margin')}
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -163,7 +163,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Margin Level
+                {t('Margin Level')}
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -178,7 +178,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
             {account.credit > 0 ? (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Credit
+                  {t('Credit')}
                 </Text>
                 <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                   <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -199,10 +199,10 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
           <View>
             <View style={s.positionsTitleRow}>
-              <Text style={[s.positionsTitle, { color: T.text }]}>Positions</Text>
+              <Text style={[s.positionsTitle, { color: T.text }]}>{t('Positions')}</Text>
             </View>
             <Text style={[s.positionsMeta, { color: T.textMuted }]}>
-              {positions.length} open • {(totalVolume || 0).toFixed(2)} lots
+              {positions.length} {t('open')} • {(totalVolume || 0).toFixed(2)} {t('lots')}
             </Text>
           </View>
         </View>
@@ -210,7 +210,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           onPress={onBulkPress}
           style={({ pressed }) => [s.bulkButton, { borderColor: T.border, backgroundColor: T.glass1 }, pressed && { backgroundColor: T.glass3 }]}
         >
-          <Text style={[s.bulkButtonText, { color: T.textMuted }]}>Bulk</Text>
+          <Text style={[s.bulkButtonText, { color: T.textMuted }]}>{t('Bulk')}</Text>
         </Pressable>
       </View>
     </>
@@ -316,30 +316,30 @@ export function TradeScreen() {
 
   const showBulkSheet = useCallback(() => {
     showActionSheet({
-      title: 'Bulk Operations',
+      title: t('Bulk Operations'),
       actions: [
-        { label: 'Close All Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'all' } }) },
-        { label: 'Close Profitable Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'profitable' } }) },
-        { label: 'Close Losing Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'losing' } }) },
-        { label: 'Close Buy Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'buy' } }) },
-        { label: 'Close BTCUSD Positions', danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSD' } }) },
+        { label: t('Close All Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'all' } }) },
+        { label: t('Close Profitable Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'profitable' } }) },
+        { label: t('Close Losing Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'losing' } }) },
+        { label: t('Close Buy Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'buy' } }) },
+        { label: t('Close BTCUSD Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSD' } }) },
       ],
     });
-  }, [showActionSheet]);
+  }, [showActionSheet, t]);
 
   const showPositionSheet = useCallback((item: PositionItem) => {
     showActionSheet({
       title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
       actions: [
-        { label: 'Close position', danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
-        { label: 'Close By', danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
-        { label: 'Modify position', onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
-        { label: 'Trade', onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
-        { label: 'Chart', onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
-        { label: 'Bulk Operations...', onPress: () => showBulkSheet() },
+        { label: t('Close position'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
+        { label: t('Close By'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
+        { label: t('Modify position'), onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
+        { label: t('Trade'), onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
+        { label: t('Chart'), onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
+        { label: t('Bulk Operations...'), onPress: () => showBulkSheet() },
       ],
     });
-  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showActionSheet, showBulkSheet]);
+  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showActionSheet, showBulkSheet, t]);
 
   const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (
     <TradePositionRow
@@ -379,14 +379,14 @@ export function TradeScreen() {
           <View style={s.emptyState}>
             <Ionicons name="receipt-outline" size={48} color={T.textDimmed} />
             <Text style={[s.emptyTitle, { color: T.textMuted }]}>
-              {isLoading ? 'Loading positions...' : 'No open positions'}
+              {isLoading ? t('Loading positions...') : t('No open positions')}
             </Text>
             <Text style={[s.emptySub, { color: T.textDimmed }]}>
               {lastError
-                ? `Account ${lastFetchLogin ?? resolvedLogin ?? 'unknown'}: ${getTradingErrorOriginLabel(lastError.origin)}. ${lastError.title}: ${lastError.message}`
+                ? `${t('Account')} ${lastFetchLogin ?? resolvedLogin ?? t('unknown')}: ${getTradingErrorOriginLabel(lastError.origin)}. ${lastError.title}: ${lastError.message}`
                 : resolvedLogin
-                  ? `Account ${resolvedLogin}: your active trades will appear here`
-                  : 'Waiting for active trading account'}
+                  ? `${t('Account')} ${resolvedLogin}: ${t('your active trades will appear here')}`
+                  : t('Waiting for active trading account')}
             </Text>
           </View>
         }
@@ -428,7 +428,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     floatingNegative: { color: T.down },
     summaryHint: { marginTop: 4, fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
     summaryMetrics: { paddingHorizontal: 16, paddingBottom: 14, gap: 8 },
-    summaryTogglePressed: { opacity: 0.55 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: T.glass1, overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

@@ -17,6 +17,7 @@ import { useMarginCalculation, useProfitCalculation } from '../../query/calculat
 import { useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTranslation } from '../../i18n/useTranslation';
 
 // Format helpers — return "—" when an input is missing so the UI never shows
 // a misleading hardcoded number.
@@ -28,6 +29,7 @@ const fmtPipValue = (n: number | undefined, currency: string) =>
 export function ChartTradingCalculatorScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const T = useTheme();
+  const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -114,7 +116,7 @@ export function ChartTradingCalculatorScreen() {
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
-              Calculator · {currentSymbol}
+              {t('Calculator')} · {currentSymbol}
             </Text>
           </View>
           <View style={styles.headerBackBtn} />
@@ -128,19 +130,19 @@ export function ChartTradingCalculatorScreen() {
             style={[styles.segmentBtn, side === 'buy' && styles.segmentBtnActive]}
             onPress={() => setSide('buy')}
           >
-            <Text style={[styles.segmentText, side === 'buy' && styles.segmentTextActive]}>Buy</Text>
+            <Text style={[styles.segmentText, side === 'buy' && styles.segmentTextActive]}>{t('Buy')}</Text>
           </Pressable>
           <Pressable
             style={[styles.segmentBtn, side === 'sell' && styles.segmentBtnActive]}
             onPress={() => setSide('sell')}
           >
-            <Text style={[styles.segmentText, side === 'sell' && styles.segmentTextActive]}>Sell</Text>
+            <Text style={[styles.segmentText, side === 'sell' && styles.segmentTextActive]}>{t('Sell')}</Text>
           </Pressable>
         </View>
 
         {/* Form Inputs */}
         <View style={styles.inputSection}>
-          <Text style={styles.inputLabel}>Volume, lots</Text>
+          <Text style={styles.inputLabel}>{t('Volume, lots')}</Text>
           <View style={styles.inputBox}>
             <Pressable onPress={() => adjustLotSize(-0.01)} style={styles.stepperBtn}>
               <Ionicons name="remove" size={20} color={T.textMuted} />
@@ -156,16 +158,16 @@ export function ChartTradingCalculatorScreen() {
             </Pressable>
           </View>
 
-          <Text style={[styles.inputLabel, { marginTop: 16 }]}>Leverage</Text>
+          <Text style={[styles.inputLabel, { marginTop: 16 }]}>{t('Leverage')}</Text>
           <Pressable style={styles.dropdownBox}>
-            <Text style={styles.dropdownText}>1:2000 (Account leverage)</Text>
+            <Text style={styles.dropdownText}>1:2000 ({t('Account leverage')})</Text>
             <Ionicons name="chevron-down" size={18} color={T.textMuted} />
           </Pressable>
 
           <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>Open at</Text>
+            <Text style={styles.inputLabel}>{t('Open at')}</Text>
             <Pressable onPress={() => setOpenPrice('')}>
-              <Text style={styles.clearText}>Clear</Text>
+              <Text style={styles.clearText}>{t('Clear')}</Text>
             </Pressable>
           </View>
           <View style={styles.inputBox}>
@@ -177,7 +179,7 @@ export function ChartTradingCalculatorScreen() {
               value={openPrice}
               onChangeText={setOpenPrice}
               keyboardType="numeric"
-              placeholder={liveMid ? `Market price (${liveMid.toFixed(meta?.tickSize && meta.tickSize < 0.01 ? 5 : 3)})` : 'Market price'}
+              placeholder={liveMid ? `${t('Market price')} (${liveMid.toFixed(meta?.tickSize && meta.tickSize < 0.01 ? 5 : 3)})` : t('Market price')}
               placeholderTextColor={T.textMuted}
             />
             <Pressable style={styles.stepperBtn}>
@@ -186,9 +188,9 @@ export function ChartTradingCalculatorScreen() {
           </View>
 
           <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>Close at</Text>
+            <Text style={styles.inputLabel}>{t('Close at')}</Text>
             <Pressable onPress={() => setClosePrice('')}>
-              <Text style={styles.clearText}>Clear</Text>
+              <Text style={styles.clearText}>{t('Clear')}</Text>
             </Pressable>
           </View>
           <View style={styles.inputBox}>
@@ -212,22 +214,22 @@ export function ChartTradingCalculatorScreen() {
         {/* Summary Table — values from POST /api/v2/calculate/margin and /profit */}
         <View style={styles.summaryTable}>
           {[
-            { label: 'Required Margin', value: fmtMoney(margin, profitCurrency) },
-            { label: 'Free Margin',     value: fmtMoney(marginResult?.free_margin, profitCurrency) },
-            { label: 'Max Lots',        value: marginResult?.max_lots != null ? marginResult.max_lots.toFixed(2) : '—' },
-            { label: 'Commission',      value: fmtMoney(commission, profitCurrency) },
-            { label: 'Swap / day',      value: fmtMoney(swapPerDay, profitCurrency) },
-            { label: 'Spread',          value: spread !== undefined ? `${spread.toFixed(1)} pts` : '—' },
-            { label: 'Pip Value',       value: fmtPipValue(pipValue, profitCurrency) },
-            { label: 'P/L',            value: fmtMoney(profitLoss, profitCurrency) },
+            { key: 'Required Margin', label: t('Required Margin'), value: fmtMoney(margin, profitCurrency) },
+            { key: 'Free Margin', label: t('Free Margin'), value: fmtMoney(marginResult?.free_margin, profitCurrency) },
+            { key: 'Max Lots', label: t('Max Lots'), value: marginResult?.max_lots != null ? marginResult.max_lots.toFixed(2) : '—' },
+            { key: 'Commission', label: t('Commission'), value: fmtMoney(commission, profitCurrency) },
+            { key: 'Swap / day', label: t('Swap / day'), value: fmtMoney(swapPerDay, profitCurrency) },
+            { key: 'Spread', label: t('Spread'), value: spread !== undefined ? `${spread.toFixed(1)} ${t('pts')}` : '—' },
+            { key: 'Pip Value', label: t('Pip Value'), value: fmtPipValue(pipValue, profitCurrency) },
+            { key: 'P/L', label: t('P/L'), value: fmtMoney(profitLoss, profitCurrency) },
           ].map((item, i, arr) => (
-            <React.Fragment key={item.label}>
+            <React.Fragment key={item.key}>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>{item.label}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={[
                     styles.summaryValue,
-                    item.label === 'P/L' && profitLoss !== undefined
+                    item.key === 'P/L' && profitLoss !== undefined
                       ? { color: profitLoss >= 0 ? T.trading.buy.primary : T.trading.sell.primary, fontWeight: '700' }
                       : {},
                   ]}>
@@ -245,7 +247,7 @@ export function ChartTradingCalculatorScreen() {
         <View style={styles.footerWarning}>
           <Ionicons name="information-circle-outline" size={24} color={isDark ? T.text : '#000'} style={{ marginTop: 2 }} />
           <Text style={styles.footerWarningText}>
-            Live preview only. Real margin, swap and P/L are set when your order is filled.
+            {t('Live preview only. Real margin, swap and P/L are set when your order is filled.')}
           </Text>
         </View>
 

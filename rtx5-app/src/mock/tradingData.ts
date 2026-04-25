@@ -321,7 +321,7 @@ export const settingsMenu = [
   { id: 'community', label: 'Traders Community', sub: '' },
   { id: 'algo', label: 'MQL5 Algo Trading', sub: '' },
   { id: 'otp', label: 'OTP', sub: 'One-time password generator' },
-  { id: 'interface', label: 'Interface', sub: 'English' },
+  { id: 'interface', label: 'Language Preference', sub: 'English' },
   { id: 'charts', label: 'Charts', sub: '' },
   { id: 'journal', label: 'Journal', sub: '' },
   { id: 'settings', label: 'Settings', sub: '' },

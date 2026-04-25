@@ -24,6 +24,7 @@ import { normalizeSymbol } from '../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { useTranslation } from '../../i18n/useTranslation';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -59,6 +60,7 @@ export function OrderTicketScreen() {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const brokerId = useUserPreferences((s) => s.brokerId);
   const T = useTheme();
+  const { t } = useTranslation();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
 
@@ -718,14 +720,14 @@ export function OrderTicketScreen() {
         <View style={styles.hairline} />
 
         {/* Market Data (inline key-value) */}
-        <Text style={styles.sectionTitle}>MARKET DATA</Text>
-        <InfoRow label="Fill Policy" value="FOK" styles={styles} />
+        <Text style={styles.sectionTitle}>{t('MARKET DATA')}</Text>
+        <InfoRow label={t('Fill Policy')} value="FOK" styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Spread" value={`${spread} pts`} styles={styles} />
+        <InfoRow label={t('Spread')} value={`${spread} ${t('pts')}`} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Margin" value={marginDisplay} styles={styles} />
+        <InfoRow label={t('Margin')} value={marginDisplay} styles={styles} />
         <View style={styles.hairline} />
-        <InfoRow label="Acc. Leverage" value={`1:${leverage}`} styles={styles} />
+        <InfoRow label={t('Acc. Leverage')} value={`1:${leverage}`} styles={styles} />
         <View style={styles.hairline} />
 
         {/* Depth of Market — compact table */}

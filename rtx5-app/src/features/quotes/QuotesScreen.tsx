@@ -249,6 +249,7 @@ const QuoteCard = React.memo(function QuoteCard({
   onPressIn?: () => void;
   onLongPress: () => void;
 }) {
+  const { t } = useTranslation();
   const liveItem = useTradingState((state) => state.quotes[symbol]);
   const noData = !hasFreshLiveQuote(liveItem);
 
@@ -309,7 +310,7 @@ const QuoteCard = React.memo(function QuoteCard({
               fontStyle: 'italic',
             }}
           >
-            Connecting...
+            {t('Connecting...')}
           </Text>
         </View>
       </View>
@@ -435,7 +436,7 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              Vol <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
+              {t('Vol')} <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
             </Text>
 
             <Text
@@ -443,7 +444,7 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              Spread{' '}
+              {t('Spread')}{' '}
               <Text style={[sc.statValue, { color: T.text }]}>
                 {(item.spread || 0).toFixed(1)}
               </Text>
@@ -454,7 +455,7 @@ const QuoteCard = React.memo(function QuoteCard({
         <View style={sc.pricesRow}>
           <View style={sc.priceBlock}>
             <View style={sc.labelWithTick}>
-              <Text style={[sc.priceLabel, { color: T.textMuted }]}>BID</Text>
+              <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('BID')}</Text>
               {showBidCaret && (
                 <Ionicons
                   name={bidCaret === 'up' ? 'caret-up' : 'caret-down'}
@@ -475,7 +476,7 @@ const QuoteCard = React.memo(function QuoteCard({
 
           <View style={sc.priceBlock}>
             <View style={sc.labelWithTick}>
-              <Text style={[sc.priceLabel, { color: T.textMuted }]}>ASK</Text>
+              <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('ASK')}</Text>
               {showAskCaret && (
                 <Ionicons
                   name={askCaret === 'up' ? 'caret-up' : 'caret-down'}
@@ -588,6 +589,7 @@ function AddSymbolModal({
   cardBackground,
 }: any) {
   const { data: apiSymbols, isLoading } = useMarketSymbols();
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
 
@@ -646,7 +648,7 @@ function AddSymbolModal({
             marginBottom: 16,
           }}
         >
-          <Text style={{ fontSize: 18, fontWeight: '700', color: T.text }}>Add Asset</Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: T.text }}>{t('Add Asset')}</Text>
           <Pressable
             onPress={() => traceUiInteraction('quotes.addAsset.close', onClose)}
             unstable_pressDelay={0}
@@ -669,7 +671,7 @@ function AddSymbolModal({
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={isLoading ? 'Loading assets...' : 'Search available assets...'}
+            placeholder={isLoading ? t('Loading assets...') : t('Search available assets...')}
             placeholderTextColor={palette.searchPlaceholder}
             style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
             autoCapitalize="characters"
@@ -718,7 +720,7 @@ function AddSymbolModal({
                     {fmt.symbol(sym)}
                   </Text>
                   <Text style={{ fontSize: 12, color: palette.secondaryText }}>
-                    {alreadyAdded ? 'Already in your watchlist' : 'Add to live quotes desk'}
+                    {alreadyAdded ? t('Already in your watchlist') : t('Add to live quotes desk')}
                   </Text>
                 </View>
               </View>
@@ -740,7 +742,7 @@ function AddSymbolModal({
                 fontSize: 15,
               }}
             >
-              {isLoading ? 'Fetching markets...' : 'No matching assets available.'}
+              {isLoading ? t('Fetching markets...') : t('No matching assets available.')}
             </Text>
           }
         />
@@ -1039,7 +1041,7 @@ export function QuotesScreen() {
               value={search}
               onChangeText={handleSearchChange}
               style={[s.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
-              placeholder="Search symbols ..."
+              placeholder={t('Search symbols ...')}
               placeholderTextColor={palette.searchPlaceholder}
               autoCapitalize="characters"
               autoCorrect={false}
@@ -1088,15 +1090,15 @@ export function QuotesScreen() {
                       title: sym,
                       actions: [
                         {
-                          label: 'Chart',
+                          label: t('Chart'),
                           onPress: () => {
                             setChartSymbol(sym);
                             router.push('/(tabs)/chart');
                           },
                         },
-                        { label: 'Details', onPress: () => goDetail(sym) },
+                        { label: t('Details'), onPress: () => goDetail(sym) },
                         {
-                          label: 'Hide',
+                          label: t('Hide'),
                           danger: true,
                           onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
                         },
@@ -1127,17 +1129,17 @@ export function QuotesScreen() {
               >
                 <Text style={[s.emptyTitle, { color: T.text }]}>
                   {search.trim()
-                    ? 'No matching instruments'
+                    ? t('No matching instruments')
                     : isEditing
-                      ? 'Watchlist is empty'
-                      : 'Awaiting live instruments'}
+                      ? t('Watchlist is empty')
+                      : t('Awaiting live instruments')}
                 </Text>
                 <Text style={[s.emptyText, { color: palette.secondaryText }]}>
                   {search.trim()
-                    ? 'Try a broader search term or add another instrument to the desk.'
+                    ? t('Try a broader search term or add another instrument to the desk.')
                     : isEditing
-                      ? 'Add instruments to start building the quotes watchlist.'
-                      : 'Instruments will appear here as soon as fresh quotes start streaming.'}
+                      ? t('Add instruments to start building the quotes watchlist.')
+                      : t('Instruments will appear here as soon as fresh quotes start streaming.')}
                 </Text>
               </View>
             }
@@ -1363,6 +1365,7 @@ const sc = StyleSheet.create({
 
 /** Isolated 1-second clock so the timer doesn't re-render the parent QuotesScreen. */
 function GmtClock({ style, active }: { style: any; active: boolean }) {
+  const { t } = useTranslation();
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     if (!active) {
@@ -1372,7 +1375,7 @@ function GmtClock({ style, active }: { style: any; active: boolean }) {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, [active]);
-  return <Text style={style}>Updated: {gmtClock(now)} GMT</Text>;
+  return <Text style={style}>{t('Updated')}: {gmtClock(now)} GMT</Text>;
 }
 
 function TickCounter({
@@ -1384,6 +1387,7 @@ function TickCounter({
   palette: QuotesPalette;
   active: boolean;
 }) {
+  const { t } = useTranslation();
   const [tps, setTps] = useState(0);
   const tickCountRef = useRef(useTradingState.getState().tickCount);
 
@@ -1414,10 +1418,10 @@ function TickCounter({
 
   return (
     <View style={s.subRight}>
-      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Speed:</Text>
+      <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Speed')}:</Text>
       <Text style={[s.subLive, { color: T.trading.profit }]}>{tps} tps</Text>
-      <Text style={[s.subGrey, { color: palette.secondaryText }]}>Status:</Text>
-      <Text style={[s.subLive, { color: T.trading.profit }]}>LIVE</Text>
+      <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Status')}:</Text>
+      <Text style={[s.subLive, { color: T.trading.profit }]}>{t('LIVE')}</Text>
     </View>
   );
 }

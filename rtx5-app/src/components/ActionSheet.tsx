@@ -27,6 +27,7 @@ import { traceUiInteraction } from '../dev/uiInteractionDiagnostics';
 import { useTheme, ThemeColors } from '../theme/useTheme';
 import { useUserPreferences } from '../state/userPreferences';
 import { OVERLAY_MODAL_PROPS } from '../ui/overlayModalProps';
+import { useTranslation } from '../i18n/useTranslation';
 
 type ActionSheetProps = {
   visible: boolean;
@@ -99,6 +100,7 @@ export function ActionSheet({
   const themeMode = useUserPreferences((s) => s.themeMode);
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
+  const { t } = useTranslation();
   const { height: windowHeight } = useWindowDimensions();
   const screenHeight = Dimensions.get('screen').height;
   const [query, setQuery] = useState('');
@@ -117,7 +119,12 @@ export function ActionSheet({
   const layoutReadyRef = useRef(false);
 
   const filteredActions = searchable && query.trim()
-    ? actions.filter((action) => action.label.toLowerCase().includes(query.toLowerCase()))
+    ? actions.filter((action) => {
+        const rawLabel = action.label.toLowerCase();
+        const localizedLabel = t(action.label).toLowerCase();
+        const normalizedQuery = query.toLowerCase();
+        return rawLabel.includes(normalizedQuery) || localizedLabel.includes(normalizedQuery);
+      })
     : actions;
   const keyboardLift = Platform.OS === 'android' && searchable ? Math.max(0, keyboardHeight) : 0;
   const topInset = Math.max(insets.top, minimumTopInset ?? 12);
@@ -320,11 +327,11 @@ export function ActionSheet({
           <View style={styles.titleContainer}>
             {title.includes(': ') ? (
               <Text>
-                <Text style={styles.titlePrefix}>{title.split(': ')[0]}</Text>
+                <Text style={styles.titlePrefix}>{t(title.split(': ')[0])}</Text>
                 <Text style={styles.titleSuffix}>: {title.split(': ')[1]}</Text>
               </Text>
             ) : (
-              <Text style={styles.titlePrefix}>{title}</Text>
+              <Text style={styles.titlePrefix}>{t(title)}</Text>
             )}
           </View>
         ) : (
@@ -336,7 +343,7 @@ export function ActionSheet({
             <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
             <TextInput
               style={[styles.searchInput, { outlineStyle: 'none' } as any]}
-              placeholder="Search symbol..."
+              placeholder={t('Search symbol...')}
               placeholderTextColor={T.textMuted}
               value={query}
               onChangeText={setQuery}
@@ -361,7 +368,9 @@ export function ActionSheet({
           keyboardShouldPersistTaps={searchable ? 'always' : 'handled'}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         >
-          {filteredActions.map((action, index) => (
+          {filteredActions.map((action, index) => {
+            const localizedLabel = t(action.label);
+            return (
             <Pressable
               key={action.label}
               onPress={() =>
@@ -378,12 +387,13 @@ export function ActionSheet({
               <View style={styles.actionLeft}>
                 {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
                 <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
-                  {action.label}
+                  {localizedLabel}
                 </Text>
               </View>
               {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
             </Pressable>
-          ))}
+            );
+          })}
         </ScrollView>
 
         <Pressable
@@ -391,7 +401,7 @@ export function ActionSheet({
           onPress={onClose}
           unstable_pressDelay={0}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{t('Cancel')}</Text>
         </Pressable>
       </View>
     </Animated.View>

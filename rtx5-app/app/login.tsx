@@ -23,6 +23,7 @@ import { useTheme, type ThemeColors } from '../src/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY } from '../src/query/broker';
+import { useTranslation } from '../src/i18n/useTranslation';
 
 type LoginVariant = 'broker' | 'contest';
 
@@ -56,6 +57,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
   const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
   const queryClient = useQueryClient();
   const screenCopy = LOGIN_SCREEN_COPY[variant];
+  const { t } = useTranslation();
 
   const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
@@ -96,11 +98,11 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
   const handleLogin = async () => {
     if (!brokerId.trim()) {
-      setModalState({ visible: true, type: 'error', title: 'Error', message: 'Please enter your Broker ID' });
+      setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
       return;
     }
     if (!accountId || !password) {
-      setModalState({ visible: true, type: 'error', title: 'Error', message: 'Please enter both Login ID and Password' });
+      setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter both Login ID and Password') });
       return;
     }
 
@@ -154,8 +156,8 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
         console.warn('[Login] Unexpected auth response shape:', JSON.stringify(response));
         throw new Error(
           !accessToken
-            ? 'Login server did not return an access token.'
-            : 'Login server did not return an account login.',
+            ? t('Login server did not return an access token.')
+            : t('Login server did not return an account login.'),
         );
       }
 
@@ -213,14 +215,14 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
         removeSecureItemAsync(screenCopy.savedLoginKey);
       }
 
-      setModalState({ visible: true, type: 'success', title: 'Success', message: 'Login successful' });
+      setModalState({ visible: true, type: 'success', title: t('Success'), message: t('Login successful') });
       setTimeout(() => {
         setModalState(prev => ({ ...prev, visible: false }));
         router.replace('/(tabs)/quotes');
       }, 1200);
       
     } catch (error: any) {
-      setModalState({ visible: true, type: 'error', title: 'Login Failed', message: error.message || 'Invalid credentials' });
+      setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: error.message || t('Invalid credentials') });
       setTimeout(() => {
         setModalState(prev => ({ ...prev, visible: false }));
       }, 2000);
@@ -263,7 +265,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>{screenCopy.headerTitle}</Text>
+          <Text style={styles.headerTitle}>{t(screenCopy.headerTitle)}</Text>
         </View>
 
         <KeyboardAvoidingView
@@ -274,7 +276,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>{screenCopy.sectionTitle}</Text>
+              <Text style={styles.sectionTitle}>{t(screenCopy.sectionTitle)}</Text>
             </View>
 
             {/* ── Form Body ── */}
@@ -282,7 +284,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
               {/* Broker ID Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Broker ID</Text>
+                <Text style={styles.inputLabel}>{t('Broker ID')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={brokerId}
@@ -303,7 +305,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
               {/* Login ID Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Login ID</Text>
+                <Text style={styles.inputLabel}>{t('Login ID')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={accountId}
@@ -325,7 +327,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
               {/* Password Field */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Password</Text>
+                <Text style={styles.inputLabel}>{t('Password')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={password}
@@ -358,7 +360,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
                   size={22}
                   color={savePassword ? T.accent : T.textSub}
                 />
-                <Text style={styles.checkboxText}>Save password</Text>
+                <Text style={styles.checkboxText}>{t('Save password')}</Text>
               </Pressable>
 
               <Pressable
@@ -372,15 +374,15 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.loginBtnText}>LOGIN</Text>
+                  <Text style={styles.loginBtnText}>{t('LOGIN')}</Text>
                 )}
               </Pressable>
 
               {screenCopy.showRegisterPrompt ? (
                 <View style={styles.registerPromptContainer}>
-                  <Text style={styles.registerPromptText}>Don't have an account? </Text>
+                  <Text style={styles.registerPromptText}>{t("Don't have an account?")} </Text>
                   <Pressable onPress={() => router.push('/register')} disabled={isLoading} hitSlop={10}>
-                    <Text style={styles.registerLinkText}>Register</Text>
+                    <Text style={styles.registerLinkText}>{t('Register')}</Text>
                   </Pressable>
                 </View>
               ) : null}

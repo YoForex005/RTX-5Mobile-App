@@ -14,6 +14,7 @@ import { spacing } from '../../theme';
 import { ThemeColors } from '../../theme/glass';
 import { useTheme } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
+import { useTranslation } from '../../i18n/useTranslation';
 
 type SnapshotRowProps = {
   label: string;
@@ -102,6 +103,7 @@ export function HistoryNetProfitLossScreen() {
   const historyFromMs = useUserPreferences((state) => state.historyFromMs);
   const historyToMs = useUserPreferences((state) => state.historyToMs);
   const T = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const accountLogin = resolveTradingLogin();
@@ -186,6 +188,7 @@ export function HistoryNetProfitLossScreen() {
   );
   const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
   const deposit = balance - totalClosedPnl;
+  const historyRangeLabel = t(historyRange);
   const screenBg = isDark ? '#06080D' : T.bg;
 
   return (
@@ -219,7 +222,7 @@ export function HistoryNetProfitLossScreen() {
             adjustsFontSizeToFit
             minimumFontScale={0.85}
           >
-            Net P/L
+            {t('Net P/L')}
           </Text>
         </View>
 
@@ -244,14 +247,14 @@ export function HistoryNetProfitLossScreen() {
           >
             <View style={styles.heroTop}>
               <View style={styles.heroHeader}>
-                <Text style={[styles.heroEyebrow, { color: T.textMuted }]}>Closed Trade History</Text>
+                <Text style={[styles.heroEyebrow, { color: T.textMuted }]}>{t('Closed Trade History')}</Text>
                 <Text
                   style={[styles.heroTitle, { color: T.text }]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.9}
                 >
-                  Net P/L
+                  {t('Net P/L')}
                 </Text>
               </View>
               <View style={[styles.heroBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}>
@@ -260,7 +263,7 @@ export function HistoryNetProfitLossScreen() {
                   size={14}
                   color={netProfit >= 0 ? T.up : T.down}
                 />
-                <Text style={[styles.heroBadgeText, { color: T.textMuted }]}>Closed</Text>
+                <Text style={[styles.heroBadgeText, { color: T.textMuted }]}>{t('Closed')}</Text>
               </View>
             </View>
 
@@ -268,53 +271,53 @@ export function HistoryNetProfitLossScreen() {
               {fmt.pnl(netProfit)}
             </Text>
             <Text style={[styles.heroSubtext, { color: T.textSub }]}>
-              Net closed result for the selected History range.
+              {t('Net closed result for the selected History range.')}
             </Text>
 
             <View style={styles.heroChips}>
               <View style={[styles.heroChip, { backgroundColor: T.glass1, borderColor: T.border }]}>
                 <Text style={[styles.heroChipValue, { color: T.text }]}>{closedPositions.length}</Text>
-                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>Trades</Text>
+                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>{t('Trades')}</Text>
               </View>
               <View style={[styles.heroChip, { backgroundColor: T.glass1, borderColor: T.border }]}>
                 <Text style={[styles.heroChipValue, { color: T.text }]}>{totalVolume.toFixed(2)}</Text>
-                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>Lots</Text>
+                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>{t('Lots')}</Text>
               </View>
               <View style={[styles.heroChip, { backgroundColor: T.glass1, borderColor: T.border }]}>
-                <Text style={[styles.heroChipValue, { color: T.text }]} numberOfLines={1}>{historyRange}</Text>
-                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>Range</Text>
+                <Text style={[styles.heroChipValue, { color: T.text }]} numberOfLines={1}>{historyRangeLabel}</Text>
+                <Text style={[styles.heroChipLabel, { color: T.textMuted }]}>{t('Range')}</Text>
               </View>
             </View>
           </LinearGradient>
         </View>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
-          <Text style={[styles.sectionTitle, { color: T.text }]}>History Snapshot</Text>
-          <SnapshotRow label="Balance" value={fmt.decimal(balance)} styles={styles} T={T} />
-          <SnapshotRow label="Estimated Deposit" value={fmt.decimal(deposit)} border styles={styles} T={T} />
-          <SnapshotRow label="Closed P/L" value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
-          <SnapshotRow label="Swap" value={fmt.pnl(closedSwap)} border color={closedSwap >= 0 ? T.up : T.down} styles={styles} T={T} />
-          <SnapshotRow label="Commission" value={fmt.pnl(closedCommission)} border color={closedCommission <= 0 ? T.down : T.up} styles={styles} T={T} />
-          <SnapshotRow label="Range" value={historyRange} border styles={styles} T={T} />
+          <Text style={[styles.sectionTitle, { color: T.text }]}>{t('History Snapshot')}</Text>
+          <SnapshotRow label={t('Balance')} value={fmt.decimal(balance)} styles={styles} T={T} />
+          <SnapshotRow label={t('Estimated Deposit')} value={fmt.decimal(deposit)} border styles={styles} T={T} />
+          <SnapshotRow label={t('Closed P/L')} value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <SnapshotRow label={t('Swap')} value={fmt.pnl(closedSwap)} border color={closedSwap >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <SnapshotRow label={t('Commission')} value={fmt.pnl(closedCommission)} border color={closedCommission <= 0 ? T.down : T.up} styles={styles} T={T} />
+          <SnapshotRow label={t('Range')} value={historyRangeLabel} border styles={styles} T={T} />
         </View>
 
         <View style={styles.statsGrid}>
-          <StatCard label="Profitable" value={String(profitable.length)} hint={fmt.pnl(grossProfit)} color={T.up} styles={styles} T={T} />
-          <StatCard label="Losing" value={String(losing.length)} hint={fmt.pnl(grossLoss)} color={T.down} styles={styles} T={T} />
-          <StatCard label="Buy Trades" value={String(buyCount)} hint={`${totalVolume.toFixed(2)} lots total`} color={T.text} styles={styles} T={T} />
-          <StatCard label="Sell Trades" value={String(sellCount)} hint={`${breakevenCount} break-even`} color={T.text} styles={styles} T={T} />
+          <StatCard label={t('Profitable')} value={String(profitable.length)} hint={fmt.pnl(grossProfit)} color={T.up} styles={styles} T={T} />
+          <StatCard label={t('Losing')} value={String(losing.length)} hint={fmt.pnl(grossLoss)} color={T.down} styles={styles} T={T} />
+          <StatCard label={t('Buy Trades')} value={String(buyCount)} hint={`${totalVolume.toFixed(2)} ${t('lots total')}`} color={T.text} styles={styles} T={T} />
+          <StatCard label={t('Sell Trades')} value={String(sellCount)} hint={`${breakevenCount} ${t('break-even')}`} color={T.text} styles={styles} T={T} />
         </View>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
-          <Text style={[styles.sectionTitle, { color: T.text }]}>Contribution</Text>
-          <SnapshotRow label="Net Closed P/L" value={fmt.pnl(netProfit)} color={netProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
-          <SnapshotRow label="Gross Winners" value={fmt.pnl(grossProfit)} border color={grossProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
-          <SnapshotRow label="Gross Losers" value={fmt.pnl(grossLoss)} border color={grossLoss >= 0 ? T.up : T.down} styles={styles} T={T} />
-          <SnapshotRow label="Closed History P/L" value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Contribution')}</Text>
+          <SnapshotRow label={t('Net Closed P/L')} value={fmt.pnl(netProfit)} color={netProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <SnapshotRow label={t('Gross Winners')} value={fmt.pnl(grossProfit)} border color={grossProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <SnapshotRow label={t('Gross Losers')} value={fmt.pnl(grossLoss)} border color={grossLoss >= 0 ? T.up : T.down} styles={styles} T={T} />
+          <SnapshotRow label={t('Closed History P/L')} value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
         </View>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
-          <Text style={[styles.sectionTitle, { color: T.text }]}>Top Movers</Text>
+          <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Top Movers')}</Text>
           {topWinner ? (
             <View style={[styles.leaderRow, topLoser ? styles.leaderRowDivider : null, { borderBottomColor: T.borderSubtle }]}>
               <View style={styles.leaderLeft}>
@@ -324,7 +327,7 @@ export function HistoryNetProfitLossScreen() {
                 <View>
                   <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topWinner.symbol)}</Text>
                   <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
-                    {topWinner.side.toUpperCase()} | {topWinner.volume.toFixed(2)} lots
+                    {t(topWinner.side.toUpperCase())} | {topWinner.volume.toFixed(2)} {t('lots')}
                   </Text>
                 </View>
               </View>
@@ -340,7 +343,7 @@ export function HistoryNetProfitLossScreen() {
                 <View>
                   <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topLoser.symbol)}</Text>
                   <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
-                    {topLoser.side.toUpperCase()} | {topLoser.volume.toFixed(2)} lots
+                    {t(topLoser.side.toUpperCase())} | {topLoser.volume.toFixed(2)} {t('lots')}
                   </Text>
                 </View>
               </View>
@@ -348,7 +351,7 @@ export function HistoryNetProfitLossScreen() {
             </View>
           ) : null}
           {!topWinner && !topLoser ? (
-            <Text style={[styles.emptyText, { color: T.textMuted }]}>No position contributors available yet.</Text>
+            <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No position contributors available yet.')}</Text>
           ) : null}
         </View>
       </ScrollView>

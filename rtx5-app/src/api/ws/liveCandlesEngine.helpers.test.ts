@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT,
   buildQuoteRolloverCandle,
   mergeFetchedHistoryIntoWindow,
+  shouldBackfillBootstrapHistory,
   shouldAcceptBootstrapHistory,
 } from './liveCandlesEngine.helpers';
 
@@ -92,4 +94,11 @@ test('shouldAcceptBootstrapHistory rejects thin bootstrap history windows', () =
     ),
     false,
   );
+});
+
+test('shouldBackfillBootstrapHistory only schedules a full fetch after a short first-paint load', () => {
+  assert.equal(shouldBackfillBootstrapHistory(FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT, FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT), true);
+  assert.equal(shouldBackfillBootstrapHistory(0, FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT), false);
+  assert.equal(shouldBackfillBootstrapHistory(500, 500), false);
+  assert.equal(shouldBackfillBootstrapHistory(500, FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT), false);
 });

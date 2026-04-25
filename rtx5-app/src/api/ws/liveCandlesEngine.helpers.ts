@@ -6,6 +6,18 @@ import {
 } from '../../domain/candles';
 import type { Candle } from '../../state/tradingState';
 
+export const FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT = Math.min(DEFAULT_CANDLE_HISTORY_LIMIT, 180);
+
+export const shouldBackfillBootstrapHistory = (
+  loadedCount: number,
+  requestedLimit: number,
+  fullLimit: number = DEFAULT_CANDLE_HISTORY_LIMIT,
+): boolean =>
+  loadedCount > 0 &&
+  requestedLimit > 0 &&
+  requestedLimit < fullLimit &&
+  loadedCount < fullLimit;
+
 /**
  * When the engine has not observed any live bucket yet and the first quote
  * lands in the immediate bucket after REST history, using the previous close

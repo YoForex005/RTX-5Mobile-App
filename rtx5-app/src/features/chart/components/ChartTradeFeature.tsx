@@ -17,6 +17,7 @@ import {
   shouldShowChartTradeSheetMarketExecutionButtons,
 } from '../chartTradeInteractionUtils';
 import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph';
+import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
 const FOOTER_TRADE_DOCK_EDIT_GAP = 40;  // gap between the sell, lot, buy layout to the keyboard 
@@ -127,6 +128,7 @@ function ChartTradeVolumeSection({
   handlers: any;
   useMtPendingTradeSheetLayout: boolean;
 }) {
+  const { t } = useTranslation();
   const isMarginMode = sheet.chartTradeVolumeDisplayMode === 'margin';
 
   return (
@@ -137,7 +139,7 @@ function ChartTradeVolumeSection({
         unstable_pressDelay={0}
       >
         <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
-          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Volume</Text>
+          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Volume')}</Text>
           <View style={styles.chartTradeVolumeValueGroup}>
             <Text
               style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
@@ -180,7 +182,7 @@ function ChartTradeVolumeSection({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {sheet.chartTradeVolumeModeLabel}
+            {t(sheet.chartTradeVolumeModeLabel)}
           </Text>
           <View
             style={[
@@ -209,16 +211,16 @@ function ChartTradeVolumeSection({
             style={[styles.chartTradeMetaText, styles.chartTradeMetaSummary, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}
             numberOfLines={1}
           >
-            Lots: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.passiveLotDisplay}</Text>{'  '}
-            Max: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.chartTradeMaxVolumeDisplay}</Text>
+            {t('Lots')}: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.passiveLotDisplay}</Text>{'  '}
+            {t('Max')}: <Text style={styles.chartTradeMetaSummaryValue}>{sheet.chartTradeMaxVolumeDisplay}</Text>
           </Text>
         ) : (
           <Text style={[styles.chartTradeMetaLink, useMtPendingTradeSheetLayout && styles.chartTradeMetaLinkPending]}>
-            Margin <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text>
+            {t('Margin')} <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text>
           </Text>
         )}
         <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-          Free: {sheet.accountFreeMargin} {sheet.accountCurrency}
+          {t('Free')}: {sheet.accountFreeMargin} {sheet.accountCurrency}
         </Text>
       </View>
     </>
@@ -236,6 +238,7 @@ function ChartTradeSheetContent({
   tabs,
   sheetScrollRef,
 }: ChartTradeSheetContentProps) {
+  const { t } = useTranslation();
   const {
     LiveTradeButtons,
     ChartTradeVolumeSlider,
@@ -332,7 +335,7 @@ function ChartTradeSheetContent({
                 ]}
                 numberOfLines={1}
               >
-                {option}
+                {t(option)}
               </Text>
             </Pressable>
           );
@@ -359,7 +362,7 @@ function ChartTradeSheetContent({
             onPress={handlers.onOpenPriceStepper}
             unstable_pressDelay={0}
           >
-            <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Price</Text>
+            <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
             <View style={styles.chartTradeVolumeValueGroup}>
               <Text
                 style={[
@@ -404,7 +407,7 @@ function ChartTradeSheetContent({
             unstable_pressDelay={0}
           >
             <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
-              Stop Limit Price
+              {t('Stop Limit Price')}
             </Text>
             <View style={styles.chartTradeVolumeValueGroup}>
               <Text
@@ -443,7 +446,7 @@ function ChartTradeSheetContent({
           unstable_pressDelay={0}
         >
           <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
-            {sheet.chartTradeSlEnabled || sheet.chartTradeTpEnabled ? 'Edit Stop Levels' : 'Add Stop Levels'}
+            {sheet.chartTradeSlEnabled || sheet.chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
           </Text>
         </Pressable>
 
@@ -459,7 +462,7 @@ function ChartTradeSheetContent({
                     onPress={() => handlers.onSelectStopUnit(unit.key)}
                     unstable_pressDelay={0}
                   >
-                    <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{unit.label}</Text>
+                    <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
                   </Pressable>
                 );
               })}
@@ -532,8 +535,8 @@ function ChartTradeSheetContent({
             onPress={handlers.onOpenExpirationMenu}
             unstable_pressDelay={0}
           >
-            <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>Expiration:</Text>
-            <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{sheet.chartTradeExpiration}</Text>
+            <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
+            <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{t(sheet.chartTradeExpiration)}</Text>
             <Ionicons name="swap-vertical" size={12} color={colors.blue} />
           </Pressable>
         ) : null}
@@ -549,7 +552,7 @@ function ChartTradeSheetContent({
                     value={sheet.chartTradeComment}
                     onChangeText={handlers.onChangeComment}
                     onBlur={handlers.onBlurComment}
-                    placeholder='Comment'
+                    placeholder={t('Comment')}
                     placeholderTextColor='#94A3B8'
                     maxLength={31}
                     multiline={false}
@@ -590,7 +593,7 @@ function ChartTradeSheetContent({
                     styles.chartTradeCommentInlineLabel,
                   ]}
                 >
-                  Comment:
+                  {t('Comment')}:
                 </Text>
                 <Text
                   style={[
@@ -601,7 +604,7 @@ function ChartTradeSheetContent({
                   ]}
                   numberOfLines={1}
                 >
-                  {sheet.chartTradeComment.trim() || 'Add comment'}
+                  {sheet.chartTradeComment.trim() || t('Add comment')}
                 </Text>
               </Pressable>
             )}
@@ -642,7 +645,7 @@ function ChartTradeSheetContent({
                 ]}
                 numberOfLines={1}
               >
-                {`Place ${sheet.chartTradeOrderType}`}
+                {`${t('Place')} ${t(sheet.chartTradeOrderType)}`}
               </Text>
             </Pressable>
           </>
@@ -696,6 +699,7 @@ function ChartTradeSheetPinnedHeader({
   };
   components: TradeFeatureComponents;
 }) {
+  const { t } = useTranslation();
   const useMtPendingTradeSheetLayout = sheet.useMtPendingTradeSheetLayout;
 
   return (
@@ -784,7 +788,7 @@ function ChartTradeSheetPinnedHeader({
                 ]}
                 numberOfLines={1}
               >
-                {option}
+                {t(option)}
               </Text>
             </Pressable>
           );
@@ -821,6 +825,7 @@ function ChartTradeSheetBody({
   sheet: any;
   handlers: any;
 }) {
+  const { t } = useTranslation();
   const {
     LiveTradeButtons,
     ChartTradeVolumeSlider,
@@ -852,7 +857,7 @@ function ChartTradeSheetBody({
           onPress={handlers.onOpenPriceStepper}
           unstable_pressDelay={0}
         >
-          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>Price</Text>
+          <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
           <View style={styles.chartTradeVolumeValueGroup}>
             <Text
               style={[
@@ -897,7 +902,7 @@ function ChartTradeSheetBody({
           unstable_pressDelay={0}
         >
           <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
-            Stop Limit Price
+            {t('Stop Limit Price')}
           </Text>
           <View style={styles.chartTradeVolumeValueGroup}>
             <Text
@@ -936,7 +941,7 @@ function ChartTradeSheetBody({
         unstable_pressDelay={0}
       >
         <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
-          {sheet.chartTradeSlEnabled || sheet.chartTradeTpEnabled ? 'Edit Stop Levels' : 'Add Stop Levels'}
+          {sheet.chartTradeSlEnabled || sheet.chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
         </Text>
       </Pressable>
 
@@ -952,7 +957,7 @@ function ChartTradeSheetBody({
                   onPress={() => handlers.onSelectStopUnit(unit.key)}
                   unstable_pressDelay={0}
                 >
-                  <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{unit.label}</Text>
+                <Text style={[styles.chartTradeStopUnitTabText, active && styles.chartTradeStopUnitTabTextActive]}>{t(unit.label)}</Text>
                 </Pressable>
               );
             })}
@@ -1025,8 +1030,8 @@ function ChartTradeSheetBody({
           onPress={handlers.onOpenExpirationMenu}
           unstable_pressDelay={0}
         >
-          <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>Expiration:</Text>
-          <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{sheet.chartTradeExpiration}</Text>
+          <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
+          <Text style={[styles.chartTradeInfoValue, useMtPendingTradeSheetLayout && styles.chartTradeInfoValuePending]}>{t(sheet.chartTradeExpiration)}</Text>
           <Ionicons name="swap-vertical" size={12} color={colors.blue} />
         </Pressable>
       ) : null}
@@ -1042,7 +1047,7 @@ function ChartTradeSheetBody({
                   value={sheet.chartTradeComment}
                   onChangeText={handlers.onChangeComment}
                   onBlur={handlers.onBlurComment}
-                  placeholder='Comment'
+                  placeholder={t('Comment')}
                   placeholderTextColor='#94A3B8'
                   maxLength={31}
                   multiline={false}
@@ -1083,7 +1088,7 @@ function ChartTradeSheetBody({
                   styles.chartTradeCommentInlineLabel,
                 ]}
               >
-                Comment:
+                {t('Comment')}:
               </Text>
               <Text
                 style={[
@@ -1094,7 +1099,7 @@ function ChartTradeSheetBody({
                 ]}
                 numberOfLines={1}
               >
-                {sheet.chartTradeComment.trim() || 'Add comment'}
+                {sheet.chartTradeComment.trim() || t('Add comment')}
               </Text>
             </Pressable>
           )}
@@ -1135,7 +1140,7 @@ function ChartTradeSheetBody({
               ]}
               numberOfLines={1}
             >
-              {`Place ${sheet.chartTradeOrderType}`}
+              {`${t('Place')} ${t(sheet.chartTradeOrderType)}`}
             </Text>
           </Pressable>
         </>
