@@ -113,7 +113,7 @@ export function SettingsScreen() {
     { title: 'New Account', sub: '', icon: 'person-outline' },
     { title: 'Mailbox', sub: 'High Importance News', icon: 'mail-outline' },
     { title: 'News', sub: 'WTI, US-Iran Talks, OPEC+', icon: 'newspaper-outline' },
-    { title: 'Tradays', sub: 'Economic Calendar', icon: 'calendar-outline' },
+    { title: 'Economic Calender', sub: '', icon: 'calendar-outline' },
     { title: 'Chat & Messages', sub: 'Sign in to MQL5.community', icon: 'chatbubble-outline' },
     { title: 'Traders Community', sub: '', icon: 'people-outline' },
     { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline' },
@@ -265,7 +265,7 @@ export function SettingsScreen() {
                 <View style={styles.chipRow}>
                   <View style={styles.chip}>
                     <Ionicons name="server-outline" size={12} color="#FFFFFF" />
-                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>MT5</Text>
+                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>Orrnn</Text>
                   </View>
                   <View style={styles.chip}>
                     <Ionicons name="shield-checkmark-outline" size={12} color="#FFFFFF" />
@@ -351,7 +351,7 @@ export function SettingsScreen() {
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles}
                 icon="calendar-outline" color="#1D4ED8"
-                title={t('Tradays')} sub={t('Economic Calendar')}
+                title={t('Economic Calender')} sub=""
                 onPress={() => router.push('/settings/economic-calendar')}
               />
             </View>

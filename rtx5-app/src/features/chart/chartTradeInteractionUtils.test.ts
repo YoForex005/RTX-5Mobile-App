@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildFooterLotPickerQuickAdjustments,
   buildFooterLotPickerValues,
+  resolveChartTradeSheetFrameHeight,
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
   resolveChartTradeSheetHostHeight,
@@ -549,6 +550,25 @@ test('resolveChartTradeSheetHostHeight freezes both shrink and growth while shee
       freezeHostHeight: false,
     }),
     700,
+  );
+});
+
+test('resolveChartTradeSheetFrameHeight keeps collapsed SL/TP sheet touch frame compact', () => {
+  assert.equal(
+    resolveChartTradeSheetFrameHeight({
+      chartTradeSheetMode: 'collapsed',
+      collapsedHeight: 120,
+      maxHeight: 684,
+    }),
+    120,
+  );
+  assert.equal(
+    resolveChartTradeSheetFrameHeight({
+      chartTradeSheetMode: 'expanded',
+      collapsedHeight: 120,
+      maxHeight: 684,
+    }),
+    684,
   );
 });
 

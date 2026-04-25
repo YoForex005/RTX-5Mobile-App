@@ -50,7 +50,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$10',
     popular: true,
     regulated: true,
-    server: 'Exness-MT5Trial14',
+    server: 'Exness-OrrnnTrial14',
   },
   'GTC Global Trade Capital Co. Limited': {
     domain: 'gtcfx.com',
@@ -68,7 +68,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$100',
     popular: false,
     regulated: true,
-    server: 'TradeSec-MT5Live',
+    server: 'TradeSec-OrrnnLive',
   },
   'GTC Global SA (Pty) Ltd': {
     domain: 'gtcsa.co.za',
@@ -86,7 +86,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$100',
     popular: false,
     regulated: true,
-    server: 'Flexy-MT5-Live',
+    server: 'Flexy-Orrnn-Live',
   },
   'Ascends Global Markets Limited': {
     domain: 'ascendsglobalmarkets.com',
@@ -95,7 +95,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$100',
     popular: false,
     regulated: true,
-    server: 'Ascends-MT5-Live',
+    server: 'Ascends-Orrnn-Live',
   },
   'Equiti Brokerage (Seychelles) Limited': {
     domain: 'equiti.com',
@@ -113,7 +113,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$1,000',
     popular: true,
     regulated: true,
-    server: 'Swissquote-MT5',
+    server: 'Swissquote-Orrnn',
   },
   'FP Markets LLC': {
     domain: 'fpmarkets.com',
@@ -131,7 +131,7 @@ const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
     minDeposit: '$50',
     popular: true,
     regulated: true,
-    server: 'Vantage-MT5-Live',
+    server: 'Vantage-Orrnn-Live',
   },
   'AMarkets LLC': {
     domain: 'amarkets.com',

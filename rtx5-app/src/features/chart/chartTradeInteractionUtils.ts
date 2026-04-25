@@ -120,6 +120,12 @@ type ChartTradeSheetHostHeightInput = {
   freezeHostHeight: boolean;
 };
 
+type ChartTradeSheetFrameHeightInput = {
+  chartTradeSheetMode: 'hidden' | 'collapsed' | 'expanded';
+  collapsedHeight: number;
+  maxHeight: number;
+};
+
 type FooterLotChevronStateInput = {
   lotSize: number;
   bounds?: TradeVolumeBounds;
@@ -471,6 +477,29 @@ export function resolveChartTradeSheetHostHeight({
   }
 
   return normalizedNextHeight;
+}
+
+export function resolveChartTradeSheetFrameHeight({
+  chartTradeSheetMode,
+  collapsedHeight,
+  maxHeight,
+}: ChartTradeSheetFrameHeightInput) {
+  const normalizedCollapsedHeight =
+    Number.isFinite(collapsedHeight) && collapsedHeight > 0
+      ? collapsedHeight
+      : 0;
+  const normalizedMaxHeight =
+    Number.isFinite(maxHeight) && maxHeight > 0
+      ? maxHeight
+      : 0;
+
+  if (chartTradeSheetMode === 'collapsed') {
+    return normalizedMaxHeight > 0
+      ? Math.min(normalizedMaxHeight, normalizedCollapsedHeight)
+      : normalizedCollapsedHeight;
+  }
+
+  return Math.max(normalizedCollapsedHeight, normalizedMaxHeight);
 }
 
 export function resolveKeyboardDockOffset({

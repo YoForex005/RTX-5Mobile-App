@@ -6719,6 +6719,7 @@ export function ChartScreen() {
         showInlineFooterWhileSheetOpen: showInlineFooterWhileChartTradeSheetOpen && !isChartExpanded && showChartTradeSheet,
         showInlineFooterDockWhileSheetOpen: false,
         chartTradeSheetFrozenLayerHeight,
+        chartTradeSheetCollapsedHeight,
         chartTradeSheetMaxHeight,
         chartTradeSheetAnimatedStyle,
         chartTradeSheetContentBottomPadding,

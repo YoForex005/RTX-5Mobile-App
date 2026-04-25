@@ -256,6 +256,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - 2026-04-25: Adjusted the native chart top-toolbar `SL/TP` entry so it opens only the compact trade-sheet header area: grab handle, symbol selector, `SL`/`TP` chips, expand arrow, and order-type tabs. Full volume/order controls now render only after expanding the sheet.
 - 2026-04-25: Stabilized the expanded native chart trade sheet while editing the comment field. The overlay comment input no longer hides the root tab bar, and the chart trade host freezes its measured height while sheet inputs are focused so Android keyboard/layout remeasurements cannot push the sheet downward.
 - 2026-04-25: Tightened the native chart trade-sheet max drag clamp so expanded `SL/TP` can move up only to the measured bottom of the `Chart` title header. The sheet may cover the symbol/header band when fully expanded, but it no longer drifts into the chart title area.
+- 2026-04-25: Fixed compact native chart `SL/TP` line dragging. The collapsed trade-sheet now uses a compact native touch frame instead of the full expanded sheet height, so the invisible sheet body no longer intercepts vertical drags on chart-side `SL` / `TP` preview lines.
 ## Test Checklist
 - [x] Unit: candle transforms and viewport math.
 - [x] Typecheck: native chart screen trading-layout and overlay changes compile with `npm run typecheck`.
@@ -271,6 +272,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: chart trade sheet body stays hidden in compact `SL/TP` mode and renders only after expand.
 - [x] Unit: chart trade sheet comment focus keeps the route height stable instead of hiding the tab bar or accepting keyboard-driven host remeasurements.
 - [x] Unit: chart trade sheet header lift clamps the expanded sheet below the chart title and stays disabled in fullscreen.
+- [x] Unit: compact `SL/TP` sheet touch frame remains collapsed so chart-side stop lines stay draggable.
 - [ ] Integration: timeframe and object state persistence.
 - [ ] E2E: open chart actions, open objects manager, switch timeframe.
 

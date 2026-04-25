@@ -1,5 +1,5 @@
 /**
- * Settings Feature UI: EconomicCalendarScreen (Tradays)
+ * Settings Feature UI: EconomicCalendarScreen
  *
  * Enterprise-grade economic calendar with glassmorphic cards,
  * animated impact indicators, expandable event detail panels,
@@ -459,8 +459,8 @@ export function EconomicCalendarScreen() {
                 <Ionicons name="calendar-outline" size={30} color={isDark ? '#818CF8' : '#4F46E5'} />
               </View>
               <View style={{ flex: 1, marginLeft: 6 }}>
-                <Text style={styles.heroTitle}>Economic Calendar</Text>
-                <Text style={styles.heroSub}>Powered by Tradays</Text>
+                <Text style={styles.heroTitle}>Economic Calender</Text>
+                <Text style={styles.heroSub}>Market events calendar</Text>
               </View>
               <Pressable style={styles.filterBtn} onPress={() => setFilterModalOpen(true)}>
                 <Ionicons name="options-outline" size={16} color={isDark ? '#A5B4FC' : '#4F46E5'} />

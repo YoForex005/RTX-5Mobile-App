@@ -316,7 +316,7 @@ export const settingsMenu = [
   { id: 'new-account', label: 'New Account', sub: '' },
   { id: 'mailbox', label: 'Mailbox', sub: 'The List of Instruments Affected by High Importance News' },
   { id: 'news', label: 'News', sub: 'WTI oil declines as US-Iran talks, OPEC+ output rumors cap gains' },
-  { id: 'tradays', label: 'Tradays', sub: 'Economic calendar' },
+  { id: 'tradays', label: 'Economic Calender', sub: 'Economic Calender' },
   { id: 'chat', label: 'Chat and Messages', sub: 'Sign in to MQL5.community' },
   { id: 'community', label: 'Traders Community', sub: '' },
   { id: 'algo', label: 'MQL5 Algo Trading', sub: '' },

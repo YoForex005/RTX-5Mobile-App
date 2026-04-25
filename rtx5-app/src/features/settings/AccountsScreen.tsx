@@ -255,7 +255,7 @@ export function AccountsScreen() {
             <View style={styles.activeFooter}>
               <View style={styles.statusRow}>
                 <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
-                <Text style={styles.statusText}>MT5</Text>
+                <Text style={styles.statusText}>Orrnn</Text>
                 <View style={styles.statusSep} />
                 <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
                 <Text style={styles.statusText}>{t('Gateway')}</Text>
@@ -365,7 +365,7 @@ export function AccountsScreen() {
                     <View style={styles.activeFooter}>
                       <View style={styles.statusRow}>
                         <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
-                        <Text style={styles.statusText}>MT5</Text>
+                        <Text style={styles.statusText}>Orrnn</Text>
                         <View style={styles.statusSep} />
                         <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
                         <Text style={styles.statusText}>{t('Gateway')}</Text>

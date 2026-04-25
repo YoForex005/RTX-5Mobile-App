@@ -120,7 +120,7 @@ function InnerLayout() {
           <Stack.Screen name='settings/news' options={{ title: t('News') }} />
           <Stack.Screen name='settings/brokers' options={{ title: t('Brokers') }} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
-          <Stack.Screen name='settings/economic-calendar' options={{ title: t('Tradays') }} />
+          <Stack.Screen name='settings/economic-calendar' options={{ title: t('Economic Calender') }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
         </Stack>
       </WebIPhoneFrame>
@@ -167,8 +167,8 @@ export default function RootLayout() {
         let mt5LoginNumber = Number(accountDetails.id);
 
         // AUTO-MIGRATE LEGACY SESSIONS:
-        // If id < 100000, it's a legacy database user_id (e.g. 92) instead of an MT5 login (e.g. 200074).
-        // We fetch the user's accounts list to find their true MT5 login without forcing them to log out.
+        // If id < 100000, it's a legacy database user_id (e.g. 92) instead of an Orrnn login (e.g. 200074).
+        // We fetch the user's accounts list to find their true Orrnn login without forcing them to log out.
         if (mt5LoginNumber < 100000) {
           try {
             const accounts = await getAccounts();

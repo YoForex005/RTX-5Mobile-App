@@ -13,6 +13,7 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
 import {
+  resolveChartTradeSheetFrameHeight,
   shouldRenderChartTradeSheetBody,
   shouldShowChartTradeSheetHandle,
   shouldShowChartTradeSheetMarketExecutionButtons,
@@ -1234,6 +1235,11 @@ export function ChartTradeOverlayLayer({
   const showSheetBody = shouldRenderChartTradeSheetBody({
     chartTradeSheetMode: sheet.chartTradeSheetMode,
   });
+  const chartTradeSheetFrameHeight = resolveChartTradeSheetFrameHeight({
+    chartTradeSheetMode: sheet.chartTradeSheetMode,
+    collapsedHeight: sheet.chartTradeSheetCollapsedHeight,
+    maxHeight: sheet.chartTradeSheetMaxHeight,
+  });
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
   const useFooterLotExternalInput =
     Platform.OS === 'android' &&
@@ -1271,9 +1277,9 @@ export function ChartTradeOverlayLayer({
             style={[
               styles.chartTradeSheetFrame,
               styles.chartTradeSheetOverlayFrame,
-              { height: sheet.chartTradeSheetMaxHeight },
+              { height: chartTradeSheetFrameHeight },
               tradeSheetFrameBottom > 0 && { bottom: tradeSheetFrameBottom },
-              sheet.chartTradeSheetAnimatedStyle,
+              sheet.chartTradeSheetMode !== 'collapsed' && sheet.chartTradeSheetAnimatedStyle,
             ]}
           >
             <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
