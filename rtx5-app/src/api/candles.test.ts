@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
   getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
+import {
+  DEFAULT_CANDLE_HISTORY_LIMIT,
+  MAX_CANDLE_SERIES_LENGTH,
+  getTimeframeSeconds,
+} from '../domain/candles';
 
 test('extractCandleHistoryPayload accepts raw array responses from /api/v2/candles', () => {
   const candles = [
@@ -62,8 +69,32 @@ test('buildCandleHistorySearchParams anchors history requests to a bounded recen
   assert.equal(params.get('to'), '1775738800');
 });
 
-test('getCandleHistoryRequestTimeframes includes weekly and monthly fallback aliases', () => {
-  assert.deepEqual(getCandleHistoryRequestTimeframes('W1'), ['W1', '1W']);
-  assert.deepEqual(getCandleHistoryRequestTimeframes('MN'), ['MN', '1MO']);
+test('buildCandleHistorySearchParams leaves explicit backend timeframe token casing intact', () => {
+  const params = buildCandleHistorySearchParams('1m', 500);
+
+  assert.equal(params.get('timeframe'), '1m');
+});
+
+test('getCandleHistoryRequestTimeframes requests only the selected backend timeframe', () => {
   assert.deepEqual(getCandleHistoryRequestTimeframes('M1'), ['M1']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('1m'), ['M1']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('H1'), ['H1']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('W1'), ['W1']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('MN'), ['MN']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('bad-period'), []);
+});
+
+test('default candle history request fills the chart buffer so M1 includes previous dates', () => {
+  assert.equal(DEFAULT_CANDLE_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH);
+  assert.ok(DEFAULT_CANDLE_HISTORY_LIMIT * getTimeframeSeconds('M1') > 24 * 60 * 60);
+});
+
+test('candle history loader keeps a public no-login backend fallback', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/api/candles.ts'), 'utf8');
+
+  assert.match(source, /PUBLIC_API_V1_BASE_URL/);
+  assert.match(source, /const hasAuthToken = Boolean\(getStoredAccessToken\(\)\)/);
+  assert.match(source, /fetchPublicCandleHistory\(/);
+  assert.match(source, /\/candles\/\$\{encodeURIComponent\(requestedSymbol\)\}/);
+  assert.match(source, /\/candles\?\$\{queryParams\.toString\(\)\}/);
 });

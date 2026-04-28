@@ -8,10 +8,12 @@ import NetInfo from '@react-native-community/netinfo';
 import { quotes as mockQuotes } from '../../mock/tradingData';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
-import { resolveQuoteTickTimestamp } from './quoteTimestamp';
+import { normalizeQuoteTickPayload, type QuoteTickEvent } from './quoteTickNormalizer';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
+const shouldLogCandleDiagnostics = (): boolean =>
+  typeof __DEV__ === 'undefined' || __DEV__;
 
 /**
  * High-frequency WebSocket service delivering minimal-latency Bid/Ask quote ticks.
@@ -43,6 +45,7 @@ export class QuotesWebSocketService {
   private lastRecordedFeedGapAt: number = 0;
   private watchdogInterval: NodeJS.Timeout | null = null;
   private tickListeners: Set<(tick: QuoteTickEvent) => void> = new Set();
+  private diagnosticLogCounts: Map<string, number> = new Map();
 
   private constructor() {
     this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
@@ -78,10 +81,12 @@ export class QuotesWebSocketService {
 
   public addTickListener(listener: (tick: QuoteTickEvent) => void): void {
     this.tickListeners.add(listener);
+    this.logCandleFeed('tick_listener_added', { listeners: this.tickListeners.size }, 10);
   }
 
   public removeTickListener(listener: (tick: QuoteTickEvent) => void): void {
     this.tickListeners.delete(listener);
+    this.logCandleFeed('tick_listener_removed', { listeners: this.tickListeners.size }, 10);
   }
 
   /**
@@ -224,11 +229,13 @@ export class QuotesWebSocketService {
    */
   public subscribe(symbols: string[]): void {
     this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, 1);
+    this.logCandleFeed('subscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
 
   public unsubscribe(symbols: string[]): void {
     this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, -1);
+    this.logCandleFeed('unsubscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
 
@@ -335,6 +342,18 @@ export class QuotesWebSocketService {
     return this.activeSymbols.size > 0;
   }
 
+  private logCandleFeed(event: string, details?: Record<string, unknown>, limit = 12): void {
+    if (!shouldLogCandleDiagnostics()) {
+      return;
+    }
+
+    const nextCount = (this.diagnosticLogCounts.get(event) ?? 0) + 1;
+    this.diagnosticLogCounts.set(event, nextCount);
+    if (nextCount <= limit || nextCount % 1000 === 0) {
+      console.log(`[CANDLE-FEED] ${event}`, details ? { ...details, count: nextCount } : { count: nextCount });
+    }
+  }
+
   private scheduleReconnect(delayMs: number): void {
     if (!this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
       return;
@@ -392,17 +411,19 @@ export class QuotesWebSocketService {
 
   private applyPayload(payload: any) {
     let hasUpdates = false;
+    const applyCandidate = (candidate: unknown) => {
+      if (this.applyTick(candidate)) hasUpdates = true;
+    };
+    const payloadRecord = payload && typeof payload === 'object' ? payload : null;
 
     if (Array.isArray(payload)) {
-      payload.forEach((d) => {
-        if (this.applyTick(d)) hasUpdates = true;
-      });
-    } else if (payload.symbol && payload.bid != null && payload.ask != null) {
-      if (this.applyTick(payload)) hasUpdates = true;
-    } else if (payload.data && Array.isArray(payload.data)) {
-      payload.data.forEach((d: any) => {
-        if (this.applyTick(d)) hasUpdates = true;
-      });
+      payload.forEach(applyCandidate);
+    } else if (payloadRecord?.data && Array.isArray(payloadRecord.data)) {
+      payloadRecord.data.forEach(applyCandidate);
+    } else if (payloadRecord?.data && typeof payloadRecord.data === 'object') {
+      applyCandidate(payloadRecord.data);
+    } else {
+      applyCandidate(payload);
     }
 
     if (hasUpdates) {
@@ -411,28 +432,69 @@ export class QuotesWebSocketService {
   }
 
   private applyTick(data: any): boolean {
-    if (!data.symbol || data.bid == null || data.ask == null) return false;
-    const normalizedTimestamp = resolveQuoteTickTimestamp(data);
+    const normalized = normalizeQuoteTickPayload(data, null);
+    if (!normalized.ok) {
+      this.logCandleFeed('tick_dropped_before_store', {
+        reason: normalized.reason,
+        rawKeys: normalized.rawKeys,
+      });
+      return false;
+    }
+
+    const normalizedUpdate = normalized.update;
+    const normalizedTimestamp = normalizedUpdate.timestamp;
+    if (normalizedUpdate.timestampSource === 'received_at') {
+      this.logCandleFeed('tick_timestamp_fallback_received_at', {
+        symbol: normalizedUpdate.symbol,
+        timestamp: normalizedTimestamp,
+        rawKeys: normalizedUpdate.rawKeys,
+      }, 20);
+    }
     data = {
-      ...data,
-      time: normalizedTimestamp,
-      timestamp: normalizedTimestamp,
-      t: normalizedTimestamp,
+      ...(data && typeof data === 'object' ? data : {}),
+      symbol: normalizedUpdate.symbol,
+      bid: normalizedUpdate.bid,
+      ask: normalizedUpdate.ask,
+      ...(normalizedUpdate.last === undefined ? {} : { last: normalizedUpdate.last }),
+      ...(normalizedTimestamp === null
+        ? {}
+        : {
+            time: normalizedTimestamp,
+            timestamp: normalizedTimestamp,
+            t: normalizedTimestamp,
+          }),
     };
 
-    this.emitTick({
-      symbol: String(data.symbol),
-      bid: data.bid,
-      ask: data.ask,
-      timestamp: normalizedTimestamp,
-    });
+    if (normalizedTimestamp !== null) {
+      this.emitTick({
+        symbol: normalizedUpdate.symbol,
+        bid: normalizedUpdate.bid,
+        ask: normalizedUpdate.ask,
+        last: normalizedUpdate.last,
+        timestamp: normalizedTimestamp,
+      });
+      this.logCandleFeed('tick_emitted_to_quote_listeners', {
+        symbol: normalizedUpdate.symbol,
+        bid: normalizedUpdate.bid,
+        ask: normalizedUpdate.ask,
+        timestamp: normalizedTimestamp,
+        rawKeys: normalizedUpdate.rawKeys,
+      }, 8);
+    } else {
+      this.logCandleFeed('tick_missing_timestamp_for_candles', {
+        symbol: normalizedUpdate.symbol,
+        bid: normalizedUpdate.bid,
+        ask: normalizedUpdate.ask,
+        rawKeys: normalizedUpdate.rawKeys,
+      }, 20);
+    }
 
     // Preserve intra-flush wick extremes. When several ticks arrive within
     // the same event-loop turn, naively overwriting the pending entry would
     // discard any spike high or dip low, leaving the candle wick incomplete.
     // We carry forward bidHigh / bidLow so the candle engine can replay the
     // extremes and grow the wick on both sides before settling on the close.
-    const existing = this.pendingUpdates.get(data.symbol);
+    const existing = this.pendingUpdates.get(normalizedUpdate.symbol);
     if (existing) {
       const prevHigh = typeof existing.bidHigh === 'number' ? existing.bidHigh : existing.bid;
       const prevLow = typeof existing.bidLow === 'number' ? existing.bidLow : existing.bid;
@@ -445,7 +507,7 @@ export class QuotesWebSocketService {
       data = { ...data, bidHigh: data.bid, bidLow: data.bid };
     }
 
-    this.pendingUpdates.set(data.symbol, data);
+    this.pendingUpdates.set(normalizedUpdate.symbol, data);
     return true;
   }
 
@@ -465,9 +527,9 @@ export class QuotesWebSocketService {
     }
 
     // UI consumers do not need every inbound socket message to force a React
-    // render immediately. The canonical candle engine already receives ticks
-    // synchronously via `emitTick()`, so the store/UI path can safely coalesce
-    // to the next visual frame and avoid saturating the JS thread.
+    // render immediately. Direct quote listeners receive ticks synchronously
+    // via `emitTick()`, so the store/UI path can safely coalesce to the next
+    // visual frame and avoid saturating the JS thread.
     this.flushScheduled = true;
     const commitFlush = () => {
       this.flushAnimationFrame = null;
@@ -532,7 +594,7 @@ export class QuotesWebSocketService {
           newQuotes[symbol] = entry;
         } else {
           const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
-          const volume = data.volume ?? (existing.volume ? existing.volume + (Math.floor(Math.random() * 8) + 1) : (spec?.volume ?? 0));
+          const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
 
           // Single object creation — merge existing + server data in one allocation
           const updated: any = {};
@@ -559,11 +621,14 @@ export class QuotesWebSocketService {
   }
 }
 
-export type QuoteTickEvent = {
-  symbol: string;
-  bid: number;
-  ask: number;
-  timestamp: number;
+export type { QuoteTickEvent } from './quoteTickNormalizer';
+
+type GlobalQuotesWebSocketRegistry = typeof globalThis & {
+  __RTX5_QUOTES_WS_SERVICE__?: QuotesWebSocketService;
 };
 
-export const quotesWsService = QuotesWebSocketService.getInstance();
+const quotesWebSocketRegistry = globalThis as GlobalQuotesWebSocketRegistry;
+
+export const quotesWsService =
+  quotesWebSocketRegistry.__RTX5_QUOTES_WS_SERVICE__ ??
+  (quotesWebSocketRegistry.__RTX5_QUOTES_WS_SERVICE__ = QuotesWebSocketService.getInstance());

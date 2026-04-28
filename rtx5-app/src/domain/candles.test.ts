@@ -259,7 +259,7 @@ test('hasDetachedShortCandleTail ignores contiguous and longer-tail series', () 
   );
 });
 
-test('isTrustworthyCandleBootstrapSeed rejects thin live-only slices and detached short tails', () => {
+test('isTrustworthyCandleBootstrapSeed rejects thin live-only slices', () => {
   assert.equal(
     isTrustworthyCandleBootstrapSeed(
       [
@@ -285,11 +285,11 @@ test('isTrustworthyCandleBootstrapSeed rejects thin live-only slices and detache
       ],
       'M1',
     ),
-    false,
+    true,
   );
 });
 
-test('isTrustworthyCandleBootstrapSeed accepts contiguous chart seeds with enough context', () => {
+test('isTrustworthyCandleBootstrapSeed accepts backend chart seeds with enough context', () => {
   assert.equal(
     isTrustworthyCandleBootstrapSeed(
       [
@@ -454,15 +454,15 @@ test('materializeCanonicalHistoryAndLiveCandles drops stale history when the liv
       { time: 120, open: 1.12, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
     ],
     [
-      { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
-      { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+      { time: 420, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+      { time: 480, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
     ],
     'M1',
   );
 
   assert.deepEqual(materialized, [
-    { time: 300, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
-    { time: 360, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
+    { time: 420, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+    { time: 480, open: 1.23, high: 1.27, low: 1.22, close: 1.25, volume: 5 },
   ]);
 });
 
@@ -539,33 +539,25 @@ test('mergeCandleUpdate preserves wick extremes when a live quote tick moves the
   });
 });
 
-test('applyLivePriceToCandleSeries updates the active bucket from quote ticks', () => {
+test('applyLivePriceToCandleSeries leaves backend candle series unchanged', () => {
+  const candles = [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+  ];
   const updated = applyLivePriceToCandleSeries(
-    [
-      {
-        time: 1776071280,
-        open: 1.342825,
-        high: 1.34289,
-        low: 1.342795,
-        close: 1.342875,
-        volume: 97,
-      },
-    ],
+    candles,
     1.34291,
     1776071307276,
     'M1',
   );
 
-  assert.deepEqual(updated, [
-    {
-      time: 1776071280,
-      open: 1.342825,
-      high: 1.34291,
-      low: 1.342795,
-      close: 1.34291,
-      volume: 97,
-    },
-  ]);
+  assert.equal(updated, candles);
 });
 
 test('applyLivePriceToCandleSeries returns the existing series for duplicate no-op live ticks', () => {
@@ -590,35 +582,25 @@ test('applyLivePriceToCandleSeries returns the existing series for duplicate no-
   assert.equal(updated, candles);
 });
 
-test('applyLivePriceToCandleSeries appends a new bucket when the live quote rolls over', () => {
+test('applyLivePriceToCandleSeries does not append quote-derived buckets', () => {
+  const candles = [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+  ];
   const updated = applyLivePriceToCandleSeries(
-    [
-      {
-        time: 1776071280,
-        open: 1.342825,
-        high: 1.34289,
-        low: 1.342795,
-        close: 1.342875,
-        volume: 97,
-      },
-    ],
+    candles,
     1.34295,
     1776071341000,
     'M1',
   );
 
-  assert.equal(updated.length, 2);
-  // Immediate rollover keeps the live handoff continuous by opening the new
-  // bucket from the previous close until recent REST history heals the true
-  // bucket open.
-  assert.deepEqual(updated[1], {
-    time: 1776071340,
-    open: 1.342875,
-    high: 1.34295,
-    low: 1.342875,
-    close: 1.34295,
-    volume: 0,
-  });
+  assert.equal(updated, candles);
 });
 
 test('hasExcessiveLivePriceGap flags stale series that require a history resync', () => {
@@ -641,18 +623,19 @@ test('hasExcessiveLivePriceGap flags stale series that require a history resync'
   assert.equal(needsResync, true);
 });
 
-test('applyLivePriceToCandleSeries can append the current live bucket even when history is stale', () => {
+test('applyLivePriceToCandleSeries ignores sparse quote append options', () => {
+  const candles = [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+  ];
   const updated = applyLivePriceToCandleSeries(
-    [
-      {
-        time: 1776071280,
-        open: 1.342825,
-        high: 1.34289,
-        low: 1.342795,
-        close: 1.342875,
-        volume: 97,
-      },
-    ],
+    candles,
     1.34325,
     1776071701000,
     'M1',
@@ -662,27 +645,7 @@ test('applyLivePriceToCandleSeries can append the current live bucket even when 
     },
   );
 
-  // Sparse append while a resync is in flight: intermediate buckets are left
-  // missing (not fabricated with flat bars), and the new bar opens at the
-  // tick's own price.
-  assert.deepEqual(updated, [
-    {
-      time: 1776071280,
-      open: 1.342825,
-      high: 1.34289,
-      low: 1.342795,
-      close: 1.342875,
-      volume: 97,
-    },
-    {
-      time: 1776071700,
-      open: 1.34325,
-      high: 1.34325,
-      low: 1.34325,
-      close: 1.34325,
-      volume: 0,
-    },
-  ]);
+  assert.equal(updated, candles);
 });
 
 test('materializeHistoryAndLiveCandles drops stale history when the live stream is detached', () => {
@@ -719,6 +682,22 @@ test('materializeHistoryAndLiveCandles drops stale history when the live stream 
   );
 
   assert.deepEqual(materialized, [
+    {
+      time: 1776071280,
+      open: 1.342825,
+      high: 1.34289,
+      low: 1.342795,
+      close: 1.342875,
+      volume: 97,
+    },
+    {
+      time: 1776071340,
+      open: 1.342875,
+      high: 1.34294,
+      low: 1.34281,
+      close: 1.3429,
+      volume: 88,
+    },
     {
       time: 1776071760,
       open: 1.34325,
@@ -786,7 +765,7 @@ test('materializeHistoryAndLiveCandles overlays live candles onto recent history
       high: 1.34299,
       low: 1.3428,
       close: 1.34296,
-      volume: 88,
+      volume: 0,
     },
     {
       time: 1776071400,
@@ -966,13 +945,13 @@ test('mergeRecentHistoryIntoCandles heals the active candle wick without resetti
       open: 1.342825,
       high: 1.34299,
       low: 1.34277,
-      close: 1.34291,
+      close: 1.34288,
       volume: 101,
     },
   ]);
 });
 
-test('mergeRecentHistoryIntoCandles corrects the active candle open while preserving the latest live close', () => {
+test('mergeRecentHistoryIntoCandles corrects the active candle open using authoritative history values', () => {
   const healed = mergeRecentHistoryIntoCandles(
     [
       {
@@ -1003,7 +982,7 @@ test('mergeRecentHistoryIntoCandles corrects the active candle open while preser
       open: 1.342825,
       high: 1.34299,
       low: 1.34277,
-      close: 1.34295,
+      close: 1.34288,
       volume: 101,
     },
   ]);
@@ -1088,7 +1067,7 @@ test('mergeRecentHistoryIntoCandles backfills missing history behind a sparse li
       open: 1.3432,
       high: 1.34345,
       low: 1.34305,
-      close: 1.34336,
+      close: 1.34331,
       volume: 101,
     },
   ]);

@@ -18,6 +18,8 @@ import {
   formatTradeVolume,
   type TradeVolumeBounds,
 } from '../../../utils/tradeVolume';
+import type { TradeSide } from '../../../domain/tradeSide';
+import { buildChartMarketOrderPayload, getChartTradeAction } from '../chartTradeActions';
 import { resolveFooterLotChevronState } from '../chartTradeInteractionUtils';
 
 type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
@@ -27,7 +29,7 @@ type TradeFeedback = {
   type: 'success' | 'error';
   title?: string;
   message?: string;
-  side?: 'buy' | 'sell';
+  side?: TradeSide;
   symbol?: string;
   ticket?: string;
   price?: number;
@@ -51,7 +53,6 @@ type ChartTradeButtonsProps = {
   onLotDraftBlur?: () => void;
   onLotDraftEndEditing?: (event: any) => void;
   onLotDraftSubmit?: (event?: any) => void;
-  useExternalLotInput?: boolean;
   onDecreaseLot?: () => void;
   onIncreaseLot?: () => void;
   variant?: 'compact' | 'mt5-market';
@@ -60,9 +61,47 @@ type ChartTradeButtonsProps = {
   sellColor: string;
 };
 
+const CHART_TRADE_TAP_RELEASE_DELAY_MS = 350;
+
+let chartTradeButtonSharedLockSide: TradeSide | null = null;
+let chartTradeButtonSharedLockReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+const acquireChartTradeButtonSharedLock = (side: TradeSide) => {
+  if (chartTradeButtonSharedLockSide !== null) {
+    return false;
+  }
+  if (chartTradeButtonSharedLockReleaseTimer) {
+    clearTimeout(chartTradeButtonSharedLockReleaseTimer);
+    chartTradeButtonSharedLockReleaseTimer = null;
+  }
+  chartTradeButtonSharedLockSide = side;
+  return true;
+};
+
+const releaseChartTradeButtonSharedLock = (side: TradeSide, delayMs = 0) => {
+  if (chartTradeButtonSharedLockSide !== side) {
+    return;
+  }
+  if (chartTradeButtonSharedLockReleaseTimer) {
+    clearTimeout(chartTradeButtonSharedLockReleaseTimer);
+    chartTradeButtonSharedLockReleaseTimer = null;
+  }
+  if (delayMs > 0) {
+    chartTradeButtonSharedLockReleaseTimer = setTimeout(() => {
+      if (chartTradeButtonSharedLockSide === side) {
+        chartTradeButtonSharedLockSide = null;
+      }
+      chartTradeButtonSharedLockReleaseTimer = null;
+    }, delayMs);
+    return;
+  }
+  chartTradeButtonSharedLockSide = null;
+};
+
 const baseStyles = StyleSheet.create({
   chartTradeMarketActionRow: {
     flexDirection: 'row',
+    direction: 'ltr',
     gap: 12,
     marginTop: 2,
   },
@@ -96,6 +135,7 @@ const baseStyles = StyleSheet.create({
   },
   tradeControlsRow: {
     flexDirection: 'row',
+    direction: 'ltr',
     alignItems: 'stretch',
     marginBottom: 0,
     gap: 4,
@@ -256,7 +296,6 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onLotDraftBlur,
   onLotDraftEndEditing,
   onLotDraftSubmit,
-  useExternalLotInput = false,
   onDecreaseLot,
   onIncreaseLot,
   variant = 'compact',
@@ -291,27 +330,123 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     : undefined;
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
+  const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
-  const [activeSide, setActiveSide] = React.useState<'buy' | 'sell' | null>(null);
+  const [activeSide, setActiveSide] = React.useState<TradeSide | null>(null);
+  const activeSideResetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tradeTapLockRef = React.useRef(false);
+  const tradeTapLockSideRef = React.useRef<TradeSide | null>(null);
   const themeStyles = isDark ? darkStyles : lightStyles;
+  const sellAction = getChartTradeAction('sell');
+  const buyAction = getChartTradeAction('buy');
+  const isCurrentChartSymbol = currentChartSymbol === symbol;
 
-  const handleTrade = (side: 'buy' | 'sell') => {
+  React.useEffect(() => () => {
+    if (activeSideResetTimeoutRef.current) {
+      clearTimeout(activeSideResetTimeoutRef.current);
+      activeSideResetTimeoutRef.current = null;
+    }
+    tradeTapLockRef.current = false;
+    if (tradeTapLockSideRef.current) {
+      releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
+      tradeTapLockSideRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeSideResetTimeoutRef.current) {
+      clearTimeout(activeSideResetTimeoutRef.current);
+      activeSideResetTimeoutRef.current = null;
+    }
+    setActiveSide(null);
+    tradeTapLockRef.current = false;
+    if (tradeTapLockSideRef.current) {
+      releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
+      tradeTapLockSideRef.current = null;
+    }
+  }, [symbol]);
+
+  const markActiveTradeSide = (side: TradeSide) => {
+    if (activeSideResetTimeoutRef.current) {
+      clearTimeout(activeSideResetTimeoutRef.current);
+    }
     setActiveSide(side);
-    setTimeout(() => setActiveSide(null), 800);
+    activeSideResetTimeoutRef.current = setTimeout(() => {
+      setActiveSide((currentSide) => (currentSide === side ? null : currentSide));
+      activeSideResetTimeoutRef.current = null;
+    }, 800);
+  };
+
+  const handleTrade = (side: TradeSide) => {
+    const action = getChartTradeAction(side);
+    const stateChartSymbol = useUserPreferences.getState().chartSymbol;
+    if (stateChartSymbol !== symbol) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        side,
+        buttonPressed: action.buttonPressed,
+        symbol,
+        currentChartSymbol: stateChartSymbol,
+        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+        sidePassedToHandler: action.side,
+        ignored: true,
+        reason: 'stale-symbol',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    const sharedLockSide = chartTradeButtonSharedLockSide;
+    if (tradeTapLockRef.current || sharedLockSide !== null || isPending) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        side,
+        buttonPressed: action.buttonPressed,
+        symbol,
+        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+        sidePassedToHandler: action.side,
+        ignored: true,
+        lockSide: sharedLockSide,
+        reason: tradeTapLockRef.current ? 'tap-lock' : sharedLockSide !== null ? 'shared-tap-lock' : 'mutation-pending',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    if (!acquireChartTradeButtonSharedLock(action.side)) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        side,
+        buttonPressed: action.buttonPressed,
+        symbol,
+        displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+        sidePassedToHandler: action.side,
+        ignored: true,
+        lockSide: chartTradeButtonSharedLockSide,
+        reason: 'shared-tap-lock',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    tradeTapLockRef.current = true;
+    tradeTapLockSideRef.current = action.side;
+    const releaseTradeTapLock = (delayMs = 0) => {
+      const lockedSide = tradeTapLockSideRef.current;
+      tradeTapLockRef.current = false;
+      tradeTapLockSideRef.current = null;
+      if (lockedSide) {
+        releaseChartTradeButtonSharedLock(lockedSide, delayMs);
+      }
+    };
+    markActiveTradeSide(action.side);
     const volume = Number(lotSize);
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
     const authState = useUserPreferences.getState();
     const authToken = authState.accountDetails?.credentials?.accessToken;
     const tradingLogin = resolveTradingLogin();
 
-    console.log('[Trade] tap', {
+    console.log('[TRADE-BUTTON-PRESS]', {
       side,
+      buttonPressed: action.buttonPressed,
       symbol,
-      oneClickAccepted,
-      volume,
-      isPending,
-      hasAuthToken: !!authToken,
-      tradingLogin,
+      displayedLabel: variant === 'mt5-market' ? action.marketLabel : action.displayLabel,
+      sidePassedToHandler: action.side,
+      timestamp: new Date().toISOString(),
     });
 
     if (!authToken) {
@@ -320,8 +455,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         type: 'error',
         title: 'Sign In Required',
         message: 'Please sign in to your trading account before placing orders.',
-        side,
+        side: action.side,
       });
+      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
@@ -331,8 +467,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         type: 'error',
         title: 'No Trading Account',
         message: 'No active trading account is selected. Open the account menu and choose one, then try again.',
-        side,
+        side: action.side,
       });
+      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
@@ -342,48 +479,74 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         type: 'error',
         title: 'Invalid Lot Size',
         message: `Volume must be greater than 0. Current: ${lotSize}`,
-        side,
+        side: action.side,
       });
+      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       return;
     }
 
     if (oneClickAccepted) {
       console.log('[Trade] one-click path, login=', tradingLogin);
+      const payload = buildChartMarketOrderPayload({
+        accountLogin: tradingLogin,
+        symbol,
+        side: action.side,
+        volume,
+        comment: trimmedComment,
+      });
+      console.log('[TRADE-PAYLOAD]', {
+        symbol: payload.symbol,
+        side: payload.side,
+        action: payload.side,
+        orderType: action.orderType,
+        command: payload.side,
+        tradeType: action.orderType,
+        volume,
+        priceSource: action.priceSource,
+        rawPayload: payload,
+      });
 
       placeOrder(
-        {
-          account_login: tradingLogin,
-          symbol,
-          side,
-          volume,
-          ...(trimmedComment ? { comment: trimmedComment } : {}),
-        },
+        payload,
         {
           onSuccess: (data: any) => {
-            console.log('[Trade] success', data);
+            console.log('[TRADE-RESPONSE]', {
+              requestSide: action.side,
+              result: data?.status ?? 'success',
+              backendSide: data?.side ?? null,
+              rawResponse: data,
+            });
             const ticket = data?.position_ticket || data?.order_ticket || data?.ticket || 'Confirmed';
-            const execPrice = side === 'buy' ? latestAsk : latestBid;
+            const execPrice = action.side === 'buy' ? latestAsk : latestBid;
             onTradeResult?.({
               visible: true,
               type: 'success',
-              side,
+              side: action.side,
               symbol,
               ticket: String(ticket),
               price: execPrice,
               volume,
               executedAt: new Date().toLocaleTimeString(),
             });
+            releaseTradeTapLock();
           },
           onError: (err: any) => {
             const feedback = classifyTradingError(err, { action: 'place-order' });
+            console.warn('[TRADE-RESPONSE]', {
+              requestSide: action.side,
+              result: 'error',
+              backendSide: err?.response?.data?.side ?? err?.data?.side ?? null,
+              rawResponse: err?.response?.data ?? err?.data ?? err,
+            });
             console.warn('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
             onTradeResult?.({
               visible: true,
               type: 'error',
               title: feedback.title,
               message: feedback.message,
-              side,
+              side: action.side,
             });
+            releaseTradeTapLock();
           },
         },
       );
@@ -394,10 +557,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           pathname: '/trade/order-ticket',
           params: {
             symbol,
-            side,
+            side: action.side,
             ...(trimmedComment ? { comment: trimmedComment } : {}),
           },
         });
+        releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       } catch (navErr: any) {
         console.warn('[Trade] navigation failed', navErr);
         onTradeResult?.({
@@ -405,8 +569,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           type: 'error',
           title: 'Navigation Error',
           message: navErr?.message || 'Could not open the order ticket screen.',
-          side,
+          side: action.side,
         });
+        releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       }
     }
   };
@@ -418,16 +583,19 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: sellColor },
-            (activeSide === 'sell' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
+            (!isCurrentChartSymbol || activeSide === 'sell' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={isPending}
+          disabled={isPending || !isCurrentChartSymbol}
           onPress={() => handleTrade('sell')}
+          accessibilityRole="button"
+          accessibilityLabel={sellAction.marketAccessibilityLabel}
+          testID={sellAction.marketTestID}
         >
           {activeSide === 'sell' && isPending ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
-              <Text style={baseStyles.chartTradeMarketActionTitle}>Sell by Market</Text>
+              <Text style={baseStyles.chartTradeMarketActionTitle}>{sellAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
                 {formattedLotSize} Lots · {(latestBid || 0).toFixed(displayDecimals)}
               </Text>
@@ -438,16 +606,19 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: buyColor },
-            (activeSide === 'buy' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
+            (!isCurrentChartSymbol || activeSide === 'buy' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={isPending}
+          disabled={isPending || !isCurrentChartSymbol}
           onPress={() => handleTrade('buy')}
+          accessibilityRole="button"
+          accessibilityLabel={buyAction.marketAccessibilityLabel}
+          testID={buyAction.marketTestID}
         >
           {activeSide === 'buy' && isPending ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
-              <Text style={baseStyles.chartTradeMarketActionTitle}>Buy by Market</Text>
+              <Text style={baseStyles.chartTradeMarketActionTitle}>{buyAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
                 {formattedLotSize} Lots · {(latestAsk || 0).toFixed(displayDecimals)}
               </Text>
@@ -465,13 +636,16 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: sellColor, borderWidth: 0, shadowColor: sellColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 },
+            (!isCurrentChartSymbol || activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 },
           ]}
-          disabled={isPending}
+          disabled={isPending || !isCurrentChartSymbol}
           onPress={() => handleTrade('sell')}
+          accessibilityRole="button"
+          accessibilityLabel={sellAction.accessibilityLabel}
+          testID={sellAction.testID}
         >
           <View style={baseStyles.actionBtnHeader}>
-            <Text style={baseStyles.actionBtnLabelTitle}>SELL</Text>
+            <Text style={baseStyles.actionBtnLabelTitle}>{sellAction.displayLabel}</Text>
           </View>
           <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
             {(latestBid || 0).toFixed(displayDecimals)}
@@ -491,11 +665,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <Pressable
             style={[
               baseStyles.actionLotAdjustButton,
-              (!canDecreaseLot || isPending) && baseStyles.actionLotAdjustButtonDisabled,
+              (!canDecreaseLot || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
             ]}
             onPress={handleDecreaseLotPress}
-            disabled={!canDecreaseLot || isPending}
-            accessibilityState={{ disabled: !canDecreaseLot || isPending }}
+            disabled={!canDecreaseLot || isPending || !isCurrentChartSymbol}
+            accessibilityState={{ disabled: !canDecreaseLot || isPending || !isCurrentChartSymbol }}
             hitSlop={8}
           >
             <Ionicons
@@ -503,23 +677,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               size={16}
               style={[
                 themeStyles.actionLotAdjustIcon,
-                (!canDecreaseLot || isPending) && themeStyles.actionLotAdjustIconDisabled,
+                (!canDecreaseLot || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />
           </Pressable>
-          {isLotEditing && useExternalLotInput ? (
-            <Pressable
-              style={baseStyles.actionLotPill}
-              onPress={() => lotInputRef?.current?.focus()}
-              disabled={isPending}
-              hitSlop={8}
-              unstable_pressDelay={0}
-            >
-              <Text style={[textBaseStyles.actionLotValue, themeStyles.actionLotValue]}>
-                {lotDraft || formattedLotSize}
-              </Text>
-            </Pressable>
-          ) : isLotEditing ? (
+          {isLotEditing ? (
             <View style={baseStyles.actionLotInputWrap}>
               <TextInput
                 ref={lotInputRef}
@@ -533,6 +695,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 selectTextOnFocus
                 autoFocus
                 showSoftInputOnFocus
+                caretHidden={false}
                 onSubmitEditing={onLotDraftSubmit}
                 placeholder={formattedLotSize}
                 placeholderTextColor="#94A3B8"
@@ -544,7 +707,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               onPress={handleLotCenterPress}
               onLongPress={handleLotCenterLongPress}
               delayLongPress={220}
-              disabled={isPending || typeof handleLotCenterPress !== 'function'}
+              disabled={isPending || !isCurrentChartSymbol || typeof handleLotCenterPress !== 'function'}
               hitSlop={8}
               unstable_pressDelay={0}
             >
@@ -558,11 +721,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <Pressable
             style={[
               baseStyles.actionLotAdjustButton,
-              (!canIncreaseLot || isPending) && baseStyles.actionLotAdjustButtonDisabled,
+              (!canIncreaseLot || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
             ]}
             onPress={handleIncreaseLotPress}
-            disabled={!canIncreaseLot || isPending}
-            accessibilityState={{ disabled: !canIncreaseLot || isPending }}
+            disabled={!canIncreaseLot || isPending || !isCurrentChartSymbol}
+            accessibilityState={{ disabled: !canIncreaseLot || isPending || !isCurrentChartSymbol }}
             hitSlop={8}
           >
             <Ionicons
@@ -570,7 +733,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               size={16}
               style={[
                 themeStyles.actionLotAdjustIcon,
-                (!canIncreaseLot || isPending) && themeStyles.actionLotAdjustIconDisabled,
+                (!canIncreaseLot || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />
           </Pressable>
@@ -582,13 +745,16 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: buyColor, borderWidth: 0, shadowColor: buyColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 },
+            (!isCurrentChartSymbol || activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 },
           ]}
-          disabled={isPending}
+          disabled={isPending || !isCurrentChartSymbol}
           onPress={() => handleTrade('buy')}
+          accessibilityRole="button"
+          accessibilityLabel={buyAction.accessibilityLabel}
+          testID={buyAction.testID}
         >
           <View style={baseStyles.actionBtnHeader}>
-            <Text style={baseStyles.actionBtnLabelTitle}>BUY</Text>
+            <Text style={baseStyles.actionBtnLabelTitle}>{buyAction.displayLabel}</Text>
           </View>
           <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
             {(latestAsk || 0).toFixed(displayDecimals)}

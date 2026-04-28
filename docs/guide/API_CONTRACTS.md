@@ -122,6 +122,42 @@ export type FeatureFlags = {
   maintenanceMode: boolean;
   killSwitchTradeSubmit: boolean;
 };
+
+export type OrrnnDemoStatus = {
+  service: "orrnn-demo";
+  status: "ok" | string;
+  broker: "active" | string;
+  demo_groups_available: number;
+  total_demo_accounts: number;
+  database: "connected" | string;
+};
+
+export type OrrnnDemoAccountRequest = {
+  group: string; // selected from GET /api/v1/public/demo-groups
+  email: string;
+  master_pass: string;
+  investor_pass: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  country?: string;
+  currency?: string;
+  leverage?: number;
+  initial_balance?: number; // visible in the demo form; defaults from typed config
+  origin_broker?: string; // white-label analytics source
+  comment?: string;
+};
+
+export type OrrnnDemoAccount = {
+  login: number;
+  broker_id?: "orrnn" | string;
+  group?: string; // current live response may return `Group`
+  currency?: string; // current live response may return `Currency`
+  leverage?: number; // current live response may return `Leverage`
+  balance: number;
+  api_key?: string; // documented by API; current live response may omit it
+  created_at?: number; // current live response may return `Registration`
+};
 ```
 
 ## REST DTO Mapping
@@ -135,11 +171,18 @@ export type FeatureFlags = {
 | `/v1/orders` | POST | OrderSubmissionDTO | `OrderSubmissionResult` |
 | `/v1/history` | GET | HistoryDTO | `HistoryFilter` driven view models |
 | `/v1/flags/mobile` | GET | FeatureFlagsDTO | `FeatureFlags` |
+| `/api/v1/public/demo-status` | GET | OrrnnDemoStatusDTO | `OrrnnDemoStatus` used to gate demo-account creation UI |
+| `/api/v1/public/demo-groups` | GET | OrrnnDemoGroupsDTO | Demo group source for `OrrnnDemoAccountRequest.group` |
+| `/api/v1/public/demo-account` | POST | OrrnnDemoAccountDTO | Creates Orrnn demo account; app uses returned `api_key` when present or falls back to V2 login with the created login/master password |
 
 ## Temporary Chart History Integration Note
-- Chart history is currently hydrated from `GET /api/v2/candles/GBPUSD?timeframe={tf}&limit=500`.
-- Returned candle arrays are normalized client-side before rendering: ascending time order, one candle per timestamp, and OHLC bounds repaired so `high >= max(open, close)` and `low <= min(open, close)`.
-- Live websocket candle updates continue after the REST bootstrap and are merged onto the normalized cache by timestamp.
+- Chart history is currently hydrated from `GET /api/v2/candles/{symbol}?timeframe={tf}&limit=2500`, matching the frontend chart's rolling 2500-candle buffer so M1 history includes previous-date candles when the backend provides them.
+- If no authenticated session exists, or the authenticated candle request fails, the chart falls back to the public backend candle contract (`GET /api/v1/candles/{symbol}` or `GET /api/v1/candles?symbol={symbol}`) so market candles remain available before login without fabricating data.
+- Candle history requests use the selected backend timeframe token only. Timeframe aggregation, session calendars, and historical gap policy belong to the backend, not to frontend fallback aliases.
+- Returned candle arrays are normalized client-side only for rendering safety: valid OHLC rows, ascending time order, one row per backend timestamp, and OHLC bounds repaired so `high >= max(open, close)` and `low <= min(open, close)`. Backend candle timestamps are preserved; the frontend does not rebucket REST history by timeframe.
+- Shared and persisted candle caches apply the same backend-authoritative rule: cache hydration may reject structurally invalid or too-thin seeds, but it must not reject otherwise valid backend candles because an intraday timestamp gap is present.
+- Live websocket candle updates continue after the REST bootstrap and are merged onto the normalized cache by timeframe bucket; repeated backend snapshots inside the same bucket update the active candle instead of appending per tick.
+- Unknown backend timeframe tokens are not allowed to route into `M1`; live/history ingestion and cache keys require a supported timeframe or a valid request/subscription fallback.
 - The frontend keeps the normalized REST snapshot and validates the initial history-to-live handoff against the first websocket candle, not the device clock alone, to tolerate backend feeds whose candle timeline lags local UTC but remains internally consistent.
 
 ## WebSocket Event Contracts
@@ -155,7 +198,7 @@ export type FeatureFlags = {
 - The V2 authenticated account stream is opened via `/ws/v2?token={JWT}` and subscribed by channel, not by REST-style event name.
 - Live backend account metrics currently arrive on `metrics.{LOGIN}`. Older docs and some fallback payloads still refer to `account.{LOGIN}` or `account.snapshot`, so the frontend must accept both while treating the payload as the same authoritative account-metrics contract.
 - `positions.{LOGIN}` may send either full open-position snapshots or partial per-ticket updates. The frontend must merge partial updates into existing local positions instead of zeroing omitted fields.
-- The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote `tick` payloads with `bid`/`ask`/`timestamp` and candle `update` payloads shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`; the frontend must continue accepting both shapes, but the canonical live chart path now derives the active candle from quote ticks, then heals it from recent REST history so backend-side candle-update timing or shape changes do not break live rendering.
+- The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote `tick` payloads with `bid`/`ask`/`timestamp` and candle `update` payloads shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`. Quote ticks are price-feed data only and are ignored by the candle stream; chart candles come from backend REST history plus backend live OHLC candle updates, and the frontend must not synthesize timeframe candles from quote ticks.
 - The live market feed may acknowledge broker-suffixed subscriptions such as `GBPUSDm` or `GBPUSD.c`, but verified runtime payloads still arrive under the canonical base symbol (for example `GBPUSD`). Frontend consumers must normalize both requested symbols and incoming payload symbols before matching, otherwise history can load while live candle updates are silently dropped.
 
 ## Error Shapes

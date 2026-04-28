@@ -39,6 +39,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 
 ## Test Checklist
 - [ ] Unit: order ticket validation rules.
+- [x] Unit: chart/order-ticket/web market trade buttons keep visible BUY/SELL labels, price source, handler side, and order payload side aligned.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -78,4 +79,8 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - 2026-04-22: Tightened the order-ticket order-type rail spacing by reducing both inter-pill gaps and pill-side padding, so the `Market Execution` through `Sell Stop Limit` tab strip reads more compactly without changing the selection or centering behavior.
 - 2026-04-22: Tightened that order-type rail spacing again by trimming the remaining horizontal gap and tab-side padding, so more of the `Market Execution` to `Sell Stop Limit` strip fits on screen at once.
 - 2026-04-22: Reworked the pending order-ticket preview graph into an interactive trigger-price control. Pending tabs now show a dotted draggable trigger line over the live bid/ask graph, dragging that line updates the pending trigger price preview, and stop-limit tabs keep their companion stop-limit preview price aligned from the same trigger move.
-
+- 2026-04-27: Chart and order-ticket market trade execution now use a shared typed `buy`/`sell` side contract, explicit button-to-payload mapping, symbol-remounted chart trade rows, and `[TRADE-BUTTON-PRESS]` / `[TRADE-PAYLOAD]` / `[TRADE-RESPONSE]` diagnostics so first BUY actions after symbol changes cannot be inverted into SELL.
+- 2026-04-28: Re-hardened market trade side mapping after device review. Chart quick-trade buttons now use a local tap lock around the pressed typed side, web chart SELL/BUY prices were corrected to Bid/Ask respectively, and the order-ticket price/execution buttons are rendered from typed side descriptors so the visible label, handler side, loading state, route side, and API payload cannot invert.
+- 2026-04-28: Hardened chart quick-trade touch routing so hidden footer/sheet trade rows cannot receive touches, and all mounted chart trade rows share one tap lock. A BUY tap now blocks any overlapping SELL responder from firing during sheet/footer transitions, and the opposite path is blocked the same way.
+- 2026-04-28: Tightened the order-ticket market submit guard so the pressed side is recorded before diagnostics and submit work begins. If a BUY tap is already active, any overlapping SELL responder now exits as an ignored locked press and cannot enter the order payload path.
+- 2026-04-28: Added a chart-symbol freshness guard to quick-trade buttons. After switching symbols, any stale button instance from the previous symbol is disabled and ignored with `reason: stale-symbol`, so the first EURUSD trade after leaving BTCUSD cannot be submitted by an old BTCUSD responder.

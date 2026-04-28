@@ -32,7 +32,7 @@ import { useTranslation } from '../i18n/useTranslation';
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
-  actions: Array<{ label: string; danger?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
+  actions: Array<{ label: string; danger?: boolean; disabled?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
   searchable?: boolean;
   detent?: 'auto' | 'adaptive' | 'large';
@@ -373,20 +373,26 @@ export function ActionSheet({
             return (
             <Pressable
               key={action.label}
-              onPress={() =>
+              onPress={action.disabled ? undefined : () =>
                 traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
               }
               unstable_pressDelay={0}
+              disabled={action.disabled}
               style={({ pressed }) => [
                 styles.action,
                 index < filteredActions.length - 1 && styles.actionDivider,
                 action.danger && styles.actionDanger,
-                pressed && styles.actionPressed,
+                pressed && !action.disabled && styles.actionPressed,
+                action.disabled && styles.actionDisabled,
               ]}
             >
               <View style={styles.actionLeft}>
                 {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
-                <Text style={[styles.actionText, action.danger ? styles.actionTextDanger : styles.actionTextNormal]}>
+                <Text style={[
+                  styles.actionText,
+                  action.danger ? styles.actionTextDanger : styles.actionTextNormal,
+                  action.disabled && styles.actionTextDisabled,
+                ]}>
                   {localizedLabel}
                 </Text>
               </View>
@@ -569,6 +575,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 21,
       lineHeight: 21,
       color: T.textSub,
+    },
+    actionDisabled: {
+      opacity: 0.4,
+    },
+    actionTextDisabled: {
+      color: T.textMuted,
     },
     cancelButton: {
       width: '100%',

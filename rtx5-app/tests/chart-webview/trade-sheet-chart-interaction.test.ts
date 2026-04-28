@@ -1,0 +1,346 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import {
+  assertSourceContains,
+  extractFunctionBody,
+  readChartScreenSource,
+} from '../support/chartSourceTestUtils';
+
+const source = readChartScreenSource();
+const chartTradeFeatureSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/components/ChartTradeFeature.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/components/ChartTradeFeature.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    throw new Error('ChartTradeFeature.tsx was not found from the test working directory');
+  }
+  return readFileSync(filePath, 'utf8');
+})();
+
+const extractAssignedFunctionBody = (sourceText: string, functionName: string): string => {
+  const functionStart = sourceText.indexOf(`var ${functionName} = function`);
+  assert.notEqual(functionStart, -1, `assigned function ${functionName} was not found`);
+
+  const openBrace = sourceText.indexOf('{', functionStart);
+  assert.notEqual(openBrace, -1, `assigned function ${functionName} has no opening brace`);
+
+  let depth = 0;
+  for (let index = openBrace; index < sourceText.length; index += 1) {
+    const char = sourceText[index];
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return sourceText.slice(openBrace + 1, index);
+      }
+    }
+  }
+
+  assert.fail(`assigned function ${functionName} body was not closed`);
+};
+
+test('SL and TP preview lines are draggable chart overlays', () => {
+  const previewSource = source.slice(
+    source.indexOf('const chartTradePreviewLines'),
+    source.indexOf('const chartType = chartVisualType'),
+  );
+
+  assertSourceContains(previewSource, /dragKey: 'sl'/, 'SL preview line must carry drag key');
+  assertSourceContains(previewSource, /dragKey: 'tp'/, 'TP preview line must carry drag key');
+  assertSourceContains(previewSource, /chartTradeSlEnabled[\s\S]*chartTradeSlPrice/, 'SL line must be driven by sheet state');
+  assertSourceContains(previewSource, /chartTradeTpEnabled[\s\S]*chartTradeTpPrice/, 'TP line must be driven by sheet state');
+});
+
+test('drag messages from WebView reach chart trade preview state handler', () => {
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/,
+    'WebView drag messages must be routed to React state',
+  );
+  assertSourceContains(
+    source,
+    /const handleChartTradePreviewDragMessage = useCallback[\s\S]*const dragKey = msg\?\.dragKey[\s\S]*applyChartTradePreviewDragPrice\(dragKey, nextPrice\)/,
+    'drag handler must apply the dragged SL/TP price',
+  );
+});
+
+test('SL and TP drag updates React state during move, not only after release', () => {
+  const handlerSource = source.slice(
+    source.indexOf('const handleChartTradePreviewDragMessage = useCallback'),
+    source.indexOf('const accountFreeMargin'),
+  );
+
+  assertSourceContains(handlerSource, /phase !== 'start' && phase !== 'move' && phase !== 'end'/, 'drag handler must accept move events');
+  assertSourceContains(handlerSource, /applyChartTradePreviewDragPrice\(dragKey, nextPrice\)/, 'drag move must update sheet state');
+  assertSourceContains(
+    handlerSource,
+    /scheduleChartTradeLineDragMove|phase !== 'move'/,
+    'test guard requires the WebView move phase to remain wired',
+  );
+  if (/if \((?:msg\?\.)?phase !== 'end'\) \{\s*return;\s*\}/.test(handlerSource)) {
+    throw new Error('drag handler must not wait until end before updating SL/TP price');
+  }
+});
+
+test('SL and TP drag keeps touch ownership until release', () => {
+  assertSourceContains(
+    source,
+    /var getClampedRelativePoint = function\(clientX, clientY\)/,
+    'drag movement must clamp inside the chart instead of dropping when the finger reaches an edge',
+  );
+  assertSourceContains(
+    source,
+    /beginTradeLineDrag[\s\S]*setPointerCapture\(event\.pointerId\)/,
+    'drag start must capture the pointer so the chart pan handler cannot steal the gesture',
+  );
+  assertSourceContains(
+    source,
+    /beginTradeLineDrag[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
+    'drag start must tolerate touches on the price-scale edge',
+  );
+  assertSourceContains(
+    source,
+    /continueTradeLineDrag[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
+    'drag move must continue using clamped coordinates',
+  );
+  assertSourceContains(
+    source,
+    /finishTradeLineDrag[\s\S]*releasePointerCapture\(drag\.pointerId\)/,
+    'drag end must release pointer capture',
+  );
+  assertSourceContains(
+    source,
+    /var listenerOptions = \{ capture: true, passive: false \}/,
+    'mobile chart listeners must be non-passive so preventDefault can stop competing scroll/pan work',
+  );
+  assertSourceContains(
+    source,
+    /window\.addEventListener\('touchmove', onWindowPointerMove, listenerOptions\)/,
+    'touch fallback must keep drag move ownership even if the WebView target changes',
+  );
+  assertSourceContains(
+    source,
+    /window\.removeEventListener\('touchmove', onWindowPointerMove, listenerOptions\)/,
+    'touch fallback window listeners must be cleaned up with chart listeners',
+  );
+});
+
+test('SL and TP drag keeps candles fixed while moving vertically', () => {
+  const beginDragBody = extractAssignedFunctionBody(source, 'beginTradeLineDrag');
+  const continueDragBody = extractAssignedFunctionBody(source, 'continueTradeLineDrag');
+  const finishDragBody = extractAssignedFunctionBody(source, 'finishTradeLineDrag');
+  const captureLockBody = extractAssignedFunctionBody(source, 'captureTradeLineDragPriceScaleLock');
+  const keepLockBody = extractAssignedFunctionBody(source, 'keepTradeLineDragPriceScaleLocked');
+
+  assertSourceContains(
+    captureLockBody,
+    /priceScaleApi\.getVisibleRange\(\)[\s\S]*priceScaleApi\.setAutoScale\(false\)[\s\S]*priceScaleApi\.setVisibleRange\(\{ from: lock\.from, to: lock\.to \}\)/,
+    'drag start must capture and pin the current price-scale range before SL/TP movement',
+  );
+  assertSourceContains(
+    keepLockBody,
+    /priceScaleApi\.setAutoScale\(false\)[\s\S]*priceScaleApi\.setVisibleRange\(\{ from: lock\.from, to: lock\.to \}\)/,
+    'drag move must be able to re-apply the same price-scale range so candles do not pan or rescale',
+  );
+  assertSourceContains(
+    beginDragBody,
+    /priceScaleRangeLock: captureTradeLineDragPriceScaleLock\(\)/,
+    'active SL/TP drag state must store the captured chart price-scale range',
+  );
+  assertSourceContains(
+    beginDragBody,
+    /suspendChartTouchInteractions\(\)[\s\S]*vertPanState = null[\s\S]*vertPanPending = null/,
+    'starting SL/TP drag must cancel custom candle vertical pan state',
+  );
+  assertSourceContains(
+    continueDragBody,
+    /updateDraggedOverlayLinePreview\(activeTradeLineDrag\.dragKey, nextPrice\)[\s\S]*keepTradeLineDragPriceScaleLocked\(activeTradeLineDrag\.priceScaleRangeLock\)[\s\S]*stopChartEvent\(event\)/,
+    'SL/TP vertical movement must update only the line and then keep the candle scale fixed',
+  );
+  assertSourceContains(
+    finishDragBody,
+    /keepTradeLineDragPriceScaleLocked\(drag\.priceScaleRangeLock\)[\s\S]*postChartTradeLineDrag\('end', drag\.dragKey, drag\.lastPrice\)/,
+    'SL/TP drag release must finish without allowing a final chart rescale',
+  );
+});
+
+test('SL and TP drag coalesces native move messages for smooth WebView movement', () => {
+  const scheduleMoveBody = extractFunctionBody(source, 'scheduleChartTradeLineDragMove');
+  const flushMoveBody = extractFunctionBody(source, 'flushChartTradeLineDragMove');
+
+  assertSourceContains(
+    source,
+    /var CHART_TRADE_LINE_DRAG_NATIVE_MOVE_INTERVAL_MS = 96/,
+    'drag move bridge updates must be rate limited well below local WebView movement',
+  );
+  assertSourceContains(
+    scheduleMoveBody,
+    /pendingChartTradeLineDragMove = \{ dragKey: dragKey, price: price \}/,
+    'drag move must keep only the latest pending native update',
+  );
+  assertSourceContains(
+    scheduleMoveBody,
+    /requestAnimationFrame\(flushChartTradeLineDragMove\)/,
+    'drag move must coalesce native bridge posts on animation frames',
+  );
+  assertSourceContains(
+    flushMoveBody,
+    /postChartTradeLineDrag\('move', pending\.dragKey, pending\.price\)/,
+    'coalesced move flush must still update React state during drag',
+  );
+});
+
+test('SL and TP drag throttles label redraw separately from the local line movement', () => {
+  const updatePreviewBody = extractFunctionBody(source, 'updateDraggedOverlayLinePreview');
+  const continueDragStart = source.indexOf('var continueTradeLineDrag = function');
+  const continueDragEnd = source.indexOf('var finishTradeLineDrag = function');
+  assert.notEqual(continueDragStart, -1, 'continueTradeLineDrag assignment must exist');
+  assert.notEqual(continueDragEnd, -1, 'finishTradeLineDrag assignment must exist');
+  const continueDragBody = source.slice(continueDragStart, continueDragEnd);
+  const domRefreshBody = extractFunctionBody(source, 'scheduleTradeLineDragDomRefresh');
+
+  assertSourceContains(
+    source,
+    /var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 64/,
+    'drag label redraws must be throttled separately from price-line movement',
+  );
+  assertSourceContains(
+    updatePreviewBody,
+    /entry\.api\.applyOptions\(\{\s*price: price,\s*\}\)[\s\S]*scheduleTradeLineDragDomRefresh\(\)/,
+    'local price-line preview must move immediately and defer label redraw work',
+  );
+  assert.doesNotMatch(
+    continueDragBody,
+    /scheduleOverlayDomRefresh\(\)/,
+    'pointermove must not rebuild all overlay DOM labels on every drag event',
+  );
+  assertSourceContains(
+    domRefreshBody,
+    /CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS - \(now - lastChartTradeLineDragDomRefreshAt\)/,
+    'drag label redraws must be time-throttled while the finger is moving',
+  );
+});
+
+test('SL and TP drag preserves the active WebView price while native overlays resync', () => {
+  const setOverlayBody = extractFunctionBody(source, 'setChartOverlays');
+  const updatePreviewBody = extractFunctionBody(source, 'updateDraggedOverlayLinePreview');
+
+  assertSourceContains(
+    source,
+    /function preserveActiveTradeLineDragPayload\(payload\)[\s\S]*price: activeTradeLineDrag\.lastPrice/,
+    'incoming overlay payloads during drag must keep the local finger price',
+  );
+  assertSourceContains(
+    setOverlayBody,
+    /nextOverlayPayload = preserveActiveTradeLineDragPayload\(nextOverlayPayload\)/,
+    'setChartOverlays must preserve active drag price before caching payload',
+  );
+  assertSourceContains(
+    updatePreviewBody,
+    /syncOverlayPayloadDragLinePrice\(dragKey, price\)[\s\S]*entry\.api\.applyOptions\(\{\s*price: price,\s*\}\)/,
+    'local WebView preview must update the cached label payload and price line without recreating overlays',
+  );
+});
+
+test('pending chart CTA does not open the blocking preview-only Alert', () => {
+  assertSourceContains(
+    source,
+    /traceUiInteraction\('chart\.tradeSheet\.pending\.editOnChart'[\s\S]*snapTradeSheet\('collapsed'\)/,
+    'pending CTA must expose the chart-side draggable levels',
+  );
+  if (/Pending Order Preview|Chart-side pending submission is still preview-only in this build|Alert\.alert/.test(source)) {
+    throw new Error('pending CTA must not show the old preview-only blocking alert');
+  }
+});
+
+test('tap menu is suppressed while lot input or picker interaction is active', () => {
+  assertSourceContains(
+    source,
+    /shouldSuppressChartTapMenu\(\{[\s\S]*footerLotEditorFocused[\s\S]*footerLotEditorOpening[\s\S]*footerLotPickerOpen: footerLotPickerMode !== null[\s\S]*suppressUntil: chartTapMenuSuppressUntilRef\.current/,
+    'chart tap menu must not fight active lot editing interactions',
+  );
+});
+
+test('trade sheet volume lot value is manually editable without opening only the stepper', () => {
+  assertSourceContains(
+    source,
+    /const \[chartTradeVolumeDraft, setChartTradeVolumeDraft\] = useState/,
+    'trade sheet volume must keep a typed lot draft',
+  );
+  assertSourceContains(
+    source,
+    /<TextInput[\s\S]*value=\{chartTradeVolumeInputFocused \? chartTradeVolumeDraft : chartTradeVolumePrimaryDisplay\}[\s\S]*onFocus=\{handleFocusChartTradeVolumeInput\}[\s\S]*onChangeText=\{handleChartTradeVolumeDraftChange\}[\s\S]*keyboardType="decimal-pad"/,
+    'chart screen trade sheet volume must render an editable numeric input',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /<TextInput[\s\S]*value=\{sheet\.chartTradeVolumeInputFocused \? sheet\.chartTradeVolumeDraft : sheet\.chartTradeVolumePrimaryDisplay\}[\s\S]*onFocus=\{handlers\.onFocusTradeVolumeInput\}[\s\S]*onChangeText=\{handlers\.onChangeTradeVolumeDraft\}[\s\S]*keyboardType="decimal-pad"/,
+    'extracted trade sheet volume must render an editable numeric input',
+  );
+  if (/<Pressable[\s\S]*styles\.chartTradeVolumeCard[\s\S]*onPress=\{handleOpenChartTradeVolumeStepper\}/.test(source)) {
+    throw new Error('chart screen volume card must not be a Pressable that steals manual lot editing');
+  }
+  if (/<Pressable[\s\S]*styles\.chartTradeVolumeCard[\s\S]*onPress=\{handlers\.onOpenVolumeStepper\}/.test(chartTradeFeatureSource)) {
+    throw new Error('extracted volume card must not be a Pressable that steals manual lot editing');
+  }
+});
+
+test('compact footer lot editing does not add an Android pre-keyboard lift gap', () => {
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /const tradeFooterDockEditGap =[\s\S]*Platform\.OS === 'ios'[\s\S]*footer\.footerTradeRowKeyboardOffset > 0[\s\S]*\? FOOTER_TRADE_DOCK_EDIT_GAP[\s\S]*: 0/,
+    'footer lot editing must not jump upward on Android before keyboard layout settles',
+  );
+  assertSourceContains(
+    source,
+    /floatingFooterTradeReserveHeight\.value = withTiming\(isFloatingFooterTradeRowVisible \? 58 : 0/,
+    'footer reserve must not animate upward until the floating dock is actually visible',
+  );
+  assertSourceContains(
+    source,
+    /hideInlineTradeRow=\{Platform\.OS === 'android' && isFloatingFooterTradeRowVisible\}/,
+    'Android must keep the inline editable lot row in place until keyboard metrics are available',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /const isAndroidFloatingFooterLotEditor =[\s\S]*Platform\.OS === 'android'[\s\S]*footer\.footerLotEditorFocused[\s\S]*footer\.showFloatingFooterTradeRow/,
+    'Android compact lot editing must have a dedicated floating dock positioning branch',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /isAndroidFloatingFooterLotEditor \? 0 : footer\.footerTradeRowKeyboardOffset \+ tradeFooterDockEditGap/,
+    'Android compact lot editing must not apply the first keyboard offset as an extra dock lift',
+  );
+});
+
+test('compact footer lot editing keeps the chart viewport from shrinking under Android keyboard resize', () => {
+  assertSourceContains(
+    source,
+    /const shouldFreezeFooterLotChartViewport =[\s\S]*Platform\.OS === 'android'[\s\S]*!showChartTradeSheet[\s\S]*footerLotEditorFocused \|\| footerLotEditorOpening \|\| keyboardVisibleHeight > 0/,
+    'footer lot editing must request chart viewport freeze on Android',
+  );
+  assertSourceContains(
+    source,
+    /const frozenFooterLotChartViewportStyle =[\s\S]*shouldFreezeFooterLotChartViewport && chartTapMenuBounds\.height > 0[\s\S]*\{ minHeight: chartTapMenuBounds\.height \}/,
+    'chart viewport must keep its previous height while compact lot editing is active',
+  );
+  assertSourceContains(
+    source,
+    /const freezeViewportResize =[\s\S]*shouldFreezeChartViewportResize[\s\S]*height < lastChartViewportSizeRef\.current\.height/,
+    'WebView resize injection must ignore keyboard-shrink layouts during lot editing',
+  );
+});
+
+test('opening SL/TP sheet closes lot picker and lot editor state', () => {
+  assertSourceContains(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*if \(showChartTradeSheet\)[\s\S]*setFooterLotPickerMode\(null\)[\s\S]*setFooterLotEditorFocused\(false\)[\s\S]*setFooterLotEditorOpening\(false\)/,
+    'SL/TP sheet must clear footer lot editing state',
+  );
+});

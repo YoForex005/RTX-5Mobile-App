@@ -4,25 +4,16 @@
 
 import { create } from 'zustand';
 import { QuoteItem, quotes as mockQuotes } from '../mock/tradingData';
+import type { Candle } from '../candles/candleTypes';
+import { sanitizeCandlesForChart } from '../candles/chartAdapter';
+import { normalizeSymbol, normalizeTimeframeStrict } from '../candles/timeframeUtils';
+import { validateCandle } from '../candles/candleValidator';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
 
 /** Represents a single financial timeframe segment (a candlestick). */
-export type Candle = {
-  /** Unix timestamp (in seconds) representing the start of the timeframe period */
-  time: number;
-  /** Price at the moment the candle opened */
-  open: number;
-  /** Highest price reached during the timeframe */
-  high: number;
-  /** Lowest price reached during the timeframe */
-  low: number;
-  /** Price at the moment the candle closed (or current price if active) */
-  close: number;
-  /** Total traded volume (or tick count) during the timeframe */
-  volume: number;
-};
+export type { Candle };
 
 /** High-level overview of the trading account's equity and margin usage. */
 export type AccountSummary = {
@@ -71,7 +62,7 @@ type TradingState = {
    * Raw history snapshots should be routed through `state/candleCache.ts`.
    */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
-  /** Appends a new candle or updates the terminal (active) candle in real-time */
+  /** Appends or replaces backend-authoritative candle snapshots. */
   updateCandle: (symbol: string, timeframe: string, candle: Candle) => void;
 };
 
@@ -119,8 +110,7 @@ export const useTradingState = create<TradingState>((set) => ({
       const prevAskState = incomingAsk && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
       const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
-      const simulatedVolBump = data.volume === undefined ? Math.floor(Math.random() * 8) + 1 : 0;
-      const volume = data.volume ?? (existing.volume ? existing.volume + simulatedVolBump : (spec?.volume ?? 0));
+      const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
       const lastTickAt =
         data.lastTickAt ??
         (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing.lastTickAt);
@@ -151,31 +141,32 @@ export const useTradingState = create<TradingState>((set) => ({
     })),
 
   setCandleHistory: (symbol, timeframe, history) =>
-    set((state) => ({
-      candles: {
-        ...state.candles,
-        [`${symbol}.${timeframe}`]: history,
-      },
-    })),
+    set((state) => {
+      const normalizedSymbol = normalizeSymbol(symbol);
+      const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+      if (!normalizedSymbol || !normalizedTimeframe) {
+        return state;
+      }
+
+      return {
+        candles: {
+          ...state.candles,
+          [`${normalizedSymbol}.${normalizedTimeframe}`]: sanitizeCandlesForChart(history),
+        },
+      };
+    }),
 
   updateCandle: (symbol, timeframe, newCandle) =>
     set((state) => {
-      const key = `${symbol}.${timeframe}`;
-      const existing = state.candles[key] || [];
-      if (existing.length === 0) {
-        return { candles: { ...state.candles, [key]: [newCandle] } };
+      const normalizedSymbol = normalizeSymbol(symbol);
+      const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+      if (!normalizedSymbol || !normalizedTimeframe || !validateCandle(newCandle)) {
+        return state;
       }
 
-      // If the incoming candle has the same timestamp as the last one, it's an update.
-      // If it's newer, we append it.
-      const last = existing[existing.length - 1];
-      let nextList = [...existing];
-      if (last.time === newCandle.time) {
-        nextList[nextList.length - 1] = newCandle;
-      } else if (newCandle.time > last.time) {
-        nextList.push(newCandle);
-        if (nextList.length > 1000) nextList.shift(); // Keep bounded
-      }
+      const key = `${normalizedSymbol}.${normalizedTimeframe}`;
+      const existing = state.candles[key] || [];
+      const nextList = sanitizeCandlesForChart([...existing, newCandle]).slice(-2500);
 
       return {
         candles: { ...state.candles, [key]: nextList },

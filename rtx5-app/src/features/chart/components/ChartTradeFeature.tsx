@@ -22,7 +22,7 @@ import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph
 import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
-const FOOTER_TRADE_DOCK_EDIT_GAP = 45;  // gap between the sell, lot, buy layout to the keyboard 
+const FOOTER_TRADE_DOCK_EDIT_GAP = 45;
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -135,21 +135,30 @@ function ChartTradeVolumeSection({
 
   return (
     <>
-      <Pressable
+      <View
         style={[styles.chartTradeVolumeCard, useMtPendingTradeSheetLayout && styles.chartTradeVolumeCardPending]}
-        onPress={handlers.onOpenVolumeStepper}
-        unstable_pressDelay={0}
       >
         <View style={[styles.chartTradeVolumeSide, useMtPendingTradeSheetLayout && styles.chartTradeVolumeSidePending]}>
           <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Volume')}</Text>
           <View style={styles.chartTradeVolumeValueGroup}>
-            <Text
-              style={[styles.chartTradeCardValue, useMtPendingTradeSheetLayout && styles.chartTradeCardValuePending]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {sheet.chartTradeVolumePrimaryDisplay}
-            </Text>
+            <TextInput
+              style={[
+                styles.chartTradeVolumeInput,
+                useMtPendingTradeSheetLayout && styles.chartTradeVolumeInputPending,
+              ]}
+              value={sheet.chartTradeVolumeInputFocused ? sheet.chartTradeVolumeDraft : sheet.chartTradeVolumePrimaryDisplay}
+              onFocus={handlers.onFocusTradeVolumeInput}
+              onChangeText={handlers.onChangeTradeVolumeDraft}
+              onBlur={handlers.onBlurTradeVolumeDraft}
+              onEndEditing={handlers.onEndTradeVolumeDraft}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              showSoftInputOnFocus
+              onSubmitEditing={handlers.onSubmitTradeVolumeDraft}
+              placeholder={sheet.passiveLotDisplay}
+              placeholderTextColor="#94A3B8"
+            />
             <Pressable
               style={[
                 styles.chartTradeStepperLaunchButton,
@@ -184,7 +193,7 @@ function ChartTradeVolumeSection({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {t(sheet.chartTradeVolumeModeLabel)}
+            {t(sheet.chartTradeVolumeInputFocused ? 'Lots' : sheet.chartTradeVolumeModeLabel)}
           </Text>
           <View
             style={[
@@ -198,7 +207,7 @@ function ChartTradeVolumeSection({
             </View>
           </View>
         </Pressable>
-      </Pressable>
+      </View>
 
       <ChartTradeVolumeSlider
         styles={styles}
@@ -616,6 +625,7 @@ function ChartTradeSheetContent({
         {sheet.chartTradeOrderType === 'Market Execution' ? (
           shouldShowMarketExecutionButtons ? (
             <LiveTradeButtons
+              key={`chart-trade-sheet-market-${sheet.chartSymbol}`}
               symbol={sheet.chartSymbol}
               displayDecimals={symbolHeader.displayDecimals}
               lotSize={sheet.tradeVolume}
@@ -1111,6 +1121,7 @@ function ChartTradeSheetBody({
       {sheet.chartTradeOrderType === 'Market Execution' ? (
         shouldShowMarketExecutionButtons ? (
           <LiveTradeButtons
+            key={`chart-trade-sheet-market-${sheet.chartSymbol}`}
             symbol={sheet.chartSymbol}
             displayDecimals={symbolHeader.displayDecimals}
             lotSize={sheet.tradeVolume}
@@ -1241,19 +1252,23 @@ export function ChartTradeOverlayLayer({
     maxHeight: sheet.chartTradeSheetMaxHeight,
   });
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
-  const useFooterLotExternalInput =
+  const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
+  const isAndroidFloatingFooterLotEditor =
     Platform.OS === 'android' &&
     footer.footerLotEditorFocused &&
     footer.showFloatingFooterTradeRow &&
     !showInlineFooterDock;
-  const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
   const tradeFooterDockEditGap =
-    footer.footerLotEditorFocused && footer.showFloatingFooterTradeRow && !showInlineFooterDock
+    Platform.OS === 'ios' &&
+    footer.footerLotEditorFocused &&
+    footer.showFloatingFooterTradeRow &&
+    !showInlineFooterDock &&
+    footer.footerTradeRowKeyboardOffset > 0
       ? FOOTER_TRADE_DOCK_EDIT_GAP
       : 0;
   const tradeFooterDockBottom =
     footer.showFloatingFooterTradeRow && !showInlineFooterDock
-      ? footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap
+      ? (isAndroidFloatingFooterLotEditor ? 0 : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap)
       : 0;
   const tradeSheetBottomInset =
     Number.isFinite(sheet.chartTradeSheetBottomInset) && sheet.chartTradeSheetBottomInset > 0
@@ -1351,6 +1366,7 @@ export function ChartTradeOverlayLayer({
 
       {sheet.showHiddenInlineTradeSheet ? (
         <Animated.View
+          pointerEvents="none"
           style={[
             { display: 'none' },
             styles.chartTradeSheetFrame,
@@ -1419,28 +1435,8 @@ export function ChartTradeOverlayLayer({
           pointerEvents={tradeFooterDockVisible ? 'box-none' : 'none'}
           style={styles.footerTradeDockLayer}
         >
-          {useFooterLotExternalInput ? (
-            <TextInput
-              ref={footer.footerLotEditorInputRef}
-              style={styles.footerLotKeyboardProxyInput}
-              value={footer.lotInput}
-              onChangeText={handlers.onLotDraftChange}
-              onBlur={handlers.onLotDraftBlur}
-              onEndEditing={handlers.onLotDraftEndEditing}
-              keyboardType="decimal-pad"
-              returnKeyType="done"
-              blurOnSubmit
-              caretHidden
-              selectTextOnFocus
-              autoFocus
-              showSoftInputOnFocus
-              onSubmitEditing={handlers.onLotDraftSubmit}
-              placeholder={String(sheet.tradeVolume)}
-              placeholderTextColor="transparent"
-              importantForAccessibility="no-hide-descendants"
-            />
-          ) : null}
           <View
+            pointerEvents={tradeFooterDockVisible ? 'auto' : 'none'}
             style={[
               styles.footerTradeDock,
               {
@@ -1450,6 +1446,7 @@ export function ChartTradeOverlayLayer({
             ]}
           >
             <LiveTradeButtons
+              key={`chart-trade-footer-dock-${sheet.chartSymbol}`}
               symbol={sheet.chartSymbol}
               displayDecimals={symbolHeader.displayDecimals}
               lotSize={sheet.tradeVolume}
@@ -1465,7 +1462,6 @@ export function ChartTradeOverlayLayer({
               onLotDraftBlur={handlers.onLotDraftBlur}
               onLotDraftEndEditing={handlers.onLotDraftEndEditing}
               onLotDraftSubmit={handlers.onLotDraftSubmit}
-              useExternalLotInput={useFooterLotExternalInput}
               onDecreaseLot={handlers.onDecreaseLot}
               onIncreaseLot={handlers.onIncreaseLot}
               isDark={isDark}
@@ -1554,10 +1550,18 @@ export function ChartTradeInlineFooter({
   onIncreaseLot,
   onLayout,
 }: ChartTradeInlineFooterProps) {
+  const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;
+
   return (
-    <Animated.View ref={containerRef} onLayout={onLayout} style={[styles.bottomArea, animatedStyle]}>
-      {!showFloatingFooterTradeRow && !hideInlineTradeRow ? (
+    <Animated.View
+      ref={containerRef}
+      pointerEvents={inlineFooterReceivesTouches ? 'auto' : 'none'}
+      onLayout={onLayout}
+      style={[styles.bottomArea, animatedStyle]}
+    >
+      {inlineFooterReceivesTouches ? (
         <LiveTradeButtons
+          key={`chart-trade-inline-footer-${chartSymbol}`}
           symbol={chartSymbol}
           displayDecimals={displayDecimals}
           lotSize={tradeVolume}

@@ -463,12 +463,20 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setChartLockAll: (lock) => set({ chartLockAll: lock }),
       setChartHideAll: (hide) => set({ chartHideAll: hide }),
       setChartShowOnChartItem: (key, value) =>
-        set((state) => ({
-          chartShowOnChart: {
+        set((state) => {
+          const nextChartShowOnChart = {
             ...state.chartShowOnChart,
             [key]: value,
-          },
-        })),
+          };
+          console.log('[SHOW-ON-CHART]', {
+            changedOption: key,
+            enabled: value,
+            chartShowOnChart: nextChartShowOnChart,
+          });
+          return {
+            chartShowOnChart: nextChartShowOnChart,
+          };
+        }),
       setHistorySummaryDetailsVisible: (visible) => set({ historySummaryDetailsVisible: visible }),
       setTradeSummaryDetailsVisible: (visible) => set({ tradeSummaryDetailsVisible: visible }),
       setPriceSource: (source) => set({ priceSource: source }),

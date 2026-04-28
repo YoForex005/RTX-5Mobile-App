@@ -3,6 +3,7 @@ import test, { afterEach, beforeEach } from 'node:test';
 
 import { Candle, useTradingState } from './tradingState';
 import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from './candleCache';
+import type { LiveOverlayCandle, TrustedHistoryCandle } from '../domain/candleProvenance';
 
 const resetCandleCache = () => {
   useTradingState.setState((state) => ({
@@ -10,6 +11,15 @@ const resetCandleCache = () => {
     candles: {},
   }));
 };
+
+const makeCandle = (time: number, close: number = 1.1): Candle => ({
+  time,
+  open: close,
+  high: close,
+  low: close,
+  close,
+  volume: 10,
+});
 
 beforeEach(() => {
   resetCandleCache();
@@ -19,52 +29,113 @@ afterEach(() => {
   resetCandleCache();
 });
 
-test('mergeHistoryIntoCandleCache heals history without stripping the active live candle', () => {
-  const cachedCandles: Candle[] = [
-    { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
-    { time: 120, open: 1.13, high: 1.22, low: 1.09, close: 1.2, volume: 12 },
-  ];
+test('mergeHistoryIntoCandleCache stores only trusted closed REST history', () => {
   const recentHistory: Candle[] = [
-    { time: 60, open: 1.1, high: 1.14, low: 1.07, close: 1.12, volume: 15 },
-    { time: 120, open: 1.11, high: 1.18, low: 1.1, close: 1.16, volume: 20 },
+    makeCandle(60, 1.1),
+    makeCandle(120, 1.2),
+    makeCandle(180, 1.3),
   ];
 
-  useTradingState.getState().setCandleHistory('EURUSD', 'M1', cachedCandles);
   const merged = mergeHistoryIntoCandleCache('EURUSD', 'M1', recentHistory);
 
-  assert.deepEqual(merged, [
-    { time: 60, open: 1.1, high: 1.14, low: 1.07, close: 1.12, volume: 15 },
-    { time: 120, open: 1.11, high: 1.22, low: 1.09, close: 1.2, volume: 20 },
-  ]);
+  assert.equal(merged.length, 2);
+  assert.deepEqual(merged.map((candle) => candle.time), [60, 120]);
+  assert.equal((merged[0] as TrustedHistoryCandle).source, 'rest');
+  assert.equal((merged[0] as TrustedHistoryCandle).closed, true);
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], merged);
 });
 
-test('syncMergedCandleCache restores the canonical merged series after raw history overwrites the cache', () => {
-  const rawHistory: Candle[] = [
-    { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
-    { time: 120, open: 1.13, high: 1.18, low: 1.1, close: 1.16, volume: 12 },
-  ];
-  const mergedSeries: Candle[] = [
-    { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
-    { time: 120, open: 1.11, high: 1.21, low: 1.09, close: 1.2, volume: 18 },
-    { time: 180, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
-  ];
+test('syncMergedCandleCache refuses to persist live overlay candles as history', () => {
+  const trusted: TrustedHistoryCandle = {
+    ...makeCandle(60, 1.1),
+    source: 'rest',
+    closed: true,
+    priceBasis: 'bid',
+    serverTimeframe: 'M1',
+  };
+  const live: LiveOverlayCandle = {
+    ...makeCandle(120, 1.2),
+    source: 'live',
+    closed: false,
+    firstTickTs: 120,
+    lastTickTs: 130,
+    firstSequence: 1,
+    lastSequence: 2,
+    priceBasis: 'bid',
+  };
 
-  useTradingState.getState().setCandleHistory('EURUSD', 'M1', rawHistory);
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), true);
 
-  assert.equal(syncMergedCandleCache('EURUSD', 'M1', mergedSeries), true);
-  assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], mergedSeries);
-  assert.equal(syncMergedCandleCache('EURUSD', 'M1', mergedSeries), false);
+  const cached = useTradingState.getState().candles['EURUSD.M1'];
+  assert.equal(cached.length, 1);
+  assert.equal(cached[0].time, trusted.time);
+  assert.equal((cached[0] as TrustedHistoryCandle).source, 'rest');
+  assert.equal((cached[0] as TrustedHistoryCandle).closed, true);
 });
 
-test('syncMergedCandleCache accepts canonical merged series without re-normalizing them', () => {
-  const mergedSeries: Candle[] = [
-    { time: 60, open: 1.1, high: 1.15, low: 1.08, close: 1.13, volume: 10 },
-    { time: 120, open: 1.11, high: 1.21, low: 1.09, close: 1.2, volume: 18 },
-    { time: 180, open: 1.2, high: 1.24, low: 1.19, close: 1.23, volume: 4 },
+test('syncMergedCandleCache never promotes same-time live overlay into closed history', () => {
+  const trusted: TrustedHistoryCandle = {
+    ...makeCandle(120, 1.1),
+    source: 'rest',
+    closed: true,
+    priceBasis: 'bid',
+    serverTimeframe: 'M1',
+  };
+  const live: LiveOverlayCandle = {
+    ...makeCandle(120, 1.5),
+    source: 'live',
+    closed: false,
+    firstTickTs: 120,
+    lastTickTs: 130,
+    firstSequence: 1,
+    lastSequence: 2,
+    priceBasis: 'bid',
+  };
+
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), true);
+
+  const cached = useTradingState.getState().candles['EURUSD.M1'];
+  assert.equal(cached.length, 1);
+  assert.equal(cached[0].time, 120);
+  assert.equal(cached[0].close, 1.1);
+  assert.equal((cached[0] as TrustedHistoryCandle).source, 'rest');
+  assert.equal((cached[0] as TrustedHistoryCandle).closed, true);
+});
+
+test('syncMergedCandleCache drops same-time live overlay when no trusted REST candle exists', () => {
+  const live: LiveOverlayCandle = {
+    ...makeCandle(120, 1.5),
+    source: 'live',
+    closed: false,
+    firstTickTs: 120,
+    lastTickTs: 130,
+    firstSequence: 1,
+    lastSequence: 2,
+    priceBasis: 'bid',
+  };
+
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', [live], { canonical: true }), false);
+  assert.equal(useTradingState.getState().candles['EURUSD.M1'], undefined);
+});
+
+test('syncMergedCandleCache is stable for unchanged trusted history', () => {
+  const trusted: TrustedHistoryCandle[] = [
+    {
+      ...makeCandle(60, 1.1),
+      source: 'rest',
+      closed: true,
+      priceBasis: 'bid',
+      serverTimeframe: 'M1',
+    },
+    {
+      ...makeCandle(120, 1.2),
+      source: 'rest',
+      closed: true,
+      priceBasis: 'bid',
+      serverTimeframe: 'M1',
+    },
   ];
 
-  assert.equal(syncMergedCandleCache('EURUSD', 'M1', mergedSeries, { canonical: true }), true);
-  assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], mergedSeries);
-  assert.equal(syncMergedCandleCache('EURUSD', 'M1', mergedSeries, { canonical: true }), false);
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', trusted, { canonical: true }), true);
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', trusted, { canonical: true }), false);
 });

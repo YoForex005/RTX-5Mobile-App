@@ -12,8 +12,17 @@ import {
   getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
 import type { CandleHistoryRequestOptions } from './candleHistoryQuery';
+import { PUBLIC_API_V1_BASE_URL } from './publicDemo';
 import { Candle } from '../state/tradingState';
-import { DEFAULT_CANDLE_HISTORY_LIMIT, getBucketGapCount, normalizeCandleSeries, normalizeSymbol, normalizeTimeframe } from '../domain/candles';
+import { useUserPreferences } from '../state/userPreferences';
+import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeCandleSeries, normalizeSymbol, normalizeTimeframeStrict } from '../domain/candles';
+import {
+  getConfiguredCandlePriceBasis,
+  normalizeCandlePriceBasis,
+  splitRestHistoryCandles,
+  type CandlePriceBasis,
+  type TrustedHistoryCandle,
+} from '../domain/candleProvenance';
 
 /** Response shape from GET /api/v1/candles */
 export interface CandleHistoryResponse {
@@ -21,8 +30,125 @@ export interface CandleHistoryResponse {
   timeframe: string;
   count: number;
   candles: Candle[];
+  closedCandles: TrustedHistoryCandle[];
+  currentCandle: Candle | null;
+  priceBasis: CandlePriceBasis;
 }
 export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
+
+type CandleHistoryAttempt = {
+  extractedPayload: ReturnType<typeof extractCandleHistoryPayload>;
+  resolvedTimeframe: string;
+  normalizedCandles: Candle[];
+  resolvedPriceBasis: CandlePriceBasis;
+};
+
+const isAbortError = (error: unknown): boolean =>
+  error instanceof DOMException && error.name === 'AbortError';
+
+const getStoredAccessToken = (): string | null =>
+  useUserPreferences.getState().accountDetails?.credentials?.accessToken ?? null;
+
+const appendCacheBust = (url: string): string =>
+  `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+
+const readCandleHistoryResponse = async (
+  response: Response,
+  requestTimeframe: string,
+  count: number,
+  currentPriceBasis: CandlePriceBasis,
+): Promise<CandleHistoryAttempt> => {
+  if (!response.ok) {
+    let errorMsg = 'Failed to fetch candle history';
+    try {
+      const errorData = await response.json();
+      errorMsg = errorData.message || errorData.error || errorMsg;
+    } catch (_e) {
+      // Ignored
+    }
+    throw new Error(`API Error ${response.status}: ${errorMsg}`);
+  }
+
+  const payload = await response.json();
+  const extractedPayload = extractCandleHistoryPayload(payload);
+  const requestNormalizedTimeframe = normalizeTimeframeStrict(requestTimeframe);
+  if (!requestNormalizedTimeframe) {
+    throw new Error(`Unsupported candle timeframe: ${requestTimeframe}`);
+  }
+  const resolvedTimeframe =
+    normalizeTimeframeStrict(extractedPayload.timeframe) ?? requestNormalizedTimeframe;
+  const resolvedPriceBasis =
+    normalizeCandlePriceBasis(extractedPayload.priceBasis) ??
+    currentPriceBasis;
+  const normalizedCandles = normalizeCandleSeries(extractedPayload.candles, resolvedTimeframe).slice(-count);
+
+  return {
+    extractedPayload,
+    resolvedTimeframe,
+    normalizedCandles,
+    resolvedPriceBasis,
+  };
+};
+
+const fetchAuthenticatedCandleHistory = async (
+  requestedSymbol: string,
+  requestTimeframe: string,
+  count: number,
+  requestOptions: CandleHistoryRequestOptions | undefined,
+  currentPriceBasis: CandlePriceBasis,
+): Promise<CandleHistoryAttempt> => {
+  const params = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
+  const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, {
+    signal: requestOptions?.signal,
+  });
+
+  return readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
+};
+
+const fetchPublicCandleHistory = async (
+  requestedSymbol: string,
+  requestTimeframe: string,
+  count: number,
+  requestOptions: CandleHistoryRequestOptions | undefined,
+  currentPriceBasis: CandlePriceBasis,
+): Promise<CandleHistoryAttempt> => {
+  const pathParams = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
+  const queryParams = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
+  queryParams.set('symbol', requestedSymbol);
+
+  const urls = [
+    `${PUBLIC_API_V1_BASE_URL}/candles/${encodeURIComponent(requestedSymbol)}?${pathParams.toString()}`,
+    `${PUBLIC_API_V1_BASE_URL}/candles?${queryParams.toString()}`,
+  ];
+  let lastError: Error | null = null;
+  let lastEmptyAttempt: CandleHistoryAttempt | null = null;
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(appendCacheBust(url), {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: requestOptions?.signal,
+      });
+      const attempt = await readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
+      if (attempt.normalizedCandles.length > 0) {
+        return attempt;
+      }
+      lastEmptyAttempt = attempt;
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  if (lastEmptyAttempt) {
+    return lastEmptyAttempt;
+  }
+
+  throw lastError ?? new Error('Failed to fetch public candle history');
+};
 
 /**
  * Fetches historical candlestick data for a given symbol and timeframe.
@@ -40,7 +166,10 @@ export async function getCandleHistory(
   options?: AbortSignal | CandleHistoryRequestOptions,
 ): Promise<CandleHistoryResponse> {
   const requestedSymbol = normalizeSymbol(symbol);
-  const requestedTimeframe = normalizeTimeframe(timeframe);
+  const requestedTimeframe = normalizeTimeframeStrict(timeframe);
+  if (!requestedSymbol || !requestedTimeframe) {
+    throw new Error(`Unsupported candle history request: ${symbol} ${timeframe}`);
+  }
   const requestOptions =
     options instanceof AbortSignal
       ? { signal: options }
@@ -48,43 +177,68 @@ export async function getCandleHistory(
   const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
 
   let extractedPayload = extractCandleHistoryPayload([]);
-  let resolvedTimeframe = requestedTimeframe;
+  let resolvedTimeframe: string = requestedTimeframe;
   let normalizedCandles: Candle[] = [];
+  let resolvedPriceBasis = getConfiguredCandlePriceBasis();
   let lastHttpError: Error | null = null;
+  let hadSuccessfulResponse = false;
+  const hasAuthToken = Boolean(getStoredAccessToken());
+
+  const applyAttempt = (attempt: CandleHistoryAttempt): void => {
+    extractedPayload = attempt.extractedPayload;
+    resolvedTimeframe = attempt.resolvedTimeframe;
+    resolvedPriceBasis = attempt.resolvedPriceBasis;
+    normalizedCandles = attempt.normalizedCandles;
+  };
+
+  const acceptAttempt = (attempt: CandleHistoryAttempt): boolean => {
+    hadSuccessfulResponse = true;
+    applyAttempt(attempt);
+    return attempt.normalizedCandles.length > 0;
+  };
 
   for (let index = 0; index < requestTimeframes.length; index += 1) {
     const requestTimeframe = requestTimeframes[index];
-    const params = buildCandleHistorySearchParams(requestTimeframe, count, requestOptions);
-    const response = await apiClient(`/candles/${requestedSymbol}?${params.toString()}`, { signal: requestOptions?.signal });
-
-    if (!response.ok) {
-      let errorMsg = 'Failed to fetch candle history';
+    if (hasAuthToken) {
       try {
-        const errorData = await response.json();
-        errorMsg = errorData.message || errorData.error || errorMsg;
-      } catch (_e) {
-        // Ignored
+        const attempt = await fetchAuthenticatedCandleHistory(
+          requestedSymbol,
+          requestTimeframe,
+          count,
+          requestOptions,
+          resolvedPriceBasis,
+        );
+        if (acceptAttempt(attempt)) {
+          break;
+        }
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+        lastHttpError = error instanceof Error ? error : new Error(String(error));
       }
-      lastHttpError = new Error(`API Error ${response.status}: ${errorMsg}`);
-      continue;
     }
 
-    const payload = await response.json();
-    extractedPayload = extractCandleHistoryPayload(payload);
-    resolvedTimeframe = normalizeTimeframe(extractedPayload.timeframe ?? requestedTimeframe);
-    normalizedCandles = normalizeCandleSeries(extractedPayload.candles, resolvedTimeframe).slice(-count);
-
-    if (normalizedCandles.length > 0 || index === requestTimeframes.length - 1) {
-      if (requestTimeframe !== requestedTimeframe && normalizedCandles.length > 0) {
-        console.log(
-          `[api/candles] ${requestedSymbol} ${requestedTimeframe}: history loaded via fallback timeframe token ${requestTimeframe}`,
-        );
+    try {
+      const attempt = await fetchPublicCandleHistory(
+        requestedSymbol,
+        requestTimeframe,
+        count,
+        requestOptions,
+        resolvedPriceBasis,
+      );
+      if (acceptAttempt(attempt)) {
+        break;
       }
-      break;
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      lastHttpError = error instanceof Error ? error : new Error(String(error));
     }
   }
 
-  if (normalizedCandles.length === 0 && lastHttpError) {
+  if (normalizedCandles.length === 0 && !hadSuccessfulResponse && lastHttpError) {
     throw lastHttpError;
   }
 
@@ -99,39 +253,19 @@ export async function getCandleHistory(
     );
   }
 
-  // ── Gap diagnostic ───────────────────────────────────────────────────
-  // Walks the sorted normalised bar series looking for time deltas larger
-  // than one bucket. A single log line reveals whether the backend itself
-  // returned a time-gappy response (→ backend issue) or if the bars are
-  // contiguous (→ any visible chart gap is a frontend issue elsewhere).
-  if (normalizedCandles.length >= 2) {
-    const gaps: { at: number; missedBuckets: number }[] = [];
-    let expectedBuckets = 1;
-    for (let i = 1; i < normalizedCandles.length; i++) {
-      const missedBuckets = Math.max(
-        0,
-        getBucketGapCount(normalizedCandles[i - 1].time, normalizedCandles[i].time, resolvedTimeframe) - 1,
-      );
-      expectedBuckets += missedBuckets + 1;
-      if (missedBuckets > 0) {
-        gaps.push({ at: normalizedCandles[i - 1].time, missedBuckets });
-      }
-    }
-    const first = normalizedCandles[0].time;
-    const last = normalizedCandles[normalizedCandles.length - 1].time;
-    console.log(
-      `[api/candles] ${requestedSymbol} ${resolvedTimeframe}: ` +
-      `${normalizedCandles.length}/${expectedBuckets} bars ` +
-      `(first=${new Date(first * 1000).toISOString()}, last=${new Date(last * 1000).toISOString()}), ` +
-      `internal gaps=${gaps.length}` +
-      (gaps.length > 0 ? ` e.g. ${gaps.length} gap(s), biggest=${Math.max(...gaps.map(g => g.missedBuckets))} bars` : ''),
-    );
-  }
+  const { closedHistory, currentCandle } = splitRestHistoryCandles(
+    normalizedCandles,
+    resolvedTimeframe,
+    resolvedPriceBasis,
+  );
 
   return {
     symbol: normalizeSymbol(extractedPayload.symbol ?? requestedSymbol),
     timeframe: resolvedTimeframe,
     count: normalizedCandles.length,
     candles: normalizedCandles,
+    closedCandles: closedHistory,
+    currentCandle,
+    priceBasis: resolvedPriceBasis,
   };
 }

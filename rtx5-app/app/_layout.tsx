@@ -81,6 +81,7 @@ function InnerLayout() {
         >
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
           <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
+          <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false }} />
           <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade') }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false }} />

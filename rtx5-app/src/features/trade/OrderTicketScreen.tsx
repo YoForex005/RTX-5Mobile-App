@@ -9,8 +9,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
@@ -21,6 +22,7 @@ import { useTheme, ThemeColors } from '../../theme/useTheme';
 import { fmt } from '../../utils/format';
 import { useLiveTick } from '../../hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
+import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
@@ -33,6 +35,7 @@ import {
 } from '../../utils/tradeVolume';
 import {
   CHART_ORDER_TYPES,
+  getChartOrderSide,
   isPendingChartOrderType,
   isStopLimitChartOrderType,
   resolveDefaultStopLimitPrice,
@@ -48,9 +51,23 @@ import {
 } from './orderTicketPreviewUtils';
 
 /* ── Component ─────────────────────────────────────────────────────────── */
+type OrderTicketTradeAction = {
+  side: TradeSide;
+  displayLabel: 'BUY' | 'SELL';
+  marketLabel: 'BUY BY MARKET' | 'SELL BY MARKET';
+  priceLabel: 'ASK' | 'BID';
+  price: number;
+  color: string;
+  backgroundColor: string;
+  execStyle: object;
+  priceTestID: string;
+  execTestID: string;
+};
+
 export function OrderTicketScreen() {
-  const { symbol: routeSymbol, comment: routeComment } = useLocalSearchParams<{ symbol?: string; comment?: string }>();
+  const { symbol: routeSymbol, comment: routeComment, side: routeSideParam } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const routeSide = normalizeTradeSide(routeSideParam);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
@@ -96,7 +113,7 @@ export function OrderTicketScreen() {
     type: 'success' | 'error';
     title: string;
     message: string;
-    side?: 'buy' | 'sell';
+    side?: TradeSide;
     ticket?: string;
     symbol?: string;
     volume?: number;
@@ -343,11 +360,40 @@ export function OrderTicketScreen() {
     ];
   }, [ASK, BID, pipSize, displayDecimals]);
 
-  const [pendingSide, setPendingSide] = useState<'buy' | 'sell' | null>(null);
+  const [pendingSide, setPendingSide] = useState<TradeSide | null>(null);
   const [tradeActionLocked, setTradeActionLocked] = useState(false);
   const tradeTapLockRef = useRef(false);
+  const tradeTapLockSideRef = useRef<TradeSide | null>(null);
   const tradeActionDisabled = pendingSide !== null || tradeActionLocked;
   const pricePanelActionDisabled = tradeActionDisabled || !oneClickAccepted || !isMarketExecution;
+  const tradeButtonActions: readonly OrderTicketTradeAction[] = [
+    {
+      side: TRADE_SIDE.sell,
+      displayLabel: 'SELL',
+      marketLabel: 'SELL BY MARKET',
+      priceLabel: 'BID',
+      price: BID,
+      color: SELL_C,
+      backgroundColor: SELL_BG,
+      execStyle: styles.execSell,
+      priceTestID: 'order-ticket-sell-price-button',
+      execTestID: 'order-ticket-sell-market-button',
+    },
+    {
+      side: TRADE_SIDE.buy,
+      displayLabel: 'BUY',
+      marketLabel: 'BUY BY MARKET',
+      priceLabel: 'ASK',
+      price: ASK,
+      color: BUY_C,
+      backgroundColor: BUY_BG,
+      execStyle: styles.execBuy,
+      priceTestID: 'order-ticket-buy-price-button',
+      execTestID: 'order-ticket-buy-market-button',
+    },
+  ];
+  const sellTradeAction = tradeButtonActions[0];
+  const buyTradeAction = tradeButtonActions[1];
 
   const syncOpenedPosition = async (login: string, ticketId?: number) => {
     const maxAttempts = 15;
@@ -367,26 +413,66 @@ export function OrderTicketScreen() {
     }
   };
 
-  const handlePlaceOrder = async (side: 'buy' | 'sell') => {
+  const handlePlaceOrder = async (side: TradeSide) => {
+    const requestedSide = assertTradeSide(side);
     if (!isMarketExecution) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        symbol,
+        buttonPressed: requestedSide,
+        displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
+        sidePassedToHandler: requestedSide,
+        routeSide: routeSide ?? null,
+        ignored: true,
+        reason: 'order-type-not-market',
+        timestamp: new Date().toISOString(),
+      });
       return;
     }
     if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        symbol,
+        buttonPressed: requestedSide,
+        displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
+        sidePassedToHandler: requestedSide,
+        routeSide: routeSide ?? null,
+        ignored: true,
+        lockSide: tradeTapLockSideRef.current ?? pendingSide,
+        reason: tradeTapLockRef.current
+          ? 'tap-lock'
+          : tradeActionLocked
+            ? 'trade-action-locked'
+            : 'pending-side',
+        timestamp: new Date().toISOString(),
+      });
       return;
     }
     tradeTapLockRef.current = true;
+    tradeTapLockSideRef.current = requestedSide;
     setTradeActionLocked(true);
-    setPendingSide(side);
+    setPendingSide(requestedSide);
+    const releaseTradeTapLock = () => {
+      tradeTapLockRef.current = false;
+      tradeTapLockSideRef.current = null;
+      setTradeActionLocked(false);
+      setPendingSide(null);
+    };
+
+    console.log('[TRADE-BUTTON-PRESS]', {
+      symbol,
+      buttonPressed: requestedSide,
+      displayedLabel: requestedSide === 'buy' ? 'BUY' : 'SELL',
+      sidePassedToHandler: requestedSide,
+      routeSide: routeSide ?? null,
+      timestamp: new Date().toISOString(),
+    });
 
     if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
       const feedback = createFrontendTradingError(
         'Authentication Error',
         'The app does not have a valid local trading session. Log in again before placing an order.',
       );
-      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
-      tradeTapLockRef.current = false;
-      setTradeActionLocked(false);
-      setPendingSide(null);
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: requestedSide });
+      releaseTradeTapLock();
       return;
     }
 
@@ -396,10 +482,8 @@ export function OrderTicketScreen() {
         'Account Error',
         'The app could not resolve the active trading account from local state. Select an account and try again.',
       );
-      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
-      tradeTapLockRef.current = false;
-      setTradeActionLocked(false);
-      setPendingSide(null);
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: requestedSide });
+      releaseTradeTapLock();
       return;
     }
 
@@ -421,15 +505,34 @@ export function OrderTicketScreen() {
       // Only include SL/TP when explicitly enabled by the user. Sending 0
       // makes some MT5 bridges interpret it as "set price to zero" and the
       // backend rejects the insert. Same for trailing_stop/trailing_step/magic.
-      const data = await ordersApi.placeMarketOrder({
+      const payload = {
         account_login: tradingLogin,
         broker_id: brokerIdForOrder,
         symbol: symbol,
-        side: side,
+        side: requestedSide,
         volume: volume,
         ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
+      };
+      console.log('[TRADE-PAYLOAD]', {
+        symbol: payload.symbol,
+        side: payload.side,
+        action: payload.side,
+        orderType: 'market',
+        command: payload.side,
+        tradeType: 'market',
+        volume: payload.volume,
+        priceSource: payload.side === 'buy' ? 'ask' : 'bid',
+        rawPayload: payload,
+      });
+
+      const data = await ordersApi.placeMarketOrder(payload);
+      console.log('[TRADE-RESPONSE]', {
+        requestSide: requestedSide,
+        result: data?.status ?? 'success',
+        backendSide: data?.side ?? null,
+        rawResponse: data,
       });
 
       if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
@@ -437,7 +540,7 @@ export function OrderTicketScreen() {
           { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
           { action: 'place-order' },
         );
-        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
+        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: requestedSide });
         return;
       }
 
@@ -448,10 +551,10 @@ export function OrderTicketScreen() {
       const newPos = {
         id: String(positionTicket || Math.floor(Math.random() * 10000000)),
         symbol: symbol,
-        side: side,
+        side: requestedSide,
         volume: volume,
-        openPrice: data.price || (side === 'buy' ? ASK : BID),
-        currentPrice: data.price || (side === 'buy' ? ASK : BID),
+        openPrice: data.price || (requestedSide === 'buy' ? ASK : BID),
+        currentPrice: data.price || (requestedSide === 'buy' ? ASK : BID),
         pnl: 0,
         swap: 0,
         openTime: new Date().toISOString(),
@@ -473,12 +576,12 @@ export function OrderTicketScreen() {
         visible: true,
         type: 'success',
         title: 'Order Executed',
-        message: `Successfully placed ${side.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}`,
-        side,
+        message: `Successfully placed ${requestedSide.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}`,
+        side: requestedSide,
         ticket: String(positionTicket ?? ''),
         symbol: symbol?.replace(/\//g, ''),
         volume,
-        price: data.price || (side === 'buy' ? ASK : BID),
+        price: data.price || (requestedSide === 'buy' ? ASK : BID),
         executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       });
     } catch (error: any) {
@@ -486,13 +589,19 @@ export function OrderTicketScreen() {
       // Extract raw server message so we can see the exact rejection reason
       const rawMsg = (error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '');
       const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
-      showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg });
+      console.warn('[TRADE-RESPONSE]', {
+        requestSide: requestedSide,
+        result: 'error',
+        backendSide: error?.response?.data?.side ?? error?.data?.side ?? null,
+        rawResponse: error?.response?.data ?? error?.data ?? error,
+      });
+      showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg, side: requestedSide });
     } finally {
-      tradeTapLockRef.current = false;
-      setTradeActionLocked(false);
-      setPendingSide(null);
+      releaseTradeTapLock();
     }
   };
+
+  const queryClient = useQueryClient();
 
   const updateVolume = useCallback(
     (nextVolume: number | string) => {
@@ -518,6 +627,98 @@ export function OrderTicketScreen() {
     },
     [updateVolume, volume, volumeBounds],
   );
+
+  /* ── Pending order placement ─────────────────────────────────────── */
+  const handlePlacePendingOrder = async () => {
+    if (isMarketExecution) return;
+    if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) return;
+
+    const pendingSideValue = getChartOrderSide(orderType);
+    tradeTapLockRef.current = true;
+    tradeTapLockSideRef.current = pendingSideValue;
+    setTradeActionLocked(true);
+    setPendingSide(pendingSideValue);
+    const releaseLock = () => {
+      tradeTapLockRef.current = false;
+      tradeTapLockSideRef.current = null;
+      setTradeActionLocked(false);
+      setPendingSide(null);
+    };
+
+    if (!accountDetails?.id || !accountDetails?.credentials?.accessToken) {
+      const feedback = createFrontendTradingError(
+        'Authentication Error',
+        'Log in again before placing an order.',
+      );
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: pendingSideValue });
+      releaseLock();
+      return;
+    }
+
+    const tradingLogin = resolveTradingLogin();
+    if (!tradingLogin) {
+      const feedback = createFrontendTradingError('Account Error', 'Could not resolve the active trading account.');
+      showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: pendingSideValue });
+      releaseLock();
+      return;
+    }
+
+    try {
+      const brokerIdForOrder = brokerId || undefined;
+      const payload = {
+        account_login: tradingLogin,
+        broker_id: brokerIdForOrder,
+        symbol,
+        side: pendingSideValue,
+        volume,
+        ...(pendingEntryPrice > 0 ? { price_open: pendingEntryPrice } : {}),
+        ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
+        ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
+        comment: routeComment?.trim() || '',
+        type: orderType.toLowerCase().replace(/\s+/g, '_'),
+      };
+
+      console.log('[PENDING-ORDER-PAYLOAD]', payload);
+
+      // Use the same placeMarketOrder endpoint — the backend differentiates
+      // via the `type` field. If not supported, it falls through gracefully.
+      const data = await ordersApi.placeMarketOrder(payload as any);
+
+      if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
+        const feedback = classifyTradingError(
+          { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
+          { action: 'place-order' },
+        );
+        showModal({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side: pendingSideValue });
+        return;
+      }
+
+      // Invalidate orders query so chart overlay picks up the new pending order
+      queryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+      queryClient.invalidateQueries({ queryKey: ['accountOrders'] });
+
+      const orderTicket = data.order_ticket ?? data.position_ticket ?? data.ticket;
+      showModal({
+        visible: true,
+        type: 'success',
+        title: 'Pending Order Placed',
+        message: `${orderType.toUpperCase()} ${volume.toFixed(2)} lot(s) on ${symbol} at ${pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : 'market'}`,
+        side: pendingSideValue,
+        ticket: String(orderTicket ?? ''),
+        symbol: symbol?.replace(/\//g, ''),
+        volume,
+        price: pendingEntryPrice > 0 ? pendingEntryPrice : (pendingSideValue === 'buy' ? ASK : BID),
+        executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      });
+    } catch (error: any) {
+      const feedback = classifyTradingError(error, { action: 'place-order' });
+      const rawMsg = error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '';
+      const displayMsg = rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message;
+      showModal({ visible: true, type: 'error', title: feedback.title, message: displayMsg, side: pendingSideValue });
+    } finally {
+      releaseLock();
+    }
+  };
 
   const spread = Math.round((ASK - BID) / 0.01);
 
@@ -546,16 +747,18 @@ export function OrderTicketScreen() {
 
       {/* ── Price Panel (HERO — always visible) ────────────────────── */}
       <View style={styles.pricePanel}>
-        {/* SELL side */}
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: SELL_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
+          style={[styles.priceHalf, { backgroundColor: sellTradeAction.backgroundColor, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
           disabled={pricePanelActionDisabled}
-          onPress={() => { void handlePlaceOrder('sell'); }}
+          onPress={() => { void handlePlaceOrder(sellTradeAction.side); }}
+          accessibilityRole="button"
+          accessibilityLabel={sellTradeAction.displayLabel}
+          testID={sellTradeAction.priceTestID}
           unstable_pressDelay={0}
         >
-          <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
-          <Text style={styles.priceMain}>{fmt.price(BID)}</Text>
-          <Text style={styles.priceLabel}>BID</Text>
+          <Text style={[styles.priceTag, { color: sellTradeAction.color }]}>{sellTradeAction.displayLabel}</Text>
+          <Text style={styles.priceMain}>{fmt.price(sellTradeAction.price)}</Text>
+          <Text style={styles.priceLabel}>{sellTradeAction.priceLabel}</Text>
         </Pressable>
 
         {/* Spread pillar */}
@@ -565,16 +768,18 @@ export function OrderTicketScreen() {
           <Text style={styles.spreadUnit}>pts</Text>
         </View>
 
-        {/* BUY side */}
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: BUY_BG, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
+          style={[styles.priceHalf, { backgroundColor: buyTradeAction.backgroundColor, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
           disabled={pricePanelActionDisabled}
-          onPress={() => { void handlePlaceOrder('buy'); }}
+          onPress={() => { void handlePlaceOrder(buyTradeAction.side); }}
+          accessibilityRole="button"
+          accessibilityLabel={buyTradeAction.displayLabel}
+          testID={buyTradeAction.priceTestID}
           unstable_pressDelay={0}
         >
-          <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
-          <Text style={styles.priceMain}>{fmt.price(ASK)}</Text>
-          <Text style={styles.priceLabel}>ASK</Text>
+          <Text style={[styles.priceTag, { color: buyTradeAction.color }]}>{buyTradeAction.displayLabel}</Text>
+          <Text style={styles.priceMain}>{fmt.price(buyTradeAction.price)}</Text>
+          <Text style={styles.priceLabel}>{buyTradeAction.priceLabel}</Text>
         </Pressable>
       </View>
 
@@ -756,53 +961,95 @@ export function OrderTicketScreen() {
         {/* Execution Buttons */}
         {isMarketExecution ? (
           <View style={styles.execRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.execBtn,
-                styles.execSell,
-                pressed && { opacity: 0.88 }
-              ]}
-              onPress={() => { void handlePlaceOrder('sell'); }}
-              disabled={tradeActionDisabled}
-              unstable_pressDelay={0}
-            >
-              {pendingSide === 'sell' ? (
-                <ActivityIndicator color={T.text} />
-              ) : (
-                <>
-                  <Text style={styles.execCta}>SELL BY MARKET</Text>
-                  <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
-                </>
-              )}
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.execBtn,
-                styles.execBuy,
-                pressed && { opacity: 0.88 }
-              ]}
-              onPress={() => { void handlePlaceOrder('buy'); }}
-              disabled={tradeActionDisabled}
-              unstable_pressDelay={0}
-            >
-              {pendingSide === 'buy' ? (
-                <ActivityIndicator color={T.text} />
-              ) : (
-                <>
-                  <Text style={styles.execCta}>BUY BY MARKET</Text>
-                  <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
-                </>
-              )}
-            </Pressable>
+            {tradeButtonActions.map((action) => (
+              <Pressable
+                key={action.side}
+                style={({ pressed }) => [
+                  styles.execBtn,
+                  action.execStyle,
+                  pressed && { opacity: 0.88 }
+                ]}
+                onPress={() => { void handlePlaceOrder(action.side); }}
+                disabled={tradeActionDisabled}
+                accessibilityRole="button"
+                accessibilityLabel={action.marketLabel}
+                testID={action.execTestID}
+                unstable_pressDelay={0}
+              >
+                {pendingSide === action.side ? (
+                  <ActivityIndicator color={T.text} />
+                ) : (
+                  <>
+                    <Text style={styles.execCta}>{action.marketLabel}</Text>
+                    <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
+                  </>
+                )}
+              </Pressable>
+            ))}
           </View>
         ) : (
-          <View style={styles.pendingSubmitPlaceholder}>
-            <Ionicons name='analytics-outline' size={18} color={T.accent} />
-            <View style={styles.pendingSubmitCopy}>
-              <Text style={styles.pendingSubmitTitle}>{orderType}</Text>
-              <Text style={styles.pendingSubmitText}>
-                {pendingPreviewSummary}
-              </Text>
+          <View>
+            {/* Pending order info card */}
+            <View style={styles.pendingSubmitPlaceholder}>
+              <Ionicons name='analytics-outline' size={18} color={T.accent} />
+              <View style={styles.pendingSubmitCopy}>
+                <Text style={styles.pendingSubmitTitle}>{orderType}</Text>
+                <Text style={styles.pendingSubmitText}>
+                  {pendingPreviewSummary}
+                </Text>
+              </View>
+            </View>
+
+            {/* Pending entry price stepper */}
+            <View style={[styles.volSection, { marginTop: 10 }]}>
+              <Text style={styles.rowLabel}>{t('Price')}</Text>
+              <View style={styles.volStepper}>
+                <Pressable
+                  style={styles.volBtn}
+                  onPress={() => handlePendingEntryPriceChange(pendingEntryPrice - pricePointSize * 10)}
+                  hitSlop={8}
+                  unstable_pressDelay={0}
+                >
+                  <Ionicons name="remove" size={18} color={T.textSub} />
+                </Pressable>
+                <View style={[styles.volCenter, { width: 140 }]}>
+                  <Text style={styles.volNum}>{pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--'}</Text>
+                </View>
+                <Pressable
+                  style={styles.volBtn}
+                  onPress={() => handlePendingEntryPriceChange(pendingEntryPrice + pricePointSize * 10)}
+                  hitSlop={8}
+                  unstable_pressDelay={0}
+                >
+                  <Ionicons name="add" size={18} color={T.textSub} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Submit button */}
+            <View style={[styles.execRow, { marginTop: 8 }]}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.execBtn,
+                  orderType.toLowerCase().startsWith('sell') ? styles.execSell : styles.execBuy,
+                  pressed && { opacity: 0.88 },
+                ]}
+                onPress={() => { void handlePlacePendingOrder(); }}
+                disabled={tradeActionDisabled || pendingEntryPrice <= 0}
+                accessibilityRole="button"
+                accessibilityLabel={`Place ${orderType}`}
+                testID="order-ticket-pending-submit"
+                unstable_pressDelay={0}
+              >
+                {pendingSide !== null ? (
+                  <ActivityIndicator color={T.text} />
+                ) : (
+                  <>
+                    <Text style={styles.execCta}>PLACE {orderType.toUpperCase()}</Text>
+                    <Text style={styles.execLots}>{volume.toFixed(2)} Lots @ {pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--'}</Text>
+                  </>
+                )}
+              </Pressable>
             </View>
           </View>
         )}
@@ -905,7 +1152,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     liveLabel: { color: BUY_C, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
 
     pricePanel: {
-      flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 12, borderRadius: 12, overflow: 'hidden',
+      flexDirection: 'row', direction: 'ltr', alignItems: 'center', marginHorizontal: 12, marginBottom: 12, borderRadius: 12, overflow: 'hidden',
       backgroundColor: SURFACE, borderWidth: 1, borderColor: T.border,
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4
     },
@@ -989,7 +1236,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     disclaimerTxt: { color: T.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
     disclaimerIcons: { flexDirection: 'row', gap: 10 },
 
-    execRow: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
+    execRow: { flexDirection: 'row', direction: 'ltr', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
     execBtn: { flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
     execSell: { backgroundColor: SELL_C, shadowColor: SELL_C },
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },

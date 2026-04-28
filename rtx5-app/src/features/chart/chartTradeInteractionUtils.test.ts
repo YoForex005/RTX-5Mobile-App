@@ -212,7 +212,7 @@ test('resolveFooterTradeRowState keeps the Android floating editor mounted while
   );
 });
 
-test('resolveFooterTradeRowState shows the Android floating editor immediately while the editor is opening', () => {
+test('resolveFooterTradeRowState keeps Android inline editor in place while keyboard metrics are still opening', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
       platform: 'android',
@@ -224,7 +224,7 @@ test('resolveFooterTradeRowState shows the Android floating editor immediately w
     }),
     {
       shouldMountFloatingFooterTradeRow: true,
-      isFloatingFooterTradeRowVisible: true,
+      isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
   );

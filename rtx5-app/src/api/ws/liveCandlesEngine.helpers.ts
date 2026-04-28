@@ -6,7 +6,7 @@ import {
 } from '../../domain/candles';
 import type { Candle } from '../../state/tradingState';
 
-export const FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT = Math.min(DEFAULT_CANDLE_HISTORY_LIMIT, 96);
+export const FAST_BOOTSTRAP_CANDLE_HISTORY_LIMIT = Math.min(DEFAULT_CANDLE_HISTORY_LIMIT, 200);
 
 export const shouldBackfillBootstrapHistory = (
   loadedCount: number,
@@ -19,20 +19,18 @@ export const shouldBackfillBootstrapHistory = (
   loadedCount < fullLimit;
 
 /**
- * When the engine has not observed any live bucket yet and the first quote
- * lands in the immediate bucket after REST history, using the previous close
- * as the new bucket open can fabricate a huge body on cold start. In that
- * case we prefer the first observed quote as the provisional open until a
- * recent history heal can restore the authoritative bucket open.
+ * Compatibility helper for older tests/callers. New live buckets always open
+ * at the first backend tick observed for that bucket. Previous closes are not
+ * used to fabricate continuity.
  */
 export const buildQuoteRolloverCandle = (
   bucketTime: number,
-  previousClose: number,
+  _previousClose: number,
   observedPrice: number,
-  hasActiveLiveOverlay: boolean,
-  volume: number = 1,
+  _hasActiveLiveOverlay: boolean,
+  volume: number = 0,
 ): Candle => {
-  const open = hasActiveLiveOverlay ? previousClose : observedPrice;
+  const open = observedPrice;
 
   return {
     time: bucketTime,
@@ -40,7 +38,7 @@ export const buildQuoteRolloverCandle = (
     high: Math.max(open, observedPrice),
     low: Math.min(open, observedPrice),
     close: observedPrice,
-    volume: Math.max(volume, 1),
+    volume: Math.max(volume, 0),
   };
 };
 

@@ -12,6 +12,8 @@ type ActionSheetAction = {
   label: string;
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
+  /** If true, the action appears greyed-out and is not interactive */
+  disabled?: boolean;
   /** Callback fired when the user taps this action */
   onPress?: () => void;
   /** Optional leading icon element */

@@ -25,6 +25,9 @@ Implement settings and account ecosystem screens required for full screenshot pa
 ## API Dependencies
 - Account profile endpoints.
 - Broker directory endpoint.
+- `GET /api/v1/public/demo-status` for demo-account creation availability.
+- `GET /api/v1/public/demo-groups` for selectable Orrnn demo group metadata.
+- `POST /api/v1/public/demo-account` for unauthenticated Orrnn demo account creation.
 - Mailbox endpoint.
 - News endpoint.
 
@@ -51,6 +54,10 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - 2026-04-25: Routed built-in account-card names and finance labels through the language dictionaries on Settings, Accounts, History Net P/L, Chart Calculator, and Order Ticket market-data surfaces while preserving real account, server, symbol, and currency values as backend/user data.
 - 2026-04-25: Extended active-language coverage across the remaining device-review surfaces: account-card status badges, quote freshness/status labels, shared action-sheet chrome, and chart toolbar/trade labels now resolve through i18n while personal/account values remain unchanged.
 - 2026-04-25: Routed broker login, contest login, demo account registration, and broker directory UI copy through persisted-language i18n. Broker/company/server names, account IDs, credentials, deposits, and API error payloads remain runtime data.
+- 2026-04-27: Integrated the Orrnn public demo-status preflight. The demo registration screen now checks `GET /api/v1/public/demo-status` before showing the creation form, blocks submission while unhealthy, and exposes a retry state for 503/network failures.
+- 2026-04-27: Integrated `POST /api/v1/public/demo-account` for public Orrnn demo creation. The registration screen now posts user-entered identity/password data with the demo group from `GET /api/v1/public/demo-groups`, stores the returned login plus `api_key` when present, falls back to V2 login when live deployments omit `api_key`, and treats documented 201 ExceptionResult payloads as creation errors.
+- 2026-04-27: Expanded the public demo registration form with visible fields for group, email, master/investor passwords, first/last name, phone, country, currency, leverage, initial balance, and origin broker. The optional backend `comment` field is intentionally not shown in the UI.
+- 2026-04-27: Added chart runtime language coverage for the live price label, chart loading/error states, and expiration picker options so changing the persisted language updates ChartScreen text immediately without restarting.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.

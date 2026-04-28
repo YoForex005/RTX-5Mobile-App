@@ -2,8 +2,6 @@ export type MinimalEngineCandle = {
   time: number;
 };
 
-import { getBucketGapCount } from '../../domain/candles';
-
 const areSeriesStructurallyEqual = (
   currentCandles: MinimalEngineCandle[],
   cachedCandles: MinimalEngineCandle[],
@@ -26,9 +24,9 @@ const areSeriesStructurallyEqual = (
 };
 
 export const shouldRenderBootstrapPreview = (
-  historyCandlesLength: number,
-  visibleCandlesLength: number,
-): boolean => historyCandlesLength > 0 || visibleCandlesLength > 0;
+  _historyCandlesLength: number,
+  _visibleCandlesLength: number,
+): boolean => false;
 
 export const shouldAdoptCachedSeries = (
   status: 'idle' | 'bootstrapping' | 'ready',
@@ -58,23 +56,13 @@ export const resolveVisibleSeriesMode = (
   historyCandles: MinimalEngineCandle[],
   liveCandles: MinimalEngineCandle[],
   currentCandles: MinimalEngineCandle[],
-  timeframe: string,
+  _timeframe: string,
 ): VisibleSeriesMode => {
   if (historyCandles.length === 0) {
     return liveCandles.length > 0 || currentCandles.length > 0 ? 'current' : 'empty';
   }
 
   if (liveCandles.length === 0) {
-    return 'history';
-  }
-
-  const historyLastTime = historyCandles[historyCandles.length - 1]?.time ?? 0;
-  const firstLiveTime = liveCandles[0]?.time ?? 0;
-
-  if (getBucketGapCount(historyLastTime, firstLiveTime, timeframe) > 1) {
-    // Paint trusted REST history immediately, but do not merge detached live
-    // ticks until a history refresh closes the gap. This avoids both a blank
-    // first chart and the split history/live artifact.
     return 'history';
   }
 
@@ -110,11 +98,7 @@ export const shouldSyncVisibleSeriesCache = (
     return false;
   }
 
-  if (visibleSeriesMode !== 'current') {
-    return true;
-  }
-
-  return false;
+  return true;
 };
 
 export const shouldKeepBootstrappingOnHistoryFailure = (

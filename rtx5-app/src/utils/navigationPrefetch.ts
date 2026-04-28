@@ -1,7 +1,7 @@
 import { getAccountSummary } from '../api/account';
 import { getCandleHistory } from '../api/candles';
 import { fetchInstrumentMeta } from '../api/instruments';
-import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeTimeframe } from '../domain/candles';
+import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeTimeframeStrict } from '../domain/candles';
 import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../providers/AppProviders';
 import { ACCOUNT_SUMMARY_KEY } from '../query/account';
@@ -34,7 +34,7 @@ export function prefetchInstrument(symbol: string) {
 
 export function prefetchChartCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
 
   if (!normalizedSymbol || !normalizedTimeframe) {
     return Promise.resolve();

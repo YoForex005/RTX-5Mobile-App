@@ -9,12 +9,15 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { liveCandlesEngine, CandleParams, EMPTY_CANDLES } from '../api/ws/liveCandlesEngine';
+import { candlesWsService } from '../api/ws/candlesSocket';
 import {
-  isRenderableCandleBootstrapSeed,
-  normalizeCandle,
+  isTrustworthyCandleBootstrapSeed,
   normalizeSymbol,
   normalizeTimeframe,
+  normalizeTimeframeStrict,
 } from '../domain/candles';
+import { normalizeLiveTick } from '../candles/candleNormalizer';
+import { getBucketStart } from '../candles/timeframeUtils';
 import { useMarketData } from '../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { useTradingState } from '../state/tradingState';
@@ -48,18 +51,14 @@ const getQuoteTimestamp = (quote: Record<string, any> | undefined): number | nul
     }
   }
 
-  if (typeof quote.lastTickAt === 'number' && quote.lastTickAt > 0) {
-    return quote.lastTickAt;
-  }
-
-  return Date.now();
+  return null;
 };
 
 export type { CandleParams } from '../api/ws/liveCandlesEngine';
 
 export function useLiveCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
-  const normalizedTimeframe = useMemo(() => normalizeTimeframe(timeframe), [timeframe]);
+  const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
   const candleKey = useMemo(
     () => (normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : ''),
     [normalizedSymbol, normalizedTimeframe],
@@ -75,7 +74,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   );
   const safeCachedCandles = useMemo(
     () =>
-      normalizedTimeframe && isRenderableCandleBootstrapSeed(cachedCandles, normalizedTimeframe)
+      normalizedTimeframe && isTrustworthyCandleBootstrapSeed(cachedCandles, normalizedTimeframe)
         ? cachedCandles
         : emptyCandles,
     [cachedCandles, normalizedTimeframe],
@@ -87,7 +86,12 @@ export function useLiveCandles(symbol: string, timeframe: string) {
         return () => {};
       }
 
-      return liveCandlesEngine.subscribe(normalizedSymbol, normalizedTimeframe, listener);
+      candlesWsService.subscribe(normalizedSymbol, normalizedTimeframe);
+      const unsubscribeEngine = liveCandlesEngine.subscribe(normalizedSymbol, normalizedTimeframe, listener);
+      return () => {
+        unsubscribeEngine();
+        candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
+      };
     },
     [normalizedSymbol, normalizedTimeframe],
   );
@@ -101,6 +105,16 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   }, [normalizedSymbol, normalizedTimeframe]);
 
   const engineCandles = useSyncExternalStore(subscribe, getSnapshot, getEmptySnapshot);
+
+  // Eagerly prefetch history on symbol/timeframe change so the engine
+  // starts fetching before the full subscribe lifecycle completes.
+  useEffect(() => {
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
+
+    void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe);
+  }, [normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
     if (!normalizedSymbol || !normalizedTimeframe) {
@@ -164,21 +178,32 @@ export function useLiveTick(symbol: string, timeframe?: string) {
       return null;
     }
 
-    const normalizedTick = normalizeCandle(
+    const normalizedTick = normalizeLiveTick(
       {
+        symbol: normalizedSymbol,
         bid: liveQuote?.bid ?? price,
         ask: liveQuote?.ask,
         timestamp,
       },
-      normalizedTimeframe,
+      normalizedSymbol,
     );
 
     if (!normalizedTick) {
       return null;
     }
 
+    const bucketTime = getBucketStart(normalizedTick.timestamp, normalizedTimeframe);
+    if (bucketTime === null) {
+      return null;
+    }
+
     return {
-      ...normalizedTick,
+      time: bucketTime,
+      open: normalizedTick.price,
+      high: normalizedTick.price,
+      low: normalizedTick.price,
+      close: normalizedTick.price,
+      volume: normalizedTick.volume ?? 0,
       bid: typeof liveQuote?.bid === 'number' ? liveQuote.bid : price,
       ask: typeof liveQuote?.ask === 'number' ? liveQuote.ask : undefined,
     } as CandleParams;

@@ -6,7 +6,7 @@
  * 
  * Key Architecture:
  * - Real-time Data: Subscribes directly to WebSocket feeds (candlesSocket/quotesSocket) bypassing React render cycles.
- * - Hardware Acceleration: Uses requestAnimationFrame (rAF) queues for injecting ticks directly into the canvas.
+ * - Hardware Acceleration: Uses requestAnimationFrame (rAF) queues for injecting backend candle snapshots directly into the canvas.
  * - Micro-Components: Isolated components (like LivePriceHeader) to prevent full DOM tree re-renders on every price tick.
  * - Drawing Manager: Bridges native interaction onto the chart canvas.
  */
@@ -32,6 +32,7 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { useCandleHistory } from '../../query/candles';
@@ -62,6 +63,11 @@ import {
   createRTX5CustomCandlestickPaneView,
   mapCandlesToRTX5CustomCandlestickData,
 } from './rendering/customCandlestickSeries';
+import {
+  buildChartSeriesSnapshot,
+  EMPTY_CHART_SERIES_SNAPSHOT,
+  getChartSeriesUpdateMode,
+} from './liveChartSync';
 import { buildChartOverlayPayload } from './chartOverlays';
 import {
   filterCandlesForChartTimeRange,
@@ -71,12 +77,16 @@ import {
 } from './timeRangePresets';
 import { useShallow } from 'zustand/shallow';
 import { calculateMarketSentiment } from '../../domain/marketSentiment';
+import { normalizeSymbol, normalizeTimeframeStrict } from '../../domain/candles';
+import { sanitizeCandlesForChart } from '../../candles/chartAdapter';
 import {
   formatTradeVolume,
   incrementTradeVolume,
   normalizeTradeVolume,
   sanitizeTradeVolumeDraft,
 } from '../../utils/tradeVolume';
+import type { TradeSide } from '../../domain/tradeSide';
+import { buildChartMarketOrderPayload, getChartTradeAction } from './chartTradeActions';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 type VolumeSourceCandle = {
@@ -194,8 +204,28 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
+  const tradeTapLockRef = React.useRef(false);
+  const sellAction = getChartTradeAction('sell');
+  const buyAction = getChartTradeAction('buy');
 
-  const handleTrade = (side: 'buy' | 'sell') => {
+  const handleTrade = (side: TradeSide) => {
+    const action = getChartTradeAction(side);
+    if (tradeTapLockRef.current || isPending) {
+      console.log('[TRADE-BUTTON-PRESS]', {
+        symbol,
+        buttonPressed: action.buttonPressed,
+        sidePassedToHandler: action.side,
+        ignored: true,
+        reason: tradeTapLockRef.current ? 'tap-lock' : 'mutation-pending',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    tradeTapLockRef.current = true;
+    const releaseTradeTapLock = () => {
+      tradeTapLockRef.current = false;
+    };
+
     if (oneClickAccepted) {
       const tradingLogin = resolveTradingLogin();
       if (!tradingLogin) {
@@ -204,22 +234,18 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
           'The app could not resolve the active trading account from local state. Select an account and try again.',
         );
         Alert.alert(feedback.title, feedback.message);
+        releaseTradeTapLock();
         return;
       }
 
+      const payload = buildChartMarketOrderPayload({
+        accountLogin: tradingLogin,
+        symbol,
+        side: action.side,
+        volume: Number(lotSize),
+      });
       placeOrder(
-        {
-          account_login: tradingLogin,
-          symbol,
-          side,
-          volume: Number(lotSize),
-          price_sl: 0,
-          price_tp: 0,
-          comment: '',
-          trailing_stop: 0,
-          trailing_step: 0,
-          magic: 0
-        },
+        payload,
         {
           onSuccess: (data: any) => {
             const positionTicket = data?.position_ticket || data?.order_ticket || Math.floor(Math.random() * 10000000);
@@ -227,10 +253,10 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
             const newPos = {
               id: String(positionTicket),
               symbol: symbol,
-              side: side,
+              side: action.side,
               volume: Number(lotSize),
-              openPrice: data?.price || (side === 'buy' ? latestAsk : latestBid),
-              currentPrice: side === 'buy' ? latestBid : latestAsk,
+              openPrice: data?.price || (action.side === 'buy' ? latestAsk : latestBid),
+              currentPrice: action.side === 'buy' ? latestBid : latestAsk,
               pnl: 0,
               swap: 0,
               openTime: new Date().toISOString(),
@@ -239,16 +265,19 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
               clientCreatedAt: Date.now(),
             };
             state.setPositions([newPos as any, ...state.positions]);
-            Alert.alert('Trade Executed', `Successfully placed ${side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+            Alert.alert('Trade Executed', `Successfully placed ${action.side.toUpperCase()} on ${symbol}.\nTicket #${positionTicket}`);
+            releaseTradeTapLock();
           },
           onError: (err: any) => {
             const feedback = classifyTradingError(err, { action: 'place-order' });
             Alert.alert(feedback.title, feedback.message);
+            releaseTradeTapLock();
           }
         }
       );
     } else {
-      router.push({ pathname: '/trade/order-ticket', params: { symbol, side } });
+      router.push({ pathname: '/trade/order-ticket', params: { symbol, side: action.side } });
+      releaseTradeTapLock();
     }
   };
 
@@ -258,12 +287,15 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
         style={[styles.actionBtn, styles.actionBtnSell, isPending && { opacity: 0.5 }]}
         disabled={isPending}
         onPress={() => handleTrade('sell')}
+        accessibilityRole="button"
+        accessibilityLabel={sellAction.accessibilityLabel}
+        testID={sellAction.testID}
       >
         <View style={styles.actionBtnHeader}>
-          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>SELL</Text>
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelSell]}>{sellAction.displayLabel}</Text>
           <Ionicons name="chevron-down" size={16} color="#FFF" />
         </View>
-        <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
+        <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
 
       <View style={styles.actionSpacer} />
@@ -272,12 +304,15 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
         style={[styles.actionBtn, styles.actionBtnBuy, isPending && { opacity: 0.5 }]}
         disabled={isPending}
         onPress={() => handleTrade('buy')}
+        accessibilityRole="button"
+        accessibilityLabel={buyAction.accessibilityLabel}
+        testID={buyAction.testID}
       >
         <View style={styles.actionBtnHeader}>
           <Ionicons name="chevron-up" size={16} color="#FFF" />
-          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>BUY</Text>
+          <Text style={[styles.actionBtnLabelTitle, styles.actionBtnLabelBuy]}>{buyAction.displayLabel}</Text>
         </View>
-        <Text style={styles.actionBtnPriceText}>@ {(latestBid || 0).toFixed(displayDecimals)}</Text>
+        <Text style={styles.actionBtnPriceText}>@ {(latestAsk || 0).toFixed(displayDecimals)}</Text>
       </Pressable>
     </View>
   );
@@ -375,8 +410,6 @@ const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, bo
   );
 };
 
-const CHART_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'NZDUSD', 'USDCAD', 'EURGBP', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'XAUUSD', 'BTCUSD'];
-
 const SYMBOL_FLAGS: Record<string, [string, string]> = {
   EURUSD: ['eu', 'us'], GBPUSD: ['gb', 'us'], AUDUSD: ['au', 'us'],
   USDJPY: ['us', 'jp'], NZDUSD: ['nz', 'us'], USDCAD: ['us', 'ca'],
@@ -468,6 +501,43 @@ const getLastCandleSignature = (candles: Array<{ time: number; open: number; hig
   if (!candle) return '';
   return `${candle.time}:${candle.open}:${candle.high}:${candle.low}:${candle.close}:${candle.volume ?? 0}`;
 };
+
+const mapWebChartData = (
+  sourceCandles: Array<{ time: number; open: number; high: number; low: number; close: number; volume?: number }>,
+  chartType: 'candles' | 'hollow' | 'bars' | 'line',
+  colors: ReturnType<typeof resolveChartColorsForTheme>,
+) => {
+  const uniqueData = sanitizeCandlesForChart(sourceCandles.map((item) => ({
+    ...item,
+    volume: item.volume ?? 0,
+  })));
+
+  if (chartType === 'line') {
+    return uniqueData.map((item) => ({
+      time: item.time,
+      value: item.close,
+      open: item.open,
+      close: item.close,
+      volume: item.volume,
+    }));
+  }
+
+  if (chartType === 'candles' || chartType === 'hollow') {
+    return mapCandlesToRTX5CustomCandlestickData({
+      candles: uniqueData,
+      bullishColor: colors.candlesUptrend,
+      bearishColor: colors.candlesDowntrend,
+    });
+  }
+
+  return uniqueData;
+};
+
+const mapWebChartTick = (
+  candle: { time: number; open: number; high: number; low: number; close: number; volume?: number },
+  chartType: 'candles' | 'hollow' | 'bars' | 'line',
+  colors: ReturnType<typeof resolveChartColorsForTheme>,
+) => mapWebChartData([candle], chartType, colors)[0];
 
 const getSafeChartDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),
@@ -567,6 +637,7 @@ export function ChartScreen() {
   const lastVolumePointRef = useRef<{ time: number; value: number } | null>(null);
   const lastCandleLengthRef = useRef(0);
   const lastRenderedCandleSignatureRef = useRef('');
+  const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
 
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const chartType = chartVisualType;
@@ -582,7 +653,7 @@ export function ChartScreen() {
   const [overlayRevision, setOverlayRevision] = useState(0);
 
   const { data: apiSymbols = [] } = useMarketSymbols();
-  const availableSymbols = apiSymbols.length > 0 ? apiSymbols : CHART_SYMBOLS;
+  const availableSymbols = apiSymbols;
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
   const tradeVolumeBounds = useMemo(
     () => ({
@@ -637,11 +708,11 @@ export function ChartScreen() {
   const hasCandles = candles.length > 0;
   const timeRangeCandlesRef = useRef(candles);
   const chartCandles = useMemo(
-    () => filterCandlesForChartTimeRange(activeDateRange, candles, customDateValue),
+    () => filterCandlesForChartTimeRange(activeDateRange, sanitizeCandlesForChart(candles), customDateValue),
     [activeDateRange, candles, customDateValue],
   );
   useEffect(() => {
-    timeRangeCandlesRef.current = candles;
+    timeRangeCandlesRef.current = sanitizeCandlesForChart(candles);
   }, [candles]);
   const formatChartValue = useCallback(
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
@@ -936,6 +1007,9 @@ export function ChartScreen() {
 
     // Force data sync to reload
     dataSignatureRef.current = '';
+    renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+    lastCandleLengthRef.current = 0;
+    lastRenderedCandleSignatureRef.current = '';
 
     // Force overlay effects (price lines + markers) to re-run with the new series
     setOverlayRevision((prev) => prev + 1);
@@ -987,69 +1061,95 @@ export function ChartScreen() {
     applyWebTimeRange('custom', selectedDate);
   };
 
+  const prefetchChartContext = useCallback((targetSymbol: string, targetTimeframe: string) => {
+    const normalizedSymbol = normalizeSymbol(targetSymbol);
+    const normalizedTimeframe = normalizeTimeframeStrict(targetTimeframe);
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
+
+    void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe).catch((error) => {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn('[CHART] Web target candle prefetch failed', {
+          symbol: normalizedSymbol,
+          timeframe: normalizedTimeframe,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+  }, []);
+
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     setActiveDateRange('auto');
     setCustomDateValue(null);
+    prefetchChartContext(chartSymbol, nextTimeframe);
     setChartTimeframe(nextTimeframe);
-  }, [setChartTimeframe]);
+  }, [chartSymbol, prefetchChartContext, setChartTimeframe]);
+
+  const handleSymbolSelect = useCallback((nextSymbol: string) => {
+    setActiveDateRange('auto');
+    setCustomDateValue(null);
+    prefetchChartContext(nextSymbol, chartTimeframe);
+    setChartSymbol(nextSymbol);
+  }, [chartTimeframe, prefetchChartContext, setChartSymbol]);
 
   useEffect(() => {
     if (!hasCandles) return;
     applyWebTimeRange(activeDateRange, customDateValue);
   }, [activeDateRange, applyWebTimeRange, chartTimeframe, customDateValue, hasCandles]);
 
-  // Sync Data
+  // Sync canonical candle data. Full `setData` is reserved for first load,
+  // context changes, and history corrections; normal live ticks use
+  // Lightweight Charts' incremental update path.
   useEffect(() => {
-    if (seriesRef.current && candles.length > 0) {
-      const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}-${chartColorsSignature}`;
-      const lastCandleSignature = getLastCandleSignature(candles);
-      const shouldReloadSeries =
-        dataSignatureRef.current !== sig ||
-        candles.length !== lastCandleLengthRef.current ||
-        lastCandleSignature !== lastRenderedCandleSignatureRef.current;
+    if (!seriesRef.current) {
+      return;
+    }
 
-      if (shouldReloadSeries) {
-        try {
-          const uniqueData = candles;
+    const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}-${chartColorsSignature}`;
+    const safeCandles = sanitizeCandlesForChart(candles);
+    const nextSnapshot = buildChartSeriesSnapshot(safeCandles);
+    const contextChanged = dataSignatureRef.current !== sig;
+    const updateMode = contextChanged || (safeCandles.length === 0 && renderedSeriesSnapshotRef.current.length > 0)
+      ? 'full_reload'
+      : getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
 
-          let mappedData;
-          if (chartType === 'line') {
-            mappedData = uniqueData.map((item) => ({
-              time: item.time,
-              value: item.close,
-              open: item.open,
-              close: item.close,
-              volume: item.volume,
-            }));
-          } else if (chartType === 'candles' || chartType === 'hollow') {
-            mappedData = mapCandlesToRTX5CustomCandlestickData({
-              candles: uniqueData,
-              bullishColor: resolvedChartColors.candlesUptrend,
-              bearishColor: resolvedChartColors.candlesDowntrend,
-            });
-          } else {
-            mappedData = uniqueData;
-          }
+    if (updateMode === 'noop') {
+      return;
+    }
 
-          seriesRef.current.setData(mappedData as any);
+    try {
+      if (safeCandles.length === 0 || updateMode === 'full_reload') {
+        const mappedData = mapWebChartData(safeCandles, chartType, resolvedChartColors);
+        seriesRef.current.setData(mappedData as any);
 
-          if (volumeSeriesRef.current) {
-            const volData = uniqueData.map((item, index) =>
-              buildVolumeDatum(item, resolvedChartColors, index === uniqueData.length - 1),
-            );
-            volumeSeriesRef.current.setData(volData as any);
-            lastVolumePointRef.current = volData.length > 0
-              ? { time: volData[volData.length - 1].time, value: volData[volData.length - 1].value }
-              : null;
-          }
+        if (volumeSeriesRef.current) {
+          const volData = safeCandles.map((item, index) =>
+            buildVolumeDatum(item, resolvedChartColors, index === safeCandles.length - 1),
+          );
+          volumeSeriesRef.current.setData(volData as any);
+          lastVolumePointRef.current = volData.length > 0
+            ? { time: volData[volData.length - 1].time, value: volData[volData.length - 1].value }
+            : null;
+        }
+      } else {
+        const lastCandle = safeCandles[safeCandles.length - 1];
+        const mappedTick = mapWebChartTick(lastCandle, chartType, resolvedChartColors);
+        seriesRef.current.update(mappedTick as any);
 
-          dataSignatureRef.current = sig;
-          lastCandleLengthRef.current = candles.length;
-          lastRenderedCandleSignatureRef.current = lastCandleSignature;
-        } catch (e) {
-          // Chart might be disposed
+        if (volumeSeriesRef.current) {
+          const volumePoint = buildVolumeDatum(lastCandle, resolvedChartColors, true);
+          volumeSeriesRef.current.update(volumePoint as any);
+          lastVolumePointRef.current = { time: volumePoint.time, value: volumePoint.value };
         }
       }
+
+      dataSignatureRef.current = sig;
+      renderedSeriesSnapshotRef.current = nextSnapshot;
+      lastCandleLengthRef.current = safeCandles.length;
+      lastRenderedCandleSignatureRef.current = getLastCandleSignature(safeCandles);
+    } catch (e) {
+      // Chart might be disposed.
     }
   }, [candles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
@@ -1131,56 +1231,6 @@ export function ChartScreen() {
       }
     }
   }, [overlayPayloadSignature, overlayRevision, overlaySyncRevision]);
-
-  // Canonical Candle Stream Sync
-  useEffect(() => {
-    const buildMappedData = (sourceCandles: typeof candlesRef.current) => {
-      const uniqueData = sourceCandles;
-
-      if (chartType === 'line') {
-        return uniqueData.map((item) => ({
-          time: item.time,
-          value: item.close,
-          open: item.open,
-          close: item.close,
-          volume: item.volume,
-        }));
-      }
-
-      if (chartType === 'candles' || chartType === 'hollow') {
-        return mapCandlesToRTX5CustomCandlestickData({
-          candles: uniqueData,
-          bullishColor: resolvedChartColors.candlesUptrend,
-          bearishColor: resolvedChartColors.candlesDowntrend,
-        });
-      }
-
-      return uniqueData;
-    };
-
-    const syncSeriesFromCandles = (sourceCandles: typeof candlesRef.current = candlesRef.current) => {
-      if (!seriesRef.current) return;
-
-      const uniqueData = sourceCandles;
-      const mappedData = buildMappedData(sourceCandles);
-      seriesRef.current.setData(mappedData as any);
-
-      if (volumeSeriesRef.current) {
-        const volData = uniqueData.map((item, index) =>
-          buildVolumeDatum(item, resolvedChartColors, index === uniqueData.length - 1),
-        );
-        volumeSeriesRef.current.setData(volData as any);
-        lastVolumePointRef.current = volData.length > 0
-          ? { time: volData[volData.length - 1].time, value: volData[volData.length - 1].value }
-          : null;
-      }
-
-      lastCandleLengthRef.current = sourceCandles.length;
-      lastRenderedCandleSignatureRef.current = getLastCandleSignature(sourceCandles);
-    };
-
-    syncSeriesFromCandles(candlesRef.current);
-  }, [candles, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
   const CHART_HEIGHT = chartLayout.height;
 
@@ -1565,7 +1615,7 @@ export function ChartScreen() {
         runActionAfterClose={false}
         actions={availableSymbols.map((sym) => ({
           label: sym,
-          onPress: () => setChartSymbol(sym),
+          onPress: () => handleSymbolSelect(sym),
         }))}
       />
 

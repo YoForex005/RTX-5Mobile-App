@@ -10,7 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ordersApi, PlaceOrderPayload } from '../api/orders';
+import { ordersApi, type PlaceOrderPayload } from '../api/orders';
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -87,8 +87,27 @@ export const usePlaceOrderMutation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: PlaceOrderPayload) => ordersApi.placeMarketOrder(payload),
+    mutationFn: (payload: PlaceOrderPayload) => {
+      console.log('[TRADE-PAYLOAD]', {
+        symbol: payload.symbol,
+        side: payload.side,
+        action: payload.side,
+        orderType: 'market',
+        command: payload.side,
+        tradeType: 'market',
+        volume: payload.volume,
+        priceSource: payload.side === 'buy' ? 'ask' : 'bid',
+        rawPayload: payload,
+      });
+      return ordersApi.placeMarketOrder(payload);
+    },
     onSuccess: (data, variables) => {
+      console.log('[TRADE-RESPONSE]', {
+        requestSide: variables.side,
+        result: data?.status ?? 'success',
+        backendSide: data?.side ?? null,
+        rawResponse: data,
+      });
       // ── Optimistic UI Update ───────────────────────────
       // Instantly inject the trade into the Zustand store so the Chart Screen
       // renders the new position line without waiting for the next data poll.
@@ -98,7 +117,7 @@ export const usePlaceOrderMutation = () => {
         const newPos = {
           id: String(positionTicket),
           symbol: variables.symbol,
-          side: variables.side as 'buy' | 'sell',
+          side: variables.side,
           volume: variables.volume,
           openPrice: data.price || 0,
           currentPrice: data.price || 0,

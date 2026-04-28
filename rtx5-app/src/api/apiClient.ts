@@ -19,6 +19,9 @@ import { useUserPreferences } from '../state/userPreferences';
 // V2 API base URL — resolved from environment variable, falls back to direct IP
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://backend.orrnn.com/api/v2';
 
+export const isApiKeyCredential = (token: string | undefined | null): boolean =>
+  typeof token === 'string' && token.startsWith('rtx5_');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // JWT helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,7 +196,9 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
   const headers = new Headers(options.headers || {});
 
   if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+    if (!isApiKeyCredential(token)) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
     headers.set('X-API-Key', token);
   }
 
@@ -335,4 +340,3 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
   return response;
 };
-

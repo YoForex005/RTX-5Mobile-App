@@ -185,7 +185,6 @@ export function resolveFooterTradeRowState({
     shouldMountFloatingFooterTradeRow &&
     (
       platform !== 'android' ||
-      footerLotEditorOpening ||
       resolvedKeyboardDockOffset > 0 ||
       resolvedKeyboardVisibleHeight > 0
     );

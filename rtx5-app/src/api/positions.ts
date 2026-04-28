@@ -5,7 +5,7 @@
  * for the authenticated account. Used by the Trade and History tabs.
  */
 
-import { API_BASE_URL, apiClient } from './apiClient';
+import { API_BASE_URL, apiClient, isApiKeyCredential } from './apiClient';
 import { createTradingApiError } from './tradingErrors';
 import { useUserPreferences } from '../state/userPreferences';
 
@@ -119,7 +119,9 @@ async function rawPositionsFetch(endpoint: string): Promise<Response> {
   };
 
   if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    if (!isApiKeyCredential(token)) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     headers['X-API-Key'] = token;
   }
 

@@ -10,6 +10,7 @@
 import { getSecureItemAsync } from '../utils/secureStorage';
 import { apiClient, decodeBrokerIdFromToken, API_BASE_URL } from './apiClient';
 import { normalizeSymbol } from '../domain/symbols';
+import { assertTradeSide, type TradeSide } from '../domain/tradeSide';
 import { createTradingApiError } from './tradingErrors';
 import { useUserPreferences } from '../state/userPreferences';
 
@@ -88,7 +89,7 @@ export interface AccountOrder {
   account_login: number;
   symbol: string;
   type: string;
-  side: 'buy' | 'sell';
+  side: TradeSide;
   volume: number;
   price: number;
   status: string;
@@ -116,7 +117,7 @@ export interface LoginOrder {
   account_login: number;
   symbol: string;
   type: string;
-  side: 'buy' | 'sell';
+  side: TradeSide;
   volume: number;
   /** Execution price — sent as `price_open` in the real response (not `price`) */
   price_open: number;
@@ -142,7 +143,7 @@ export interface PlaceOrderPayload {
   account_login: number | string;
   broker_id?: string;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: TradeSide;
   volume: number;
   price_sl?: number;
   price_tp?: number;
@@ -164,7 +165,7 @@ export interface PlaceOrderResponse {
   ticket?: number;
   account_login?: number;
   symbol: string;
-  side: 'buy' | 'sell';
+  side: TradeSide;
   volume: number;
   price_open?: number;
   price_current?: number;
@@ -289,10 +290,11 @@ export const ordersApi = {
     // SL/TP" rejection because 0 is not a valid price. We must omit these
     // fields entirely when the caller wants no SL/TP. Same reasoning for
     // the optional integer fields when they're 0 (their "off" value).
+    const requestedSide = assertTradeSide(restWithoutBroker.side);
     const orderBody: Record<string, unknown> = {
       login: loginInt,
       symbol: rawSymbol,
-      side: restWithoutBroker.side,
+      side: requestedSide,
       volume: restWithoutBroker.volume,
     };
     if (typeof restWithoutBroker.price_sl === 'number' && restWithoutBroker.price_sl > 0) {
@@ -319,7 +321,17 @@ export const ordersApi = {
     const currentToken = state.accountDetails?.credentials?.accessToken;
     const jwtBrokerId = decodeBrokerIdFromToken(currentToken);
     console.log('[RTX5 Order] JWT broker_id:', jwtBrokerId, '| stored brokerId:', state.brokerId);
-    console.log('[RTX5 Order] body:', JSON.stringify(orderBody));
+    console.log('[TRADE-PAYLOAD]', {
+      symbol: rawSymbol,
+      side: requestedSide,
+      action: requestedSide,
+      orderType: 'market',
+      command: requestedSide,
+      tradeType: 'market',
+      volume: restWithoutBroker.volume,
+      priceSource: requestedSide === 'buy' ? 'ask' : 'bid',
+      rawPayload: orderBody,
+    });
 
     // ── Silent re-login if JWT has lost its broker_id claim ───────────────
     // The V2 refresh endpoint strips broker_id from the new JWT. When this
@@ -516,9 +528,20 @@ export const ordersApi = {
         finalData.price = finalData.price_open;
       }
     }
-    console.log('[RTX5 Order] response:', JSON.stringify(finalData));
+    console.log('[TRADE-RESPONSE]', {
+      requestSide: requestedSide,
+      result: finalData?.status ?? accepted.status,
+      backendSide: finalData?.side ?? null,
+      rawResponse: finalData,
+    });
+    if (finalData?.side && finalData.side !== requestedSide) {
+      console.warn('[TRADE-RESPONSE] backend side differs from request', {
+        requestSide: requestedSide,
+        backendSide: finalData.side,
+        symbol: finalData.symbol ?? rawSymbol,
+      });
+    }
 
     return finalData;
   },
 };
-

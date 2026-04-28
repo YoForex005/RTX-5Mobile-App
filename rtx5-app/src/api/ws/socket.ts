@@ -4,6 +4,8 @@
 
 import { useTradingState } from '../../state/tradingState';
 import { mergeHistoryIntoCandleCache } from '../../state/candleCache';
+import { normalizeLiveCandle } from '../../candles/candleNormalizer';
+import { normalizeCandleSeries } from '../../domain/candles';
 import NetInfo from '@react-native-community/netinfo';
 
 type SubscriptionMessage = {
@@ -208,7 +210,10 @@ export class WebSocketService {
       // 3. Live Candle Tick
       if (channel.startsWith('candles.')) {
         if (data.symbol && data.timeframe && data.candle) {
-          store.updateCandle(data.symbol, data.timeframe, data.candle);
+          const candle = normalizeLiveCandle(data.candle);
+          if (candle) {
+            store.updateCandle(data.symbol, data.timeframe, candle);
+          }
         }
       }
     }
@@ -216,7 +221,7 @@ export class WebSocketService {
     // 4. Candle History (bulk response)
     if (type === 'candle_history') {
       if (data.symbol && data.timeframe && data.candles) {
-        mergeHistoryIntoCandleCache(data.symbol, data.timeframe, data.candles);
+        mergeHistoryIntoCandleCache(data.symbol, data.timeframe, normalizeCandleSeries(data.candles, data.timeframe));
       }
     }
   }

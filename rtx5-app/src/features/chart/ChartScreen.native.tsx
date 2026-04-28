@@ -6435,7 +6435,7 @@ export function ChartScreen() {
         console.log('[CHART WATCHDOG] chart not confirmed, re-sending initChart');
         sendInit();
       }
-    }, 3000);
+    }, 1000);
 
     return () => {
       if (watchdogRef.current) clearInterval(watchdogRef.current);
@@ -7315,6 +7315,10 @@ export function ChartScreen() {
                   closeChartTapMenu();
                   router.push('/chart/settings');
                 }}
+                onOpenSymbolPicker={() => {
+                  closeChartTapMenu();
+                  handleOpenSymbolPicker();
+                }}
               />
               ) : null}
               {!showChartTradeSheet ? (
@@ -7331,8 +7335,7 @@ export function ChartScreen() {
           </View>
         </View>
 
-        {!isChartExpanded && (
-          showChartTradeSheet ? (
+        {!isChartExpanded && showChartTradeSheet && (
             <View
               style={[
                 styles.bottomArea,
@@ -7832,7 +7835,8 @@ export function ChartScreen() {
                 </View>
               </Animated.View>
             </View>
-          ) : (
+        )}
+        {!isChartExpanded && (
             <ChartTradeInlineFooter
               LiveTradeButtons={ChartTradeButtons}
               styles={styles}
@@ -7867,7 +7871,6 @@ export function ChartScreen() {
                 measureFooterTradeRowAnchorFrame();
               }}
             />
-          )
         )}
         {!isChartExpanded && showChartTradeSheet && showInlineFooterWhileChartTradeSheetOpen ? (
           <ChartTradeInlineFooter

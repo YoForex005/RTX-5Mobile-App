@@ -22,10 +22,22 @@ const coerceQuoteTimestampCandidate = (value: unknown): number | null => {
 };
 
 export const resolveQuoteTickTimestamp = (
-  payload: { time?: unknown; timestamp?: unknown; t?: unknown },
-  fallbackMs: number = Date.now(),
-): number => {
-  const candidates = [payload.time, payload.timestamp, payload.t];
+  payload: {
+    timestamp?: unknown;
+    time?: unknown;
+    t?: unknown;
+    lastTickAt?: unknown;
+    serverTime?: unknown;
+  },
+  fallbackMs: number | null = null,
+): number | null => {
+  const candidates = [
+    payload.timestamp,
+    payload.time,
+    payload.t,
+    payload.lastTickAt,
+    payload.serverTime,
+  ];
 
   for (const candidate of candidates) {
     const normalized = coerceQuoteTimestampCandidate(candidate);

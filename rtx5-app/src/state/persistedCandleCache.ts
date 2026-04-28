@@ -1,17 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { sanitizeCandlesForChart } from '../candles/chartAdapter';
 import {
   MAX_CANDLE_SERIES_LENGTH,
-  isRenderableCandleBootstrapSeed,
   isTrustworthyCandleBootstrapSeed,
   normalizeSymbol,
-  normalizeTimeframe,
-  sortAndDedupeCandles,
+  normalizeTimeframeStrict,
 } from '../domain/candles';
-import { Candle, useTradingState } from './tradingState';
+import type { Candle } from './tradingState';
+import { useTradingState } from './tradingState';
 
 const STORAGE_KEY = 'rtx5:chart-candle-cache:v1';
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 3;
 const MAX_PERSISTED_ENTRIES = 16;
 const PERSIST_THROTTLE_MS = 5000;
 
@@ -34,7 +34,7 @@ const emptyStorage = (): PersistedCandleCacheState => ({
 
 const normalizeCacheKey = (symbol: string, timeframe: string) => {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframe(timeframe);
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
 
   if (!normalizedSymbol || !normalizedTimeframe) {
     return null;
@@ -47,18 +47,15 @@ const normalizeCacheKey = (symbol: string, timeframe: string) => {
   };
 };
 
-const sanitizeCandles = (candles: Candle[]): Candle[] =>
-  sortAndDedupeCandles(candles)
-    .filter(
-      (candle) =>
-        Number.isFinite(candle.time) &&
-        Number.isFinite(candle.open) &&
-        Number.isFinite(candle.high) &&
-        Number.isFinite(candle.low) &&
-        Number.isFinite(candle.close) &&
-        Number.isFinite(candle.volume),
-    )
-    .slice(-MAX_CANDLE_SERIES_LENGTH);
+const sanitizeCandles = (candles: Candle[], timeframe: string): Candle[] =>
+  sanitizeCandlesForChart(candles).slice(-MAX_CANDLE_SERIES_LENGTH);
+
+const trimEntries = (entries: Record<string, PersistedCandleCacheEntry>) => {
+  const ordered = Object.entries(entries).sort(
+    (left, right) => right[1].updatedAt - left[1].updatedAt,
+  );
+  return Object.fromEntries(ordered.slice(0, MAX_PERSISTED_ENTRIES));
+};
 
 const parseStorage = (raw: string | null): PersistedCandleCacheState => {
   if (!raw) {
@@ -67,13 +64,36 @@ const parseStorage = (raw: string | null): PersistedCandleCacheState => {
 
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedCandleCacheState>;
-    if (parsed.version !== STORAGE_VERSION || !parsed.entries || typeof parsed.entries !== 'object') {
+    if (!parsed.entries || typeof parsed.entries !== 'object') {
       return emptyStorage();
+    }
+
+    const sanitizedEntries: Record<string, PersistedCandleCacheEntry> = {};
+    for (const [key, entry] of Object.entries(parsed.entries as Record<string, Partial<PersistedCandleCacheEntry> & { candles?: Candle[] }>)) {
+      if (!entry.symbol || !entry.timeframe || !Array.isArray(entry.candles)) {
+        continue;
+      }
+
+      const timeframe = normalizeTimeframeStrict(entry.timeframe);
+      if (!timeframe) {
+        continue;
+      }
+      const candles = sanitizeCandles(entry.candles, timeframe);
+      if (!isTrustworthyCandleBootstrapSeed(candles, timeframe)) {
+        continue;
+      }
+
+      sanitizedEntries[key] = {
+        symbol: normalizeSymbol(entry.symbol),
+        timeframe,
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0,
+        candles,
+      };
     }
 
     return {
       version: STORAGE_VERSION,
-      entries: parsed.entries,
+      entries: trimEntries(sanitizedEntries),
     };
   } catch (error) {
     console.warn('[persistedCandleCache] Failed to parse candle cache', error);
@@ -109,13 +129,6 @@ const readStorage = async (): Promise<PersistedCandleCacheState> => {
   }
 
   return storageReadPromise;
-};
-
-const trimEntries = (entries: Record<string, PersistedCandleCacheEntry>) => {
-  const ordered = Object.entries(entries).sort(
-    (left, right) => right[1].updatedAt - left[1].updatedAt,
-  );
-  return Object.fromEntries(ordered.slice(0, MAX_PERSISTED_ENTRIES));
 };
 
 const flushPersistedEntry = (key: string) => {
@@ -175,7 +188,7 @@ export const persistCanonicalCandleCache = (
     return;
   }
 
-  const safeCandles = sanitizeCandles(candles);
+  const safeCandles = sanitizeCandles(candles, normalized.timeframe);
   if (!isTrustworthyCandleBootstrapSeed(safeCandles, normalized.timeframe)) {
     return;
   }
@@ -216,8 +229,8 @@ export const hydratePersistedCandleCache = async (
         return [];
       }
 
-      const safeCandles = sanitizeCandles(entry.candles);
-      if (!isRenderableCandleBootstrapSeed(safeCandles, normalized.timeframe)) {
+      const safeCandles = sanitizeCandles(entry.candles, normalized.timeframe);
+      if (!isTrustworthyCandleBootstrapSeed(safeCandles, normalized.timeframe)) {
         return [];
       }
 

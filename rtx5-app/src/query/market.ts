@@ -4,6 +4,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/apiClient';
+import { extractMarketSymbols } from '../domain/marketSymbols';
 
 export function useMarketSymbols() {
   return useQuery({
@@ -16,11 +17,7 @@ export function useMarketSymbols() {
       const res = await apiClient('/instruments');
       if (!res.ok) throw new Error('Failed to fetch symbols');
       const data = await res.json();
-      const list: any[] = Array.isArray(data) ? data : (data?.instruments ?? []);
-      const symbols = list
-        .map((it) => (typeof it === 'string' ? it : it?.symbol))
-        .filter((s): s is string => typeof s === 'string' && s.length > 0);
-      return Array.from(new Set(symbols));
+      return extractMarketSymbols(data);
     },
     staleTime: 1000 * 60 * 60 * 24, // 24 hours
   });

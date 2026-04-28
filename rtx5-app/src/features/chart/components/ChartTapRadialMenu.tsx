@@ -2,6 +2,7 @@ import React from 'react';
 import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   TvRadialIndicators,
+  TvFx,
   TvLayers,
   TvRadialPencil,
   TvRadialPlus,
@@ -33,6 +34,7 @@ type ChartTapRadialMenuProps = {
   onOpenIndicators: () => void;
 
   onOpenSettings: () => void;
+  onOpenSymbolPicker: () => void;
 };
 
 const CHART_TAP_MENU_SIZE = 268;
@@ -197,6 +199,7 @@ export function ChartTapRadialMenu({
   onOpenIndicators,
 
   onOpenSettings,
+  onOpenSymbolPicker,
 }: ChartTapRadialMenuProps) {
   const styles = React.useMemo(() => createStyles(isDark), [isDark]);
   const containerWidth = bounds.width;
@@ -358,11 +361,11 @@ export function ChartTapRadialMenu({
       onPress: onOpenSettings,
     },
     {
-      key: 'add',
+      key: 'symbol',
       angle: 192,
       boxSize: 24,
-      render: (color) => <TvRadialPlus color={color} />,
-      onPress: onOpenDrawingTools,
+      render: (color) => <TvFx color={color} />,
+      onPress: onOpenSymbolPicker,
     },
     {
       key: 'indicators',

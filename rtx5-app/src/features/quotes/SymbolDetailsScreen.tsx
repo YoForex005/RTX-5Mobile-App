@@ -708,7 +708,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       },
       spreadVal: { color: T.text, fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] },
       spreadLbl: { color: T.textSub, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-      inner: { flexDirection: 'row', alignItems: 'stretch' },
+      inner: { flexDirection: 'row', direction: 'ltr', alignItems: 'stretch' },
       side: { flex: 1, alignItems: 'center', position: 'relative', paddingTop: 26, paddingBottom: 12 },
       sideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
       sideLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },

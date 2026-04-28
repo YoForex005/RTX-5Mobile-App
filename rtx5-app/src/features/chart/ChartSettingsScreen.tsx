@@ -1,11 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from 'react-native';
@@ -15,57 +14,8 @@ import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../theme/glass';
 import { useTheme } from '../../theme/useTheme';
-import { type ChartShowOnChartKey } from './chartShowOnChart';
 
-type PrefKey = ChartShowOnChartKey;
 
-const TOGGLE_ROWS: Array<{ label: string; key: PrefKey }> = [
-  { label: 'Open positions', key: 'openPositions' },
-  { label: 'TP / SL / Stop / Limit', key: 'tpSlStopLimit' },
-  { label: 'Closed positions', key: 'closedPositions' },
-  { label: 'Trading signals', key: 'tradingSignals' },
-  { label: 'HMR periods', key: 'hmrPeriods' },
-  { label: 'Price alerts', key: 'priceAlerts' },
-  { label: 'Potential Stop Out line', key: 'potentialStopOut' },
-];
-
-const ToggleRow = React.memo(function ToggleRow({
-  label,
-  prefKey,
-  isDark,
-  buyColor,
-  styles,
-}: {
-  label: string;
-  prefKey: PrefKey;
-  isDark: boolean;
-  buyColor: string;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const value = useUserPreferences((state) => state.chartShowOnChart[prefKey]);
-  const setChartShowOnChartItem = useUserPreferences((state) => state.setChartShowOnChartItem);
-  const onToggle = useCallback(() => {
-    setChartShowOnChartItem(prefKey, !value);
-  }, [prefKey, setChartShowOnChartItem, value]);
-
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-      onPress={() => traceUiInteraction(`chartSettings.toggle.${label}`, onToggle)}
-      unstable_pressDelay={0}
-    >
-      <Text style={styles.rowLabel}>{label}</Text>
-      <View pointerEvents="none">
-        <Switch
-          value={value}
-          trackColor={{ false: isDark ? '#3F4B5C' : '#D1D5DB', true: buyColor }}
-          thumbColor="#FFFFFF"
-          ios_backgroundColor={isDark ? '#3F4B5C' : '#D1D5DB'}
-        />
-      </View>
-    </Pressable>
-  );
-});
 
 export function ChartSettingsScreen() {
   const T = useTheme();
@@ -91,50 +41,7 @@ export function ChartSettingsScreen() {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        <View style={styles.sectionHeader}>
-          <Ionicons name="eye-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
-        </View>
-        <View style={styles.card}>
-          {TOGGLE_ROWS.map((row, index) => (
-            <View key={row.key}>
-              <ToggleRow
-                label={row.label}
-                prefKey={row.key}
-                isDark={isDark}
-                buyColor={T.trading.buy.primary}
-                styles={styles}
-              />
-              {index < TOGGLE_ROWS.length - 1 && <View style={styles.separator} />}
-            </View>
-          ))}
-        </View>
 
-        <View style={styles.sectionHeader}>
-          <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>ALERTS</Text>
-        </View>
-        <View style={styles.card}>
-          <NavRow
-            label="Price Alerts"
-            value=""
-            onPress={() => router.push('/chart/alerts')}
-            styles={styles}
-          />
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
-          <Text style={styles.sectionTitle}>NAVIGATION</Text>
-        </View>
-        <View style={styles.card}>
-          <NavRow
-            label="Order of menu items"
-            value=""
-            onPress={() => router.push('/chart/menu-order')}
-            styles={styles}
-          />
-        </View>
 
         <View style={styles.sectionHeader}>
           <Ionicons name="build-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
@@ -166,6 +73,32 @@ export function ChartSettingsScreen() {
             label="Open order mode"
             value={openOrderMode}
             onPress={() => router.push('/chart/open-order-mode')}
+            styles={styles}
+          />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Ionicons name="notifications-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>ALERTS</Text>
+        </View>
+        <View style={styles.card}>
+          <NavRow
+            label="Price Alerts"
+            value=""
+            onPress={() => router.push('/chart/alerts')}
+            styles={styles}
+          />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>NAVIGATION</Text>
+        </View>
+        <View style={styles.card}>
+          <NavRow
+            label="Order of menu items"
+            value=""
+            onPress={() => router.push('/chart/menu-order')}
             styles={styles}
           />
         </View>

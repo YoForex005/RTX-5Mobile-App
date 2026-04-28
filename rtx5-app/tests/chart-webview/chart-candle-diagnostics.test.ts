@@ -1,0 +1,36 @@
+import test from 'node:test';
+
+import {
+  assertSourceContains,
+  extractFunctionBody,
+  readChartScreenSource,
+} from '../support/chartSourceTestUtils';
+
+const source = readChartScreenSource();
+
+test('ChartScreen logs the canonical useLiveCandles to WebView candle bridge path', () => {
+  assertSourceContains(source, /\[CHART-CANDLES\]/, 'ChartScreen must log direct useLiveCandles output');
+  assertSourceContains(source, /\[CHART-BRIDGE\] useLiveCandles_update/, 'ChartScreen must log candle hook updates');
+  assertSourceContains(source, /\[CHART-BRIDGE\] candle_sync_mode/, 'ChartScreen must log update mode decisions');
+  assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateChartData/, 'ChartScreen must log full candle reload injections');
+  assertSourceContains(source, /\[CHART-BRIDGE\] inject_updateTick/, 'ChartScreen must log incremental candle injections');
+  assertSourceContains(source, /\[CHART-BRIDGE\] inject_setMarketPriceLines/, 'ChartScreen must log bid ask line injections separately');
+});
+
+test('WebView candle bridge logs updateChartData updateTick and rejected stale ticks', () => {
+  const updateDataBody = extractFunctionBody(source, 'updateChartData');
+  const applyTickBody = extractFunctionBody(source, 'applyTickUpdate');
+  const updateTickBody = extractFunctionBody(source, 'updateTick');
+
+  assertSourceContains(updateDataBody, /\[WEBVIEW-CANDLE\] updateChartData/, 'WebView full reload must log candle data receipt');
+  assertSourceContains(updateTickBody, /\[WEBVIEW-CANDLE\] updateTick_queued/, 'WebView incremental path must log queued ticks');
+  assertSourceContains(applyTickBody, /\[WEBVIEW-CANDLE\] applyTickUpdate/, 'WebView must log applied candle ticks');
+  assertSourceContains(applyTickBody, /tick\.time < lastBarTime[\s\S]*\[WEBVIEW-CANDLE\] applyTickUpdate_rejected/, 'WebView must log stale tick rejection');
+});
+
+test('ChartScreen warms candle history before cold timeframe switches', () => {
+  assertSourceContains(source, /import \{ liveCandlesEngine \} from '\.\.\/\.\.\/api\/ws\/liveCandlesEngine'/, 'ChartScreen must be able to warm the canonical candle engine');
+  assertSourceContains(source, /const prefetchChartTimeframeHistory = useCallback[\s\S]*liveCandlesEngine\.prefetchHistory/, 'ChartScreen must prefetch through the engine, not the WebView');
+  assertSourceContains(source, /handleOpenTimeframePicker[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/, 'opening the timeframe picker must warm alternate timeframes');
+  assertSourceContains(source, /warmChartContextAndCommit[\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)/, 'selecting a timeframe must warm the target in the background');
+});

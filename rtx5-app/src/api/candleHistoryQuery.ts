@@ -1,4 +1,4 @@
-import { normalizeTimeframe } from '../domain/candles';
+import { normalizeTimeframeStrict } from '../domain/candles';
 
 export type CandleHistoryRequestOptions = {
   signal?: AbortSignal;
@@ -10,6 +10,7 @@ export type ExtractedCandleHistoryPayload = {
   candles: unknown[];
   symbol?: string;
   timeframe?: string;
+  priceBasis?: string;
 };
 
 const asObjectRecord = (value: unknown): Record<string, unknown> | null => {
@@ -73,6 +74,13 @@ export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHi
       (typeof nestedData?.tf === 'string' ? nestedData.tf : undefined) ??
       (typeof nestedResult?.timeframe === 'string' ? nestedResult.timeframe : undefined) ??
       (typeof nestedResult?.tf === 'string' ? nestedResult.tf : undefined),
+    priceBasis:
+      (typeof record.priceBasis === 'string' ? record.priceBasis : undefined) ??
+      (typeof record.price_basis === 'string' ? record.price_basis : undefined) ??
+      (typeof nestedData?.priceBasis === 'string' ? nestedData.priceBasis : undefined) ??
+      (typeof nestedData?.price_basis === 'string' ? nestedData.price_basis : undefined) ??
+      (typeof nestedResult?.priceBasis === 'string' ? nestedResult.priceBasis : undefined) ??
+      (typeof nestedResult?.price_basis === 'string' ? nestedResult.price_basis : undefined),
   };
 };
 
@@ -82,7 +90,13 @@ export const buildCandleHistorySearchParams = (
   options?: CandleHistoryRequestOptions,
 ): URLSearchParams => {
   const params = new URLSearchParams();
-  params.set('timeframe', timeframe.trim().toUpperCase());
+  const requestTimeframe = timeframe.trim();
+  params.set(
+    'timeframe',
+    /^\d+(?:m|h|d|w)$/.test(requestTimeframe)
+      ? requestTimeframe
+      : requestTimeframe.toUpperCase(),
+  );
   params.set('limit', String(count));
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
@@ -97,11 +111,6 @@ export const buildCandleHistorySearchParams = (
 };
 
 export const getCandleHistoryRequestTimeframes = (timeframe: string): string[] => {
-  const normalizedTimeframe = normalizeTimeframe(timeframe);
-  const fallbacks: Record<string, string[]> = {
-    W1: ['W1', '1W'],
-    MN: ['MN', '1MO'],
-  };
-
-  return fallbacks[normalizedTimeframe] ?? [normalizedTimeframe];
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  return normalizedTimeframe ? [normalizedTimeframe] : [];
 };

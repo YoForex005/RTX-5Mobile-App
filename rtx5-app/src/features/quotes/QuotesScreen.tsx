@@ -54,7 +54,64 @@ import { AppHeader } from '../../components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
+import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
+import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+
+/* ───── Symbol Display Names ───── */
+
+const SYMBOL_DISPLAY_NAMES: Record<string, string> = {
+  EURUSD: 'Euro vs US Dollar',
+  GBPUSD: 'Great Britain Pound vs US Dollar',
+  AUDUSD: 'Australian Dollar vs US Dollar',
+  USDJPY: 'US Dollar vs Japanese Yen',
+  NZDUSD: 'New Zealand Dollar vs US Dollar',
+  USDCAD: 'US Dollar vs Canadian Dollar',
+  EURGBP: 'Euro vs Great Britain Pound',
+  AUDCAD: 'Australian Dollar vs Canadian Dollar',
+  AUDCHF: 'Australian Dollar vs Swiss Franc',
+  AUDJPY: 'Australian Dollar vs Japanese Yen',
+  AUDNZD: 'Australian Dollar vs New Zealand Dollar',
+  AUDHUF: 'Australian Dollar vs Hungarian Forint',
+  CADCHF: 'Canadian Dollar vs Swiss Franc',
+  CADJPY: 'Cad vs Japanese Yen',
+  CHFJPY: 'Swiss Franc vs Japanese Yen',
+  EURAUD: 'Euro vs Australian Dollar',
+  EURCAD: 'Euro vs Canadian Dollar',
+  EURCHF: 'Euro vs Swiss Franc',
+  EURJPY: 'Euro vs Japanese Yen',
+  EURNZD: 'Euro vs New Zealand Dollar',
+  GBPAUD: 'Great Britain Pound vs Australian Dollar',
+  GBPCAD: 'Great Britain Pound vs Canadian Dollar',
+  GBPCHF: 'Great Britain Pound vs Swiss Franc',
+  GBPJPY: 'Great Britain Pound vs Japanese Yen',
+  GBPNZD: 'Great Britain Pound vs New Zealand Dollar',
+  NZDCAD: 'New Zealand Dollar vs Canadian Dollar',
+  NZDCHF: 'New Zealand Dollar vs Swiss Franc',
+  NZDJPY: 'New Zealand Dollar vs Japanese Yen',
+  USDCHF: 'US Dollar vs Swiss Franc',
+  USDTRY: 'US Dollar vs Turkish Lira',
+  USDZAR: 'US Dollar vs South African Rand',
+  USDMXN: 'US Dollar vs Mexican Peso',
+  USDSEK: 'US Dollar vs Swedish Krona',
+  USDNOK: 'US Dollar vs Norwegian Krone',
+  USDDKK: 'US Dollar vs Danish Krone',
+  USDCNH: 'US Dollar vs Chinese Yuan',
+  USDSGD: 'US Dollar vs Singapore Dollar',
+  USDHKD: 'US Dollar vs Hong Kong Dollar',
+  USDPLN: 'US Dollar vs Polish Zloty',
+  USDHUF: 'US Dollar vs Hungarian Forint',
+  USDCZK: 'US Dollar vs Czech Koruna',
+  XAUUSD: 'Gold vs US Dollar',
+  XAGUSD: 'Silver vs US Dollar',
+  BTCUSD: 'Bitcoin vs US Dollar',
+  ETHUSD: 'Ethereum vs US Dollar',
+};
+
+const getSymbolDescription = (symbol: string): string => {
+  const base = symbol.replace(/m$/i, '').replace(/\//g, '');
+  return SYMBOL_DISPLAY_NAMES[base] ?? base;
+};
 
 /* ───── Helpers ───── */
 
@@ -472,6 +529,11 @@ const QuoteCard = React.memo(function QuoteCard({
             >
               {noData ? '--' : (item.bid || 0).toFixed(2)}
             </Text>
+            {!noData && item.low > 0 && (
+              <Text style={[sc.lowHighText, { color: T.textMuted }]}>
+                L: {(item.low || 0).toFixed(item.digits ?? 5)}
+              </Text>
+            )}
           </View>
 
           <View style={sc.priceBlock}>
@@ -493,6 +555,11 @@ const QuoteCard = React.memo(function QuoteCard({
             >
               {noData ? '--' : (item.ask || 0).toFixed(2)}
             </Text>
+            {!noData && item.high > 0 && (
+              <Text style={[sc.lowHighText, { color: T.textMuted }]}>
+                H: {(item.high || 0).toFixed(item.digits ?? 5)}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -966,11 +1033,62 @@ export function QuotesScreen() {
     return quoteSymbols.filter((sym) => sym.toLowerCase().includes(q));
   }, [quoteSymbols, deferredSearch]);
 
+  const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
+  const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
+
   const goDetail = (sym: string) => {
     prefetchQuoteDetails(sym);
     setChartSymbol(sym);
     router.push({ pathname: '/quotes/details', params: { symbol: sym } });
   };
+
+  const handleSymbolTap = useCallback((sym: string) => {
+    const displayName = fmt.symbol(sym);
+    const description = getSymbolDescription(sym);
+    const sheetTitle = `${displayName}: ${description}`;
+
+    showActionSheet({
+      title: sheetTitle,
+      actions: [
+        {
+          label: t('New Order'),
+          onPress: () => {
+            prefetchOrderTicketData(resolveTradingLoginString(), sym);
+            router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+          },
+        },
+        {
+          label: t('Chart'),
+          onPress: () => {
+            setChartSymbol(sym);
+            router.push('/(tabs)/chart');
+          },
+        },
+        {
+          label: t('Properties'),
+          onPress: () => goDetail(sym),
+        },
+        {
+          label: t('Depth Of Market'),
+          disabled: true,
+          // Disabled – no DOM backend available yet
+          onPress: undefined,
+        },
+        {
+          label: t('Market Statistics'),
+          onPress: () => {
+            router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+          },
+        },
+        {
+          label: quoteViewMode === 'list' ? t('Simple view mode') : t('Advanced view mode'),
+          onPress: () => {
+            setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
+          },
+        },
+      ],
+    });
+  }, [showActionSheet, setChartSymbol, setQuoteViewMode, quoteViewMode, t]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
@@ -1084,10 +1202,10 @@ export function QuotesScreen() {
                   T={T}
                   isDark={isDark}
                   cardBackground={animatedCardBackground}
-                  onPress={() => goDetail(sym)}
+                  onPress={() => handleSymbolTap(sym)}
                   onLongPress={() =>
                     showActionSheet({
-                      title: sym,
+                      title: fmt.symbol(sym),
                       actions: [
                         {
                           label: t('Chart'),
@@ -1360,6 +1478,19 @@ const sc = StyleSheet.create({
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
+  },
+
+  lowHighRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+    marginTop: 2,
+  },
+
+  lowHighText: {
+    fontSize: 11,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
 });
 
