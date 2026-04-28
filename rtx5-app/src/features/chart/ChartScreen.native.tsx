@@ -84,7 +84,7 @@ import { useMarketData } from '../../query/websocket';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
 import { normalizeTimeframe } from '../../domain/candles';
 import { normalizeSymbol } from '../../domain/symbols';
-import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
+
 import { LIGHTWEIGHT_CHARTS_JS } from './rendering/lightweightChartsBundle';
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
 import {
@@ -1253,7 +1253,7 @@ const CH_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <meta name="color-scheme" content="light dark">
     <script>${LIGHTWEIGHT_CHARTS_JS}</script>
-    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
+
     <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2359,26 +2359,19 @@ const CH_HTML = `
             lastValueVisible: false,
             priceLineVisible: false,
           };
-          if (
-            typeof window.addRTX5CustomCandlestickSeries === 'function' &&
-            typeof chart.addCustomSeries === 'function'
-          ) {
-            series = window.addRTX5CustomCandlestickSeries(chart, customCandleOptions);
-          } else {
-            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-              upColor: colors.bodyUp,
-              downColor: colors.bodyDown,
-              borderUpColor: colors.up,
-              borderDownColor: colors.down,
-              wickUpColor: colors.up,
-              wickDownColor: colors.down,
-              borderVisible: true,
-              wickVisible: true,
-              priceFormat: priceFormat,
-              lastValueVisible: false,
-              priceLineVisible: false,
-            });
-          }
+          series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: colors.bodyUp,
+            downColor: colors.bodyDown,
+            borderUpColor: colors.up,
+            borderDownColor: colors.down,
+            wickUpColor: colors.up,
+            wickDownColor: colors.down,
+            borderVisible: true,
+            wickVisible: true,
+            priceFormat: priceFormat,
+            lastValueVisible: false,
+            priceLineVisible: false,
+          });
         }
 
         ensureMoveBarsSeries(lastDisplayDecimals);

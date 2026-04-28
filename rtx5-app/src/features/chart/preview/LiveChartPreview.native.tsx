@@ -14,7 +14,7 @@ import {
   PreviewChartType,
   sanitizePreviewCandles,
 } from './chartPreviewShared';
-import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from '../rendering/customCandlestickSeriesWebView';
+
 
 const CH_HTML = `
 <!DOCTYPE html>
@@ -31,7 +31,7 @@ const CH_HTML = `
 <body>
     <div id="chart"></div>
     <script>window.__RTX5_CUSTOM_CANDLE_GEOMETRY_DEBUG = ${__DEV__ ? 'true' : 'false'};</script>
-    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
+
     <script>
       var chart = null;
       var series = null;
@@ -179,9 +179,9 @@ const CH_HTML = `
           };
 
           if (chartType === 'candles' || chartType === 'hollow') {
-            series = window.addRTX5CustomCandlestickSeries(chart, {
-              bodyUpColor: chartType === 'hollow' ? hollowBody : cUp,
-              bodyDownColor: cDown,
+            series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+              upColor: chartType === 'hollow' ? hollowBody : cUp,
+              downColor: cDown,
               borderUpColor: cUp,
               borderDownColor: cDown,
               wickUpColor: cUp,
