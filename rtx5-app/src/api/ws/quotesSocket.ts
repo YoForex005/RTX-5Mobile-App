@@ -9,6 +9,7 @@ import { quotes as mockQuotes } from '../../mock/tradingData';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
 import { normalizeQuoteTickPayload, type QuoteTickEvent } from './quoteTickNormalizer';
+import { liveCandlesEngine } from './liveCandlesEngine';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -480,6 +481,13 @@ export class QuotesWebSocketService {
         timestamp: normalizedTimestamp,
         rawKeys: normalizedUpdate.rawKeys,
       }, 8);
+      liveCandlesEngine.ingestQuoteTick({
+        symbol: normalizedUpdate.symbol,
+        bid: normalizedUpdate.bid,
+        ask: normalizedUpdate.ask,
+        last: normalizedUpdate.last,
+        timestamp: normalizedTimestamp,
+      });
     } else {
       this.logCandleFeed('tick_missing_timestamp_for_candles', {
         symbol: normalizedUpdate.symbol,
