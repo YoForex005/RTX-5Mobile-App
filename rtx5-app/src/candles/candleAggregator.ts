@@ -92,7 +92,7 @@ export const applyTickToCandleMap = (
   }
 
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && bucketStart <= historyCutoff) {
+  if (typeof historyCutoff === 'number' && bucketStart < historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
@@ -143,7 +143,7 @@ export const applyLiveCandleToCandleMap = (
   }
 
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && bucketStart <= historyCutoff) {
+  if (typeof historyCutoff === 'number' && bucketStart < historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 

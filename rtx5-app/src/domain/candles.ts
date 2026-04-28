@@ -217,15 +217,7 @@ export const isWithinLiveBucketHorizon = (
   nowInSeconds: number = Math.floor(Date.now() / 1000),
 ): boolean => candleTime <= getExpectedNextCandleTime(getCurrentBucketTime(timeframe, nowInSeconds), timeframe);
 
-/**
- * Deprecated compatibility function. Frontend gap filling is intentionally
- * disabled; backend-missing buckets remain absent.
- */
-export const buildFlatGapCandles = (
-  _lastCandle: Candle,
-  _incomingTime: number,
-  _timeframe: string,
-): Candle[] => [];
+
 
 export const hasDetachedShortCandleTail = (
   candles: Candle[],
@@ -321,15 +313,7 @@ export const materializeHistoryAndLiveCandles = (
 
 export const materializeCanonicalHistoryAndLiveCandles = materializeHistoryAndLiveCandles;
 
-export const applyLivePriceToCandleSeries = (
-  candles: Candle[],
-  _price: number,
-  _timestamp: unknown,
-  _timeframe: string,
-  _options?: unknown,
-): Candle[] => {
-  return candles;
-};
+
 
 export const overlayLiveCandlesOnHistory = (
   historyCandles: Candle[],
