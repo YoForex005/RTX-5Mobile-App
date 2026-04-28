@@ -2,11 +2,12 @@ import { getCandleHistory } from '../api/candles';
 import { syncMergedCandleCache } from '../state/candleCache';
 import { useTradingState } from '../state/tradingState';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
-import { applyLiveCandleToCandleMap } from './candleAggregator';
+import { applyLiveCandleToCandleMap, applyTickToCandleMap } from './candleAggregator';
 import { normalizeLiveCandle } from './candleNormalizer';
 import { materializeCandleMap, createCandleMap } from './candleMerger';
 import { candleMemoryCache } from './candleStore';
-import type { Candle, CandleStreamState, LiveCandle, MutableCandle, Timeframe } from './candleTypes';
+import { normalizeQuoteTickPayload } from '../api/ws/quoteTickNormalizer';
+import type { Candle, CandleStreamState, LiveCandle, MutableCandle, Timeframe, Tick } from './candleTypes';
 import {
   createCandleStreamKey,
   normalizeSymbol,
@@ -30,9 +31,13 @@ export type CandleParams = Candle & {
 
 type StreamListener = () => void;
 
-type BufferedLiveEvent = { type: 'live_candle'; candle: LiveCandle; order: number };
+type BufferedLiveEvent = 
+  | { type: 'live_candle'; candle: LiveCandle; order: number }
+  | { type: 'live_tick'; tick: Tick; order: number };
 
-type UnorderedLiveEvent = { type: 'live_candle'; candle: LiveCandle };
+type UnorderedLiveEvent = 
+  | { type: 'live_candle'; candle: LiveCandle }
+  | { type: 'live_tick'; tick: Tick };
 
 type StreamEntry = {
   key: string;
@@ -100,7 +105,8 @@ const getStoreCache = (symbol: string, timeframe: string): Candle[] => {
   return sanitizeCandlesForChart(cached).slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
-const getEventTime = (event: BufferedLiveEvent): number => event.candle.time;
+const getEventTime = (event: BufferedLiveEvent): number => 
+  event.type === 'live_candle' ? event.candle.time : event.tick.timestamp;
 
 const isSameSeries = (left: readonly Candle[], right: readonly Candle[]): boolean => {
   if (left === right) return true;
@@ -245,10 +251,27 @@ export class LiveCandleStreamManager {
     this.commit(entry);
   }
 
-  public ingestQuoteTick(_rawTick: unknown): void {
-    logDebug('quote_tick_ignored_for_candles', {
-      reason: 'backend_candles_are_authoritative',
-    });
+  public ingestQuoteTick(rawTick: unknown): void {
+    const result = normalizeQuoteTickPayload(rawTick);
+    if (!result.ok) {
+      return;
+    }
+    const update = result.update;
+    const price = update.last !== undefined ? update.last : update.bid;
+    if (price === undefined || price === null || !Number.isFinite(price)) {
+      return;
+    }
+    const tick: Tick = {
+      symbol: update.symbol,
+      price: price,
+      timestamp: update.timestamp ?? Date.now(),
+    };
+    
+    for (const entry of this.entries.values()) {
+      if (entry.symbol === tick.symbol) {
+        this.enqueueLiveEvent(entry, this.makeLiveEvent(entry, { type: 'live_tick', tick }));
+      }
+    }
   }
 
   public ingestLiveCandle(rawCandle: unknown, symbol?: string, timeframe?: string): void {
@@ -497,28 +520,38 @@ export class LiveCandleStreamManager {
   private applyLiveEvents(entry: StreamEntry, events: BufferedLiveEvent[]): boolean {
     let changed = false;
     for (const event of events) {
-      if (event.candle.symbol && normalizeSymbol(event.candle.symbol) !== entry.symbol) {
-        continue;
-      }
-      if (event.candle.timeframe !== undefined) {
-        const candleTimeframe = normalizeTimeframeStrict(event.candle.timeframe);
-        if (!candleTimeframe || candleTimeframe !== entry.timeframe) {
+      if (event.type === 'live_candle') {
+        if (event.candle.symbol && normalizeSymbol(event.candle.symbol) !== entry.symbol) {
           continue;
         }
-      }
-      const result = applyLiveCandleToCandleMap(entry.candleMap, event.candle, entry.timeframe, {
-        historyCutoffTime: entry.historyLastTime,
-      });
-      if (result.ignored) {
-        logDebug('live_candle_ignored', {
-          symbol: entry.symbol,
-          timeframe: entry.timeframe,
-          reason: result.reason,
-          candleTime: event.candle.time,
-          historyLastTime: entry.historyLastTime,
+        if (event.candle.timeframe !== undefined) {
+          const candleTimeframe = normalizeTimeframeStrict(event.candle.timeframe);
+          if (!candleTimeframe || candleTimeframe !== entry.timeframe) {
+            continue;
+          }
+        }
+        const result = applyLiveCandleToCandleMap(entry.candleMap, event.candle, entry.timeframe, {
+          historyCutoffTime: entry.historyLastTime,
         });
+        if (result.ignored) {
+          logDebug('live_candle_ignored', {
+            symbol: entry.symbol,
+            timeframe: entry.timeframe,
+            reason: result.reason,
+            candleTime: event.candle.time,
+            historyLastTime: entry.historyLastTime,
+          });
+        }
+        changed = changed || result.changed;
+      } else if (event.type === 'live_tick') {
+        if (normalizeSymbol(event.tick.symbol) !== entry.symbol) {
+          continue;
+        }
+        const result = applyTickToCandleMap(entry.candleMap, event.tick, entry.timeframe, {
+          historyCutoffTime: entry.historyLastTime,
+        });
+        changed = changed || result.changed;
       }
-      changed = changed || result.changed;
     }
 
     return changed;
