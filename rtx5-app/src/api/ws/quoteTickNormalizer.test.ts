@@ -98,6 +98,35 @@ test('normalizeQuoteTickPayload uses receive-time fallback when socket feed omit
   assert.equal(result.update.timestampSource, 'received_at');
 });
 
+test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
+  const result = normalizeQuoteTickPayload({
+    symbol: 'EURUSD',
+    bid: 1.17121,
+    ask: 1.17141,
+    daily_open: 1.17223,
+    previous_close: 1.17204,
+    session: {
+      high_bid: 1.17269,
+      low_bid: 1.16773,
+      high_ask: 1.17272,
+      low_ask: 1.16776,
+    },
+    time: 1777409940,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.bid, 1.17121);
+  assert.equal(result.update.ask, 1.17141);
+  assert.equal(result.update.dailyOpen, 1.17223);
+  assert.equal(result.update.previousClose, 1.17204);
+  assert.equal(result.update.high, 1.17269);
+  assert.equal(result.update.low, 1.16773);
+  assert.equal(result.update.timestamp, 1777409940);
+});
+
 test('normalizeQuoteTickPayload rejects non-finite bid ask before it reaches candles', () => {
   const result = normalizeQuoteTickPayload({
     symbol: 'XAUUSD',

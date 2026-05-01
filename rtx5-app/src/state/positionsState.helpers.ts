@@ -4,7 +4,13 @@ import { mapPositionToItem } from './positionsMapper';
 const TERMINAL_POSITION_STATES = new Set([
   'CLOSED',
   'CLOSE',
+  'POSITION CLOSE',
+  'POSITION CLOSED',
+  'POSITION CLOSE BY',
   'CLOSED BY',
+  'CLOSE BY',
+  'SL HIT',
+  'TP HIT',
   'REMOVED',
   'DELETED',
 ]);
@@ -22,7 +28,7 @@ export function normalizeLifecycleState(value: unknown): string {
   return String(value ?? '')
     .trim()
     .toUpperCase()
-    .replace(/[_-]+/g, ' ')
+    .replace(/[._-]+/g, ' ')
     .replace(/\s+/g, ' ');
 }
 

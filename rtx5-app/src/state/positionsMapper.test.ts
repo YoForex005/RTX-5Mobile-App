@@ -57,3 +57,23 @@ test('mapPositionToItem builds stable ids for fresh positions without random fal
   assert.equal(mapped.side, 'sell');
   assert.equal(mapped.pnl, 15);
 });
+
+test('mapPositionToItem normalizes broker symbols and common live update aliases', () => {
+  const mapped = mapPositionToItem({
+    ticket: 801,
+    symbol: 'XAUUSDm',
+    side: 'BUY',
+    volume: '0.2',
+    open_price: '3245.5',
+    current_price: '3249.8',
+    pnl: '61.5',
+    time_create: 1775901600,
+  });
+
+  assert.equal(mapped.id, '801');
+  assert.equal(mapped.symbol, 'XAUUSD');
+  assert.equal(mapped.side, 'buy');
+  assert.equal(mapped.openPrice, 3245.5);
+  assert.equal(mapped.currentPrice, 3249.8);
+  assert.equal(mapped.pnl, 61.5);
+});

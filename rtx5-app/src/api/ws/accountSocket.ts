@@ -24,6 +24,95 @@ import {
 
 const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'wss://backend.orrnn.com/ws/v2';
 
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const normalizeEventName = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, '.');
+
+const getPayloadData = (payload: Record<string, unknown>): unknown =>
+  payload.data ?? payload.payload ?? payload.result ?? payload;
+
+const isPositionLikeRecord = (record: Record<string, unknown>): boolean =>
+  record.ticket !== undefined ||
+  record.id !== undefined ||
+  record.position_ticket !== undefined ||
+  record.symbol !== undefined;
+
+const getLifecycleHints = (record: Record<string, unknown>): Record<string, unknown> => {
+  const hints: Record<string, unknown> = {};
+  for (const key of ['event', 'type', 'action', 'status', 'state', 'position_state', 'positionStatus']) {
+    if (record[key] !== undefined) {
+      hints[key] = record[key];
+    }
+  }
+  return hints;
+};
+
+const mergeLifecycleHints = (
+  item: Record<string, unknown>,
+  parentHints: Record<string, unknown>,
+): Record<string, unknown> => ({
+  ...parentHints,
+  ...item,
+});
+
+const extractPositionItems = (
+  value: unknown,
+  parentHints: Record<string, unknown> = {},
+  seen = new WeakSet<object>(),
+): Record<string, unknown>[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractPositionItems(item, parentHints, seen));
+  }
+
+  const record = asRecord(value);
+  if (!record || seen.has(record)) {
+    return [];
+  }
+  seen.add(record);
+
+  const hints = { ...parentHints, ...getLifecycleHints(record) };
+  if (isPositionLikeRecord(record)) {
+    return [mergeLifecycleHints(record, parentHints)];
+  }
+
+  for (const key of ['positions', 'items', 'data', 'payload', 'result', 'position', 'item']) {
+    const nested = record[key];
+    if (nested !== undefined) {
+      const nestedItems = extractPositionItems(nested, hints, seen);
+      if (nestedItems.length > 0) {
+        return nestedItems;
+      }
+    }
+  }
+
+  return [];
+};
+
+const extractPositionSnapshot = (value: unknown): Record<string, unknown>[] | null => {
+  if (Array.isArray(value)) {
+    return extractPositionItems(value);
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  for (const key of ['positions', 'items', 'data', 'result']) {
+    const nested = record[key];
+    if (Array.isArray(nested)) {
+      return extractPositionItems(nested, getLifecycleHints(record));
+    }
+  }
+
+  return null;
+};
+
 class AccountWebSocketService {
   private static instance: AccountWebSocketService;
   private ws: WebSocket | null = null;
@@ -139,54 +228,60 @@ class AccountWebSocketService {
   }
 
   private handlePayload(payload: any): void {
-    const channel = typeof payload?.channel === 'string' ? payload.channel : '';
-    const data = payload?.data ?? payload;
+    const payloadRecord = asRecord(payload);
+    const channel = typeof payloadRecord?.channel === 'string' ? payloadRecord.channel : '';
+    const eventName = normalizeEventName(payloadRecord?.event ?? payloadRecord?.type);
+    const data = payloadRecord ? getPayloadData(payloadRecord) : payload;
 
-    if ((channel.startsWith('metrics.') || channel.startsWith('account.')) && data) {
+    if (
+      data &&
+      (channel.startsWith('metrics.') ||
+        channel.startsWith('account.') ||
+        eventName.startsWith('account') ||
+        eventName.startsWith('metrics'))
+    ) {
       const metrics = extractLiveAccountMetrics(data);
       if (metrics) {
         useLiveAccountState.getState().updateMetrics(metrics);
       }
     }
 
-    if (channel.startsWith('positions.') && data) {
-      this.handlePositionsPayload(data);
+    if (data && (channel.startsWith('positions.') || eventName.startsWith('position'))) {
+      this.handlePositionsPayload(data, getLifecycleHints(payloadRecord ?? {}));
     }
 
-    if (payload?.event === 'position.update' && payload.data) {
-      usePositionsState.getState().upsertPosition(payload.data);
-    }
-
-    if (payload?.event === 'order.status' && payload.data) {
-      const currentLogin = payload.data.login || resolveTradingLogin() || useUserPreferences.getState().accountDetails?.id;
+    if (eventName === 'order.status' && data) {
+      const orderRecord = asRecord(data);
+      const currentLogin = orderRecord?.login || resolveTradingLogin() || useUserPreferences.getState().accountDetails?.id;
       if (currentLogin) {
         void usePositionsState.getState().refreshPositions(String(currentLogin));
       }
     }
 
-    if (payload?.event === 'account.snapshot' && payload.data) {
-      const metrics = extractLiveAccountMetrics(payload.data);
+    if (eventName === 'account.snapshot' && data) {
+      const metrics = extractLiveAccountMetrics(data);
       if (metrics) {
         useLiveAccountState.getState().updateMetrics(metrics);
       }
     }
   }
 
-  private handlePositionsPayload(data: any): void {
+  private handlePositionsPayload(data: any, parentHints: Record<string, unknown> = {}): void {
     const accountLogin = this.activeSession ? String(this.activeSession.login) : undefined;
+    const snapshot = extractPositionSnapshot(data);
 
-    if (Array.isArray(data)) {
-      usePositionsState.getState().applyPositionsSnapshot(data, accountLogin);
+    if (snapshot) {
+      usePositionsState.getState().applyPositionsSnapshot(snapshot, accountLogin);
       return;
     }
 
-    if (Array.isArray(data?.positions)) {
-      usePositionsState.getState().applyPositionsSnapshot(data.positions, accountLogin);
+    const updates = extractPositionItems(data, parentHints);
+    if (updates.length === 0) {
       return;
     }
 
-    if (data && typeof data === 'object' && (data.ticket || data.id || data.symbol)) {
-      usePositionsState.getState().upsertPosition(data);
+    for (const update of updates) {
+      usePositionsState.getState().upsertPosition(update);
     }
   }
 

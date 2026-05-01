@@ -98,18 +98,19 @@ export function MarketStatisticsScreen() {
   }, [q.close, q.bid]);
 
   const isUp = q.changePct >= 0;
+  const priceDigits = q.digits ?? 2;
 
   // Build the rows to display
   const rows: StatRow[] = useMemo(() => [
-    { label: 'Bid', value: fmt.price(q.bid), direction: 'up' as StatDirection },
-    { label: 'Bid high', value: fmt.price(bidHigh), direction: 'neutral' as StatDirection },
-    { label: 'Bid low', value: fmt.price(bidLow), direction: 'neutral' as StatDirection },
-    { label: 'Ask', value: fmt.price(q.ask), direction: 'up' as StatDirection },
-    { label: 'Ask high', value: fmt.price(askHigh), direction: 'neutral' as StatDirection },
-    { label: 'Ask low', value: fmt.price(askLow), direction: 'neutral' as StatDirection },
-    { label: 'Open price', value: fmt.price(openPrice), direction: 'neutral' as StatDirection },
-    { label: 'Close price', value: fmt.price(closePrice), direction: 'neutral' as StatDirection },
-  ], [q.bid, q.ask, bidHigh, bidLow, askHigh, askLow, openPrice, closePrice]);
+    { label: 'Bid', value: fmt.price(q.bid, priceDigits), direction: 'up' as StatDirection },
+    { label: 'Bid high', value: fmt.price(bidHigh, priceDigits), direction: 'neutral' as StatDirection },
+    { label: 'Bid low', value: fmt.price(bidLow, priceDigits), direction: 'neutral' as StatDirection },
+    { label: 'Ask', value: fmt.price(q.ask, priceDigits), direction: 'up' as StatDirection },
+    { label: 'Ask high', value: fmt.price(askHigh, priceDigits), direction: 'neutral' as StatDirection },
+    { label: 'Ask low', value: fmt.price(askLow, priceDigits), direction: 'neutral' as StatDirection },
+    { label: 'Open price', value: fmt.price(openPrice, priceDigits), direction: 'neutral' as StatDirection },
+    { label: 'Close price', value: fmt.price(closePrice, priceDigits), direction: 'neutral' as StatDirection },
+  ], [q.bid, q.ask, priceDigits, bidHigh, bidLow, askHigh, askLow, openPrice, closePrice]);
 
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const displaySymbol = fmt.symbol(symbol);
@@ -232,11 +233,11 @@ export function MarketStatisticsScreen() {
             </View>
           </View>
           <View style={styles.rangeLabels}>
-            <Text style={styles.rangeLabelValue}>{fmt.price(bidLow)}</Text>
+            <Text style={styles.rangeLabelValue}>{fmt.price(bidLow, priceDigits)}</Text>
             <Text style={[styles.rangeLabelValue, { color: isUp ? T.up : T.down }]}>
-              {fmt.price(q.bid)}
+              {fmt.price(q.bid, priceDigits)}
             </Text>
-            <Text style={styles.rangeLabelValue}>{fmt.price(bidHigh)}</Text>
+            <Text style={styles.rangeLabelValue}>{fmt.price(bidHigh, priceDigits)}</Text>
           </View>
           <View style={styles.rangeLabels}>
             <Text style={styles.rangeLabelSmall}>LOW</Text>

@@ -1,51 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-} from '../../src/api/ws/liveCandleOverlay';
-import { secondsUtc, validateBidTick } from '../support/candleTestUtils';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { secondsUtc } from '../support/candleTestUtils';
 
-test('stable duplicate signatures suppress fake volume and OHLC changes', () => {
-  const seen = new Set<string>();
-  const timestamp = secondsUtc(2024, 3, 22, 12, 0, 1);
-  const first = validateBidTick(100, timestamp, 1);
-  const duplicateA = validateBidTick(100, timestamp, 2);
-  const duplicateB = validateBidTick(100, timestamp, 3);
-  let candle = createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first);
+test('duplicate backend live candle snapshots are no-op updates', () => {
+  const map = createCandleMap();
+  const snapshot = {
+    symbol: 'EURUSD',
+    timeframe: 'M1',
+    time: secondsUtc(2024, 3, 22, 12, 1, 5),
+    open: 1.1,
+    high: 1.12,
+    low: 1.09,
+    close: 1.11,
+    volume: 4,
+  };
 
-  seen.add(first.signature);
-  for (const duplicate of [duplicateA, duplicateB]) {
-    if (!seen.has(duplicate.signature)) {
-      seen.add(duplicate.signature);
-      candle = mergeTickIntoLiveCandle(candle, duplicate);
-    }
-  }
+  const first = applyLiveCandleToCandleMap(map, snapshot, 'M1');
+  const duplicate = applyLiveCandleToCandleMap(map, snapshot, 'M1');
 
-  assert.equal(duplicateA.signature, first.signature);
-  assert.equal(duplicateB.signature, first.signature);
-  assert.equal(candle.open, 100);
-  assert.equal(candle.high, 100);
-  assert.equal(candle.low, 100);
-  assert.equal(candle.close, 100);
-  assert.equal(candle.volume, 0);
+  assert.equal(first.changed, true);
+  assert.equal(duplicate.changed, false);
+  assert.equal(duplicate.ignored, false);
+  assert.equal(materializeCandleMap(map).length, 1);
 });
 
-test('same timestamp with changed price is not treated as identical duplicate', () => {
-  const timestamp = secondsUtc(2024, 3, 22, 12, 0, 1);
-  const first = validateBidTick(100, timestamp, 1);
-  const changed = validateBidTick(101, timestamp, 2, {}, first.price);
+test('same-bucket backend snapshots replace the active candle without adding duplicates', () => {
+  const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
+  const map = createCandleMap();
 
-  assert.notEqual(changed.signature, first.signature);
-
-  const candle = mergeTickIntoLiveCandle(
-    createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first),
-    changed,
+  applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 5, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 4 },
+    'M1',
+  );
+  const updated = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 20, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 8 },
+    'M1',
   );
 
-  assert.equal(candle.high, 101);
-  assert.equal(candle.close, 101);
-  assert.equal(candle.volume, 0);
+  assert.equal(updated.changed, true);
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: bucket, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 8 },
+  ]);
 });

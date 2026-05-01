@@ -7,7 +7,6 @@ import {
 import type { Candle } from '../state/tradingState';
 
 export type CandlePriceBasis = 'bid' | 'ask' | 'mid' | 'last';
-export type CandleSource = 'rest' | 'live';
 
 export type TrustedHistoryCandle = Candle & {
   source: 'rest';
@@ -16,18 +15,6 @@ export type TrustedHistoryCandle = Candle & {
   serverTimeframe: string;
   receivedAtMs?: number;
 };
-
-export type LiveOverlayCandle = Candle & {
-  source: 'live';
-  closed: false;
-  firstTickTs: number;
-  lastTickTs: number;
-  firstSequence: number;
-  lastSequence: number;
-  priceBasis: CandlePriceBasis;
-};
-
-export type ProvenanceCandle = TrustedHistoryCandle | LiveOverlayCandle;
 
 export const CANDLE_PRICE_BASIS_VALUES: readonly CandlePriceBasis[] = ['bid', 'ask', 'mid', 'last'];
 
@@ -117,7 +104,7 @@ export const markTrustedHistorySeries = (
   sortAndDedupeCandles(
     candles.filter((candle) => {
       const record = candle as Record<string, unknown>;
-      return record.source !== 'live' && record.closed !== false;
+      return record.source !== 'live' && record.source !== 'live_candle' && record.closed !== false;
     }),
   )
     .map((candle) => markTrustedHistoryCandle(candle, timeframe, priceBasis))
@@ -178,8 +165,9 @@ export const splitRestHistoryCandles = (
     const record = candle as Record<string, unknown>;
     const explicitClosed = getExplicitClosedFlag(candle);
     const isLast = index === normalizedCandles.length - 1;
+    const isLiveSource = record.source === 'live' || record.source === 'live_candle';
     const shouldTreatAsClosed =
-      record.source !== 'live' &&
+      !isLiveSource &&
       (explicitClosed === true || (explicitClosed === null && !isLast));
 
     if (!shouldTreatAsClosed) {

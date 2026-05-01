@@ -1,69 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-} from '../../src/api/ws/liveCandleOverlay';
-import { secondsUtc, validateBidTick } from '../support/candleTestUtils';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { secondsUtc } from '../support/candleTestUtils';
 
-test('older same-bucket tick can update low but must not move close backward', () => {
-  const base = secondsUtc(2024, 3, 22, 12, 0, 0);
-  const first = validateBidTick(100, base + 5, 1);
-  const newer = validateBidTick(105, base + 20, 2, {}, first.price);
-  const lateOlder = validateBidTick(98, base + 10, 3, {}, newer.price);
+test('older backend live candle snapshots cannot rewind the active candle', () => {
+  const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
+  const map = createCandleMap();
 
-  const candle = mergeTickIntoLiveCandle(
-    mergeTickIntoLiveCandle(createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first), newer),
-    lateOlder,
+  applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 40, open: 1.1, high: 1.15, low: 1.09, close: 1.14, volume: 10 },
+    'M1',
+  );
+  const stale = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 10, open: 1.1, high: 1.11, low: 1.09, close: 1.1, volume: 2 },
+    'M1',
   );
 
-  assert.equal(candle.open, 100);
-  assert.equal(candle.high, 105);
-  assert.equal(candle.low, 98);
-  assert.equal(candle.close, 105);
-  assert.equal(candle.lastTickTs, newer.timestamp);
+  assert.equal(stale.ignored, true);
+  assert.equal(stale.reason, 'stale_live_candle');
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: bucket, open: 1.1, high: 1.15, low: 1.09, close: 1.14, volume: 10 },
+  ]);
 });
 
-test('earlier same-bucket tick before the first observed tick can heal wick without changing open or close', () => {
-  const base = secondsUtc(2024, 3, 22, 12, 0, 0);
-  const firstObserved = validateBidTick(102, base + 20, 1);
-  const closeTick = validateBidTick(104, base + 40, 2, {}, firstObserved.price);
-  const trueEarlierOpen = validateBidTick(100, base + 2, 3, {}, closeTick.price);
+test('late missing backend buckets behind the current tail are ignored instead of backfilled locally', () => {
+  const map = createCandleMap();
+  const currentBucket = secondsUtc(2024, 3, 22, 12, 5, 0);
 
-  const candle = mergeTickIntoLiveCandle(
-    mergeTickIntoLiveCandle(
-      createLiveCandleFromTick(getLiveTickBucketTime(firstObserved, 'M1'), firstObserved),
-      closeTick,
-    ),
-    trueEarlierOpen,
+  applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: currentBucket, open: 1.2, high: 1.22, low: 1.19, close: 1.21, volume: 5 },
+    'M1',
+  );
+  const late = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: currentBucket - 120, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 4 },
+    'M1',
   );
 
-  assert.equal(candle.open, 102);
-  assert.equal(candle.high, 104);
-  assert.equal(candle.low, 100);
-  assert.equal(candle.close, 104);
-  assert.equal(candle.firstTickTs, firstObserved.timestamp);
-  assert.equal(candle.lastTickTs, closeTick.timestamp);
-});
-
-test('same timestamp uses sequence to decide the newest close', () => {
-  const timestamp = secondsUtc(2024, 3, 22, 12, 0, 10);
-  const first = validateBidTick(100, timestamp, 1);
-  const sameTimeNewerSequence = validateBidTick(101, timestamp, 2, {}, first.price);
-  const sameTimeOlderSequence = validateBidTick(99, timestamp, 1, {}, sameTimeNewerSequence.price);
-
-  const candle = mergeTickIntoLiveCandle(
-    mergeTickIntoLiveCandle(
-      createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first),
-      sameTimeNewerSequence,
-    ),
-    sameTimeOlderSequence,
-  );
-
-  assert.equal(candle.high, 101);
-  assert.equal(candle.low, 99);
-  assert.equal(candle.close, 101);
-  assert.equal(candle.lastSequence, 2);
+  assert.equal(late.ignored, true);
+  assert.equal(late.reason, 'late_missing_bucket');
+  assert.deepEqual(materializeCandleMap(map).map((candle) => candle.time), [currentBucket]);
 });

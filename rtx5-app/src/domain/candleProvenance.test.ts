@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { getExpectedNextCandleTime, normalizeTimeframe } from './candles';
 import { splitRestHistoryCandles } from './candleProvenance';
-import type { LiveOverlayCandle, TrustedHistoryCandle } from './candleProvenance';
+import type { TrustedHistoryCandle } from './candleProvenance';
 import type { Candle } from '../state/tradingState';
 
 const BASE_TIME = 1713744000;
@@ -62,11 +62,11 @@ test('splitRestHistoryCandles supports all chart timeframes including MN1 alias'
   }
 });
 
-test('D1 bucket stepping skips the weekend session gap', () => {
+test('D1 bucket stepping stays calendar-based so backend weekend gaps remain explicit', () => {
   const fridayOpen = 1713484800;
-  const mondayOpen = 1713744000;
+  const saturdayOpen = 1713571200;
 
-  assert.equal(getExpectedNextCandleTime(fridayOpen, 'D1'), mondayOpen);
+  assert.equal(getExpectedNextCandleTime(fridayOpen, 'D1'), saturdayOpen);
 });
 
 test('splitRestHistoryCandles does not let same-time live data rewrite trusted REST history', () => {
@@ -77,15 +77,10 @@ test('splitRestHistoryCandles does not let same-time live data rewrite trusted R
     priceBasis: 'bid',
     serverTimeframe: 'M1',
   };
-  const live: LiveOverlayCandle = {
+  const live: Candle & { source: 'live_candle'; closed: false } = {
     ...makeCandle(120, 1.5),
-    source: 'live',
+    source: 'live_candle',
     closed: false,
-    firstTickTs: 120,
-    lastTickTs: 130,
-    firstSequence: 1,
-    lastSequence: 2,
-    priceBasis: 'bid',
   };
 
   const { closedHistory, currentCandle } = splitRestHistoryCandles([trusted, live], 'M1', 'bid');

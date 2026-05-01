@@ -414,7 +414,20 @@ export const useUserPreferences = create<UserPreferencesState>()(
           };
         }),
       setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
-      setTradeVolume: (volume) => set({ tradeVolume: normalizeTradeVolume(volume) }),
+      setTradeVolume: (volume) => {
+        // The caller (ChartScreen) already normalizes against the active
+        // instrument's bounds (min/max/stepVolume). Re-normalizing here
+        // with default bounds (step = 0.01) would silently override
+        // instrument-specific step rounding for symbols whose step isn't
+        // 0.01 — e.g., a value the caller intended as "1.5 lots on a
+        // step=0.5 instrument" stays 1.5, but if the caller passed a
+        // raw user input like "0.001" we still need a finite-number
+        // safety net. Just clamp to a positive finite number.
+        const next = typeof volume === 'number' && Number.isFinite(volume) && volume > 0
+          ? volume
+          : normalizeTradeVolume(volume);
+        set({ tradeVolume: next });
+      },
       setChartTradeVolumeDisplayMode: (mode) => set({ chartTradeVolumeDisplayMode: mode }),
       setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
       setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),

@@ -264,9 +264,11 @@ export function SymbolDetailsScreen() {
     [d1Candles],
   );
 
-  const d = 2;
+  const d = q.digits ?? 2;
   const col = dCol(q.changePct, T);
   const mid = ((q.bid || 0) + (q.ask || 0)) / 2;
+  const bidPriceText = fmt.price(q.bid, d);
+  const askPriceText = fmt.price(q.ask, d);
 
   const marketSentiment = useMemo(
     () => calculateMarketSentiment(q, dailyRangeCandle),
@@ -306,8 +308,8 @@ export function SymbolDetailsScreen() {
   const handleShare = async () => {
     try {
       const displayName = symbol.replace(/m$/i, '').replace(/\//g, '');
-      const bidPrice = fmt.price(q.bid);
-      const askPrice = fmt.price(q.ask);
+      const bidPrice = fmt.price(q.bid, d);
+      const askPrice = fmt.price(q.ask, d);
       const changePct = (q.changePct || 0).toFixed(2);
       const changeSign = q.changePct >= 0 ? '+' : '';
       const spreadVal = parseFloat(Number(q.spread || 0).toFixed(2)).toString();
@@ -435,7 +437,7 @@ export function SymbolDetailsScreen() {
 
           {/* 2. LIVE PRICE */}
           <View style={s.glassHero.priceRow}>
-            <Text style={[s.glassHero.bigPrice, { color: col }]}>{fmt.price(q.bid)}</Text>
+            <Text style={[s.glassHero.bigPrice, { color: col }]}>{bidPriceText}</Text>
             <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
               <View style={s.hero.changePill}>
                 <Ionicons name={isUp ? 'caret-up' : 'caret-down'} size={14} color={col} />
@@ -465,8 +467,8 @@ export function SymbolDetailsScreen() {
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
-                  <Text style={s.ticker.priceBase}>{fmt.price(q.bid).slice(0, -2)}</Text>
-                  <Text style={[s.ticker.pipHighlight, { color: T.down }]}>{fmt.price(q.bid).slice(-2)}</Text>
+                  <Text style={s.ticker.priceBase}>{bidPriceText.slice(0, -2)}</Text>
+                  <Text style={[s.ticker.pipHighlight, { color: T.down }]}>{bidPriceText.slice(-2)}</Text>
                 </View>
               </Pressable>
 
@@ -489,8 +491,8 @@ export function SymbolDetailsScreen() {
                   </View>
                 </View>
                 <View style={s.ticker.priceWrap}>
-                  <Text style={s.ticker.priceBase}>{fmt.price(q.ask).slice(0, -2)}</Text>
-                  <Text style={[s.ticker.pipHighlight, { color: T.up }]}>{fmt.price(q.ask).slice(-2)}</Text>
+                  <Text style={s.ticker.priceBase}>{askPriceText.slice(0, -2)}</Text>
+                  <Text style={[s.ticker.pipHighlight, { color: T.up }]}>{askPriceText.slice(-2)}</Text>
                 </View>
               </Pressable>
             </View>
@@ -514,9 +516,9 @@ export function SymbolDetailsScreen() {
 
           {/* 4. METRICS ROW */}
           <View style={s.glassHero.metricsRow}>
-            <MetricPill label="MID" value={fmt.price(mid)} icon="analytics-outline" />
-            <MetricPill label="OPEN" value={fmt.price(dynOpen)} icon="time-outline" />
-            <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask)} icon="calendar-outline" />
+            <MetricPill label="MID" value={fmt.price(mid, d)} icon="analytics-outline" />
+            <MetricPill label="OPEN" value={fmt.price(dynOpen, d)} icon="time-outline" />
+            <MetricPill label="PREV" value={fmt.price(q.close ?? q.ask, d)} icon="calendar-outline" />
             <MetricPill label="VOL" value={dynVol.toLocaleString()} icon="bar-chart-outline" />
           </View>
 
@@ -525,7 +527,7 @@ export function SymbolDetailsScreen() {
             <View style={s.glassHero.rangeTop}>
               <View>
                 <Text style={s.glassHero.rangeLbl}>LOW</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynLow !== Infinity ? dynLow : q.bid, d)}</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
                 <Text style={s.glassHero.rangeLbl}>DAY RANGE</Text>
@@ -533,7 +535,7 @@ export function SymbolDetailsScreen() {
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={s.glassHero.rangeLbl}>HIGH</Text>
-                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh)}</Text>
+                <Text style={s.glassHero.rangeVal}>{fmt.price(dynHigh, d)}</Text>
               </View>
             </View>
             <View style={{ paddingHorizontal: 14, paddingTop: 6 }}>

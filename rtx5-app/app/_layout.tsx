@@ -130,7 +130,6 @@ function InnerLayout() {
 }
 
 import { accountWsService } from '../src/api/ws/accountSocket';
-import { quotesWsService } from '../src/api/ws/quotesSocket';
 import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
@@ -150,15 +149,6 @@ export default function RootLayout() {
     void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
     prefetchChartCandles(chartSymbol, chartTimeframe);
   }, [hasHydrated, chartSymbol, chartTimeframe]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      quotesWsService.connect();
-      return;
-    }
-
-    quotesWsService.disconnect();
-  }, [isLoggedIn]);
 
   useEffect(() => {
     if (isLoggedIn) {

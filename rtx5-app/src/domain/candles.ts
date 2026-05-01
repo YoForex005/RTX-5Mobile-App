@@ -1,4 +1,3 @@
-import { applyLiveCandleToCandleMap } from '../candles/candleAggregator';
 import {
   normalizeHistoryCandle,
   normalizeHistoryCandles,
@@ -88,39 +87,6 @@ export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: s
   }
 
   return alignTimeToBucket(candle.time, normalizedTimeframe) === candle.time;
-};
-
-export const normalizeCandle = (input: Record<string, unknown>, timeframe: string): Candle | null => {
-  const history = normalizeHistoryCandle(input);
-  if (history) {
-    return history;
-  }
-
-  const hasOhlcFields =
-    ['open', 'Open', 'OPEN', 'o', 'O'].some((key) => input[key] !== undefined) ||
-    ['high', 'High', 'HIGH', 'h', 'H'].some((key) => input[key] !== undefined) ||
-    ['low', 'Low', 'LOW', 'l', 'L'].some((key) => input[key] !== undefined) ||
-    ['close', 'Close', 'CLOSE', 'c', 'C'].some((key) => input[key] !== undefined);
-  if (hasOhlcFields) {
-    return null;
-  }
-
-  const timestamp = normalizeTimestampToSeconds(input.time ?? input.timestamp ?? input.ts ?? input.t);
-  const price = Number(input.price ?? input.p ?? input.bid ?? input.ask ?? input.close ?? input.c);
-  if (!Number.isFinite(price) || price <= 0 || timestamp === null) {
-    return null;
-  }
-
-  const time = alignTimeToBucket(timestamp, timeframe);
-  const candle: Candle = {
-    time,
-    open: price,
-    high: price,
-    low: price,
-    close: price,
-    volume: 0,
-  };
-  return validateCandle(candle) ? candle : null;
 };
 
 export const parseIncomingCandlePayload = (
@@ -302,7 +268,7 @@ export const pruneLiveCandlesCoveredByHistory = (
   const history = sortAndDedupeCandles(historyCandles);
   const live = sortAndDedupeCandles(liveCandles);
   const historyLast = history[history.length - 1]?.time;
-  return historyLast === undefined ? live : live.filter((candle) => candle.time >= historyLast);
+  return historyLast === undefined ? live : live.filter((candle) => candle.time > historyLast);
 };
 
 export const materializeHistoryAndLiveCandles = (

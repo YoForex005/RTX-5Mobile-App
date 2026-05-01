@@ -1,6 +1,6 @@
-import type { Candle, LiveCandle, RawCandle, RawTick, Tick } from './candleTypes';
+import type { Candle, LiveCandle, RawCandle } from './candleTypes';
 import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToSeconds } from './timeframeUtils';
-import { logInvalidCandleInDevelopment, logInvalidTickInDevelopment, validateCandle, validateTick } from './candleValidator';
+import { logInvalidCandleInDevelopment, validateCandle } from './candleValidator';
 
 const TIME_KEYS = ['time', 'timestamp', 'ts', 't', 'date', 'datetime', 'serverTime', 'server_time'];
 const OPEN_KEYS = ['open', 'Open', 'OPEN', 'o', 'O'];
@@ -10,10 +10,6 @@ const CLOSE_KEYS = ['close', 'Close', 'CLOSE', 'c', 'C'];
 const VOLUME_KEYS = ['volume', 'Volume', 'VOLUME', 'vol', 'tickVolume', 'tick_volume', 'v', 'V'];
 const SYMBOL_KEYS = ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol'];
 const TIMEFRAME_KEYS = ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval'];
-const PRICE_KEYS = ['price', 'Price', 'PRICE', 'p', 'P', 'last', 'lastPrice', 'last_price'];
-const BID_KEYS = ['bid', 'Bid', 'BID', 'bidPrice', 'bid_price', 'b', 'B'];
-const ASK_KEYS = ['ask', 'Ask', 'ASK', 'askPrice', 'ask_price', 'a', 'A'];
-
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
@@ -102,52 +98,9 @@ export const normalizeLiveCandle = (raw: unknown): LiveCandle | null => {
   };
 };
 
-export const normalizeLiveTick = (raw: unknown, fallbackSymbol?: string): Tick | null => {
-  const record = asRecord(raw);
-  if (!record) {
-    logInvalidTickInDevelopment('missing_record', raw);
-    return null;
-  }
-
-  const symbol = normalizeSymbol(
-    String(pickFirst(record, SYMBOL_KEYS) ?? fallbackSymbol ?? ''),
-  );
-  const timestamp = normalizeTimestampToSeconds(pickFirst(record, TIME_KEYS));
-  const bid = toFiniteNumber(pickFirst(record, BID_KEYS));
-  const ask = toFiniteNumber(pickFirst(record, ASK_KEYS));
-  const directPrice = toFiniteNumber(pickFirst(record, PRICE_KEYS));
-  const volume = toNonNegativeFiniteNumber(pickFirst(record, VOLUME_KEYS)) ?? undefined;
-  const sequence = toNonNegativeFiniteNumber(record.sequence ?? record.seq);
-
-  if (bid !== null && ask !== null && ask < bid) {
-    logInvalidTickInDevelopment('negative_spread', raw);
-    return null;
-  }
-
-  const price = directPrice ?? bid ?? ask;
-  const tick: Tick | null =
-    symbol && timestamp !== null && price !== null
-      ? {
-          symbol,
-          price,
-          timestamp,
-          ...(volume === undefined ? {} : { volume }),
-          ...(sequence === null ? {} : { sequence }),
-        }
-      : null;
-
-  if (!validateTick(tick)) {
-    logInvalidTickInDevelopment('invalid_tick', raw);
-    return null;
-  }
-
-  return tick;
-};
-
 export const normalizeHistoryCandles = (rawCandles: unknown[]): Candle[] =>
   rawCandles
     .map(normalizeHistoryCandle)
     .filter((candle): candle is Candle => candle !== null);
 
 export const normalizeRawCandleRecord = (raw: unknown): RawCandle | null => asRecord(raw);
-export const normalizeRawTickRecord = (raw: unknown): RawTick | null => asRecord(raw);

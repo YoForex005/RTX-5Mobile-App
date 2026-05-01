@@ -6,7 +6,7 @@ import { materializeCanonicalHistoryAndLiveCandles } from '../../src/domain/cand
 import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
 import {
   assertNoDuplicateCandleTimes,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   makeTrustedHistoryCandle,
   secondsUtc,
 } from '../support/candleTestUtils';
@@ -24,7 +24,7 @@ test('daily weekend rollover merges without fabricating Saturday or Sunday candl
   const friday = secondsUtc(2024, 3, 19, 0, 0, 0);
   const monday = secondsUtc(2024, 3, 22, 0, 0, 0);
   const history = [makeTrustedHistoryCandle(friday, { serverTimeframe: 'D1' })];
-  const live = [makeLiveOverlayCandle(monday, { serverTimeframe: 'D1' })];
+  const live = [makeBackendLiveCandle(monday, { serverTimeframe: 'D1' })];
 
   assert.equal(resolveVisibleSeriesMode(history, live, history, 'D1'), 'merged');
 

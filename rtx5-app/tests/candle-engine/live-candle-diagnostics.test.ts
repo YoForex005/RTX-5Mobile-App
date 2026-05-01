@@ -60,9 +60,10 @@ test('canonical live stream buffers and replays live data around REST history', 
 
 test('canonical live stream does not generate candles from quote ticks', () => {
   assert.doesNotMatch(source, /applyTickToCandleMap/);
+  assert.doesNotMatch(source, /ingestQuoteTick/);
   assert.doesNotMatch(source, /quotesWsService\.addTickListener/);
   assert.doesNotMatch(source, /quotesWsService\.subscribe/);
-  assert.match(source, /quote_tick_ignored_for_candles/);
+  assert.match(source, /ingestLiveCandle\(rawCandle: unknown, symbol\?: string, timeframe\?: string\): void/);
 });
 
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {

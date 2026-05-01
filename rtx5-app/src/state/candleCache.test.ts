@@ -3,7 +3,9 @@ import test, { afterEach, beforeEach } from 'node:test';
 
 import { Candle, useTradingState } from './tradingState';
 import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from './candleCache';
-import type { LiveOverlayCandle, TrustedHistoryCandle } from '../domain/candleProvenance';
+import type { TrustedHistoryCandle } from '../domain/candleProvenance';
+
+type BackendLiveCandle = Candle & { source: 'live_candle'; closed: false };
 
 const resetCandleCache = () => {
   useTradingState.setState((state) => ({
@@ -45,7 +47,7 @@ test('mergeHistoryIntoCandleCache stores only trusted closed REST history', () =
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], merged);
 });
 
-test('syncMergedCandleCache refuses to persist live overlay candles as history', () => {
+test('syncMergedCandleCache refuses to persist backend live candles as history', () => {
   const trusted: TrustedHistoryCandle = {
     ...makeCandle(60, 1.1),
     source: 'rest',
@@ -53,15 +55,10 @@ test('syncMergedCandleCache refuses to persist live overlay candles as history',
     priceBasis: 'bid',
     serverTimeframe: 'M1',
   };
-  const live: LiveOverlayCandle = {
+  const live: BackendLiveCandle = {
     ...makeCandle(120, 1.2),
-    source: 'live',
+    source: 'live_candle',
     closed: false,
-    firstTickTs: 120,
-    lastTickTs: 130,
-    firstSequence: 1,
-    lastSequence: 2,
-    priceBasis: 'bid',
   };
 
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), true);
@@ -73,7 +70,7 @@ test('syncMergedCandleCache refuses to persist live overlay candles as history',
   assert.equal((cached[0] as TrustedHistoryCandle).closed, true);
 });
 
-test('syncMergedCandleCache never promotes same-time live overlay into closed history', () => {
+test('syncMergedCandleCache never promotes same-time backend live candle into closed history', () => {
   const trusted: TrustedHistoryCandle = {
     ...makeCandle(120, 1.1),
     source: 'rest',
@@ -81,15 +78,10 @@ test('syncMergedCandleCache never promotes same-time live overlay into closed hi
     priceBasis: 'bid',
     serverTimeframe: 'M1',
   };
-  const live: LiveOverlayCandle = {
+  const live: BackendLiveCandle = {
     ...makeCandle(120, 1.5),
-    source: 'live',
+    source: 'live_candle',
     closed: false,
-    firstTickTs: 120,
-    lastTickTs: 130,
-    firstSequence: 1,
-    lastSequence: 2,
-    priceBasis: 'bid',
   };
 
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), true);
@@ -102,16 +94,11 @@ test('syncMergedCandleCache never promotes same-time live overlay into closed hi
   assert.equal((cached[0] as TrustedHistoryCandle).closed, true);
 });
 
-test('syncMergedCandleCache drops same-time live overlay when no trusted REST candle exists', () => {
-  const live: LiveOverlayCandle = {
+test('syncMergedCandleCache drops same-time backend live candle when no trusted REST candle exists', () => {
+  const live: BackendLiveCandle = {
     ...makeCandle(120, 1.5),
-    source: 'live',
+    source: 'live_candle',
     closed: false,
-    firstTickTs: 120,
-    lastTickTs: 130,
-    firstSequence: 1,
-    lastSequence: 2,
-    priceBasis: 'bid',
   };
 
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', [live], { canonical: true }), false);

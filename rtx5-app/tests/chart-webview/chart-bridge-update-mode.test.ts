@@ -86,3 +86,36 @@ test('WebView full data reload restores overlays and market price lines after se
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlays must be reapplied after setData');
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'market lines must be restored after setData');
 });
+
+test('native WebView uses the RTX5 custom candle renderer when available', () => {
+  assertSourceContains(
+    source,
+    /RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS/,
+    'native chart HTML must include the custom candle renderer bundle',
+  );
+  assertSourceContains(
+    source,
+    /window\.addRTX5CustomCandlestickSeries[\s\S]*customCandleOptions/,
+    'candlestick and hollow charts must prefer the RTX5 custom candle series',
+  );
+});
+
+test('pinch and zoom gestures suppress chart tap radial menu events', () => {
+  const body = extractFunctionBody(source, 'bindChartTapListeners');
+
+  assertSourceContains(
+    body,
+    /CHART_SCALE_TAP_SUPPRESSION_MS/,
+    'chart tap listener must keep a suppression window for scale gestures',
+  );
+  assertSourceContains(
+    body,
+    /isScaleGestureEvent\(event\)[\s\S]*suppressChartTapAfterScale/,
+    'multi-touch scale gestures must cancel pending tap emission',
+  );
+  assertSourceContains(
+    body,
+    /Date\.now\(\) <= suppressNextChartClickUntil \|\| Date\.now\(\) <= suppressChartTapUntil/,
+    'native click fallback must also be suppressed after zoom',
+  );
+});

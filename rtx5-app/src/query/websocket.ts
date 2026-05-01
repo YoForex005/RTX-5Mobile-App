@@ -7,10 +7,26 @@ import { useShallow } from 'zustand/shallow';
 
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
+import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
 import { quotes as mockQuotes, type QuoteItem } from '../mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { normalizeTimeframeStrict } from '../domain/candles';
+import { hasQuotePriceChange } from '../utils/quotePriceChange';
+
+const LIVE_QUOTE_STALE_MS = 45_000;
+
+function getQuoteFreshnessAnchorMs(liveQuote?: Partial<QuoteItem>): number | null {
+  return (
+    normalizeQuoteTickTimestampToMs(liveQuote?.lastReceivedAt) ??
+    normalizeQuoteTickTimestampToMs(liveQuote?.lastTickAt)
+  );
+}
+
+function isFreshLiveQuote(liveQuote?: Partial<QuoteItem>): boolean {
+  const liveQuoteTickAt = getQuoteFreshnessAnchorMs(liveQuote);
+  return !!liveQuote && (liveQuoteTickAt === null || Date.now() - liveQuoteTickAt <= LIVE_QUOTE_STALE_MS);
+}
 
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
 
@@ -86,6 +102,9 @@ export function useMarketData(symbols: string[] = []) {
     const normalizedSymbol = normalizeSymbol(sym);
     const mock = mockQuotes.find((m) => normalizeSymbol(m.symbol) === normalizedSymbol);
     const live = liveQuotes[sym] || liveQuotes[normalizedSymbol];
+    if (live && !isFreshLiveQuote(live)) {
+      return acc;
+    }
     if (live || mock) {
       acc[sym] = { ...(mock || {}), ...(live || {}), symbol: normalizedSymbol };
     }
@@ -103,13 +122,19 @@ function resolveMergedQuoteSnapshot(
   }
 
   const mock = mockQuotes.find((entry) => normalizeSymbol(entry.symbol) === normalizedSymbol);
-  if (!mock && !liveQuote) {
+  const freshLiveQuote = isFreshLiveQuote(liveQuote) ? liveQuote : undefined;
+
+  if (liveQuote && !freshLiveQuote) {
+    return undefined;
+  }
+
+  if (!mock && !freshLiveQuote) {
     return undefined;
   }
 
   return {
     ...(mock || {}),
-    ...(liveQuote || {}),
+    ...(freshLiveQuote || {}),
     symbol: normalizedSymbol,
   };
 }
@@ -131,7 +156,10 @@ const areQuoteSnapshotsEqual = (
     left.bid === right.bid &&
     left.ask === right.ask &&
     left.digits === right.digits &&
+    left.feedTickAt === right.feedTickAt &&
     left.lastTickAt === right.lastTickAt &&
+    left.lastReceivedAt === right.lastReceivedAt &&
+    left.lastPriceChangedAt === right.lastPriceChangedAt &&
     left.spread === right.spread &&
     left.volume === right.volume &&
     left.changePct === right.changePct
@@ -141,12 +169,23 @@ const areQuoteSnapshotsEqual = (
 const mergeQuoteTickIntoSnapshot = (
   requestedSymbol: string,
   currentSnapshot: Partial<QuoteItem> | undefined,
-  tick: { bid: number; ask: number; timestamp: number },
+  tick: { bid: number; ask: number; timestamp: number; feedTickAt?: number; receivedAt?: number },
 ): Partial<QuoteItem> | undefined => {
   const normalizedSymbol = normalizeSymbol(requestedSymbol);
   if (!normalizedSymbol) {
     return undefined;
   }
+
+  const lastReceivedAt = normalizeQuoteTickTimestampToMs(tick.receivedAt) ?? Date.now();
+  if (Date.now() - lastReceivedAt > LIVE_QUOTE_STALE_MS) {
+    return undefined;
+  }
+  const feedTickAt = normalizeQuoteTickTimestampToMs(tick.feedTickAt ?? tick.timestamp);
+  const lastTickAt = feedTickAt ?? lastReceivedAt;
+  const priceChanged = hasQuotePriceChange(currentSnapshot, tick);
+  const lastPriceChangedAt = priceChanged
+    ? lastReceivedAt
+    : currentSnapshot?.lastPriceChangedAt;
 
   const digits =
     typeof currentSnapshot?.digits === 'number' && Number.isFinite(currentSnapshot.digits)
@@ -158,7 +197,10 @@ const mergeQuoteTickIntoSnapshot = (
     symbol: normalizedSymbol,
     bid: tick.bid,
     ask: tick.ask,
-    lastTickAt: tick.timestamp,
+    feedTickAt: feedTickAt ?? undefined,
+    lastTickAt,
+    lastReceivedAt,
+    lastPriceChangedAt,
     spread:
       digits !== undefined
         ? (tick.ask - tick.bid) * Math.pow(10, digits)
@@ -198,7 +240,10 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
     }
 
     const commit = () => {
-      quoteCommitAnimationFrameRef.current = null;
+      if (quoteCommitAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(quoteCommitAnimationFrameRef.current);
+        quoteCommitAnimationFrameRef.current = null;
+      }
       if (quoteCommitTimerRef.current) {
         clearTimeout(quoteCommitTimerRef.current);
         quoteCommitTimerRef.current = null;
@@ -210,16 +255,10 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       });
     };
 
+    quoteCommitTimerRef.current = setTimeout(commit, 16);
     if (typeof requestAnimationFrame === 'function') {
-      quoteCommitAnimationFrameRef.current = requestAnimationFrame(() => {
-        commit();
-      });
-      return;
+      quoteCommitAnimationFrameRef.current = requestAnimationFrame(commit);
     }
-
-    quoteCommitTimerRef.current = setTimeout(() => {
-      commit();
-    }, 16);
   }, []);
 
   useEffect(() => {
@@ -235,10 +274,14 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       return;
     }
 
-    quotesWsService.connect();
-    quotesWsService.subscribe([normalizedSymbol]);
-
-    const listener = (tick: { symbol: string; bid: number; ask: number; timestamp: number }) => {
+    const listener = (tick: {
+      symbol: string;
+      bid: number;
+      ask: number;
+      timestamp: number;
+      feedTickAt?: number;
+      receivedAt?: number;
+    }) => {
       if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
         return;
       }
@@ -247,11 +290,10 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       scheduleQuoteCommit();
     };
 
-    quotesWsService.addTickListener(listener);
+    const unsubscribe = quotesWsService.subscribeToSymbol(normalizedSymbol, listener);
 
     return () => {
-      quotesWsService.removeTickListener(listener);
-      quotesWsService.unsubscribe([normalizedSymbol]);
+      unsubscribe();
       cancelScheduledCommit();
     };
   }, [cancelScheduledCommit, normalizedSymbol, scheduleQuoteCommit, symbol]);

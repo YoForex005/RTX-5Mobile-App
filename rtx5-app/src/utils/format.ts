@@ -1,9 +1,15 @@
-/**
- * Common formatting utilities for consistent UI presentation of numeric financial data.
- * Guarantees safe fallbacks for undefined/null values to prevent crashes.
- */
+const resolveDecimals = (decimals?: number) =>
+  typeof decimals === 'number' && Number.isFinite(decimals)
+    ? Math.max(0, Math.min(8, Math.floor(decimals)))
+    : 2;
+
+export const formatPrice = (value: number, decimals?: number) => {
+  const safe = Number.isFinite(value) ? value : 0;
+  return safe.toFixed(resolveDecimals(decimals));
+};
+
 export const fmt = {
-  price: (value: number) => (value || 0).toFixed(2),
+  price: formatPrice,
   pnl: (value: number) => `${(value || 0) >= 0 ? '+' : ''}${(value || 0).toFixed(2)}`,
   pnlPrecise: (value: number) => {
     const safe = Number.isFinite(value) ? value : 0;

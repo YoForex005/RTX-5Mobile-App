@@ -3,9 +3,6 @@
  */
 
 import { useTradingState } from '../../state/tradingState';
-import { mergeHistoryIntoCandleCache } from '../../state/candleCache';
-import { normalizeLiveCandle } from '../../candles/candleNormalizer';
-import { normalizeCandleSeries } from '../../domain/candles';
 import NetInfo from '@react-native-community/netinfo';
 
 type SubscriptionMessage = {
@@ -13,14 +10,7 @@ type SubscriptionMessage = {
   channel: string; // e.g., 'prices', 'quotes.EURUSD', 'account.900767', 'candles.EURUSD.H1'
 };
 
-type CandleHistoryRequest = {
-  type: 'get_candle_history';
-  symbol: string;
-  timeframe: string;
-  count: number;
-};
-
-type WsMessage = SubscriptionMessage | CandleHistoryRequest | { type: 'ping' | 'get_channels' };
+type WsMessage = SubscriptionMessage | { type: 'ping' | 'get_channels' };
 
 /**
  * (Legacy) General purpose WebSocket service that manages multi-channel subscriptions.
@@ -130,23 +120,6 @@ export class WebSocketService {
     }
   }
 
-  /**
-   * Request historical candle data via WebSocket.
-   * The server responds asynchronously with a `candle_history` message routed to the store.
-   * 
-   * @param symbol - The symbol (e.g. 'EURUSD')
-   * @param timeframe - The timeframe period (e.g. 'H1')
-   * @param count - The number of historical bars to request (default: 200)
-   */
-  public requestCandleHistory(symbol: string, timeframe: string, count: number = 200): void {
-    this.send({
-      type: 'get_candle_history',
-      symbol,
-      timeframe,
-      count,
-    });
-  }
-
   private send(msg: WsMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -197,7 +170,9 @@ export class WebSocketService {
         if (data.symbol && data.bid && data.ask) {
           store.setQuote(data.symbol, { 
             bid: data.bid, 
-            ask: data.ask 
+            ask: data.ask,
+            lastTickAt: data.lastTickAt ?? data.timestamp ?? data.time ?? data.t,
+            lastReceivedAt: Date.now(),
           });
         }
       }
@@ -207,22 +182,6 @@ export class WebSocketService {
         store.setAccount(data);
       }
       
-      // 3. Live Candle Tick
-      if (channel.startsWith('candles.')) {
-        if (data.symbol && data.timeframe && data.candle) {
-          const candle = normalizeLiveCandle(data.candle);
-          if (candle) {
-            store.updateCandle(data.symbol, data.timeframe, candle);
-          }
-        }
-      }
-    }
-
-    // 4. Candle History (bulk response)
-    if (type === 'candle_history') {
-      if (data.symbol && data.timeframe && data.candles) {
-        mergeHistoryIntoCandleCache(data.symbol, data.timeframe, normalizeCandleSeries(data.candles, data.timeframe));
-      }
     }
   }
 }

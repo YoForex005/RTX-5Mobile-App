@@ -48,3 +48,15 @@ export const resolveQuoteTickTimestamp = (
 
   return fallbackMs;
 };
+
+export const normalizeQuoteTickTimestampToMs = (value: unknown): number | null => {
+  const normalized = coerceQuoteTimestampCandidate(value);
+  if (normalized === null) {
+    return null;
+  }
+
+  if (normalized > 4.2e16) return Math.floor(normalized / 1_000_000);
+  if (normalized > 4.2e13) return Math.floor(normalized / 1_000);
+  if (normalized > 4.2e10) return Math.floor(normalized);
+  return Math.floor(normalized * 1000);
+};

@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   buildChartSeriesSnapshot,
   EMPTY_CHART_SERIES_SNAPSHOT,
+  formatCandleGapDuration,
   getChartSeriesUpdateMode,
   RenderableChartCandle,
+  resolveLatestCandleGap,
 } from './liveChartSync';
 
 const makeCandle = (
@@ -86,4 +88,28 @@ test('getChartSeriesUpdateMode requests a full reload for the first synced serie
   const next = buildChartSeriesSnapshot([makeCandle(100)]);
 
   assert.equal(getChartSeriesUpdateMode(EMPTY_CHART_SERIES_SNAPSHOT, next), 'full_reload');
+});
+
+test('resolveLatestCandleGap reports the last visible missing candle span', () => {
+  const gap = resolveLatestCandleGap(
+    [
+      makeCandle(60),
+      makeCandle(120),
+      makeCandle(600),
+    ],
+    'M1',
+  );
+
+  assert.deepEqual(gap, {
+    fromTime: 120,
+    expectedTime: 180,
+    toTime: 600,
+    missingSeconds: 420,
+    label: '7m 0s',
+  });
+});
+
+test('formatCandleGapDuration uses day hour minute second units', () => {
+  assert.equal(formatCandleGapDuration(93784), '1d 2h 3m 4s');
+  assert.equal(formatCandleGapDuration(45), '45s');
 });

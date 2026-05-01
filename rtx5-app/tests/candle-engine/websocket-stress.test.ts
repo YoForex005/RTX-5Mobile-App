@@ -1,82 +1,67 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-  validateQuoteTickForCandle,
-} from '../../src/api/ws/liveCandleOverlay';
-import { assertValidCandleSeries, secondsUtc, validateBidTick } from '../support/candleTestUtils';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { secondsUtc } from '../support/candleTestUtils';
 
-const buildBurst = (count: number, startTimestamp: number) =>
-  Array.from({ length: count }, (_, index) => {
-    const wave = index % 2 === 0 ? index : -index;
-    return {
-      price: 1.1 + wave / 10_000_000,
-      timestamp: startTimestamp + Math.floor(index / 1000),
-      sequence: index + 1,
-    };
+test('high-frequency backend live candle snapshots keep one stable active bucket', () => {
+  const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
+  const map = createCandleMap();
+  const count = 50;
+
+  for (let index = 0; index < count; index += 1) {
+    const price = 1.1 + index / 100000;
+    const result = applyLiveCandleToCandleMap(
+      map,
+      {
+        symbol: 'EURUSD',
+        timeframe: 'M1',
+        time: bucket + index,
+        open: 1.1,
+        high: price + 0.0002,
+        low: 1.099,
+        close: price,
+        volume: index + 1,
+      },
+      'M1',
+    );
+    assert.equal(result.ignored, false);
+  }
+
+  const candles = materializeCandleMap(map);
+  assert.equal(candles.length, 1);
+  assert.deepEqual(candles[0], {
+    time: bucket,
+    open: 1.1,
+    high: 1.1 + (count - 1) / 100000 + 0.0002,
+    low: 1.099,
+    close: 1.1 + (count - 1) / 100000,
+    volume: count,
   });
-
-const independentlyReduce = (ticks: ReturnType<typeof buildBurst>) => ({
-  open: ticks[0].price,
-  high: Math.max(...ticks.map((tick) => tick.price)),
-  low: Math.min(...ticks.map((tick) => tick.price)),
-  close: ticks[ticks.length - 1].price,
-  volume: 0,
 });
 
-const reduceThroughLiveOverlay = (ticks: ReturnType<typeof buildBurst>) => {
-  const first = validateBidTick(ticks[0].price, ticks[0].timestamp, ticks[0].sequence);
-  let candle = createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first);
+test('stale backend burst items after a newer snapshot are ignored', () => {
+  const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
+  const map = createCandleMap();
 
-  for (let index = 1; index < ticks.length; index += 1) {
-    const input = ticks[index];
-    const tick = validateBidTick(input.price, input.timestamp, input.sequence, {}, candle.close);
-    candle = mergeTickIntoLiveCandle(candle, tick);
-  }
+  applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 50, open: 1.1, high: 1.2, low: 1.0, close: 1.18, volume: 50 },
+    'M1',
+  );
+  const staleResults = [10, 20, 30].map((offset) =>
+    applyLiveCandleToCandleMap(
+      map,
+      { symbol: 'EURUSD', timeframe: 'M1', time: bucket + offset, open: 1.1, high: 1.12, low: 1.08, close: 1.11, volume: offset },
+      'M1',
+    ),
+  );
 
-  return candle;
-};
-
-for (const [label, count] of [
-  ['1,000 ticks in 10 seconds', 1_000],
-  ['5,000 ticks in 60 seconds', 5_000],
-  ['20,000 ticks in 5 minutes', 20_000],
-] as const) {
-  test(`high-frequency burst preserves independently calculated OHLC: ${label}`, () => {
-    const ticks = buildBurst(count, secondsUtc(2024, 3, 22, 12, 0, 1));
-    const expected = independentlyReduce(ticks);
-    const candle = reduceThroughLiveOverlay(ticks);
-
-    assert.equal(candle.open, expected.open);
-    assert.equal(candle.high, expected.high);
-    assert.equal(candle.low, expected.low);
-    assert.equal(candle.close, expected.close);
-    assert.equal(candle.volume, expected.volume);
-    assert.equal(candle.lastSequence, count);
-    assertValidCandleSeries([candle]);
-  });
-}
-
-test('queue-sized burst duplicate signatures can be suppressed before OHLC merge', () => {
-  const signatures = new Set<string>();
-  const timestamp = secondsUtc(2024, 3, 22, 12, 0, 1);
-  const tickInputs = Array.from({ length: 4096 }, () => ({ bid: 1.1, ask: 1.1001, timestamp }));
-  let accepted = 0;
-
-  for (let index = 0; index < tickInputs.length; index += 1) {
-    const tick = validateQuoteTickForCandle(tickInputs[index], {
-      priceBasis: 'bid',
-      sequence: index + 1,
-      referencePrice: 1.1,
-    });
-    if (tick && !signatures.has(tick.signature)) {
-      signatures.add(tick.signature);
-      accepted += 1;
-    }
-  }
-
-  assert.equal(accepted, 1);
+  assert.deepEqual(staleResults.map((result) => result.reason), [
+    'stale_live_candle',
+    'stale_live_candle',
+    'stale_live_candle',
+  ]);
+  assert.equal(materializeCandleMap(map)[0].close, 1.18);
 });

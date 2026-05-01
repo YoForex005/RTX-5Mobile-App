@@ -20,7 +20,10 @@ import {
 } from '../../../utils/tradeVolume';
 import type { TradeSide } from '../../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from '../chartTradeActions';
-import { resolveFooterLotChevronState } from '../chartTradeInteractionUtils';
+import {
+  resolveFooterLotChevronPressBehavior,
+  resolveFooterLotChevronState,
+} from '../chartTradeInteractionUtils';
 
 type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
@@ -311,23 +314,52 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const hasLotValueEditor = typeof onEditLot === 'function';
   const lotEditorAction = hasLotValueEditor ? onEditLot : undefined;
   const lotPickerAction = typeof onOpenLotEditor === 'function' ? onOpenLotEditor : undefined;
-  const hasDecreaseLotAction = typeof onDecreaseLot === 'function' || typeof lotPickerAction === 'function';
-  const hasIncreaseLotAction = typeof onIncreaseLot === 'function' || typeof lotPickerAction === 'function';
+  const decreaseLotPressBehavior = resolveFooterLotChevronPressBehavior({
+    hasStepAction: typeof onDecreaseLot === 'function',
+    hasLotPickerAction: typeof lotPickerAction === 'function',
+  });
+  const increaseLotPressBehavior = resolveFooterLotChevronPressBehavior({
+    hasStepAction: typeof onIncreaseLot === 'function',
+    hasLotPickerAction: typeof lotPickerAction === 'function',
+  });
   const { canDecreaseLot, canIncreaseLot } = resolveFooterLotChevronState({
     lotSize,
     bounds: volumeBounds,
-    hasLotPickerAction: typeof lotPickerAction === 'function',
-    hasDecreaseAction: hasDecreaseLotAction,
-    hasIncreaseAction: hasIncreaseLotAction,
+    hasDecreaseAction: decreaseLotPressBehavior !== 'none',
+    hasIncreaseAction: increaseLotPressBehavior !== 'none',
   });
   const handleLotCenterPress = lotEditorAction ?? (lotPickerAction ? () => lotPickerAction('absolute') : undefined);
   const handleLotCenterLongPress = lotPickerAction ? () => lotPickerAction('absolute') : undefined;
-  const handleDecreaseLotPress = canDecreaseLot
-    ? (lotPickerAction ? () => lotPickerAction('decrease') : onDecreaseLot)
-    : undefined;
-  const handleIncreaseLotPress = canIncreaseLot
-    ? (lotPickerAction ? () => lotPickerAction('increase') : onIncreaseLot)
-    : undefined;
+  const handleDecreaseLotPress = React.useMemo(() => {
+    if (!canDecreaseLot) {
+      return undefined;
+    }
+
+    if (decreaseLotPressBehavior === 'step') {
+      return onDecreaseLot;
+    }
+
+    if (decreaseLotPressBehavior === 'picker' && lotPickerAction) {
+      return () => lotPickerAction('decrease');
+    }
+
+    return undefined;
+  }, [canDecreaseLot, decreaseLotPressBehavior, lotPickerAction, onDecreaseLot]);
+  const handleIncreaseLotPress = React.useMemo(() => {
+    if (!canIncreaseLot) {
+      return undefined;
+    }
+
+    if (increaseLotPressBehavior === 'step') {
+      return onIncreaseLot;
+    }
+
+    if (increaseLotPressBehavior === 'picker' && lotPickerAction) {
+      return () => lotPickerAction('increase');
+    }
+
+    return undefined;
+  }, [canIncreaseLot, increaseLotPressBehavior, lotPickerAction, onIncreaseLot]);
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);

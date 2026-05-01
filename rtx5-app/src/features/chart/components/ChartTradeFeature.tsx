@@ -45,18 +45,20 @@ function ChartTradeSheetHeaderActions({
   sheet: any;
   handlers: any;
 }) {
+  const slEnabled = !!sheet.chartTradeSlEnabled;
+  const tpEnabled = !!sheet.chartTradeTpEnabled;
   return (
     <View style={styles.chartTradeQuickActions}>
       <Pressable
         style={[
           styles.chartTradeQuickChip,
           styles.chartTradeQuickChipSl,
-          styles.chartTradeQuickChipSlActive,
+          slEnabled && styles.chartTradeQuickChipSlActive,
         ]}
         onPress={() => handlers.onToggleStopLevel('sl')}
         unstable_pressDelay={0}
       >
-        <Text style={[styles.chartTradeQuickChipText, styles.chartTradeQuickChipTextActive]}>
+        <Text style={[styles.chartTradeQuickChipText, slEnabled && styles.chartTradeQuickChipTextActive]}>
           SL
         </Text>
       </Pressable>
@@ -64,12 +66,12 @@ function ChartTradeSheetHeaderActions({
         style={[
           styles.chartTradeQuickChip,
           styles.chartTradeQuickChipTp,
-          styles.chartTradeQuickChipTpActive,
+          tpEnabled && styles.chartTradeQuickChipTpActive,
         ]}
         onPress={() => handlers.onToggleStopLevel('tp')}
         unstable_pressDelay={0}
       >
-        <Text style={[styles.chartTradeQuickChipText, styles.chartTradeQuickChipTextActive]}>
+        <Text style={[styles.chartTradeQuickChipText, tpEnabled && styles.chartTradeQuickChipTextActive]}>
           TP
         </Text>
       </Pressable>
@@ -1297,69 +1299,71 @@ export function ChartTradeOverlayLayer({
               sheet.chartTradeSheetMode !== 'collapsed' && sheet.chartTradeSheetAnimatedStyle,
             ]}
           >
-            <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
-              <View
-                collapsable={false}
-                style={[
-                  styles.chartTradeSheet,
-                  styles.chartTradeSheetInline,
-                  styles.chartTradeSheetInlineFloating,
-                  sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
-                ]}
-              >
-                <ChartTradeSheetDragHeader
-                  styles={styles}
-                  colors={colors}
-                  sheet={sheet}
-                  handlers={handlers}
-                />
+            <View
+              collapsable={false}
+              style={[
+                styles.chartTradeSheet,
+                styles.chartTradeSheetInline,
+                styles.chartTradeSheetInlineFloating,
+                sheet.useMtPendingTradeSheetLayout && styles.chartTradeSheetPending,
+              ]}
+            >
+              <GestureDetector gesture={sheet.chartTradeSheetDragGesture}>
+                <View collapsable={false}>
+                  <ChartTradeSheetDragHeader
+                    styles={styles}
+                    colors={colors}
+                    sheet={sheet}
+                    handlers={handlers}
+                  />
+                </View>
+              </GestureDetector>
 
-                {/* Pinned symbol header — always visible, never scrolls away */}
-                <ChartTradeSheetPinnedHeader
-                  styles={styles}
-                  colors={colors}
-                  symbolHeader={symbolHeader}
-                  sheet={sheet}
-                  handlers={handlers}
-                  tabs={{
-                    scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
-                    onViewportLayout: handlers.onOverlayTabsViewportLayout,
-                    onTabLayout: handlers.onOverlayTabLayout,
+              {/* Pinned symbol header — always visible, never scrolls away */}
+              <ChartTradeSheetPinnedHeader
+                styles={styles}
+                colors={colors}
+                symbolHeader={symbolHeader}
+                sheet={sheet}
+                handlers={handlers}
+                tabs={{
+                  scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
+                  onViewportLayout: handlers.onOverlayTabsViewportLayout,
+                  onTabLayout: handlers.onOverlayTabLayout,
+                }}
+                components={components}
+              />
+
+              {showSheetBody ? (
+                <ScrollView
+                  ref={sheet.chartTradeSheetScrollRef}
+                  style={styles.chartTradeSheetContentScroll}
+                  contentContainerStyle={[
+                    styles.chartTradeSheetContent,
+                    { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
+                  ]}
+                  nestedScrollEnabled
+                  bounces={false}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
+                  keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  scrollEventThrottle={16}
+                  onScroll={(event) => {
+                    handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
                   }}
-                  components={components}
-                />
-
-                {showSheetBody ? (
-                  <ScrollView
-                    ref={sheet.chartTradeSheetScrollRef}
-                    style={styles.chartTradeSheetContentScroll}
-                    contentContainerStyle={[
-                      styles.chartTradeSheetContent,
-                      { paddingBottom: sheet.chartTradeSheetContentBottomPadding },
-                    ]}
-                    nestedScrollEnabled
-                    bounces={false}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
-                    keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                    scrollEventThrottle={16}
-                    onScroll={(event) => {
-                      handlers.onTradeSheetScroll(event.nativeEvent.contentOffset.y);
-                    }}
-                  >
-                    <ChartTradeSheetBody
-                      components={components}
-                      styles={styles}
-                      isDark={isDark}
-                      colors={colors}
-                      symbolHeader={symbolHeader}
-                      sheet={sheet}
-                      handlers={handlers}
-                    />
-                  </ScrollView>
-                ) : null}
-              </View>
-            </GestureDetector>
+                >
+                  <ChartTradeSheetBody
+                    components={components}
+                    styles={styles}
+                    isDark={isDark}
+                    colors={colors}
+                    symbolHeader={symbolHeader}
+                    sheet={sheet}
+                    handlers={handlers}
+                  />
+                </ScrollView>
+              ) : null}
+            </View>
           </Animated.View>
         </View>
       ) : null}

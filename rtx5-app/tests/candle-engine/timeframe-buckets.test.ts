@@ -6,15 +6,16 @@ import {
   alignTimeToBucketWithReference,
   getExpectedNextCandleTime,
 } from '../../src/domain/candles';
-import { getLiveTickBucketTime } from '../../src/api/ws/liveCandleOverlay';
-import { secondsUtc, validateBidTick } from '../support/candleTestUtils';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { secondsUtc } from '../support/candleTestUtils';
 
-test('M1 tick at 12:01:23 creates bucket at 12:01:00', () => {
+test('M1 timestamp at 12:01:23 maps to bucket 12:01:00', () => {
   const tickTime = secondsUtc(2024, 3, 22, 12, 1, 23);
   assert.equal(alignTimeToBucket(tickTime, 'M1'), secondsUtc(2024, 3, 22, 12, 1, 0));
 });
 
-test('M5 tick at 12:04:59 maps to 12:00 and tick at 12:05:00 maps to a new bucket', () => {
+test('M5 timestamp at 12:04:59 maps to 12:00 and 12:05:00 maps to a new bucket', () => {
   assert.equal(
     alignTimeToBucket(secondsUtc(2024, 3, 22, 12, 4, 59), 'M5'),
     secondsUtc(2024, 3, 22, 12, 0, 0),
@@ -80,11 +81,20 @@ test('live bucket alignment uses UTC month starts across uneven months', () => {
   );
 });
 
-test('validated live ticks map to exactly one bucket per timeframe', () => {
-  const tick = validateBidTick(1.1, secondsUtc(2024, 3, 22, 12, 5, 1), 1);
+test('backend live candle snapshots map to exactly one bucket per timeframe', () => {
+  const eventTime = secondsUtc(2024, 3, 22, 12, 5, 1);
 
   for (const timeframe of ['M1', 'M3', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1', 'W1', 'MN']) {
-    const bucket = getLiveTickBucketTime(tick, timeframe);
+    const map = createCandleMap();
+    const result = applyLiveCandleToCandleMap(
+      map,
+      { time: eventTime, open: 1.1, high: 1.2, low: 1, close: 1.15, volume: 10 },
+      timeframe,
+    );
+    const [candle] = materializeCandleMap(map);
+    const bucket = candle.time;
+
+    assert.equal(result.ignored, false, timeframe);
     assert.equal(Number.isFinite(bucket), true, timeframe);
     assert.equal(getExpectedNextCandleTime(bucket, timeframe) > bucket, true, timeframe);
   }

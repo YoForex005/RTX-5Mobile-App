@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-} from '../../src/api/ws/liveCandleOverlay';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
 import {
   getExpectedNextCandleTime,
   materializeCanonicalHistoryAndLiveCandles,
@@ -15,18 +12,15 @@ import {
   assertNoDuplicateCandleTimes,
   assertValidCandleSeries,
   buildContiguousHistory,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   secondsUtc,
-  validateBidTick,
 } from '../support/candleTestUtils';
 
-test('history tail plus next-bucket live tick creates one clean live candle', () => {
+test('history tail plus next-bucket backend live candle creates one clean live candle', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 1, 'M1');
   const nextTime = getExpectedNextCandleTime(history[0].time, 'M1');
-  const tick = validateBidTick(1.2, nextTime + 5, 1);
-  const live = [createLiveCandleFromTick(getLiveTickBucketTime(tick, 'M1', history[0].time), tick)];
+  const live = [makeBackendLiveCandle(nextTime, { open: 1.2, high: 1.2, low: 1.2, close: 1.2 })];
 
-  assert.equal(live[0].time, nextTime);
   assert.equal(resolveVisibleSeriesMode(history, live, history, 'M1'), 'merged');
 
   const visible = materializeCanonicalHistoryAndLiveCandles(history, live, 'M1');
@@ -35,24 +29,29 @@ test('history tail plus next-bucket live tick creates one clean live candle', ()
   assertValidCandleSeries(visible);
 });
 
-test('same-bucket live tick updates the active live candle instead of appending', () => {
+test('same-bucket backend live candle snapshot replaces the active bucket instead of appending', () => {
   const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
-  const first = validateBidTick(100, bucket + 5, 1);
-  const second = validateBidTick(102, bucket + 30, 2, {}, first.price);
-  const live = mergeTickIntoLiveCandle(
-    createLiveCandleFromTick(getLiveTickBucketTime(first, 'M1'), first),
-    second,
+  const map = createCandleMap();
+
+  applyLiveCandleToCandleMap(
+    map,
+    { time: bucket + 5, open: 100, high: 101, low: 99, close: 100.5, volume: 10 },
+    'M1',
+  );
+  applyLiveCandleToCandleMap(
+    map,
+    { time: bucket + 30, open: 100, high: 102, low: 98, close: 102, volume: 12 },
+    'M1',
   );
 
-  assert.equal(live.time, bucket);
-  assert.equal(live.open, 100);
-  assert.equal(live.high, 102);
-  assert.equal(live.close, 102);
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: bucket, open: 100, high: 102, low: 98, close: 102, volume: 12 },
+  ]);
 });
 
-test('far-ahead live tick merges into one series while preserving the gap', () => {
+test('far-ahead backend live candle merges into one series while preserving the gap', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 10, 0, 0), 3, 'M1');
-  const detached = [makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 10, 0), { close: 1.3 })];
+  const detached = [makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 10, 0), { close: 1.3 })];
 
   assert.equal(resolveVisibleSeriesMode(history, detached, history, 'M1'), 'merged');
 
@@ -68,7 +67,7 @@ test('REST catch-up keeps the same merged series without duplicate live buckets'
   const start = secondsUtc(2024, 3, 22, 10, 0, 0);
   const staleHistory = buildContiguousHistory(start, 3, 'M1');
   const detachedTime = secondsUtc(2024, 3, 22, 10, 10, 0);
-  const detachedLive = [makeLiveOverlayCandle(detachedTime, { close: 1.3 })];
+  const detachedLive = [makeBackendLiveCandle(detachedTime, { close: 1.3 })];
 
   assert.equal(resolveVisibleSeriesMode(staleHistory, detachedLive, staleHistory, 'M1'), 'merged');
 

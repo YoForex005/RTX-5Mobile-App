@@ -28,19 +28,10 @@ export type Candle = {
 };
 
 export type MutableCandle = Candle & {
-  firstTickTime?: number;
-  lastTickTime?: number;
-  lastSequence?: number;
-  source?: 'history' | 'live_tick' | 'live_candle';
+  firstUpdateTime?: number;
+  lastUpdateTime?: number;
+  source?: 'history' | 'live_candle';
   closed?: boolean;
-};
-
-export type Tick = {
-  symbol: string;
-  price: number;
-  timestamp: number;
-  volume?: number;
-  sequence?: number;
 };
 
 export type LiveCandle = Candle & {
@@ -50,7 +41,6 @@ export type LiveCandle = Candle & {
 };
 
 export type RawCandle = Record<string, unknown>;
-export type RawTick = Record<string, unknown>;
 
 export type CandleStreamKey = `${string}:${Timeframe}`;
 

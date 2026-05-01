@@ -57,7 +57,11 @@ function extractMetricsFromRecord(source: Record<string, unknown>): Partial<Live
     source.floating,
     source.floatingPnl,
     source.floating_pnl,
+    source.unrealizedPnl,
     source.profit,
+    source.pnl,
+    source.pl,
+    source.profitLoss,
     source.unrealized_pl,
   );
 

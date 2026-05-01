@@ -115,3 +115,25 @@ test('extractLiveAccountMetrics merges top-level login with nested account metri
     floating: 28.6,
   });
 });
+
+test('extractLiveAccountMetrics accepts websocket metric alias names', () => {
+  const metrics = extractLiveAccountMetrics({
+    metrics: {
+      balance: '1250.5',
+      equity: '1279.1',
+      usedMargin: '145.25',
+      freeMargin: '1133.85',
+      marginLevel: '880.5',
+      pnl: '28.6',
+    },
+  });
+
+  assert.deepEqual(metrics, {
+    balance: 1250.5,
+    equity: 1279.1,
+    margin: 145.25,
+    margin_free: 1133.85,
+    margin_level: 880.5,
+    floating: 28.6,
+  });
+});

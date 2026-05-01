@@ -38,6 +38,44 @@ test('resolveLivePositionPrice uses bid for buys and ask for sells', () => {
   assert.equal(sellPrice, 1.0991);
 });
 
+test('resolveLivePositionPrice ignores stale quote timestamps', () => {
+  const price = resolveLivePositionPrice(
+    {
+      id: '1003',
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.1,
+      openPrice: 1.1,
+      currentPrice: 1.101,
+      pnl: 12.5,
+      swap: 0,
+      openTime: '2026-04-21T10:02:00.000Z',
+    },
+    { bid: 1.2, ask: 1.2002, lastTickAt: 1 },
+  );
+
+  assert.equal(price, 1.101);
+});
+
+test('resolveLivePositionPrice uses quotes that are received recently even when feed time is old', () => {
+  const price = resolveLivePositionPrice(
+    {
+      id: '1004',
+      symbol: 'EURUSD',
+      side: 'buy',
+      volume: 0.1,
+      openPrice: 1.1,
+      currentPrice: 1.101,
+      pnl: 12.5,
+      swap: 0,
+      openTime: '2026-04-21T10:03:00.000Z',
+    },
+    { bid: 1.2, ask: 1.2002, lastTickAt: 1, lastReceivedAt: Date.now() },
+  );
+
+  assert.equal(price, 1.2);
+});
+
 test('resolveLivePositionPnl recalculates a buy position from live bid ticks', () => {
   const livePnl = resolveLivePositionPnl(
     {

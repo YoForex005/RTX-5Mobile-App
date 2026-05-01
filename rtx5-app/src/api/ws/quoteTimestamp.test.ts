@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveQuoteTickTimestamp } from './quoteTimestamp.ts';
+import { normalizeQuoteTickTimestampToMs, resolveQuoteTickTimestamp } from './quoteTimestamp.ts';
 
 test('resolveQuoteTickTimestamp ignores boolean t=false and falls back cleanly', () => {
   assert.equal(resolveQuoteTickTimestamp({ t: false }, 1234567890), 1234567890);
@@ -29,4 +29,13 @@ test('resolveQuoteTickTimestamp keeps timestamp ahead of time for the canonical 
     resolveQuoteTickTimestamp({ timestamp: 1713705004, time: 1713705999, t: 1713705998 }),
     1713705004,
   );
+});
+
+test('normalizeQuoteTickTimestampToMs converts feed seconds for UI freshness checks', () => {
+  assert.equal(normalizeQuoteTickTimestampToMs(1777409940), 1777409940000);
+});
+
+test('normalizeQuoteTickTimestampToMs keeps millisecond and ISO timestamps in milliseconds', () => {
+  assert.equal(normalizeQuoteTickTimestampToMs(1713705004000), 1713705004000);
+  assert.equal(normalizeQuoteTickTimestampToMs('2024-04-21T10:30:03.000Z'), 1713695403000);
 });

@@ -6,8 +6,8 @@ import { create } from 'zustand';
 import { QuoteItem, quotes as mockQuotes } from '../mock/tradingData';
 import type { Candle } from '../candles/candleTypes';
 import { sanitizeCandlesForChart } from '../candles/chartAdapter';
-import { normalizeSymbol, normalizeTimeframeStrict } from '../candles/timeframeUtils';
-import { validateCandle } from '../candles/candleValidator';
+import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } from '../candles/timeframeUtils';
+import { hasQuotePriceChange } from '../utils/quotePriceChange';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -62,8 +62,6 @@ type TradingState = {
    * Raw history snapshots should be routed through `state/candleCache.ts`.
    */
   setCandleHistory: (symbol: string, timeframe: string, history: Candle[]) => void;
-  /** Appends or replaces backend-authoritative candle snapshots. */
-  updateCandle: (symbol: string, timeframe: string, candle: Candle) => void;
 };
 
 
@@ -75,8 +73,23 @@ export const useTradingState = create<TradingState>((set) => ({
 
   setQuote: (symbol, data) =>
     set((state) => {
-      const existing = state.quotes[symbol];
-      const spec = symbolSpecs.get(symbol);
+      const normalizedSymbol = normalizeSymbol(symbol);
+      if (!normalizedSymbol) {
+        return state;
+      }
+
+      const existing = state.quotes[normalizedSymbol];
+      const spec = symbolSpecs.get(normalizedSymbol);
+      const feedTickAt = normalizeTimestampToMs(
+        data.feedTickAt ?? data.lastTickAt ?? (data as Record<string, unknown>).timestamp ?? (data as Record<string, unknown>).time ?? (data as Record<string, unknown>).t,
+      );
+      const lastReceivedAt =
+        normalizeTimestampToMs(data.lastReceivedAt ?? (data as Record<string, unknown>).receivedAt) ??
+        (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing?.lastReceivedAt);
+      const priceChanged = hasQuotePriceChange(existing, data);
+      const lastPriceChangedAt = priceChanged
+        ? lastReceivedAt
+        : existing?.lastPriceChangedAt;
 
       if (!existing) {
         // We only want to patch existing full quotes or require the caller to provide enough data
@@ -86,9 +99,19 @@ export const useTradingState = create<TradingState>((set) => ({
         const digits = data.digits ?? spec?.digits ?? 5;
         const volume = data.volume ?? spec?.volume ?? 0;
         const lastTickAt =
-          data.lastTickAt ??
+          feedTickAt ??
           (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : undefined);
-        const newQuote = { ...spec, ...data, symbol, digits, volume, lastTickAt } as QuoteItem;
+        const newQuote = {
+          ...spec,
+          ...data,
+          symbol: normalizedSymbol,
+          digits,
+          volume,
+          feedTickAt: feedTickAt ?? undefined,
+          lastTickAt,
+          lastReceivedAt,
+          lastPriceChangedAt,
+        } as QuoteItem;
         
         if (newQuote.ask && newQuote.bid) {
           newQuote.spread = (newQuote.ask - newQuote.bid) * Math.pow(10, digits);
@@ -97,8 +120,9 @@ export const useTradingState = create<TradingState>((set) => ({
         return {
           quotes: {
             ...state.quotes,
-            [symbol]: newQuote,
+            [normalizedSymbol]: newQuote,
           },
+          tickCount: state.tickCount + (priceChanged ? 1 : 0),
         };
       }
       
@@ -112,19 +136,23 @@ export const useTradingState = create<TradingState>((set) => ({
       const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
       const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
       const lastTickAt =
-        data.lastTickAt ??
+        feedTickAt ??
         (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing.lastTickAt);
 
       return {
         quotes: {
           ...state.quotes,
-          [symbol]: {
+          [normalizedSymbol]: {
             ...spec,
             ...existing,
             ...data,
+            symbol: normalizedSymbol,
             digits,
             volume,
+            feedTickAt: feedTickAt ?? undefined,
             lastTickAt,
+            lastReceivedAt,
+            lastPriceChangedAt,
             // Automatically calculate spread if bid/ask provided
             spread: (data.ask && data.bid) ? (data.ask - data.bid) * Math.pow(10, digits) : existing.spread,
             // Track previous prices
@@ -132,6 +160,7 @@ export const useTradingState = create<TradingState>((set) => ({
             prevAsk: prevAskState,
           },
         },
+        tickCount: state.tickCount + (priceChanged ? 1 : 0),
       };
     }),
 
@@ -156,20 +185,4 @@ export const useTradingState = create<TradingState>((set) => ({
       };
     }),
 
-  updateCandle: (symbol, timeframe, newCandle) =>
-    set((state) => {
-      const normalizedSymbol = normalizeSymbol(symbol);
-      const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
-      if (!normalizedSymbol || !normalizedTimeframe || !validateCandle(newCandle)) {
-        return state;
-      }
-
-      const key = `${normalizedSymbol}.${normalizedTimeframe}`;
-      const existing = state.candles[key] || [];
-      const nextList = sanitizeCandlesForChart([...existing, newCandle]).slice(-2500);
-
-      return {
-        candles: { ...state.candles, [key]: nextList },
-      };
-    }),
 }));

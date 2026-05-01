@@ -35,11 +35,9 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { QuoteItem } from '../../mock/tradingData';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { quotesWsService } from '../../api/ws/quotesSocket';
-import { useTradingState } from '../../state/tradingState';
+import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useMarketSymbols } from '../../query/market';
@@ -57,6 +55,10 @@ import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { normalizeSymbol } from '../../domain/symbols';
+import { hasFreshLiveQuote } from './liveQuoteSnapshot';
+import { buildDefaultQuoteWatchlist, DEFAULT_QUOTE_WATCHLIST } from './quoteWatchlistDefaults';
+import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
 
 /* ───── Symbol Display Names ───── */
 
@@ -109,20 +111,13 @@ const SYMBOL_DISPLAY_NAMES: Record<string, string> = {
 };
 
 const getSymbolDescription = (symbol: string): string => {
-  const base = symbol.replace(/m$/i, '').replace(/\//g, '');
+  const base = normalizeSymbol(symbol);
   return SYMBOL_DISPLAY_NAMES[base] ?? base;
 };
 
 /* ───── Helpers ───── */
 
 const LIVE_SYMBOL_STALE_MS = 45_000;
-
-const hasFreshLiveQuote = (quote: QuoteItem | undefined, now = Date.now()) =>
-  !!quote &&
-  Number.isFinite(quote.bid) &&
-  Number.isFinite(quote.ask) &&
-  Number.isFinite(quote.lastTickAt) &&
-  now - (quote.lastTickAt ?? 0) <= LIVE_SYMBOL_STALE_MS;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
@@ -307,7 +302,10 @@ const QuoteCard = React.memo(function QuoteCard({
   onLongPress: () => void;
 }) {
   const { t } = useTranslation();
-  const liveItem = useTradingState((state) => state.quotes[symbol]);
+  const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+  // Read from the Quotes external store. The watchlist-level hook owns the
+  // socket subscription and each row subscribes only to its own symbol snapshot.
+  const liveItem = useLiveQuoteSnapshot(symbol);
   const noData = !hasFreshLiveQuote(liveItem);
 
   if (noData) {
@@ -357,7 +355,7 @@ const QuoteCard = React.memo(function QuoteCard({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {pairLabel(symbol)}
+            {pairLabel(normalizedSymbol || symbol)}
           </Text>
           <Text
             style={{
@@ -392,6 +390,10 @@ const QuoteCard = React.memo(function QuoteCard({
 
   const displaySymbol = pairLabel(item.symbol);
   const pct = `${isUp ? '+' : ''}${(item.changePct || 0).toFixed(2)}%`;
+  const priceDigits =
+    typeof item.digits === 'number' && Number.isFinite(item.digits)
+      ? item.digits
+      : 2;
 
   const bidDirection = item.prevBid
     ? item.bid > item.prevBid
@@ -527,11 +529,11 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {noData ? '--' : (item.bid || 0).toFixed(2)}
+              {noData ? '--' : fmt.price(item.bid, priceDigits)}
             </Text>
             {!noData && item.low > 0 && (
               <Text style={[sc.lowHighText, { color: T.textMuted }]}>
-                L: {(item.low || 0).toFixed(item.digits ?? 5)}
+                L: {fmt.price(item.low, priceDigits)}
               </Text>
             )}
           </View>
@@ -553,11 +555,11 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {noData ? '--' : (item.ask || 0).toFixed(2)}
+              {noData ? '--' : fmt.price(item.ask, priceDigits)}
             </Text>
             {!noData && item.high > 0 && (
               <Text style={[sc.lowHighText, { color: T.textMuted }]}>
-                H: {(item.high || 0).toFixed(item.digits ?? 5)}
+                H: {fmt.price(item.high, priceDigits)}
               </Text>
             )}
           </View>
@@ -907,10 +909,14 @@ export function QuotesScreen() {
   const serverSeedDoneRef = useRef(false);
 
   useEffect(() => {
-    if (apiSymbols.length === 0) return;
-
-    const DEFAULT_WATCHLIST = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'];
     const currentSymbols = quoteSymbolsRef.current;
+    if (apiSymbols.length === 0) {
+      if (!hasSetInitialSymbols && currentSymbols.length === 0) {
+        setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
+        setHasSetInitialSymbols(true);
+      }
+      return;
+    }
 
     // ── Already initialised: never let the server override local state ───
     // hasSetInitialSymbols is persisted in Zustand so it survives restarts,
@@ -924,15 +930,13 @@ export function QuotesScreen() {
       // If the user removed every symbol (or state is empty after a bug),
       // re-seed with curated defaults so the screen is never permanently blank.
       if (currentSymbols.length === 0) {
-        const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
-        setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
+        setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
         return;
       }
       // Fix bloated legacy state (old versions seeded the entire catalog)
       const bloated = currentSymbols.length >= Math.max(20, Math.floor(apiSymbols.length * 0.8));
       if (bloated) {
-        const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
-        setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
+        setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
         return;
       }
       // Strip any symbols the broker has since delisted
@@ -956,7 +960,7 @@ export function QuotesScreen() {
         // useful set of at least 5 instruments.
         let finalList = uniqueFromServer;
         if (finalList.length < 5) {
-          const extras = DEFAULT_WATCHLIST.filter(
+          const extras = DEFAULT_QUOTE_WATCHLIST.filter(
             (sym) => apiSymbols.includes(sym) && !finalList.includes(sym),
           );
           finalList = [...finalList, ...extras].slice(0, 5);
@@ -969,8 +973,7 @@ export function QuotesScreen() {
     }
 
     // ── First launch fallback: curated defaults ───────────────────────────
-    const seed = DEFAULT_WATCHLIST.filter((sym) => apiSymbols.includes(sym));
-    setQuoteSymbols(seed.length > 0 ? seed : apiSymbols.slice(0, 5));
+    setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
     setHasSetInitialSymbols(true);
   }, [
     apiSymbols,
@@ -984,9 +987,12 @@ export function QuotesScreen() {
   const deferredSearch = useDeferredValue(search);
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  // Memoize so the WS subscription effect only re-runs when the actual
-  // symbol list changes, not on every parent re-render.
-  const trackedSymbols = useMemo(() => quoteSymbols, [JSON.stringify(quoteSymbols)]);
+  // The route wrapper already keeps this screen mounted only for the Quotes
+  // route family. Do not gate the actual market-data subscription on this
+  // nested focus value: React Navigation can briefly report false during tab
+  // transitions and pushed quote sub-screens, which leaves the visible Quotes
+  // list mounted but unsubscribed.
+  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteSymbols, true);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
@@ -1005,17 +1011,6 @@ export function QuotesScreen() {
   // Clock timer moved into isolated GmtClock component to prevent
   // the 1-second interval from re-rendering the entire QuotesScreen
   // (parent re-render forces all FlatList items to re-evaluate).
-
-  useEffect(() => {
-    if (!isScreenFocused || trackedSymbols.length === 0) return;
-    quotesWsService.connect();
-    // Use subscribe (additive) so it coexists with useMarketData subscriptions
-    // from other screens (ChartScreen, SymbolDetailsScreen, etc.)
-    quotesWsService.subscribe(trackedSymbols);
-    return () => {
-      quotesWsService.unsubscribe(trackedSymbols);
-    };
-  }, [isScreenFocused, trackedSymbols]);
 
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
@@ -1142,10 +1137,10 @@ export function QuotesScreen() {
           />
 
           <View style={s.subheaderRow}>
-            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active={isScreenFocused} />
+            <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active />
 
             <View style={{ alignItems: 'flex-end' }}>
-              <TickCounter T={T} palette={palette} active={isScreenFocused} />
+              <TickCounter T={T} palette={palette} active symbols={liveTrackedSymbols} />
             </View>
           </View>
           <View
@@ -1513,46 +1508,84 @@ function TickCounter({
   T,
   palette,
   active,
+  symbols,
 }: {
   T: ThemeColors;
   palette: QuotesPalette;
   active: boolean;
+  symbols: string[];
 }) {
   const { t } = useTranslation();
   const [tps, setTps] = useState(0);
-  const tickCountRef = useRef(useTradingState.getState().tickCount);
+  const [hasFreshFeed, setHasFreshFeed] = useState(false);
+  // Feed-throughput counter tracked locally via the direct WS tick listener.
+  // Speed reports received quote ticks even when the backend repeats an
+  // unchanged bid/ask snapshot.
+  const tickCounterRef = useRef(0);
+  const lastTickAtRef = useRef(0);
+  const symbolsKey = symbols.join('|');
 
   useEffect(() => {
-    if (!active) {
+    if (!active || symbols.length === 0) {
       return;
     }
-    tickCountRef.current = useTradingState.getState().tickCount;
-    const unsub = useTradingState.subscribe((state) => {
-      tickCountRef.current = state.tickCount;
-    });
-    return unsub;
-  }, [active]);
+    const symbolSet = new Set(
+      symbols.map((entry) => normalizeSymbol(entry)).filter(Boolean),
+    );
+
+    const listener = (tick: QuoteTickEvent) => {
+      const tickSymbol = normalizeSymbol(tick.symbol);
+      if (!symbolSet.has(tickSymbol)) {
+        return;
+      }
+      const ts =
+        typeof tick.receivedAt === 'number' && Number.isFinite(tick.receivedAt)
+          ? tick.receivedAt
+          : Date.now();
+      lastTickAtRef.current = ts;
+      tickCounterRef.current += 1;
+    };
+
+    quotesWsService.addTickListener(listener);
+    return () => {
+      quotesWsService.removeTickListener(listener);
+    };
+  }, [active, symbolsKey]);
 
   useEffect(() => {
     if (!active) {
       setTps(0);
+      setHasFreshFeed(false);
       return;
     }
-    let lastTicks = tickCountRef.current;
+    // Reset the counter when the symbol set or focus changes so TPS reflects
+    // the current window, not a count carried over from a previous session.
+    tickCounterRef.current = 0;
+    lastTickAtRef.current = 0;
+    setTps(0);
+    setHasFreshFeed(false);
+    let lastSampledTicks = 0;
     const interval = setInterval(() => {
-      const current = tickCountRef.current;
-      setTps(current - lastTicks);
-      lastTicks = current;
+      const current = tickCounterRef.current;
+      setTps(current - lastSampledTicks);
+      lastSampledTicks = current;
+      const last = lastTickAtRef.current;
+      const fresh = last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
+      setHasFreshFeed(fresh);
     }, 1000);
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, symbolsKey]);
+
+  const statusColor = hasFreshFeed ? T.trading.profit : palette.secondaryText;
 
   return (
     <View style={s.subRight}>
       <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Speed')}:</Text>
-      <Text style={[s.subLive, { color: T.trading.profit }]}>{tps} tps</Text>
+      <Text style={[s.subLive, { color: statusColor }]}>{tps} tps</Text>
       <Text style={[s.subGrey, { color: palette.secondaryText }]}>{t('Status')}:</Text>
-      <Text style={[s.subLive, { color: T.trading.profit }]}>{t('LIVE')}</Text>
+      <Text style={[s.subLive, { color: statusColor }]}>
+        {hasFreshFeed ? t('LIVE') : t('Connecting...')}
+      </Text>
     </View>
   );
 }

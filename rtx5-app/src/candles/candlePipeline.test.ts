@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyLiveCandleToCandleMap, applyTickToCandleMap } from './candleAggregator';
-import { normalizeHistoryCandle, normalizeLiveCandle, normalizeLiveTick } from './candleNormalizer';
+import { applyLiveCandleToCandleMap } from './candleAggregator';
+import { normalizeHistoryCandle, normalizeLiveCandle } from './candleNormalizer';
 import { createCandleMap, materializeCandleMap, sortAndDedupeCandles } from './candleMerger';
 import { validateCandle } from './candleValidator';
 import {
@@ -50,17 +50,34 @@ test('normalizes backend history aliases and rejects invalid OHLC', () => {
   );
 });
 
-test('normalizes live ticks without frontend timestamp fallback', () => {
+test('normalizes backend live candle symbol and timeframe metadata', () => {
   assert.deepEqual(
-    normalizeLiveTick({ symbol: 'EURUSDm', bid: '1.2345', ask: '1.2347', timestamp: 1_713_744_001_000 }),
+    normalizeLiveCandle({
+      symbol: 'EURUSDm',
+      timeframe: 'm1',
+      time: 1_713_744_000_000,
+      open: '1.2340',
+      high: '1.2350',
+      low: '1.2330',
+      close: '1.2345',
+      volume: '5',
+    }),
     {
       symbol: 'EURUSD',
-      price: 1.2345,
-      timestamp: 1_713_744_001,
+      timeframe: 'M1',
+      time: 1_713_744_000,
+      open: 1.234,
+      high: 1.235,
+      low: 1.233,
+      close: 1.2345,
+      volume: 5,
     },
   );
 
-  assert.equal(normalizeLiveTick({ symbol: 'EURUSD', bid: 1.2, ask: 1.3 }), null);
+  assert.equal(
+    normalizeLiveCandle({ symbol: 'EURUSD', timeframe: 'M1', time: 1, open: 1.2, high: 1.1, low: 1, close: 1.15 }),
+    null,
+  );
 });
 
 test('bucket utilities are deterministic and UTC aligned', () => {
@@ -134,30 +151,43 @@ test('preserves explicit higher-timeframe backend timestamps', () => {
   ]);
 });
 
-test('applyTickToCandleMap creates and updates candles with stable OHLC rules', () => {
-  const map = createCandleMap();
-  const first = applyTickToCandleMap(map, { symbol: 'EURUSD', price: 1.2, timestamp: 1_713_744_001 }, 'M1');
-  assert.equal(first.changed, true);
-
-  const second = applyTickToCandleMap(map, { symbol: 'EURUSD', price: 1.25, timestamp: 1_713_744_020, volume: 3 }, 'M1');
-  assert.equal(second.changed, true);
-
-  const late = applyTickToCandleMap(map, { symbol: 'EURUSD', price: 1.15, timestamp: 1_713_744_010 }, 'M1');
-  assert.equal(late.changed, true);
-
-  const [result] = materializeCandleMap(map);
-  assert.deepEqual(result, {
-    time: 1_713_744_000,
+test('backend live candle is authoritative for its timestamp', () => {
+  const map = createCandleMap([candle(60, 1.1)]);
+  const result = applyLiveCandleToCandleMap(map, {
+    time: 60,
     open: 1.2,
-    high: 1.25,
-    low: 1.15,
-    close: 1.25,
-    volume: 3,
+    high: 1.4,
+    low: 1.1,
+    close: 1.3,
+    volume: 50,
   });
-  assert.equal(validateCandle(result), true);
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: 60, open: 1.2, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
+  ]);
 });
 
-test('standard OHLC generation is identical for every supported symbol and timeframe', () => {
+test('backend live candle snapshots inside one timeframe bucket replace one candle', () => {
+  const map = createCandleMap();
+
+  applyLiveCandleToCandleMap(
+    map,
+    { time: 1_713_744_005, open: 100, high: 101, low: 99, close: 100.5, volume: 3 },
+    'M1',
+  );
+  applyLiveCandleToCandleMap(
+    map,
+    { time: 1_713_744_045, open: 100, high: 102, low: 98, close: 101, volume: 4 },
+    'M1',
+  );
+
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 4 },
+  ]);
+});
+
+test('standard backend OHLC bucketing is identical for every supported symbol and timeframe', () => {
   const symbols = ['EURUSDm', 'XAUUSD', 'BTCUSD', 'USDJPY.c'];
   const baseTimestamp = Date.UTC(2024, 3, 22, 10, 37, 1) / 1000;
 
@@ -169,9 +199,20 @@ test('standard OHLC generation is identical for every supported symbol and timef
       const expectedBucket = getBucketStart(baseTimestamp, timeframe);
 
       assert.notEqual(expectedBucket, null);
-      applyTickToCandleMap(map, { symbol, price: basePrice, timestamp: baseTimestamp, sequence: 1 }, timeframe);
-      applyTickToCandleMap(map, { symbol, price: basePrice + 2, timestamp: baseTimestamp + 20, sequence: 2 }, timeframe);
-      applyTickToCandleMap(map, { symbol, price: basePrice - 1, timestamp: baseTimestamp + 10, sequence: 3 }, timeframe);
+      applyLiveCandleToCandleMap(
+        map,
+        {
+          symbol,
+          timeframe,
+          time: baseTimestamp,
+          open: basePrice,
+          high: basePrice + 2,
+          low: basePrice - 1,
+          close: basePrice + 1,
+          volume: 10,
+        },
+        timeframe,
+      );
 
       assert.deepEqual(materializeCandleMap(map), [
         {
@@ -179,15 +220,15 @@ test('standard OHLC generation is identical for every supported symbol and timef
           open: basePrice,
           high: basePrice + 2,
           low: basePrice - 1,
-          close: basePrice + 2,
-          volume: 0,
+          close: basePrice + 1,
+          volume: 10,
         },
       ], `${symbol} ${timeframe}`);
     });
   });
 });
 
-test('history plus buffered live events merge through a timestamp-keyed map without filling gaps', () => {
+test('history plus buffered backend live events merge through a timestamp-keyed map without filling gaps', () => {
   const history = [
     { time: 1_713_744_000, open: 1, high: 1.1, low: 0.9, close: 1.05, volume: 10 },
     { time: 1_713_744_060, open: 1.05, high: 1.2, low: 1.01, close: 1.15, volume: 12 },
@@ -195,12 +236,14 @@ test('history plus buffered live events merge through a timestamp-keyed map with
   const map = createCandleMap(history);
 
   const buffered = [
-    { symbol: 'EURUSD', price: 1.4, timestamp: 1_713_744_180 },
-    { symbol: 'EURUSD', price: 1.25, timestamp: 1_713_744_062 },
-  ].sort((left, right) => left.timestamp - right.timestamp);
+    { time: 1_713_744_180, open: 1.3, high: 1.4, low: 1.2, close: 1.35, volume: 5 },
+    { time: 1_713_744_062, open: 1.2, high: 1.25, low: 1.19, close: 1.22, volume: 4 },
+  ].sort((left, right) => left.time - right.time);
 
-  for (const tick of buffered) {
-    applyTickToCandleMap(map, tick, 'M1', { historyCutoffTime: history[history.length - 1].time });
+  for (const liveCandle of buffered) {
+    applyLiveCandleToCandleMap(map, liveCandle, 'M1', {
+      historyCutoffTime: history[history.length - 1].time,
+    });
   }
 
   const result = materializeCandleMap(map);
@@ -208,7 +251,7 @@ test('history plus buffered live events merge through a timestamp-keyed map with
   assert.equal(new Set(result.map((item) => item.time)).size, result.length);
 });
 
-test('M1 REST history seeds the backend current candle so first live tick does not create frontend gaps', () => {
+test('M1 REST history seeds the backend current candle so first websocket candle does not create frontend gaps', () => {
   const symbols = ['EURUSD', 'GBPUSD', 'XAUUSD', 'BTCUSD'];
   const base = 1_776_071_280;
 
@@ -228,36 +271,36 @@ test('M1 REST history seeds the backend current candle so first live tick does n
     assert.deepEqual(seed.candles.map((item) => item.time), [base, base + 60, base + 120], symbol);
     assert.equal(seed.closedHistoryLastTime, base + 60, symbol);
 
-    const sameBucketTick = applyTickToCandleMap(
+    const sameBucket = applyLiveCandleToCandleMap(
       map,
-      { symbol, price: 1.28, timestamp: base + 125, sequence: 1 },
+      { symbol, time: base + 125, open: 1.15, high: 1.32, low: 1.1, close: 1.28, volume: 16 },
       'M1',
       { historyCutoffTime: seed.closedHistoryLastTime },
     );
-    assert.equal(sameBucketTick.ignored, false, symbol);
+    assert.equal(sameBucket.ignored, false, symbol);
     assert.deepEqual(materializeCandleMap(map).map((item) => item.time), [base, base + 60, base + 120], symbol);
 
-    const nextBucketTick = applyTickToCandleMap(
+    const nextBucket = applyLiveCandleToCandleMap(
       map,
-      { symbol, price: 1.3, timestamp: base + 180, sequence: 2 },
+      { symbol, time: base + 180, open: 1.28, high: 1.31, low: 1.27, close: 1.3, volume: 2 },
       'M1',
       { historyCutoffTime: seed.closedHistoryLastTime },
     );
-    assert.equal(nextBucketTick.ignored, false, symbol);
+    assert.equal(nextBucket.ignored, false, symbol);
     assert.deepEqual(materializeCandleMap(map).map((item) => item.time), [base, base + 60, base + 120, base + 180], symbol);
   }
 });
 
-test('live ticks cannot rewrite the closed history cutoff candle', () => {
+test('backend live candles cannot rewrite the closed history cutoff candle', () => {
   const history = [
     { time: 1_713_744_000, open: 1, high: 1.1, low: 0.9, close: 1.05, volume: 10 },
     { time: 1_713_744_060, open: 1.05, high: 1.2, low: 1.01, close: 1.15, volume: 12 },
   ];
   const map = createCandleMap(history);
 
-  const result = applyTickToCandleMap(
+  const result = applyLiveCandleToCandleMap(
     map,
-    { symbol: 'EURUSD', price: 1.5, timestamp: 1_713_744_062 },
+    { symbol: 'EURUSD', time: 1_713_744_062, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 1 },
     'M1',
     { historyCutoffTime: history[history.length - 1].time },
   );
@@ -267,38 +310,23 @@ test('live ticks cannot rewrite the closed history cutoff candle', () => {
   assert.deepEqual(materializeCandleMap(map), history);
 });
 
-test('backend live candle is authoritative for its timestamp', () => {
-  const map = createCandleMap([candle(60, 1.1)]);
-  const result = applyLiveCandleToCandleMap(map, {
-    time: 60,
-    open: 1.2,
-    high: 1.4,
-    low: 1.1,
-    close: 1.3,
-    volume: 50,
-  });
-
-  assert.equal(result.changed, true);
-  assert.deepEqual(materializeCandleMap(map), [
-    { time: 60, open: 1.2, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
-  ]);
-});
-
-test('backend live candle snapshots inside one timeframe bucket update one candle', () => {
+test('older backend live candle snapshots cannot rewind a newer active snapshot', () => {
   const map = createCandleMap();
 
   applyLiveCandleToCandleMap(
     map,
-    { time: 1_713_744_005, open: 100, high: 101, low: 99, close: 100.5, volume: 3 },
+    { time: 1_713_744_045, open: 100, high: 105, low: 99, close: 104, volume: 10 },
     'M1',
   );
-  applyLiveCandleToCandleMap(
+  const stale = applyLiveCandleToCandleMap(
     map,
-    { time: 1_713_744_045, open: 100.5, high: 102, low: 98, close: 101, volume: 4 },
+    { time: 1_713_744_015, open: 100, high: 101, low: 99, close: 100.5, volume: 2 },
     'M1',
   );
 
+  assert.equal(stale.ignored, true);
+  assert.equal(stale.reason, 'stale_live_candle');
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 4 },
+    { time: 1_713_744_000, open: 100, high: 105, low: 99, close: 104, volume: 10 },
   ]);
 });

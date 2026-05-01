@@ -12,7 +12,7 @@ import { useTradingState } from '../../src/state/tradingState';
 import {
   buildContiguousHistory,
   makeCandle,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   makeTrustedHistoryCandle,
   secondsUtc,
 } from '../support/candleTestUtils';
@@ -37,7 +37,7 @@ test('old closed trusted cache can seed the chart when shape and recency are saf
 
 test('thin live-only cache cannot seed the chart history path', () => {
   const liveOnly = [
-    makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 12, 5, 0), { close: 1.3 }),
+    makeBackendLiveCandle(secondsUtc(2024, 3, 22, 12, 5, 0), { close: 1.3 }),
   ];
 
   assert.equal(isTrustworthyCandleBootstrapSeed(liveOnly, 'M1'), false);
@@ -100,9 +100,9 @@ test('REST history merge stores the backend-authoritative candle series without 
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], stored);
 });
 
-test('same-time live overlay does not promote a thin one-candle cache', () => {
+test('same-time backend live candle does not promote a thin one-candle cache', () => {
   const trusted = makeTrustedHistoryCandle(120, { close: 1.1 });
-  const live = makeLiveOverlayCandle(120, { close: 1.9 });
+  const live = makeBackendLiveCandle(120, { close: 1.9 });
 
   assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), false);
   assert.equal(useTradingState.getState().candles['EURUSD.M1'], undefined);

@@ -1,4 +1,4 @@
-import type { Candle, Tick } from './candleTypes';
+import type { Candle } from './candleTypes';
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -26,30 +26,8 @@ export const validateCandle = (
   );
 };
 
-export const validateTick = (tick: Tick | null | undefined): tick is Tick => {
-  if (!tick) {
-    return false;
-  }
-
-  return (
-    typeof tick.symbol === 'string' &&
-    tick.symbol.length > 0 &&
-    isFiniteNumber(tick.price) &&
-    tick.price > 0 &&
-    isFiniteNumber(tick.timestamp) &&
-    tick.timestamp > 0 &&
-    (tick.volume === undefined || (isFiniteNumber(tick.volume) && tick.volume >= 0))
-  );
-};
-
 export const logInvalidCandleInDevelopment = (label: string, raw: unknown): void => {
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.warn(`[candles] rejected invalid candle: ${label}`, raw);
-  }
-};
-
-export const logInvalidTickInDevelopment = (label: string, raw: unknown): void => {
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    console.warn(`[candles] rejected invalid tick: ${label}`, raw);
   }
 };

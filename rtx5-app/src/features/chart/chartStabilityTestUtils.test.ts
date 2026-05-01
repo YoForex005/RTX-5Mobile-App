@@ -8,7 +8,7 @@ import {
   assertValidCandleSeries,
   extractFunctionBody,
   makeCandle,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   makeTrustedHistoryCandle,
   readChartScreenSource,
 } from './testing/chartStabilityTestUtils';
@@ -27,17 +27,16 @@ test('stability helpers: validate candle series rejects invalid OHLC', () => {
   );
 });
 
-test('stability helpers: trusted history and live overlay builders keep provenance explicit', () => {
+test('stability helpers: trusted history and backend live builders keep provenance explicit', () => {
   const history = makeTrustedHistoryCandle(60, { close: 1.2, serverTimeframe: 'M5' });
-  const live = makeLiveOverlayCandle(120, { close: 1.3, firstTickTs: 121, lastTickTs: 129 });
+  const live = makeBackendLiveCandle(120, { close: 1.3, serverTimeframe: 'M1' });
 
   assert.equal(history.source, 'rest');
   assert.equal(history.closed, true);
   assert.equal(history.serverTimeframe, 'M5');
-  assert.equal(live.source, 'live');
+  assert.equal(live.source, 'live_candle');
   assert.equal(live.closed, false);
-  assert.equal(live.firstTickTs, 121);
-  assert.equal(live.lastTickTs, 129);
+  assert.equal(live.serverTimeframe, 'M1');
 });
 
 test('mock REST history provider serves queued history and failures in order', async () => {

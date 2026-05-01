@@ -40,6 +40,8 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 ## Test Checklist
 - [ ] Unit: order ticket validation rules.
 - [x] Unit: chart/order-ticket/web market trade buttons keep visible BUY/SELL labels, price source, handler side, and order payload side aligned.
+- [x] Unit: live position price metrics ignore quotes without a recent receive/tick timestamp, while accepting recently received bid/ask updates even when backend feed time is old.
+- [x] Unit: account metrics accept live websocket alias fields and position mapping normalizes broker symbols plus common live-update aliases.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -84,3 +86,5 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - 2026-04-28: Hardened chart quick-trade touch routing so hidden footer/sheet trade rows cannot receive touches, and all mounted chart trade rows share one tap lock. A BUY tap now blocks any overlapping SELL responder from firing during sheet/footer transitions, and the opposite path is blocked the same way.
 - 2026-04-28: Tightened the order-ticket market submit guard so the pressed side is recorded before diagnostics and submit work begins. If a BUY tap is already active, any overlapping SELL responder now exits as an ignored locked press and cannot enter the order payload path.
 - 2026-04-28: Added a chart-symbol freshness guard to quick-trade buttons. After switching symbols, any stale button instance from the previous symbol is disabled and ignored with `reason: stale-symbol`, so the first EURUSD trade after leaving BTCUSD cannot be submitted by an old BTCUSD responder.
+- 2026-05-01: Live position metrics, chart price helpers, and one-symbol quote listeners now distinguish backend feed time from frontend receive time. Recently received bid/ask messages can update trade pricing, while quotes with no recent receive/tick timestamp still fall back to the position snapshot.
+- 2026-05-01: The account WebSocket router now accepts wrapped account/position payloads (`data`, `payload`, nested `position`, and snapshot arrays), common metric aliases, broker-suffixed position symbols, and close-like lifecycle events. Trade summary metrics and per-symbol position rows can update from the live stream without waiting for a manual REST refresh.

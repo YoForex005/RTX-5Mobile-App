@@ -6,7 +6,7 @@ import {
   pruneLiveCandlesCoveredByHistory,
   sortAndDedupeCandles,
 } from '../../src/domain/candles';
-import { applyTickToCandleMap } from '../../src/candles/candleAggregator';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
 import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
 import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
 import { markTrustedHistorySeries, splitRestHistoryCandles } from '../../src/domain/candleProvenance';
@@ -15,7 +15,7 @@ import {
   assertValidCandleSeries,
   buildContiguousHistory,
   makeCandle,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   makeTrustedHistoryCandle,
   secondsUtc,
 } from '../support/candleTestUtils';
@@ -26,7 +26,7 @@ test('perfect REST history plus next live bucket produces merged visible mode', 
     makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 10, 1, 0)),
     makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 10, 2, 0)),
   ];
-  const live = [makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 3, 0), { close: 1.3 })];
+  const live = [makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 3, 0), { close: 1.3 })];
 
   assert.equal(resolveVisibleSeriesMode(history, live, history, 'M1'), 'merged');
 
@@ -42,7 +42,7 @@ test('perfect REST history plus next live bucket produces merged visible mode', 
 
 test('detached live candle merges with history while preserving the backend gap', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 10, 0, 0), 3, 'M1');
-  const live = [makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 10, 0), { close: 1.5 })];
+  const live = [makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 10, 0), { close: 1.5 })];
 
   assert.equal(resolveVisibleSeriesMode(history, live, history, 'M1'), 'merged');
   const visible = materializeCanonicalHistoryAndLiveCandles(history, live, 'M1');
@@ -57,7 +57,7 @@ test('detached live candle merges with history while preserving the backend gap'
 
 test('two-bucket live gap stays visible as a backend gap in one merged series', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 10, 0, 0), 3, 'M1');
-  const live = [makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 4, 0), { close: 1.5 })];
+  const live = [makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 4, 0), { close: 1.5 })];
 
   assert.equal(resolveVisibleSeriesMode(history, live, history, 'M1'), 'merged');
 
@@ -73,9 +73,8 @@ test('REST catch-up prunes covered live candles and keeps only one candle per bu
   const start = secondsUtc(2024, 3, 22, 10, 0, 0);
   const caughtUpHistory = buildContiguousHistory(start, 11, 'M1', (index) => ({ close: 1.1 + index / 100 }));
   const sameTimeLive = [
-    makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 10, 0), {
+    makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 10, 0), {
       close: 1.999,
-      lastTickTs: secondsUtc(2024, 3, 22, 10, 10, 20),
     }),
   ];
 
@@ -83,7 +82,7 @@ test('REST catch-up prunes covered live candles and keeps only one candle per bu
   const visible = materializeCanonicalHistoryAndLiveCandles(caughtUpHistory, pruned, 'M1');
 
   assert.equal(visible.filter((candle) => candle.time === secondsUtc(2024, 3, 22, 10, 10, 0)).length, 1);
-  assert.equal(visible[visible.length - 1].close, 1.999);
+  assert.equal(visible[visible.length - 1].close, caughtUpHistory[caughtUpHistory.length - 1].close);
   assertNoDuplicateCandleTimes(visible);
   assertValidCandleSeries(visible);
 });
@@ -94,7 +93,7 @@ test('REST current candle and WebSocket live candle never create duplicate same-
     makeCandle(secondsUtc(2024, 3, 22, 10, 1, 0), { close: 1.2 }),
     makeCandle(secondsUtc(2024, 3, 22, 10, 2, 0), { close: 1.25 }),
   ];
-  const liveSameBucket = makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 10, 2, 0), { close: 1.27 });
+  const liveSameBucket = makeBackendLiveCandle(secondsUtc(2024, 3, 22, 10, 2, 0), { close: 1.27 });
 
   const { closedHistory, currentCandle } = splitRestHistoryCandles(restPayload, 'M1', 'bid');
   assert.deepEqual(closedHistory.map((candle) => candle.time), [
@@ -120,12 +119,15 @@ test('REST current candle is not promoted into the live stream history cutoff', 
   assert.equal(currentCandle?.time, secondsUtc(2024, 3, 22, 10, 5, 0));
 
   const candleMap = createCandleMap(closedHistory);
-  const result = applyTickToCandleMap(
+  const result = applyLiveCandleToCandleMap(
     candleMap,
     {
-      symbol: 'XAUUSD',
-      price: 1.25,
-      timestamp: secondsUtc(2024, 3, 22, 10, 2, 30),
+      time: secondsUtc(2024, 3, 22, 10, 2, 30),
+      open: 1.25,
+      high: 1.25,
+      low: 1.25,
+      close: 1.25,
+      volume: 0,
     },
     'M1',
     { historyCutoffTime: closedHistory[closedHistory.length - 1]?.time ?? null },

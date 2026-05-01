@@ -7,6 +7,13 @@
  */
 
 import { liveCandlesEngine } from './liveCandlesEngine';
+import {
+  createCandleChannel,
+  extractCandlePayloadContext,
+  getCandlePayloadItems,
+  hasBackendCandleShape,
+  resolveCandlesWsUrl,
+} from './candlesSocketProtocol';
 import type { CandleStreamEvent } from '../../domain/candles';
 import { normalizeSymbol, normalizeTimeframeStrict } from '../../domain/candles';
 import type { Candle } from '../../state/tradingState';
@@ -29,101 +36,11 @@ const createSubscriptionKey = (symbol: string, tf: string): string => {
   return `${normalizeSymbol(symbol)}::${normalizedTimeframe ?? ''}`;
 };
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-
-const pickString = (record: Record<string, unknown> | null, keys: readonly string[]): string | null => {
-  if (!record) {
-    return null;
-  }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value;
-    }
-  }
-  return null;
-};
-
-const pickTimeframeValue = (record: Record<string, unknown> | null, keys: readonly string[]): unknown => {
-  if (!record) {
-    return null;
-  }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value;
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-  }
-  return null;
-};
-
-const getNestedRecord = (record: Record<string, unknown> | null): Record<string, unknown> | null =>
-  asRecord(record?.candle) ??
-  asRecord(record?.bar) ??
-  asRecord(record?.data) ??
-  asRecord(record?.payload) ??
-  null;
-
-const hasAnyKey = (record: Record<string, unknown> | null, keys: readonly string[]): boolean =>
-  Boolean(record && keys.some((key) => record[key] !== undefined && record[key] !== null && record[key] !== ''));
-
-const hasBackendCandleShape = (payload: unknown): boolean => {
-  const record = asRecord(payload);
-  const nested = getNestedRecord(record);
-  const candidate = nested ?? record;
-  return (
-    hasAnyKey(candidate, ['open', 'Open', 'OPEN', 'o', 'O']) &&
-    hasAnyKey(candidate, ['high', 'High', 'HIGH', 'h', 'H']) &&
-    hasAnyKey(candidate, ['low', 'Low', 'LOW', 'l', 'L']) &&
-    hasAnyKey(candidate, ['close', 'Close', 'CLOSE', 'c', 'C'])
-  );
-};
-
-const extractPayloadContext = (payload: unknown): { symbol: string | null; tf: string | null } => {
-  const record = asRecord(payload);
-  const nested = getNestedRecord(record);
-  const symbol =
-    pickString(record, ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol']) ??
-    pickString(nested, ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol']);
-  const timeframe =
-    pickTimeframeValue(record, ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval']) ??
-    pickTimeframeValue(nested, ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval']);
-
-  return {
-    symbol: symbol ? normalizeSymbol(symbol) : null,
-    tf: normalizeTimeframeStrict(timeframe),
-  };
-};
-
-const getPayloadItems = (payload: unknown): unknown[] => {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-
-  const record = asRecord(payload);
-  if (!record) {
-    return [];
-  }
-
-  if (Array.isArray(record.data)) return record.data;
-  if (Array.isArray(record.candles)) return record.candles;
-  if (Array.isArray(record.items)) return record.items;
-  if (record.candle) return [record.candle];
-  if (record.data && typeof record.data === 'object') return [record.data];
-  return [record];
-};
-
 export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_CANDLES_WS_URL || 'wss://backend.orrnn.com/ws/feed';
+  private url = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private manualDisconnect = false;
@@ -226,7 +143,7 @@ export class CandlesWebSocketService {
     state.consumerCount += 1;
     this.connect();
     if (this.isConnected) {
-      this.sendSubscription(normalizedSymbol);
+      this.sendSubscription(normalizedSymbol, normalizedTimeframe);
     }
   }
 
@@ -250,7 +167,7 @@ export class CandlesWebSocketService {
 
     state.engineUnsubscribe?.();
     this.subscriptions.delete(key);
-    this.send({ type: 'unsubscribe', symbols: [normalizedSymbol] });
+    this.sendUnsubscription(normalizedSymbol, normalizedTimeframe);
     if (this.subscriptions.size === 0 && this.ws) {
       this.ws.close();
     }
@@ -285,12 +202,12 @@ export class CandlesWebSocketService {
   }
 
   private handlePayload(payload: unknown): void {
-    const items = getPayloadItems(payload);
+    const items = getCandlePayloadItems(payload);
     if (items.length === 0) {
       return;
     }
 
-    const outerContext = extractPayloadContext(payload);
+    const outerContext = extractCandlePayloadContext(payload);
     const states = Array.from(this.subscriptions.values());
 
     for (const item of items) {
@@ -298,7 +215,7 @@ export class CandlesWebSocketService {
         continue;
       }
 
-      const itemContext = extractPayloadContext(item);
+      const itemContext = extractCandlePayloadContext(item);
       const symbol = itemContext.symbol ?? outerContext.symbol;
       const tf = itemContext.tf ?? outerContext.tf;
 
@@ -369,14 +286,66 @@ export class CandlesWebSocketService {
   }
 
   private sendSubscriptions(): void {
-    const symbols = Array.from(new Set(Array.from(this.subscriptions.values()).map((state) => state.symbol)));
+    const states = Array.from(this.subscriptions.values());
+    if (this.usesChannelProtocol()) {
+      const channels = Array.from(
+        new Set(states.map((state) => createCandleChannel(state.symbol, state.tf)).filter(Boolean)),
+      );
+      channels.forEach((channel) => {
+        this.send({ action: 'subscribe', channel });
+      });
+      return;
+    }
+
+    if (this.usesHistoryProtocol()) {
+      states.forEach((state) => {
+        this.send({ action: 'subscribe', symbol: state.symbol, tf: state.tf });
+      });
+      return;
+    }
+
+    const symbols = Array.from(new Set(states.map((state) => state.symbol)));
     if (symbols.length > 0) {
       this.send({ type: 'subscribe', symbols });
     }
   }
 
-  private sendSubscription(symbol: string): void {
+  private sendSubscription(symbol: string, tf: string): void {
+    const channel = createCandleChannel(symbol, tf);
+    if (this.usesChannelProtocol() && channel) {
+      this.send({ action: 'subscribe', channel });
+      return;
+    }
+
+    if (this.usesHistoryProtocol()) {
+      this.send({ action: 'subscribe', symbol, tf });
+      return;
+    }
+
     this.send({ type: 'subscribe', symbols: [symbol] });
+  }
+
+  private sendUnsubscription(symbol: string, tf: string): void {
+    const channel = createCandleChannel(symbol, tf);
+    if (this.usesChannelProtocol() && channel) {
+      this.send({ action: 'unsubscribe', channel });
+      return;
+    }
+
+    if (this.usesHistoryProtocol()) {
+      this.send({ action: 'unsubscribe', symbol, tf });
+      return;
+    }
+
+    this.send({ type: 'unsubscribe', symbols: [symbol] });
+  }
+
+  private usesChannelProtocol(): boolean {
+    return /\/ws\/v2(?:$|\?)/.test(this.url);
+  }
+
+  private usesHistoryProtocol(): boolean {
+    return /\/ws\/history(?:$|\?)/.test(this.url);
   }
 
   private send(payload: unknown): void {

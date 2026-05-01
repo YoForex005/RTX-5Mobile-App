@@ -6,7 +6,10 @@ export type QuoteItem = {
   symbol: string;
   bid: number;
   ask: number;
+  feedTickAt?: number;
   lastTickAt?: number;
+  lastReceivedAt?: number;
+  lastPriceChangedAt?: number;
   prevBid?: number;
   prevAsk?: number;
   changePct: number;

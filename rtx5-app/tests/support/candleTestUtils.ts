@@ -1,24 +1,14 @@
 import assert from 'node:assert/strict';
 
 import {
-  getBucketGapCount,
   getExpectedNextCandleTime,
   isStructurallyValidCandle,
   materializeCanonicalHistoryAndLiveCandles,
   normalizeSymbol,
   sortAndDedupeCandles,
 } from '../../src/domain/candles';
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-  validateQuoteTickForCandle,
-  type RawQuoteTick,
-  type ValidatedQuoteTick,
-} from '../../src/api/ws/liveCandleOverlay';
 import type {
   CandlePriceBasis,
-  LiveOverlayCandle,
   TrustedHistoryCandle,
 } from '../../src/domain/candleProvenance';
 import type { Candle } from '../../src/state/tradingState';
@@ -38,15 +28,11 @@ type MockRestResponse =
   | { type: 'history'; candles: Candle[]; delayMs: number }
   | { type: 'failure'; error: Error; delayMs: number };
 
-export type MockQuoteTick = {
-  symbol: string;
-  bid?: number;
-  ask?: number;
-  last?: number;
-  timestamp: number;
+export type BackendLiveCandle = Candle & {
+  source: 'live_candle';
+  closed: false;
+  serverTimeframe?: string;
 };
-
-type MockQuoteListener = (tick: MockQuoteTick) => void;
 
 export const secondsUtc = (
   year: number,
@@ -88,52 +74,20 @@ export const makeTrustedHistoryCandle = (
   serverTimeframe: overrides.serverTimeframe ?? 'M1',
 });
 
-export const makeLiveOverlayCandle = (
+export const makeBackendLiveCandle = (
   time: number,
   overrides: CandleOverrides & {
-    firstTickTs?: number;
-    lastTickTs?: number;
-    firstSequence?: number;
-    lastSequence?: number;
-    priceBasis?: CandlePriceBasis;
+    serverTimeframe?: string;
   } = {},
-): LiveOverlayCandle => ({
+): BackendLiveCandle => ({
   ...makeCandle(time, overrides),
-  source: 'live',
+  source: 'live_candle',
   closed: false,
-  firstTickTs: overrides.firstTickTs ?? time,
-  lastTickTs: overrides.lastTickTs ?? time,
-  firstSequence: overrides.firstSequence ?? 1,
-  lastSequence: overrides.lastSequence ?? 1,
-  priceBasis: overrides.priceBasis ?? 'bid',
+  ...(typeof overrides.serverTimeframe === 'string' ? { serverTimeframe: overrides.serverTimeframe } : {}),
 });
 
 export const cloneCandles = <TCandle extends Candle>(candles: readonly TCandle[]): TCandle[] =>
   candles.map((candle) => ({ ...candle }));
-
-export const validateBidTick = (
-  price: number,
-  timestamp: number,
-  sequence = 1,
-  input: Partial<RawQuoteTick> = {},
-  referencePrice?: number | null,
-): ValidatedQuoteTick => {
-  const validated = validateQuoteTickForCandle(
-    {
-      bid: price,
-      ask: price + 0.0001,
-      timestamp,
-      ...input,
-    },
-    {
-      priceBasis: 'bid',
-      sequence,
-      referencePrice,
-    },
-  );
-  assert.ok(validated, `expected valid tick for timestamp=${timestamp} price=${price}`);
-  return validated;
-};
 
 export const assertNoDuplicateCandleTimes = (
   candles: readonly Pick<Candle, 'time'>[],
@@ -177,33 +131,6 @@ export const materializeAndAssertClean = (
   const materialized = materializeCanonicalHistoryAndLiveCandles(historyCandles, liveCandles, timeframe);
   assertValidCandleSeries(materialized);
   return materialized;
-};
-
-export const reduceTicksToLiveCandle = (
-  timeframe: string,
-  ticks: Array<{ price: number; timestamp: number; sequence?: number }>,
-  referenceBucketTime?: number,
-): LiveOverlayCandle | null => {
-  let candle: LiveOverlayCandle | null = null;
-
-  ticks.forEach((input, index) => {
-    const tick = validateBidTick(
-      input.price,
-      input.timestamp,
-      input.sequence ?? index + 1,
-      {},
-      candle?.close ?? input.price,
-    );
-    const bucketTime = getLiveTickBucketTime(tick, timeframe, referenceBucketTime);
-    if (!candle) {
-      candle = createLiveCandleFromTick(bucketTime, tick);
-      return;
-    }
-    assert.equal(bucketTime, candle.time, 'reduceTicksToLiveCandle only accepts one bucket');
-    candle = mergeTickIntoLiveCandle(candle, tick);
-  });
-
-  return candle;
 };
 
 export const buildContiguousHistory = (
@@ -260,58 +187,6 @@ export class MockRestHistoryProvider {
     }
 
     return cloneCandles(next.candles);
-  }
-}
-
-export class MockWebSocketQuoteStream {
-  private readonly listenersBySymbol = new Map<string, Set<MockQuoteListener>>();
-
-  private connected = true;
-
-  subscribe(symbol: string, listener: MockQuoteListener): () => void {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    const listeners = this.listenersBySymbol.get(normalizedSymbol) ?? new Set<MockQuoteListener>();
-    listeners.add(listener);
-    this.listenersBySymbol.set(normalizedSymbol, listeners);
-
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) {
-        this.listenersBySymbol.delete(normalizedSymbol);
-      }
-    };
-  }
-
-  disconnect(): void {
-    this.connected = false;
-  }
-
-  reconnect(): void {
-    this.connected = true;
-  }
-
-  listenerCount(symbol: string): number {
-    return this.listenersBySymbol.get(normalizeSymbol(symbol))?.size ?? 0;
-  }
-
-  emit(tick: MockQuoteTick): number {
-    if (!this.connected) {
-      return 0;
-    }
-
-    const normalizedSymbol = normalizeSymbol(tick.symbol);
-    const listeners = this.listenersBySymbol.get(normalizedSymbol);
-    if (!listeners) {
-      return 0;
-    }
-
-    const normalizedTick = { ...tick, symbol: normalizedSymbol };
-    listeners.forEach((listener) => listener(normalizedTick));
-    return listeners.size;
-  }
-
-  emitBurst(symbol: string, ticks: Array<Omit<MockQuoteTick, 'symbol'>>): number {
-    return ticks.reduce((count, tick) => count + this.emit({ ...tick, symbol }), 0);
   }
 }
 

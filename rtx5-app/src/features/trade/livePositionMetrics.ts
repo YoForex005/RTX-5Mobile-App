@@ -2,6 +2,7 @@ import type { PositionItem, QuoteItem } from '../../mock/tradingData';
 import { normalizeSymbol } from '../../domain/symbols.ts';
 
 type QuoteLike = Partial<QuoteItem> | undefined;
+const LIVE_QUOTE_STALE_MS = 45_000;
 
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -16,6 +17,23 @@ function toFiniteNumber(value: unknown): number | undefined {
   }
 
   return undefined;
+}
+
+function toTimestampMs(value: unknown): number | undefined {
+  const numeric = toFiniteNumber(value);
+  if (numeric === undefined || numeric <= 0) {
+    return undefined;
+  }
+
+  if (numeric > 4.2e16) return Math.floor(numeric / 1_000_000);
+  if (numeric > 4.2e13) return Math.floor(numeric / 1_000);
+  if (numeric > 4.2e10) return Math.floor(numeric);
+  return Math.floor(numeric * 1000);
+}
+
+function isUsableLiveQuote(quote: QuoteLike): boolean {
+  const lastTickAt = toTimestampMs(quote?.lastReceivedAt) ?? toTimestampMs(quote?.lastTickAt);
+  return lastTickAt === undefined || Date.now() - lastTickAt <= LIVE_QUOTE_STALE_MS;
 }
 
 function getSignedPriceDelta(position: PositionItem, price: number): number {
@@ -79,8 +97,9 @@ function derivePriceToPnlFactor(position: PositionItem, quote?: QuoteLike): numb
 
 export function resolveLivePositionPrice(position: PositionItem, quote?: QuoteLike): number {
   const fallbackPrice = toFiniteNumber(position.currentPrice) ?? toFiniteNumber(position.openPrice) ?? 0;
-  const bid = toFiniteNumber(quote?.bid) ?? fallbackPrice;
-  const ask = toFiniteNumber(quote?.ask) ?? fallbackPrice;
+  const liveQuote = isUsableLiveQuote(quote) ? quote : undefined;
+  const bid = toFiniteNumber(liveQuote?.bid) ?? fallbackPrice;
+  const ask = toFiniteNumber(liveQuote?.ask) ?? fallbackPrice;
   return position.side === 'buy' ? bid : ask;
 }
 

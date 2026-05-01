@@ -280,6 +280,12 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - 2026-04-28: Expanded frontend chart history bootstraps and refreshes to request the full 2500-candle chart buffer instead of a 500-candle slice. On M1 this keeps previous-date candles in the loaded series for EURUSD, GBPUSD, XAUUSD, and BTCUSD instead of opening with only the current-day window.
 - 2026-04-28: Applied the backend-authoritative candle contract to every chart symbol/timeframe. `useLiveCandles()` now opens the backend candle WebSocket path for the selected symbol/timeframe, and the shared chart stream ignores quote ticks for candle formation; quote ticks remain available for bid/ask price UI only. The chart candle series is REST history plus backend live candle updates, with no frontend timeframe aggregation, demo generation, timer candles, or guessed OHLC.
 - 2026-04-28: Removed the last frontend intraday-gap rejection from shared/persisted candle cache bootstrapping. Valid backend candles can seed the chart cache even when timestamps include backend/session gaps; cache safety is now limited to structure, sorting/deduping, and minimum context.
+- 2026-05-01: Quote ticks now carry both backend feed time and frontend receive time. Recently received bid/ask messages can update quote UI and chart price helpers even when the backend `time` field is old, but stale feed timestamps are still blocked from the canonical candle stream.
+- 2026-05-01: Live market subscriptions now normalize broker-suffixed request symbols before reaching the shared feed, while canonical chart candles stay on the backend candle channel path. This prevents history from loading under `XAUUSD` while WebSocket updates arrive under `XAUUSDm`/`XAUUSD.c`, without reintroducing quote-tick candle generation.
+- 2026-05-01: Fixed the live-candle transport path after backend verification showed `/ws/feed` currently emits quote ticks only. The candle socket now upgrades stale `/ws/feed` config to `/ws/v2`, subscribes to `candles.{SYMBOL}.{TF}` channels, and unwraps `/ws/v2` snapshot/update envelopes (`data.candles`, `data.candle`) before forwarding backend OHLC bars into the canonical history+live engine.
+- 2026-05-01: Updated the compact chart footer lot chevrons to prefer the direct step handlers when available. The down chevron now follows the same path as the up chevron in reverse, decreasing by one broker lot step until the minimum; the picker remains a fallback when no direct step handler is supplied.
+- 2026-05-01: Stabilized native chart candle rendering and the REST/live handoff. Native candles now prefer the RTX5 custom WebView candlestick renderer so candle bodies stay visible at normal zoom, REST refreshes preserve backend live candles beyond the closed-history tail, the chart OHLC overlay reports the latest tail gap in day/hour/minute/second format, and pinch/zoom gestures suppress radial tap-menu emission.
+- 2026-05-01: Removed the remaining frontend quote-tick candle generation paths. The canonical candle stream now accepts only REST history plus backend OHLC websocket candles, stale websocket candle snapshots cannot rewind the active bucket, closed REST history cutoff candles cannot be rewritten by live data, and the native WebView no longer exposes the old `pushPrice(...)` local OHLC accumulator. Symbol/timeframe and radial-menu changes warm REST history in the background while committing the selected chart context immediately.
 ## Test Checklist
 - [x] Unit: candle transforms and viewport math.
 - [x] Typecheck: native chart screen trading-layout and overlay changes compile with `npm run typecheck`.
@@ -287,10 +293,10 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: live candle visibility policy preserves history/current series during bootstrap failures and detached websocket gaps.
 - [x] Unit: live candle bootstrap backfill policy keeps the fast first-paint request separate from the full history fetch.
 - [x] Unit: detached live candles are withheld when trusted backend history exists, while live-only rendering remains allowed only when backend history is absent.
-- [x] Unit: production candle-engine provenance and live-overlay tests cover REST closed/current splitting, all chart timeframes, weekend D1 stepping, missing server timestamps, out-of-order ticks, duplicate tick signatures, high-frequency bursts, and cache refusal to persist live overlays.
+- [x] Unit: production candle-engine tests cover REST closed/current splitting, all chart timeframes, weekend D1 stepping, backend live OHLC validation, stale websocket candle snapshots, duplicate backend candle snapshots, high-frequency backend bursts, and cache refusal to persist thin live-only data.
 - [x] Unit: chart symbol picker sources entries only from `/instruments` API payloads and has no hardcoded symbol fallback.
 - [x] Unit: pending-order helper rules cover stop-limit defaults and MT5-style pending trigger validation.
-- [x] Unit: footer lot chevron state disables impossible decrease at the minimum lot while keeping valid increase/decrease paths enabled.
+- [x] Unit: footer lot chevron state and press behavior prefer direct lot steps while preserving min/max lot boundaries and picker fallback.
 - [x] Unit: footer lot picker range chips populate the expected positive and negative stepped adjustment ranges.
 - [x] Unit: footer lot picker keeps the previous adjustment range available to the left of the active dynamic range.
 - [x] Typecheck/unit: chart i18n expansion covers toolbar/action sheets, drawing-tool labels, and chart trade price/stop/expiration/comment controls.
@@ -304,6 +310,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: chart candle subscriptions use the backend candle socket, and the canonical stream does not subscribe to quote ticks or apply quote ticks as candle updates.
 - [x] Unit: backend candle cache seeds with valid OHLC are not rejected only because an intraday timestamp gap is present.
 - [x] Unit: default chart history requests fill the 2500-bar chart buffer, giving M1 enough loaded candles to include previous dates.
+- [x] Unit/typecheck: native chart custom candle renderer, history/live tail gap reporting, and pinch/zoom tap-menu suppression are covered by focused chart bridge tests plus `npm run typecheck`.
 - [ ] Integration: timeframe and object state persistence.
 - [ ] E2E: open chart actions, open objects manager, switch timeframe.
 

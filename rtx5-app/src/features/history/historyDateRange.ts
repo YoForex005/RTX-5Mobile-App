@@ -68,14 +68,47 @@ export function resolveEffectiveHistoryDateRange(
   return resolvePresetHistoryDateRange(historyRange, now) ?? { fromMs: null, toMs: null };
 }
 
-function resolveClosedRecordTimeMs(record: ClosedHistoryTimeRecord): number | null {
-  const rawTimestamp = record.time_close ?? record.time_update ?? record.time_create;
+function coerceTimestampToMs(raw: unknown): number | null {
+  // Accept seconds, milliseconds, microseconds, or ISO strings — the backend
+  // for closed positions / deals / orders has historically returned each of
+  // these. Without the auto-detect we silently drop every record whose
+  // timestamp doesn't happen to be in the expected unit, which is what
+  // produced "closed trades not showing in history".
+  let numeric: number | null = null;
 
-  if (typeof rawTimestamp !== 'number' || !Number.isFinite(rawTimestamp)) {
-    return null;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    numeric = raw;
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) {
+      numeric = asNumber;
+    } else {
+      const parsedDate = Date.parse(trimmed);
+      return Number.isFinite(parsedDate) ? parsedDate : null;
+    }
   }
 
-  return rawTimestamp * 1000;
+  if (numeric === null || numeric <= 0) return null;
+
+  // Magnitude detection (same convention used elsewhere in the codebase):
+  //   > 4.2e16 → nanoseconds
+  //   > 4.2e13 → microseconds
+  //   > 4.2e10 → milliseconds
+  //   else      → seconds
+  if (numeric > 4.2e16) return Math.floor(numeric / 1_000_000);
+  if (numeric > 4.2e13) return Math.floor(numeric / 1_000);
+  if (numeric > 4.2e10) return Math.floor(numeric);
+  return Math.floor(numeric * 1000);
+}
+
+function resolveClosedRecordTimeMs(record: ClosedHistoryTimeRecord): number | null {
+  return (
+    coerceTimestampToMs(record.time_close) ??
+    coerceTimestampToMs(record.time_update) ??
+    coerceTimestampToMs(record.time_create)
+  );
 }
 
 export function filterClosedRecordsByDateRange<T extends ClosedHistoryTimeRecord>(

@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+
+import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
+import { normalizeSymbol } from '../../domain/symbols';
+import { useTradingState } from '../../state/tradingState';
+import {
+  applyLiveQuoteTickToSnapshot,
+  buildInitialLiveQuoteSnapshot,
+  type LiveQuoteSnapshot,
+} from './liveQuoteSnapshot';
+
+type SnapshotListener = () => void;
+
+const snapshotsBySymbol = new Map<string, LiveQuoteSnapshot | undefined>();
+const listenersBySymbol = new Map<string, Set<SnapshotListener>>();
+let updateSeq = 0;
+
+const uniqueNormalizedSymbols = (symbols: string[]): string[] =>
+  Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean)));
+
+const notifySymbol = (symbol: string): void => {
+  const listeners = listenersBySymbol.get(symbol);
+  if (!listeners) return;
+  listeners.forEach((listener) => listener());
+};
+
+const getStateQuote = (symbol: string): LiveQuoteSnapshot | undefined => {
+  const state = useTradingState.getState();
+  return buildInitialLiveQuoteSnapshot(symbol, state.quotes[symbol]);
+};
+
+const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  if (!normalizedSymbol) return undefined;
+
+  if (!snapshotsBySymbol.has(normalizedSymbol)) {
+    snapshotsBySymbol.set(normalizedSymbol, getStateQuote(normalizedSymbol));
+  }
+
+  return snapshotsBySymbol.get(normalizedSymbol);
+};
+
+const subscribeSnapshot = (symbol: string, listener: SnapshotListener): (() => void) => {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  if (!normalizedSymbol) return () => {};
+
+  let listeners = listenersBySymbol.get(normalizedSymbol);
+  if (!listeners) {
+    listeners = new Set();
+    listenersBySymbol.set(normalizedSymbol, listeners);
+  }
+
+  listeners.add(listener);
+  return () => {
+    const current = listenersBySymbol.get(normalizedSymbol);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size === 0) {
+      listenersBySymbol.delete(normalizedSymbol);
+    }
+  };
+};
+
+export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
+  const symbol = normalizeSymbol(tick.symbol);
+  if (!symbol) return;
+
+  const previous = ensureSnapshot(symbol);
+  const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, ++updateSeq);
+  snapshotsBySymbol.set(symbol, next);
+  notifySymbol(symbol);
+};
+
+export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
+  const symbolsKey = JSON.stringify(symbols);
+  const normalizedSymbols = useMemo(
+    () => uniqueNormalizedSymbols(symbols),
+    [symbolsKey],
+  );
+  const normalizedSymbolsKey = normalizedSymbols.join('|');
+
+  useEffect(() => {
+    if (!active || normalizedSymbols.length === 0) {
+      return;
+    }
+
+    const symbolSet = new Set(normalizedSymbols);
+    normalizedSymbols.forEach(ensureSnapshot);
+
+    const listener = (tick: QuoteTickEvent) => {
+      if (!symbolSet.has(normalizeSymbol(tick.symbol))) {
+        return;
+      }
+      ingestLiveQuoteTick(tick);
+    };
+
+    quotesWsService.addTickListener(listener);
+    quotesWsService.subscribe(normalizedSymbols);
+    quotesWsService.connect();
+
+    return () => {
+      quotesWsService.removeTickListener(listener);
+      quotesWsService.unsubscribe(normalizedSymbols);
+    };
+  }, [active, normalizedSymbolsKey]);
+
+  return normalizedSymbols;
+}
+
+export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefined {
+  const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+
+  const subscribe = useCallback(
+    (listener: SnapshotListener) => subscribeSnapshot(normalizedSymbol, listener),
+    [normalizedSymbol],
+  );
+
+  const getSnapshot = useCallback(
+    () => (normalizedSymbol ? ensureSnapshot(normalizedSymbol) : undefined),
+    [normalizedSymbol],
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}

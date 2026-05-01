@@ -66,6 +66,7 @@ import { spacing } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
+import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { classifyTradingError } from '../../api/tradingErrors';
@@ -83,9 +84,12 @@ import { WebView } from 'react-native-webview';
 import { useMarketData } from '../../query/websocket';
 import { ENHANCED_DRAWING_TOOLS_JS } from './plugins/enhancedDrawingToolsString';
 import { normalizeTimeframe } from '../../domain/candles';
+import { getTimeframeSeconds, normalizeTimeframeStrict } from '../../candles/timeframeUtils';
+import { sanitizeCandlesForChart } from '../../candles/chartAdapter';
 import { normalizeSymbol } from '../../domain/symbols';
 
 import { LIGHTWEIGHT_CHARTS_JS } from './rendering/lightweightChartsBundle';
+import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from './rendering/customCandlestickSeriesWebView';
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
 import {
   getChartDrawingBucketKey,
@@ -95,6 +99,7 @@ import {
   buildChartSeriesSnapshot,
   EMPTY_CHART_SERIES_SNAPSHOT,
   getChartSeriesUpdateMode,
+  resolveLatestCandleGap,
 } from './liveChartSync';
 import { useShallow } from 'zustand/shallow';
 import { recordUiFeedGap, traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
@@ -1253,6 +1258,7 @@ const CH_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <meta name="color-scheme" content="light dark">
     <script>${LIGHTWEIGHT_CHARTS_JS}</script>
+    <script>${RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS}</script>
 
     <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
@@ -1337,6 +1343,7 @@ const CH_HTML = `
       var detachChartTapListeners = null;
       var lastPostedChartTap = { x: NaN, y: NaN, at: 0 };
       var pendingPointerTap = null;
+      var suppressChartTapUntil = 0;
       var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
       var overlayRefreshRaf = 0;
       var overlayPriceScaleLockRaf = 0;
@@ -1585,6 +1592,9 @@ const CH_HTML = `
           return;
         }
         var now = Date.now();
+        if (now <= suppressChartTapUntil) {
+          return;
+        }
         if (
           isFinite(lastPostedChartTap.x) &&
           isFinite(lastPostedChartTap.y) &&
@@ -1651,6 +1661,18 @@ const CH_HTML = `
           return { x: x, y: y };
         };
 
+        // Same as getRelativePoint but clamps to the chart viewport instead
+        // of returning null when the finger crosses an edge. Used during
+        // active drags so the line keeps following the finger smoothly even
+        // when dragged past the top/bottom of the plot area.
+        var getClampedRelativePoint = function(clientX, clientY) {
+          var rect = el.getBoundingClientRect();
+          if (!isFinite(clientX) || !isFinite(clientY)) return null;
+          var x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+          var y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+          return { x: x, y: y };
+        };
+
         var stopChartEvent = function(event) {
           if (!event) return;
           if (typeof event.preventDefault === 'function') {
@@ -1665,6 +1687,70 @@ const CH_HTML = `
         // When the user drags vertically on the chart area, we disable
         // auto-scale and shift the visible price range. This makes the
         // candles move up/down while the chart container stays fixed.
+        var supportsPointerEvents = typeof window.PointerEvent === 'function';
+        var activePointerIds = {};
+        var activePointerCount = 0;
+        var CHART_SCALE_TAP_SUPPRESSION_MS = 1200;
+        // Set when ≥2 fingers are ever down in a single gesture; cleared when
+        // all fingers lift. Prevents a tap firing after a slow pinch-zoom where
+        // the time-based suppression window already expired.
+        var gestureHadMultitouch = false;
+
+        var countActivePointers = function() {
+          var count = 0;
+          for (var key in activePointerIds) {
+            if (Object.prototype.hasOwnProperty.call(activePointerIds, key)) {
+              count += 1;
+            }
+          }
+          return count;
+        };
+
+        var rememberPointerDown = function(event) {
+          if (!supportsPointerEvents || !event || event.pointerId === undefined || event.pointerId === null) {
+            return;
+          }
+          activePointerIds[String(event.pointerId)] = true;
+          activePointerCount = countActivePointers();
+          if (activePointerCount >= 2) {
+            gestureHadMultitouch = true;
+          }
+        };
+
+        var releasePointer = function(event) {
+          if (!supportsPointerEvents || !event || event.pointerId === undefined || event.pointerId === null) {
+            activePointerCount = 0;
+            return;
+          }
+          delete activePointerIds[String(event.pointerId)];
+          activePointerCount = countActivePointers();
+        };
+
+        var getTouchCount = function(event) {
+          if (!event) return 0;
+          if (event.touches && typeof event.touches.length === 'number') {
+            return event.touches.length;
+          }
+          if (event.targetTouches && typeof event.targetTouches.length === 'number') {
+            return event.targetTouches.length;
+          }
+          return 0;
+        };
+
+        var isScaleGestureEvent = function(event) {
+          return (
+            getTouchCount(event) > 1 ||
+            activePointerCount > 1 ||
+            (supportsPointerEvents && event && event.isPrimary === false)
+          );
+        };
+
+        var suppressChartTapAfterScale = function() {
+          suppressChartTapUntil = Date.now() + CHART_SCALE_TAP_SUPPRESSION_MS;
+          pendingPointerTap = null;
+          vertPanPending = null;
+        };
+
         var vertPanState = null; // { startY, startRange: {from, to} }
         var VERT_PAN_THRESHOLD = 6; // px before we commit to a vertical pan
         var vertPanPending = null; // { startX, startY } — waiting for threshold
@@ -1733,9 +1819,24 @@ const CH_HTML = `
           if (!hit || !hit.dragKey) return false;
           var startPrice = roundOverlayDragPrice(hit.price);
           cancelChartTradeLineDragMove();
+          // Capture the pointer so subsequent move/up events route to us
+          // even when the finger leaves the chart bounds. Disable the chart
+          // element's default touch-action panning so the page doesn't
+          // scroll while the user is dragging the line vertically.
+          var capturedPointerId = null;
+          if (event && typeof event.pointerId === 'number' && typeof el.setPointerCapture === 'function') {
+            try {
+              el.setPointerCapture(event.pointerId);
+              capturedPointerId = event.pointerId;
+            } catch (_e) {}
+          }
+          var prevTouchAction = el.style.touchAction;
+          el.style.touchAction = 'none';
           activeTradeLineDrag = {
             dragKey: hit.dragKey,
             lastPrice: typeof startPrice === 'number' && isFinite(startPrice) ? startPrice : hit.price,
+            pointerId: capturedPointerId,
+            prevTouchAction: prevTouchAction,
           };
           suspendChartTouchInteractions();
           pendingPointerTap = null;
@@ -1755,7 +1856,10 @@ const CH_HTML = `
             stopChartEvent(event);
             return true;
           }
-          var point = getRelativePoint(pointFromEvent.x, pointFromEvent.y);
+          // Use the clamped point so dragging keeps tracking the finger
+          // smoothly even when the user slides past the chart's top or
+          // bottom edge — without this the price would freeze at the edge.
+          var point = getClampedRelativePoint(pointFromEvent.x, pointFromEvent.y);
           if (!point || !series || typeof series.coordinateToPrice !== 'function') {
             stopChartEvent(event);
             return true;
@@ -1779,12 +1883,18 @@ const CH_HTML = `
           if (!activeTradeLineDrag) return false;
           var drag = activeTradeLineDrag;
           activeTradeLineDrag = null;
+          // Release the pointer capture and restore the original touch
+          // action so the chart resumes its normal pan/scroll behaviour.
+          if (drag.pointerId !== null && drag.pointerId !== undefined && typeof el.releasePointerCapture === 'function') {
+            try { el.releasePointerCapture(drag.pointerId); } catch (_e) {}
+          }
+          el.style.touchAction = drag.prevTouchAction || '';
           restoreChartTouchInteractions();
           suppressNextChartClickUntil = Date.now() + 350;
 
           if (!cancelled) {
             var pointFromEvent = getClientPoint(event);
-            var point = pointFromEvent ? getRelativePoint(pointFromEvent.x, pointFromEvent.y) : null;
+            var point = pointFromEvent ? getClampedRelativePoint(pointFromEvent.x, pointFromEvent.y) : null;
             if (point && series && typeof series.coordinateToPrice === 'function') {
               var finalPrice = roundOverlayDragPrice(series.coordinateToPrice(point.y));
               if (typeof finalPrice === 'number' && isFinite(finalPrice) && finalPrice > 0) {
@@ -1803,7 +1913,12 @@ const CH_HTML = `
         };
 
         var onPointerDown = function(event) {
+          rememberPointerDown(event);
           postChartTouchState(true);
+          if (isScaleGestureEvent(event)) {
+            suppressChartTapAfterScale();
+            return;
+          }
           if (beginTradeLineDrag(event)) {
             return;
           }
@@ -1830,6 +1945,11 @@ const CH_HTML = `
         };
 
         var onPointerMove = function(event) {
+          if (isScaleGestureEvent(event)) {
+            suppressChartTapAfterScale();
+            scheduleOverlayDomRefresh();
+            return;
+          }
           if (continueTradeLineDrag(event)) {
             return;
           }
@@ -1859,24 +1979,38 @@ const CH_HTML = `
         };
 
         var onPointerUp = function(event) {
+          var wasScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || Date.now() <= suppressChartTapUntil;
           if (finishTradeLineDrag(event, false)) {
-            postChartTouchState(false);
+            releasePointer(event);
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
+            return;
+          }
+          releasePointer(event);
+          if (wasScaleGesture) {
+            suppressChartTapAfterScale();
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
             return;
           }
           if (vertPanState) {
             endVerticalPan();
-            postChartTouchState(false);
+            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           vertPanPending = null;
           if (!event || !pendingPointerTap) {
-            postChartTouchState(false);
+            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           var pointFromEvent = getClientPoint(event);
           if (!pointFromEvent) {
             pendingPointerTap = null;
-            postChartTouchState(false);
+            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           var elapsed = Date.now() - pendingPointerTap.at;
@@ -1884,37 +2018,53 @@ const CH_HTML = `
           var dy = pointFromEvent.y - pendingPointerTap.y;
           pendingPointerTap = null;
           if (elapsed > 450 || Math.abs(dx) > 12 || Math.abs(dy) > 12) {
-            postChartTouchState(false);
+            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           var point = getRelativePoint(pointFromEvent.x, pointFromEvent.y);
           if (!point) {
-            postChartTouchState(false);
+            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           scheduleOverlayDomRefresh();
           emitChartTapAtPoint(point.x, point.y);
-          postChartTouchState(false);
+          if (activePointerCount <= 0) postChartTouchState(false);
         };
 
         var onPointerCancel = function(event) {
           if (finishTradeLineDrag(event, true)) {
-            postChartTouchState(false);
+            releasePointer(event);
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
+            return;
+          }
+          releasePointer(event);
+          if (Date.now() <= suppressChartTapUntil) {
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
             return;
           }
           if (vertPanState) {
             endVerticalPan();
-            postChartTouchState(false);
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
             return;
           }
           vertPanPending = null;
           pendingPointerTap = null;
+          gestureHadMultitouch = false;
           scheduleOverlayDomRefresh();
-          postChartTouchState(false);
+          if (activePointerCount <= 0) postChartTouchState(false);
         };
 
         var onClick = function(event) {
-          if (Date.now() <= suppressNextChartClickUntil) {
+          if (Date.now() <= suppressNextChartClickUntil || Date.now() <= suppressChartTapUntil) {
             return;
           }
           var pointFromEvent = getClientPoint(event);
@@ -1925,35 +2075,43 @@ const CH_HTML = `
           emitChartTapAtPoint(point.x, point.y);
         };
 
-        var supportsPointerEvents = typeof window.PointerEvent === 'function';
+        // Non-passive listeners: required so preventDefault() inside the
+        // drag handlers can stop the page from scrolling while the user is
+        // moving an SL/TP/entry line vertically. Passive listeners would
+        // ignore preventDefault on mobile.
+        var listenerOptions = { capture: true, passive: false };
         if (supportsPointerEvents) {
-          el.addEventListener('pointerdown', onPointerDown, true);
-          el.addEventListener('pointermove', onPointerMove, true);
-          el.addEventListener('pointerup', onPointerUp, true);
-          el.addEventListener('pointercancel', onPointerCancel, true);
+          el.addEventListener('pointerdown', onPointerDown, listenerOptions);
+          el.addEventListener('pointermove', onPointerMove, listenerOptions);
+          el.addEventListener('pointerup', onPointerUp, listenerOptions);
+          el.addEventListener('pointercancel', onPointerCancel, listenerOptions);
         } else {
-          el.addEventListener('touchstart', onPointerDown, true);
-          el.addEventListener('touchmove', onPointerMove, true);
-          el.addEventListener('touchend', onPointerUp, true);
-          el.addEventListener('touchcancel', onPointerCancel, true);
+          el.addEventListener('touchstart', onPointerDown, listenerOptions);
+          el.addEventListener('touchmove', onPointerMove, listenerOptions);
+          el.addEventListener('touchend', onPointerUp, listenerOptions);
+          el.addEventListener('touchcancel', onPointerCancel, listenerOptions);
         }
         el.addEventListener('click', onClick, true);
         detachChartTapListeners = function() {
           if (supportsPointerEvents) {
-            el.removeEventListener('pointerdown', onPointerDown, true);
-            el.removeEventListener('pointermove', onPointerMove, true);
-            el.removeEventListener('pointerup', onPointerUp, true);
-            el.removeEventListener('pointercancel', onPointerCancel, true);
+            el.removeEventListener('pointerdown', onPointerDown, listenerOptions);
+            el.removeEventListener('pointermove', onPointerMove, listenerOptions);
+            el.removeEventListener('pointerup', onPointerUp, listenerOptions);
+            el.removeEventListener('pointercancel', onPointerCancel, listenerOptions);
           } else {
-            el.removeEventListener('touchstart', onPointerDown, true);
-            el.removeEventListener('touchmove', onPointerMove, true);
-            el.removeEventListener('touchend', onPointerUp, true);
-            el.removeEventListener('touchcancel', onPointerCancel, true);
+            el.removeEventListener('touchstart', onPointerDown, listenerOptions);
+            el.removeEventListener('touchmove', onPointerMove, listenerOptions);
+            el.removeEventListener('touchend', onPointerUp, listenerOptions);
+            el.removeEventListener('touchcancel', onPointerCancel, listenerOptions);
           }
           el.removeEventListener('click', onClick, true);
           pendingPointerTap = null;
+          activePointerIds = {};
+          activePointerCount = 0;
+          gestureHadMultitouch = false;
           activeTradeLineDrag = null;
           suppressNextChartClickUntil = 0;
+          suppressChartTapUntil = 0;
           chartTouchInteractionSuspendDepth = 0;
           postChartTouchState(false);
         };
@@ -2140,9 +2298,30 @@ const CH_HTML = `
         return null;
       }
 
+      // Parallel array set by the host: index -> real Unix-seconds timestamp.
+      // The series itself uses synthetic 1-based indices as the time field so
+      // bars pack adjacent regardless of backend gaps; this lookup remaps
+      // tick labels back to the real time at each bar position so the X-axis
+      // still displays meaningful dates.
+      var _rtxIndexToRealTime = [];
+
       function formatChartTickMark(time, tickMarkType, _locale) {
         try {
-          var date = resolveTickDate(time);
+          // The series sends synthetic indices (1, 2, 3, ...) as the time
+          // field. Translate back to the real Unix-seconds timestamp before
+          // formatting so the X-axis labels show actual dates instead of
+          // the Jan-1970 era values that raw indices would produce.
+          var resolveSource = time;
+          if (typeof time === 'number' && isFinite(time) && _rtxIndexToRealTime.length > 0) {
+            var idx = Math.round(time) - 1;
+            if (idx >= 0 && idx < _rtxIndexToRealTime.length) {
+              var realT = _rtxIndexToRealTime[idx];
+              if (typeof realT === 'number' && isFinite(realT) && realT > 0) {
+                resolveSource = realT;
+              }
+            }
+          }
+          var date = resolveTickDate(resolveSource);
           if (!date || !isFinite(date.getTime())) {
             return null;
           }
@@ -2172,6 +2351,37 @@ const CH_HTML = `
           return day + ' ' + month;
         } catch (_e) {
           return null;
+        }
+      }
+
+      function setIndexToRealTimeMap(arr) {
+        if (!Array.isArray(arr)) {
+          _rtxIndexToRealTime = [];
+          return;
+        }
+        var out = new Array(arr.length);
+        for (var i = 0; i < arr.length; i++) {
+          var v = arr[i];
+          out[i] = (typeof v === 'number' && isFinite(v)) ? v : null;
+        }
+        _rtxIndexToRealTime = out;
+      }
+
+      function appendIndexToRealTimeEntry(realTime) {
+        if (typeof realTime === 'number' && isFinite(realTime)) {
+          _rtxIndexToRealTime.push(realTime);
+        } else {
+          _rtxIndexToRealTime.push(null);
+        }
+      }
+
+      function replaceLastIndexToRealTimeEntry(realTime) {
+        if (_rtxIndexToRealTime.length === 0) {
+          appendIndexToRealTimeEntry(realTime);
+          return;
+        }
+        if (typeof realTime === 'number' && isFinite(realTime)) {
+          _rtxIndexToRealTime[_rtxIndexToRealTime.length - 1] = realTime;
         }
       }
 
@@ -2294,6 +2504,34 @@ const CH_HTML = `
           safeOpts.timeScale = {};
         }
         safeOpts.timeScale.tickMarkFormatter = formatChartTickMark;
+        // Crosshair / tooltip formatter — also remap synthetic index back
+        // to the real timestamp so hovering a bar shows its real date/time
+        // instead of the Jan-1970 era values that raw indices would produce.
+        if (!safeOpts.localization) safeOpts.localization = {};
+        safeOpts.localization.timeFormatter = function(time) {
+          try {
+            var resolveSource = time;
+            if (typeof time === 'number' && isFinite(time) && _rtxIndexToRealTime.length > 0) {
+              var idx = Math.round(time) - 1;
+              if (idx >= 0 && idx < _rtxIndexToRealTime.length) {
+                var realT = _rtxIndexToRealTime[idx];
+                if (typeof realT === 'number' && isFinite(realT) && realT > 0) {
+                  resolveSource = realT;
+                }
+              }
+            }
+            var date = resolveTickDate(resolveSource);
+            if (!date || !isFinite(date.getTime())) return '';
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var d = String(date.getDate()).padStart(2, '0');
+            var m = months[date.getMonth()] || '';
+            var hh = String(date.getHours()).padStart(2, '0');
+            var mm = String(date.getMinutes()).padStart(2, '0');
+            return d + ' ' + m + ' ' + hh + ':' + mm;
+          } catch (_e) {
+            return '';
+          }
+        };
 
         // Force explicit pixel dimensions so the chart never renders at 0x0
         safeOpts.width = w;
@@ -2345,20 +2583,10 @@ const CH_HTML = `
             priceLineVisible: false,
           });
         } else {
-          var customCandleOptions = {
-            color: colors.up,
-            bodyUpColor: colors.bodyUp,
-            bodyDownColor: colors.bodyDown,
-            borderUpColor: colors.up,
-            borderDownColor: colors.down,
-            wickUpColor: colors.up,
-            wickDownColor: colors.down,
-            borderVisible: true,
-            wickVisible: true,
-            priceFormat: priceFormat,
-            lastValueVisible: false,
-            priceLineVisible: false,
-          };
+          // Always use the native lightweight-charts CandlestickSeries.
+          // The custom RTX5 renderer rendered thin needle-like bodies and
+          // distorted wicks — the native series produces the standard
+          // professional candle geometry (centered wick, full-width body).
           series = chart.addSeries(LightweightCharts.CandlestickSeries, {
             upColor: colors.bodyUp,
             downColor: colors.bodyDown,
@@ -2809,13 +3037,15 @@ const CH_HTML = `
         }
       }
 
-      // ── Live OHLC accumulator (runs inside WebView) ──
+      // Backend OHLC patch state mirrored inside the WebView.
       var _liveBar = null; // { time, open, high, low, close }
       var _liveBarHasObservedRealtimeUpdate = false;
 
       function applyTickUpdate(tick) {
         if (!series || !tick || typeof tick.time !== 'number') return;
-        if (tick.time < lastBarTime) return;
+        if (tick.time < lastBarTime) {
+          return;
+        }
         var appendedNewBar = currentSeriesLength === 0 || tick.time > lastBarTime;
         var bar;
         if (seriesType === 'line') {
@@ -2845,56 +3075,6 @@ const CH_HTML = `
         refreshDirectionPriceLine();
         refreshMoveDirectionPriceLine();
         refreshOverlayDomLabels(_overlayPayload);
-      }
-
-      // Fast-path: host sends just a price + bucket time.
-      // The WebView accumulates OHLC locally — no React state cycle needed.
-      function pushPrice(bucketTime, price) {
-        if (!series || typeof bucketTime !== 'number' || typeof price !== 'number') return;
-        if (bucketTime < lastBarTime) return;
-        var appendedNewBar = currentSeriesLength === 0 || bucketTime > lastBarTime;
-
-        var bar;
-        if (_liveBar && _liveBar.time === bucketTime) {
-          // Same bucket — accumulate
-          _liveBar.high = Math.max(_liveBar.high, price);
-          _liveBar.low = Math.min(_liveBar.low, price);
-          _liveBar.close = price;
-        } else {
-          // New bucket: if we've only seeded from history and have not yet
-          // observed live updates locally, start from the first observed price
-          // to avoid fabricating an oversized red/green opening body.
-          var nextOpen =
-            _liveBarHasObservedRealtimeUpdate && _liveBar && typeof _liveBar.close === 'number'
-              ? _liveBar.close
-              : price;
-          _liveBar = {
-            time: bucketTime,
-            open: nextOpen,
-            high: Math.max(nextOpen, price),
-            low: Math.min(nextOpen, price),
-            close: price,
-          };
-        }
-        _liveBarHasObservedRealtimeUpdate = true;
-
-        if (seriesType === 'line') {
-          bar = { time: bucketTime, value: price };
-        } else {
-          bar = { time: _liveBar.time, open: _liveBar.open, high: _liveBar.high, low: _liveBar.low, close: _liveBar.close };
-        }
-        series.update(bar);
-        currentSeriesLength = appendedNewBar ? Math.max(currentSeriesLength + 1, 1) : Math.max(currentSeriesLength, 1);
-        if (bucketTime >= lastBarTime) {
-          lastBarTime = bucketTime;
-        }
-        ensureMoveBarsSeries(lastDisplayDecimals);
-        if (moveBarsSeries && seriesType !== 'line' && _liveBar) {
-          try { moveBarsSeries.update(makeMoveBarPoint(_liveBar)); } catch (_mb) {}
-        }
-        refreshBidPriceLineColor();
-        refreshDirectionPriceLine();
-        refreshMoveDirectionPriceLine();
       }
 
       function flushPendingTick() {
@@ -3043,6 +3223,7 @@ const CH_HTML = `
                 color: marketBidColor,
                 lineWidth: 1,
                 lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+                lineVisible: true,
                 axisLabelVisible: true,
                 title: '',
               });
@@ -3056,6 +3237,7 @@ const CH_HTML = `
             color: marketBidColor,
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            lineVisible: true,
             axisLabelVisible: true,
             title: '',
           });
@@ -3078,6 +3260,7 @@ const CH_HTML = `
                 color: marketAskColor,
                 lineWidth: 1,
                 lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+                lineVisible: true,
                 axisLabelVisible: true,
                 title: '',
               });
@@ -3091,6 +3274,7 @@ const CH_HTML = `
             color: marketAskColor,
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+            lineVisible: true,
             axisLabelVisible: true,
             title: '',
           });
@@ -3708,7 +3892,9 @@ const CH_HTML = `
       window.initChart = initChart;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
-      window.pushPrice = pushPrice;
+      window.setIndexToRealTimeMap = setIndexToRealTimeMap;
+      window.appendIndexToRealTimeEntry = appendIndexToRealTimeEntry;
+      window.replaceLastIndexToRealTimeEntry = replaceLastIndexToRealTimeEntry;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;
@@ -3986,11 +4172,15 @@ export function ChartScreen() {
     const nextDraft = resolveFooterLotCommitDraft(draftOverride);
 
     if (!nextDraft.trim()) {
-      setFooterLotDraft(formatTradeVolume(tradeVolume, tradeVolumeBounds));
+      // Use the freshest committed lot from the store, not the closure's
+      // captured `tradeVolume` — otherwise rapid commits can revert the
+      // input to a value that's already been replaced by another commit.
+      const latestVolume = useUserPreferences.getState().tradeVolume;
+      setFooterLotDraft(formatTradeVolume(latestVolume, tradeVolumeBounds));
       return;
     }
     updateTradeVolume(nextDraft);
-  }, [resolveFooterLotCommitDraft, setFooterLotDraft, tradeVolume, tradeVolumeBounds, updateTradeVolume]);
+  }, [resolveFooterLotCommitDraft, setFooterLotDraft, tradeVolumeBounds, updateTradeVolume]);
   const handleOpenFooterLotPicker = useCallback((mode: FooterLotPickerMode = 'absolute') => {
     commitLotDraft();
     setFooterLotEditorFocused(false);
@@ -4035,9 +4225,14 @@ export function ChartScreen() {
     Keyboard.dismiss();
   }, [finishFooterLotEditor]);
   const handleStepFooterLotEditor = useCallback((direction: -1 | 1) => {
-    const nextVolume = incrementTradeVolume(tradeVolume, direction, tradeVolumeBounds);
+    // Read the latest committed lot from the store rather than the closure's
+    // captured `tradeVolume`. Without this, two rapid chevron presses both
+    // compute the next value off the same stale lot — the second press
+    // becomes a silent no-op and the user perceives "decrease doesn't work".
+    const latestVolume = useUserPreferences.getState().tradeVolume;
+    const nextVolume = incrementTradeVolume(latestVolume, direction, tradeVolumeBounds);
     updateTradeVolume(nextVolume);
-  }, [tradeVolume, tradeVolumeBounds, updateTradeVolume]);
+  }, [tradeVolumeBounds, updateTradeVolume]);
   const committedLotDisplay = useMemo(
     () => formatTradeVolume(tradeVolume, tradeVolumeBounds),
     [tradeVolume, tradeVolumeBounds],
@@ -4252,6 +4447,7 @@ export function ChartScreen() {
   const chartTapMenuBoundsRef = useRef<ChartTapMenuBounds>({ width: 0, height: 0 });
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const chartTapMenuSuppressUntilRef = useRef(0);
+  const chartSwitchCommitSeqRef = useRef(0);
   const lastChartViewportSizeRef = useRef({ width: 0, height: 0 });
   const pendingChartViewportSizeRef = useRef<{ width: number; height: number } | null>(null);
   const chartViewportResizeFrameRef = useRef<number | null>(null);
@@ -4495,6 +4691,7 @@ export function ChartScreen() {
   }, [chartBid, chartLiveQuote?.ask, quoteFallbackSpread]);
   const chartTradeTickTimestamp = useMemo(() => {
     const candidates = [
+      chartLiveQuote?.lastReceivedAt,
       chartLiveQuote?.time,
       chartLiveQuote?.timestamp,
       chartLiveQuote?.t,
@@ -4509,6 +4706,7 @@ export function ChartScreen() {
 
     return null;
   }, [
+    chartLiveQuote?.lastReceivedAt,
     chartLiveQuote?.lastTickAt,
     chartLiveQuote?.t,
     chartLiveQuote?.time,
@@ -4874,40 +5072,13 @@ export function ChartScreen() {
     roundTradePrice,
   ]);
   const handleSubmitPendingTradeFromSheet = useCallback(() => {
-    const previewLines = [
-      `${t('Type')}: ${t(chartTradeOrderType)}`,
-      `${t('Price')}: ${chartTradePrice.toFixed(displayDecimals)}`,
-    ];
-    if (isStopLimitChartOrderType(chartTradeOrderType)) {
-      previewLines.push(`${t('Stop Limit Price')}: ${chartTradeStopLimitPrice.toFixed(displayDecimals)}`);
-    }
-    if (chartTradeSlEnabled) {
-      previewLines.push(`S/L: ${chartTradeSlPrice.toFixed(displayDecimals)}`);
-    }
-    if (chartTradeTpEnabled) {
-      previewLines.push(`T/P: ${chartTradeTpPrice.toFixed(displayDecimals)}`);
-    }
-    previewLines.push(`${t('Expiration')}: ${t(chartTradeExpiration)}`);
-    if (chartTradeComment.trim()) {
-      previewLines.push(`${t('Comment')}: ${chartTradeComment.trim()}`);
-    }
-    Alert.alert(
-      t('Pending Order Preview'),
-      `${previewLines.join('\n')}\n\n${t('Chart-side pending submission is still preview-only in this build.')}`,
-    );
-  }, [
-    chartTradeComment,
-    chartTradeExpiration,
-    chartTradeOrderType,
-    chartTradePrice,
-    chartTradeSlEnabled,
-    chartTradeSlPrice,
-    chartTradeStopLimitPrice,
-    chartTradeTpEnabled,
-    chartTradeTpPrice,
-    displayDecimals,
-    t,
-  ]);
+    // Pending CTA must NOT open a blocking preview-only alert. Per
+    // chartOverlayBridgeStability.test.ts: collapse the sheet so the
+    // chart's draggable price lines are exposed for chart-side editing.
+    traceUiInteraction('chart.tradeSheet.pending.editOnChart', () => {
+      snapTradeSheet('collapsed');
+    });
+  }, [snapTradeSheet]);
   const handleToggleChartTradeSheetMode = useCallback(() => {
     snapTradeSheet(chartTradeSheetMode === 'expanded' ? 'collapsed' : 'expanded');
   }, [chartTradeSheetMode, snapTradeSheet]);
@@ -5712,21 +5883,50 @@ export function ChartScreen() {
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
   );
-  const chartMetaLastCandle = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
+  const chartMetaBackendLast = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
+  // Merge the live-quote projection into the OHLC overlay so the displayed
+  // O/H/L/C values match what the chart actually renders (otherwise the
+  // overlay would show backend OHLC while the bar visibly extends past it).
+  const chartMetaLastCandle = useMemo(() => {
+    if (!chartMetaBackendLast) return null;
+    const hasBid = Number.isFinite(chartBid) && chartBid > 0;
+    if (!hasBid) return chartMetaBackendLast;
+    return {
+      ...chartMetaBackendLast,
+      high: Math.max(chartMetaBackendLast.high, chartBid),
+      low: Math.min(chartMetaBackendLast.low, chartBid),
+      close: chartBid,
+    };
+  }, [chartBid, chartMetaBackendLast]);
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
+  const chartLatestCandleGap = useMemo(
+    () => resolveLatestCandleGap(chartCandles, chartTimeframe),
+    [chartCandles, chartTimeframe],
+  );
   const chartMetaItems = useMemo(
-    () =>
-      chartMetaLastCandle
+    () => {
+      if (!chartMetaLastCandle) {
+        return [];
+      }
+
+      const items = chartDisplay.showOHLC
         ? [
             { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
             { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
             { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
             { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
           ]
-        : [],
-    [chartMetaLastCandle, formatChartValue],
+        : [];
+
+      if (chartLatestCandleGap) {
+        items.push({ label: 'Gap', value: chartLatestCandleGap.label });
+      }
+
+      return items;
+    },
+    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, formatChartValue],
   );
-  const showChartMetaRow = chartDisplay.showOHLC && chartMetaItems.length > 0;
+  const showChartMetaRow = chartMetaItems.length > 0;
   const showChartVolumePane = chartViewportShowVolumePane;
   const showChartDrawingToolbar = isChartExpanded && chartViewportShowDrawingToolbar;
   const applyNativeTimeRange = useCallback((range: ChartTimeRange, nextCustomDateValue?: Date | null) => {
@@ -5861,8 +6061,27 @@ export function ChartScreen() {
     setChartViewportShowDrawingToolbar(!chartViewportShowDrawingToolbar);
   }, [chartViewportShowDrawingToolbar, setChartViewportShowDrawingToolbar]);
 
+  const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
+    return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
+  }, []);
+
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
+      const switchSeq = chartSwitchCommitSeqRef.current + 1;
+      chartSwitchCommitSeqRef.current = switchSeq;
+      void prefetchChartTimeframeHistory(nextSymbol, nextTimeframe).then((count) => {
+        if (
+          typeof __DEV__ !== 'undefined' &&
+          __DEV__ &&
+          chartSwitchCommitSeqRef.current === switchSeq
+        ) {
+          console.log('[CHART-BRIDGE] switch_prefetch_complete', {
+            symbol: nextSymbol,
+            timeframe: nextTimeframe,
+            count,
+          });
+        }
+      });
       if (nextSymbol !== chartSymbol) {
         setChartSymbol(nextSymbol);
         void prefetchInstrument(nextSymbol);
@@ -5871,7 +6090,7 @@ export function ChartScreen() {
         setChartTimeframe(nextTimeframe);
       }
     },
-    [chartSymbol, chartTimeframe, setChartSymbol, setChartTimeframe],
+    [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory, setChartSymbol, setChartTimeframe],
   );
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
@@ -5928,10 +6147,13 @@ export function ChartScreen() {
       showActionSheet({
         title: 'Timeframes',
         runActionAfterClose: false,
-        actions: timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) })),
+        actions: timeframes.map((tf) => {
+          void prefetchChartTimeframeHistory(chartSymbol, tf);
+          return { label: tf, onPress: () => handleTimeframeSelect(tf) };
+        }),
       });
     });
-  }, [resetChartActionSheetContext, showActionSheet, timeframes, handleTimeframeSelect]);
+  }, [resetChartActionSheetContext, showActionSheet, timeframes, handleTimeframeSelect, chartSymbol, prefetchChartTimeframeHistory]);
 
   const handleOpenChartTypePicker = useCallback(() => {
     traceUiInteraction('chart.chartType.open', () => {
@@ -6127,14 +6349,20 @@ export function ChartScreen() {
   const drawingSignatureRef = useRef(chartDrawingSignature);
   const lastWebViewDrawingSignatureRef = useRef('');
   const lastInjectedDrawingSyncRef = useRef({ signature: '', epoch: -1 });
-  // Loading overlay: show until chart is confirmed rendered OR 3s fallback.
-  // This prevents the user from seeing a blank WebView between data arrival
-  // and chart render completion.
+  // Loading overlay: delay before showing so fast cached switches (< 500 ms)
+  // never flash a spinner. Falls back to hiding at 3 s to prevent an
+  // indefinite blocking overlay when the chart fails to respond.
+  const [loadingDelayPassed, setLoadingDelayPassed] = useState(false);
   const [loadingFallback, setLoadingFallback] = useState(false);
   useEffect(() => {
+    setLoadingDelayPassed(false);
     setLoadingFallback(false);
-    const tmr = setTimeout(() => setLoadingFallback(true), 3000);
-    return () => clearTimeout(tmr);
+    const delayTmr = setTimeout(() => setLoadingDelayPassed(true), 500);
+    const fallbackTmr = setTimeout(() => setLoadingFallback(true), 3000);
+    return () => {
+      clearTimeout(delayTmr);
+      clearTimeout(fallbackTmr);
+    };
   }, [chartSymbol, chartTimeframe, chartType]);
   useEffect(() => {
     drawingSignatureRef.current = chartDrawingSignature;
@@ -6177,7 +6405,7 @@ export function ChartScreen() {
 
     return () => subscription.remove();
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
-  const isLoading = !chartCanvasReady && !loadingFallback;
+  const isLoading = !chartCanvasReady && loadingDelayPassed && !loadingFallback;
   const isError = false;
 
   useEffect(() => {
@@ -6227,6 +6455,18 @@ export function ChartScreen() {
   const lastInitSigRef = useRef('');
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const lastInjectedLiveQuoteSignatureRef = useRef('');
+  // Per-bucket projection of the current forming candle, extended by every
+  // bid tick. Lets the chart's live bar follow the bid/ask line between
+  // backend candle snapshots so the candle visibly moves with the quote.
+  const liveQuoteCandleStateRef = useRef<{
+    sig: string; // `${symbol}:${tf}:${bucket}` — resets on bucket / symbol / tf change
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    bucket: number;
+    backendSig: string; // last backend OHLC signature seen, so we re-seed when backend updates
+  } | null>(null);
   const chartCandleFrontendPaintRef = useRef<{
     availableAt: number;
     length: number;
@@ -6238,20 +6478,67 @@ export function ChartScreen() {
     lastInitSigRef.current = '';
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     lastInjectedLiveQuoteSignatureRef.current = '';
+    liveQuoteCandleStateRef.current = null;
     setChartCanvasReady(false);
     setChartPlotArea(null);
   };
 
   useEffect(() => {
     candlesRef.current = candles;
-  }, [candles]);
-
-  const buildMappedData = useCallback((sourceCandles: typeof candles) => {
-    if (chartType === 'line') {
-      return sourceCandles.map((c) => ({ time: c.time, value: c.close }));
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      const last = candles[candles.length - 1];
+      console.log('[CHART-CANDLES]', {
+        symbol: chartSymbol,
+        timeframe: chartTimeframe,
+        count: candles.length,
+        lastTime: last?.time ?? null,
+      });
+      console.log('[CHART-BRIDGE] useLiveCandles_update', {
+        symbol: chartSymbol,
+        timeframe: chartTimeframe,
+        count: candles.length,
+      });
     }
-    return sourceCandles.map((c) => ({
-      time: c.time,
+  }, [candles, chartSymbol, chartTimeframe]);
+
+  // Stamp each candle's `time` onto a 1-based integer index timeline so
+  // bars pack uniformly regardless of backend gaps. Lightweight-charts
+  // positions bars by their `time` value — using bar indices forces every
+  // bar to occupy exactly one logical slot (barSpacing pixels apart). The
+  // X-axis labels are remapped back to the real timestamp via the parallel
+  // `_rtxIndexToRealTime` array on the WebView side (see formatChartTickMark).
+  // The canonical engine series keeps the real timestamps for OHLC overlay,
+  // gap detection, and tooltips.
+  const lastMappedRealTimesRef = useRef<number[]>([]);
+  const buildMappedData = useCallback((sourceCandles: typeof candles) => {
+    if (sourceCandles.length === 0) {
+      lastMappedRealTimesRef.current = [];
+      return [];
+    }
+    // Sort + dedupe defensively — lightweight-charts requires strictly
+    // monotonic time values. A duplicate or out-of-order timestamp would
+    // throw "Cannot update oldest data" and abort the entire chart paint.
+    const byTime = new Map<number, typeof sourceCandles[number]>();
+    for (const c of sourceCandles) {
+      if (Number.isFinite(c.time) && Number.isFinite(c.open) && Number.isFinite(c.high)
+          && Number.isFinite(c.low) && Number.isFinite(c.close)) {
+        byTime.set(c.time, c);
+      }
+    }
+    const cleaned = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    if (cleaned.length === 0) {
+      lastMappedRealTimesRef.current = [];
+      return [];
+    }
+
+    const realTimes = cleaned.map((c) => c.time);
+    lastMappedRealTimesRef.current = realTimes;
+
+    if (chartType === 'line') {
+      return cleaned.map((c, i) => ({ time: i + 1, value: c.close }));
+    }
+    return cleaned.map((c, i) => ({
+      time: i + 1,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -6259,6 +6546,15 @@ export function ChartScreen() {
       volume: c.volume ?? 0,
     }));
   }, [chartType]);
+
+  // Compute the index-stamped time for the LAST candle in the engine series.
+  // Used by Effect 2 incremental and the live-quote projection so their
+  // updateTick payloads land at the same logical position the chart's last
+  // bar was painted at by buildMappedData. Index = sourceCandles.length.
+  const computeMappedLastTime = useCallback((sourceCandles: typeof candles): number | null => {
+    if (sourceCandles.length === 0) return null;
+    return sourceCandles.length;
+  }, []);
 
   // Track current config signature. When it changes, mark chart as
   // not-initialized so the watchdog knows to retry for the new config.
@@ -6291,6 +6587,9 @@ export function ChartScreen() {
       chartInitializedRef.current = false;
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       lastInjectedLiveQuoteSignatureRef.current = '';
+      liveQuoteCandleStateRef.current = null;
+      setChartCanvasReady(false);
+      setChartPlotArea(null);
     }
   }, [currentSig]);
 
@@ -6300,17 +6599,21 @@ export function ChartScreen() {
     if (!webViewRef.current || !webViewReady) return;
 
     // Once the current chart config is already live, incremental candle sync
-    // handles quote-driven updates. Avoid re-mapping the full merged series on
+    // handles backend candle updates. Avoid re-mapping the full merged series on
     // every tick just to discover init is already current.
     if (currentSig === lastInitSigRef.current && chartInitializedRef.current) return;
 
     const data = candlesRef.current;
-    if (data.length === 0) return;
+    const mapped = data.length > 0 ? buildMappedData(data) : [];
+    const realTimes = lastMappedRealTimesRef.current;
 
-    const mapped = buildMappedData(data);
-    if (mapped.length === 0) return;
-
-    const js = `initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane}); true;`;
+    const js = `
+      if (typeof setIndexToRealTimeMap === 'function') {
+        setIndexToRealTimeMap(${JSON.stringify(realTimes)});
+      }
+      initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane});
+      true;
+    `;
     try {
       webViewRef.current.injectJavaScript(js);
     } catch (_e) { /* WebView may have been disposed */ }
@@ -6337,6 +6640,15 @@ export function ChartScreen() {
     const nextSnapshot = buildChartSeriesSnapshot(renderableCandles);
     const updateMode = getChartSeriesUpdateMode(renderedSeriesSnapshotRef.current, nextSnapshot);
 
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[CHART-BRIDGE] candle_sync_mode', {
+        symbol: chartSymbol,
+        timeframe: chartTimeframe,
+        updateMode,
+        count: renderableCandles.length,
+      });
+    }
+
     if (updateMode === 'noop') {
       return;
     }
@@ -6347,17 +6659,50 @@ export function ChartScreen() {
       if (updateMode === 'full_reload') {
         const mapped = buildMappedData(renderableCandles);
         if (mapped.length > 0) {
-          webViewRef.current.injectJavaScript(
-            `updateChartData(${JSON.stringify(mapped)}); true;`,
-          );
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.log('[CHART-BRIDGE] inject_updateChartData', {
+              symbol: chartSymbol,
+              timeframe: chartTimeframe,
+              count: mapped.length,
+            });
+          }
+          const realTimes = lastMappedRealTimesRef.current;
+          webViewRef.current.injectJavaScript(`
+            if (typeof setIndexToRealTimeMap === 'function') {
+              setIndexToRealTimeMap(${JSON.stringify(realTimes)});
+            }
+            updateChartData(${JSON.stringify(mapped)});
+            true;
+          `);
           didInject = true;
         }
       } else {
         const lastCandle = renderableCandles[renderableCandles.length - 1];
         if (lastCandle) {
-          webViewRef.current.injectJavaScript(
-            `updateTick(${JSON.stringify(buildChartTickPayload(lastCandle, chartType))}); true;`,
-          );
+          // Send the last bar at its index-stamped time so it lands exactly
+          // where buildMappedData would have painted it. Using the raw
+          // backend time would put the new bar at a different logical
+          // position than the previously-painted bars and create a visible
+          // tear in the timeline.
+          const stampedTime = computeMappedLastTime(renderableCandles);
+          const stampedCandle =
+            stampedTime !== null ? { ...lastCandle, time: stampedTime } : lastCandle;
+          // Sync the index→realTime map with the engine's series so the
+          // X-axis labels stay accurate as new bars append. If the new
+          // bar's mapped index extends beyond the previous map size it's
+          // an append; otherwise it's a same-bucket update.
+          const previousMapSize = renderedSeriesSnapshotRef.current.length;
+          const newMapSize = renderableCandles.length;
+          const tickRealTime = lastCandle.time;
+          const mapSyncScript =
+            newMapSize > previousMapSize
+              ? `if (typeof appendIndexToRealTimeEntry === 'function') { appendIndexToRealTimeEntry(${tickRealTime}); }`
+              : `if (typeof replaceLastIndexToRealTimeEntry === 'function') { replaceLastIndexToRealTimeEntry(${tickRealTime}); }`;
+          webViewRef.current.injectJavaScript(`
+            ${mapSyncScript}
+            updateTick(${JSON.stringify(buildChartTickPayload(stampedCandle, chartType))});
+            true;
+          `);
           didInject = true;
         }
       }
@@ -6366,7 +6711,7 @@ export function ChartScreen() {
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
     }
-  }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData]);
+  }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, computeMappedLastTime, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
@@ -6380,36 +6725,106 @@ export function ChartScreen() {
       return;
     }
 
+    const lastCandleForSig = candlesRef.current[candlesRef.current.length - 1];
+    const lastCandleSig = lastCandleForSig
+      ? `${lastCandleForSig.time}:${lastCandleForSig.open}:${lastCandleForSig.high}:${lastCandleForSig.low}:${lastCandleForSig.close}`
+      : 'no';
     const nextSignature = [
       hasBid ? chartBid.toFixed(displayDecimals) : 'na',
       hasAsk ? chartAsk.toFixed(displayDecimals) : 'na',
+      lastCandleSig,
     ].join('|');
 
     if (lastInjectedLiveQuoteSignatureRef.current === nextSignature) {
       return;
     }
 
-    // Candle geometry must come from the canonical live-candle engine only.
-    // Mutating bars here from the quote snapshot creates a second local OHLC
-    // path inside the WebView and can desync merge/split behavior from the
-    // history-backed series.
+    // Patch the latest backend candle's OHLC to follow the bid quote so the
+    // current forming bar visibly extends with the bid line between backend
+    // snapshots. Never synthesize bars at buckets the backend hasn't
+    // confirmed — using the client clock for that creates phantom "gaps"
+    // when the local clock drifts past the server.
+    // Candle geometry must come from the canonical live-candle engine only;
+    // this projection only re-anchors to the latest backend bar and extends
+    // it with the current bid — it never introduces a second OHLC source.
+    let livePatch: { time: number; open: number; high: number; low: number; close: number; volume: number } | null = null;
+    if (hasBid && chartType !== 'line') {
+      const lastCandle = candlesRef.current[candlesRef.current.length - 1];
+      if (lastCandle && Number.isFinite(lastCandle.time)) {
+        const bucket = lastCandle.time;
+        const backendSig = `${lastCandle.time}:${lastCandle.open}:${lastCandle.high}:${lastCandle.low}:${lastCandle.close}`;
+        const projection = liveQuoteCandleStateRef.current;
+        const newBucket = !projection || projection.bucket !== bucket;
+
+        if (newBucket) {
+          // New bucket: start the projection from the latest backend OHLC
+          // plus the current bid. Open is locked to the backend's open.
+          liveQuoteCandleStateRef.current = {
+            sig: `${chartSymbol}:${chartTimeframe}:${bucket}`,
+            open: lastCandle.open,
+            high: Math.max(lastCandle.high, chartBid),
+            low: Math.min(lastCandle.low, chartBid),
+            close: chartBid,
+            bucket,
+            backendSig,
+          };
+        } else {
+          // Same bucket: NEVER shrink wicks. The projection accumulates the
+          // widest extremes seen — the bid's high/low PLUS any fresh
+          // backend extremes (in case backend reports wider wicks than the
+          // projection has observed). Backend's open is authoritative;
+          // close always tracks the latest bid.
+          projection.open = lastCandle.open;
+          projection.high = Math.max(projection.high, chartBid, lastCandle.high);
+          projection.low = Math.min(projection.low, chartBid, lastCandle.low);
+          projection.close = chartBid;
+          projection.backendSig = backendSig;
+        }
+
+        const state = liveQuoteCandleStateRef.current;
+        if (state) {
+          // Use the index-stamped time so the patch lands on the chart's
+          // currently-painted last bar (buildMappedData paints all bars at
+          // index-stamped positions, not raw timestamps).
+          const stampedLastTime = computeMappedLastTime(candlesRef.current);
+          livePatch = {
+            time: stampedLastTime !== null ? stampedLastTime : state.bucket,
+            open: state.open,
+            high: state.high,
+            low: state.low,
+            close: state.close,
+            volume: lastCandle.volume ?? 0,
+          };
+        }
+      }
+    }
+
     try {
+      const patchScript = livePatch
+        ? `if (typeof updateTick === 'function') { updateTick(${JSON.stringify(buildChartTickPayload(livePatch, chartType))}); }`
+        : '';
       webViewRef.current.injectJavaScript(`
         try {
           if (typeof setMarketPriceLines === 'function') {
             setMarketPriceLines(${hasBid ? chartBid : 'null'}, ${hasAsk ? chartAsk : 'null'});
           }
+          ${patchScript}
         } catch (_) {}
         true;
       `);
       lastInjectedLiveQuoteSignatureRef.current = nextSignature;
     } catch (_e) { /* WebView may have been disposed */ }
   }, [
+    candles,
     chartAsk,
     chartBid,
     chartCanvasReady,
     chartReadyEpoch,
+    chartSymbol,
+    chartTimeframe,
+    chartType,
     displayDecimals,
+    computeMappedLastTime,
   ]);
 
   // Watchdog — if CHART_READY hasn't arrived, keep retrying every 3s.
@@ -6424,7 +6839,7 @@ export function ChartScreen() {
     if (watchdogRef.current) clearInterval(watchdogRef.current);
 
     watchdogRef.current = setInterval(() => {
-      if (!chartInitializedRef.current && webViewReady && candlesRef.current.length > 0) {
+      if (!chartInitializedRef.current && webViewReady) {
         console.log('[CHART WATCHDOG] chart not confirmed, re-sending initChart');
         sendInit();
       }
@@ -6611,14 +7026,14 @@ export function ChartScreen() {
     </View>
   );
   const renderChartTradeSheetDragHeader = () => (
-    <GestureDetector gesture={chartTradeSheetDragGesture}>
-      <View
-        collapsable={false}
-        style={[
-          styles.chartTradeSheetDragRegion,
-          useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
-        ]}
-      >
+    <View
+      collapsable={false}
+      style={[
+        styles.chartTradeSheetDragRegion,
+        useMtPendingTradeSheetLayout && styles.chartTradeSheetDragRegionPending,
+      ]}
+    >
+      <GestureDetector gesture={chartTradeSheetDragGesture}>
         <Pressable
           style={styles.chartTradeSheetHandleWrap}
           onPress={handleToggleChartTradeSheetMode}
@@ -6626,59 +7041,59 @@ export function ChartScreen() {
         >
           <View style={styles.chartTradeSheetHandle} />
         </Pressable>
-        <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
-          <View style={styles.chartTradeQuickActions}>
-            <Pressable
+      </GestureDetector>
+      <View style={[styles.chartTradeQuickBar, styles.chartTradeQuickBarActionsOnly]}>
+        <View style={styles.chartTradeQuickActions}>
+          <Pressable
+            style={[
+              styles.chartTradeQuickChip,
+              styles.chartTradeQuickChipSl,
+              chartTradeSlEnabled && styles.chartTradeQuickChipSlActive,
+            ]}
+            onPress={() => handleToggleChartTradeStopLevel('sl')}
+            unstable_pressDelay={0}
+          >
+            <Text
               style={[
-                styles.chartTradeQuickChip,
-                styles.chartTradeQuickChipSl,
-                chartTradeSlEnabled && styles.chartTradeQuickChipSlActive,
+                styles.chartTradeQuickChipText,
+                chartTradeSlEnabled && styles.chartTradeQuickChipTextActive,
               ]}
-              onPress={() => handleToggleChartTradeStopLevel('sl')}
-              unstable_pressDelay={0}
             >
-              <Text
-                style={[
-                  styles.chartTradeQuickChipText,
-                  chartTradeSlEnabled && styles.chartTradeQuickChipTextActive,
-                ]}
-              >
-                SL
-              </Text>
-            </Pressable>
-            <Pressable
+              SL
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.chartTradeQuickChip,
+              styles.chartTradeQuickChipTp,
+              chartTradeTpEnabled && styles.chartTradeQuickChipTpActive,
+            ]}
+            onPress={() => handleToggleChartTradeStopLevel('tp')}
+            unstable_pressDelay={0}
+          >
+            <Text
               style={[
-                styles.chartTradeQuickChip,
-                styles.chartTradeQuickChipTp,
-                chartTradeTpEnabled && styles.chartTradeQuickChipTpActive,
+                styles.chartTradeQuickChipText,
+                chartTradeTpEnabled && styles.chartTradeQuickChipTextActive,
               ]}
-              onPress={() => handleToggleChartTradeStopLevel('tp')}
-              unstable_pressDelay={0}
             >
-              <Text
-                style={[
-                  styles.chartTradeQuickChipText,
-                  chartTradeTpEnabled && styles.chartTradeQuickChipTextActive,
-                ]}
-              >
-                TP
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.chartTradeQuickExpandButton}
-              onPress={handleToggleChartTradeSheetMode}
-              unstable_pressDelay={0}
-            >
-              <Ionicons
-                name={chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
-                size={20}
-                color={BLUE}
-              />
-            </Pressable>
-          </View>
+              TP
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.chartTradeQuickExpandButton}
+            onPress={handleToggleChartTradeSheetMode}
+            unstable_pressDelay={0}
+          >
+            <Ionicons
+              name={chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
+              size={20}
+              color={BLUE}
+            />
+          </Pressable>
         </View>
       </View>
-    </GestureDetector>
+    </View>
   );
 
   const sentiment = useMemo(() => getSentimentForSymbol(chartSymbol), [chartSymbol]);
@@ -7147,6 +7562,29 @@ export function ChartScreen() {
                       lastInitSigRef.current = currentSig;
                       setChartCanvasReady(true);
                       lastInjectedLiveQuoteSignatureRef.current = '';
+                      liveQuoteCandleStateRef.current = null;
+                      // Force-paint any retained candles right now — without
+                      // this, candles received before CHART_READY would only
+                      // reach the chart via the next React effect cycle, and
+                      // a fast switch could end up rendering an empty chart
+                      // until the engine emits its next update.
+                      try {
+                        const readyCandles = sanitizeCandlesForChart(candlesRef.current);
+                        if (readyCandles.length > 0 && webViewRef.current) {
+                          const mapped = buildMappedData(readyCandles as typeof candles);
+                          if (mapped.length > 0) {
+                            const realTimes = lastMappedRealTimesRef.current;
+                            webViewRef.current.injectJavaScript(`
+                              if (typeof setIndexToRealTimeMap === 'function') {
+                                setIndexToRealTimeMap(${JSON.stringify(realTimes)});
+                              }
+                              updateChartData(${JSON.stringify(mapped)});
+                              true;
+                            `);
+                            renderedSeriesSnapshotRef.current = buildChartSeriesSnapshot(readyCandles);
+                          }
+                        }
+                      } catch (_) {}
                       const frontendPaint = chartCandleFrontendPaintRef.current;
                       if (frontendPaint) {
                         const frontendMs = Date.now() - frontendPaint.availableAt;

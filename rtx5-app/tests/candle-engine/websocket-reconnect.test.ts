@@ -1,81 +1,95 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createLiveCandleFromTick,
-  getLiveTickBucketTime,
-  mergeTickIntoLiveCandle,
-} from '../../src/api/ws/liveCandleOverlay';
+import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
 import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
 import {
-  MockWebSocketQuoteStream,
   assertNoDuplicateCandleTimes,
   buildContiguousHistory,
-  makeLiveOverlayCandle,
+  makeBackendLiveCandle,
   secondsUtc,
-  validateBidTick,
 } from '../support/candleTestUtils';
 import type { Candle } from '../../src/state/tradingState';
-import type { LiveOverlayCandle } from '../../src/domain/candleProvenance';
 
-test('socket disconnect keeps last trusted candles and reconnect resumes live updates', () => {
-  const stream = new MockWebSocketQuoteStream();
-  const signatures = new Set<string>();
-  let live: LiveOverlayCandle | null = null;
+test('backend reconnect resumes with authoritative live candle snapshots', () => {
+  const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 2, 'M1');
+  const map = createCandleMap(history);
+  const historyCutoffTime = history[history.length - 1].time;
 
-  stream.subscribe('EURUSD', (quote) => {
-    const tick = validateBidTick(quote.bid ?? 0, quote.timestamp, signatures.size + 1, {}, live?.close);
-    if (signatures.has(tick.signature)) {
-      return;
-    }
-    signatures.add(tick.signature);
+  applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: secondsUtc(2024, 3, 22, 12, 2, 5),
+      open: 1.1,
+      high: 1.12,
+      low: 1.09,
+      close: 1.11,
+      volume: 5,
+    },
+    'M1',
+    { historyCutoffTime },
+  );
+  const reconnectResult = applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: secondsUtc(2024, 3, 22, 12, 2, 45),
+      open: 1.1,
+      high: 1.15,
+      low: 1.08,
+      close: 1.14,
+      volume: 9,
+    },
+    'M1',
+    { historyCutoffTime },
+  );
 
-    const bucketTime = getLiveTickBucketTime(tick, 'M1');
-    live = live && live.time === bucketTime
-      ? mergeTickIntoLiveCandle(live, tick)
-      : createLiveCandleFromTick(bucketTime, tick);
+  const visible = materializeCandleMap(map);
+  assert.equal(reconnectResult.ignored, false);
+  assert.deepEqual(visible[visible.length - 1], {
+    time: secondsUtc(2024, 3, 22, 12, 2, 0),
+    open: 1.1,
+    high: 1.15,
+    low: 1.08,
+    close: 1.14,
+    volume: 9,
   });
-
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.1, ask: 1.1001, timestamp: 1713744065 }), 1);
-  stream.disconnect();
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.2, ask: 1.2001, timestamp: 1713744070 }), 0);
-  stream.reconnect();
-  assert.equal(stream.emit({ symbol: 'EURUSD', bid: 1.15, ask: 1.1501, timestamp: 1713744075 }), 1);
-
-  const finalLive = live as LiveOverlayCandle | null;
-  assert.ok(finalLive);
-  assert.equal(finalLive.close, 1.15);
-  assert.equal(finalLive.volume, 0);
+  assertNoDuplicateCandleTimes(visible);
 });
 
-test('reconnect old ticks do not create duplicate active candles', () => {
+test('reconnect snapshot for closed history cutoff is ignored until REST history catches up', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 2, 'M1');
-  const activeBucket = secondsUtc(2024, 3, 22, 12, 2, 0);
-  const live = [
-    makeLiveOverlayCandle(activeBucket, {
-      open: 1.1,
-      high: 1.2,
-      low: 1.1,
-      close: 1.2,
-      firstTickTs: activeBucket + 20,
-      lastTickTs: activeBucket + 50,
-      firstSequence: 1,
-      lastSequence: 3,
-    }),
-  ];
+  const map = createCandleMap(history);
 
-  const oldReconnectTick = validateBidTick(1.15, activeBucket + 10, 4, {}, live[0].close);
-  const merged = mergeTickIntoLiveCandle(live[0], oldReconnectTick);
-  const visible: Candle[] = [...history, merged];
+  const result = applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: history[history.length - 1].time + 10,
+      open: 1.5,
+      high: 1.6,
+      low: 1.4,
+      close: 1.55,
+      volume: 99,
+    },
+    'M1',
+    { historyCutoffTime: history[history.length - 1].time },
+  );
 
-  assert.equal(merged.close, 1.2);
-  assert.equal(merged.low, 1.1);
-  assertNoDuplicateCandleTimes(visible);
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, 'older_than_history_cutoff');
+  assert.deepEqual(materializeCandleMap(map).map((candle) => candle.time), history.map((candle) => candle.time));
+  assert.deepEqual(materializeCandleMap(map).map((candle) => candle.close), history.map((candle) => candle.close));
 });
 
 test('missed buckets during disconnect remain a visible backend gap in one merged series', () => {
   const staleHistory = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 2, 'M1');
-  const liveAfterReconnect = [makeLiveOverlayCandle(secondsUtc(2024, 3, 22, 12, 8, 0), { close: 1.4 })];
+  const liveAfterReconnect = [makeBackendLiveCandle(secondsUtc(2024, 3, 22, 12, 8, 0), { close: 1.4 })];
 
   assert.equal(resolveVisibleSeriesMode(staleHistory, liveAfterReconnect, staleHistory, 'M1'), 'merged');
 
@@ -83,17 +97,23 @@ test('missed buckets during disconnect remain a visible backend gap in one merge
   assert.equal(resolveVisibleSeriesMode(caughtUpHistory, liveAfterReconnect, staleHistory, 'M1'), 'merged');
 });
 
-test('mock quote stream isolates subscriptions by normalized symbol', () => {
-  const stream = new MockWebSocketQuoteStream();
-  const received: string[] = [];
+test('backend live snapshots stay isolated by explicit symbol and timeframe before entering a chart series', () => {
+  const eurUsdMap = createCandleMap();
+  const xauUsdMap = createCandleMap();
 
-  stream.subscribe('EURUSDm', (tick) => received.push(`${tick.symbol}:${tick.bid}`));
-  stream.subscribe('XAUUSD', (tick) => received.push(`${tick.symbol}:${tick.bid}`));
+  applyLiveCandleToCandleMap(
+    eurUsdMap,
+    { symbol: 'EURUSD', timeframe: 'M1', time: 60, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 1 },
+    'M1',
+  );
+  applyLiveCandleToCandleMap(
+    xauUsdMap,
+    { symbol: 'XAUUSD', timeframe: 'M5', time: 300, open: 2300, high: 2305, low: 2299, close: 2301, volume: 1 },
+    'M5',
+  );
 
-  stream.emit({ symbol: 'EURUSD', bid: 1.1, ask: 1.1001, timestamp: 1 });
-  stream.emit({ symbol: 'XAUUSD.c', bid: 2300, ask: 2300.1, timestamp: 1 });
-
-  assert.deepEqual(received.sort(), ['EURUSD:1.1', 'XAUUSD:2300']);
-  assert.equal(stream.listenerCount('EURUSD'), 1);
-  assert.equal(stream.listenerCount('XAUUSD'), 1);
+  const eurUsd: Candle[] = materializeCandleMap(eurUsdMap);
+  const xauUsd: Candle[] = materializeCandleMap(xauUsdMap);
+  assert.deepEqual(eurUsd.map((candle) => candle.time), [60]);
+  assert.deepEqual(xauUsd.map((candle) => candle.time), [300]);
 });

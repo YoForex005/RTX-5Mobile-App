@@ -8,6 +8,7 @@ import {
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
   resolveChartTradeSheetHostHeight,
+  resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
   resolveFooterLotCommitDraft,
   resolveFooterTradeRowState,
@@ -77,7 +78,6 @@ test('resolveFooterLotChevronState disables only lot decrease at the minimum vol
     resolveFooterLotChevronState({
       lotSize: 0.01,
       bounds: { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 },
-      hasLotPickerAction: false,
       hasDecreaseAction: true,
       hasIncreaseAction: true,
     }),
@@ -88,12 +88,11 @@ test('resolveFooterLotChevronState disables only lot decrease at the minimum vol
   );
 });
 
-test('resolveFooterLotChevronState disables lot decrease at the minimum even when picker exists', () => {
+test('resolveFooterLotChevronState keeps lot decrease disabled at the minimum when picker exists', () => {
   assert.deepEqual(
     resolveFooterLotChevronState({
       lotSize: 0.01,
       bounds: { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 },
-      hasLotPickerAction: true,
       hasDecreaseAction: true,
       hasIncreaseAction: true,
     }),
@@ -109,7 +108,21 @@ test('resolveFooterLotChevronState disables only lot increase at the maximum vol
     resolveFooterLotChevronState({
       lotSize: 1,
       bounds: { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 },
-      hasLotPickerAction: false,
+      hasDecreaseAction: true,
+      hasIncreaseAction: true,
+    }),
+    {
+      canDecreaseLot: true,
+      canIncreaseLot: false,
+    },
+  );
+});
+
+test('resolveFooterLotChevronState keeps lot increase disabled at the maximum when picker exists', () => {
+  assert.deepEqual(
+    resolveFooterLotChevronState({
+      lotSize: 1,
+      bounds: { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 },
       hasDecreaseAction: true,
       hasIncreaseAction: true,
     }),
@@ -125,7 +138,6 @@ test('resolveFooterLotChevronState keeps both lot chevrons enabled between min a
     resolveFooterLotChevronState({
       lotSize: 0.5,
       bounds: { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 },
-      hasLotPickerAction: false,
       hasDecreaseAction: true,
       hasIncreaseAction: true,
     }),
@@ -133,6 +145,26 @@ test('resolveFooterLotChevronState keeps both lot chevrons enabled between min a
       canDecreaseLot: true,
       canIncreaseLot: true,
     },
+  );
+});
+
+test('resolveFooterLotChevronPressBehavior prefers direct step actions over the lot picker', () => {
+  assert.equal(
+    resolveFooterLotChevronPressBehavior({
+      hasStepAction: true,
+      hasLotPickerAction: true,
+    }),
+    'step',
+  );
+});
+
+test('resolveFooterLotChevronPressBehavior falls back to the lot picker when no direct step exists', () => {
+  assert.equal(
+    resolveFooterLotChevronPressBehavior({
+      hasStepAction: false,
+      hasLotPickerAction: true,
+    }),
+    'picker',
   );
 });
 

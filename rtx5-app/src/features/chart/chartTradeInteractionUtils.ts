@@ -129,9 +129,13 @@ type ChartTradeSheetFrameHeightInput = {
 type FooterLotChevronStateInput = {
   lotSize: number;
   bounds?: TradeVolumeBounds;
-  hasLotPickerAction: boolean;
   hasDecreaseAction: boolean;
   hasIncreaseAction: boolean;
+};
+
+type FooterLotChevronPressBehaviorInput = {
+  hasStepAction: boolean;
+  hasLotPickerAction: boolean;
 };
 
 const formatTradeVolumePickerLabel = (value: number, bounds?: TradeVolumeBounds) =>
@@ -205,7 +209,6 @@ export function resolveFooterTradeRowState({
 export function resolveFooterLotChevronState({
   lotSize,
   bounds,
-  hasLotPickerAction,
   hasDecreaseAction,
   hasIncreaseAction,
 }: FooterLotChevronStateInput) {
@@ -223,6 +226,21 @@ export function resolveFooterLotChevronState({
       hasIncreaseAction &&
       nextIncreaseLot - normalizedLotSize > lotStepEpsilon,
   };
+}
+
+export function resolveFooterLotChevronPressBehavior({
+  hasStepAction,
+  hasLotPickerAction,
+}: FooterLotChevronPressBehaviorInput) {
+  if (hasStepAction) {
+    return 'step';
+  }
+
+  if (hasLotPickerAction) {
+    return 'picker';
+  }
+
+  return 'none';
 }
 
 export function buildFooterLotPickerQuickAdjustments(

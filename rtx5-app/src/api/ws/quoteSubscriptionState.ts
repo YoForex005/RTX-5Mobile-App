@@ -1,3 +1,5 @@
+import { normalizeSymbol } from '../../domain/symbols';
+
 export const applyQuoteSubscriptionDelta = (
   currentCounts: ReadonlyMap<string, number>,
   symbols: string[],
@@ -5,7 +7,12 @@ export const applyQuoteSubscriptionDelta = (
 ): Map<string, number> => {
   const nextCounts = new Map(currentCounts);
 
-  for (const symbol of symbols) {
+  for (const rawSymbol of symbols) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol) {
+      continue;
+    }
+
     const current = nextCounts.get(symbol) ?? 0;
     const next = current + delta;
 
@@ -26,13 +33,15 @@ export const buildActiveQuoteSymbols = (
 ): string[] => {
   const merged = new Set<string>();
 
-  for (const symbol of stickySymbols) {
+  for (const rawSymbol of stickySymbols) {
+    const symbol = normalizeSymbol(rawSymbol);
     if (symbol) {
       merged.add(symbol);
     }
   }
 
-  consumerCounts.forEach((count, symbol) => {
+  consumerCounts.forEach((count, rawSymbol) => {
+    const symbol = normalizeSymbol(rawSymbol);
     if (count > 0 && symbol) {
       merged.add(symbol);
     }

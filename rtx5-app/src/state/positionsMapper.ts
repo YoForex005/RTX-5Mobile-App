@@ -1,4 +1,5 @@
 import type { PositionItem } from '../mock/tradingData';
+import { normalizeSymbol } from '../domain/symbols';
 
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -51,24 +52,28 @@ export function mapPositionToItem(dto: unknown, existing?: PositionItem): Positi
   const existingBaseProfit = existing
     ? existing.pnl - (existing.swap ?? 0) - (existing.commission ?? 0)
     : 0;
-  const baseProfit = toFiniteNumber(source.profit) ?? existingBaseProfit;
+  const baseProfit =
+    toFiniteNumber(source.profit ?? source.pnl ?? source.pl ?? source.floating) ??
+    existingBaseProfit;
 
   const openPrice =
-    toFiniteNumber(source.price_open ?? source.openPrice) ??
+    toFiniteNumber(source.price_open ?? source.openPrice ?? source.open_price) ??
     existing?.openPrice ??
     0;
 
   const currentPrice =
-    toFiniteNumber(source.price_current ?? source.currentPrice ?? source.price) ??
+    toFiniteNumber(source.price_current ?? source.currentPrice ?? source.current_price ?? source.price) ??
     existing?.currentPrice ??
     openPrice;
 
   const id = String(source.ticket ?? source.id ?? buildStableFallbackId(source, existing));
-  const side = source.side === 'sell' ? 'sell' : source.side === 'buy' ? 'buy' : (existing?.side ?? 'buy');
+  const rawSide = String(source.side ?? source.type ?? existing?.side ?? '').toLowerCase();
+  const side = rawSide === 'sell' ? 'sell' : rawSide === 'buy' ? 'buy' : (existing?.side ?? 'buy');
+  const symbol = normalizeSymbol(String(source.symbol ?? existing?.symbol ?? 'UNKNOWN')) || String(source.symbol ?? existing?.symbol ?? 'UNKNOWN');
 
   return {
     id,
-    symbol: String(source.symbol ?? existing?.symbol ?? 'UNKNOWN'),
+    symbol,
     side,
     volume: toFiniteNumber(source.volume) ?? existing?.volume ?? 0,
     openPrice,

@@ -20,6 +20,7 @@ import { useTheme } from '../../theme/useTheme';
 import { ThemeColors } from '../../theme/glass';
 import { fmt } from '../../utils/format';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
+import { resolveLivePositionPrice } from './livePositionMetrics';
 import {
   classifyTradingError,
   createFrontendTradingError,
@@ -48,8 +49,7 @@ export function CloseByScreen() {
   const getLivePrice = (p: any) => {
     if (!p) return 0;
     const q = quotes[p.symbol];
-    if (!q) return p.currentPrice || p.openPrice;
-    return p.side === 'buy' ? q.bid : q.ask;
+    return resolveLivePositionPrice(p, q);
   };
 
   const sourcePosition = useMemo(

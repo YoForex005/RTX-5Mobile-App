@@ -86,5 +86,7 @@ test('buildMergedPositions preserves recent optimistic positions that are still 
 test('isTerminalPositionUpdate detects close-like lifecycle payloads so stale trades can be removed immediately', () => {
   assert.equal(isTerminalPositionUpdate({ ticket: 501, status: 'closed' }), true);
   assert.equal(isTerminalPositionUpdate({ ticket: 502, action: 'closed_by' }), true);
-  assert.equal(isTerminalPositionUpdate({ ticket: 503, status: 'open' }), false);
+  assert.equal(isTerminalPositionUpdate({ ticket: 503, event: 'position.close' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 504, event: 'sl_hit' }), true);
+  assert.equal(isTerminalPositionUpdate({ ticket: 505, status: 'open' }), false);
 });

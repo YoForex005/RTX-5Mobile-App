@@ -7,7 +7,7 @@ import {
   normalizeSymbol,
   sortAndDedupeCandles,
 } from '../../../domain/candles';
-import type { CandlePriceBasis, LiveOverlayCandle, TrustedHistoryCandle } from '../../../domain/candleProvenance';
+import type { CandlePriceBasis, TrustedHistoryCandle } from '../../../domain/candleProvenance';
 import type { Candle } from '../../../state/tradingState';
 
 export type CandleOverrides = Partial<Candle> & Record<string, unknown>;
@@ -33,6 +33,12 @@ type MockRestResponse =
   | { type: 'failure'; error: Error };
 
 type MockQuoteListener = (tick: MockQuoteTick) => void;
+
+export type BackendLiveCandle = Candle & {
+  source: 'live_candle';
+  closed: false;
+  serverTimeframe?: string;
+};
 
 export const makeCandle = (
   time: number,
@@ -68,24 +74,16 @@ export const makeTrustedHistoryCandle = (
   serverTimeframe: overrides.serverTimeframe ?? 'M1',
 });
 
-export const makeLiveOverlayCandle = (
+export const makeBackendLiveCandle = (
   time: number,
   overrides: CandleOverrides & {
-    firstTickTs?: number;
-    lastTickTs?: number;
-    firstSequence?: number;
-    lastSequence?: number;
-    priceBasis?: CandlePriceBasis;
+    serverTimeframe?: string;
   } = {},
-): LiveOverlayCandle => ({
+): BackendLiveCandle => ({
   ...makeCandle(time, overrides),
-  source: 'live',
+  source: 'live_candle',
   closed: false,
-  firstTickTs: overrides.firstTickTs ?? time,
-  lastTickTs: overrides.lastTickTs ?? time,
-  firstSequence: overrides.firstSequence ?? 1,
-  lastSequence: overrides.lastSequence ?? 1,
-  priceBasis: overrides.priceBasis ?? 'bid',
+  ...(typeof overrides.serverTimeframe === 'string' ? { serverTimeframe: overrides.serverTimeframe } : {}),
 });
 
 export const assertNoDuplicateCandleTimes = (
