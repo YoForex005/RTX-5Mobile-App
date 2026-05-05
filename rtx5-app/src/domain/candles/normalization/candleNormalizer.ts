@@ -10,6 +10,18 @@ const CLOSE_KEYS = ['close', 'Close', 'CLOSE', 'c', 'C'];
 const VOLUME_KEYS = ['volume', 'Volume', 'VOLUME', 'vol', 'tickVolume', 'tick_volume', 'v', 'V'];
 const SYMBOL_KEYS = ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol'];
 const TIMEFRAME_KEYS = ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval'];
+const CLOSED_KEYS = [
+  'closed',
+  'isClosed',
+  'complete',
+  'completed',
+  'final',
+  'isFinal',
+  'Closed',
+  'CLOSED',
+  'is_closed',
+  'is_complete',
+];
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
@@ -31,6 +43,39 @@ const toFiniteNumber = (value: unknown): number | null => {
 const toNonNegativeFiniteNumber = (value: unknown): number | null => {
   const parsed = toFiniteNumber(value);
   return parsed === null || parsed < 0 ? null : parsed;
+};
+
+const coerceClosedFlag = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'closed', 'complete', 'completed', 'final'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'open', 'forming', 'current', 'partial', 'incomplete'].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return null;
+};
+
+const pickClosedFlag = (record: Record<string, unknown>): boolean | null => {
+  for (const key of CLOSED_KEYS) {
+    const closed = coerceClosedFlag(record[key]);
+    if (closed !== null) {
+      return closed;
+    }
+  }
+  return null;
 };
 
 const getNestedCandleRecord = (raw: unknown): Record<string, unknown> | null => {
@@ -55,6 +100,7 @@ const normalizeBackendCandle = (raw: unknown, label: string): Candle | null => {
   const low = toFiniteNumber(pickFirst(record, LOW_KEYS));
   const close = toFiniteNumber(pickFirst(record, CLOSE_KEYS));
   const volume = toNonNegativeFiniteNumber(pickFirst(record, VOLUME_KEYS)) ?? 0;
+  const closed = pickClosedFlag(record);
 
   if (time === null || open === null || high === null || low === null || close === null) {
     logInvalidCandleInDevelopment(`${label}:missing_ohlc`, raw);
@@ -75,7 +121,7 @@ const normalizeBackendCandle = (raw: unknown, label: string): Candle | null => {
     return null;
   }
 
-  return candle;
+  return closed === null ? candle : ({ ...candle, closed } as Candle);
 };
 
 export const normalizeHistoryCandle = (raw: unknown): Candle | null =>

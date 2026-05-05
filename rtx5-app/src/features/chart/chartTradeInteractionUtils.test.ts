@@ -24,9 +24,9 @@ import {
 } from './chartTradeInteractionUtils.ts';
 
 const lotBounds = { minVolume: 0.01, maxVolume: 1, stepVolume: 0.01 };
+const wideLotBounds = { minVolume: 0.01, maxVolume: 10, stepVolume: 0.01 };
 const activeLotRangeLabels = (selectedMultiplier: number, mode: 'increase' | 'decrease' = 'increase') =>
-  buildFooterLotPickerValues(mode === 'increase' ? 0.01 : 1, mode, lotBounds, selectedMultiplier)
-    .filter((option) => option.multiplier > selectedMultiplier)
+  buildFooterLotPickerValues(mode === 'increase' ? 0.01 : 10, mode, wideLotBounds, selectedMultiplier)
     .map((option) => option.label);
 
 test('resolveFooterLotCommitDraft prefers the latest non-empty override', () => {
@@ -148,13 +148,13 @@ test('resolveFooterLotChevronState keeps both lot chevrons enabled between min a
   );
 });
 
-test('resolveFooterLotChevronPressBehavior prefers direct step actions over the lot picker', () => {
+test('resolveFooterLotChevronPressBehavior prefers the lot picker over direct step actions', () => {
   assert.equal(
     resolveFooterLotChevronPressBehavior({
       hasStepAction: true,
       hasLotPickerAction: true,
     }),
-    'step',
+    'picker',
   );
 });
 
@@ -175,54 +175,73 @@ test('buildFooterLotPickerQuickAdjustments shows the expected increase range sel
   );
 });
 
+test('buildFooterLotPickerQuickAdjustments mirrors decrease range selectors with negative labels', () => {
+  assert.deepEqual(
+    buildFooterLotPickerQuickAdjustments(0.01, 'decrease', lotBounds).map((option) => option.label),
+    ['-0.01', '-0.1', '-0.5'],
+  );
+});
+
 test('buildFooterLotPickerValues shows small positive steps after selecting +0.01', () => {
   assert.deepEqual(
     activeLotRangeLabels(1),
-    ['+0.02', '+0.03', '+0.04', '+0.05', '+0.06', '+0.07', '+0.08', '+0.09', '+0.1'],
+    ['+0.01', '+0.02', '+0.03', '+0.04', '+0.05', '+0.06', '+0.07', '+0.08', '+0.09', '+0.1'],
   );
 });
 
 test('buildFooterLotPickerValues shows the next positive tenth range after selecting +0.1', () => {
   assert.deepEqual(
     activeLotRangeLabels(10),
-    ['+0.11', '+0.12', '+0.13', '+0.14', '+0.15', '+0.16', '+0.17', '+0.18', '+0.19', '+0.2'],
+    ['+0.1', '+0.2', '+0.3', '+0.4', '+0.5', '+0.6', '+0.7', '+0.8', '+0.9', '+1'],
   );
 });
 
 test('buildFooterLotPickerValues shows the next positive hundredth range after selecting +0.5', () => {
   assert.deepEqual(
     activeLotRangeLabels(50),
-    ['+0.51', '+0.52', '+0.53', '+0.54', '+0.55', '+0.56', '+0.57', '+0.58', '+0.59', '+0.6'],
+    ['+0.5', '+0.6', '+0.7', '+0.8', '+0.9', '+1'],
   );
 });
 
 test('buildFooterLotPickerValues mirrors the small range for lot decrease', () => {
   assert.deepEqual(
     activeLotRangeLabels(1, 'decrease'),
-    ['-0.02', '-0.03', '-0.04', '-0.05', '-0.06', '-0.07', '-0.08', '-0.09', '-0.1'],
+    ['-0.01', '-0.02', '-0.03', '-0.04', '-0.05', '-0.06', '-0.07', '-0.08', '-0.09', '-0.1'],
+  );
+});
+
+test('buildFooterLotPickerValues shows the negative ladder even when the current lot is already at minimum', () => {
+  const options = buildFooterLotPickerValues(0.01, 'decrease', lotBounds, 1);
+
+  assert.deepEqual(
+    options.map((option) => option.label),
+    ['-0.01', '-0.02', '-0.03', '-0.04', '-0.05', '-0.06', '-0.07', '-0.08', '-0.09', '-0.1'],
+  );
+  assert.deepEqual(
+    options.map((option) => option.value),
+    Array(10).fill(0.01),
   );
 });
 
 test('buildFooterLotPickerValues mirrors the tenth range for lot decrease', () => {
   assert.deepEqual(
     activeLotRangeLabels(10, 'decrease'),
-    ['-0.11', '-0.12', '-0.13', '-0.14', '-0.15', '-0.16', '-0.17', '-0.18', '-0.19', '-0.2'],
+    ['-0.1', '-0.2', '-0.3', '-0.4', '-0.5', '-0.6', '-0.7', '-0.8', '-0.9', '-1'],
   );
 });
 
 test('buildFooterLotPickerValues mirrors the hundredth range for lot decrease after selecting -0.5', () => {
   assert.deepEqual(
     activeLotRangeLabels(50, 'decrease'),
-    ['-0.51', '-0.52', '-0.53', '-0.54', '-0.55', '-0.56', '-0.57', '-0.58', '-0.59', '-0.6'],
+    ['-0.5', '-0.6', '-0.7', '-0.8', '-0.9', '-1'],
   );
 });
 
-test('buildFooterLotPickerValues keeps the previous positive range available to the left of the active range', () => {
+test('buildFooterLotPickerValues lets selected positive values become the next active range', () => {
   assert.deepEqual(
-    buildFooterLotPickerValues(0.01, 'increase', lotBounds, 10)
-      .filter((option) => option.multiplier <= 10)
+    buildFooterLotPickerValues(0.01, 'increase', wideLotBounds, 20)
       .map((option) => option.label),
-    ['+0.01', '+0.02', '+0.03', '+0.04', '+0.05', '+0.06', '+0.07', '+0.08', '+0.09', '+0.1'],
+    ['+0.2', '+0.3', '+0.4', '+0.5', '+0.6', '+0.7', '+0.8', '+0.9', '+1'],
   );
 });
 

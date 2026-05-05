@@ -328,10 +328,14 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     hasDecreaseAction: decreaseLotPressBehavior !== 'none',
     hasIncreaseAction: increaseLotPressBehavior !== 'none',
   });
+  const canOpenDecreaseLotPicker = decreaseLotPressBehavior === 'picker' && typeof lotPickerAction === 'function';
+  const canOpenIncreaseLotPicker = increaseLotPressBehavior === 'picker' && typeof lotPickerAction === 'function';
+  const canUseDecreaseLotControl = canOpenDecreaseLotPicker || canDecreaseLot;
+  const canUseIncreaseLotControl = canOpenIncreaseLotPicker || canIncreaseLot;
   const handleLotCenterPress = lotEditorAction ?? (lotPickerAction ? () => lotPickerAction('absolute') : undefined);
   const handleLotCenterLongPress = lotPickerAction ? () => lotPickerAction('absolute') : undefined;
   const handleDecreaseLotPress = React.useMemo(() => {
-    if (!canDecreaseLot) {
+    if (!canUseDecreaseLotControl) {
       return undefined;
     }
 
@@ -344,9 +348,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     }
 
     return undefined;
-  }, [canDecreaseLot, decreaseLotPressBehavior, lotPickerAction, onDecreaseLot]);
+  }, [canUseDecreaseLotControl, decreaseLotPressBehavior, lotPickerAction, onDecreaseLot]);
   const handleIncreaseLotPress = React.useMemo(() => {
-    if (!canIncreaseLot) {
+    if (!canUseIncreaseLotControl) {
       return undefined;
     }
 
@@ -359,7 +363,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     }
 
     return undefined;
-  }, [canIncreaseLot, increaseLotPressBehavior, lotPickerAction, onIncreaseLot]);
+  }, [canUseIncreaseLotControl, increaseLotPressBehavior, lotPickerAction, onIncreaseLot]);
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);
@@ -722,11 +726,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <Pressable
             style={[
               baseStyles.actionLotAdjustButton,
-              (!canDecreaseLot || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+              (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
             ]}
             onPress={handleDecreaseLotPress}
-            disabled={!canDecreaseLot || isPending || !isCurrentChartSymbol}
-            accessibilityState={{ disabled: !canDecreaseLot || isPending || !isCurrentChartSymbol }}
+            disabled={!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol}
+            accessibilityState={{ disabled: !canUseDecreaseLotControl || isPending || !isCurrentChartSymbol }}
             hitSlop={8}
           >
             <Ionicons
@@ -734,7 +738,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               size={16}
               style={[
                 themeStyles.actionLotAdjustIcon,
-                (!canDecreaseLot || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />
           </Pressable>
@@ -778,11 +782,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           <Pressable
             style={[
               baseStyles.actionLotAdjustButton,
-              (!canIncreaseLot || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+              (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
             ]}
             onPress={handleIncreaseLotPress}
-            disabled={!canIncreaseLot || isPending || !isCurrentChartSymbol}
-            accessibilityState={{ disabled: !canIncreaseLot || isPending || !isCurrentChartSymbol }}
+            disabled={!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol}
+            accessibilityState={{ disabled: !canUseIncreaseLotControl || isPending || !isCurrentChartSymbol }}
             hitSlop={8}
           >
             <Ionicons
@@ -790,7 +794,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               size={16}
               style={[
                 themeStyles.actionLotAdjustIcon,
-                (!canIncreaseLot || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />
           </Pressable>

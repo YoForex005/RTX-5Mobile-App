@@ -83,6 +83,69 @@ test('buildMergedPositions preserves recent optimistic positions that are still 
   assert.deepEqual(merged.map((position) => position.id), ['401']);
 });
 
+test('buildMergedPositions can merge scoped websocket batches without dropping other symbols', () => {
+  const merged = buildMergedPositions(
+    [
+      {
+        id: '601',
+        symbol: 'EURUSD',
+        side: 'buy',
+        volume: 0.1,
+        openPrice: 1.1,
+        currentPrice: 1.101,
+        pnl: 4,
+        swap: 0,
+        openTime: '2026-04-16T10:00:00.000Z',
+      },
+      {
+        id: '602',
+        symbol: 'XAUUSD',
+        side: 'sell',
+        volume: 0.2,
+        openPrice: 3245,
+        currentPrice: 3241,
+        pnl: 80,
+        swap: 0,
+        openTime: '2026-04-16T10:01:00.000Z',
+      },
+    ],
+    [
+      {
+        ticket: 601,
+        symbol: 'EURUSD',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 1.1,
+        price_current: 1.102,
+        profit: 20,
+        swap: 0,
+        commission: 0,
+        time_create: 1_775_000_000,
+      },
+    ],
+    { preserveMissingExisting: true },
+  );
+
+  assert.deepEqual(merged.map((position) => position.id).sort(), ['601', '602']);
+  assert.equal(merged.find((position) => position.id === '601')?.currentPrice, 1.102);
+  assert.equal(merged.find((position) => position.id === '602')?.symbol, 'XAUUSD');
+});
+
+test('buildMergedPositions does not create visible placeholder positions from symbol-less updates', () => {
+  const merged = buildMergedPositions(
+    [],
+    [
+      {
+        ticket: 701,
+        profit: 11.5,
+      },
+    ],
+    { preserveMissingExisting: true },
+  );
+
+  assert.deepEqual(merged, []);
+});
+
 test('isTerminalPositionUpdate detects close-like lifecycle payloads so stale trades can be removed immediately', () => {
   assert.equal(isTerminalPositionUpdate({ ticket: 501, status: 'closed' }), true);
   assert.equal(isTerminalPositionUpdate({ ticket: 502, action: 'closed_by' }), true);

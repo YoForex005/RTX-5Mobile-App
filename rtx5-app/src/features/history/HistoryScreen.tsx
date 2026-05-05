@@ -41,6 +41,7 @@ type HistoryRow = {
   line2: string;
   time: string;
   status?: string;
+  recordKind?: 'closed-position' | 'order' | 'deal';
   profit?: number | null;
   /** Optional note shown beneath the price row (e.g. deal comment from EA or manual entry) */
   note?: string;
@@ -51,8 +52,9 @@ type Tone = 'positive' | 'negative' | 'neutral';
 const TABS: Tab[] = ['Positions', 'Orders', 'Deals'];
 const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume', 'Open Time', 'Close Time', 'Profit'];
 
-function safeTimeStr(timestamp?: number): string {
-  if (!timestamp || isNaN(timestamp)) return '--';
+function safeTimeStr(timestamp?: number | string | Date): string {
+  if (timestamp === undefined || timestamp === null || timestamp === '') return '--';
+  if (typeof timestamp === 'number' && !Number.isFinite(timestamp)) return '--';
   try {
     return formatBrokerTime(timestamp);
   } catch {
@@ -73,6 +75,75 @@ function toFiniteNumber(value: unknown): number | undefined {
   }
 
   return undefined;
+}
+
+function pickFiniteNumber(source: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = toFiniteNumber(source[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function pickTrimmedString(source: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return undefined;
+}
+
+function pickHistoryTime(source: Record<string, unknown>, keys: string[]): number | string | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    const numeric = toFiniteNumber(value);
+    if (numeric !== undefined) {
+      return numeric;
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function resolveClosedPositionSide(source: Record<string, unknown>, fallback?: string): string {
+  const side = pickTrimmedString(source, ['side', 'type', 'order_type', 'action', 'cmd']) ?? fallback ?? '';
+  const sideLower = side.toLowerCase();
+
+  if (sideLower.includes('sell')) {
+    return 'sell';
+  }
+  if (sideLower.includes('buy')) {
+    return 'buy';
+  }
+
+  return sideLower;
+}
+
+function resolveClosedPositionNetProfit(position: ClosedPosition): number {
+  const source = position as unknown as Record<string, unknown>;
+  const netProfit = pickFiniteNumber(source, ['netPnl', 'net_pnl', 'net_profit']);
+  if (netProfit !== undefined) {
+    return netProfit;
+  }
+
+  const profit = pickFiniteNumber(source, ['profit', 'pnl', 'pl', 'close_profit', 'closed_profit']) ?? 0;
+  const swap = pickFiniteNumber(source, ['swap', 'swaps']) ?? 0;
+  const commission = pickFiniteNumber(source, ['commission', 'commissions']) ?? 0;
+  const fee = pickFiniteNumber(source, ['fee', 'fees']) ?? 0;
+
+  return profit + swap + commission + fee;
 }
 
 function normalizeHistoryIdPart(value: unknown): string {
@@ -212,20 +283,33 @@ function mapDealToRow(d: Deal): HistoryRow {
 
 function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
   const source = position as unknown as Record<string, unknown>;
-  const isJpy = position.symbol?.includes('JPY');
+  const symbol = pickTrimmedString(source, ['symbol', 'Symbol', 'instrument', 'name']) ?? '';
+  const side = resolveClosedPositionSide(source, position.side);
+  const volume = pickFiniteNumber(source, ['volume', 'lots', 'lot', 'volume_closed', 'volumeClosed']) ?? 0;
+  const openPrice = pickFiniteNumber(source, ['price_open', 'priceOpen', 'open_price', 'openPrice', 'open']) ?? 0;
+  const closePrice =
+    pickFiniteNumber(source, ['price_close', 'priceClose', 'close_price', 'closePrice', 'close']) ??
+    pickFiniteNumber(source, ['price_current', 'priceCurrent', 'current_price', 'currentPrice', 'price']) ??
+    openPrice;
+  const displayTime =
+    pickHistoryTime(source, ['time_close', 'timeClose', 'close_time', 'closeTime', 'time_done', 'timeDone', 'closed_at', 'time']) ??
+    pickHistoryTime(source, ['time_update', 'timeUpdate', 'updated_at']) ??
+    pickHistoryTime(source, ['time_create', 'timeCreate', 'open_time', 'openTime', 'time_open', 'timeOpen', 'created_at']);
+  const note = pickTrimmedString(source, ['comment', 'reason', 'description']);
+  const isJpy = symbol.includes('JPY');
   const priceDecimals = isJpy ? 3 : 5;
-  const closePrice = position.price_close ?? position.price_current ?? position.price_open ?? 0;
-  const netProfit = (position.profit || 0) + (position.swap || 0) + (position.commission || 0);
-  const displayTime = position.time_close ?? position.time_update ?? position.time_create;
-  const identity = buildHistoryRowIdentity('hp', source, [position.symbol, position.side, displayTime, position.volume]);
+  const netProfit = resolveClosedPositionNetProfit(position);
+  const identity = buildHistoryRowIdentity('hp', source, [symbol, side, displayTime, volume]);
 
   return {
     ...identity,
-    line1: `${position.symbol ?? ''} ${position.side ?? ''} ${(position.volume ?? 0).toFixed(2)}`,
-    line2: `${(position.price_open ?? 0).toFixed(priceDecimals)} → ${closePrice.toFixed(priceDecimals)}`,
+    line1: `${symbol} ${side} ${volume.toFixed(2)}`,
+    line2: `${openPrice.toFixed(priceDecimals)} → ${closePrice.toFixed(priceDecimals)}`,
     time: safeTimeStr(displayTime),
+    status: 'closed',
+    recordKind: 'closed-position',
     profit: netProfit,
-    note: position.comment?.trim() || undefined,
+    note,
   };
 }
 
@@ -288,10 +372,12 @@ export function HistoryScreen() {
   );
 
   // Calculate actual history summary stats from the raw API payload
-  const closedSwap = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.swap || 0), 0), [positionHistory]);
-  const closedCommission = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.commission || 0), 0), [positionHistory]);
-  const rawClosedProfit = useMemo(() => positionHistory.reduce((acc, p) => acc + (p.profit || 0), 0), [positionHistory]);
-  const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
+  const closedSwap = useMemo(() => positionHistory.reduce((acc, p) => acc + (toFiniteNumber(p.swap) ?? 0), 0), [positionHistory]);
+  const closedCommission = useMemo(() => positionHistory.reduce((acc, p) => acc + (toFiniteNumber(p.commission) ?? 0), 0), [positionHistory]);
+  const totalClosedPnl = useMemo(
+    () => positionHistory.reduce((acc, p) => acc + resolveClosedPositionNetProfit(p), 0),
+    [positionHistory],
+  );
 
   // Approximate initial deposit using current balance & realized PNL
   const deposit = balance - totalClosedPnl;
@@ -539,6 +625,7 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
   const isBuy = sideLower.includes('buy');
   const isSell = sideLower.includes('sell');
   const profit = typeof item.profit === 'number' ? item.profit : null;
+  const isClosedTrade = item.recordKind === 'closed-position' || item.status === 'closed';
   const cardBg = T.glass2;
 
   return (
@@ -572,6 +659,19 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
               </View>
             ) : null}
             {volume ? <Text style={[rStyles.volumeText, { color: T.textMuted }]}>{volume}</Text> : null}
+            {isClosedTrade ? (
+              <View
+                style={[
+                  rStyles.statusBadge,
+                  {
+                    backgroundColor: isDark ? 'rgba(148, 163, 184, 0.08)' : T.glass1,
+                    borderColor: isDark ? 'rgba(148, 163, 184, 0.16)' : T.borderSubtle,
+                  },
+                ]}
+              >
+                <Text style={[rStyles.statusText, { color: T.textMuted }]}>closed</Text>
+              </View>
+            ) : null}
           </View>
           <View style={rStyles.rightCol}>
             {profit !== null ? (
@@ -717,11 +817,13 @@ const rStyles = StyleSheet.create({
   rowIdText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5, marginBottom: 4 },
   rowBody: { width: '100%' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  symbolText: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap', minWidth: 0 },
+  symbolText: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 1 },
   sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
   sideText: { fontSize: 11, fontWeight: '800', textTransform: 'lowercase', letterSpacing: 0.3 },
   volumeText: { fontSize: 13, fontWeight: '700' },
+  statusBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  statusText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
   rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
   pnlText: { minWidth: 88, textAlign: 'right', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

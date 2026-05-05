@@ -219,8 +219,8 @@ export function resolveFooterLotChevronState({
   const nextIncreaseLot = incrementTradeVolume(normalizedLotSize, 1, bounds);
 
   return {
-    canDecreaseLot: hasDecreaseAction,
-    canIncreaseLot: hasIncreaseAction,
+    canDecreaseLot: hasDecreaseAction && nextDecreaseLot < normalizedLotSize - lotStepEpsilon,
+    canIncreaseLot: hasIncreaseAction && nextIncreaseLot > normalizedLotSize + lotStepEpsilon,
   };
 }
 
@@ -228,12 +228,12 @@ export function resolveFooterLotChevronPressBehavior({
   hasStepAction,
   hasLotPickerAction,
 }: FooterLotChevronPressBehaviorInput) {
-  if (hasStepAction) {
-    return 'step';
-  }
-
   if (hasLotPickerAction) {
     return 'picker';
+  }
+
+  if (hasStepAction) {
+    return 'step';
   }
 
   return 'none';
@@ -255,23 +255,20 @@ export function buildFooterLotPickerQuickAdjustments(
     const signedAmount = mode === 'decrease' ? -rawAmount : rawAmount;
     const nextValue = normalizeTradeVolume(currentValue + signedAmount, bounds);
     const actualAmount = roundLotPickerAmount(nextValue - currentValue, resolved.decimals);
+    const labelAmount = mode === 'absolute' ? actualAmount : signedAmount;
 
-    if (Math.abs(actualAmount) <= epsilon) {
+    if (mode === 'absolute' && Math.abs(actualAmount) <= epsilon) {
       continue;
     }
 
-    if (mode !== 'absolute' && Math.abs(actualAmount - signedAmount) > epsilon) {
-      continue;
-    }
-
-    if (seen.has(nextValue)) {
+    if (mode === 'absolute' && seen.has(nextValue)) {
       continue;
     }
 
     seen.add(nextValue);
     options.push({
       key: `${mode}:${multiplier}:${nextValue}`,
-      label: formatSignedTradeVolumePickerLabel(actualAmount, bounds),
+      label: formatSignedTradeVolumePickerLabel(labelAmount, bounds),
       nextValue,
       multiplier,
     });
@@ -325,45 +322,26 @@ export function buildFooterLotPickerValues(
     typeof selectedQuickMultiplier === 'number' && Number.isFinite(selectedQuickMultiplier)
       ? Math.max(1, Math.floor(selectedQuickMultiplier))
       : FOOTER_LOT_PICKER_QUICK_ADJUSTMENT_MULTIPLIERS[0];
-  const startMultiplier = Math.max(1, selectedMultiplier - FOOTER_LOT_PICKER_GRID_ENTRY_COUNT + 1);
-  const endMultiplier =
-    selectedMultiplier === 1
-      ? FOOTER_LOT_PICKER_GRID_MULTIPLIER
-      : selectedMultiplier + FOOTER_LOT_PICKER_GRID_ENTRY_COUNT;
+  const rangeStep = Math.max(1, Math.pow(10, Math.floor(Math.log10(selectedMultiplier))));
+  const startMultiplier = selectedMultiplier;
+  const endMultiplier = rangeStep * FOOTER_LOT_PICKER_GRID_MULTIPLIER;
 
-  for (let multiplier = startMultiplier; multiplier <= endMultiplier; multiplier += 1) {
+  for (let multiplier = startMultiplier; multiplier <= endMultiplier; multiplier += rangeStep) {
     const amount = roundLotPickerAmount(resolved.stepVolume * multiplier, resolved.decimals);
     const candidate = normalizeTradeVolume(currentValue + direction * amount, bounds);
-    const actualAmount = roundLotPickerAmount(candidate - currentValue, resolved.decimals);
-    const nextAmount = roundLotPickerAmount(resolved.stepVolume * (multiplier + 1), resolved.decimals);
-    const nextCandidate = normalizeTradeVolume(currentValue + direction * nextAmount, bounds);
-    const actualNextAmount = roundLotPickerAmount(nextCandidate - currentValue, resolved.decimals);
-    const hasNextRangeValue =
-      nextCandidate >= resolved.minVolume &&
-      nextCandidate <= resolved.maxVolume &&
-      Math.abs(actualNextAmount) > resolved.stepVolume / 1000 &&
-      Math.abs(actualNextAmount - direction * nextAmount) <= resolved.stepVolume / 1000;
-    const rangeMultiplier =
-      multiplier === 1 || (multiplier % FOOTER_LOT_PICKER_GRID_MULTIPLIER === 0 && hasNextRangeValue)
-        ? multiplier
-        : undefined;
+    const displayAmount = roundLotPickerAmount(direction * amount, resolved.decimals);
 
-    if (
-      candidate < resolved.minVolume ||
-      candidate > resolved.maxVolume ||
-      seen.has(candidate) ||
-      Math.abs(actualAmount) <= resolved.stepVolume / 1000
-    ) {
+    if (seen.has(multiplier)) {
       continue;
     }
 
-    seen.add(candidate);
+    seen.add(multiplier);
     values.push({
-      key: `${mode}:${selectedMultiplier}:${candidate}`,
-      label: formatSignedTradeVolumePickerLabel(actualAmount, bounds),
+      key: `${mode}:${selectedMultiplier}:${multiplier}:${candidate}`,
+      label: formatSignedTradeVolumePickerLabel(displayAmount, bounds),
       value: candidate,
       multiplier,
-      rangeMultiplier,
+      rangeMultiplier: multiplier,
     });
   }
 

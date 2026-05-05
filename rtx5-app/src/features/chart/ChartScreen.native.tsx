@@ -61,7 +61,7 @@ import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
-import { liveCandlesEngine } from '../../domain/candles/ws/liveCandlesEngine';
+import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
@@ -133,7 +133,7 @@ import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart"
 import { LivePriceHeader, LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { DraggableChartMetaOverlay } from "./components/DraggableChartMetaOverlay";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 // Uses quotes WS (bid/ask) as primary price source and falls back to candle close.
@@ -436,7 +436,7 @@ export function ChartScreen() {
   const handleSelectFooterLot = useCallback(
     (nextVolume: number) => {
       updateTradeVolume(nextVolume);
-      setFooterLotPickerMode(null);
+      setFooterLotPickerMode((current) => (current === 'absolute' ? null : current));
     },
     [updateTradeVolume],
   );
@@ -2500,7 +2500,10 @@ export function ChartScreen() {
       fontSize: 11,
     },
     grid: {
-      vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent' },
+      vertLines: {
+        color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+        style: CHART_GRID_LINE_STYLE,
+      },
       // Horizontal grid lines are rendered in a fixed overlay layer so they
       // stay locked to screen space during vertical price-range panning.
       horzLines: { color: 'transparent' },
@@ -2706,44 +2709,23 @@ export function ChartScreen() {
     }
   }, [candles, chartSymbol, chartTimeframe]);
 
-  // Stamp each candle's `time` onto a 1-based integer index timeline so
-  // bars pack uniformly regardless of backend gaps. Lightweight-charts
-  // positions bars by their `time` value — using bar indices forces every
-  // bar to occupy exactly one logical slot (barSpacing pixels apart). The
-  // X-axis labels are remapped back to the real timestamp via the parallel
-  // `_rtxIndexToRealTime` array on the WebView side (see formatChartTickMark).
-  // The canonical engine series keeps the real timestamps for OHLC overlay,
-  // gap detection, and tooltips.
-  const lastMappedRealTimesRef = useRef<number[]>([]);
+  // Render backend candle timestamps directly. The shared candle engine owns
+  // sorting, dedupe, and OHLC validation; the WebView receives the same
+  // timestamped history+live series for wicks, overlays, gaps, and tooltips.
   const buildMappedData = useCallback((sourceCandles: typeof candles) => {
-    if (sourceCandles.length === 0) {
-      lastMappedRealTimesRef.current = [];
-      return [];
-    }
-    // Sort + dedupe defensively — lightweight-charts requires strictly
+    // Sort + dedupe defensively because lightweight-charts requires strictly
     // monotonic time values. A duplicate or out-of-order timestamp would
     // throw "Cannot update oldest data" and abort the entire chart paint.
-    const byTime = new Map<number, typeof sourceCandles[number]>();
-    for (const c of sourceCandles) {
-      if (Number.isFinite(c.time) && Number.isFinite(c.open) && Number.isFinite(c.high)
-          && Number.isFinite(c.low) && Number.isFinite(c.close)) {
-        byTime.set(c.time, c);
-      }
-    }
-    const cleaned = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    const cleaned = sanitizeCandlesForChart(sourceCandles);
     if (cleaned.length === 0) {
-      lastMappedRealTimesRef.current = [];
       return [];
     }
 
-    const realTimes = cleaned.map((c) => c.time);
-    lastMappedRealTimesRef.current = realTimes;
-
     if (chartType === 'line') {
-      return cleaned.map((c, i) => ({ time: i + 1, value: c.close }));
+      return cleaned.map((c) => ({ time: c.time, value: c.close }));
     }
-    return cleaned.map((c, i) => ({
-      time: i + 1,
+    return cleaned.map((c) => ({
+      time: c.time,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -2751,15 +2733,6 @@ export function ChartScreen() {
       volume: c.volume ?? 0,
     }));
   }, [chartType]);
-
-  // Compute the index-stamped time for the LAST candle in the engine series.
-  // Used by Effect 2 incremental updates so updateTick payloads land at the
-  // same logical position the chart's last bar was painted at by
-  // buildMappedData. Index = sourceCandles.length.
-  const computeMappedLastTime = useCallback((sourceCandles: typeof candles): number | null => {
-    if (sourceCandles.length === 0) return null;
-    return sourceCandles.length;
-  }, []);
 
   // Track current config signature. When it changes, mark chart as
   // not-initialized so the watchdog knows to retry for the new config.
@@ -2809,12 +2782,8 @@ export function ChartScreen() {
 
     const data = candlesRef.current;
     const mapped = data.length > 0 ? buildMappedData(data) : [];
-    const realTimes = lastMappedRealTimesRef.current;
 
     const js = `
-      if (typeof setIndexToRealTimeMap === 'function') {
-        setIndexToRealTimeMap(${JSON.stringify(realTimes)});
-      }
       initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane});
       true;
     `;
@@ -2870,11 +2839,7 @@ export function ChartScreen() {
               count: mapped.length,
             });
           }
-          const realTimes = lastMappedRealTimesRef.current;
           webViewRef.current.injectJavaScript(`
-            if (typeof setIndexToRealTimeMap === 'function') {
-              setIndexToRealTimeMap(${JSON.stringify(realTimes)});
-            }
             updateChartData(${JSON.stringify(mapped)});
             true;
           `);
@@ -2883,28 +2848,15 @@ export function ChartScreen() {
       } else {
         const lastCandle = renderableCandles[renderableCandles.length - 1];
         if (lastCandle) {
-          // Send the last bar at its index-stamped time so it lands exactly
-          // where buildMappedData would have painted it. Using the raw
-          // backend time would put the new bar at a different logical
-          // position than the previously-painted bars and create a visible
-          // tear in the timeline.
-          const stampedTime = computeMappedLastTime(renderableCandles);
-          const stampedCandle =
-            stampedTime !== null ? { ...lastCandle, time: stampedTime } : lastCandle;
-          // Sync the index→realTime map with the engine's series so the
-          // X-axis labels stay accurate as new bars append. If the new
-          // bar's mapped index extends beyond the previous map size it's
-          // an append; otherwise it's a same-bucket update.
-          const previousMapSize = renderedSeriesSnapshotRef.current.length;
-          const newMapSize = renderableCandles.length;
-          const tickRealTime = lastCandle.time;
-          const mapSyncScript =
-            newMapSize > previousMapSize
-              ? `if (typeof appendIndexToRealTimeEntry === 'function') { appendIndexToRealTimeEntry(${tickRealTime}); }`
-              : `if (typeof replaceLastIndexToRealTimeEntry === 'function') { replaceLastIndexToRealTimeEntry(${tickRealTime}); }`;
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.log('[CHART-BRIDGE] inject_updateTick', {
+              symbol: chartSymbol,
+              timeframe: chartTimeframe,
+              time: lastCandle.time,
+            });
+          }
           webViewRef.current.injectJavaScript(`
-            ${mapSyncScript}
-            updateTick(${JSON.stringify(buildChartTickPayload(stampedCandle, chartType))});
+            updateTick(${JSON.stringify(buildChartTickPayload(lastCandle, chartType))});
             true;
           `);
           didInject = true;
@@ -2915,7 +2867,7 @@ export function ChartScreen() {
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
     }
-  }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, computeMappedLastTime, chartSymbol, chartTimeframe]);
+  }, [candles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
     if (!webViewRef.current || !chartInitializedRef.current || !chartCanvasReady) {
@@ -2946,6 +2898,14 @@ export function ChartScreen() {
     // Quotes move market price lines only; candle geometry comes from the
     // canonical REST history plus backend live-candle stream.
     try {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.log('[CHART-BRIDGE] inject_setMarketPriceLines', {
+          symbol: chartSymbol,
+          timeframe: chartTimeframe,
+          bid: hasBid ? chartBid : null,
+          ask: hasAsk ? chartAsk : null,
+        });
+      }
       webViewRef.current.injectJavaScript(`
         try {
           if (typeof setMarketPriceLines === 'function') {
@@ -3709,11 +3669,7 @@ export function ChartScreen() {
                         if (readyCandles.length > 0 && webViewRef.current) {
                           const mapped = buildMappedData(readyCandles as typeof candles);
                           if (mapped.length > 0) {
-                            const realTimes = lastMappedRealTimesRef.current;
                             webViewRef.current.injectJavaScript(`
-                              if (typeof setIndexToRealTimeMap === 'function') {
-                                setIndexToRealTimeMap(${JSON.stringify(realTimes)});
-                              }
                               updateChartData(${JSON.stringify(mapped)});
                               true;
                             `);

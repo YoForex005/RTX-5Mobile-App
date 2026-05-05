@@ -206,7 +206,7 @@ export class LiveCandleStreamManager {
         const seed = getHistorySeedSnapshot(history);
         const candles = seed.candles;
         candleMemoryCache.set(normalizedSymbol, normalizedTimeframe, candles);
-        syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, candles, { canonical: true });
+        syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, { canonical: true });
 
         const liveEntry = this.entries.get(key);
         if (liveEntry && candles.length > 0) {
@@ -401,6 +401,7 @@ export class LiveCandleStreamManager {
         live.loading = false;
         live.historyLoading = false;
         live.error = null;
+        syncMergedCandleCache(symbol, timeframe, history.closedCandles, { canonical: true });
 
         const replayEvents = live.bufferedEvents
           .splice(0)
@@ -538,7 +539,6 @@ export class LiveCandleStreamManager {
     entry.lastUpdateTime = Date.now();
 
     candleMemoryCache.set(entry.symbol, entry.timeframe, nextCandles);
-    syncMergedCandleCache(entry.symbol, entry.timeframe, nextCandles, { canonical: true });
 
     if (isSameSeries(entry.candles, nextParams)) {
       return;

@@ -1,5 +1,9 @@
 import type { PositionItem } from '../dev/mock/tradingData';
-import { mapPositionToItem } from './positionsMapper';
+import {
+  UNKNOWN_POSITION_SYMBOL,
+  isRenderablePositionSymbol,
+  mapPositionToItem,
+} from './positionsMapper';
 
 const TERMINAL_POSITION_STATES = new Set([
   'CLOSED',
@@ -16,7 +20,7 @@ const TERMINAL_POSITION_STATES = new Set([
 ]);
 
 export function findExistingPosition(positions: PositionItem[], dto: any): PositionItem | undefined {
-  const incomingId = dto?.ticket ?? dto?.id;
+  const incomingId = dto?.ticket ?? dto?.position_ticket ?? dto?.order_ticket ?? dto?.id;
   if (incomingId !== undefined && incomingId !== null) {
     return positions.find((position) => String(position.id) === String(incomingId));
   }
@@ -55,24 +59,47 @@ export function shouldClearPositionsForLoginSwitch(
   return Boolean(currentLogin && currentLogin !== nextLogin);
 }
 
+type BuildMergedPositionsOptions = {
+  preserveOptimisticMs?: number;
+  preserveModifiedMs?: number;
+  preserveMissingExisting?: boolean;
+};
+
+function isRenderablePosition(position: PositionItem): boolean {
+  return (
+    String(position.id ?? '').trim().length > 0 &&
+    isRenderablePositionSymbol(position.symbol) &&
+    position.symbol !== UNKNOWN_POSITION_SYMBOL
+  );
+}
+
 export function buildMergedPositions(
   currentPositions: PositionItem[],
   dtos: any[],
-  preserveOptimisticMs: number = 60000,
-  preserveModifiedMs: number = 10000,
+  options: BuildMergedPositionsOptions = {},
 ): PositionItem[] {
-  const mapped = dtos.map((dto) => mapPositionToItem(dto, findExistingPosition(currentPositions, dto)));
+  const preserveOptimisticMs = options.preserveOptimisticMs ?? 60000;
+  const preserveModifiedMs = options.preserveModifiedMs ?? 10000;
+  const mapped = dtos
+    .map((dto) => mapPositionToItem(dto, findExistingPosition(currentPositions, dto)))
+    .filter(isRenderablePosition);
   const now = Date.now();
+  const mappedIds = new Set(mapped.map((position) => position.id));
+  const missingCurrentPositions = currentPositions.filter(
+    (position) => isRenderablePosition(position) && !mappedIds.has(position.id),
+  );
 
-  const optimisticPositions = currentPositions.filter((position) => {
+  const optimisticPositions = missingCurrentPositions.filter((position) => {
     const clientCreatedAt = position.clientCreatedAt ?? 0;
     if (!clientCreatedAt || preserveOptimisticMs <= 0) return false;
 
     const ageMs = now - clientCreatedAt;
     const isRecent = ageMs >= 0 && ageMs < preserveOptimisticMs;
-    const existsInFetched = mapped.some((mappedPosition) => mappedPosition.id === position.id);
-    return isRecent && !existsInFetched;
+    return isRecent;
   });
+  const preservedMissingPositions = options.preserveMissingExisting
+    ? missingCurrentPositions
+    : optimisticPositions;
 
   const mergedMapped = mapped.map((mappedPosition) => {
     const existing = currentPositions.find((position) => position.id === mappedPosition.id);
@@ -96,7 +123,7 @@ export function buildMergedPositions(
     };
   });
 
-  return [...optimisticPositions, ...mergedMapped].sort(
+  return [...preservedMissingPositions, ...mergedMapped].sort(
     (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
   );
 }

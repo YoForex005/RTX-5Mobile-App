@@ -14,6 +14,7 @@ import { spacing } from '../../ui/theme/index';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
+import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
 
 type SnapshotRowProps = {
@@ -40,6 +41,16 @@ type ClosedHistoryPosition = ClosedPosition & {
   side: 'buy' | 'sell';
 };
 
+type ClosedTradePnlRowProps = {
+  position: ClosedHistoryPosition;
+  index: number;
+  isLast: boolean;
+  isDark: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  T: ThemeColors;
+  t: (key: string) => string;
+};
+
 function SnapshotRow({ label, value, color, border = false, styles, T }: SnapshotRowProps) {
   return (
     <View style={[styles.snapshotRow, border && styles.snapshotRowBorder, border && { borderTopColor: T.borderSubtle }]}>
@@ -59,7 +70,7 @@ function StatCard({ label, value, hint, color, styles, T }: StatCardProps) {
   );
 }
 
-function toFiniteNumber(value: unknown): number {
+function toOptionalFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
@@ -71,7 +82,172 @@ function toFiniteNumber(value: unknown): number {
     }
   }
 
+  return undefined;
+}
+
+function toFiniteNumber(value: unknown): number {
+  return toOptionalFiniteNumber(value) ?? 0;
+}
+
+function resolveTimestampValue(value: unknown): number | string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+    return value.trim();
+  }
+
+  return undefined;
+}
+
+function resolveTimestampSortMs(value: number | string | undefined): number {
+  if (value === undefined) {
+    return 0;
+  }
+
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric > 4.2e16) return Math.floor(numeric / 1_000_000);
+    if (numeric > 4.2e13) return Math.floor(numeric / 1_000);
+    if (numeric > 4.2e10) return Math.floor(numeric);
+    return Math.floor(numeric * 1000);
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   return 0;
+}
+
+function pickClosedPositionTimestamp(
+  position: ClosedPosition,
+  keys: string[],
+): number | string | undefined {
+  const source = position as unknown as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = resolveTimestampValue(source[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveClosedPositionNetPnl(position: ClosedPosition): number {
+  const source = position as unknown as Record<string, unknown>;
+  const netProfit = toOptionalFiniteNumber(source.netPnl ?? source.net_pnl ?? source.net_profit);
+  if (netProfit !== undefined) {
+    return netProfit;
+  }
+
+  return (
+    toFiniteNumber(position.profit) +
+    toFiniteNumber(position.swap) +
+    toFiniteNumber(position.commission) +
+    toFiniteNumber(source.fee)
+  );
+}
+
+function resolveClosedPositionClosePrice(position: ClosedPosition): number {
+  return (
+    toFiniteNumber(position.price_close) ||
+    toFiniteNumber(position.price_current) ||
+    toFiniteNumber(position.price_open)
+  );
+}
+
+function resolveClosedPositionCloseTime(position: ClosedPosition): number | string | undefined {
+  return (
+    pickClosedPositionTimestamp(position, ['time_close', 'timeClose', 'close_time', 'closeTime', 'time_done', 'timeDone', 'closed_at', 'time']) ??
+    pickClosedPositionTimestamp(position, ['time_update', 'timeUpdate', 'updated_at']) ??
+    pickClosedPositionTimestamp(position, ['time_create', 'timeCreate', 'open_time', 'openTime', 'time_open', 'timeOpen', 'created_at'])
+  );
+}
+
+function resolveClosedPositionTicket(position: ClosedPosition, index: number): string {
+  const source = position as unknown as Record<string, unknown>;
+  const ticket =
+    source.ticket ??
+    source.position_ticket ??
+    source.order_ticket ??
+    source.id;
+
+  if (ticket !== undefined && ticket !== null && String(ticket).trim() !== '') {
+    return String(ticket).trim();
+  }
+
+  return `${position.symbol ?? 'trade'}-${resolveClosedPositionCloseTime(position) || index}`;
+}
+
+function getClosedPositionPriceDecimals(position: ClosedPosition): number {
+  return position.symbol?.includes('JPY') ? 3 : 5;
+}
+
+function ClosedTradePnlRow({ position, index, isLast, isDark, styles, T, t }: ClosedTradePnlRowProps) {
+  const decimals = getClosedPositionPriceDecimals(position);
+  const openPrice = toFiniteNumber(position.price_open);
+  const closePrice = resolveClosedPositionClosePrice(position);
+  const closeTime = resolveClosedPositionCloseTime(position);
+  const ticket = resolveClosedPositionTicket(position, index);
+  const pnlColor = position.netPnl >= 0 ? T.up : T.down;
+
+  return (
+    <View
+      style={[
+        styles.closedTradeRow,
+        !isLast && styles.closedTradeRowDivider,
+        !isLast && { borderBottomColor: T.borderSubtle },
+      ]}
+    >
+      <View style={styles.closedTradeTop}>
+        <View style={styles.closedTradeLeft}>
+          <Text style={[styles.closedTradeSymbol, { color: T.text }]}>{fmt.symbol(position.symbol)}</Text>
+          <View
+            style={[
+              styles.closedTradeSideBadge,
+              { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.glass1 },
+            ]}
+          >
+            <Text
+              style={[
+                styles.closedTradeSide,
+                { color: position.side === 'buy' ? T.trading.buy.hover : T.trading.sell.hover },
+              ]}
+            >
+              {position.side}
+            </Text>
+          </View>
+          <Text style={[styles.closedTradeVolume, { color: T.textMuted }]}>
+            {position.volume.toFixed(2)}
+          </Text>
+        </View>
+        <Text style={[styles.closedTradePnl, { color: pnlColor }]}>{fmt.pnl(position.netPnl)}</Text>
+      </View>
+
+      <View style={styles.closedTradeMetaRow}>
+        <Text style={[styles.closedTradePrice, { color: T.textSub }]}>
+          {openPrice.toFixed(decimals)} - {closePrice.toFixed(decimals)}
+        </Text>
+        <Text style={[styles.closedTradeTime, { color: T.textMuted }]}>
+          {closeTime ? formatBrokerTime(closeTime) : '--'}
+        </Text>
+      </View>
+
+      <View style={styles.closedTradeTicketRow}>
+        <Text style={[styles.closedTradeTicket, { color: T.textDimmed }]}>#{ticket}</Text>
+        <Text style={[styles.closedTradeLabel, { color: T.textMuted }]}>{t('Closed Trade P/L')}</Text>
+      </View>
+    </View>
+  );
 }
 
 function normalizeLeaderboardPosition<T extends { netPnl?: unknown; volume?: unknown; side?: unknown }>(
@@ -88,10 +264,7 @@ function normalizeLeaderboardPosition<T extends { netPnl?: unknown; volume?: unk
 function normalizeClosedHistoryPosition(position: ClosedPosition): ClosedHistoryPosition {
   return {
     ...position,
-    netPnl:
-      toFiniteNumber(position.profit) +
-      toFiniteNumber(position.swap) +
-      toFiniteNumber(position.commission),
+    netPnl: resolveClosedPositionNetPnl(position),
     volume: toFiniteNumber(position.volume),
     side: String(position.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
   };
@@ -173,6 +346,15 @@ export function HistoryNetProfitLossScreen() {
         .sort((left, right) => left.netPnl - right.netPnl)[0] ?? null,
     [losing],
   );
+  const closedTradePnlRows = useMemo(
+    () =>
+      [...closedPositions].sort(
+        (left, right) =>
+          resolveTimestampSortMs(resolveClosedPositionCloseTime(right)) -
+          resolveTimestampSortMs(resolveClosedPositionCloseTime(left)),
+      ),
+    [closedPositions],
+  );
 
   const closedSwap = useMemo(
     () => positionHistory.reduce((sum, position) => sum + toFiniteNumber(position.swap), 0),
@@ -182,11 +364,10 @@ export function HistoryNetProfitLossScreen() {
     () => positionHistory.reduce((sum, position) => sum + toFiniteNumber(position.commission), 0),
     [positionHistory],
   );
-  const rawClosedProfit = useMemo(
-    () => positionHistory.reduce((sum, position) => sum + toFiniteNumber(position.profit), 0),
+  const totalClosedPnl = useMemo(
+    () => positionHistory.reduce((sum, position) => sum + resolveClosedPositionNetPnl(position), 0),
     [positionHistory],
   );
-  const totalClosedPnl = rawClosedProfit + closedSwap + closedCommission;
   const deposit = balance - totalClosedPnl;
   const historyRangeLabel = t(historyRange);
   const screenBg = isDark ? '#06080D' : T.bg;
@@ -314,6 +495,31 @@ export function HistoryNetProfitLossScreen() {
           <SnapshotRow label={t('Gross Winners')} value={fmt.pnl(grossProfit)} border color={grossProfit >= 0 ? T.up : T.down} styles={styles} T={T} />
           <SnapshotRow label={t('Gross Losers')} value={fmt.pnl(grossLoss)} border color={grossLoss >= 0 ? T.up : T.down} styles={styles} T={T} />
           <SnapshotRow label={t('Closed History P/L')} value={fmt.pnl(totalClosedPnl)} border color={totalClosedPnl >= 0 ? T.up : T.down} styles={styles} T={T} />
+        </View>
+
+        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: T.text, marginBottom: 0 }]}>{t('Closed Trade P/L')}</Text>
+            <Text style={[styles.sectionCount, { color: T.textMuted }]}>
+              {closedTradePnlRows.length} {t('trades')}
+            </Text>
+          </View>
+          {closedTradePnlRows.length > 0 ? (
+            closedTradePnlRows.map((position, index) => (
+              <ClosedTradePnlRow
+                key={`${resolveClosedPositionTicket(position, index)}-${index}`}
+                position={position}
+                index={index}
+                isLast={index === closedTradePnlRows.length - 1}
+                isDark={isDark}
+                styles={styles}
+                T={T}
+                t={t}
+              />
+            ))
+          ) : (
+            <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No closed trade P/L available yet.')}</Text>
+          )}
         </View>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
@@ -497,6 +703,20 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       letterSpacing: -0.3,
       marginBottom: 4,
     },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+      gap: 12,
+    },
+    sectionCount: {
+      flexShrink: 0,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.4,
+      textTransform: 'uppercase',
+    },
     snapshotRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -552,6 +772,95 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       fontSize: 11,
       fontWeight: '500',
       lineHeight: 15,
+    },
+    closedTradeRow: {
+      paddingVertical: 10,
+    },
+    closedTradeRowDivider: {
+      borderBottomWidth: 1,
+    },
+    closedTradeTop: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    closedTradeLeft: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    closedTradeSymbol: {
+      fontSize: 14,
+      fontWeight: '800',
+      letterSpacing: 0.3,
+      textTransform: 'uppercase',
+    },
+    closedTradeSideBadge: {
+      borderRadius: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    closedTradeSide: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.3,
+      textTransform: 'lowercase',
+    },
+    closedTradeVolume: {
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    closedTradePnl: {
+      flexShrink: 0,
+      minWidth: 84,
+      textAlign: 'right',
+      fontSize: 15,
+      fontWeight: '800',
+      letterSpacing: -0.2,
+      fontVariant: ['tabular-nums'],
+    },
+    closedTradeMetaRow: {
+      marginTop: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    closedTradePrice: {
+      flex: 1,
+      minWidth: 0,
+      fontSize: 12,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+    },
+    closedTradeTime: {
+      flexShrink: 0,
+      fontSize: 11,
+      fontWeight: '500',
+      textAlign: 'right',
+      fontVariant: ['tabular-nums'],
+    },
+    closedTradeTicketRow: {
+      marginTop: 5,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    closedTradeTicket: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+      fontVariant: ['tabular-nums'],
+    },
+    closedTradeLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
     },
     leaderRow: {
       flexDirection: 'row',

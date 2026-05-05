@@ -134,10 +134,13 @@ import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navigationPrefetch';
+import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 
 export default function RootLayout() {
+  useOtaUpdateOnLaunch();
+
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);

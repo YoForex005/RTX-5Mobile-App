@@ -13,6 +13,7 @@ Use EAS Update with three channels:
 
 ## Release Status Notes
 - 2026-05-05: Android production EAS build profile now targets Play Store output with `distribution: store`, production channel, and `android.buildType: app-bundle`. Runtime-version gating remains required for any OTA published to the production channel.
+- 2026-05-05: Added native-only launch OTA check using `expo-updates` channel and runtime metadata. The app checks only on EAS channels (`preview`, `staging`, `production`) when `expo-updates` is enabled, then fetches and reloads a compatible update selected by EAS Update runtime gating.
 
 ## Promotion Criteria
 

@@ -23,6 +23,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
+import { isRenderablePositionSymbol } from '../../state/positionsMapper';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -312,7 +313,11 @@ export function TradeScreen() {
   }, [resolvedLogin, fetchPositions]);
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
-  const totalVolume = positions.reduce((sum, p) => sum + (p.volume || 0), 0);
+  const renderablePositions = useMemo(
+    () => positions.filter((position) => isRenderablePositionSymbol(position.symbol)),
+    [positions],
+  );
+  const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);
 
   const showBulkSheet = useCallback(() => {
     showActionSheet({
@@ -355,7 +360,7 @@ export function TradeScreen() {
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('Trade')} noBorder />
       <TradeSummaryHeader
-        positions={positions}
+        positions={renderablePositions}
         hydratedLogin={hydratedLogin}
         resolvedLogin={resolvedLogin}
         s={s}
@@ -366,7 +371,7 @@ export function TradeScreen() {
       />
       <FlatList
         style={s.list}
-        data={positions}
+        data={renderablePositions}
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
@@ -390,7 +395,7 @@ export function TradeScreen() {
             </Text>
           </View>
         }
-        ListFooterComponent={positions.length > 0 ? (
+        ListFooterComponent={renderablePositions.length > 0 ? (
           <>
 
             {/* ── Top Exposures ── */}

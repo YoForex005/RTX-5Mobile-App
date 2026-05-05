@@ -165,8 +165,8 @@ const CH_HTML = `
           var lineColor = window._customColors.lineBody || '#2962FF';
 
           opts.layout.background = { type: 'solid', color: opts.layout.background.color };
-          opts.grid.vertLines.style = LightweightCharts.LineStyle.Solid;
-          opts.grid.horzLines.style = LightweightCharts.LineStyle.Solid;
+          opts.grid.vertLines.style = LightweightCharts.LineStyle.SparseDotted;
+          opts.grid.horzLines.style = LightweightCharts.LineStyle.SparseDotted;
           opts.crosshair.vertLine.style = LightweightCharts.LineStyle.Dashed;
           opts.crosshair.horzLine.style = LightweightCharts.LineStyle.Dashed;
 
@@ -348,7 +348,7 @@ export default function LiveChartPreviewNative({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 12,
+      rightOffset: 0,
       barSpacing: 13,
       minBarSpacing: 3,
     },

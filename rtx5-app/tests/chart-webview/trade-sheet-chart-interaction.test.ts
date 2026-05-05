@@ -96,6 +96,11 @@ test('SL and TP drag keeps touch ownership until release', () => {
   );
   assertSourceContains(
     source,
+    /var getTradeLineDragPoint = function\(clientX, clientY\)[\s\S]*maxVerticalOverscroll[\s\S]*clientY - rect\.top/,
+    'active line drag must keep an unclamped vertical coordinate so top/bottom edge movement does not freeze',
+  );
+  assertSourceContains(
+    source,
     /beginTradeLineDrag[\s\S]*setPointerCapture\(event\.pointerId\)/,
     'drag start must capture the pointer so the chart pan handler cannot steal the gesture',
   );
@@ -106,8 +111,8 @@ test('SL and TP drag keeps touch ownership until release', () => {
   );
   assertSourceContains(
     source,
-    /continueTradeLineDrag[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
-    'drag move must continue using clamped coordinates',
+    /continueTradeLineDrag[\s\S]*getTradeLineDragPoint\(pointFromEvent\.x, pointFromEvent\.y\)/,
+    'drag move must continue using the edge-safe drag coordinate',
   );
   assertSourceContains(
     source,
@@ -126,8 +131,44 @@ test('SL and TP drag keeps touch ownership until release', () => {
   );
   assertSourceContains(
     source,
+    /window\.addEventListener\('pointermove', onWindowPointerMove, listenerOptions\)/,
+    'pointer-event WebViews must keep drag move ownership when the finger crosses chart edges',
+  );
+  assertSourceContains(
+    source,
+    /window\.addEventListener\('pointerup', onWindowPointerUp, listenerOptions\)[\s\S]*window\.addEventListener\('pointercancel', onWindowPointerCancel, listenerOptions\)/,
+    'pointer-event WebViews must finish active line drags even when release/cancel is missed by the chart element',
+  );
+  assertSourceContains(
+    source,
+    /window\.addEventListener\('touchend', onWindowPointerUp, listenerOptions\)[\s\S]*window\.addEventListener\('touchcancel', onWindowPointerCancel, listenerOptions\)/,
+    'touch fallback must finish active line drags even when release/cancel is missed by the chart element',
+  );
+  assertSourceContains(
+    source,
     /window\.removeEventListener\('touchmove', onWindowPointerMove, listenerOptions\)/,
     'touch fallback window listeners must be cleaned up with chart listeners',
+  );
+  assertSourceContains(
+    source,
+    /window\.removeEventListener\('pointermove', onWindowPointerMove, listenerOptions\)[\s\S]*window\.removeEventListener\('pointerup', onWindowPointerUp, listenerOptions\)[\s\S]*window\.removeEventListener\('pointercancel', onWindowPointerCancel, listenerOptions\)/,
+    'pointer fallback window listeners must be cleaned up with chart listeners',
+  );
+});
+
+test('SL and TP drag keeps moving at the top and bottom chart boundaries', () => {
+  const resolveDragPriceBody = extractAssignedFunctionBody(source, 'resolveTradeLineDragPrice');
+  const continueDragBody = extractAssignedFunctionBody(source, 'continueTradeLineDrag');
+
+  assertSourceContains(
+    resolveDragPriceBody,
+    /series\.coordinateToPrice\(point\.y\)[\s\S]*activeTradeLineDrag && activeTradeLineDrag\.priceScaleRangeLock[\s\S]*lock\.to - normalizedY \* \(lock\.to - lock\.from\)/,
+    'drag price resolution must fall back to the locked price range when edge coordinates stop producing chart prices',
+  );
+  assertSourceContains(
+    continueDragBody,
+    /var nextPrice = resolveTradeLineDragPrice\(point\)/,
+    'drag movement must use the edge-safe price resolver instead of freezing on invalid edge coordinates',
   );
 });
 
@@ -165,7 +206,7 @@ test('SL and TP drag keeps candles fixed while moving vertically', () => {
   );
   assertSourceContains(
     finishDragBody,
-    /keepTradeLineDragPriceScaleLocked\(drag\.priceScaleRangeLock\)[\s\S]*postChartTradeLineDrag\('end', drag\.dragKey, drag\.lastPrice\)/,
+    /keepTradeLineDragPriceScaleLocked\(drag\.priceScaleRangeLock\)[\s\S]*postChartTradeLineDrag\('end', drag\.dragKey, roundOverlayDragPrice\(drag\.lastPrice\) \|\| drag\.lastPrice\)/,
     'SL/TP drag release must finish without allowing a final chart rescale',
   );
 });
@@ -173,6 +214,7 @@ test('SL and TP drag keeps candles fixed while moving vertically', () => {
 test('SL and TP drag coalesces native move messages for smooth WebView movement', () => {
   const scheduleMoveBody = extractFunctionBody(source, 'scheduleChartTradeLineDragMove');
   const flushMoveBody = extractFunctionBody(source, 'flushChartTradeLineDragMove');
+  const continueDragBody = extractAssignedFunctionBody(source, 'continueTradeLineDrag');
 
   assertSourceContains(
     source,
@@ -193,6 +235,11 @@ test('SL and TP drag coalesces native move messages for smooth WebView movement'
     flushMoveBody,
     /postChartTradeLineDrag\('move', pending\.dragKey, pending\.price\)/,
     'coalesced move flush must still update React state during drag',
+  );
+  assertSourceContains(
+    continueDragBody,
+    /updateDraggedOverlayLinePreview\(activeTradeLineDrag\.dragKey, nextPrice\)[\s\S]*var nativeMovePrice = roundOverlayDragPrice\(nextPrice\)[\s\S]*scheduleChartTradeLineDragMove\(activeTradeLineDrag\.dragKey, nativeMovePrice\)/,
+    'local WebView line movement must use the raw coordinate price while native state sync receives the rounded price',
   );
 });
 

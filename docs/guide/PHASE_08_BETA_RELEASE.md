@@ -40,3 +40,6 @@ Execute controlled beta distribution and staged OTA promotion with rollback read
 ## Exit Criteria
 - Beta release is declared stable with rollback readiness confirmed.
 
+## Progress Notes
+- 2026-05-05: Integrated the root OTA launch check for EAS Update channels and verified Expo config plus strict TypeScript. Production Android remains configured for AAB output through the `production` EAS profile.
+

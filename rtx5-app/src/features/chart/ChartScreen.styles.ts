@@ -1,4 +1,4 @@
-import { FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH } from './ChartScreen.constants';
+import { FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from './ChartScreen.constants';
 import { ThemeColors } from "../../ui/theme/glass";
 import { spacing } from "../../ui/theme/index";
 import { StyleSheet, Platform, Dimensions } from "react-native";
@@ -316,7 +316,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-start',
       paddingHorizontal: 4,
       paddingVertical: 3,
-      marginTop: 10,
+      marginTop: 0,
       backgroundColor: isDark ? '#080B11' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
@@ -1520,9 +1520,23 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowOpacity: isDark ? 0.28 : 0.14,
       shadowRadius: 16,
       elevation: 18,
-      paddingTop: 14,
-      paddingBottom: 12,
-      paddingHorizontal: 18,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+    },
+    footerLotPickerCardVertical: {
+      borderRadius: 14,
+      overflow: 'hidden',
+    },
+    footerLotPickerVerticalBody: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      gap: 8,
+    },
+    footerLotPickerQuickRail: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 6,
     },
     footerLotPickerQuickRow: {
       flexDirection: 'row',
@@ -1533,7 +1547,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     footerLotPickerQuickButton: {
       flex: 1,
-      minHeight: 30,
+      minHeight: 42,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: 8,
@@ -1552,23 +1566,33 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
     },
     footerLotPickerValuesScroll: {
-      marginHorizontal: -4,
+      flex: 1,
+      marginHorizontal: 0,
+    },
+    footerLotPickerValuesScrollVertical: {
+      flexGrow: 0,
+      marginHorizontal: 0,
     },
     footerLotPickerValuesContent: {
       alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 4,
+      gap: 4,
+      paddingHorizontal: 0,
+    },
+    footerLotPickerValuesContentVertical: {
+      alignItems: 'stretch',
+      gap: 4,
+      paddingVertical: 0,
     },
     footerLotPickerValueButton: {
-      minHeight: 54,
+      minHeight: 42,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: 10,
-      paddingHorizontal: 8,
+      paddingHorizontal: 6,
     },
-    footerLotPickerValueButtonHorizontal: {
-      width: FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH,
-      minHeight: 46,
+    footerLotPickerValueButtonVertical: {
+      height: FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT,
+      width: '100%',
     },
     footerLotPickerValueButtonActive: {
       backgroundColor: isDark ? 'rgba(59, 130, 246, 0.18)' : '#E8F1FF',

@@ -3,6 +3,7 @@
     "name": "RTX5",
     "slug": "rtx5-app",
     "version": "1.0.0",
+    "jsEngine": "hermes",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -47,8 +48,6 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "INTERNET",
-        "USE_BIOMETRIC",
-        "USE_FINGERPRINT",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
@@ -83,7 +82,15 @@
       ],
       "./withAdiRegistration.js",
       "./withNetworkSecurityConfig.js",
-      "expo-build-properties"
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "extra": {
       "router": {

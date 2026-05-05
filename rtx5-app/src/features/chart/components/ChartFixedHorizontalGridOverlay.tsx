@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
+import { CHART_GRID_HORIZONTAL_LINE_COUNT } from '../ChartScreen.constants';
 
 export type FixedHorizontalGridPlotArea = {
   left: number;
@@ -16,7 +17,7 @@ type ChartFixedHorizontalGridOverlayProps = {
   visible: boolean;
 };
 
-const DEFAULT_LINE_COUNT = 7;
+const DEFAULT_LINE_COUNT = CHART_GRID_HORIZONTAL_LINE_COUNT;
 
 export function ChartFixedHorizontalGridOverlay({
   color,
@@ -30,10 +31,9 @@ export function ChartFixedHorizontalGridOverlay({
     }
 
     const safeCount = Math.max(1, lineCount);
-    const denominator = Math.max(safeCount - 1, 1);
 
     return Array.from({ length: safeCount }, (_, index) => {
-      const progress = safeCount === 1 ? 0 : index / denominator;
+      const progress = (index + 1) / (safeCount + 1);
       const y = Math.round((plotArea.top + plotArea.height * progress) * 2) / 2;
       return {
         key: `fixed-grid-${index}`,
@@ -57,7 +57,8 @@ export function ChartFixedHorizontalGridOverlay({
             x2={plotArea.left + plotArea.width}
             y2={line.y}
             stroke={color}
-            strokeDasharray="4 4"
+            strokeDasharray="1 5"
+            strokeLinecap="round"
             strokeWidth="1"
           />
         ))}

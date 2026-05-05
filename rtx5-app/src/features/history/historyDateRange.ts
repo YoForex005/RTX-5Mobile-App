@@ -4,9 +4,24 @@ type ResolvedHistoryDateRange = {
 };
 
 type ClosedHistoryTimeRecord = {
-  time_close?: number;
-  time_update?: number;
-  time_create?: number;
+  time_close?: number | string;
+  timeClose?: number | string;
+  close_time?: number | string;
+  closeTime?: number | string;
+  time_done?: number | string;
+  timeDone?: number | string;
+  closed_at?: number | string;
+  time?: number | string;
+  time_update?: number | string;
+  timeUpdate?: number | string;
+  updated_at?: number | string;
+  time_create?: number | string;
+  timeCreate?: number | string;
+  open_time?: number | string;
+  openTime?: number | string;
+  time_open?: number | string;
+  timeOpen?: number | string;
+  created_at?: number | string;
 };
 
 function startOfDay(date: Date) {
@@ -106,8 +121,23 @@ function coerceTimestampToMs(raw: unknown): number | null {
 function resolveClosedRecordTimeMs(record: ClosedHistoryTimeRecord): number | null {
   return (
     coerceTimestampToMs(record.time_close) ??
+    coerceTimestampToMs(record.timeClose) ??
+    coerceTimestampToMs(record.close_time) ??
+    coerceTimestampToMs(record.closeTime) ??
+    coerceTimestampToMs(record.time_done) ??
+    coerceTimestampToMs(record.timeDone) ??
+    coerceTimestampToMs(record.closed_at) ??
+    coerceTimestampToMs(record.time) ??
     coerceTimestampToMs(record.time_update) ??
-    coerceTimestampToMs(record.time_create)
+    coerceTimestampToMs(record.timeUpdate) ??
+    coerceTimestampToMs(record.updated_at) ??
+    coerceTimestampToMs(record.time_create) ??
+    coerceTimestampToMs(record.timeCreate) ??
+    coerceTimestampToMs(record.open_time) ??
+    coerceTimestampToMs(record.openTime) ??
+    coerceTimestampToMs(record.time_open) ??
+    coerceTimestampToMs(record.timeOpen) ??
+    coerceTimestampToMs(record.created_at)
   );
 }
 

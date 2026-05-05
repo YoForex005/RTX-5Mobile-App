@@ -1,15 +1,42 @@
 android/
+android/**
 ios/
+ios/**
 
 node_modules/
+node_modules/**
 .expo/
+.expo/**
 .codex-tmp/
+.codex-tmp/**
 dist/
+dist/**
 web-build/
+web-build/**
 tmp/
+tmp/**
+.tmp-candle-tests/
+.tmp-candle-tests/**
+.netlify/
+.netlify/**
 
 *.log
 .DS_Store
 Thumbs.db
 
 qr.png
+
+# Unreferenced local image assets; keep them out of EAS build uploads.
+assets/adaptive-icon.png
+assets/splash-icon.png
+assets/image.png
+assets/image copy.png
+assets/image copy 2.png
+assets/image copy 3.png
+assets/image copy 4.png
+assets/image copy 5.png
+assets/image copy 6.png
+assets/image copy 7.png
+assets/image copy 8.png
+assets/image copy 9.png
+assets/image copy 10.png

@@ -81,10 +81,23 @@ test('ChartScreen routes full reload and incremental update to the correct bridg
 test('WebView full data reload restores overlays and market price lines after setData', () => {
   const body = extractFunctionBody(source, 'updateChartData');
 
+  assertSourceContains(body, /sanitizeSeriesData\(data\)/, 'full reload must sanitize and dedupe candle data before setData');
   assertSourceContains(body, /series\.setData\(mapped\)/, 'updateChartData must call setData');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale overlay refs must be cleared');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlays must be reapplied after setData');
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'market lines must be restored after setData');
+});
+
+test('WebView incremental candle updates keep the raw visible series in sync', () => {
+  const body = extractFunctionBody(source, 'applyTickUpdate');
+
+  assertSourceContains(body, /upsertRawSeriesDatum\(tick\)/, 'incremental candle updates must update the raw data buffer');
+  assertSourceContains(body, /currentSeriesLength = lastRawSeriesData\.length/, 'series length must come from the raw candle buffer');
+  assertSourceContains(
+    source,
+    /function upsertRawSeriesDatum\(tick\)[\s\S]*lastRawSeriesData\[lastIndex\] = normalized[\s\S]*lastRawSeriesData\.push\(normalized\)/,
+    'raw data buffer must replace the active candle or append a new one',
+  );
 });
 
 test('native WebView uses the native candlestick renderer for candle modes', () => {

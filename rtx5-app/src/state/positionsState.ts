@@ -10,7 +10,7 @@ import {
   createFrontendTradingError,
   type TradingErrorFeedback,
 } from '../api/tradingErrors';
-import { mapPositionToItem } from './positionsMapper';
+import { UNKNOWN_POSITION_SYMBOL, mapPositionToItem } from './positionsMapper';
 import {
   buildMergedPositions,
   findExistingPosition,
@@ -30,7 +30,11 @@ type PositionsState = {
   primePositionSnapshot: (position: PositionItem) => void;
   clearPositionSnapshot: (positionId?: string | number) => void;
   removePosition: (positionId: string | number) => void;
-  applyPositionsSnapshot: (dtos: any[], accountLogin?: string) => void;
+  applyPositionsSnapshot: (
+    dtos: any[],
+    accountLogin?: string,
+    options?: Parameters<typeof buildMergedPositions>[2],
+  ) => void;
   upsertPosition: (dto: any) => void;
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
@@ -76,9 +80,9 @@ export const usePositionsState = create<PositionsState>((set) => ({
         Object.entries(state.positionSnapshots).filter(([id]) => id !== String(positionId)),
       ),
     })),
-  applyPositionsSnapshot: (dtos, accountLogin) =>
+  applyPositionsSnapshot: (dtos, accountLogin, options) =>
     set((state) => ({
-      positions: buildMergedPositions(state.positions, Array.isArray(dtos) ? dtos : []),
+      positions: buildMergedPositions(state.positions, Array.isArray(dtos) ? dtos : [], options),
       lastFetchLogin: accountLogin ?? state.lastFetchLogin,
       hydratedLogin: accountLogin ?? state.hydratedLogin,
       lastError: null,
@@ -102,6 +106,9 @@ export const usePositionsState = create<PositionsState>((set) => ({
 
       const existing = findExistingPosition(state.positions, dto);
       const newItem = mapPositionToItem(dto, existing);
+      if (!existing && newItem.symbol === UNKNOWN_POSITION_SYMBOL) {
+        return {};
+      }
       newItem.clientCreatedAt = existing?.clientCreatedAt ?? Date.now();
       newItem.clientModifiedAt = existing?.clientModifiedAt;
 

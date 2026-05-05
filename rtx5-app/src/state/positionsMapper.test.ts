@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { PositionItem } from '../dev/mock/tradingData';
-import { mapPositionToItem } from './positionsMapper.ts';
+import { isRenderablePositionSymbol, mapPositionToItem } from './positionsMapper.ts';
 
 test('mapPositionToItem merges partial websocket updates into the existing position', () => {
   const existing: PositionItem = {
@@ -76,4 +76,38 @@ test('mapPositionToItem normalizes broker symbols and common live update aliases
   assert.equal(mapped.openPrice, 3245.5);
   assert.equal(mapped.currentPrice, 3249.8);
   assert.equal(mapped.pnl, 61.5);
+});
+
+test('mapPositionToItem ignores undefined symbol sentinels in partial updates', () => {
+  const existing: PositionItem = {
+    id: '902',
+    symbol: 'GBPUSD',
+    side: 'sell',
+    volume: 0.1,
+    openPrice: 1.251,
+    currentPrice: 1.248,
+    pnl: 30,
+    swap: 0,
+    openTime: '2026-04-11T10:00:00.000Z',
+  };
+
+  const mapped = mapPositionToItem(
+    {
+      position_ticket: 902,
+      symbol: 'undefined',
+      profit: '31.5',
+    },
+    existing,
+  );
+
+  assert.equal(mapped.id, '902');
+  assert.equal(mapped.symbol, 'GBPUSD');
+  assert.equal(mapped.pnl, 31.5);
+});
+
+test('isRenderablePositionSymbol rejects placeholder symbol sentinels', () => {
+  assert.equal(isRenderablePositionSymbol('UNKNOWN'), false);
+  assert.equal(isRenderablePositionSymbol('UNKNOW'), false);
+  assert.equal(isRenderablePositionSymbol('undefined'), false);
+  assert.equal(isRenderablePositionSymbol('EURUSD'), true);
 });

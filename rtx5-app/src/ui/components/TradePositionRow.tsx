@@ -97,7 +97,8 @@ function TradePositionRowComponent({
   };
 
   const panGesture = Gesture.Pan()
-    .activeOffsetX([-10, 10])
+    .activeOffsetX([-18, 18])
+    .failOffsetY([-10, 10])
     .onStart(() => {
       startX.value = translateX.value;
     })
@@ -143,6 +144,10 @@ function TradePositionRowComponent({
     router.push({ pathname, params: { positionId: item.id } });
   };
 
+  const navigateToModifyPosition = () => {
+    navigateWithSnapshot('/trade/modify-position');
+  };
+
   const navigateToOrderTicket = () => {
     prefetchOrderTicketData(tradingLogin, item.symbol);
     router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } });
@@ -154,7 +159,7 @@ function TradePositionRowComponent({
         <Pressable
           hitSlop={12}
           disabled={overlayActionLocked}
-          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-position'))}
+          onPress={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-position'))}
           unstable_pressDelay={0}
           style={({ pressed }) => [
             styles.actionBtnContainer,
@@ -170,7 +175,7 @@ function TradePositionRowComponent({
         <Pressable
           hitSlop={12}
           disabled={overlayActionLocked}
-          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-by'))}
+          onPress={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-by'))}
           unstable_pressDelay={0}
           style={({ pressed }) => [
             styles.actionBtnContainer,
@@ -186,7 +191,7 @@ function TradePositionRowComponent({
         <Pressable
           hitSlop={12}
           disabled={overlayActionLocked}
-          onPressIn={() => runOverlayAction(() => navigateWithSnapshot('/trade/modify-position'))}
+          onPressIn={() => runOverlayAction(navigateToModifyPosition)}
           unstable_pressDelay={0}
           style={({ pressed }) => [
             styles.actionBtnContainer,
@@ -202,7 +207,7 @@ function TradePositionRowComponent({
         <Pressable
           hitSlop={12}
           disabled={overlayActionLocked}
-          onPressIn={() => runOverlayAction(navigateToOrderTicket)}
+          onPress={() => runOverlayAction(navigateToOrderTicket)}
           unstable_pressDelay={0}
           style={({ pressed }) => [
             styles.actionBtnContainer,
@@ -218,7 +223,7 @@ function TradePositionRowComponent({
         <Pressable
           hitSlop={12}
           disabled={overlayActionLocked}
-          onPressIn={() => runOverlayAction(() => {
+          onPress={() => runOverlayAction(() => {
             setChartSymbol(item.symbol);
             router.push('/(tabs)/chart');
           })}
@@ -238,7 +243,7 @@ function TradePositionRowComponent({
           <Pressable
             hitSlop={12}
             disabled={overlayActionLocked}
-            onPressIn={() => runOverlayAction(onBulkPress)}
+            onPress={() => runOverlayAction(onBulkPress)}
             unstable_pressDelay={0}
             style={({ pressed }) => [
               styles.actionBtnContainer,
@@ -339,7 +344,7 @@ function TradePositionRowComponent({
           <View style={styles.detailGrid}>
             <View style={styles.detailCell}>
               <Text style={[styles.detailLabel, { color: detailLabelColor }]}>Limits</Text>
-              <Pressable onPress={() => { primePositionSnapshot(item); router.push(`/trade/modify-position?positionId=${item.id}`); }} hitSlop={12}>
+              <Pressable onPressIn={navigateToModifyPosition} hitSlop={12} unstable_pressDelay={0}>
                 <Text style={[styles.detailValue, { color: T.accent }]}>
                   SL / TP
                 </Text>

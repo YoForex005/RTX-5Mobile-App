@@ -80,6 +80,35 @@ test('normalizes backend live candle symbol and timeframe metadata', () => {
   );
 });
 
+test('preserves backend closed flags through REST history normalization', () => {
+  const normalized = normalizeCandleSeries(
+    [
+      { time: 60, open: 1.1, high: 1.2, low: 1.0, close: 1.15, closed: true },
+      { time: 120, open: 1.15, high: 1.25, low: 1.1, close: 1.2, closed: true },
+      { time: 180, open: 1.2, high: 1.28, low: 1.18, close: 1.24, closed: true },
+    ],
+    'M1',
+  );
+  const { closedHistory, currentCandle } = splitRestHistoryCandles(normalized, 'M1', 'bid');
+
+  assert.deepEqual(closedHistory.map((item) => item.time), [60, 120, 180]);
+  assert.equal(currentCandle, null);
+});
+
+test('preserves backend open current-candle flags through REST history normalization', () => {
+  const normalized = normalizeCandleSeries(
+    [
+      { time: 60, open: 1.1, high: 1.2, low: 1.0, close: 1.15, closed: true },
+      { time: 120, open: 1.15, high: 1.25, low: 1.1, close: 1.2, closed: false },
+    ],
+    'M1',
+  );
+  const { closedHistory, currentCandle } = splitRestHistoryCandles(normalized, 'M1', 'bid');
+
+  assert.deepEqual(closedHistory.map((item) => item.time), [60]);
+  assert.equal(currentCandle?.time, 120);
+});
+
 test('bucket utilities are deterministic and UTC aligned', () => {
   assert.equal(normalizeTimeframe('1m'), 'M1');
   assert.equal(normalizeTimeframe('1M'), 'MN');

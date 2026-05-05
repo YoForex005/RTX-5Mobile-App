@@ -1,6 +1,8 @@
 import type { PositionItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 
+export const UNKNOWN_POSITION_SYMBOL = 'UNKNOWN';
+
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -14,6 +16,53 @@ function toFiniteNumber(value: unknown): number | undefined {
   }
 
   return undefined;
+}
+
+function toCleanString(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return undefined;
+  }
+
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  if (
+    normalized === 'undefined' ||
+    normalized === 'null' ||
+    normalized === 'nan' ||
+    normalized === 'unknown' ||
+    normalized === 'unknow' ||
+    normalized === 'n/a' ||
+    normalized === 'na' ||
+    normalized === '--' ||
+    normalized === '---'
+  ) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+export function isRenderablePositionSymbol(symbol: unknown): boolean {
+  return toCleanString(symbol) !== undefined;
+}
+
+function resolvePositionSymbol(source: Record<string, unknown>, existing?: PositionItem): string {
+  const rawSymbol =
+    toCleanString(source.symbol) ??
+    toCleanString(source.Symbol) ??
+    toCleanString(source.instrument) ??
+    toCleanString(source.symbol_name) ??
+    toCleanString(existing?.symbol);
+
+  if (!rawSymbol) {
+    return UNKNOWN_POSITION_SYMBOL;
+  }
+
+  return normalizeSymbol(rawSymbol) || rawSymbol;
 }
 
 function resolveOpenTime(dto: Record<string, unknown>, existing?: PositionItem): string {
@@ -38,7 +87,8 @@ function buildStableFallbackId(dto: Record<string, unknown>, existing?: Position
     return existing.id;
   }
 
-  return `pos_${dto.symbol || 'unknown'}_${dto.side || 'na'}_${dto.time_create || dto.openTime || 0}_${dto.volume || 0}_${dto.price_open || dto.openPrice || 0}`;
+  const symbol = resolvePositionSymbol(dto, existing);
+  return `pos_${symbol}_${dto.side || 'na'}_${dto.time_create || dto.openTime || 0}_${dto.volume || 0}_${dto.price_open || dto.openPrice || 0}`;
 }
 
 export function mapPositionToItem(dto: unknown, existing?: PositionItem): PositionItem {
@@ -66,10 +116,16 @@ export function mapPositionToItem(dto: unknown, existing?: PositionItem): Positi
     existing?.currentPrice ??
     openPrice;
 
-  const id = String(source.ticket ?? source.id ?? buildStableFallbackId(source, existing));
+  const id = String(
+    source.ticket ??
+    source.position_ticket ??
+    source.order_ticket ??
+    source.id ??
+    buildStableFallbackId(source, existing),
+  );
   const rawSide = String(source.side ?? source.type ?? existing?.side ?? '').toLowerCase();
   const side = rawSide === 'sell' ? 'sell' : rawSide === 'buy' ? 'buy' : (existing?.side ?? 'buy');
-  const symbol = normalizeSymbol(String(source.symbol ?? existing?.symbol ?? 'UNKNOWN')) || String(source.symbol ?? existing?.symbol ?? 'UNKNOWN');
+  const symbol = resolvePositionSymbol(source, existing);
 
   return {
     id,

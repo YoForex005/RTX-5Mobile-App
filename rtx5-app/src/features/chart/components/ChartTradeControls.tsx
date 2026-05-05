@@ -18,7 +18,7 @@ import {
 
 
 import { makeStyles } from "../ChartScreen.styles";
-import { CHART_TRADE_SLIDER_THUMB_SIZE, FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH } from "../ChartScreen.constants";
+import { CHART_TRADE_SLIDER_THUMB_SIZE, FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from "../ChartScreen.constants";
 
 
 export function ChartStepperModal({
@@ -135,7 +135,7 @@ export function ChartFooterLotPicker({
   onClose: () => void;
   onSelect: (next: number) => void;
 }) {
-  const screenWidth = Dimensions.get('window').width;
+  const windowSize = Dimensions.get('window');
   const valueScrollRef = React.useRef<ScrollView>(null);
   const [activeRangeMultiplier, setActiveRangeMultiplier] = React.useState<number | null>(null);
   const resolved = React.useMemo(() => resolveTradeVolumeBounds(bounds), [bounds]);
@@ -155,11 +155,11 @@ export function ChartFooterLotPicker({
   const selectionEpsilon = resolved.stepVolume / 1000;
   const activeValueStartIndex = mode === 'absolute'
     ? 0
-    : Math.max(0, valueOptions.findIndex((option) => option.multiplier > (selectedRangeMultiplier ?? 0)));
+    : Math.max(0, valueOptions.findIndex((option) => option.multiplier >= (selectedRangeMultiplier ?? 0)));
 
   React.useEffect(() => {
     setActiveRangeMultiplier(null);
-  }, [bounds, mode, value, visible]);
+  }, [bounds, mode, visible]);
 
   React.useEffect(() => {
     if (!visible || mode === 'absolute' || activeValueStartIndex < 0) {
@@ -167,7 +167,7 @@ export function ChartFooterLotPicker({
     }
     requestAnimationFrame(() => {
       valueScrollRef.current?.scrollTo({
-        x: activeValueStartIndex * FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH,
+        y: activeValueStartIndex * FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT,
         animated: true,
       });
     });
@@ -192,77 +192,80 @@ export function ChartFooterLotPicker({
       <View
         style={[
           styles.footerLotPickerCard,
+          styles.footerLotPickerCardVertical,
           {
             bottom: bottomOffset,
-            width: Math.max(220, Math.min(screenWidth - 40, 320)),
+            width: Math.max(168, Math.min(windowSize.width - 24, 228)),
+            maxHeight: Math.max(220, Math.min(windowSize.height - bottomOffset - 72, 384)),
           },
         ]}
       >
-        <View style={styles.footerLotPickerQuickRow}>
-          {quickAdjustments.map((option) => {
-            const active = mode !== 'absolute' && option.multiplier === selectedRangeMultiplier;
-            return (
-              <Pressable
-                key={option.key}
-                style={[styles.footerLotPickerQuickButton, active && styles.footerLotPickerQuickButtonActive]}
-                onPress={() => {
-                  if (mode === 'absolute') {
-                    onSelect(option.nextValue);
-                    return;
-                  }
-                  setActiveRangeMultiplier(option.multiplier);
-                }}
-                hitSlop={6}
-              >
-                <Text style={[styles.footerLotPickerQuickText, active && styles.footerLotPickerQuickTextActive]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <ScrollView
-          ref={valueScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.footerLotPickerValuesScroll}
-          contentContainerStyle={styles.footerLotPickerValuesContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {valueOptions.map((option) => {
-            const active = mode === 'absolute' && Math.abs(option.value - normalizedValue) <= selectionEpsilon;
-            const isRangeBoundary = mode !== 'absolute' && typeof option.rangeMultiplier === 'number';
-            return (
-              <Pressable
-                key={option.key}
-                style={[
-                  styles.footerLotPickerValueButton,
-                  styles.footerLotPickerValueButtonHorizontal,
-                  active && styles.footerLotPickerValueButtonActive,
-                  isRangeBoundary && styles.footerLotPickerValueButtonRange,
-                ]}
-                onPress={() => {
-                  if (isRangeBoundary && typeof option.rangeMultiplier === 'number') {
-                    setActiveRangeMultiplier(option.rangeMultiplier);
-                    return;
-                  }
-                  onSelect(option.value);
-                }}
-                hitSlop={6}
-              >
-                <Text
-                  style={[
-                    styles.footerLotPickerValueText,
-                    active && styles.footerLotPickerValueTextActive,
-                    isRangeBoundary && styles.footerLotPickerValueTextRange,
-                  ]}
+        <View style={styles.footerLotPickerVerticalBody}>
+          <View style={styles.footerLotPickerQuickRail}>
+            {quickAdjustments.map((option) => {
+              const active = mode !== 'absolute' && option.multiplier === selectedRangeMultiplier;
+              return (
+                <Pressable
+                  key={option.key}
+                  style={[styles.footerLotPickerQuickButton, active && styles.footerLotPickerQuickButtonActive]}
+                  onPress={() => {
+                    if (mode === 'absolute') {
+                      onSelect(option.nextValue);
+                      return;
+                    }
+                    setActiveRangeMultiplier(option.multiplier);
+                  }}
+                  hitSlop={6}
                 >
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text style={[styles.footerLotPickerQuickText, active && styles.footerLotPickerQuickTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <ScrollView
+            ref={valueScrollRef}
+            showsVerticalScrollIndicator={valueOptions.length > 5}
+            style={styles.footerLotPickerValuesScrollVertical}
+            contentContainerStyle={styles.footerLotPickerValuesContentVertical}
+            keyboardShouldPersistTaps="handled"
+          >
+            {valueOptions.map((option) => {
+              const active = mode === 'absolute' && Math.abs(option.value - normalizedValue) <= selectionEpsilon;
+              const isRangeSelector = mode !== 'absolute' && typeof option.rangeMultiplier === 'number';
+              const isRangeBoundary = isRangeSelector && option.multiplier === selectedRangeMultiplier;
+              return (
+                <Pressable
+                  key={option.key}
+                  style={[
+                    styles.footerLotPickerValueButton,
+                    styles.footerLotPickerValueButtonVertical,
+                    active && styles.footerLotPickerValueButtonActive,
+                    isRangeBoundary && styles.footerLotPickerValueButtonRange,
+                  ]}
+                  onPress={() => {
+                    if (isRangeSelector && typeof option.rangeMultiplier === 'number') {
+                      setActiveRangeMultiplier(option.rangeMultiplier);
+                    }
+                    onSelect(option.value);
+                  }}
+                  hitSlop={6}
+                >
+                  <Text
+                    style={[
+                      styles.footerLotPickerValueText,
+                      active && styles.footerLotPickerValueTextActive,
+                      isRangeBoundary && styles.footerLotPickerValueTextRange,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       </View>
     </View>
   );
@@ -351,4 +354,3 @@ export function ChartTradeVolumeSlider({
     </View>
   );
 }
-

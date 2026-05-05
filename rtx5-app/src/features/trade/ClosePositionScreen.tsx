@@ -15,6 +15,7 @@ import { usePositionsState } from '../../state/positionsState';
 import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
+import type { PositionItem } from '../../dev/mock/tradingData';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -27,9 +28,25 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
+function isValidCloseTicket(value: unknown): value is string | number {
+  return typeof value === 'number'
+    ? Number.isInteger(value) && value > 0
+    : typeof value === 'string' && /^\d+$/.test(value.trim());
+}
+
+function isRenderableClosePosition(position: PositionItem | undefined): position is PositionItem {
+  const symbol = position?.symbol?.trim();
+  return Boolean(
+    position &&
+    symbol &&
+    symbol.toUpperCase() !== 'UNKNOWN' &&
+    symbol.toUpperCase() !== 'UNDEFINED' &&
+    isValidCloseTicket(position.id),
+  );
+}
+
 export function ClosePositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
-  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const [submitted, setSubmitted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [actionLocked, setActionLocked] = useState(false);
@@ -44,10 +61,21 @@ export function ClosePositionScreen() {
     positionId ? s.positionSnapshots[Array.isArray(positionId) ? positionId[0] : positionId] : undefined
   );
   const primePositionSnapshot = usePositionsState((s) => s.primePositionSnapshot);
-  const position = useMemo(
+  const resolvedPosition = useMemo(
     () => findPositionById(positions, positionId) ?? primedPosition,
     [positions, positionId, primedPosition]
   );
+  const [stablePosition, setStablePosition] = useState<PositionItem | null>(
+    isRenderableClosePosition(resolvedPosition) ? resolvedPosition : null,
+  );
+  useEffect(() => {
+    if (isRenderableClosePosition(resolvedPosition)) {
+      setStablePosition(resolvedPosition);
+    }
+  }, [resolvedPosition]);
+  const position = isRenderableClosePosition(resolvedPosition)
+    ? resolvedPosition
+    : stablePosition;
   const resolvedLogin = resolveTradingLoginString();
 
   const quotes = useTradingState((s) => s.quotes);
@@ -96,7 +124,21 @@ export function ClosePositionScreen() {
     setActionLocked(true);
 
     const ticketId = position.id;
-    if (!accountDetails?.credentials?.accessToken) {
+    if (!isValidCloseTicket(ticketId)) {
+      setCloseError(
+        formatTradingErrorFeedback(
+          createFrontendTradingError(
+            'Position Error',
+            'The position ticket is still loading. Return to Trade and select the position again.',
+          ),
+        ),
+      );
+      releaseActionLock();
+      return;
+    }
+
+    const currentAccountDetails = useUserPreferences.getState().accountDetails;
+    if (!currentAccountDetails?.credentials?.accessToken) {
       setCloseError(
         formatTradingErrorFeedback(
           createFrontendTradingError(
@@ -132,7 +174,7 @@ export function ClosePositionScreen() {
       setIsClosing(false);
       releaseActionLock();
     }
-  }, [accountDetails?.credentials?.accessToken, isClosing, position, releaseActionLock, resolvedLogin]);
+  }, [isClosing, position, releaseActionLock, resolvedLogin]);
 
   const handleOpenCloseBy = useCallback(() => {
     if (!position || actionLockRef.current || isClosing) {

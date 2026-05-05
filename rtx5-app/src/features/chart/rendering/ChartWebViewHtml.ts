@@ -539,6 +539,38 @@ export const CH_HTML = `
           return { x: x, y: y };
         };
 
+        var getTradeLineDragPoint = function(clientX, clientY) {
+          var rect = el.getBoundingClientRect();
+          if (!isFinite(clientX) || !isFinite(clientY)) return null;
+          var maxVerticalOverscroll = Math.max(1, rect.height || 1);
+          var x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+          var y = Math.max(-maxVerticalOverscroll, Math.min((rect.height || 0) + maxVerticalOverscroll, clientY - rect.top));
+          return { x: x, y: y };
+        };
+
+        var resolveTradeLineDragPrice = function(point) {
+          if (!point || !series || typeof series.coordinateToPrice !== 'function') {
+            return null;
+          }
+          var coordinatePrice = sanitizeOverlayDragPrice(series.coordinateToPrice(point.y));
+          if (typeof coordinatePrice === 'number' && isFinite(coordinatePrice) && coordinatePrice > 0) {
+            return coordinatePrice;
+          }
+          var lock = activeTradeLineDrag && activeTradeLineDrag.priceScaleRangeLock;
+          if (!isValidPriceRange(lock)) {
+            return null;
+          }
+          var metrics = resolvePrimaryPaneMetrics();
+          var plotHeight = metrics && typeof metrics.plotHeight === 'number' && metrics.plotHeight > 0 ? metrics.plotHeight : 0;
+          if (!plotHeight) {
+            return null;
+          }
+          var plotTop = metrics.plotTop || 0;
+          var normalizedY = (point.y - plotTop) / plotHeight;
+          var price = lock.to - normalizedY * (lock.to - lock.from);
+          return sanitizeOverlayDragPrice(price);
+        };
+
         var stopChartEvent = function(event) {
           if (!event) return;
           if (typeof event.preventDefault === 'function') {
@@ -752,7 +784,7 @@ export const CH_HTML = `
           if (!point) return false;
           var hit = pickDraggableOverlayLineAtY(point.y);
           if (!hit || !hit.dragKey) return false;
-          var startPrice = roundOverlayDragPrice(hit.price);
+          var startPrice = sanitizeOverlayDragPrice(hit.price);
           cancelChartTradeLineDragMove();
           // Capture the pointer so subsequent move/up events route to us
           // even when the finger leaves the chart bounds. Disable the chart
@@ -780,7 +812,11 @@ export const CH_HTML = `
           vertPanPending = null;
           suppressNextChartClickUntil = Date.now() + 350;
           updateDraggedOverlayLinePreview(activeTradeLineDrag.dragKey, activeTradeLineDrag.lastPrice);
-          postChartTradeLineDrag('start', activeTradeLineDrag.dragKey, activeTradeLineDrag.lastPrice);
+          postChartTradeLineDrag(
+            'start',
+            activeTradeLineDrag.dragKey,
+            roundOverlayDragPrice(activeTradeLineDrag.lastPrice) || activeTradeLineDrag.lastPrice
+          );
           scheduleOverlayDomRefresh();
           stopChartEvent(event);
           return true;
@@ -793,20 +829,20 @@ export const CH_HTML = `
             stopChartEvent(event);
             return true;
           }
-          // Use the clamped point so dragging keeps tracking the finger
-          // smoothly even when the user slides past the chart's top or
-          // bottom edge; without this the price would freeze at the edge.
-          var point = getClampedRelativePoint(pointFromEvent.x, pointFromEvent.y);
-          if (!point || !series || typeof series.coordinateToPrice !== 'function') {
+          var point = getTradeLineDragPoint(pointFromEvent.x, pointFromEvent.y);
+          if (!point) {
             stopChartEvent(event);
             return true;
           }
-          var nextPrice = roundOverlayDragPrice(series.coordinateToPrice(point.y));
+          var nextPrice = resolveTradeLineDragPrice(point);
           if (typeof nextPrice === 'number' && isFinite(nextPrice) && nextPrice > 0) {
             if (activeTradeLineDrag.lastPrice !== nextPrice) {
               activeTradeLineDrag.lastPrice = nextPrice;
               updateDraggedOverlayLinePreview(activeTradeLineDrag.dragKey, nextPrice);
-              scheduleChartTradeLineDragMove(activeTradeLineDrag.dragKey, nextPrice);
+              var nativeMovePrice = roundOverlayDragPrice(nextPrice);
+              if (typeof nativeMovePrice === 'number' && isFinite(nativeMovePrice) && nativeMovePrice > 0) {
+                scheduleChartTradeLineDragMove(activeTradeLineDrag.dragKey, nativeMovePrice);
+              }
             } else {
               updateDraggedOverlayLinePreview(activeTradeLineDrag.dragKey, nextPrice);
             }
@@ -831,9 +867,9 @@ export const CH_HTML = `
 
           if (!cancelled) {
             var pointFromEvent = getClientPoint(event);
-            var point = pointFromEvent ? getClampedRelativePoint(pointFromEvent.x, pointFromEvent.y) : null;
-            if (point && series && typeof series.coordinateToPrice === 'function') {
-              var finalPrice = roundOverlayDragPrice(series.coordinateToPrice(point.y));
+            var point = pointFromEvent ? getTradeLineDragPoint(pointFromEvent.x, pointFromEvent.y) : null;
+            if (point) {
+              var finalPrice = resolveTradeLineDragPrice(point);
               if (typeof finalPrice === 'number' && isFinite(finalPrice) && finalPrice > 0) {
                 drag.lastPrice = finalPrice;
                 updateDraggedOverlayLinePreview(drag.dragKey, finalPrice);
@@ -843,7 +879,7 @@ export const CH_HTML = `
 
           cancelChartTradeLineDragMove();
           keepTradeLineDragPriceScaleLocked(drag.priceScaleRangeLock);
-          postChartTradeLineDrag('end', drag.dragKey, drag.lastPrice);
+          postChartTradeLineDrag('end', drag.dragKey, roundOverlayDragPrice(drag.lastPrice) || drag.lastPrice);
           pendingPointerTap = null;
           scheduleTradeLineDragDomRefresh();
           stopChartEvent(event);
@@ -1056,6 +1092,26 @@ export const CH_HTML = `
           }
         };
 
+        var onWindowPointerUp = function(event) {
+          if (finishTradeLineDrag(event, false)) {
+            releasePointer(event);
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
+          }
+        };
+
+        var onWindowPointerCancel = function(event) {
+          if (finishTradeLineDrag(event, true)) {
+            releasePointer(event);
+            if (activePointerCount <= 0) {
+              gestureHadMultitouch = false;
+              postChartTouchState(false);
+            }
+          }
+        };
+
         // Non-passive listeners: required so preventDefault() inside the
         // drag handlers can stop the page from scrolling while the user is
         // moving an SL/TP/entry line vertically. Passive listeners would
@@ -1072,7 +1128,12 @@ export const CH_HTML = `
           el.addEventListener('touchend', onPointerUp, listenerOptions);
           el.addEventListener('touchcancel', onPointerCancel, listenerOptions);
         }
+        window.addEventListener('pointermove', onWindowPointerMove, listenerOptions);
+        window.addEventListener('pointerup', onWindowPointerUp, listenerOptions);
+        window.addEventListener('pointercancel', onWindowPointerCancel, listenerOptions);
         window.addEventListener('touchmove', onWindowPointerMove, listenerOptions);
+        window.addEventListener('touchend', onWindowPointerUp, listenerOptions);
+        window.addEventListener('touchcancel', onWindowPointerCancel, listenerOptions);
         el.addEventListener('click', onClick, true);
         detachChartTapListeners = function() {
           if (supportsPointerEvents) {
@@ -1086,7 +1147,12 @@ export const CH_HTML = `
             el.removeEventListener('touchend', onPointerUp, listenerOptions);
             el.removeEventListener('touchcancel', onPointerCancel, listenerOptions);
           }
+          window.removeEventListener('pointermove', onWindowPointerMove, listenerOptions);
+          window.removeEventListener('pointerup', onWindowPointerUp, listenerOptions);
+          window.removeEventListener('pointercancel', onWindowPointerCancel, listenerOptions);
           window.removeEventListener('touchmove', onWindowPointerMove, listenerOptions);
+          window.removeEventListener('touchend', onWindowPointerUp, listenerOptions);
+          window.removeEventListener('touchcancel', onWindowPointerCancel, listenerOptions);
           el.removeEventListener('click', onClick, true);
           pendingPointerTap = null;
           activePointerIds = {};
@@ -1190,9 +1256,10 @@ export const CH_HTML = `
           resetTimeScaleDefaults(dataLength);
           if (typeof chart.timeScale().setVisibleLogicalRange === 'function') {
             var visibleBars = getRecentVisibleBars(dataLength);
+            var lastVisibleBar = Math.max(0.5, dataLength - 0.5);
             chart.timeScale().setVisibleLogicalRange({
-              from: Math.max(-0.5, dataLength - visibleBars - 1),
-              to: dataLength + 2,
+              from: Math.max(-0.5, dataLength - visibleBars - 0.5),
+              to: lastVisibleBar,
             });
           } else {
             chart.timeScale().fitContent();
@@ -1291,29 +1358,9 @@ export const CH_HTML = `
         return null;
       }
 
-      // Parallel array set by the host: index -> real Unix-seconds timestamp.
-      // The series itself uses synthetic 1-based indices as the time field so
-      // bars pack adjacent regardless of backend gaps; this lookup remaps
-      // tick labels back to the real time at each bar position so the X-axis
-      // still displays meaningful dates.
-      var _rtxIndexToRealTime = [];
-
       function formatChartTickMark(time, tickMarkType, _locale) {
         try {
-          // The series sends synthetic indices (1, 2, 3, ...) as the time
-          // field. Translate back to the real Unix-seconds timestamp before
-          // formatting so the X-axis labels show actual dates instead of
-          // the Jan-1970 era values that raw indices would produce.
           var resolveSource = time;
-          if (typeof time === 'number' && isFinite(time) && _rtxIndexToRealTime.length > 0) {
-            var idx = Math.round(time) - 1;
-            if (idx >= 0 && idx < _rtxIndexToRealTime.length) {
-              var realT = _rtxIndexToRealTime[idx];
-              if (typeof realT === 'number' && isFinite(realT) && realT > 0) {
-                resolveSource = realT;
-              }
-            }
-          }
           var date = resolveTickDate(resolveSource);
           if (!date || !isFinite(date.getTime())) {
             return null;
@@ -1344,37 +1391,6 @@ export const CH_HTML = `
           return day + ' ' + month;
         } catch (_e) {
           return null;
-        }
-      }
-
-      function setIndexToRealTimeMap(arr) {
-        if (!Array.isArray(arr)) {
-          _rtxIndexToRealTime = [];
-          return;
-        }
-        var out = new Array(arr.length);
-        for (var i = 0; i < arr.length; i++) {
-          var v = arr[i];
-          out[i] = (typeof v === 'number' && isFinite(v)) ? v : null;
-        }
-        _rtxIndexToRealTime = out;
-      }
-
-      function appendIndexToRealTimeEntry(realTime) {
-        if (typeof realTime === 'number' && isFinite(realTime)) {
-          _rtxIndexToRealTime.push(realTime);
-        } else {
-          _rtxIndexToRealTime.push(null);
-        }
-      }
-
-      function replaceLastIndexToRealTimeEntry(realTime) {
-        if (_rtxIndexToRealTime.length === 0) {
-          appendIndexToRealTimeEntry(realTime);
-          return;
-        }
-        if (typeof realTime === 'number' && isFinite(realTime)) {
-          _rtxIndexToRealTime[_rtxIndexToRealTime.length - 1] = realTime;
         }
       }
 
@@ -1488,7 +1504,7 @@ export const CH_HTML = `
           typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
             ? displayDecimals
             : 2;
-        lastRawSeriesData = Array.isArray(data) ? data.slice() : [];
+        lastRawSeriesData = sanitizeSeriesData(data);
 
         var safeOpts = applyChartLayout(opts);
         var customCols = safeOpts.customColors;
@@ -1497,22 +1513,12 @@ export const CH_HTML = `
           safeOpts.timeScale = {};
         }
         safeOpts.timeScale.tickMarkFormatter = formatChartTickMark;
-        // Crosshair / tooltip formatter — also remap synthetic index back
-        // to the real timestamp so hovering a bar shows its real date/time
-        // instead of the Jan-1970 era values that raw indices would produce.
+        // Crosshair / tooltip formatter uses the backend candle timestamp
+        // that the host sends to the series.
         if (!safeOpts.localization) safeOpts.localization = {};
         safeOpts.localization.timeFormatter = function(time) {
           try {
             var resolveSource = time;
-            if (typeof time === 'number' && isFinite(time) && _rtxIndexToRealTime.length > 0) {
-              var idx = Math.round(time) - 1;
-              if (idx >= 0 && idx < _rtxIndexToRealTime.length) {
-                var realT = _rtxIndexToRealTime[idx];
-                if (typeof realT === 'number' && isFinite(realT) && realT > 0) {
-                  resolveSource = realT;
-                }
-              }
-            }
             var date = resolveTickDate(resolveSource);
             if (!date || !isFinite(date.getTime())) return '';
             var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1598,13 +1604,13 @@ export const CH_HTML = `
 
         ensureMoveBarsSeries(lastDisplayDecimals);
 
-        if (data && data.length > 0) {
-          var mapped = mapForSeries(data);
+        if (lastRawSeriesData.length > 0) {
+          var mapped = mapForSeries(lastRawSeriesData);
           series.setData(mapped);
           currentSeriesLength = mapped.length;
           lastBarTime = mapped[mapped.length - 1].time;
           if (seriesType !== 'line') {
-            var lastSeed = data[data.length - 1];
+            var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
             _liveBar = {
               time: lastSeed.time,
               open: lastSeed.open,
@@ -1616,7 +1622,7 @@ export const CH_HTML = `
           }
           ensureMoveBarsSeries(lastDisplayDecimals);
           if (moveBarsSeries) {
-            try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
+            try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
           }
           applyRecentViewport(currentSeriesLength);
           scheduleOverlayPriceScaleLock(true);
@@ -1926,6 +1932,7 @@ export const CH_HTML = `
       }
 
       function mapForSeries(data) {
+        data = sanitizeSeriesData(data);
         if (!data || data.length === 0) return [];
         if (seriesType === 'line') {
           var out = new Array(data.length);
@@ -1948,6 +1955,105 @@ export const CH_HTML = `
           };
         }
         return arr;
+      }
+
+      function isFiniteNumber(value) {
+        return typeof value === 'number' && isFinite(value);
+      }
+
+      function normalizeRawSeriesDatum(item) {
+        if (!item || !isFiniteNumber(item.time) || item.time <= 0) {
+          return null;
+        }
+
+        var time = item.time;
+        var volume = isFiniteNumber(item.volume) && item.volume >= 0 ? item.volume : 0;
+        if (seriesType === 'line') {
+          var value = isFiniteNumber(item.value) ? item.value : item.close;
+          if (!isFiniteNumber(value)) {
+            return null;
+          }
+          return {
+            time: time,
+            value: value,
+            open: isFiniteNumber(item.open) ? item.open : value,
+            high: isFiniteNumber(item.high) ? item.high : value,
+            low: isFiniteNumber(item.low) ? item.low : value,
+            close: isFiniteNumber(item.close) ? item.close : value,
+            volume: volume,
+          };
+        }
+
+        var open = item.open;
+        var high = item.high;
+        var low = item.low;
+        var close = item.close;
+        if (
+          !isFiniteNumber(open) ||
+          !isFiniteNumber(high) ||
+          !isFiniteNumber(low) ||
+          !isFiniteNumber(close) ||
+          high < open ||
+          high < close ||
+          high < low ||
+          low > open ||
+          low > close ||
+          low > high
+        ) {
+          return null;
+        }
+
+        return {
+          time: time,
+          open: open,
+          high: high,
+          low: low,
+          close: close,
+          volume: volume,
+        };
+      }
+
+      function sanitizeSeriesData(data) {
+        if (!Array.isArray(data) || data.length === 0) {
+          return [];
+        }
+
+        var byTime = {};
+        for (var i = 0; i < data.length; i++) {
+          var normalized = normalizeRawSeriesDatum(data[i]);
+          if (normalized) {
+            byTime[String(normalized.time)] = normalized;
+          }
+        }
+
+        return Object.keys(byTime)
+          .map(function(key) { return byTime[key]; })
+          .sort(function(left, right) { return left.time - right.time; });
+      }
+
+      function upsertRawSeriesDatum(tick) {
+        var normalized = normalizeRawSeriesDatum(tick);
+        if (!normalized) {
+          return null;
+        }
+        if (!Array.isArray(lastRawSeriesData)) {
+          lastRawSeriesData = [];
+        }
+
+        var lastIndex = lastRawSeriesData.length - 1;
+        if (lastIndex >= 0) {
+          var last = lastRawSeriesData[lastIndex];
+          if (normalized.time < last.time) {
+            return null;
+          }
+          if (normalized.time === last.time) {
+            lastRawSeriesData[lastIndex] = normalized;
+            return normalized;
+          }
+        }
+
+        lastRawSeriesData.push(normalized);
+        return normalized;
       }
 
       // One histogram point per bar: |close − open|, coloured by direction.
@@ -1989,13 +2095,20 @@ export const CH_HTML = `
             tickFlushHandle = 0;
           }
           pendingTick = null;
-          lastRawSeriesData = Array.isArray(data) ? data.slice() : [];
-          var mapped = mapForSeries(data);
+          lastRawSeriesData = sanitizeSeriesData(data);
+          try {
+            console.log('[WEBVIEW-CANDLE] updateChartData', {
+              count: lastRawSeriesData.length,
+              firstTime: lastRawSeriesData[0] ? lastRawSeriesData[0].time : null,
+              lastTime: lastRawSeriesData[lastRawSeriesData.length - 1] ? lastRawSeriesData[lastRawSeriesData.length - 1].time : null,
+            });
+          } catch (_logErr) {}
+          var mapped = mapForSeries(lastRawSeriesData);
           currentSeriesLength = mapped.length;
           series.setData(mapped);
           ensureMoveBarsSeries(lastDisplayDecimals);
           if (moveBarsSeries) {
-            try { moveBarsSeries.setData(mapMoveBarsData(data)); } catch (_mb) {}
+            try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
           }
 
           // CRITICAL BUGFIX: setData natively obliterates all PriceLines previously bound to the series!
@@ -2010,7 +2123,7 @@ export const CH_HTML = `
           if (mapped.length > 0) {
             lastBarTime = mapped[mapped.length - 1].time;
             if (seriesType !== 'line') {
-              var lastSeed = data[data.length - 1];
+              var lastSeed = lastRawSeriesData[lastRawSeriesData.length - 1];
               _liveBar = {
                 time: lastSeed.time,
                 open: lastSeed.open,
@@ -2025,6 +2138,10 @@ export const CH_HTML = `
             // linger at the previous symbol's price.
             refreshDirectionPriceLine();
             refreshMoveDirectionPriceLine();
+          } else {
+            lastBarTime = 0;
+            _liveBar = null;
+            _liveBarHasObservedRealtimeUpdate = false;
           }
         } catch (e) {
           postError('updateChartData', e);
@@ -2038,28 +2155,53 @@ export const CH_HTML = `
       function applyTickUpdate(tick) {
         if (!series || !tick || typeof tick.time !== 'number') return;
         if (tick.time < lastBarTime) {
+          try {
+            console.log('[WEBVIEW-CANDLE] applyTickUpdate_rejected', {
+              reason: 'stale_tick',
+              tickTime: tick.time,
+              lastBarTime: lastBarTime,
+            });
+          } catch (_logErr) {}
           return;
         }
-        var appendedNewBar = currentSeriesLength === 0 || tick.time > lastBarTime;
+        var normalizedTick = upsertRawSeriesDatum(tick);
+        if (!normalizedTick) {
+          try {
+            console.log('[WEBVIEW-CANDLE] applyTickUpdate_rejected', {
+              reason: 'invalid_or_old_tick',
+              tickTime: tick.time,
+              lastBarTime: lastBarTime,
+            });
+          } catch (_logErr) {}
+          return;
+        }
+        var appendedNewBar = currentSeriesLength === 0 || normalizedTick.time > lastBarTime;
         var bar;
         if (seriesType === 'line') {
-          bar = { time: tick.time, value: typeof tick.value === 'number' ? tick.value : tick.close };
+          bar = { time: normalizedTick.time, value: typeof normalizedTick.value === 'number' ? normalizedTick.value : normalizedTick.close };
         } else {
           bar = {
-            time: tick.time,
-            open: tick.open,
-            high: tick.high,
-            low: tick.low,
-            close: tick.close,
+            time: normalizedTick.time,
+            open: normalizedTick.open,
+            high: normalizedTick.high,
+            low: normalizedTick.low,
+            close: normalizedTick.close,
           };
         }
         // Sync internal accumulator with full OHLC from host
-        _liveBar = { time: tick.time, open: tick.open, high: tick.high, low: tick.low, close: tick.close };
+        _liveBar = { time: normalizedTick.time, open: normalizedTick.open, high: normalizedTick.high, low: normalizedTick.low, close: normalizedTick.close };
         _liveBarHasObservedRealtimeUpdate = true;
+        try {
+          console.log('[WEBVIEW-CANDLE] applyTickUpdate', {
+            time: normalizedTick.time,
+            appended: appendedNewBar,
+            count: lastRawSeriesData.length,
+          });
+        } catch (_logErr) {}
         series.update(bar);
-        currentSeriesLength = appendedNewBar ? Math.max(currentSeriesLength + 1, 1) : Math.max(currentSeriesLength, 1);
-        if (tick.time >= lastBarTime) {
-          lastBarTime = tick.time;
+        currentSeriesLength = lastRawSeriesData.length;
+        if (normalizedTick.time >= lastBarTime) {
+          lastBarTime = normalizedTick.time;
         }
         ensureMoveBarsSeries(lastDisplayDecimals);
         if (moveBarsSeries && seriesType !== 'line') {
@@ -2088,6 +2230,9 @@ export const CH_HTML = `
 
       function updateTick(tick) {
         if (!tick || typeof tick.time !== 'number') return;
+        try {
+          console.log('[WEBVIEW-CANDLE] updateTick_queued', { time: tick.time });
+        } catch (_logErr) {}
         pendingTick = tick;
         if (tickFlushHandle) return;
         tickFlushHandle = requestAnimationFrame(flushPendingTick);
@@ -2427,6 +2572,13 @@ export const CH_HTML = `
             ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
             : 5;
         return Number(price.toFixed(decimals));
+      }
+
+      function sanitizeOverlayDragPrice(price) {
+        if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return null;
+        }
+        return price;
       }
 
       function postChartTradeLineDrag(phase, dragKey, price) {
@@ -2945,9 +3097,6 @@ export const CH_HTML = `
       window.initChart = initChart;
       window.updateChartData = updateChartData;
       window.updateTick = updateTick;
-      window.setIndexToRealTimeMap = setIndexToRealTimeMap;
-      window.appendIndexToRealTimeEntry = appendIndexToRealTimeEntry;
-      window.replaceLastIndexToRealTimeEntry = replaceLastIndexToRealTimeEntry;
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;

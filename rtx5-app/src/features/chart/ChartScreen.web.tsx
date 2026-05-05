@@ -842,8 +842,8 @@ export function ChartScreen() {
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: resolvedChartColors.grid, style: LineStyle.Solid },
-        horzLines: { color: resolvedChartColors.grid, style: LineStyle.Solid },
+        vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
+        horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -866,13 +866,13 @@ export function ChartScreen() {
         },
       },
       timeScale: {
-        borderColor: resolvedChartColors.grid,
+        borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (time: number) => {
           return formatChartTickLabel(time, true);
         },
-        rightOffset: 12,
+        rightOffset: 0,
         barSpacing: 13,
         minBarSpacing: 3,
         shiftVisibleRangeOnNewBar: true,
@@ -880,7 +880,7 @@ export function ChartScreen() {
         fixRightEdge: false,
       },
       rightPriceScale: {
-        borderColor: resolvedChartColors.grid,
+        borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
         autoScale: true,
         scaleMargins: {
           top: 0.08,
@@ -913,7 +913,7 @@ export function ChartScreen() {
       try { chart.remove(); } catch (e) { }
       chartRef.current = null;
     };
-  }, [isDark, BLUE, RED, displayDecimals, resolvedChartColors]);
+  }, [isDark, BLUE, RED, displayDecimals, resolvedChartColors, chartDisplay.showGrid]);
 
   // Series Initialization & Swap
   useEffect(() => {

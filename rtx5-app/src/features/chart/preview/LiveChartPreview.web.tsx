@@ -74,8 +74,8 @@ export default function LiveChartPreviewWeb({
       fontSize: 11,
     },
     grid: {
-      vertLines: { color: display.showGrid ? colors.grid : 'transparent', style: LineStyle.Solid },
-      horzLines: { color: display.showGrid ? colors.grid : 'transparent', style: LineStyle.Solid },
+      vertLines: { color: display.showGrid ? colors.grid : 'transparent', style: LineStyle.SparseDotted },
+      horzLines: { color: display.showGrid ? colors.grid : 'transparent', style: LineStyle.SparseDotted },
     },
     crosshair: {
       mode: CrosshairMode.Normal,
@@ -96,7 +96,7 @@ export default function LiveChartPreviewWeb({
       borderColor: display.showGrid ? colors.grid : 'transparent',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 12,
+      rightOffset: 0,
       barSpacing: 13,
       minBarSpacing: 3,
     },

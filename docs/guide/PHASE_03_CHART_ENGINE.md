@@ -34,6 +34,14 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Interaction remains responsive under active updates.
 
 ## Progress Notes
+- 2026-05-05: Added focused candle regression coverage for timestamp-unit normalization, live tick-to-OHLC aggregation, duplicate stream replay, blank-chart fast switching, radial-menu timeframe switching, logged-out public candle fallback, previous-candle retention, and candlestick-vs-line adapter safety. The production chart path remains backend-authoritative for OHLC live candles; the pure tick aggregator is available for contract-safe backend price-tick feeds and is not used to synthesize chart candles from quote ticks.
+- 2026-05-05: Hardened the backend-authoritative candle path after the fresh history/live review. REST normalization now preserves backend `closed`/current candle flags before splitting trusted history from the active REST candle, and the native WebView now sanitizes/dedupes full reloads plus updates its raw visible candle buffer on every backend live OHLC patch so resize recovery, panning left, and autoscale all use the same history+live series.
+- 2026-05-05: Replaced the native chart's synthetic candle-index render bridge with a backend-timestamp OHLC path. The WebView now receives the canonical REST-history plus backend-live candle series directly, incremental updates use the real candle time, and the old index-to-real-time remapping bridge was removed so wicks, overlays, panning, and tooltips all share one timeline. The live stream now persists trusted REST history only when REST history succeeds, never the merged live visible series.
+- 2026-05-05: Removed the visible blank gap on the chart by dropping the default time-scale right offset, ending the recent visible range at the latest candle instead of reserving future bars, and making the chart toolbar sit flush without the extra top margin. Web and preview chart options now use the same no-gap right offset.
+- 2026-05-05: Changed the compact chart footer lot increase/decrease picker from a horizontal value strip to a vertical value list while keeping the generated increase/decrease labels and range-selection behavior unchanged.
+- 2026-05-05: Refined the live candle chart grid toward MT5-style chart readability. The main native chart now uses sparse dotted vertical guides, fixed sparse dotted horizontal guides that stay locked during price-scale panning without drawing heavy outer-edge lines, and the web/settings preview renderers use the same dotted grid style while preserving the persisted Show grid preference.
+- 2026-05-05: Updated the compact chart footer lot chevrons to open a wider horizontal MT-style adjustment picker instead of stepping immediately. Increase mode now starts at `+0.01`, expands into `+0.01` through `+0.10`, then advances into tenth ranges such as `+0.1` through `+1`; selecting `+0.2`, `+0.5`, `1`, `2`, and higher values keeps advancing the same stepped ladder. Decrease mode mirrors the same behavior with negative labels, including at the minimum lot where displayed negative choices still clamp safely to the broker minimum.
+- 2026-05-05: Hardened SL/TP line dragging at the top and bottom chart boundaries. Active trade-line drags now keep window-level pointer/touch move, release, and cancel ownership, use an edge-safe drag coordinate with locked-range price fallback, and move the WebView line on the raw coordinate price while syncing rounded values to native state so Android WebView target changes, edge coordinates, and display-price rounding cannot freeze vertical SL/TP movement.
 - 2026-05-05: Smoothed native chart SL/TP trade-line vertical dragging. The WebView now moves the active SL/TP line locally on every finger move, keeps the right-axis value label repriced with the dragged level, throttles only the native state sync and label redraw work, preserves the active dragged price across overlay resyncs, and locks the price scale while dragging so candles do not shift underneath the line.
 - 2026-05-05: Matched the chart SL/TP trade-sheet live execution preview to the order-ticket graph spacing by making the final lower dotted guide use the same vertical interval as the rest of the price grid, tightening the gap between grid lines and right-side price labels, rendering the missing value for the lowest dotted guide, and softening generated bid/ask traces with a rounded pencil-style stroke treatment. Every SL/TP order tab now keeps uniform guide spacing with a complete compact right axis and a more polished generated line style.
 - 2026-05-05: Fixed chart buy/sell visual feedback so the tapped side remains the only busy-looking button for the full request. The opposite buy/sell side stays visually normal while duplicate submissions remain blocked.
@@ -305,9 +313,9 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: production candle-engine tests cover REST closed/current splitting, all chart timeframes, weekend D1 stepping, backend live OHLC validation, stale websocket candle snapshots, duplicate backend candle snapshots, high-frequency backend bursts, and cache refusal to persist thin live-only data.
 - [x] Unit: chart symbol picker sources entries only from `/instruments` API payloads and has no hardcoded symbol fallback.
 - [x] Unit: pending-order helper rules cover stop-limit defaults and MT5-style pending trigger validation.
-- [x] Unit: footer lot chevron state and press behavior prefer direct lot steps while preserving min/max lot boundaries and picker fallback.
+- [x] Unit: footer lot chevron state and press behavior prefer the MT-style adjustment picker when available while preserving direct-step fallback.
 - [x] Unit: footer lot picker range chips populate the expected positive and negative stepped adjustment ranges.
-- [x] Unit: footer lot picker keeps the previous adjustment range available to the left of the active dynamic range.
+- [x] Unit: footer lot picker advances positive and negative adjustment ladders from hundredths to tenths and whole-lot ranges.
 - [x] Typecheck/unit: chart i18n expansion covers toolbar/action sheets, drawing-tool labels, and chart trade price/stop/expiration/comment controls.
 - [x] Unit: chart trade sheet body stays hidden in compact `SL/TP` mode and renders only after expand.
 - [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph uniform guide-spacing contract.
@@ -319,7 +327,8 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: chart trade sheet comment focus keeps the route height stable instead of hiding the tab bar or accepting keyboard-driven host remeasurements.
 - [x] Unit: chart trade sheet header lift clamps the expanded sheet below the chart title and stays disabled in fullscreen.
 - [x] Unit: compact `SL/TP` sheet touch frame remains collapsed so chart-side stop lines stay draggable.
-- [x] Unit: chart SL/TP trade-line drag updates during move, keeps touch ownership, preserves candle scale, updates the right-axis value label, throttles native/label work, and survives overlay resync.
+- [x] Unit: chart SL/TP trade-line drag updates during move, keeps pointer/touch ownership through chart-edge movement and release, preserves candle scale, updates the right-axis value label, throttles native/label work, and survives overlay resync.
+- [x] Unit: native chart recent viewport ends at the latest candle without reserving a blank future-bar gap.
 - [x] Unit: M1 REST history stream seeds include the backend current candle for EURUSD, GBPUSD, XAUUSD, and BTCUSD so the first live tick cannot create a frontend-only gap.
 - [x] Unit: native `CHART_READY` force-paints retained candles into the WebView.
 - [x] Unit: REST history requests use only the selected backend timeframe, and backend REST timestamps are preserved instead of frontend rebucketing.
@@ -329,6 +338,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: candle memory caches evict older inactive chart contexts while preserving the active 2500-bar chart history contract.
 - [x] Unit: default chart history requests fill the 2500-bar chart buffer, giving M1 enough loaded candles to include previous dates.
 - [x] Unit/typecheck: native chart custom candle renderer, history/live tail gap reporting, and pinch/zoom tap-menu suppression are covered by focused chart bridge tests plus `npm run typecheck`.
+- [x] Unit: native chart bridge renders backend candle timestamps directly and the live stream does not persist merged live candles as trusted history.
 - [ ] Integration: timeframe and object state persistence.
 - [ ] E2E: open chart actions, open objects manager, switch timeframe.
 

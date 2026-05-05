@@ -34,7 +34,7 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /public async prefetchHistory\(symbol: string, timeframe: string\): Promise<number>/);
   assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, DEFAULT_HISTORY_LIMIT\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
-  assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, candles, \{ canonical: true \}\)/);
+  assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{ canonical: true \}\)/);
 });
 
 test('canonical live stream seeds REST history plus backend current candle before websocket merge', () => {
@@ -93,6 +93,7 @@ test('canonical live stream commits one fresh history plus backend live candle s
   assert.match(source, /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime\)/);
   assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
   assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, nextCandles\)/);
-  assert.match(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);
+  assert.match(source, /syncMergedCandleCache\(symbol, timeframe, history\.closedCandles, \{ canonical: true \}\)/);
+  assert.doesNotMatch(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);
   assert.doesNotMatch(source, /materializeCandleMap\(entry\.candleMap/);
 });

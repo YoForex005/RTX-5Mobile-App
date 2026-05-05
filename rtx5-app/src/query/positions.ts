@@ -79,7 +79,7 @@ export function usePositionHistoryQuery(
     queryKey: ['positionHistory', login],
     queryFn: () => positionsApi.getPositionHistory(login!),
     enabled,
-    refetchInterval: resolvePollingRefetchInterval(enabled, 5000, options.refetchInterval),
+    refetchInterval: resolvePollingRefetchInterval(enabled, 30000, options.refetchInterval),
   });
 }
 

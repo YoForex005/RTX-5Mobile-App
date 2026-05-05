@@ -40,7 +40,19 @@ const isPositionLikeRecord = (record: Record<string, unknown>): boolean =>
   record.ticket !== undefined ||
   record.id !== undefined ||
   record.position_ticket !== undefined ||
-  record.symbol !== undefined;
+  record.order_ticket !== undefined ||
+  (
+    record.symbol !== undefined &&
+    (
+      record.volume !== undefined ||
+      record.side !== undefined ||
+      record.type !== undefined ||
+      record.price_open !== undefined ||
+      record.openPrice !== undefined ||
+      record.profit !== undefined ||
+      record.pnl !== undefined
+    )
+  );
 
 const getLifecycleHints = (record: Record<string, unknown>): Record<string, unknown> => {
   const hints: Record<string, unknown> = {};
@@ -111,6 +123,59 @@ const extractPositionSnapshot = (value: unknown): Record<string, unknown>[] | nu
   }
 
   return null;
+};
+
+const isTruthySnapshotFlag = (value: unknown): boolean => {
+  if (value === true) {
+    return true;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === 'full' || normalized === 'complete' || normalized === 'snapshot';
+  }
+  return false;
+};
+
+const isAuthoritativePositionSnapshot = (
+  value: unknown,
+  parentHints: Record<string, unknown> = {},
+): boolean => {
+  const record = asRecord(value);
+  const eventHints = [
+    parentHints.event,
+    parentHints.type,
+    parentHints.action,
+    record?.event,
+    record?.type,
+    record?.action,
+  ].map(normalizeEventName);
+
+  if (eventHints.some((hint) => hint === 'position.update' || hint === 'positions.update')) {
+    return false;
+  }
+
+  if (
+    eventHints.some(
+      (hint) =>
+        hint === 'position.snapshot' ||
+        hint === 'positions.snapshot' ||
+        hint === 'positions.full' ||
+        hint === 'account.snapshot',
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    isTruthySnapshotFlag(record?.snapshot) ||
+    isTruthySnapshotFlag(record?.is_snapshot) ||
+    isTruthySnapshotFlag(record?.full) ||
+    isTruthySnapshotFlag(record?.complete)
+  ) {
+    return true;
+  }
+
+  return false;
 };
 
 class AccountWebSocketService {
@@ -271,7 +336,10 @@ class AccountWebSocketService {
     const snapshot = extractPositionSnapshot(data);
 
     if (snapshot) {
-      usePositionsState.getState().applyPositionsSnapshot(snapshot, accountLogin);
+      const isAuthoritativeSnapshot = isAuthoritativePositionSnapshot(data, parentHints);
+      usePositionsState.getState().applyPositionsSnapshot(snapshot, accountLogin, {
+        preserveMissingExisting: !isAuthoritativeSnapshot,
+      });
       return;
     }
 
