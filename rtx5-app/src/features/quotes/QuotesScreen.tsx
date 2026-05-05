@@ -38,8 +38,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
 import {
   useWatchlistQuery,
@@ -48,7 +48,7 @@ import {
   useReplaceWatchlistMutation,
 } from '../../query/watchlist';
 import { fmt } from '../../utils/format';
-import { AppHeader } from '../../components/AppHeader';
+import { AppHeader } from '../../ui/components/AppHeader';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
@@ -447,7 +447,7 @@ const QuoteCard = React.memo(function QuoteCard({
       onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={80}
+      delayLongPress={400}
     >
       <Animated.View
         pointerEvents="none"

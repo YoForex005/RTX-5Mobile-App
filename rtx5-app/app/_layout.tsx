@@ -4,10 +4,10 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
-import { AppProviders } from '../src/providers/AppProviders';
-import { ErrorBoundary } from '../src/components/ErrorBoundary';
+import { AppProviders } from '../src/state/providers/AppProviders';
+import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
 import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
-import { useTheme } from '../src/theme/useTheme';
+import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons } from '@expo/vector-icons';
@@ -135,7 +135,7 @@ import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
 import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navigationPrefetch';
 import { isDemoTradingAccount } from '../src/domain/accountType';
-import { hydratePersistedCandleCache } from '../src/state/persistedCandleCache';
+import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 
 export default function RootLayout() {
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);

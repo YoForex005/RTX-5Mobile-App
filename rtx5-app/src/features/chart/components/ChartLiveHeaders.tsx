@@ -1,0 +1,116 @@
+import React, { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
+import { useLiveTick } from '../../../domain/candles/hooks/useLiveCandles';
+import { useMarketData } from '../../../query/websocket';
+import {
+  type TradeVolumeBounds,
+} from '../../../utils/tradeVolume';
+import {
+  type ChartTimeRange,
+} from '../timeRangePresets';
+import {
+  type FooterLotPickerMode,
+} from '../chartTradeInteractionUtils';
+
+
+
+export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource }: any) => {
+  const latestTick = useLiveTick(symbol);
+  const liveQuotes = useMarketData([symbol]);
+  const q = liveQuotes[symbol] || {};
+
+  const selectedQuote =
+    priceSource === 'ask'
+      ? (typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
+      : (typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
+  const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
+  const currentPrice = selectedQuote ?? candleClose;
+
+  if (currentPrice === null) {
+    return (
+      <View style={styles.priceSection}>
+        <Text style={[styles.livePriceText, { fontWeight: '700', opacity: 0.9 }]}>---</Text>
+      </View>
+    );
+  }
+
+  const changePct = typeof q.changePct === 'number' ? q.changePct : 0;
+  const change = currentPrice * (changePct / 100);
+  const isUp = changePct >= 0;
+
+  return (
+    <View style={styles.priceSection}>
+      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: -1, opacity: 0.9 }]}>PRICE</Text>
+      <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>
+        {currentPrice.toFixed(displayDecimals)}
+      </Text>
+      <Text
+        style={[styles.priceChangeText, { color: isUp ? '#089981' : '#F23645' }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
+        {change > 0 ? '+' : ''}
+        {(change || 0).toFixed(displayDecimals)} ({changePct > 0 ? '+' : ''}
+        {(changePct || 0).toFixed(2)}%)
+      </Text>
+    </View>
+  );
+});
+
+export const LiveQuotePairHeader = React.memo(({ bid, ask, changePct, styles, displayDecimals }: any) => {
+  const tone = typeof changePct === 'number' && changePct >= 0 ? '#089981' : '#F23645';
+  const hasBid = Number.isFinite(bid) && bid > 0;
+  const hasAsk = Number.isFinite(ask) && ask > 0;
+
+  return (
+    <View style={styles.quoteSection}>
+      <View style={styles.quoteRow}>
+        <Text
+          style={[styles.quoteValueText, !hasBid && styles.quoteValuePlaceholder, hasBid && { color: tone }]}
+          numberOfLines={1}
+        >
+          {hasBid ? bid.toFixed(displayDecimals) : '---'}
+        </Text>
+        <Text
+          style={[styles.quoteValueText, !hasAsk && styles.quoteValuePlaceholder, hasAsk && { color: tone }]}
+          numberOfLines={1}
+        >
+          {hasAsk ? ask.toFixed(displayDecimals) : '---'}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
+export const LiveClock = React.memo(({ styles }: any) => {
+  const [timeStr, setTimeStr] = useState('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+
+      const offsetMinutes = now.getTimezoneOffset();
+      const offsetHoursAbs = Math.floor(Math.abs(offsetMinutes) / 60);
+      const offsetMinsAbs = Math.abs(offsetMinutes) % 60;
+      const sign = offsetMinutes > 0 ? '-' : '+';
+      // Edge case: exactly UTC is just UTC
+      const offsetStr = offsetMinutes === 0 ? 'UTC' : `UTC${sign}${offsetHoursAbs}:${String(offsetMinsAbs).padStart(2, '0')}`;
+
+      setTimeStr(`${hh}:${mm}:${ss} (${offsetStr})`);
+    };
+
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Text style={[styles.tvRangeAutoText, { transform: [{ translateX: -20 }] }]} numberOfLines={1} adjustsFontSizeToFit>
+      {timeStr}
+    </Text>
+  );
+});
+

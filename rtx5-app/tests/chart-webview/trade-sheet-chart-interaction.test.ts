@@ -212,7 +212,7 @@ test('SL and TP drag throttles label redraw separately from the local line movem
   );
   assertSourceContains(
     updatePreviewBody,
-    /entry\.api\.applyOptions\(\{\s*price: price,\s*\}\)[\s\S]*scheduleTradeLineDragDomRefresh\(\)/,
+    /entry\.api\.applyOptions\(\{[\s\S]*price: price[\s\S]*\}\)[\s\S]*scheduleTradeLineDragDomRefresh\(\)/,
     'local price-line preview must move immediately and defer label redraw work',
   );
   assert.doesNotMatch(
@@ -224,6 +224,16 @@ test('SL and TP drag throttles label redraw separately from the local line movem
     domRefreshBody,
     /CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS - \(now - lastChartTradeLineDragDomRefreshAt\)/,
     'drag label redraws must be time-throttled while the finger is moving',
+  );
+});
+
+test('SL and TP drag updates the right-side value label with the dragged price', () => {
+  const updatePreviewBody = extractFunctionBody(source, 'updateDraggedOverlayLinePreview');
+
+  assertSourceContains(
+    updatePreviewBody,
+    /entry\.api\.applyOptions\(\{\s*price: price,\s*axisLabelVisible: entry\.line\.axisLabelVisible !== false,\s*title: '',\s*\}\)/,
+    'local SL/TP drag preview must update the right-axis value label from the dragged price',
   );
 });
 
@@ -243,7 +253,7 @@ test('SL and TP drag preserves the active WebView price while native overlays re
   );
   assertSourceContains(
     updatePreviewBody,
-    /syncOverlayPayloadDragLinePrice\(dragKey, price\)[\s\S]*entry\.api\.applyOptions\(\{\s*price: price,\s*\}\)/,
+    /syncOverlayPayloadDragLinePrice\(dragKey, price\)[\s\S]*entry\.api\.applyOptions\(\{[\s\S]*price: price[\s\S]*\}\)/,
     'local WebView preview must update the cached label payload and price line without recreating overlays',
   );
 });

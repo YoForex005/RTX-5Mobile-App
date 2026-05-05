@@ -9,9 +9,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme } from '../../theme/useTheme';
+import { useTheme } from '../../ui/theme/useTheme';
 import {
   Card,
   LinePreview,

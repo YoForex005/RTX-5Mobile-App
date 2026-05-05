@@ -3,13 +3,20 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export const readChartScreenSource = (): string => {
-  const candidates = [
+  const chartScreenCandidates = [
     resolve(process.cwd(), 'src/features/chart/ChartScreen.native.tsx'),
     resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.native.tsx'),
   ];
-  const filePath = candidates.find((candidate) => existsSync(candidate));
-  assert.ok(filePath, 'ChartScreen.native.tsx was not found from the test working directory');
-  return readFileSync(filePath, 'utf8');
+  const webViewHtmlCandidates = [
+    resolve(process.cwd(), 'src/features/chart/rendering/ChartWebViewHtml.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/rendering/ChartWebViewHtml.ts'),
+  ];
+  const chartScreenPath = chartScreenCandidates.find((candidate) => existsSync(candidate));
+  const webViewHtmlPath = webViewHtmlCandidates.find((candidate) => existsSync(candidate));
+  assert.ok(chartScreenPath, 'ChartScreen.native.tsx was not found from the test working directory');
+  const chartScreenSource = readFileSync(chartScreenPath, 'utf8');
+  const webViewHtmlSource = webViewHtmlPath ? readFileSync(webViewHtmlPath, 'utf8') : '';
+  return `${chartScreenSource}\n${webViewHtmlSource}`;
 };
 
 export const extractFunctionBody = (source: string, functionName: string): string => {

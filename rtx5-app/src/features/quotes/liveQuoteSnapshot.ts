@@ -1,7 +1,7 @@
 import { normalizeQuoteTickTimestampToMs } from '../../api/ws/quoteTimestamp';
 import type { QuoteTickEvent } from '../../api/ws/quoteTickNormalizer';
 import { normalizeSymbol } from '../../domain/symbols';
-import { quotes as mockQuotes, type QuoteItem } from '../../mock/tradingData';
+import { quotes as mockQuotes, type QuoteItem } from '../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
 
 export const LIVE_QUOTE_STALE_MS = 45_000;

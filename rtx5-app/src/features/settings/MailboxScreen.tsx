@@ -6,10 +6,10 @@
  */
 
 import { FlatList, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { Screen } from '../../ui/components/Screen';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
 
 const messages = new Array(12).fill(0).map((_, i) => ({

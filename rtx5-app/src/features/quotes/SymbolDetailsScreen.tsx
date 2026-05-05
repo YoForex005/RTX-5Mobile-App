@@ -5,15 +5,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { quotes, type QuoteItem } from '../../mock/tradingData';
+import { quotes, type QuoteItem } from '../../dev/mock/tradingData';
 import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { usePlaceOrderMutation } from '../../query/orders';
 import { useInstrumentMeta } from '../../query/instruments';
-import { useCandleHistory } from '../../query/candles';
+import { useLatestDailyCandle } from '../../domain/candles/query/candles';
 import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { fmt } from '../../utils/format';
 import { Alert } from 'react-native';
@@ -258,11 +258,7 @@ export function SymbolDetailsScreen() {
   }, [symbol, remoteMeta]);
 
   // â”€â”€â”€ Fetch Tru Daily Range from Candles API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const { data: d1Candles } = useCandleHistory(symbol, 'D1');
-  const dailyRangeCandle = useMemo(
-    () => (d1Candles && d1Candles.length > 0 ? d1Candles[d1Candles.length - 1] : null),
-    [d1Candles],
-  );
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol);
 
   const d = q.digits ?? 2;
   const col = dCol(q.changePct, T);

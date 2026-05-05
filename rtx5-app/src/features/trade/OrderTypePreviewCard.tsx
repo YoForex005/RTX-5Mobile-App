@@ -12,8 +12,8 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-import type { CandleParams } from '../../hooks/useLiveCandles';
-import type { ThemeColors } from '../../theme/useTheme';
+import type { CandleParams } from '../../domain/candles/hooks/useLiveCandles';
+import type { ThemeColors } from '../../ui/theme/useTheme';
 import {
   getChartOrderSide,
   isPendingChartOrderType,

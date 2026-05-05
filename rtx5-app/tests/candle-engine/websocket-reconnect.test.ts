@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
-import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
-import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
+import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
+import { resolveVisibleSeriesMode } from '../../src/domain/candles/ws/liveCandlesEnginePolicy';
 import {
   assertNoDuplicateCandleTimes,
   buildContiguousHistory,

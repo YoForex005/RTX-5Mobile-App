@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { positionsApi, Position, ClosedPosition } from '../api/positions';
-import { PositionItem } from '../mock/tradingData';
+import { PositionItem } from '../dev/mock/tradingData';
 
 type PollingQueryOptions = {
   enabled?: boolean;

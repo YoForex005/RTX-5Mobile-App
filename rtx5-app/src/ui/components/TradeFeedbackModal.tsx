@@ -67,17 +67,32 @@ export const TradeFeedbackModal = React.memo(({
   if (!state.visible) return null;
 
   const isBuy = state.side === 'buy';
+  const isSell = state.side === 'sell';
   const isSuccess = state.type === 'success';
+  const sideLabel = state.side === 'buy' ? 'BUY' : state.side === 'sell' ? 'SELL' : '';
+  const successTitle = sideLabel ? `${sideLabel} Order Executed` : 'Order Executed';
+  const successBadgeLabel = sideLabel ? `${sideLabel} FILLED` : 'FILLED';
 
-  // The user explicitly requested that BOTH "Buy by Market" and "Sell by Market" successful
-  // order executions share the exact same professional Green success theme.
-  // We strictly reserve Red ONLY for actual failures/errors.
-  const BUY_HEX = '#10B981';
+  const BUY_HEX = '#2563EB';
+  const BUY_GRADIENT_HEX = '#60A5FA';
+  const BUY_SOFT_RGBA = 'rgba(37,99,235,0.14)';
+  const SELL_HEX = '#DC2626';
+  const SELL_GRADIENT_HEX = '#F87171';
+  const SELL_SOFT_RGBA = 'rgba(220,38,38,0.14)';
+  const SUCCESS_HEX = '#10B981';
+  const SUCCESS_GRADIENT_HEX = '#34D399';
+  const SUCCESS_SOFT_RGBA = 'rgba(16,185,129,0.14)';
   const ERR_HEX = '#EF4444';
+  const ERR_GRADIENT_HEX = '#F87171';
+  const ERR_SOFT_RGBA = 'rgba(239,68,68,0.14)';
   
-  const accent = isSuccess ? BUY_HEX : ERR_HEX;
-  const accentSoft = isSuccess ? 'rgba(16,185,129,0.14)' : 'rgba(239,68,68,0.14)';
-  const gradientTo = isSuccess ? '#34D399' : '#F87171';
+  const accent = isSuccess ? (isBuy ? BUY_HEX : isSell ? SELL_HEX : SUCCESS_HEX) : ERR_HEX;
+  const accentSoft = isSuccess
+    ? (isBuy ? BUY_SOFT_RGBA : isSell ? SELL_SOFT_RGBA : SUCCESS_SOFT_RGBA)
+    : ERR_SOFT_RGBA;
+  const gradientTo = isSuccess
+    ? (isBuy ? BUY_GRADIENT_HEX : isSell ? SELL_GRADIENT_HEX : SUCCESS_GRADIENT_HEX)
+    : ERR_GRADIENT_HEX;
 
   const cardBg = isDark ? '#14161D' : '#FFFFFF';
   const subtleBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
@@ -131,13 +146,13 @@ export const TradeFeedbackModal = React.memo(({
           </View>
           <View style={tfmStyles.statusTextCol}>
             <Text style={[tfmStyles.statusTitle, { color: textPrimary }]} numberOfLines={1}>
-              {isSuccess ? 'Order Executed' : (state.title || 'Order Rejected')}
+              {isSuccess ? successTitle : (state.title || 'Order Rejected')}
             </Text>
             <View style={tfmStyles.statusSubRow}>
               <View style={[tfmStyles.statusBadge, { backgroundColor: accentSoft }]}>
                 <View style={[tfmStyles.statusDot, { backgroundColor: accent }]} />
                 <Text style={[tfmStyles.statusBadgeText, { color: accent }]}>
-                  {isSuccess ? 'FILLED' : 'FAILED'}
+                  {isSuccess ? successBadgeLabel : 'FAILED'}
                 </Text>
               </View>
               {isSuccess && state.executedAt ? (
@@ -168,7 +183,9 @@ export const TradeFeedbackModal = React.memo(({
               <Text style={[tfmStyles.priceText, { color: textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
                 {formattedPrice}
               </Text>
-              <Text style={[tfmStyles.priceLabel, { color: textMuted }]}>EXECUTION PRICE</Text>
+              <Text style={[tfmStyles.priceLabel, { color: textMuted }]}>
+                {sideLabel ? `${sideLabel} EXECUTION PRICE` : 'EXECUTION PRICE'}
+              </Text>
             </View>
 
             {/* Details grid */}

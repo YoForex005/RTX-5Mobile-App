@@ -7,14 +7,14 @@
       "policy": "appVersion"
     },
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/rtx5-app-icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "scheme": "rtx5",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/rtx5-splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#ffffff"
     },
     "updates": {
       "enabled": true,
@@ -39,8 +39,8 @@
       "package": "com.rtx5.trading",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "foregroundImage": "./assets/rtx5-adaptive-icon.png",
+        "backgroundColor": "#2d2c31"
       },
       "softwareKeyboardLayoutMode": "pan",
       "edgeToEdgeEnabled": true,
@@ -81,6 +81,7 @@
           "username": "yoforex"
         }
       ],
+      "./withAdiRegistration.js",
       "./withNetworkSecurityConfig.js",
       "expo-build-properties"
     ],

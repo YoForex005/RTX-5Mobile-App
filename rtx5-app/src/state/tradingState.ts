@@ -3,13 +3,34 @@
  */
 
 import { create } from 'zustand';
-import { QuoteItem, quotes as mockQuotes } from '../mock/tradingData';
-import type { Candle } from '../candles/candleTypes';
-import { sanitizeCandlesForChart } from '../candles/chartAdapter';
-import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } from '../candles/timeframeUtils';
+import { QuoteItem, quotes as mockQuotes } from '../dev/mock/tradingData';
+import type { Candle } from '../domain/candles/core/candleTypes';
+import {
+  MAX_CANDLE_CACHE_ENTRIES,
+  MAX_CANDLE_SERIES_LENGTH,
+} from '../domain/candles/core/candles';
+import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } from '../domain/candles/core/timeframeUtils';
+import { sanitizeCandlesForChart } from '../domain/candles/normalization/chartAdapter';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
+
+const trimCandleCacheEntries = (
+  entries: Record<string, Candle[]>,
+  activeKey: string,
+): Record<string, Candle[]> => {
+  const activeEntry = entries[activeKey];
+  if (!activeEntry || Object.keys(entries).length <= MAX_CANDLE_CACHE_ENTRIES) {
+    return entries;
+  }
+
+  const olderEntries = Object.entries(entries).filter(([key]) => key !== activeKey);
+  const keepOlderEntries = olderEntries.slice(
+    Math.max(0, olderEntries.length - (MAX_CANDLE_CACHE_ENTRIES - 1)),
+  );
+
+  return Object.fromEntries([...keepOlderEntries, [activeKey, activeEntry]]);
+};
 
 
 /** Represents a single financial timeframe segment (a candlestick). */
@@ -176,12 +197,15 @@ export const useTradingState = create<TradingState>((set) => ({
       if (!normalizedSymbol || !normalizedTimeframe) {
         return state;
       }
+      const key = `${normalizedSymbol}.${normalizedTimeframe}`;
+      const normalizedHistory = sanitizeCandlesForChart(history).slice(-MAX_CANDLE_SERIES_LENGTH);
+      const nextCandles: Record<string, Candle[]> = {
+        ...Object.fromEntries(Object.entries(state.candles).filter(([entryKey]) => entryKey !== key)),
+        [key]: normalizedHistory,
+      };
 
       return {
-        candles: {
-          ...state.candles,
-          [`${normalizedSymbol}.${normalizedTimeframe}`]: sanitizeCandlesForChart(history),
-        },
+        candles: trimCandleCacheEntries(nextCandles, key),
       };
     }),
 

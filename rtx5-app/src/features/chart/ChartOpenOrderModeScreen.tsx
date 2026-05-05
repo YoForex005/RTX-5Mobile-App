@@ -11,7 +11,7 @@ import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme } from '../../theme/useTheme';
+import { useTheme } from '../../ui/theme/useTheme';
 
 export function ChartOpenOrderModeScreen() {
   const router = useRouter();

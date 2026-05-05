@@ -5,7 +5,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { ActionSheet } from '../../../components/ActionSheet';
+import { ActionSheet } from '../../../ui/components/ActionSheet';
 import { TvLayers } from './ChartToolbarIcons';
 
 type ChartToolbarObjectsButtonProps = {

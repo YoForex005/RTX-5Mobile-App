@@ -11,8 +11,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "npx --yes tsx --test src/features/chart/rendering/candleGeometry.test.ts",
-    "test:chart-geometry": "npx --yes tsx --test src/features/chart/rendering/candleGeometry.test.ts",
+    "test": "npx --yes tsx --test src/domain/candles/rendering/candleGeometry.test.ts",
+    "test:chart-geometry": "npx --yes tsx --test src/domain/candles/rendering/candleGeometry.test.ts",
     "test:stability": "npx --yes tsx --test tests/candle-engine/*.test.ts tests/chart-webview/*.test.ts",
     "prebuild": "expo prebuild",
     "build:dev": "eas build --platform all --profile development --non-interactive",
@@ -74,6 +74,7 @@
   "devDependencies": {
     "@types/react": "~19.1.0",
     "babel-preset-expo": "^54.0.10",
+    "ts-morph": "^28.0.0",
     "typescript": "~5.9.2"
   },
   "private": true

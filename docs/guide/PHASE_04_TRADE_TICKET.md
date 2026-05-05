@@ -40,6 +40,12 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 ## Test Checklist
 - [ ] Unit: order ticket validation rules.
 - [x] Unit: chart/order-ticket/web market trade buttons keep visible BUY/SELL labels, price source, handler side, and order payload side aligned.
+- [x] Unit: order execution graph keeps uniform spacing between all horizontal dotted guides.
+- [x] Unit: order execution graph keeps right-side price labels close to the grid edge.
+- [x] Unit: order execution graph renders a right-side price label for the lowest dotted guide.
+- [x] Unit: order execution graph renders generated bid/ask traces with rounded pencil-style stroke treatment.
+- [x] Unit: order-ticket buy/sell controls keep the busy visual state on only the pressed side during submission.
+- [x] Unit: trade feedback modal uses distinct BUY/SELL success titles, badges, price labels, and side colors.
 - [x] Unit: live position price metrics ignore quotes without a recent receive/tick timestamp, while accepting recently received bid/ask updates even when backend feed time is old.
 - [x] Unit: account metrics accept live websocket alias fields and position mapping normalizes broker symbols plus common live-update aliases.
 - [ ] Integration: trade summary updates on position events.
@@ -49,6 +55,9 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - Trading UI flows are functionally complete with no blocking defects.
 
 ## Progress Notes
+- 2026-05-05: Updated the shared live order execution graph so the final dotted guide uses the same vertical interval as the rest of the price grid, tightened the horizontal gap between right-side price labels and grid lines, added the missing right-side value for the lowest dotted guide, and softened generated bid/ask traces with a rounded pencil-style stroke treatment. This applies to the market order ticket and to the shared graph reused by chart trade SL/TP order tabs.
+- 2026-05-05: Fixed market buy/sell visual feedback so tapping one side no longer makes the opposite side look tapped. The order ticket now keeps duplicate-submission locks in place while only the pressed price/action side receives busy opacity and accessibility busy state.
+- 2026-05-05: Updated the trade success popup so BUY and SELL executions are visually distinct. Successful buy confirmations now use buy-colored title/badge/price-label treatment, and successful sell confirmations use sell-colored treatment, so the modal no longer looks like both sides share the same execution state.
 - 2026-03-24: Fixed trade-flow account resolution so open positions, close, and modify actions no longer depend on `liveAccountState.login` being hydrated before the Trade tab loads.
 - 2026-03-24: Hardened the order/position flow to refresh using the resolved MT5 login after buy, sell, close, and modify actions, matching the live `/api/v2/orders` and `/api/v2/positions/{login}` contract.
 - 2026-04-09: Normalized legacy mock-era symbol aliases such as `BTCUSDm` and `XAUUSDm` to the live backend symbols (`BTCUSD`, `XAUUSD`) across order submission, instrument metadata, and symbol-driven quote/detail flows after live verification showed the trading engine only accepts the unsuffixed symbols for active YoForex accounts.

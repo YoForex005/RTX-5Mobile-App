@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getBucketGapCount, getExpectedNextCandleTime } from '../../src/domain/candles';
-import { materializeCanonicalHistoryAndLiveCandles } from '../../src/domain/candles';
-import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
+import { getBucketGapCount, getExpectedNextCandleTime } from '../../src/domain/candles/core/candles';
+import { materializeCanonicalHistoryAndLiveCandles } from '../../src/domain/candles/core/candles';
+import { resolveVisibleSeriesMode } from '../../src/domain/candles/ws/liveCandlesEnginePolicy';
 import {
   assertNoDuplicateCandleTimes,
   makeBackendLiveCandle,

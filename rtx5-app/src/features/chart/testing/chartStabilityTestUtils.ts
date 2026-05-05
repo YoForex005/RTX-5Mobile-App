@@ -6,8 +6,8 @@ import {
   isStructurallyValidCandle,
   normalizeSymbol,
   sortAndDedupeCandles,
-} from '../../../domain/candles';
-import type { CandlePriceBasis, TrustedHistoryCandle } from '../../../domain/candleProvenance';
+} from '../../../domain/candles/core/candles';
+import type { CandlePriceBasis, TrustedHistoryCandle } from '../../../domain/candles/core/candleProvenance';
 import type { Candle } from '../../../state/tradingState';
 
 export type CandleOverrides = Partial<Candle> & Record<string, unknown>;

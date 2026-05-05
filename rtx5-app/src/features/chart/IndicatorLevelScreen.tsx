@@ -19,9 +19,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme } from '../../theme/useTheme';
+import { useTheme } from '../../ui/theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import {
   Card,

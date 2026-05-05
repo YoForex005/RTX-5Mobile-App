@@ -1,4 +1,4 @@
-import type { PositionItem } from '../mock/tradingData';
+import type { PositionItem } from '../dev/mock/tradingData';
 import { mapPositionToItem } from './positionsMapper';
 
 const TERMINAL_POSITION_STATES = new Set([

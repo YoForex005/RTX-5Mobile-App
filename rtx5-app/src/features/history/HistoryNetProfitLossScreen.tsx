@@ -10,9 +10,9 @@ import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useUserPreferences } from '../../state/userPreferences';
-import { spacing } from '../../theme';
-import { ThemeColors } from '../../theme/glass';
-import { useTheme } from '../../theme/useTheme';
+import { spacing } from '../../ui/theme/index';
+import { ThemeColors } from '../../ui/theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
 import { useTranslation } from '../../i18n/useTranslation';
 

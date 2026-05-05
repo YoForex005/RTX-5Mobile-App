@@ -1,4 +1,4 @@
-import type { PositionItem, QuoteItem } from '../../mock/tradingData';
+import type { PositionItem, QuoteItem } from '../../dev/mock/tradingData';
 import { normalizeSymbol } from '../../domain/symbols.ts';
 
 type QuoteLike = Partial<QuoteItem> | undefined;

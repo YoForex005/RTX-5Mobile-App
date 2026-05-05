@@ -10,18 +10,18 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Image, Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 
 
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { QRCodeSheet } from './QRCodeSheet';
-import { ActionSheet } from '../../components/ActionSheet';
+import { ActionSheet } from '../../ui/components/ActionSheet';
 
 
 // ── API Integration: fetches live account + broker data for active card ──

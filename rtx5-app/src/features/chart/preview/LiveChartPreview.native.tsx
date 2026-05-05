@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useLiveCandles } from '../../../hooks/useLiveCandles';
+import { useLiveCandles } from '../../../domain/candles/hooks/useLiveCandles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
-import { isStructurallyValidCandle } from '../../../domain/candles';
+import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
 import { useMarketData } from '../../../query/websocket';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../../dev/devRefreshKey';
 import {

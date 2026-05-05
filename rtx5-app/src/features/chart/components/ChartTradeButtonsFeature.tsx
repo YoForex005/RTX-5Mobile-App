@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { classifyTradingError } from '../../../api/tradingErrors';
-import { useLiveTick } from '../../../hooks/useLiveCandles';
+import { useLiveTick } from '../../../domain/candles/hooks/useLiveCandles';
 import { usePlaceOrderMutation } from '../../../query/orders';
 import { resolveTradingLogin } from '../../../state/tradingLogin';
 import { useUserPreferences } from '../../../state/userPreferences';
@@ -398,16 +398,37 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     }
   }, [symbol]);
 
+  const clearActiveTradeSide = (side: TradeSide, delayMs = 0) => {
+    if (activeSideResetTimeoutRef.current) {
+      clearTimeout(activeSideResetTimeoutRef.current);
+      activeSideResetTimeoutRef.current = null;
+    }
+
+    const clearSide = () => {
+      setActiveSide((currentSide) => (currentSide === side ? null : currentSide));
+      activeSideResetTimeoutRef.current = null;
+    };
+
+    if (delayMs > 0) {
+      activeSideResetTimeoutRef.current = setTimeout(clearSide, delayMs);
+      return;
+    }
+
+    clearSide();
+  };
+
   const markActiveTradeSide = (side: TradeSide) => {
     if (activeSideResetTimeoutRef.current) {
       clearTimeout(activeSideResetTimeoutRef.current);
+      activeSideResetTimeoutRef.current = null;
     }
     setActiveSide(side);
-    activeSideResetTimeoutRef.current = setTimeout(() => {
-      setActiveSide((currentSide) => (currentSide === side ? null : currentSide));
-      activeSideResetTimeoutRef.current = null;
-    }, 800);
   };
+
+  const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && isPending;
+  const isChartTradeActionVisuallyLocked = (side: TradeSide) =>
+    !isCurrentChartSymbol || activeSide === side;
+  const chartTradeActionDisabled = isPending || !isCurrentChartSymbol;
 
   const handleTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
@@ -463,6 +484,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       tradeTapLockSideRef.current = null;
       if (lockedSide) {
         releaseChartTradeButtonSharedLock(lockedSide, delayMs);
+        clearActiveTradeSide(lockedSide, delayMs);
       }
     };
     markActiveTradeSide(action.side);
@@ -615,15 +637,16 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: sellColor },
-            (!isCurrentChartSymbol || activeSide === 'sell' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
+            isChartTradeActionVisuallyLocked('sell') && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={isPending || !isCurrentChartSymbol}
+          disabled={chartTradeActionDisabled}
+          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('sell') }}
           onPress={() => handleTrade('sell')}
           accessibilityRole="button"
           accessibilityLabel={sellAction.marketAccessibilityLabel}
           testID={sellAction.marketTestID}
         >
-          {activeSide === 'sell' && isPending ? (
+          {isChartTradeActionBusy('sell') ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
@@ -638,15 +661,16 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.chartTradeMarketActionButton,
             { backgroundColor: buyColor },
-            (!isCurrentChartSymbol || activeSide === 'buy' || (isPending && !activeSide)) && baseStyles.chartTradeMarketActionButtonBusy,
+            isChartTradeActionVisuallyLocked('buy') && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={isPending || !isCurrentChartSymbol}
+          disabled={chartTradeActionDisabled}
+          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('buy') }}
           onPress={() => handleTrade('buy')}
           accessibilityRole="button"
           accessibilityLabel={buyAction.marketAccessibilityLabel}
           testID={buyAction.marketTestID}
         >
-          {activeSide === 'buy' && isPending ? (
+          {isChartTradeActionBusy('buy') ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
@@ -668,9 +692,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: sellColor, borderWidth: 0, shadowColor: sellColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (!isCurrentChartSymbol || activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 },
+            isChartTradeActionVisuallyLocked('sell') && { opacity: 0.5 },
           ]}
-          disabled={isPending || !isCurrentChartSymbol}
+          disabled={chartTradeActionDisabled}
+          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('sell') }}
           onPress={() => handleTrade('sell')}
           accessibilityRole="button"
           accessibilityLabel={sellAction.accessibilityLabel}
@@ -777,9 +802,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: buyColor, borderWidth: 0, shadowColor: buyColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            (!isCurrentChartSymbol || activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 },
+            isChartTradeActionVisuallyLocked('buy') && { opacity: 0.5 },
           ]}
-          disabled={isPending || !isCurrentChartSymbol}
+          disabled={chartTradeActionDisabled}
+          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('buy') }}
           onPress={() => handleTrade('buy')}
           accessibilityRole="button"
           accessibilityLabel={buyAction.accessibilityLabel}

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
-import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import {
   getExpectedNextCandleTime,
   materializeCanonicalHistoryAndLiveCandles,
-} from '../../src/domain/candles';
-import { resolveVisibleSeriesMode } from '../../src/api/ws/liveCandlesEnginePolicy';
+} from '../../src/domain/candles/core/candles';
+import { resolveVisibleSeriesMode } from '../../src/domain/candles/ws/liveCandlesEnginePolicy';
 import {
   assertNoDuplicateCandleTimes,
   assertValidCandleSeries,

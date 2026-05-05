@@ -9,9 +9,9 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import QRCode from 'react-native-qrcode-svg';
 
 interface Props {

@@ -11,12 +11,12 @@ import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActionSheet } from '../../components/ActionSheet';
-import { Screen } from '../../components/Screen';
+import { ActionSheet } from '../../ui/components/ActionSheet';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import {
   TvBrush,
   TvFib,

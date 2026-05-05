@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
-import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import { secondsUtc } from '../support/candleTestUtils';
 
 test('older backend live candle snapshots cannot rewind the active candle', () => {

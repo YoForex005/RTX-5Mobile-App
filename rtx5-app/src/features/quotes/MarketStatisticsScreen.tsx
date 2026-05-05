@@ -20,15 +20,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { quotes, type QuoteItem } from '../../mock/tradingData';
+import { quotes, type QuoteItem } from '../../dev/mock/tradingData';
 import { useMarketData } from '../../query/websocket';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme } from '../../theme/useTheme';
-import type { ThemeColors } from '../../theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
+import type { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { normalizeSymbol } from '../../domain/symbols';
 import { useInstrumentMeta } from '../../query/instruments';
-import { useCandleHistory } from '../../query/candles';
+import { useLatestDailyCandle } from '../../domain/candles/query/candles';
 import { calculateMarketSentiment } from '../../domain/marketSentiment';
 
 /* ───── Types ───── */
@@ -55,12 +55,7 @@ export function MarketStatisticsScreen() {
   // Subscribe to live tick data
   const liveQuotes = useMarketData([symbol]);
   const { data: remoteMeta } = useInstrumentMeta(symbol);
-  const { data: d1Candles } = useCandleHistory(symbol, 'D1');
-
-  const dailyRangeCandle = useMemo(
-    () => (d1Candles && d1Candles.length > 0 ? d1Candles[d1Candles.length - 1] : null),
-    [d1Candles],
-  );
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol);
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;

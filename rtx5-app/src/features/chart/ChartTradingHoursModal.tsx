@@ -12,7 +12,7 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 
 type Props = {
   visible: boolean;

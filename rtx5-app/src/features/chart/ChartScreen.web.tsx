@@ -16,26 +16,26 @@ import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ActionSheet } from '../../components/ActionSheet';
+import { ActionSheet } from '../../ui/components/ActionSheet';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode, TvRadialObjects
 } from './components/ChartToolbarIcons';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
-import { useLiveCandles, useLiveTick } from '../../hooks/useLiveCandles';
-import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
+import { useLiveCandles, useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
+import { liveCandlesEngine } from '../../domain/candles/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
-import { useCandleHistory } from '../../query/candles';
+import { useLatestDailyCandle } from '../../domain/candles/query/candles';
 import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -54,7 +54,7 @@ import {
 import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
 import { useMarketData } from '../../query/websocket';
-import { LiveClock } from '../../components/LiveClock';
+import { LiveClock } from '../../ui/components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
@@ -62,7 +62,7 @@ import {
   buildRTX5CustomCandlestickSeriesOptions,
   createRTX5CustomCandlestickPaneView,
   mapCandlesToRTX5CustomCandlestickData,
-} from './rendering/customCandlestickSeries';
+} from '../../domain/candles/rendering/customCandlestickSeries';
 import {
   buildChartSeriesSnapshot,
   EMPTY_CHART_SERIES_SNAPSHOT,
@@ -77,8 +77,8 @@ import {
 } from './timeRangePresets';
 import { useShallow } from 'zustand/shallow';
 import { calculateMarketSentiment } from '../../domain/marketSentiment';
-import { normalizeSymbol, normalizeTimeframeStrict } from '../../domain/candles';
-import { sanitizeCandlesForChart } from '../../candles/chartAdapter';
+import { normalizeSymbol, normalizeTimeframeStrict } from '../../domain/candles/core/candles';
+import { sanitizeCandlesForChart } from '../../domain/candles/normalization/chartAdapter';
 import {
   formatTradeVolume,
   incrementTradeVolume,
@@ -700,11 +700,7 @@ export function ChartScreen() {
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
-  const { data: chartDailyCandles } = useCandleHistory(chartSymbol, 'D1');
-  const chartDailyRangeCandle = useMemo(
-    () => (chartDailyCandles && chartDailyCandles.length > 0 ? chartDailyCandles[chartDailyCandles.length - 1] : null),
-    [chartDailyCandles],
-  );
+  const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol);
   const hasCandles = candles.length > 0;
   const timeRangeCandlesRef = useRef(candles);
   const chartCandles = useMemo(

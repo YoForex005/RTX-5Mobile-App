@@ -10,10 +10,10 @@ import { router } from 'expo-router';
 import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
-import { useTheme } from '../../theme/useTheme';
+import { Screen } from '../../ui/components/Screen';
+import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
-import { ThemeColors } from '../../theme/glass';
+import { ThemeColors } from '../../ui/theme/glass';
 
 type MenuItem = { label: string; icon: keyof typeof Ionicons.glyphMap };
 

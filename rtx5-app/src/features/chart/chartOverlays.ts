@@ -2,7 +2,7 @@ import type { PriceAlert } from '../../api/alerts';
 import type { LoginOrder } from '../../api/orders';
 import type { ClosedPosition } from '../../api/positions';
 import { normalizeSymbol } from '../../domain/symbols.ts';
-import type { PositionItem } from '../../mock/tradingData';
+import type { PositionItem } from '../../dev/mock/tradingData';
 import type { ChartColorsConfig } from '../../state/userPreferences';
 import type { ChartShowOnChartSettings } from './chartShowOnChart';
 

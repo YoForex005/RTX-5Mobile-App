@@ -14,13 +14,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
-import { spacing } from '../../theme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
+import { spacing } from '../../ui/theme/index';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle } from 'react-native-svg';
 import { useMarketData } from '../../query/websocket';
-import { useLiveCandles } from '../../hooks/useLiveCandles';
+import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 
 // Performance periods — labels only; values computed dynamically from candle data
 const PERF_LABELS = ['Hour', 'Today', 'Week', 'Month', 'Year'] as const;

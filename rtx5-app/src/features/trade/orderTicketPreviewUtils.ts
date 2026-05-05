@@ -1,4 +1,4 @@
-import type { CandleParams } from '../../hooks/useLiveCandles';
+import type { CandleParams } from '../../domain/candles/hooks/useLiveCandles';
 import type { ChartOrderType } from '../chart/chartTradeOrderUtils';
 
 export type OrderTicketPreviewPoint = {

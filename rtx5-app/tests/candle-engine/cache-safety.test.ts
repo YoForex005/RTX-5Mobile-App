@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test, { afterEach, beforeEach } from 'node:test';
 
 import {
+  MAX_CANDLE_CACHE_ENTRIES,
   isRenderableCandleBootstrapSeed,
   isTrustworthyCandleBootstrapSeed,
   sortAndDedupeCandles,
-} from '../../src/domain/candles';
-import { splitRestHistoryCandles } from '../../src/domain/candleProvenance';
-import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from '../../src/state/candleCache';
+} from '../../src/domain/candles/core/candles';
+import { splitRestHistoryCandles } from '../../src/domain/candles/core/candleProvenance';
+import { mergeHistoryIntoCandleCache, syncMergedCandleCache } from '../../src/domain/candles/state/candleCache';
+import { CandleMemoryCache } from '../../src/domain/candles/stream/candleMemoryCache';
 import { useTradingState } from '../../src/state/tradingState';
 import {
   buildContiguousHistory,
@@ -62,6 +64,39 @@ test('backend M1 cache with market-close gaps can seed the chart', () => {
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], backendCache);
 });
 
+test('in-memory candle cache keeps only the most recent chart contexts', () => {
+  const cache = new CandleMemoryCache(2, 3);
+  const first = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 5, 'M1');
+  const second = buildContiguousHistory(secondsUtc(2024, 3, 22, 13, 0, 0), 5, 'M1');
+  const third = buildContiguousHistory(secondsUtc(2024, 3, 22, 14, 0, 0), 5, 'M1');
+
+  cache.set('S00001', 'M1', first);
+  cache.set('S00002', 'M1', second);
+  cache.set('S00003', 'M1', third);
+
+  assert.equal(cache.get('S00001', 'M1').length, 0);
+  assert.deepEqual(cache.get('S00002', 'M1').map((candle) => candle.time), second.slice(-3).map((candle) => candle.time));
+  assert.deepEqual(cache.get('S00003', 'M1').map((candle) => candle.time), third.slice(-3).map((candle) => candle.time));
+});
+
+test('zustand candle cache evicts older inactive histories instead of growing without bound', () => {
+  const startTime = secondsUtc(2024, 3, 22, 12, 0, 0);
+
+  for (let index = 0; index < MAX_CANDLE_CACHE_ENTRIES + 3; index += 1) {
+    const symbol = `S${String(index).padStart(5, '0')}`;
+    useTradingState.getState().setCandleHistory(
+      symbol,
+      'M1',
+      buildContiguousHistory(startTime + index * 3600, 10, 'M1'),
+    );
+  }
+
+  const keys = Object.keys(useTradingState.getState().candles);
+  assert.equal(keys.length, MAX_CANDLE_CACHE_ENTRIES);
+  assert.equal(keys.includes('S00000.M1'), false);
+  assert.equal(keys.includes(`S${String(MAX_CANDLE_CACHE_ENTRIES + 2).padStart(5, '0')}.M1`), true);
+});
+
 test('cache dedupes unsorted candle times before use', () => {
   const unsorted = [
     makeTrustedHistoryCandle(180, { close: 1.3 }),
@@ -87,7 +122,7 @@ test('corrupted OHLC cache entries are rejected during normalization', () => {
   assert.deepEqual(normalized.map((candle) => candle.time), [120]);
 });
 
-test('REST history merge stores the backend-authoritative candle series without splitting current candle', () => {
+test('REST history merge stores only closed REST history in the bootstrap cache', () => {
   const restPayload = [
     makeCandle(60, { close: 1.1 }),
     makeCandle(120, { close: 1.2 }),
@@ -96,16 +131,16 @@ test('REST history merge stores the backend-authoritative candle series without 
 
   const stored = mergeHistoryIntoCandleCache('EURUSD', 'M1', restPayload);
 
-  assert.deepEqual(stored.map((candle) => candle.time), [60, 120, 180]);
+  assert.deepEqual(stored.map((candle) => candle.time), [60, 120]);
   assert.deepEqual(useTradingState.getState().candles['EURUSD.M1'], stored);
 });
 
-test('same-time backend live candle does not promote a thin one-candle cache', () => {
+test('same-time backend live candle does not overwrite trusted closed history', () => {
   const trusted = makeTrustedHistoryCandle(120, { close: 1.1 });
   const live = makeBackendLiveCandle(120, { close: 1.9 });
 
-  assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), false);
-  assert.equal(useTradingState.getState().candles['EURUSD.M1'], undefined);
+  assert.equal(syncMergedCandleCache('EURUSD', 'M1', [trusted, live], { canonical: true }), true);
+  assert.equal(useTradingState.getState().candles['EURUSD.M1'][0].close, 1.1);
 });
 
 test('app restart during live candle relies on REST split to avoid trusting current candle', () => {

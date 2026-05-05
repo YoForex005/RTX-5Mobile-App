@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
-import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
-import { SUPPORTED_TIMEFRAMES, alignTimeToBucket, normalizeSymbol } from '../../src/domain/candles';
+import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
+import { SUPPORTED_TIMEFRAMES, alignTimeToBucket, normalizeSymbol } from '../../src/domain/candles/core/candles';
 import { secondsUtc } from '../support/candleTestUtils';
 
 test('backend live candle applies the supplied OHLC without local price reconstruction', () => {

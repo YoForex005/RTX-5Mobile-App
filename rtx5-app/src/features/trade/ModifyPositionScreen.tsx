@@ -30,11 +30,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
 import { positionsApi } from '../../api/positions';
-import { useLiveTick, useLiveCandles } from '../../hooks/useLiveCandles';
+import { useLiveTick, useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { findPositionById } from './tradeFlow';
 import { fmt } from '../../utils/format';
 import {

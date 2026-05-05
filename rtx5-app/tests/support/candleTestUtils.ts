@@ -6,11 +6,11 @@ import {
   materializeCanonicalHistoryAndLiveCandles,
   normalizeSymbol,
   sortAndDedupeCandles,
-} from '../../src/domain/candles';
+} from '../../src/domain/candles/core/candles';
 import type {
   CandlePriceBasis,
   TrustedHistoryCandle,
-} from '../../src/domain/candleProvenance';
+} from '../../src/domain/candles/core/candleProvenance';
 import type { Candle } from '../../src/state/tradingState';
 
 export type CandleOverrides = Partial<Candle> & Record<string, unknown>;

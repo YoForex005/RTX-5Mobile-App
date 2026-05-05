@@ -18,9 +18,9 @@ import { resolveTradingLogin, resolveTradingLoginString } from '../../state/trad
 import { ordersApi } from '../../api/orders';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
-import { useLiveTick } from '../../hooks/useLiveCandles';
+import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
@@ -365,7 +365,11 @@ export function OrderTicketScreen() {
   const tradeTapLockRef = useRef(false);
   const tradeTapLockSideRef = useRef<TradeSide | null>(null);
   const tradeActionDisabled = pendingSide !== null || tradeActionLocked;
-  const pricePanelActionDisabled = tradeActionDisabled || !oneClickAccepted || !isMarketExecution;
+  const pricePanelActionUnavailable = !oneClickAccepted || !isMarketExecution;
+  const isTradeActionPending = (side: TradeSide) => pendingSide === side;
+  const isPricePanelActionDisabled = (_side: TradeSide) => pricePanelActionUnavailable || tradeActionDisabled;
+  const getPricePanelActionOpacity = (side: TradeSide) =>
+    pricePanelActionUnavailable || isTradeActionPending(side) ? 0.5 : 1;
   const tradeButtonActions: readonly OrderTicketTradeAction[] = [
     {
       side: TRADE_SIDE.sell,
@@ -748,8 +752,9 @@ export function OrderTicketScreen() {
       {/* ── Price Panel (HERO — always visible) ────────────────────── */}
       <View style={styles.pricePanel}>
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: sellTradeAction.backgroundColor, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
-          disabled={pricePanelActionDisabled}
+          style={[styles.priceHalf, { backgroundColor: sellTradeAction.backgroundColor, opacity: getPricePanelActionOpacity(sellTradeAction.side) }]}
+          disabled={isPricePanelActionDisabled(sellTradeAction.side)}
+          accessibilityState={{ disabled: isPricePanelActionDisabled(sellTradeAction.side), busy: isTradeActionPending(sellTradeAction.side) }}
           onPress={() => { void handlePlaceOrder(sellTradeAction.side); }}
           accessibilityRole="button"
           accessibilityLabel={sellTradeAction.displayLabel}
@@ -769,8 +774,9 @@ export function OrderTicketScreen() {
         </View>
 
         <Pressable
-          style={[styles.priceHalf, { backgroundColor: buyTradeAction.backgroundColor, opacity: pricePanelActionDisabled ? 0.5 : 1 }]}
-          disabled={pricePanelActionDisabled}
+          style={[styles.priceHalf, { backgroundColor: buyTradeAction.backgroundColor, opacity: getPricePanelActionOpacity(buyTradeAction.side) }]}
+          disabled={isPricePanelActionDisabled(buyTradeAction.side)}
+          accessibilityState={{ disabled: isPricePanelActionDisabled(buyTradeAction.side), busy: isTradeActionPending(buyTradeAction.side) }}
           onPress={() => { void handlePlaceOrder(buyTradeAction.side); }}
           accessibilityRole="button"
           accessibilityLabel={buyTradeAction.displayLabel}
@@ -967,16 +973,18 @@ export function OrderTicketScreen() {
                 style={({ pressed }) => [
                   styles.execBtn,
                   action.execStyle,
+                  isTradeActionPending(action.side) && styles.execBtnBusy,
                   pressed && { opacity: 0.88 }
                 ]}
                 onPress={() => { void handlePlaceOrder(action.side); }}
                 disabled={tradeActionDisabled}
+                accessibilityState={{ disabled: tradeActionDisabled, busy: isTradeActionPending(action.side) }}
                 accessibilityRole="button"
                 accessibilityLabel={action.marketLabel}
                 testID={action.execTestID}
                 unstable_pressDelay={0}
               >
-                {pendingSide === action.side ? (
+                {isTradeActionPending(action.side) ? (
                   <ActivityIndicator color={T.text} />
                 ) : (
                   <>
@@ -1238,6 +1246,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     execRow: { flexDirection: 'row', direction: 'ltr', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
     execBtn: { flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingVertical: 14, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
+    execBtnBusy: { opacity: 0.88 },
     execSell: { backgroundColor: SELL_C, shadowColor: SELL_C },
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },

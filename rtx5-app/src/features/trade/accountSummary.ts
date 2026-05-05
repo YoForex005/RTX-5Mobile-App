@@ -1,6 +1,6 @@
 import type { LiveAccountData } from '../../state/liveAccountState';
 import type { AccountSummary } from '../../state/tradingState';
-import type { PositionItem, QuoteItem } from '../../mock/tradingData';
+import type { PositionItem, QuoteItem } from '../../dev/mock/tradingData';
 import { sumLivePositionPnl } from './livePositionMetrics.ts';
 
 export type TradeAccountSummary = {

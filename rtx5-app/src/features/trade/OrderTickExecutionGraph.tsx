@@ -32,7 +32,6 @@ type LiveOrderTickExecutionGraphProps = {
 const DEFAULT_GRAPH_HEIGHT = 296;
 const DEFAULT_MAX_TICKS = 100;
 const GRAPH_LEFT_PADDING = 10;
-const GRAPH_RIGHT_AXIS_WIDTH = 72;
 const GRAPH_TOP_PADDING = 16;
 const GRAPH_BOTTOM_PADDING = 16;
 const GRAPH_LABEL_COUNT = 7;
@@ -40,7 +39,12 @@ const GRAPH_AXIS_LABEL_RIGHT_PADDING = 4;
 const GRAPH_BADGE_WIDTH = 62;
 const GRAPH_BADGE_HEIGHT = 20;
 const GRAPH_BADGE_GAP = 2;
+const GRAPH_RIGHT_AXIS_WIDTH = GRAPH_BADGE_WIDTH + GRAPH_BADGE_GAP;
+const GRAPH_AXIS_LABEL_OFFSET = 48;
 const GRAPH_MIN_LINE_GAP = GRAPH_BADGE_HEIGHT + 3;
+const GRAPH_TRACE_SOFT_STROKE_WIDTH = 2.2;
+const GRAPH_TRACE_MAIN_STROKE_WIDTH = 1.05;
+const GRAPH_TRACE_SOFT_OPACITY = 0.18;
 
 const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
 const clampValue = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -250,6 +254,10 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
     () => resolveFallbackTickSize(visibleTicks, priceDecimals),
     [priceDecimals, visibleTicks],
   );
+  const gridLineSpacing = Math.max(
+    0,
+    (height - GRAPH_TOP_PADDING - GRAPH_BOTTOM_PADDING) / Math.max(GRAPH_LABEL_COUNT, 1),
+  );
 
   const { chartMin, chartMax } = useMemo(() => {
     const bidValues = visibleTicks.map((tick) => tick.bid);
@@ -273,11 +281,15 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
     };
   }, [fallbackTickSize, visibleTicks]);
 
-  const plotWidth = Math.max(0, layoutWidth - GRAPH_RIGHT_AXIS_WIDTH - GRAPH_LEFT_PADDING - 6);
-  const plotHeight = Math.max(0, height - GRAPH_TOP_PADDING - GRAPH_BOTTOM_PADDING);
+  const plotWidth = Math.max(0, layoutWidth - GRAPH_RIGHT_AXIS_WIDTH - GRAPH_LEFT_PADDING);
+  const plotHeight = Math.max(0, gridLineSpacing * Math.max(GRAPH_LABEL_COUNT - 1, 0));
   const plotLeft = GRAPH_LEFT_PADDING;
   const plotRight = plotLeft + plotWidth;
-  const graphBottomGuideY = Math.min(height - 1, GRAPH_TOP_PADDING + plotHeight + Math.max(4, GRAPH_BOTTOM_PADDING / 2));
+  const graphBottomGuideY = Math.min(height - 1, GRAPH_TOP_PADDING + gridLineSpacing * Math.max(GRAPH_LABEL_COUNT, 1));
+  const priceLabelX = Math.min(
+    layoutWidth - GRAPH_AXIS_LABEL_RIGHT_PADDING,
+    plotRight + GRAPH_AXIS_LABEL_OFFSET,
+  );
   const chartSpan = Math.max(chartMax - chartMin, fallbackTickSize);
   const latestTick = visibleTicks[visibleTicks.length - 1];
 
@@ -323,6 +335,8 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
       ),
     [chartMax, chartSpan],
   );
+  const bottomGuidePriceLevel =
+    chartMin - chartSpan / Math.max(GRAPH_LABEL_COUNT - 1, 1);
 
   const badgePositions = useMemo(() => {
     if (!latestTick) {
@@ -372,30 +386,52 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
           })}
 
           {askPath ? (
-            <Path
-              d={askPath}
-              stroke={askColor}
-              strokeWidth="0.6"
-              fill="none"
-              strokeLinejoin="miter"
-              strokeLinecap="butt"
-            />
+            <>
+              <Path
+                d={askPath}
+                stroke={askColor}
+                strokeWidth={GRAPH_TRACE_SOFT_STROKE_WIDTH}
+                strokeOpacity={GRAPH_TRACE_SOFT_OPACITY}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              <Path
+                d={askPath}
+                stroke={askColor}
+                strokeWidth={GRAPH_TRACE_MAIN_STROKE_WIDTH}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </>
           ) : null}
           {bidPath ? (
-            <Path
-              d={bidPath}
-              stroke={bidColor}
-              strokeWidth="0.6"
-              fill="none"
-              strokeLinejoin="miter"
-              strokeLinecap="butt"
-            />
+            <>
+              <Path
+                d={bidPath}
+                stroke={bidColor}
+                strokeWidth={GRAPH_TRACE_SOFT_STROKE_WIDTH}
+                strokeOpacity={GRAPH_TRACE_SOFT_OPACITY}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              <Path
+                d={bidPath}
+                stroke={bidColor}
+                strokeWidth={GRAPH_TRACE_MAIN_STROKE_WIDTH}
+                fill="none"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </>
           ) : null}
 
           {priceLevels.map((priceLevel, index) => (
             <SvgText
               key={`label-${index}`}
-              x={layoutWidth - GRAPH_AXIS_LABEL_RIGHT_PADDING}
+              x={priceLabelX}
               y={yForPrice(priceLevel) + 4}
               fill="#7B8794"
               fontSize="10"
@@ -415,6 +451,16 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
             strokeDasharray="4 4"
             strokeWidth="1"
           />
+          <SvgText
+            x={priceLabelX}
+            y={graphBottomGuideY + 4}
+            fill="#7B8794"
+            fontSize="10"
+            fontWeight="500"
+            textAnchor="end"
+          >
+            {bottomGuidePriceLevel.toFixed(priceDecimals)}
+          </SvgText>
 
           {latestTick ? (
             <>

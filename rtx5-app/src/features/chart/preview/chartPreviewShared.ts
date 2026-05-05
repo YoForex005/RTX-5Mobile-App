@@ -1,6 +1,6 @@
-import { isStructurallyValidCandle } from '../../../domain/candles';
+import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
 import { ChartColorsConfig } from '../../../state/userPreferences';
-import { mapCandlesToRTX5CustomCandlestickData } from '../rendering/customCandlestickSeries';
+import { mapCandlesToRTX5CustomCandlestickData } from '../../../domain/candles/rendering/customCandlestickSeries';
 
 export type PreviewChartType = 'candles' | 'bars' | 'line' | 'hollow';
 

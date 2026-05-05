@@ -20,12 +20,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { brokers } from '../../mock/tradingData';
-import { useTheme } from '../../theme/useTheme';
+import { Screen } from '../../ui/components/Screen';
+import { brokers } from '../../dev/mock/tradingData';
+import { useTheme } from '../../ui/theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
-import { ThemeColors } from '../../theme/glass';
-import { spacing } from '../../theme';
+import { ThemeColors } from '../../ui/theme/glass';
+import { spacing } from '../../ui/theme/index';
 import { useTranslation } from '../../i18n/useTranslation';
 
 type BrokerFilter = 'all' | 'popular' | 'regulated';

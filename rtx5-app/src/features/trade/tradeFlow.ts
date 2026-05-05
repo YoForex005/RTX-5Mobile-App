@@ -6,7 +6,7 @@
  * candidates for "Close By" operations.
  */
 
-import { PositionItem } from '../../mock/tradingData';
+import { PositionItem } from '../../dev/mock/tradingData';
 import { normalizeSymbol } from '../../domain/symbols';
 
 export function findPositionById(positions: PositionItem[], positionId?: string | string[]) {

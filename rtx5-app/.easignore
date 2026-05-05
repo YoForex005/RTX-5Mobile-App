@@ -3,8 +3,10 @@ ios/
 
 node_modules/
 .expo/
+.codex-tmp/
 dist/
 web-build/
+tmp/
 
 *.log
 .DS_Store

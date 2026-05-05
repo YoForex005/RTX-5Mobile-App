@@ -9,11 +9,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../state/userPreferences';
-import { ThemeColors } from '../../theme/glass';
-import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
 
 
 

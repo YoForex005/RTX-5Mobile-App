@@ -5,9 +5,9 @@ import {
   alignTimeToBucket,
   alignTimeToBucketWithReference,
   getExpectedNextCandleTime,
-} from '../../src/domain/candles';
-import { applyLiveCandleToCandleMap } from '../../src/candles/candleAggregator';
-import { createCandleMap, materializeCandleMap } from '../../src/candles/candleMerger';
+} from '../../src/domain/candles/core/candles';
+import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import { secondsUtc } from '../support/candleTestUtils';
 
 test('M1 timestamp at 12:01:23 maps to bucket 12:01:00', () => {

@@ -17,12 +17,12 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { ThemeColors } from '../../theme/glass';
-import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { fetchEconomicCalendarData, EconomicEvent, ImpactLevel } from '../../mock/calendarData';
+import { fetchEconomicCalendarData, EconomicEvent, ImpactLevel } from '../../dev/mock/calendarData';
 
 // ── Mock Data ─────────────────────────────────────────────────────
 // The MOCK_EVENTS array was moved to src/mock/calendarData.ts to simulate a dynamic remote fetch

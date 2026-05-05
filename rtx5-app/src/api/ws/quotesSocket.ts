@@ -5,7 +5,7 @@
 import { useTradingState } from '../../state/tradingState';
 import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { quotes as mockQuotes } from '../../mock/tradingData';
+import { quotes as mockQuotes } from '../../dev/mock/tradingData';
 import { recordUiFeedGap } from '../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from './quoteSubscriptionState';
 import { normalizeQuoteTickPayload, type QuoteTickEvent } from './quoteTickNormalizer';

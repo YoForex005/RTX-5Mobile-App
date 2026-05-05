@@ -11,8 +11,8 @@ import {
   ColorType,
   CrosshairMode,
 } from 'lightweight-charts';
-import { useLiveCandles } from '../../../hooks/useLiveCandles';
-import { isStructurallyValidCandle } from '../../../domain/candles';
+import { useLiveCandles } from '../../../domain/candles/hooks/useLiveCandles';
+import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
 import { useMarketData } from '../../../query/websocket';
 import {
@@ -26,7 +26,7 @@ import {
 import {
   buildRTX5CustomCandlestickSeriesOptions,
   createRTX5CustomCandlestickPaneView,
-} from '../rendering/customCandlestickSeries';
+} from '../../../domain/candles/rendering/customCandlestickSeries';
 
 const getSafePreviewDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),

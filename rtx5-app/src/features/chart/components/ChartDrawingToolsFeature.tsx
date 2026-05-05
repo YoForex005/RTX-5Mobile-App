@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { ActionSheet } from '../../../components/ActionSheet';
+import { ActionSheet } from '../../../ui/components/ActionSheet';
 import {
   TvRadialPlus,
 } from './ChartToolbarIcons';

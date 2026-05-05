@@ -34,6 +34,15 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Interaction remains responsive under active updates.
 
 ## Progress Notes
+- 2026-05-05: Smoothed native chart SL/TP trade-line vertical dragging. The WebView now moves the active SL/TP line locally on every finger move, keeps the right-axis value label repriced with the dragged level, throttles only the native state sync and label redraw work, preserves the active dragged price across overlay resyncs, and locks the price scale while dragging so candles do not shift underneath the line.
+- 2026-05-05: Matched the chart SL/TP trade-sheet live execution preview to the order-ticket graph spacing by making the final lower dotted guide use the same vertical interval as the rest of the price grid, tightening the gap between grid lines and right-side price labels, rendering the missing value for the lowest dotted guide, and softening generated bid/ask traces with a rounded pencil-style stroke treatment. Every SL/TP order tab now keeps uniform guide spacing with a complete compact right axis and a more polished generated line style.
+- 2026-05-05: Fixed chart buy/sell visual feedback so the tapped side remains the only busy-looking button for the full request. The opposite buy/sell side stays visually normal while duplicate submissions remain blocked.
+- 2026-05-05: Updated chart trade success feedback to share the same side-specific confirmation popup as the order ticket. BUY and SELL executions now show distinct titles, filled badges, price labels, and side colors.
+- 2026-05-05: Reduced chart-memory retention without changing the active chart buffer. Candle history remains a 2500-bar visible series for the active chart, but inactive in-memory/Zustand/persisted candle caches are now bounded to recent chart contexts, full-history TanStack Query retention is shorter, and daily range/stat screens request only the latest D1 candle instead of retaining a full D1 chart history.
+- 2026-05-05: Fixed the candle cache generation boundary so shared and persisted bootstrap caches store only trusted closed REST history. Backend live/current candles remain in the canonical live stream and can no longer be promoted into cached history on refresh or app restart; focused candle coverage now confirms REST/current splitting, backend live OHLC generation, duplicate/stale candle handling, and quote ticks staying out of candle formation.
+- 2026-05-02: Reworked the canonical candle stream to materialize the chart series fresh from two separated sources: sanitized REST history and backend live-candle snapshots. The live stream no longer keeps one mixed mutable history/live map; REST catch-up prunes covered live buckets, same-bucket live snapshots replace the REST current candle, and every commit rebuilds a sorted duplicate-free visible candle series for the WebView. Native quote updates now move bid/ask price lines only instead of patching WebView OHLC, and horizontal zoom/pan range changes re-enable price autoscale so older-candle navigation cannot leave a stale oversized price range.
+- 2026-05-02: Restored native vertical candle dragging after the autoscale hardening. Vertical drags now pin a manual price range from the current visible candles, keep autoscale disabled while the finger moves, and release without letting horizontal zoom/pan autoscale guards overwrite the manual range.
+- 2026-05-02: Professionalized the candle engine file structure without removing legacy imports. Implementations now live under `src/candles/core`, `src/candles/normalization`, `src/candles/series`, and `src/candles/stream`, with top-level compatibility wrappers left in place for existing call sites.
 - Chart bootstrap now hydrates candle history from `/api/v2/candles/{symbol}` with the full 2500-bar chart buffer before live websocket merging.
 - Candle normalization was added to prevent broken bars caused by unsorted timestamps, duplicate periods, or invalid OHLC bounds.
 - Live candle recovery was hardened so a validated realtime candle can advance the active series even when REST history reconnects behind the current bucket; bounded flat gap-fill handles short drift, and stale-history handoff now rebuilds the missing timestamp chain into a canonical full sync instead of appending a detached live candle.
@@ -301,14 +310,23 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: footer lot picker keeps the previous adjustment range available to the left of the active dynamic range.
 - [x] Typecheck/unit: chart i18n expansion covers toolbar/action sheets, drawing-tool labels, and chart trade price/stop/expiration/comment controls.
 - [x] Unit: chart trade sheet body stays hidden in compact `SL/TP` mode and renders only after expand.
+- [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph uniform guide-spacing contract.
+- [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph compact right-axis label-gap contract.
+- [x] Unit: chart SL/TP trade-sheet execution preview shows a right-side value for the lowest dotted guide.
+- [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph rounded pencil-style trace contract.
+- [x] Unit: chart buy/sell controls keep the busy visual state on only the pressed side during submission.
+- [x] Unit: chart trade feedback modal uses distinct BUY/SELL success titles, badges, price labels, and side colors.
 - [x] Unit: chart trade sheet comment focus keeps the route height stable instead of hiding the tab bar or accepting keyboard-driven host remeasurements.
 - [x] Unit: chart trade sheet header lift clamps the expanded sheet below the chart title and stays disabled in fullscreen.
 - [x] Unit: compact `SL/TP` sheet touch frame remains collapsed so chart-side stop lines stay draggable.
+- [x] Unit: chart SL/TP trade-line drag updates during move, keeps touch ownership, preserves candle scale, updates the right-axis value label, throttles native/label work, and survives overlay resync.
 - [x] Unit: M1 REST history stream seeds include the backend current candle for EURUSD, GBPUSD, XAUUSD, and BTCUSD so the first live tick cannot create a frontend-only gap.
 - [x] Unit: native `CHART_READY` force-paints retained candles into the WebView.
 - [x] Unit: REST history requests use only the selected backend timeframe, and backend REST timestamps are preserved instead of frontend rebucketing.
 - [x] Unit: chart candle subscriptions use the backend candle socket, and the canonical stream does not subscribe to quote ticks or apply quote ticks as candle updates.
 - [x] Unit: backend candle cache seeds with valid OHLC are not rejected only because an intraday timestamp gap is present.
+- [x] Unit: shared candle cache persists only trusted closed REST history and refuses live/current candle promotion.
+- [x] Unit: candle memory caches evict older inactive chart contexts while preserving the active 2500-bar chart history contract.
 - [x] Unit: default chart history requests fill the 2500-bar chart buffer, giving M1 enough loaded candles to include previous dates.
 - [x] Unit/typecheck: native chart custom candle renderer, history/live tail gap reporting, and pinch/zoom tap-menu suppression are covered by focused chart bridge tests plus `npm run typecheck`.
 - [ ] Integration: timeframe and object state persistence.

@@ -1,0 +1,121 @@
+/**
+ * Shared chart candle cache.
+ *
+ * The cache is keyed strictly by normalized symbol + timeframe and stores only
+ * sanitized backend/live candles. It never fills missing buckets and never
+ * mixes data across chart contexts.
+ */
+import { sanitizeCandlesForChart } from '../normalization/chartAdapter';
+import {
+  MAX_CANDLE_SERIES_LENGTH,
+  normalizeSymbol,
+  normalizeTimeframeStrict,
+} from '../core/candles';
+import type { Candle } from '../../../state/tradingState';
+import { useTradingState } from '../../../state/tradingState';
+import { persistCanonicalCandleCache } from './persistedCandleCache';
+import {
+  getConfiguredCandlePriceBasis,
+  isTrustedHistoryCandle,
+  splitRestHistoryCandles,
+} from '../core/candleProvenance';
+
+const areCandlesEqual = (left: Candle, right: Candle): boolean =>
+  left.time === right.time &&
+  left.open === right.open &&
+  left.high === right.high &&
+  left.low === right.low &&
+  left.close === right.close &&
+  (left.volume ?? 0) === (right.volume ?? 0);
+
+const areSeriesEqual = (left: Candle[], right: Candle[]): boolean => {
+  if (left === right || left.length !== right.length) {
+    return left === right;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (!areCandlesEqual(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const normalizeCandleKey = (symbol: string, timeframe: string) => {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+
+  if (!normalizedSymbol || !normalizedTimeframe) {
+    return null;
+  }
+
+  return {
+    key: `${normalizedSymbol}.${normalizedTimeframe}`,
+    symbol: normalizedSymbol,
+    timeframe: normalizedTimeframe,
+  };
+};
+
+type SyncMergedCandleCacheOptions = {
+  canonical?: boolean;
+};
+
+const buildClosedHistoryCacheSeries = (candles: Candle[], timeframe: string): Candle[] => {
+  const trustedHistory = candles.filter(isTrustedHistoryCandle);
+  if (trustedHistory.length > 0) {
+    return sanitizeCandlesForChart(trustedHistory).slice(-MAX_CANDLE_SERIES_LENGTH);
+  }
+
+  const { closedHistory } = splitRestHistoryCandles(
+    sanitizeCandlesForChart(candles),
+    timeframe,
+    getConfiguredCandlePriceBasis(),
+  );
+  return closedHistory.slice(-MAX_CANDLE_SERIES_LENGTH);
+};
+
+export const syncMergedCandleCache = (
+  symbol: string,
+  timeframe: string,
+  candles: Candle[],
+  _options?: SyncMergedCandleCacheOptions,
+): boolean => {
+  const normalized = normalizeCandleKey(symbol, timeframe);
+  if (!normalized) {
+    return false;
+  }
+
+  const nextCandles = buildClosedHistoryCacheSeries(candles, normalized.timeframe);
+  if (nextCandles.length === 0) {
+    return false;
+  }
+
+  const currentCandles = useTradingState.getState().candles[normalized.key] ?? [];
+  if (areSeriesEqual(currentCandles, nextCandles)) {
+    return false;
+  }
+
+  useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
+  persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
+  return true;
+};
+
+export const mergeHistoryIntoCandleCache = (
+  symbol: string,
+  timeframe: string,
+  historyCandles: Candle[],
+): Candle[] => {
+  const normalized = normalizeCandleKey(symbol, timeframe);
+  if (!normalized) {
+    return [];
+  }
+
+  const nextCandles = buildClosedHistoryCacheSeries(historyCandles, normalized.timeframe);
+  const currentCandles = useTradingState.getState().candles[normalized.key] ?? [];
+  if (!areSeriesEqual(currentCandles, nextCandles)) {
+    useTradingState.getState().setCandleHistory(normalized.symbol, normalized.timeframe, nextCandles);
+    persistCanonicalCandleCache(normalized.symbol, normalized.timeframe, nextCandles);
+  }
+
+  return nextCandles;
+};

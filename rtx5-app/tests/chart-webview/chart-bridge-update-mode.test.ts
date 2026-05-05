@@ -87,16 +87,70 @@ test('WebView full data reload restores overlays and market price lines after se
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'market lines must be restored after setData');
 });
 
-test('native WebView uses the RTX5 custom candle renderer when available', () => {
+test('native WebView uses the native candlestick renderer for candle modes', () => {
   assertSourceContains(
     source,
-    /RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS/,
-    'native chart HTML must include the custom candle renderer bundle',
+    /Always use the native lightweight-charts CandlestickSeries/,
+    'native chart must document the native candlestick renderer contract',
   );
   assertSourceContains(
     source,
-    /window\.addRTX5CustomCandlestickSeries[\s\S]*customCandleOptions/,
-    'candlestick and hollow charts must prefer the RTX5 custom candle series',
+    /series = chart\.addSeries\(LightweightCharts\.CandlestickSeries,[\s\S]*upColor: colors\.bodyUp[\s\S]*downColor: colors\.bodyDown/,
+    'candlestick and hollow charts must use the native Lightweight Charts candlestick series',
+  );
+});
+
+test('quote updates never patch candle geometry inside the WebView', () => {
+  assert.doesNotMatch(
+    source,
+    /liveQuoteCandleStateRef/,
+    'native chart must not keep a separate quote-built candle projection',
+  );
+
+  const quoteBridgeStart = source.indexOf('Quotes move market price lines only');
+  assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment was not found');
+  const quoteBridgeEnd = source.indexOf('// Watchdog', quoteBridgeStart);
+  assert.notEqual(quoteBridgeEnd, -1, 'quote bridge effect end was not found');
+  const quoteBridge = source.slice(quoteBridgeStart, quoteBridgeEnd);
+
+  assertSourceContains(quoteBridge, /setMarketPriceLines\(/, 'quote bridge must still move market price lines');
+  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must not mutate candle OHLC');
+  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not synthesize candle payloads');
+});
+
+test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
+  assertSourceContains(
+    source,
+    /subscribeVisibleLogicalRangeChange\(function\(\) \{[\s\S]*scheduleOverlayPriceScaleLock\(true\)[\s\S]*refreshOverlayDomLabels/,
+    'visible logical range changes must re-enable price autoscale before refreshing overlays',
+  );
+  assertSourceContains(
+    source,
+    /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: false/,
+    'mobile pinch zoom must stay enabled while price-axis drag scaling remains disabled',
+  );
+});
+
+test('vertical candle drag can own the price range without autoscale fighting it', () => {
+  assertSourceContains(
+    source,
+    /function resolveVerticalPanStartPriceRange\(\)[\s\S]*getVisibleRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(\)/,
+    'vertical pan must fall back to visible candle data when autoscale has no explicit range',
+  );
+  assertSourceContains(
+    source,
+    /var beginVerticalPan = function\(clientY\)[\s\S]*manualPriceScaleRangeActive = true[\s\S]*setAutoScale\(false\)[\s\S]*setVisibleRange\(\{ from: range\.from, to: range\.to \}\)/,
+    'vertical pan start must pin the current price range before movement',
+  );
+  assertSourceContains(
+    source,
+    /var continueVerticalPan = function\(clientY\)[\s\S]*setAutoScale\(false\)[\s\S]*priceScaleApi\.setVisibleRange\(\{/,
+    'vertical pan moves candles by manually shifting the visible price range',
+  );
+  assertSourceContains(
+    source,
+    /verticalPricePanGestureActive \|\| \(manualPriceScaleRangeActive && forceAutoScale !== true\)/,
+    'autoscale refresh must not override an active manual vertical price range',
   );
 });
 

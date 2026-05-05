@@ -28,12 +28,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../theme/useTheme';
+import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useAlertsQuery, useCreateAlertMutation, useDeleteAlertMutation } from '../../query/alerts';
 import { AlertCondition, PriceAlert } from '../../api/alerts';
 import { formatBrokerTime } from '../../utils/brokerTime';
-import { ThemeColors } from '../../theme/glass';
+import { ThemeColors } from '../../ui/theme/glass';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

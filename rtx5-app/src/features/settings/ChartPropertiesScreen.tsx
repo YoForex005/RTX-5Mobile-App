@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-color-picker';
-import { Screen } from '../../components/Screen';
-import { useLiveCandles } from '../../hooks/useLiveCandles';
+import { Screen } from '../../ui/components/Screen';
+import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { useMarketData } from '../../query/websocket';
 import {
   CHART_COLOR_SCHEME_PRESETS,
@@ -26,8 +26,8 @@ import {
   resolveChartColorsForTheme,
   useUserPreferences,
 } from '../../state/userPreferences';
-import { ThemeColors } from '../../theme/glass';
-import { useTheme } from '../../theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
+import { useTheme } from '../../ui/theme/useTheme';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { LiveChartPreview } from '../chart/preview';
 

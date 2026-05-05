@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { PositionItem } from '../mock/tradingData.ts';
+import type { PositionItem } from '../dev/mock/tradingData';
 import { mapPositionToItem } from './positionsMapper.ts';
 
 test('mapPositionToItem merges partial websocket updates into the existing position', () => {

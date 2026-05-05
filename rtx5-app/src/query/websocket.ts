@@ -9,9 +9,9 @@ import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
-import { quotes as mockQuotes, type QuoteItem } from '../mock/tradingData';
+import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
-import { normalizeTimeframeStrict } from '../domain/candles';
+import { normalizeTimeframeStrict } from '../domain/candles/core/candles';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 
 const LIVE_QUOTE_STALE_MS = 45_000;

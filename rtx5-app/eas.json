@@ -40,7 +40,7 @@
     },
     "production": {
       "channel": "production",
-      "distribution": "internal",
+      "distribution": "store",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production"
@@ -49,7 +49,7 @@
         "simulator": false
       },
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle"
       }
     }
   },

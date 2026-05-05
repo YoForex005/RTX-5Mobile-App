@@ -3,7 +3,7 @@
  */
 
 import { create } from 'zustand';
-import type { PositionItem } from '../mock/tradingData';
+import type { PositionItem } from '../dev/mock/tradingData';
 import { positionsApi, type Position } from '../api/positions';
 import {
   classifyTradingError,

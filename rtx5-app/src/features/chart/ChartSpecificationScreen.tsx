@@ -10,11 +10,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
 import { useUserPreferences } from '../../state/userPreferences';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
 
 // Format helpers — show "—" when the broker hasn't returned a value yet so the

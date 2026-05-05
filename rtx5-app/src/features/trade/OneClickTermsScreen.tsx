@@ -6,11 +6,11 @@
  */
 
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
 
 export function OneClickTermsScreen() {

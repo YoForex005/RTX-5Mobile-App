@@ -61,3 +61,6 @@ Pass criteria:
 ## Security Release Gate
 A beta/public release is blocked if any mandatory control above is not green.
 
+## Release Status Notes
+- 2026-05-05: Play Store production build profile was switched to store app-bundle output only. No security gates were bypassed; mandatory controls above still block public release until green.
+

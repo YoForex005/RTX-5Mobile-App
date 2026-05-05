@@ -1,12 +1,17 @@
 import { getAccountSummary } from '../api/account';
-import { getCandleHistory } from '../api/candles';
+import { getCandleHistory } from '../domain/candles/api/candles';
 import { fetchInstrumentMeta } from '../api/instruments';
-import { DEFAULT_CANDLE_HISTORY_LIMIT, normalizeTimeframeStrict } from '../domain/candles';
+import {
+  CANDLE_HISTORY_QUERY_GC_MS,
+  DEFAULT_CANDLE_HISTORY_LIMIT,
+  LATEST_DAILY_CANDLE_HISTORY_LIMIT,
+  normalizeTimeframeStrict,
+} from '../domain/candles/core/candles';
 import { normalizeSymbol } from '../domain/symbols';
-import { appQueryClient } from '../providers/AppProviders';
+import { appQueryClient } from '../state/providers/AppProviders';
 import { ACCOUNT_SUMMARY_KEY } from '../query/account';
-import { candleKeys } from '../query/candles';
-import { mergeHistoryIntoCandleCache } from '../state/candleCache';
+import { candleKeys } from '../domain/candles/query/candles';
+import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
 
 export function prefetchAccountSummary(login?: string) {
   if (!login) return;
@@ -48,6 +53,29 @@ export function prefetchChartCandles(symbol: string, timeframe: string) {
       return response.candles;
     },
     staleTime: 30_000,
+    gcTime: CANDLE_HISTORY_QUERY_GC_MS,
+  }).catch(() => {});
+}
+
+export function prefetchLatestDailyCandle(symbol: string) {
+  const normalizedSymbol = normalizeSymbol(symbol);
+
+  if (!normalizedSymbol) {
+    return Promise.resolve();
+  }
+
+  return appQueryClient.prefetchQuery({
+    queryKey: candleKeys.latestDaily(normalizedSymbol),
+    queryFn: async () => {
+      const response = await getCandleHistory(
+        normalizedSymbol,
+        'D1',
+        LATEST_DAILY_CANDLE_HISTORY_LIMIT,
+      );
+      return response.currentCandle ?? response.candles[response.candles.length - 1] ?? null;
+    },
+    staleTime: 30_000,
+    gcTime: CANDLE_HISTORY_QUERY_GC_MS,
   }).catch(() => {});
 }
 
@@ -59,7 +87,7 @@ export async function prefetchChartContext(symbol: string, timeframe: string) {
 }
 
 export function prefetchDailyCandles(symbol: string) {
-  prefetchChartCandles(symbol, 'D1');
+  prefetchLatestDailyCandle(symbol);
 }
 
 export function prefetchQuoteDetails(symbol: string) {

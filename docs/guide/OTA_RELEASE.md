@@ -11,6 +11,9 @@ Use EAS Update with three channels:
 - OTA bundle must only target matching runtime versions.
 - Never promote OTA bundle across incompatible runtime groups.
 
+## Release Status Notes
+- 2026-05-05: Android production EAS build profile now targets Play Store output with `distribution: store`, production channel, and `android.buildType: app-bundle`. Runtime-version gating remains required for any OTA published to the production channel.
+
 ## Promotion Criteria
 
 ### Preview -> Staging

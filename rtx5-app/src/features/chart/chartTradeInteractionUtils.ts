@@ -219,12 +219,8 @@ export function resolveFooterLotChevronState({
   const nextIncreaseLot = incrementTradeVolume(normalizedLotSize, 1, bounds);
 
   return {
-    canDecreaseLot:
-      hasDecreaseAction &&
-      normalizedLotSize - nextDecreaseLot > lotStepEpsilon,
-    canIncreaseLot:
-      hasIncreaseAction &&
-      nextIncreaseLot - normalizedLotSize > lotStepEpsilon,
+    canDecreaseLot: hasDecreaseAction,
+    canIncreaseLot: hasIncreaseAction,
   };
 }
 

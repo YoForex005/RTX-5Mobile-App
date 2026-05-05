@@ -6,11 +6,11 @@
  */
 
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { newsItems } from '../../mock/tradingData';
-import { spacing } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
-import { ThemeColors } from '../../theme/glass';
+import { Screen } from '../../ui/components/Screen';
+import { newsItems } from '../../dev/mock/tradingData';
+import { spacing } from '../../ui/theme/index';
+import { useTheme } from '../../ui/theme/useTheme';
+import { ThemeColors } from '../../ui/theme/glass';
 import { useCallback, useMemo, useState } from 'react';
 import { useUserPreferences } from '../../state/userPreferences';
 

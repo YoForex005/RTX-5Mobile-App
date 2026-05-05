@@ -5,11 +5,15 @@ import test from 'node:test';
 
 const readCanonicalLiveStreamSource = (): string => {
   const candidates = [
+    resolve(process.cwd(), 'src/domain/candles/stream/liveCandleStream.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/domain/candles/stream/liveCandleStream.ts'),
+    resolve(process.cwd(), 'src/candles/stream/liveCandleStream.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/candles/stream/liveCandleStream.ts'),
     resolve(process.cwd(), 'src/candles/liveCandleStream.ts'),
     resolve(process.cwd(), 'rtx5-app/src/candles/liveCandleStream.ts'),
   ];
   const filePath = candidates.find((candidate) => existsSync(candidate));
-  assert.ok(filePath, 'liveCandleStream.ts was not found from the test working directory');
+  assert.ok(filePath, 'stream/liveCandleStream.ts was not found from the test working directory');
   return readFileSync(filePath, 'utf8');
 };
 
@@ -67,11 +71,11 @@ test('canonical live stream does not generate candles from quote ticks', () => {
 });
 
 test('backend candle cache bootstrap does not reject valid intraday gaps', () => {
-  const domainSource = readRepoSource('src/domain/candles.ts');
+  const domainSource = readRepoSource('src/domain/candles/core/candles.ts');
   const querySource = readRepoSource('src/query/websocket.ts');
   const tradingStateSource = readRepoSource('src/state/tradingState.ts');
-  const hookSource = readRepoSource('src/hooks/useLiveCandles.ts');
-  const historyQuerySource = readRepoSource('src/api/candleHistoryQuery.ts');
+  const hookSource = readRepoSource('src/domain/candles/hooks/useLiveCandles.ts');
+  const historyQuerySource = readRepoSource('src/domain/candles/api/candleHistoryQuery.ts');
 
   assert.match(domainSource, /return normalized\.length >= minCandles/);
   assert.doesNotMatch(domainSource, /hasIntradayInternalGaps/);
@@ -83,10 +87,12 @@ test('backend candle cache bootstrap does not reject valid intraday gaps', () =>
   assert.match(historyQuerySource, /return normalizedTimeframe \? \[normalizedTimeframe\] : \[\]/);
 });
 
-test('canonical live stream commits one merged timestamp-keyed series', () => {
-  assert.match(source, /materializeCandleMap\(entry\.candleMap, MAX_CANDLE_SERIES_LENGTH\)/);
+test('canonical live stream commits one fresh history plus backend live candle series', () => {
+  assert.match(source, /historyCandles: Candle\[]/);
+  assert.match(source, /liveCandleMap: Map<number, MutableCandle>/);
+  assert.match(source, /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime\)/);
+  assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
   assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, nextCandles\)/);
   assert.match(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);
-  assert.doesNotMatch(source, /historyCandles: entry\.historyCandles\.length/);
-  assert.doesNotMatch(source, /liveCandles: entry\.liveCandles\.length/);
+  assert.doesNotMatch(source, /materializeCandleMap\(entry\.candleMap/);
 });

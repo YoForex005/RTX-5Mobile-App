@@ -1,4 +1,4 @@
-import type { PositionItem } from '../mock/tradingData';
+import type { PositionItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 
 function toFiniteNumber(value: unknown): number | undefined {

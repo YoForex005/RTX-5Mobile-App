@@ -10,13 +10,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketData } from '../../query/websocket';
 import { useMarginCalculation, useProfitCalculation } from '../../query/calculators';
 import { useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
-import { useTheme, ThemeColors } from '../../theme/useTheme';
+import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { useTranslation } from '../../i18n/useTranslation';
 
 // Format helpers — return "—" when an input is missing so the UI never shows

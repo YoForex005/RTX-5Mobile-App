@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
-import { ThemeColors } from '../../../theme/glass';
+import { ThemeColors } from '../../../ui/theme/glass';
 import { LineStyle } from '../indicatorRegistry';
 
 export function LinePreview({

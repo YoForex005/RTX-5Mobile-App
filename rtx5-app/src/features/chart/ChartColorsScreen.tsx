@@ -9,10 +9,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Modal } from 'react-native';
 import { ScrollView, StyleSheet, Text, View, Pressable, Platform } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { useTheme } from '../../theme/useTheme';
+import { Screen } from '../../ui/components/Screen';
+import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
-import { ThemeColors } from '../../theme/glass';
+import { ThemeColors } from '../../ui/theme/glass';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import type { ChartColorsConfig } from '../../state/userPreferences';
 

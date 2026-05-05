@@ -3,11 +3,11 @@ import { Tabs, usePathname } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
-import { ActionSheet } from '../../src/components/ActionSheet';
-import { SidebarDrawer } from '../../src/components/SidebarDrawer';
+import { ActionSheet } from '../../src/ui/components/ActionSheet';
+import { SidebarDrawer } from '../../src/ui/components/SidebarDrawer';
 import { traceUiInteraction } from '../../src/dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../src/state/userPreferences';
-import { useTheme } from '../../src/theme/useTheme';
+import { useTheme } from '../../src/ui/theme/useTheme';
 import { useTranslation } from '../../src/i18n/useTranslation';
 
 const icons = {
