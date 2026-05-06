@@ -1,0 +1,497 @@
+/**
+ * High-frequency WebSocket service delivering minimal-latency Bid/Ask quote ticks.
+ * Syncs directly into a Zustand store, aggregating batches via requestAnimationFrame for performance.
+ *
+ * Originally a single 800-line file; split for the 500-line ceiling. Tick
+ * normalization lives in `tickProcessor.ts`, the rAF/setTimeout flush
+ * pipeline in `flushPipeline.ts`. The class below owns connection state,
+ * subscription bookkeeping, reconnect strategy, and listener fan-out.
+ */
+import { AppState, NativeEventSubscription } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+
+import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
+import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from '../quoteSubscriptionState';
+import { normalizeSymbol } from '../../../domain/symbols';
+import type { QuoteTickEvent } from '../quoteTickNormalizer';
+import {
+  cancelFlush,
+  flushUpdates as flushUpdatesImpl,
+  scheduleFlush,
+  type FlushPipelineState,
+} from './flushPipeline';
+import {
+  processIncomingPayload,
+  type TickProcessorBridge,
+} from './tickProcessor';
+import type { GlobalTickListener, SymbolTickListener } from './types';
+
+const shouldLogCandleDiagnostics = (): boolean =>
+  typeof __DEV__ === 'undefined' || __DEV__;
+
+export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
+  private static instance: QuotesWebSocketService;
+  private ws: WebSocket | null = null;
+  private url = process.env.EXPO_PUBLIC_QUOTES_WS_URL || 'wss://backend.orrnn.com/ws/feed';
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private reconnectDelay = 2000;
+  private reconnectCooldownMs = 60000;
+  private isConnected = false;
+  private shouldReconnect = false;
+
+  private activeSymbols: Set<string> = new Set();
+  private stickySymbols: Set<string> = new Set();
+  private symbolConsumerCounts: Map<string, number> = new Map();
+  /** @internal Used by the flush pipeline. */
+  public pendingUpdates: Map<string, any> = new Map();
+  /** @internal Used by the flush pipeline. */
+  public flushScheduled = false;
+  /** @internal Used by the flush pipeline. */
+  public flushAnimationFrame: number | null = null;
+  /** @internal Used by the flush pipeline. */
+  public flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private appStateSubscription: NativeEventSubscription | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private netInfoUnsubscribe: (() => void) | null = null;
+  private lastMessageAt: number = Date.now();
+  private lastRecordedFeedGapAt: number = 0;
+  private watchdogInterval: NodeJS.Timeout | null = null;
+  private tickListeners: Set<GlobalTickListener> = new Set();
+  // Per-symbol listeners — fire synchronously for each parsed tick, bypassing
+  // the global Zustand state pipeline. This is the canonical path for live
+  // bid/ask UI on the Quotes screen because it survives JS-thread throttling
+  // that can stall the rAF/setTimeout-driven `flushUpdates` queue under load.
+  private symbolListeners: Map<string, Set<SymbolTickListener>> = new Map();
+  private diagnosticLogCounts: Map<string, number> = new Map();
+
+  private constructor() {
+    this.appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && this.shouldReconnect && this.hasActiveDemand()) {
+        console.log('[Quotes WS] App wake up detected. Reconnecting feed...');
+        this.triggerInvisibleReconnect();
+      }
+    });
+  }
+
+  private triggerInvisibleReconnect() {
+    if (!this.shouldReconnect || !this.hasActiveDemand()) {
+      return;
+    }
+
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
+    this.reconnectAttempts = 0;
+    this.teardownSocket();
+    this.scheduleReconnect(500);
+  }
+
+  public static getInstance(): QuotesWebSocketService {
+    if (!QuotesWebSocketService.instance) {
+      QuotesWebSocketService.instance = new QuotesWebSocketService();
+    }
+    return QuotesWebSocketService.instance;
+  }
+
+  public getConnectionStatus(): boolean {
+    return this.isConnected;
+  }
+
+  public addTickListener(listener: GlobalTickListener): void {
+    this.tickListeners.add(listener);
+    this.logCandleFeed('tick_listener_added', { listeners: this.tickListeners.size }, 10);
+  }
+
+  public removeTickListener(listener: GlobalTickListener): void {
+    this.tickListeners.delete(listener);
+    this.logCandleFeed('tick_listener_removed', { listeners: this.tickListeners.size }, 10);
+  }
+
+  /**
+   * Subscribe to ticks for a specific symbol with synchronous delivery.
+   *
+   * This is the canonical live-bid/ask path for the Quotes screen. Each parsed
+   * tick is emitted to the symbol's listeners immediately — there's no queue,
+   * no rAF, no setTimeout, and no Zustand setState in between.
+   *
+   * Also takes care of demand-counting so the underlying socket subscription
+   * is opened/closed automatically when the first/last consumer arrives/leaves.
+   */
+  public subscribeToSymbol(symbol: string, listener: SymbolTickListener): () => void {
+    const normalized = normalizeSymbol(symbol);
+    if (!normalized) {
+      return () => {};
+    }
+
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [normalized], 1);
+    this.syncActiveSymbols();
+
+    let bucket = this.symbolListeners.get(normalized);
+    if (!bucket) {
+      bucket = new Set();
+      this.symbolListeners.set(normalized, bucket);
+    }
+    bucket.add(listener);
+
+    let unsubscribed = false;
+    return () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+      const set = this.symbolListeners.get(normalized);
+      if (set) {
+        set.delete(listener);
+        if (set.size === 0) {
+          this.symbolListeners.delete(normalized);
+        }
+      }
+      this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [normalized], -1);
+      this.syncActiveSymbols();
+    };
+  }
+
+  /** @internal Used by `processTick`. */
+  public emitSymbolTick(symbol: string, tick: QuoteTickEvent): void {
+    const bucket = this.symbolListeners.get(symbol);
+    if (!bucket || bucket.size === 0) {
+      return;
+    }
+    bucket.forEach((listener) => {
+      try {
+        listener(tick);
+      } catch (error) {
+        console.warn('[Quotes WS] Symbol listener error', error);
+      }
+    });
+  }
+
+  /** Dispatches the initial connection sequence and applies auto-reconnect logic. */
+  public connect(): void {
+    if (!this.hasActiveDemand()) {
+      this.shouldReconnect = false;
+      return;
+    }
+
+    this.shouldReconnect = true;
+    this.clearReconnectTimer();
+
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
+    try {
+      this.ws = new WebSocket(this.url);
+
+      this.ws.onopen = () => {
+        console.log('[Quotes WS] Connected to', this.url);
+        this.isConnected = true;
+        this.reconnectAttempts = 0;
+        this.lastMessageAt = Date.now();
+        this.clearNetInfoListener();
+
+        this.startHeartbeat();
+        this.startWatchdog();
+
+        if (this.activeSymbols.size > 0) {
+          this.sendSubscription();
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const now = Date.now();
+          const feedGapMs = now - this.lastMessageAt;
+          this.lastMessageAt = now;
+          this.recordFeedGapIfNeeded(feedGapMs);
+          const payload = JSON.parse(event.data as string);
+          if (processIncomingPayload(this, payload)) {
+            scheduleFlush(this);
+          }
+        } catch (e) {
+          console.warn('[Quotes WS] Parse error', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        console.log('[Quotes WS] Closed');
+        this.teardownSocket(false);
+        this.attemptReconnect();
+      };
+
+      this.ws.onerror = () => {
+        console.warn('[Quotes WS] Connection error (will auto-reconnect)');
+      };
+    } catch (e) {
+      console.warn('[Quotes WS] Connection failed during initialization. Will retry.', e);
+      this.teardownSocket();
+      this.attemptReconnect();
+    }
+  }
+
+  public disconnect(): void {
+    this.shouldReconnect = false;
+    this.reconnectAttempts = 0;
+    this.clearReconnectTimer();
+    this.clearNetInfoListener();
+    this.activeSymbols.clear();
+    this.stickySymbols.clear();
+    this.symbolConsumerCounts.clear();
+    this.teardownSocket();
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdogInterval = setInterval(() => {
+      if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.activeSymbols.size === 0) return;
+
+      const staleFor = Date.now() - this.lastMessageAt;
+      if (staleFor > 35000) {
+        console.warn(`[Quotes WS] Silent TCP drop detected (${Math.round(staleFor / 1000)}s). Healing invisibly...`);
+        this.triggerInvisibleReconnect();
+      }
+    }, 10000);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
+  }
+
+  private recordFeedGapIfNeeded(feedGapMs: number): void {
+    if (this.activeSymbols.size === 0) {
+      return;
+    }
+
+    if (feedGapMs < 1_200) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastRecordedFeedGapAt < 5_000) {
+      return;
+    }
+
+    this.lastRecordedFeedGapAt = now;
+    recordUiFeedGap('quotes.ws.gap', feedGapMs, `${this.activeSymbols.size} active symbol(s)`);
+  }
+
+  /**
+   * Subscribes to tick updates for a batch of symbols.
+   * Does not overwrite existing active symbols.
+   */
+  public subscribe(symbols: string[]): void {
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, 1);
+    this.logCandleFeed('subscribe_requested', { symbols }, 20);
+    this.syncActiveSymbols();
+  }
+
+  public unsubscribe(symbols: string[]): void {
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, -1);
+    this.logCandleFeed('unsubscribe_requested', { symbols }, 20);
+    this.syncActiveSymbols();
+  }
+
+  /** Exact override for the active symbol subscription list. */
+  public setSubscriptions(symbols: string[]): void {
+    this.stickySymbols = new Set(symbols);
+    this.syncActiveSymbols();
+  }
+
+  private sendSubscription(): void {
+    const syms = Array.from(this.activeSymbols);
+    if (syms.length > 0) this.send({ type: 'subscribe', symbols: syms });
+  }
+
+  private syncActiveSymbols(): void {
+    const nextActiveSymbols = new Set(buildActiveQuoteSymbols(this.stickySymbols, this.symbolConsumerCounts));
+    const changed =
+      nextActiveSymbols.size !== this.activeSymbols.size ||
+      Array.from(nextActiveSymbols).some((symbol) => !this.activeSymbols.has(symbol));
+
+    if (!changed) {
+      if (this.activeSymbols.size > 0 && !this.isConnected) {
+        this.connect();
+      }
+      return;
+    }
+
+    this.activeSymbols = nextActiveSymbols;
+    if (this.activeSymbols.size === 0) {
+      this.shouldReconnect = false;
+      this.reconnectAttempts = 0;
+      this.clearReconnectTimer();
+      this.clearNetInfoListener();
+      this.teardownSocket();
+      return;
+    }
+
+    if (this.isConnected) {
+      this.sendSubscription();
+      return;
+    }
+
+    this.connect();
+  }
+
+  private send(msg: any): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (!this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
+      return;
+    }
+
+    NetInfo.fetch()
+      .then((state) => {
+        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+          return;
+        }
+
+        if (state.isConnected === false) {
+          console.log('[Quotes WS] Network offline. Pausing reconnect attempts.');
+          if (!this.netInfoUnsubscribe) {
+            this.netInfoUnsubscribe = NetInfo.addEventListener((nextState) => {
+              if (nextState.isConnected && this.shouldReconnect && this.hasActiveDemand()) {
+                console.log('[Quotes WS] Network restored. Resuming connection...');
+                this.clearNetInfoListener();
+                this.reconnectAttempts = 0;
+                this.connect();
+              }
+            });
+          }
+          return;
+        }
+
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          console.warn(
+            `[Quotes WS] Reconnect budget exhausted. Cooling down for ${Math.round(this.reconnectCooldownMs / 1000)}s before retrying.`,
+          );
+          this.reconnectAttempts = 0;
+          this.scheduleReconnect(this.reconnectCooldownMs);
+          return;
+        }
+
+        this.reconnectAttempts += 1;
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 45000);
+        console.log(`[Quotes WS] Reconnecting in ${Math.round(delay)}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        this.scheduleReconnect(delay);
+      })
+      .catch(() => {
+        if (!this.shouldReconnect || !this.hasActiveDemand()) {
+          return;
+        }
+
+        const fallbackDelay = Math.min(this.reconnectDelay * Math.pow(1.5, Math.max(this.reconnectAttempts, 1) - 1), 15000);
+        console.warn(`[Quotes WS] Network status check failed. Retrying in ${Math.round(fallbackDelay)}ms.`);
+        this.scheduleReconnect(fallbackDelay);
+      });
+  }
+
+  private hasActiveDemand(): boolean {
+    return this.activeSymbols.size > 0;
+  }
+
+  /** @internal Used by the tick processor for rate-limited debug logs. */
+  public logCandleFeed(event: string, details?: Record<string, unknown>, limit = 12): void {
+    if (!shouldLogCandleDiagnostics()) {
+      return;
+    }
+
+    const nextCount = (this.diagnosticLogCounts.get(event) ?? 0) + 1;
+    this.diagnosticLogCounts.set(event, nextCount);
+    if (nextCount <= limit || nextCount % 1000 === 0) {
+      console.log(`[CANDLE-FEED] ${event}`, details ? { ...details, count: nextCount } : { count: nextCount });
+    }
+  }
+
+  private scheduleReconnect(delayMs: number): void {
+    if (!this.shouldReconnect || !this.hasActiveDemand() || this.reconnectTimer) {
+      return;
+    }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delayMs);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private clearNetInfoListener(): void {
+    if (this.netInfoUnsubscribe) {
+      this.netInfoUnsubscribe();
+      this.netInfoUnsubscribe = null;
+    }
+  }
+
+  private teardownSocket(resetDemand: boolean = false): void {
+    const currentSocket = this.ws;
+
+    this.stopHeartbeat();
+    this.stopWatchdog();
+    cancelFlush(this);
+    this.isConnected = false;
+    this.ws = null;
+
+    if (currentSocket) {
+      currentSocket.onopen = null;
+      currentSocket.onmessage = null;
+      currentSocket.onerror = null;
+      currentSocket.onclose = null;
+      try {
+        currentSocket.close();
+      } catch (error) {
+        console.warn('[Quotes WS] Socket close failed', error);
+      }
+    }
+
+    if (resetDemand) {
+      this.activeSymbols.clear();
+      this.stickySymbols.clear();
+      this.symbolConsumerCounts.clear();
+    }
+  }
+
+  /** @internal Used by the tick processor. */
+  public emitTick(tick: QuoteTickEvent): void {
+    this.tickListeners.forEach((listener) => {
+      try {
+        listener(tick);
+      } catch (error) {
+        console.warn('[Quotes WS] Tick listener error', error);
+      }
+    });
+  }
+
+  /** @internal Test seam — exposes the flush body for direct invocation. */
+  public flushUpdates(): void {
+    flushUpdatesImpl(this);
+  }
+}

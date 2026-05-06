@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -13,8 +13,23 @@ import {
 
 const repoRoot = process.cwd();
 
-const readSource = (relativePath: string) =>
-  readFileSync(join(repoRoot, relativePath), 'utf8');
+// Reads either a single .ts file (legacy) or concatenates every .ts file in a
+// folder of the same name (post 500-line refactor — e.g. `api/orders.ts` was
+// split into `api/orders/` with multiple files).
+const readSource = (relativePath: string): string => {
+  const filePath = join(repoRoot, relativePath);
+  if (existsSync(filePath)) {
+    return readFileSync(filePath, 'utf8');
+  }
+  const folderPath = filePath.replace(/\.tsx?$/, '');
+  if (existsSync(folderPath) && statSync(folderPath).isDirectory()) {
+    return readdirSync(folderPath)
+      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
+      .map((entry) => readFileSync(join(folderPath, entry), 'utf8'))
+      .join('\n');
+  }
+  throw new Error(`source not found: ${relativePath}`);
+};
 
 test('chart trade buttons keep buy and sell press handlers mapped to the matching side', () => {
   const source = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');

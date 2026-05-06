@@ -37,11 +37,11 @@ test('high-frequency backend live candle snapshots keep one stable active bucket
     high: 1.1 + (count - 1) / 100000 + 0.0002,
     low: 1.099,
     close: 1.1 + (count - 1) / 100000,
-    volume: count,
+    volume: (count * (count + 1)) / 2,
   });
 });
 
-test('stale backend burst items after a newer snapshot are ignored', () => {
+test('stale backend burst items after a newer snapshot cannot rewind close', () => {
   const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
   const map = createCandleMap();
 
@@ -59,9 +59,9 @@ test('stale backend burst items after a newer snapshot are ignored', () => {
   );
 
   assert.deepEqual(staleResults.map((result) => result.reason), [
-    'stale_live_candle',
-    'stale_live_candle',
-    'stale_live_candle',
+    'merged_out_of_order_live_candle',
+    'merged_out_of_order_live_candle',
+    'merged_out_of_order_live_candle',
   ]);
   assert.equal(materializeCandleMap(map)[0].close, 1.18);
 });

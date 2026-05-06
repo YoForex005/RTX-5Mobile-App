@@ -45,7 +45,7 @@ test('does not split live candle from latest history candle', () => {
     high: 109,
     low: 99,
     close: 99,
-    volume: 10,
+    volume: 20,
   });
 });
 
@@ -200,4 +200,3 @@ test('zoom/data-density path does not convert candlesticks into line data', () =
   ]);
   assert.deepEqual(convertCandlesToLinePoints([candle]), [{ time: t1001, value: 100 }]);
 });
-

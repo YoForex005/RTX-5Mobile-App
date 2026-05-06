@@ -1267,7 +1267,11 @@ export const CH_HTML = `
           if (typeof chart.timeScale().scrollToRealTime === 'function') {
             chart.timeScale().scrollToRealTime();
           }
-          scheduleOverlayPriceScaleLock(true);
+          // Respect a user-driven vertical pan: if manualPriceScaleRangeActive
+          // is set, this call leaves the manual range in place. A pinch or
+          // bootstrap with manualPriceScaleRangeActive=false still recovers
+          // autoScale, which is what the original "force" was guarding.
+          scheduleOverlayPriceScaleLock(false);
           refreshOverlayDomLabels(_overlayPayload);
         } catch (_e) {}
       }
@@ -1546,7 +1550,7 @@ export const CH_HTML = `
             typeof chart.timeScale().subscribeVisibleLogicalRangeChange === 'function'
           ) {
             chart.timeScale().subscribeVisibleLogicalRangeChange(function() {
-              scheduleOverlayPriceScaleLock(true);
+              scheduleOverlayPriceScaleLock(false);
               refreshOverlayDomLabels(_overlayPayload);
             });
           }
@@ -1625,7 +1629,7 @@ export const CH_HTML = `
             try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
           }
           applyRecentViewport(currentSeriesLength);
-          scheduleOverlayPriceScaleLock(true);
+          scheduleOverlayPriceScaleLock(false);
           ensureDirectionPriceLine();
           ensureMoveDirectionPriceLine();
         }
@@ -2013,6 +2017,28 @@ export const CH_HTML = `
         };
       }
 
+      function mergeRawSeriesDatum(existing, incoming) {
+        if (!existing) {
+          return incoming;
+        }
+        var close = typeof incoming.close === 'number'
+          ? incoming.close
+          : (typeof incoming.value === 'number' ? incoming.value : existing.close);
+        var merged = {
+          time: existing.time,
+          open: existing.open,
+          high: Math.max(existing.high, incoming.high),
+          low: Math.min(existing.low, incoming.low),
+          close: close,
+          volume: (typeof existing.volume === 'number' ? existing.volume : 0) +
+            (typeof incoming.volume === 'number' ? incoming.volume : 0),
+        };
+        if (seriesType === 'line') {
+          merged.value = close;
+        }
+        return normalizeRawSeriesDatum(merged);
+      }
+
       function sanitizeSeriesData(data) {
         if (!Array.isArray(data) || data.length === 0) {
           return [];
@@ -2022,7 +2048,8 @@ export const CH_HTML = `
         for (var i = 0; i < data.length; i++) {
           var normalized = normalizeRawSeriesDatum(data[i]);
           if (normalized) {
-            byTime[String(normalized.time)] = normalized;
+            var key = String(normalized.time);
+            byTime[key] = mergeRawSeriesDatum(byTime[key], normalized);
           }
         }
 

@@ -5,7 +5,7 @@ import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/live
 import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import { secondsUtc } from '../support/candleTestUtils';
 
-test('older backend live candle snapshots cannot rewind the active candle', () => {
+test('older backend live candle snapshots merge safely without rewinding close', () => {
   const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
   const map = createCandleMap();
 
@@ -16,14 +16,14 @@ test('older backend live candle snapshots cannot rewind the active candle', () =
   );
   const stale = applyLiveCandleToCandleMap(
     map,
-    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 10, open: 1.1, high: 1.11, low: 1.09, close: 1.1, volume: 2 },
+    { symbol: 'EURUSD', timeframe: 'M1', time: bucket + 10, open: 1.1, high: 1.16, low: 1.08, close: 1.1, volume: 2 },
     'M1',
   );
 
-  assert.equal(stale.ignored, true);
-  assert.equal(stale.reason, 'stale_live_candle');
+  assert.equal(stale.ignored, false);
+  assert.equal(stale.reason, 'merged_out_of_order_live_candle');
   assert.deepEqual(materializeCandleMap(map), [
-    { time: bucket, open: 1.1, high: 1.15, low: 1.09, close: 1.14, volume: 10 },
+    { time: bucket, open: 1.1, high: 1.16, low: 1.08, close: 1.14, volume: 12 },
   ]);
 });
 

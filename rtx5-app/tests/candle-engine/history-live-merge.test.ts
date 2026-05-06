@@ -105,6 +105,8 @@ test('REST current candle and WebSocket live candle never create duplicate same-
   const visible = materializeCanonicalHistoryAndLiveCandles(closedHistory, [liveSameBucket], 'M1');
   assert.equal(visible.filter((candle) => candle.time === liveSameBucket.time).length, 1);
   assert.equal(visible[visible.length - 1].close, liveSameBucket.close);
+  assert.equal(visible[visible.length - 1].high, liveSameBucket.high);
+  assert.equal(visible[visible.length - 1].low, liveSameBucket.low);
 });
 
 test('REST current candle is not promoted into the live stream history cutoff', () => {
@@ -153,5 +155,6 @@ test('duplicate and unsorted REST candles are normalized before merge', () => {
 
   assert.deepEqual(normalized.map((candle) => candle.time), [60, 120, 180]);
   assert.equal(normalized[1].close, 1.25);
+  assert.equal(normalized[1].volume, 20);
   assertNoDuplicateCandleTimes(normalized);
 });

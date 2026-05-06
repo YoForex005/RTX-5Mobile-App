@@ -136,17 +136,17 @@ test('strict timeframe normalization rejects unknown backend tokens', () => {
   assert.equal(liveCandle?.timeframe, undefined);
 });
 
-test('sortAndDedupeCandles keeps one valid candle per timestamp and prefers latest backend value', () => {
+test('sortAndDedupeCandles keeps one valid candle per timestamp and merges duplicate OHLC', () => {
   const result = sortAndDedupeCandles([
     candle(120, 1.2),
     { ...candle(60, 1.1), high: Number.NaN },
-    candle(60, 1.11),
-    candle(60, 1.12),
+    { ...candle(60, 1.11), open: 1.1, high: 1.14, low: 1.09, volume: 2 },
+    { ...candle(60, 1.12), open: 1.2, high: 1.22, low: 1.08, volume: 3 },
   ]);
 
-  assert.deepEqual(result.map((item) => [item.time, item.close]), [
-    [60, 1.12],
-    [120, 1.2],
+  assert.deepEqual(result, [
+    { time: 60, open: 1.1, high: 1.22, low: 1.08, close: 1.12, volume: 5 },
+    { time: 120, open: 1.2, high: 1.2, low: 1.2, close: 1.2, volume: 0 },
   ]);
 });
 
@@ -180,7 +180,7 @@ test('preserves explicit higher-timeframe backend timestamps', () => {
   ]);
 });
 
-test('backend live candle is authoritative for its timestamp', () => {
+test('backend live candle merges with existing timestamp without losing the original open', () => {
   const map = createCandleMap([candle(60, 1.1)]);
   const result = applyLiveCandleToCandleMap(map, {
     time: 60,
@@ -193,11 +193,11 @@ test('backend live candle is authoritative for its timestamp', () => {
 
   assert.equal(result.changed, true);
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 60, open: 1.2, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
+    { time: 60, open: 1.1, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
   ]);
 });
 
-test('backend live candle snapshots inside one timeframe bucket replace one candle', () => {
+test('backend live candle snapshots inside one timeframe bucket merge one candle', () => {
   const map = createCandleMap();
 
   applyLiveCandleToCandleMap(
@@ -212,7 +212,7 @@ test('backend live candle snapshots inside one timeframe bucket replace one cand
   );
 
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 4 },
+    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 7 },
   ]);
 });
 
@@ -339,7 +339,7 @@ test('backend live candles cannot rewrite the closed history cutoff candle', () 
   assert.deepEqual(materializeCandleMap(map), history);
 });
 
-test('older backend live candle snapshots cannot rewind a newer active snapshot', () => {
+test('older backend live candle snapshots can widen wicks without rewinding close', () => {
   const map = createCandleMap();
 
   applyLiveCandleToCandleMap(
@@ -349,13 +349,28 @@ test('older backend live candle snapshots cannot rewind a newer active snapshot'
   );
   const stale = applyLiveCandleToCandleMap(
     map,
-    { time: 1_713_744_015, open: 100, high: 101, low: 99, close: 100.5, volume: 2 },
+    { time: 1_713_744_015, open: 100, high: 106, low: 98, close: 100.5, volume: 2 },
     'M1',
   );
 
-  assert.equal(stale.ignored, true);
-  assert.equal(stale.reason, 'stale_live_candle');
+  assert.equal(stale.ignored, false);
+  assert.equal(stale.reason, 'merged_out_of_order_live_candle');
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 1_713_744_000, open: 100, high: 105, low: 99, close: 104, volume: 10 },
+    { time: 1_713_744_000, open: 100, high: 106, low: 98, close: 104, volume: 12 },
+  ]);
+});
+
+test('empty history plus a valid backend live candle starts the visible series', () => {
+  const map = createCandleMap();
+
+  const result = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'XAUUSD', timeframe: 'M5', time: 1_713_744_300, open: 2325, high: 2326, low: 2324, close: 2325.5, volume: 3 },
+    'M5',
+  );
+
+  assert.equal(result.ignored, false);
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: 1_713_744_300, open: 2325, high: 2326, low: 2324, close: 2325.5, volume: 3 },
   ]);
 });

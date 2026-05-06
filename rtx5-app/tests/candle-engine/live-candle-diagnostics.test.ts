@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
 const readCanonicalLiveStreamSource = (): string => {
+  // Prefer the split folder structure introduced after the 500-line refactor.
+  const folderCandidates = [
+    resolve(process.cwd(), 'src/domain/candles/stream/liveCandleStream'),
+    resolve(process.cwd(), 'rtx5-app/src/domain/candles/stream/liveCandleStream'),
+    resolve(process.cwd(), 'src/candles/stream/liveCandleStream'),
+    resolve(process.cwd(), 'rtx5-app/src/candles/stream/liveCandleStream'),
+  ];
+  for (const folder of folderCandidates) {
+    if (existsSync(folder) && statSync(folder).isDirectory()) {
+      return readdirSync(folder)
+        .filter((entry) => entry.endsWith('.ts'))
+        .map((entry) => readFileSync(resolve(folder, entry), 'utf8'))
+        .join('\n');
+    }
+  }
+  // Legacy single-file fallback.
   const candidates = [
     resolve(process.cwd(), 'src/domain/candles/stream/liveCandleStream.ts'),
     resolve(process.cwd(), 'rtx5-app/src/domain/candles/stream/liveCandleStream.ts'),
@@ -13,7 +29,7 @@ const readCanonicalLiveStreamSource = (): string => {
     resolve(process.cwd(), 'rtx5-app/src/candles/liveCandleStream.ts'),
   ];
   const filePath = candidates.find((candidate) => existsSync(candidate));
-  assert.ok(filePath, 'stream/liveCandleStream.ts was not found from the test working directory');
+  assert.ok(filePath, 'stream/liveCandleStream not found from the test working directory');
   return readFileSync(filePath, 'utf8');
 };
 
@@ -59,7 +75,9 @@ test('canonical live stream buffers and replays live data around REST history', 
   assert.match(source, /entry\.bufferedEvents = \[\]/);
   assert.match(source, /entry\.bufferedEvents\.push\(event\)/);
   assert.match(source, /sort\(\(left, right\) => getEventTime\(left\) - getEventTime\(right\) \|\| left\.order - right\.order\)/);
-  assert.match(source, /this\.applyLiveEvents\(live, replayEvents\)/);
+  // Accept either `this.applyLiveEvents` (in-class call) or `manager.applyLiveEvents`
+  // (the extracted historyFetching helper post 500-line refactor).
+  assert.match(source, /(?:this|manager)\.applyLiveEvents\(live, replayEvents\)/);
 });
 
 test('canonical live stream does not generate candles from quote ticks', () => {

@@ -41,8 +41,7 @@
       }
     },
     "android": {
-      "package": "com.rtx5.trading",
-      "versionCode": 1,
+      "package": "com.rtx5.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/rtx5-adaptive-icon.png",
         "backgroundColor": "#2d2c31"

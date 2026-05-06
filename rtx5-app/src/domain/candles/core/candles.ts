@@ -6,6 +6,8 @@ import {
 import {
   createCandleMap,
   materializeCandleMap,
+  mergeCandleByTimestamp,
+  mergeCandleIntoMap,
   mergeHistoryAndLiveMaps,
   sortAndDedupeCandles as canonicalSortAndDedupeCandles,
 } from '../series/candleSeriesMerger';
@@ -23,7 +25,7 @@ import {
   normalizeTimestampToSeconds,
   SUPPORTED_TIMEFRAMES,
 } from './timeframeUtils';
-import type { Candle, MutableCandle } from './candleTypes';
+import type { Candle } from './candleTypes';
 
 export type { Candle } from './candleTypes';
 export {
@@ -39,7 +41,7 @@ export {
   SUPPORTED_TIMEFRAMES,
 };
 
-export const MAX_CANDLE_SERIES_LENGTH = 2500;
+export const MAX_CANDLE_SERIES_LENGTH = 60_000;
 export const DEFAULT_CANDLE_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
 export const MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT = 8;
 export const MAX_CANDLE_CACHE_ENTRIES = 8;
@@ -173,8 +175,10 @@ export const normalizeCandleSeries = (candles: unknown[], _timeframe: string): C
 export const sortAndDedupeCandles = (candles: Candle[]): Candle[] =>
   canonicalSortAndDedupeCandles(candles);
 
-export const mergeCandleUpdate = (_existing: Candle, incoming: Candle): Candle | null =>
-  validateCandle(incoming) ? { ...incoming } : null;
+export const mergeCandleUpdate = (existing: Candle, incoming: Candle): Candle | null =>
+  validateCandle(existing) && validateCandle(incoming)
+    ? mergeCandleByTimestamp(existing, incoming, { volumeStrategy: 'sum' })
+    : null;
 
 export const getCurrentBucketTime = (
   timeframe: string,
@@ -297,7 +301,7 @@ export const mergeRecentHistoryIntoCandles = (
 ): Candle[] => {
   const map = createCandleMap(candles);
   for (const candle of sortAndDedupeCandles(recentHistory)) {
-    map.set(candle.time, { ...candle, source: 'history', closed: true } as MutableCandle);
+    mergeCandleIntoMap(map, candle, { source: 'history', closed: true, volumeStrategy: 'sum' });
   }
   return materializeCandleMap(map, MAX_CANDLE_SERIES_LENGTH);
 };

@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+
+// Reads either a single .ts file (legacy) or concatenates every .ts file in a
+// folder of the same name (post 500-line refactor).
+const readModuleSource = (relativePath: string): string => {
+  const filePath = join(process.cwd(), `${relativePath}.ts`);
+  const folderPath = join(process.cwd(), relativePath);
+  if (existsSync(filePath)) {
+    return readFileSync(filePath, 'utf8');
+  }
+  if (existsSync(folderPath) && statSync(folderPath).isDirectory()) {
+    return readdirSync(folderPath)
+      .filter((entry) => entry.endsWith('.ts'))
+      .map((entry) => readFileSync(join(folderPath, entry), 'utf8'))
+      .join('\n');
+  }
+  throw new Error(`module source not found: ${relativePath}`);
+};
 
 import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
 import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
@@ -127,9 +144,9 @@ test('backend live data can materialize a keyed candle stream even when REST his
 });
 
 test('useLiveCandles subscribes backend candle socket instead of quote-tick candle fallback', () => {
-  const source = readFileSync(join(process.cwd(), 'src/domain/candles/hooks/useLiveCandles.ts'), 'utf8');
-  const socketSource = readFileSync(join(process.cwd(), 'src/domain/candles/ws/candlesSocket.ts'), 'utf8');
-  const protocolSource = readFileSync(join(process.cwd(), 'src/domain/candles/ws/candlesSocketProtocol.ts'), 'utf8');
+  const source = readModuleSource('src/domain/candles/hooks/useLiveCandles');
+  const socketSource = readModuleSource('src/domain/candles/ws/candlesSocket');
+  const protocolSource = readModuleSource('src/domain/candles/ws/candlesSocketProtocol');
 
   assert.match(source, /candlesWsService\.subscribe\(normalizedSymbol, normalizedTimeframe\)/);
   assert.match(source, /candlesWsService\.unsubscribe\(normalizedSymbol, normalizedTimeframe\)/);

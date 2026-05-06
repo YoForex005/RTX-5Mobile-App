@@ -11,8 +11,8 @@
  * - duplicate stream replay 100x stays idempotent
  * - negative price candles are rejected (frontend never invents valid OHLC)
  * - high < open or high < close OHLC is rejected (validateCandle gate)
- * - close-time precedence: latest live snapshot wins close, but high/low
- *   come from the snapshot (backend authority)
+ * - same-bucket precedence: the first accepted open is preserved, high/low
+ *   keep wick extremes, and the latest accepted live snapshot wins close
  */
 
 import assert from 'node:assert/strict';
@@ -145,7 +145,7 @@ test('duplicate stream replay 100x stays idempotent', () => {
   });
 });
 
-test('latest live snapshot wins close and OHLC for same bucket without duplicating candle', () => {
+test('latest live snapshot wins close while same-bucket merge preserves open and wicks', () => {
   const map = createCandleMap();
   const t = t1001;
 
@@ -175,7 +175,7 @@ test('latest live snapshot wins close and OHLC for same bucket without duplicati
     high: 105,
     low: 98,
     close: 101,
-    volume: 9,
+    volume: 15,
   });
 });
 
@@ -233,7 +233,7 @@ test('out-of-order REST history candles normalize into strictly sorted, deduped 
 
   const normalized = sortAndDedupeCandles(unsorted);
   assert.deepEqual(normalized.map((c) => c.time), [t1000, t1001, t1002]);
-  // Last write wins for duplicate timestamps.
+  // Duplicate timestamps keep the first open, latest close, and merged wicks.
   assert.equal(normalized[1].close, 1.25);
 });
 
@@ -361,7 +361,7 @@ test('backend live candle for a missing bucket above tail keeps subsequent live 
     high: 105,
     low: 99,
     close: 104,
-    volume: 10,
+    volume: 20,
   });
 });
 

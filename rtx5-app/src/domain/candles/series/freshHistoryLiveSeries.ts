@@ -1,6 +1,6 @@
 import type { Candle, MutableCandle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
-import { createCandleMap, materializeCandleMap } from './candleSeriesMerger';
+import { createCandleMap, materializeCandleMap, mergeCandleIntoMap } from './candleSeriesMerger';
 
 export const buildFreshHistoryLiveCandleSeries = (
   historyCandles: readonly Candle[],
@@ -14,10 +14,10 @@ export const buildFreshHistoryLiveCandleSeries = (
       continue;
     }
 
-    map.set(candle.time, {
-      ...candle,
+    mergeCandleIntoMap(map, candle, {
       source: 'live_candle',
       closed: false,
+      volumeStrategy: 'sum',
     });
   }
 

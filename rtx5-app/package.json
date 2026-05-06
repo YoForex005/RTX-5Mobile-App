@@ -18,6 +18,7 @@
     "build:preview": "eas build --platform all --profile preview --non-interactive",
     "build:staging": "eas build --platform all --profile staging --non-interactive",
     "build:prod": "eas build --platform all --profile production --non-interactive",
+    "build:android:prod": "eas build --platform android --profile production --non-interactive",
     "build:android": "eas build --platform android --profile preview --non-interactive",
     "build:ios": "eas build --platform ios --profile preview --non-interactive",
     "update:preview": "node ./scripts/eas-update.js preview",

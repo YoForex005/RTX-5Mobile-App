@@ -1,10 +1,24 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-const readGraphSource = () =>
-  readFileSync(resolve(process.cwd(), 'src/features/trade/OrderTickExecutionGraph.tsx'), 'utf8');
+// Reads either a single file (legacy) or concatenates every .ts/.tsx file in
+// a folder of the same name (post 500-line refactor).
+const readGraphSource = (): string => {
+  const filePath = resolve(process.cwd(), 'src/features/trade/OrderTickExecutionGraph.tsx');
+  if (existsSync(filePath)) {
+    return readFileSync(filePath, 'utf8');
+  }
+  const folderPath = resolve(process.cwd(), 'src/features/trade/OrderTickExecutionGraph');
+  if (existsSync(folderPath) && statSync(folderPath).isDirectory()) {
+    return readdirSync(folderPath)
+      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
+      .map((entry) => readFileSync(resolve(folderPath, entry), 'utf8'))
+      .join('\n');
+  }
+  throw new Error('OrderTickExecutionGraph source not found');
+};
 
 test('order execution graph keeps uniform spacing between all horizontal guides', () => {
   const source = readGraphSource();

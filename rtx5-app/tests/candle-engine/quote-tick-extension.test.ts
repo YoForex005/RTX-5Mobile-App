@@ -12,8 +12,9 @@
  *     time matches the active bucket).
  *   - Never invents a new bucket. If neither matches, returns `ignored=true`.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
- *   - Subsequent backend `applyLiveCandleToCandleMap` calls fully overwrite
- *     the bucket — backend remains the authoritative source.
+ *   - Subsequent backend `applyLiveCandleToCandleMap` calls own the latest
+ *     close while the merged bucket preserves wick extremes already observed
+ *     from valid live feed ticks.
  */
 
 import assert from 'node:assert/strict';
@@ -130,7 +131,7 @@ test('quote tick is dropped when no backend candle exists at the active bucket (
   assert.deepEqual(candles.map((c) => c.time), [t1000]);
 });
 
-test('backend live candle snapshot fully overwrites a quote-tick-extended bucket (backend authority)', () => {
+test('backend live candle snapshot updates close while preserving quote-observed wick extremes', () => {
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -142,7 +143,7 @@ test('backend live candle snapshot fully overwrites a quote-tick-extended bucket
   applyQuoteTickExtensionToCandleMap(map, { price: 1.110, time: t1001 + 5 }, 'M1');
   applyQuoteTickExtensionToCandleMap(map, { price: 1.112, time: t1001 + 10 }, 'M1');
 
-  // Backend then sends an authoritative snapshot with different OHLC.
+  // Backend then sends an authoritative close with narrower OHLC.
   applyLiveCandleToCandleMap(
     map,
     makeBackendLiveCandle(t1001, { open: 1.105, high: 1.108, low: 1.103, close: 1.107 }),
@@ -151,11 +152,10 @@ test('backend live candle snapshot fully overwrites a quote-tick-extended bucket
 
   const candles = materializeCandleMap(map);
   const active = candles[candles.length - 1];
-  // Backend wins: close=1.107, high=1.108, low=1.103. The 1.112 tick high is
-  // discarded because the next backend snapshot is authoritative.
+  // Backend wins for close, while valid quote-observed high remains as wick.
   assert.equal(active.time, t1001);
   assert.equal(active.open, 1.105);
-  assert.equal(active.high, 1.108);
+  assert.equal(active.high, 1.112);
   assert.equal(active.low, 1.103);
   assert.equal(active.close, 1.107);
 });
@@ -305,10 +305,10 @@ test('quote tick reaching a future bucket above the live tail extends nothing wi
   assert.deepEqual(candles.map((c) => c.time), [t1000, t1001]);
 });
 
-test('quote tick across multiple subsequent backend snapshots leaves no residue', () => {
-  // Simulates the full lifecycle: backend creates bucket → ticks extend close
-  // → backend snapshot 2 overwrites → more ticks → backend snapshot 3
-  // overwrites again. Each backend snapshot must reset all OHLC to authority.
+test('quote tick across multiple subsequent backend snapshots preserves wicks and latest backend close', () => {
+  // Simulates the full lifecycle: backend creates a bucket, ticks extend close,
+  // backend snapshots update close, and wicks are merged from all valid live
+  // feed inputs.
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -319,7 +319,7 @@ test('quote tick across multiple subsequent backend snapshots leaves no residue'
   applyQuoteTickExtensionToCandleMap(map, { price: 1.5, time: t1001 + 5 }, 'M1');
   applyQuoteTickExtensionToCandleMap(map, { price: 0.5, time: t1001 + 10 }, 'M1');
 
-  // Backend snapshot 2: overwrites all of the tick-driven OHLC.
+  // Backend snapshot 2: updates close but does not shrink observed wicks.
   applyLiveCandleToCandleMap(
     map,
     makeBackendLiveCandle(t1001, { open: 1.0, high: 1.05, low: 0.95, close: 1.02 }),
@@ -328,8 +328,8 @@ test('quote tick across multiple subsequent backend snapshots leaves no residue'
 
   let candles = materializeCandleMap(map);
   let active = candles[candles.length - 1];
-  assert.equal(active.high, 1.05);
-  assert.equal(active.low, 0.95);
+  assert.equal(active.high, 1.5);
+  assert.equal(active.low, 0.5);
   assert.equal(active.close, 1.02);
 
   // Now ticks again.
@@ -337,11 +337,10 @@ test('quote tick across multiple subsequent backend snapshots leaves no residue'
   candles = materializeCandleMap(map);
   active = candles[candles.length - 1];
   assert.equal(active.close, 1.10);
-  assert.equal(active.high, 1.10);
-  // Backend's low (0.95) stays as floor (tick at 1.10 doesn't affect low).
-  assert.equal(active.low, 0.95);
+  assert.equal(active.high, 1.5);
+  assert.equal(active.low, 0.5);
 
-  // Backend snapshot 3: again resets.
+  // Backend snapshot 3: close moves again, wicks stay preserved.
   applyLiveCandleToCandleMap(
     map,
     makeBackendLiveCandle(t1001, { open: 1.0, high: 1.08, low: 0.98, close: 1.04 }),
@@ -349,7 +348,7 @@ test('quote tick across multiple subsequent backend snapshots leaves no residue'
   );
   candles = materializeCandleMap(map);
   active = candles[candles.length - 1];
-  assert.equal(active.high, 1.08);
-  assert.equal(active.low, 0.98);
+  assert.equal(active.high, 1.5);
+  assert.equal(active.low, 0.5);
   assert.equal(active.close, 1.04);
 });

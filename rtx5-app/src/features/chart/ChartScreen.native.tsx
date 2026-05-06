@@ -2700,6 +2700,7 @@ export function ChartScreen() {
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
   const isLoading = !chartCanvasReady && loadingDelayPassed && !loadingFallback;
   const isError = false;
+  const isNoMarketData = candles.length === 0 && !isLoading && loadingFallback;
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
@@ -3694,6 +3695,14 @@ export function ChartScreen() {
                   <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                   <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
                   <Text style={styles.overlaySubText}>{t('Waiting for market data connection...')}</Text>
+                </View>
+              )}
+
+              {isNoMarketData && !isError && (
+                <View style={styles.chartOverlay}>
+                  <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
+                  <Text style={styles.overlayText}>{t('No market data available')}</Text>
+                  <Text style={styles.overlaySubText}>{t('Waiting for backend candle data...')}</Text>
                 </View>
               )}
 

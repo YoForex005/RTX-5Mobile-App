@@ -825,6 +825,7 @@ export function ChartScreen() {
 
   const isLoading = candles.length === 0 && !forceHideLoading;
   const isError = false;
+  const isNoMarketData = candles.length === 0 && !isLoading && !isError;
 
   // Initialize Lightweight Chart
   useEffect(() => {
@@ -1484,6 +1485,14 @@ export function ChartScreen() {
                   <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                   <Text style={styles.overlayText}>Unable to load chart</Text>
                   <Text style={styles.overlaySubText}>Waiting for market data connection...</Text>
+                </View>
+              )}
+
+              {isNoMarketData && (
+                <View style={styles.chartOverlay}>
+                  <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
+                  <Text style={styles.overlayText}>No market data available</Text>
+                  <Text style={styles.overlaySubText}>Waiting for backend candle data...</Text>
                 </View>
               )}
 

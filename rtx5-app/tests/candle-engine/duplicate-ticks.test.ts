@@ -27,7 +27,7 @@ test('duplicate backend live candle snapshots are no-op updates', () => {
   assert.equal(materializeCandleMap(map).length, 1);
 });
 
-test('same-bucket backend snapshots replace the active candle without adding duplicates', () => {
+test('same-bucket backend snapshots merge the active candle without adding duplicates', () => {
   const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
   const map = createCandleMap();
 
@@ -44,6 +44,6 @@ test('same-bucket backend snapshots replace the active candle without adding dup
 
   assert.equal(updated.changed, true);
   assert.deepEqual(materializeCandleMap(map), [
-    { time: bucket, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 8 },
+    { time: bucket, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 12 },
   ]);
 });

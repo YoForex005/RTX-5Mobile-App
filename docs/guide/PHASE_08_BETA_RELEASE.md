@@ -41,6 +41,7 @@ Execute controlled beta distribution and staged OTA promotion with rollback read
 - Beta release is declared stable with rollback readiness confirmed.
 
 ## Progress Notes
+- 2026-05-06: Updated the Android production application ID to `com.rtx5.app` and added an Android-only production EAS build script for AAB output. EAS cloud build could not start in the sandbox because `eas-cli` is not installed and npm registry access is blocked. A local Gradle AAB attempt reached Android dependency resolution, then stopped because Maven access to required artifacts such as React Native, Hermes, and Fresco is blocked; owner next action is to run the production Android EAS build from an authenticated/networked Expo environment.
 - 2026-05-06: Added guarded channel publish scripts for `preview`, `staging`, and `production` EAS Updates. The wrapper keeps channel selection explicit, publishes only native platforms, and leaves runtime-version compatibility enforced by EAS Update/app-version gating.
 - 2026-05-05: Integrated the root OTA launch check for EAS Update channels and verified Expo config plus strict TypeScript. Production Android remains configured for AAB output through the `production` EAS profile.
 

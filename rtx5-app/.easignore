@@ -1,3 +1,6 @@
+.env
+.env.*
+
 android/
 android/**
 ios/
@@ -17,6 +20,12 @@ node_modules/**
 .g4/**
 .codex-tmp/
 .codex-tmp/**
+.npm-cache/
+.npm-cache/**
+.gradle/
+.gradle/**
+.kotlin/
+.kotlin/**
 dist/
 dist/**
 web-build/

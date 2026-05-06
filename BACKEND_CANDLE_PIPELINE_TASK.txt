@@ -1,0 +1,155 @@
+Backend candle pipeline task handoff
+====================================
+
+Role
+----
+Senior Backend Market Data Engineer for an MT5/Exness/TradingView-style
+trading platform.
+
+Scope
+-----
+Implement or refactor only the backend market-data candle pipeline:
+- tick ingestion
+- tick normalization
+- tick validation
+- chart price-source selection
+- candle aggregation
+- candle persistence
+- History API candle responses
+- live candle/tick streaming
+
+Do not modify frontend code. Do not modify unrelated backend modules such as
+auth, payments, dashboard, admin, user profile, CRM, KYC, or order execution
+unless directly required for market-data routing. Do not create fake candles,
+fabricate market data, fill gaps artificially, or hide real backend/feed gaps.
+
+Required backend behavior
+-------------------------
+1. Normalize raw provider ticks into one internal tick format:
+   symbol, bid, ask, last, timestamp, volume, source, optional sequenceId.
+2. Reject invalid ticks:
+   missing symbol/timestamp, missing selected price, non-numeric or non-positive
+   price, disabled symbol, disallowed feed source, abnormal spread, duplicate
+   tick, too-future timestamp, or too-old timestamp outside the allowed late
+   tick window.
+3. Select one configured chart price source per symbol/asset type:
+   forex/CFD usually Bid, exchange-style instruments usually Last, Ask only
+   when explicitly configured.
+4. Bucket ticks by timeframe with:
+   bucketTime = floor(tickTimestamp / timeframeMs) * timeframeMs.
+   Candle time must be the candle start time.
+5. Support existing platform timeframes, at minimum:
+   M1, M5, M15, M30, H1, H4, D1.
+6. Generate official OHLC candles:
+   first tick sets open/high/low/close, later ticks preserve open, expand
+   high/low, move close to the latest valid tick, and add volume/tickCount.
+7. Preserve wick values. Never overwrite high/low with the latest close and
+   never overwrite open after candle creation.
+8. Prevent invalid OHLC from storage or streaming:
+   high < open, high < close, low > open, low > close, or high < low.
+9. Store candles uniquely by symbol + timeframe + candle_time with:
+   symbol, timeframe, time, open, high, low, close, volume, tickCount,
+   isClosed, source, createdAt, updatedAt.
+10. Upsert safely:
+    open stays unchanged, high is greatest, low is least, close updates only
+    from the latest tick/update, volume and tickCount increase safely, updatedAt
+    changes.
+11. Handle late and out-of-order ticks:
+    update high/low and volume/tickCount if the tick is not duplicate, but do
+    not let an older tick overwrite the candle close.
+12. Deduplicate ticks using the best available identity:
+    symbol, timestamp, bid, ask, last, source, sequenceId when available.
+13. Mark forming candles isClosed=false and mark the previous bucket closed
+    when a new bucket starts.
+14. Recover current candle state after backend restart by loading the latest
+    candle per symbol/timeframe and continuing the bucket only if it is still
+    current.
+
+History API requirements
+------------------------
+The frontend expects to request candles by symbol, timeframe, from, to, and
+limit when supported. The response must:
+- return only the requested symbol and timeframe
+- be sorted ascending by candle time
+- contain no duplicate candle timestamps
+- contain valid OHLC only
+- use one consistent time format
+- use one consistent candle contract
+- include isClosed if available
+- never fill fake missing candles
+
+Recommended response shape:
+{
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "candles": [
+    {
+      "time": 1778051400,
+      "open": 2325.40,
+      "high": 2326.20,
+      "low": 2324.90,
+      "close": 2325.75,
+      "volume": 142,
+      "tickCount": 142,
+      "isClosed": true
+    }
+  ]
+}
+
+Live stream requirements
+------------------------
+Use the existing WebSocket/SSE infrastructure. Support subscribe/unsubscribe by
+symbol + timeframe, reconnect, heartbeat/ping-pong where applicable, and
+existing authorization. No cross-symbol or cross-timeframe leakage.
+
+Preferred live candle message:
+{
+  "type": "candle",
+  "symbol": "XAUUSD",
+  "timeframe": "M1",
+  "time": 1778051400,
+  "open": 2325.40,
+  "high": 2326.20,
+  "low": 2324.90,
+  "close": 2325.75,
+  "volume": 142,
+  "tickCount": 142,
+  "isClosed": false
+}
+
+Optional tick message for bid/ask display:
+{
+  "type": "tick",
+  "symbol": "XAUUSD",
+  "bid": 2325.40,
+  "ask": 2325.55,
+  "last": 2325.45,
+  "timestamp": 1778051401250
+}
+
+Missing data policy
+-------------------
+No tick means no candle. Do not copy prior close into fake candles. Do not
+create flat/no-volume candles unless this is an explicitly documented official
+market-data policy.
+
+Tests required
+--------------
+Add or update backend tests for tick normalization, invalid tick rejection,
+symbol mapping, timeframe bucket calculation, M1 candle generation, same-bucket
+updates, new bucket creation, open preservation, wick preservation, close
+latest-tick behavior, invalid OHLC prevention, duplicate tick prevention,
+out-of-order handling, higher-timeframe generation if supported, DB upsert
+preservation, History API sorting/no duplicates/no fake gaps, live stream
+current-candle emission, reconnect snapshot behavior, and restart recovery.
+
+Acceptance criteria
+-------------------
+The backend task is complete only when there is one official candle-generation
+pipeline; raw feed ticks are normalized; bad ticks are rejected; bucket times
+are correct; OHLC/wicks are preserved; duplicate ticks/candles are prevented;
+out-of-order ticks cannot wrongly overwrite close; History API returns clean
+sorted candle data; live stream sends correct live candle updates; missing data
+is not faked; restart/reconnect behavior is safe or documented; tests cover the
+critical candle logic; and tests/typecheck/lint/build have been run where
+available.

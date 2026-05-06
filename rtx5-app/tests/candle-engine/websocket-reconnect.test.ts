@@ -56,7 +56,7 @@ test('backend reconnect resumes with authoritative live candle snapshots', () =>
     high: 1.15,
     low: 1.08,
     close: 1.14,
-    volume: 9,
+    volume: 14,
   });
   assertNoDuplicateCandleTimes(visible);
 });

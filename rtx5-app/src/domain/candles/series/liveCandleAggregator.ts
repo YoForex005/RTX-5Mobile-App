@@ -1,6 +1,10 @@
 import type { Candle, LiveCandle, MutableCandle } from '../core/candleTypes';
 import { getBucketStart, normalizeTimestampToSeconds } from '../core/timeframeUtils';
 import { validateCandle } from '../core/candleValidator';
+import {
+  areCandleValuesEqual,
+  mergeCandleByTimestamp,
+} from './candleSeriesMerger';
 
 export type ApplyCandleOptions = {
   historyCutoffTime?: number | null;
@@ -21,14 +25,6 @@ const toPublicCandle = (candle: MutableCandle): Candle => ({
   close: candle.close,
   volume: candle.volume ?? 0,
 });
-
-const areCandlesEqual = (left: Candle, right: Candle): boolean =>
-  left.time === right.time &&
-  left.open === right.open &&
-  left.high === right.high &&
-  left.low === right.low &&
-  left.close === right.close &&
-  (left.volume ?? 0) === (right.volume ?? 0);
 
 export const applyLiveCandleToCandleMap = (
   candleMap: Map<number, MutableCandle>,
@@ -52,13 +48,10 @@ export const applyLiveCandleToCandleMap = (
 
   const existing = candleMap.get(bucketStart);
   const eventTime = liveCandle.time;
-  if (
+  const isOutOfOrderSameBucket =
     existing?.source === 'live_candle' &&
     typeof existing.lastUpdateTime === 'number' &&
-    eventTime < existing.lastUpdateTime
-  ) {
-    return { candle: null, changed: false, ignored: true, reason: 'stale_live_candle' };
-  }
+    eventTime < existing.lastUpdateTime;
 
   // No `late_missing_bucket` rejection here. Backend is the source of truth for
   // live candles. If history ends at T0 and live has emitted a future bucket Tf,
@@ -66,22 +59,38 @@ export const applyLiveCandleToCandleMap = (
   // legitimate backfill — not a stale message — and must fill the gap. The only
   // boundary that protects closed history is `historyCutoffTime`, enforced
   // above. Same-bucket replays are still guarded by the `lastUpdateTime` stale
-  // check above.
+  // check above: out-of-order same-bucket snapshots can still widen wicks, but
+  // cannot rewind the close of the latest accepted snapshot.
 
-  const next: MutableCandle = {
+  const incoming: Candle = {
     time: bucketStart,
     open: liveCandle.open,
     high: liveCandle.high,
     low: liveCandle.low,
     close: liveCandle.close,
     volume: liveCandle.volume ?? 0,
+  };
+  const exactReplay = existing && areCandleValuesEqual(toPublicCandle(existing), incoming);
+  if (exactReplay) {
+    return { candle: toPublicCandle(existing), changed: false, ignored: false };
+  }
+
+  const merged = existing
+    ? mergeCandleByTimestamp(existing, incoming, {
+        closeSource: isOutOfOrderSameBucket ? 'existing' : 'incoming',
+        volumeStrategy: 'sum',
+      })
+    : incoming;
+
+  const next: MutableCandle = {
+    ...merged,
     source: 'live_candle',
     closed: liveCandle.closed ?? false,
     firstUpdateTime:
       existing?.firstUpdateTime === undefined
         ? eventTime
         : Math.min(existing.firstUpdateTime, eventTime),
-    lastUpdateTime: eventTime,
+    lastUpdateTime: isOutOfOrderSameBucket ? existing?.lastUpdateTime ?? eventTime : eventTime,
   };
 
   if (!validateCandle(next)) {
@@ -90,11 +99,15 @@ export const applyLiveCandleToCandleMap = (
 
   candleMap.set(bucketStart, next);
 
-  return {
+  const result: ApplyCandleResult = {
     candle: toPublicCandle(next),
-    changed: !existing || !areCandlesEqual(toPublicCandle(existing), toPublicCandle(next)),
+    changed: !existing || !areCandleValuesEqual(toPublicCandle(existing), toPublicCandle(next)),
     ignored: false,
   };
+  if (isOutOfOrderSameBucket) {
+    result.reason = 'merged_out_of_order_live_candle';
+  }
+  return result;
 };
 
 export type ApplyQuoteTickExtensionOptions = {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -9,10 +9,28 @@ import {
   readChartScreenSource,
 } from '../support/chartSourceTestUtils';
 
+// Reads either a single .ts file (legacy) or concatenates every .ts file in a
+// folder of the same name (post 500-line refactor). Tests grep across the
+// concatenation so contract assertions survive future internal splits.
+const readModuleSource = (relativePath: string): string => {
+  const filePath = join(process.cwd(), `${relativePath}.ts`);
+  const folderPath = join(process.cwd(), relativePath);
+  if (existsSync(filePath)) {
+    return readFileSync(filePath, 'utf8');
+  }
+  if (existsSync(folderPath) && statSync(folderPath).isDirectory()) {
+    return readdirSync(folderPath)
+      .filter((entry) => entry.endsWith('.ts'))
+      .map((entry) => readFileSync(join(folderPath, entry), 'utf8'))
+      .join('\n');
+  }
+  throw new Error(`module source not found: ${relativePath}`);
+};
+
 const chartSource = readChartScreenSource();
-const streamSource = readFileSync(join(process.cwd(), 'src/domain/candles/stream/liveCandleStream.ts'), 'utf8');
-const socketSource = readFileSync(join(process.cwd(), 'src/domain/candles/ws/candlesSocket.ts'), 'utf8');
-const apiSource = readFileSync(join(process.cwd(), 'src/domain/candles/api/candles.ts'), 'utf8');
+const streamSource = readModuleSource('src/domain/candles/stream/liveCandleStream');
+const socketSource = readModuleSource('src/domain/candles/ws/candlesSocket');
+const apiSource = readModuleSource('src/domain/candles/api/candles');
 
 test('radial menu timeframe switch uses stable chart pipeline', () => {
   assertSourceContains(
@@ -37,6 +55,19 @@ test('does not permanently blank chart after rapid switching', () => {
     chartSource,
     /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
     'CHART_READY must force-paint retained candles so fast switches cannot remain blank',
+  );
+});
+
+test('empty history and empty live data surfaces a no-market-data state', () => {
+  assertSourceContains(
+    chartSource,
+    /const isNoMarketData = candles\.length === 0 && !isLoading && loadingFallback/,
+    'native chart must stop showing only a blank shell after history/live both remain empty',
+  );
+  assertSourceContains(
+    chartSource,
+    /No market data available/,
+    'native chart must show an explicit no-data state when no backend candles are available',
   );
 });
 
@@ -98,7 +129,10 @@ test('candle websocket appends JWT token from user preferences so live candles f
   );
   assertSourceContains(
     socketSource,
-    /import \{[\s\S]*appendCandleWsToken[\s\S]*\} from '\.\/candlesSocketProtocol'/,
+    // Path may be `./candlesSocketProtocol` (legacy single-file layout) or
+    // `../candlesSocketProtocol` (post 500-line refactor where the service
+    // lives in its own folder).
+    /import \{[\s\S]*appendCandleWsToken[\s\S]*\} from '\.\.?\/candlesSocketProtocol'/,
     'candle WS must use the shared appendCandleWsToken helper from the protocol module',
   );
   assertSourceContains(
@@ -202,8 +236,8 @@ test('zoom/data-density path does not convert candlesticks into line data', () =
 test('chart adapter never sends malformed candlestick objects to setData', () => {
   assertSourceContains(
     chartSource,
-    /function sanitizeSeriesData\(data\)[\s\S]*var normalized = normalizeRawSeriesDatum\(data\[i\]\)[\s\S]*byTime\[String\(normalized\.time\)\] = normalized/,
-    'WebView must sanitize, sort, and dedupe data before setData',
+    /function sanitizeSeriesData\(data\)[\s\S]*var normalized = normalizeRawSeriesDatum\(data\[i\]\)[\s\S]*byTime\[key\] = mergeRawSeriesDatum\(byTime\[key\], normalized\)/,
+    'WebView must sanitize, sort, and merge duplicate candle data before setData',
   );
   assertSourceContains(
     chartSource,

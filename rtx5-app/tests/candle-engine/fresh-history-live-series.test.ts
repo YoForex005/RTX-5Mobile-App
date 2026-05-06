@@ -36,8 +36,11 @@ test('fresh history plus same-bucket backend live candle produces one active can
 
   assert.equal(visible.length, 3);
   assert.equal(visible.filter((candle) => candle.time === activeTime).length, 1);
+  assert.equal(visible[visible.length - 1].open, 1.2);
+  assert.equal(visible[visible.length - 1].high, 1.27);
+  assert.equal(visible[visible.length - 1].low, 1.18);
   assert.equal(visible[visible.length - 1].close, 1.26);
-  assert.equal(visible[visible.length - 1].volume, 18);
+  assert.equal(visible[visible.length - 1].volume, 28);
   assertNoDuplicateCandleTimes(visible);
   assertValidCandleSeries(visible);
 });
