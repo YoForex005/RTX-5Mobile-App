@@ -62,5 +62,6 @@ Pass criteria:
 A beta/public release is blocked if any mandatory control above is not green.
 
 ## Release Status Notes
+- 2026-05-06: Candle `/ws/v2` connections now read the active access token at connect time and reconnect on token changes so authenticated candle channels are not left on stale anonymous sockets. No token logging was added, and release remains blocked until the mandatory secure-storage, pinning, integrity, app-lock, and redaction controls above are green.
 - 2026-05-05: Play Store production build profile was switched to store app-bundle output only. No security gates were bypassed; mandatory controls above still block public release until green.
 

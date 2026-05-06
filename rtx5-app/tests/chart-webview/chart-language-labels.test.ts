@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   assertSourceContains,
@@ -9,13 +11,22 @@ import {
 import { translate } from '../../src/i18n/translations.ts';
 
 const nativeSource = readChartScreenSource();
+const liveHeadersSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/components/ChartLiveHeaders.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/components/ChartLiveHeaders.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(filePath, 'ChartLiveHeaders.tsx was not found from the test working directory');
+  return readFileSync(filePath, 'utf8');
+})();
 
 test('LivePriceHeader subscribes to i18n and renders translated Price label', () => {
-  const start = nativeSource.indexOf('const LivePriceHeader');
-  const end = nativeSource.indexOf('const LiveQuotePairHeader');
+  const start = liveHeadersSource.indexOf('const LivePriceHeader');
+  const end = liveHeadersSource.indexOf('const LiveQuotePairHeader');
   assert.notEqual(start, -1, 'LivePriceHeader must exist');
   assert.notEqual(end, -1, 'LiveQuotePairHeader must exist');
-  const body = nativeSource.slice(start, end);
+  const body = liveHeadersSource.slice(start, end);
 
   assertSourceContains(body, /const \{ t \} = useTranslation\(\)/, 'LivePriceHeader must subscribe to language changes');
   assertSourceContains(body, /const priceLabel = t\('Price'\)/, 'price label must come from the translation table');

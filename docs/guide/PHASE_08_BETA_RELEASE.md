@@ -41,5 +41,6 @@ Execute controlled beta distribution and staged OTA promotion with rollback read
 - Beta release is declared stable with rollback readiness confirmed.
 
 ## Progress Notes
+- 2026-05-06: Added guarded channel publish scripts for `preview`, `staging`, and `production` EAS Updates. The wrapper keeps channel selection explicit, publishes only native platforms, and leaves runtime-version compatibility enforced by EAS Update/app-version gating.
 - 2026-05-05: Integrated the root OTA launch check for EAS Update channels and verified Expo config plus strict TypeScript. Production Android remains configured for AAB output through the `production` EAS profile.
 

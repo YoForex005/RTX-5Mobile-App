@@ -12,6 +12,7 @@ import { normalizeQuoteTickPayload, type QuoteTickEvent } from './quoteTickNorma
 import { normalizeQuoteTickTimestampToMs } from './quoteTimestamp';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
 import { normalizeSymbol } from '../../domain/symbols';
+import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -585,6 +586,32 @@ export class QuotesWebSocketService {
     // Quotes screen relies on for live bid/ask updates — it doesn't need to
     // wait for the rAF/setTimeout-driven Zustand flush.
     this.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
+    // Extend the chart's active candle so its close (and wick high/low) keep
+    // ticking in real time even when the backend candle channel is quiet
+    // between authoritative snapshots. The engine guards this strictly:
+    //   - Only updates an EXISTING bucket created by backend.
+    //   - Never invents a new bucket / closed-history candle.
+    //   - Backend live_candle snapshots fully overwrite the bucket on arrival,
+    //     preserving backend authority on every snapshot.
+    // We pick `bid` as the price source (matches the configured candle price
+    // basis); falling back to `ask` if `bid` is somehow missing.
+    const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)
+      ? normalizedUpdate.bid
+      : Number.isFinite(normalizedUpdate.ask)
+        ? normalizedUpdate.ask
+        : null;
+    if (tickPriceForCandle !== null) {
+      try {
+        liveCandleStream.extendActiveCandlesFromQuoteTick(normalizedUpdate.symbol, {
+          price: tickPriceForCandle,
+          time: liveListenerTimestamp,
+        });
+      } catch (_error) {
+        // Defensive: under hot-module-reload the singleton may pre-date this
+        // method on its prototype. Skip silently — the chart still receives
+        // backend candle snapshots via the dedicated candle WS.
+      }
+    }
     this.logCandleFeed('tick_emitted_to_quote_listeners', {
       symbol: normalizedUpdate.symbol,
       bid: normalizedUpdate.bid,

@@ -2,7 +2,10 @@ import { getCandleHistory } from '../api/candles';
 import { syncMergedCandleCache } from '../state/candleCache';
 import { useTradingState } from '../../../state/tradingState';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
-import { applyLiveCandleToCandleMap } from '../series/liveCandleAggregator';
+import {
+  applyLiveCandleToCandleMap,
+  applyQuoteTickExtensionToCandleMap,
+} from '../series/liveCandleAggregator';
 import { normalizeLiveCandle } from '../normalization/candleNormalizer';
 import {
   buildFreshHistoryLiveCandleSeries,
@@ -16,6 +19,7 @@ import {
   createCandleStreamKey,
   normalizeSymbol,
   normalizeTimeframeStrict,
+  normalizeTimestampToSeconds,
 } from '../core/timeframeUtils';
 import { sanitizeCandlesForChart } from '../normalization/chartAdapter';
 import { buildRestHistorySeedCandles } from '../core/candleProvenance';
@@ -31,11 +35,19 @@ export type CandleParams = Candle & {
 
 type StreamListener = () => void;
 
-type BufferedLiveEvent = 
-  | { type: 'live_candle'; candle: LiveCandle; order: number };
+type BufferedLiveEvent =
+  | { type: 'live_candle'; candle: LiveCandle; order: number }
+  // Quote-tick extension. Carries a single price + timestamp from the quote
+  // feed and ONLY mutates the close (and widens high/low) of the active
+  // bucket's candle that backend already created. It never invents a new
+  // bucket and never touches closed history. Any subsequent backend
+  // live_candle snapshot fully overwrites the bucket's OHLC, so backend
+  // remains authoritative.
+  | { type: 'quote_tick_extension'; price: number; time: number; order: number };
 
-type UnorderedLiveEvent = 
-  | { type: 'live_candle'; candle: LiveCandle };
+type UnorderedLiveEvent =
+  | { type: 'live_candle'; candle: LiveCandle }
+  | { type: 'quote_tick_extension'; price: number; time: number };
 
 type StreamEntry = {
   key: string;
@@ -103,8 +115,8 @@ const getStoreCache = (symbol: string, timeframe: string): Candle[] => {
   return sanitizeCandlesForChart(cached).slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
-const getEventTime = (event: BufferedLiveEvent): number => 
-  event.candle.time;
+const getEventTime = (event: BufferedLiveEvent): number =>
+  event.type === 'live_candle' ? event.candle.time : event.time;
 
 const isSameSeries = (left: readonly Candle[], right: readonly Candle[]): boolean => {
   if (left === right) return true;
@@ -209,7 +221,16 @@ export class LiveCandleStreamManager {
         syncMergedCandleCache(normalizedSymbol, normalizedTimeframe, history.closedCandles, { canonical: true });
 
         const liveEntry = this.entries.get(key);
-        if (liveEntry && candles.length > 0) {
+        // Guard against a stale prefetch overwriting newer state. If a real
+        // loadHistory has run for this entry (requestId > 0) or is currently
+        // running, ignore the prefetch result — the authoritative loadHistory
+        // path owns historyCandles/historyLastTime/commit lifecycle.
+        if (
+          liveEntry &&
+          candles.length > 0 &&
+          liveEntry.requestId === 0 &&
+          !liveEntry.historyLoading
+        ) {
           liveEntry.historyCandles = candles;
           liveEntry.historyLastTime = seed.closedHistoryLastTime;
           liveEntry.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
@@ -274,6 +295,60 @@ export class LiveCandleStreamManager {
     }
 
     this.enqueueLiveEvent(entry, this.makeLiveEvent(entry, { type: 'live_candle', candle }));
+  }
+
+  /**
+   * Extend the active candle of every (symbol, *) subscription using a single
+   * real-time price tick from the quote feed. This is a pure EXTENSION path:
+   *
+   *   - Updates the close of the candle that backend already created at the
+   *     active bucket.
+   *   - Widens high/low if the tick exceeds them.
+   *   - Never invents a new bucket. If no active live candle exists at the
+   *     current bucket, the engine falls back to seeding from the latest REST
+   *     history candle ONLY if its time matches the active bucket — otherwise
+   *     the tick is dropped.
+   *   - Never modifies closed history (gated by `historyLastTime`).
+   *   - Backend `live_candle` snapshots fully overwrite the bucket's OHLC, so
+   *     backend remains the source of truth on every snapshot.
+   *
+   * Why this exists: most broker WS candle channels emit an authoritative
+   * snapshot on bar close (or on a slow cadence), but real-time price
+   * movement within the active bar arrives only through the quote feed. To
+   * make the chart's forming candle visibly tick in real time, we extend
+   * close (and the wick high/low) from the quote feed. This is not "frontend
+   * candle generation" — it is forwarding backend tick data into a backend-
+   * created bucket.
+   */
+  public extendActiveCandlesFromQuoteTick(
+    symbol: string,
+    options: { price: number; time: unknown },
+  ): void {
+    const normalizedSymbol = normalizeSymbol(symbol);
+    if (!normalizedSymbol) {
+      return;
+    }
+    if (!Number.isFinite(options.price) || options.price <= 0) {
+      return;
+    }
+    const timeSeconds = normalizeTimestampToSeconds(options.time);
+    if (timeSeconds === null) {
+      return;
+    }
+
+    for (const entry of this.entries.values()) {
+      if (entry.symbol !== normalizedSymbol) {
+        continue;
+      }
+      this.enqueueLiveEvent(
+        entry,
+        this.makeLiveEvent(entry, {
+          type: 'quote_tick_extension',
+          price: options.price,
+          time: timeSeconds,
+        }),
+      );
+    }
   }
 
   public dispose(): void {
@@ -520,10 +595,31 @@ export class LiveCandleStreamManager {
           });
         }
         changed = changed || result.changed;
+      } else if (event.type === 'quote_tick_extension') {
+        if (this.applyQuoteTickExtension(entry, event)) {
+          changed = true;
+        }
       }
     }
 
     return changed;
+  }
+
+  private applyQuoteTickExtension(
+    entry: StreamEntry,
+    event: { price: number; time: number },
+  ): boolean {
+    const restTail = entry.historyCandles[entry.historyCandles.length - 1] ?? null;
+    const result = applyQuoteTickExtensionToCandleMap(
+      entry.liveCandleMap,
+      { price: event.price, time: event.time },
+      entry.timeframe,
+      {
+        historyCutoffTime: entry.historyLastTime,
+        latestHistoryCandle: restTail,
+      },
+    );
+    return result.changed;
   }
 
   private commit(entry: StreamEntry): void {

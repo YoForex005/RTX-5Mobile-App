@@ -11,6 +11,37 @@ export const resolveCandlesWsUrl = (configuredUrl?: string): string => {
   return url.replace(/\/ws\/feed(\?.*)?$/, '/ws/v2$1');
 };
 
+/**
+ * Append (or replace) the `?token=` query parameter on a WS URL.
+ *
+ * Backend `/ws/v2` requires JWT authentication for candle channel
+ * subscriptions even though they are nominally "public". A connection without
+ * a valid token is silently treated as having no candle channels: REST
+ * history loads but no live candle update ever arrives. Pass the user's
+ * stored access token in via `token` to authenticate the connection. Pass
+ * `null` to keep the URL anonymous (used for guest mode).
+ */
+export const appendCandleWsToken = (baseUrl: string, token: string | null): string => {
+  if (!token) {
+    return baseUrl;
+  }
+  // Strip any existing token query so reconnects under a rotated token do not
+  // accumulate stale params. We do this by parsing the query string manually
+  // (no URL constructor dependency in RN/Hermes guarantees) and rebuilding it.
+  const queryStart = baseUrl.indexOf('?');
+  if (queryStart === -1) {
+    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  }
+  const base = baseUrl.slice(0, queryStart);
+  const query = baseUrl.slice(queryStart + 1);
+  const params = query
+    .split('&')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !entry.toLowerCase().startsWith('token='));
+  params.push(`token=${encodeURIComponent(token)}`);
+  return `${base}?${params.join('&')}`;
+};
+
 export const createCandleChannel = (symbol: string, tf: string): string | null => {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeTimeframeStrict(tf);

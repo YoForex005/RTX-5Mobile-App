@@ -85,6 +85,69 @@ test('logged-out user can render market chart when public data exists', () => {
   );
 });
 
+test('candle websocket appends JWT token from user preferences so live candles flow for every timeframe', () => {
+  // The /ws/v2 endpoint requires authentication for candle channels per the
+  // backend contract. Without `?token=...` the connection is anonymous and
+  // backend silently drops candle subscriptions, which manifests as: REST
+  // history loads fine but no live candle ever updates the chart, regardless
+  // of selected timeframe.
+  assertSourceContains(
+    socketSource,
+    /const getStoredAccessToken = \(\): string \| null =>[\s\S]*useUserPreferences\.getState\(\)\.accountDetails\?\.credentials\?\.accessToken/,
+    'candle WS must read JWT from user preferences at connect time',
+  );
+  assertSourceContains(
+    socketSource,
+    /import \{[\s\S]*appendCandleWsToken[\s\S]*\} from '\.\/candlesSocketProtocol'/,
+    'candle WS must use the shared appendCandleWsToken helper from the protocol module',
+  );
+  assertSourceContains(
+    socketSource,
+    /const wsUrl = appendCandleWsToken\(this\.url, token\)[\s\S]*this\.ws = new WebSocket\(wsUrl\)/,
+    'candle WS connect path must build the URL with the active token',
+  );
+  assertSourceContains(
+    socketSource,
+    /private startTokenWatcher\(\): void[\s\S]*useUserPreferences\.subscribe[\s\S]*if \(next === prev\)[\s\S]*if \(this\.subscriptions\.size === 0\)[\s\S]*this\.connect\(\)/,
+    'candle WS must reconnect when the stored token changes (login, logout, account switch)',
+  );
+  assertSourceContains(
+    socketSource,
+    /this\.activeToken !== token[\s\S]*this\.tearDownSocketSafe\(\)/,
+    'candle WS must drop a stale-token connection before opening a new one',
+  );
+});
+
+test('candle websocket call sites guard against stale-prototype singletons (HMR safety)', () => {
+  // Under hot-module-reload the singleton instance can pre-date a method that
+  // was added to the class. Crashing the chart with "this.X is not a function"
+  // is unacceptable — guard the new methods with typeof checks and fall back
+  // to inline cleanup in the WS teardown path.
+  assertSourceContains(
+    socketSource,
+    /if \(typeof this\.startTokenWatcher === 'function'\) \{[\s\S]*this\.startTokenWatcher\(\)/,
+    'candle WS connect() must guard the startTokenWatcher call so a stale singleton cannot crash the chart',
+  );
+  assertSourceContains(
+    socketSource,
+    /if \(typeof this\.stopTokenWatcher === 'function'\) \{[\s\S]*this\.stopTokenWatcher\(\)/,
+    'candle WS disconnect() must guard the stopTokenWatcher call',
+  );
+  assertSourceContains(
+    socketSource,
+    /private tearDownSocketSafe\(\): void \{[\s\S]*if \(typeof this\.teardownSocket === 'function'\)[\s\S]*const socket = this\.ws[\s\S]*this\.ws = null/,
+    'candle WS must expose a fallback teardown that works even if teardownSocket is missing on a stale prototype',
+  );
+});
+
+test('prefetch history result does not overwrite a newer authoritative loadHistory state', () => {
+  assertSourceContains(
+    streamSource,
+    /liveEntry &&[\s\S]*candles\.length > 0 &&[\s\S]*liveEntry\.requestId === 0 &&[\s\S]*!liveEntry\.historyLoading/,
+    'prefetch must skip applying its result if a real loadHistory has already run or is running',
+  );
+});
+
 test('reconnect safe subscription path resubscribes without polluting current symbol or timeframe', () => {
   assertSourceContains(
     socketSource,

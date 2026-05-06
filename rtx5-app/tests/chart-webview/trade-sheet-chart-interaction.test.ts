@@ -394,6 +394,37 @@ test('compact footer lot editing keeps the chart viewport from shrinking under A
   );
 });
 
+test('trade footer dock keeps a stable keyboard clearance via static paddingBottom', () => {
+  // The Sell/Lot/Buy row sits at `bottom: 0` while the lot editor is focused
+  // on Android (Android `adjustResize` lifts the dock above the keyboard).
+  // To prevent the row from sitting flush against the keyboard top we keep a
+  // small static `paddingBottom` inside the dock style itself. Static padding
+  // is the stable solution: it is identical whether the keyboard is open or
+  // closed, so tapping the lot input mid-cell can never produce a vertical
+  // jump as the focus event flips state.
+  const stylesPath = (() => {
+    const candidates = [
+      resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
+      resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
+  })();
+  assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
+  const stylesSource = readFileSync(stylesPath, 'utf8');
+
+  assertSourceContains(
+    stylesSource,
+    /footerTradeDock: \{[\s\S]*paddingBottom: 1[0-9]/,
+    'footerTradeDock must keep a static paddingBottom (>=10) so the trade row clears the keyboard',
+  );
+  // Negative pin: the dock must not regress to flush-against-keyboard.
+  if (/footerTradeDock: \{[\s\S]*paddingBottom: 0[\s,]/.test(stylesSource)) {
+    throw new Error(
+      'footerTradeDock paddingBottom must not be 0 — that lets the trade row sit flush against the keyboard top.',
+    );
+  }
+});
+
 test('opening SL/TP sheet closes lot picker and lot editor state', () => {
   assertSourceContains(
     source,

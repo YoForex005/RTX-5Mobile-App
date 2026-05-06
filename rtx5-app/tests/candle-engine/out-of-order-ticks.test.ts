@@ -27,7 +27,12 @@ test('older backend live candle snapshots cannot rewind the active candle', () =
   ]);
 });
 
-test('late missing backend buckets behind the current tail are ignored instead of backfilled locally', () => {
+test('backend live candle backfilling a missing bucket above history cutoff fills the gap', () => {
+  // Backend is the source of truth for live candles. If the live tail is at T,
+  // and backend later emits a candle for a missing bucket between historyCutoff
+  // and T (a real gap-fill / backfill), the candle must be accepted — not
+  // dropped as "stale". Same-bucket replays are still guarded by lastUpdateTime
+  // and closed history is still protected by historyCutoffTime.
   const map = createCandleMap();
   const currentBucket = secondsUtc(2024, 3, 22, 12, 5, 0);
 
@@ -36,13 +41,35 @@ test('late missing backend buckets behind the current tail are ignored instead o
     { symbol: 'EURUSD', timeframe: 'M1', time: currentBucket, open: 1.2, high: 1.22, low: 1.19, close: 1.21, volume: 5 },
     'M1',
   );
-  const late = applyLiveCandleToCandleMap(
+  const backfill = applyLiveCandleToCandleMap(
     map,
     { symbol: 'EURUSD', timeframe: 'M1', time: currentBucket - 120, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 4 },
     'M1',
   );
 
-  assert.equal(late.ignored, true);
-  assert.equal(late.reason, 'late_missing_bucket');
-  assert.deepEqual(materializeCandleMap(map).map((candle) => candle.time), [currentBucket]);
+  assert.equal(backfill.ignored, false);
+  assert.equal(backfill.changed, true);
+  assert.deepEqual(
+    materializeCandleMap(map).map((candle) => candle.time),
+    [currentBucket - 120, currentBucket],
+  );
+});
+
+test('backend live candle older than history cutoff is rejected even if it matches a known gap', () => {
+  // The historyCutoffTime guard remains absolute: REST history is the only
+  // authority for closed buckets at or below the cutoff. A backend live candle
+  // claiming an older bucket must not rewrite closed history.
+  const map = createCandleMap();
+  const cutoff = secondsUtc(2024, 3, 22, 12, 5, 0);
+
+  const stale = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', timeframe: 'M1', time: cutoff - 120, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 4 },
+    'M1',
+    { historyCutoffTime: cutoff },
+  );
+
+  assert.equal(stale.ignored, true);
+  assert.equal(stale.reason, 'older_than_history_cutoff');
+  assert.deepEqual(materializeCandleMap(map), []);
 });

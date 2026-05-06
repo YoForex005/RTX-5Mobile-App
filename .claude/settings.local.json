@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(eas --version)",
+      "Bash(eas whoami *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npm install *)",
+      "Bash(eas project:info)",
+      "Bash(eas build *)"
+    ]
+  }
+}

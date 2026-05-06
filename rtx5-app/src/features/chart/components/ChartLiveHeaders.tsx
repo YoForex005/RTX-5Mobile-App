@@ -11,13 +11,16 @@ import {
 import {
   type FooterLotPickerMode,
 } from '../chartTradeInteractionUtils';
+import { useTranslation } from '../../../i18n/useTranslation';
 
 
 
 export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource }: any) => {
+  const { t } = useTranslation();
   const latestTick = useLiveTick(symbol);
   const liveQuotes = useMarketData([symbol]);
   const q = liveQuotes[symbol] || {};
+  const priceLabel = t('Price');
 
   const selectedQuote =
     priceSource === 'ask'
@@ -40,7 +43,9 @@ export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, pr
 
   return (
     <View style={styles.priceSection}>
-      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: -1, opacity: 0.9 }]}>PRICE</Text>
+      <Text style={[styles.symbolText, { textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: -1, opacity: 0.9 }]}>
+        {priceLabel}
+      </Text>
       <Text style={styles.livePriceText} numberOfLines={1} adjustsFontSizeToFit>
         {currentPrice.toFixed(displayDecimals)}
       </Text>
@@ -113,4 +118,3 @@ export const LiveClock = React.memo(({ styles }: any) => {
     </Text>
   );
 });
-

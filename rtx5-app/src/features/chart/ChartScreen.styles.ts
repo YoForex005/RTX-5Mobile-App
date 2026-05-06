@@ -897,6 +897,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
+    chartTradeVolumeInputPending: {
+      minWidth: 78,
+      height: 38,
+      fontSize: 17,
+    },
     chartTradePriceInput: {
       minWidth: 100,
       height: 32,
@@ -1494,7 +1499,15 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       right: 0,
       paddingHorizontal: 8,
       paddingTop: 6,
-      paddingBottom: 0,
+      // Stable keyboard clearance. The dock is positioned at `bottom: 0` while
+      // the lot editor is focused on Android (Android `adjustResize` shrinks
+      // the viewport so the dock lifts above the keyboard). Without this
+      // padding the Sell/Lot/Buy row sits flush against the keyboard top and
+      // looks cramped. Keeping the gap inside the dock as static padding
+      // (instead of bumping the `bottom` value when the editor focuses)
+      // guarantees there is never a vertical jump when the user taps the lot
+      // input — the gap is the same whether the keyboard is open or closed.
+      paddingBottom: 12,
       backgroundColor: isDark ? '#080B11' : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,

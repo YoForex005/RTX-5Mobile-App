@@ -3,6 +3,10 @@
     "name": "RTX5",
     "slug": "rtx5-app",
     "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "jsEngine": "hermes",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -51,10 +55,6 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png",
-      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
