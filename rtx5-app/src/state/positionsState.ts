@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import type { PositionItem } from '../dev/mock/tradingData';
 import { positionsApi, type Position } from '../api/positions';
+import { appQueryClient } from './providers/AppProviders';
 import {
   classifyTradingError,
   createFrontendTradingError,
@@ -95,6 +96,13 @@ export const usePositionsState = create<PositionsState>((set) => ({
         if (!existing) {
           return {};
         }
+
+        // A position was closed (SL/TP hit, server-side close, etc.).
+        // Invalidate history caches so the History tab shows it immediately.
+        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
 
         return {
           positions: state.positions.filter((position) => position.id !== existing.id),

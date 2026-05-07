@@ -8,16 +8,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { startTransition, useCallback, useMemo, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { resolveTradingLogin } from '../../state/tradingLogin';
+import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAccountDealsQuery } from '../../query/deals';
 import { useOrdersByLoginQuery } from '../../query/orders';
+import { useAccountSummary } from '../../query/account';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { Deal } from '../../api/deals';
 import { LoginOrder } from '../../api/orders';
@@ -341,13 +342,30 @@ export function HistoryScreen() {
   const accountLogin = resolveTradingLogin();
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
     enabled: isScreenFocused,
+    refetchOnMount: 'always',
   });
   const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
     enabled: isScreenFocused,
+    refetchOnMount: 'always',
   });
   const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
     enabled: isScreenFocused,
+    refetchOnMount: 'always',
   });
+
+  // ── Refetch on tab focus ─────────────────────────────────────────────
+  // When the user switches to the History tab, immediately fetch fresh data
+  // from the server. This ensures that trades closed on other screens (Trade,
+  // Chart, etc.) appear in the list without waiting for the polling interval.
+  const wasFocusedRef = useRef(isScreenFocused);
+  useEffect(() => {
+    if (isScreenFocused && !wasFocusedRef.current) {
+      refetchPositionHistory();
+      refetchDeals();
+      refetchOrders();
+    }
+    wasFocusedRef.current = isScreenFocused;
+  }, [isScreenFocused, refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -360,8 +378,17 @@ export function HistoryScreen() {
   }, [refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
-  const balance = useLiveAccountState((s) => s.balance) || 0;
-  const currency = 'USD';
+  const accountLoginString = resolveTradingLoginString();
+
+  // ── Account Summary from backend API ────────────────────────────────
+  // GET /api/account/summary — provides balance, currency, leverage, etc.
+  // Falls back to WebSocket live state for balance if API hasn't responded yet.
+  const { data: accountSummary } = useAccountSummary(accountLoginString, {
+    enabled: isScreenFocused,
+  });
+  const liveBalance = useLiveAccountState((s) => s.balance);
+  const balance = accountSummary?.balance ?? liveBalance ?? 0;
+  const currency = accountSummary?.currency ?? 'USD';
   const { fromMs: effectiveHistoryFromMs, toMs: effectiveHistoryToMs } = useMemo(
     () => resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs),
     [historyRange, historyFromMs, historyToMs],

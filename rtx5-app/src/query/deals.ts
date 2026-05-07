@@ -16,6 +16,7 @@ import { useUserPreferences } from '../state/userPreferences';
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
+  refetchOnMount?: boolean | 'always';
 };
 
 const resolvePollingRefetchInterval = (
@@ -54,6 +55,7 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
     queryFn: () => dealsApi.getAccountDeals(500, 0, from, to),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
+    refetchOnMount: options.refetchOnMount,
   });
 }
 

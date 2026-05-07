@@ -9,6 +9,7 @@ import { PositionItem } from '../dev/mock/tradingData';
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
+  refetchOnMount?: boolean | 'always';
 };
 
 const resolvePollingRefetchInterval = (
@@ -80,6 +81,7 @@ export function usePositionHistoryQuery(
     queryFn: () => positionsApi.getPositionHistory(login!),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 30000, options.refetchInterval),
+    refetchOnMount: options.refetchOnMount,
   });
 }
 

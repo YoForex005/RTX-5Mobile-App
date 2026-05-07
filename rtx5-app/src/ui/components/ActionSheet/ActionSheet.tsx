@@ -157,7 +157,7 @@ export function ActionSheet({
       deferredAnimTimerRef.current = setTimeout(() => {
         deferredAnimTimerRef.current = null;
         requestAnimationFrame(() => runEntryAnimation());
-      }, 150);
+      }, 30);
     }
   }, [runEntryAnimation]);
 

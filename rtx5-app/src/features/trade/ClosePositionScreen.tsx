@@ -15,6 +15,7 @@ import { usePositionsState } from '../../state/positionsState';
 import { useTradingState } from '../../state/tradingState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { positionsApi } from '../../api/positions';
+import { appQueryClient } from '../../state/providers/AppProviders';
 import type { PositionItem } from '../../dev/mock/tradingData';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -159,6 +160,18 @@ export function ClosePositionScreen() {
       const state = usePositionsState.getState();
       state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
       setSubmitted(true);
+
+      // Invalidate all history / deals / account caches so the History tab
+      // immediately shows the newly closed trade and its Net P/L.
+      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+      appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+      appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+
       router.back();
 
       if (resolvedLogin) {

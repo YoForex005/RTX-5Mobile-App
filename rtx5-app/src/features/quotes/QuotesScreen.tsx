@@ -444,6 +444,7 @@ const QuoteCard = React.memo(function QuoteCard({
         isDark && sc.cardShadowDark,
         pressed && sc.cardPressed,
       ]}
+      unstable_pressDelay={0}
       onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
@@ -1092,6 +1093,7 @@ export function QuotesScreen() {
   return (
     <View style={s.root}>
       <Animated.View
+        pointerEvents="none"
         style={[
           StyleSheet.absoluteFillObject,
           { backgroundColor: animatedFullscreenBackground },

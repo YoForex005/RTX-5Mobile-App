@@ -15,6 +15,7 @@ import { ordersApi, type PlaceOrderPayload } from '../api/orders';
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
+  refetchOnMount?: boolean | 'always';
 };
 
 const resolvePollingRefetchInterval = (
@@ -46,6 +47,7 @@ export function useOrdersByLoginQuery(
     queryFn: () => ordersApi.getOrdersByLogin(login!),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
+    refetchOnMount: options.refetchOnMount,
   });
 }
 

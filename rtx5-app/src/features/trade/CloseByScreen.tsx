@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
 import { positionsApi } from '../../api/positions';
+import { appQueryClient } from '../../state/providers/AppProviders';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { useTradingState } from '../../state/tradingState';
 import { spacing } from '../../ui/theme/index';
@@ -131,6 +132,18 @@ export function CloseByScreen() {
       ));
 
       setSubmitted(true);
+
+      // Invalidate all history / deals / account caches so the History tab
+      // immediately shows the newly closed trade and its Net P/L.
+      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+      appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+      appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+
       router.back();
 
       if (resolvedLogin) {
