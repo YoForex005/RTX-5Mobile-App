@@ -376,7 +376,7 @@ export function SettingsScreen() {
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => router.push('/settings/interface')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} />
+              <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} onPress={() => router.push('/settings/journal')} />
             </View>
 
             <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>

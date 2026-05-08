@@ -9,7 +9,7 @@ export function makeEconomicCalendarStyles(_T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: { backgroundColor: isDark ? '#080B11' : '#F1F5F9' },
     scroll: { flex: 1 },
-    content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
+    content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 32 },
     heroCard: {
       borderRadius: 16, overflow: 'hidden', marginBottom: 20,
       backgroundColor: isDark ? '#111827' : '#FFFFFF',

@@ -123,6 +123,7 @@ function InnerLayout() {
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
           <Stack.Screen name='settings/economic-calendar' options={{ title: t('Economic Calender') }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/journal' options={{ title: t('Trading Journal') }} />
         </Stack>
       </WebIPhoneFrame>
     </>

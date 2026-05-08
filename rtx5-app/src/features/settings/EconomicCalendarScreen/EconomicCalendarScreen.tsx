@@ -220,8 +220,8 @@ export function EconomicCalendarScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.heroCard}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+        <View style={[styles.heroCard, { marginBottom: 0 }]}>
           <View style={styles.heroContent}>
             <View style={styles.heroTitleRow}>
               <View style={styles.heroIconWrap}>
@@ -283,6 +283,9 @@ export function EconomicCalendarScreen() {
             </ScrollView>
           </View>
         </View>
+      </View>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
         {isLoading ? (
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>
