@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { Screen } from '../../../ui/components/Screen';
@@ -19,6 +21,7 @@ export function JournalScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeJournalStyles(T, isDark), [T, isDark]);
+  const insets = useSafeAreaInsets();
   
   const [trades, setTrades] = useState<TradeJournalEntry[]>(MOCK_TRADES);
   const [activeTab, setActiveTab] = useState<'Journal' | 'Analytics' | 'Review'>('Journal');
@@ -44,8 +47,24 @@ export function JournalScreen() {
 
   return (
     <Screen style={styles.screen}>
+      <View style={{
+        paddingTop: insets.top,
+        backgroundColor: T.bg,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      }}>
+        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
+          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+            <Ionicons name="arrow-back" size={26} color={T.text} />
+          </Pressable>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
+            Trading Journal
+          </Text>
+          <View style={{ width: 46 }} />
+        </View>
+      </View>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        
+
         {/* TOP TABS */}
         <JournalTabs activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} />
 

@@ -50,6 +50,8 @@ export function ChartFixedHorizontalGridOverlay({
     <View pointerEvents="none" style={styles.overlay}>
       <Svg width="100%" height="100%">
         {lines.map((line) => (
+          // 1-on / 1-off dash pattern — dotted line matching lightweight-charts
+          // v5's `LineStyle.Dotted` rendering. No solid lines.
           <Line
             key={line.key}
             x1={plotArea.left}
@@ -57,9 +59,8 @@ export function ChartFixedHorizontalGridOverlay({
             x2={plotArea.left + plotArea.width}
             y2={line.y}
             stroke={color}
-            strokeDasharray="1 5"
-            strokeLinecap="round"
             strokeWidth="1"
+            strokeDasharray="1 1"
           />
         ))}
       </Svg>

@@ -211,7 +211,7 @@ function TradePositionRowComponent({
               <Text style={[styles.price, { color: T.textSub }]}>
                 {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
               </Text>
-              <Ionicons name="arrow-forward" size={12} color={T.textDimmed} style={styles.arrow} />
+              <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} style={styles.arrow} />
               <Text style={[styles.price, { color: T.textSub }]}>
                 {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
               </Text>

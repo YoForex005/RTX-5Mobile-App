@@ -1498,7 +1498,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       right: 0,
       paddingHorizontal: 8,
-      paddingTop: 6,
+      paddingTop: 10,
       // Stable keyboard clearance. The dock is positioned at `bottom: 0` while
       // the lot editor is focused on Android (Android `adjustResize` shrinks
       // the viewport so the dock lifts above the keyboard). Without this
@@ -1507,7 +1507,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       // (instead of bumping the `bottom` value when the editor focuses)
       // guarantees there is never a vertical jump when the user taps the lot
       // input — the gap is the same whether the keyboard is open or closed.
-      paddingBottom: 12,
+      paddingBottom: 24,
       backgroundColor: isDark ? '#080B11' : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,

@@ -23,8 +23,17 @@ export const CHART_DEFAULT_RESET_BAR_SPACING_MAX = 14;
 export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
 export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 0;
 export const CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING = 3;
-export const CHART_GRID_LINE_STYLE = 4; // LightweightCharts.LineStyle.SparseDotted
-export const CHART_GRID_HORIZONTAL_LINE_COUNT = 7;
+// LightweightCharts v5 LineStyle enum:
+//   0 = Solid     []
+//   1 = Dotted    [1, 1]  ← MT5/cTrader fine-dot grid (this is what we want)
+//   2 = Dashed    [2, 2]
+//   3 = LargeDashed [6, 6] ← coarse dashes — looked wrong as a grid
+//   4 = SparseDotted [1, 4]
+// Older docs (and v4 typings in some bundles) listed the enum in a
+// different order, which is why this used to read "= 3 // Dotted". v5's
+// canonical enum has Dotted = 1 — see lightweight-charts.standalone.production.js.
+export const CHART_GRID_LINE_STYLE = 1;
+export const CHART_GRID_HORIZONTAL_LINE_COUNT = 11;
 export const CHART_TAP_MENU_PADDING = 10;
 export const CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS = 450;
 export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 58;

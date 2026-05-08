@@ -90,7 +90,9 @@ test('getChartSeriesUpdateMode requests a full reload for the first synced serie
   assert.equal(getChartSeriesUpdateMode(EMPTY_CHART_SERIES_SNAPSHOT, next), 'full_reload');
 });
 
-test('resolveLatestCandleGap reports the last visible missing candle span', () => {
+test('resolveLatestCandleGap reports the last visible missing candle span in bars', () => {
+  // Pin nowSeconds just past the most recent candle (600+60=660) so the new
+  // stale-tail check doesn't fire and the test exercises the in-between gap.
   const gap = resolveLatestCandleGap(
     [
       makeCandle(60),
@@ -98,6 +100,7 @@ test('resolveLatestCandleGap reports the last visible missing candle span', () =
       makeCandle(600),
     ],
     'M1',
+    { nowSeconds: 660 },
   );
 
   assert.deepEqual(gap, {
@@ -105,8 +108,85 @@ test('resolveLatestCandleGap reports the last visible missing candle span', () =
     expectedTime: 180,
     toTime: 600,
     missingSeconds: 420,
-    label: '7m 0s',
+    missingBars: 7,
+    label: '7 bars',
   });
+});
+
+test('resolveLatestCandleGap surfaces a stale tail when the last candle has fallen behind real time', () => {
+  // Last bar was 12:14 UTC, now it's 12:20 UTC — 5 missing M1 bars on the tail.
+  const gap = resolveLatestCandleGap(
+    [
+      makeCandle(60),
+      makeCandle(120),
+    ],
+    'M1',
+    { nowSeconds: 480 },
+  );
+
+  assert.ok(gap, 'expected a stale-tail gap to be reported');
+  assert.equal(gap!.fromTime, 120);
+  assert.equal(gap!.expectedTime, 180);
+  assert.equal(gap!.missingBars, 5);
+  assert.equal(gap!.label, '5 bars');
+});
+
+test('resolveLatestCandleGap formats sub-bar tail lag as duration only', () => {
+  // 30s past expected on M5 — that's still less than one M5 bar (300s).
+  const gap = resolveLatestCandleGap(
+    [makeCandle(0), makeCandle(300)],
+    'M5',
+    { nowSeconds: 630 },
+  );
+
+  assert.equal(gap, null);
+});
+
+test('resolveLatestCandleGap labels in-between gaps in whole bars per timeframe', () => {
+  // M5 with a 5-minute hole = exactly 1 bar.
+  const m5Gap = resolveLatestCandleGap(
+    [makeCandle(0), makeCandle(600)],
+    'M5',
+    { nowSeconds: 900 },
+  );
+  assert.equal(m5Gap?.missingBars, 1);
+  assert.equal(m5Gap?.label, '1 bar');
+
+  // M15 with a 30-minute hole = exactly 2 bars. Both candle times are
+  // M15-aligned so the bucket-alignment guard is happy.
+  const m15Gap = resolveLatestCandleGap(
+    [makeCandle(0), makeCandle(2_700)],
+    'M15',
+    { nowSeconds: 3_600 },
+  );
+  assert.equal(m15Gap?.missingBars, 2);
+  assert.equal(m15Gap?.label, '2 bars');
+});
+
+test('resolveLatestCandleGap reports stale-tail leftover seconds when wall clock has drifted past expected', () => {
+  // Last M15 candle at 1800; expected next at 2700; now = 4400.
+  // Tail span = 4400 - 2700 = 1700s = 1 whole M15 bar (900s) + 800s remainder.
+  // 1700s formats as 28m 20s so the label includes both for clarity.
+  const gap = resolveLatestCandleGap(
+    [makeCandle(0), makeCandle(1_800)],
+    'M15',
+    { nowSeconds: 4_400 },
+  );
+  assert.equal(gap?.missingBars, 1);
+  assert.equal(gap?.label, '1 bar (28m 20s)');
+});
+
+test('resolveLatestCandleGap suppresses gap when candles are not aligned to the requested timeframe', () => {
+  // Candles at 0 and 60 are M1-aligned but NOT M5-aligned. This mirrors the
+  // brief transient when the user changes timeframe and the candle stream
+  // hasn't refilled yet. Suppressing avoids reporting a fake "4-bar" gap
+  // that's just the new-timeframe expectation read against old-timeframe data.
+  const gap = resolveLatestCandleGap(
+    [makeCandle(0), makeCandle(60)],
+    'M5',
+    { nowSeconds: 90 },
+  );
+  assert.equal(gap, null);
 });
 
 test('formatCandleGapDuration uses day hour minute second units', () => {

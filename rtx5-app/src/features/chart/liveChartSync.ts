@@ -1,3 +1,11 @@
+import {
+  getBucketGapCount,
+  getBucketStart,
+  getExpectedNextCandleTime,
+  getTimeframeSeconds,
+  normalizeTimeframe,
+} from '../../domain/candles/core/timeframeUtils';
+
 export type RenderableChartCandle = {
   time: number;
   open: number;
@@ -23,6 +31,8 @@ export type ChartCandleGap = {
   expectedTime: number;
   toTime: number;
   missingSeconds: number;
+  /** Whole-bar count of the gap for the active timeframe (>= 1 when the gap is at least one bar). */
+  missingBars: number;
   label: string;
 };
 
@@ -43,68 +53,78 @@ const buildCandleSignature = (candle: RenderableChartCandle | undefined): string
   return `${candle.time}:${candle.open}:${candle.high}:${candle.low}:${candle.close}:${candle.volume ?? 0}`;
 };
 
-const TIMEFRAME_SECONDS: Record<string, number> = {
-  M1: 60,
-  M3: 3 * 60,
-  M5: 5 * 60,
-  M15: 15 * 60,
-  M30: 30 * 60,
-  H1: 60 * 60,
-  H2: 2 * 60 * 60,
-  H4: 4 * 60 * 60,
-  D1: 24 * 60 * 60,
-  W1: 7 * 24 * 60 * 60,
-  MN: 30 * 24 * 60 * 60,
+// Source of truth for timeframe maths (bucket starts, expected next bar,
+// gap counting) lives in `domain/candles/core/timeframeUtils`. The chart's
+// gap logic delegates to it so we can never drift from the canonical
+// behaviour — D1/W1 align to UTC day/week, MN respects calendar months
+// with variable bucket length, etc.
+const isCandleAlignedToTimeframe = (
+  time: number,
+  timeframe: string,
+): boolean => {
+  if (!Number.isFinite(time) || time < 0) {
+    return false;
+  }
+  const normalized = normalizeTimeframe(timeframe);
+  // Calendar-aligned timeframes need real-date arithmetic via getBucketStart.
+  // (We can't use it for non-calendar timeframes because `normalizeTimestampToSeconds`
+  // inside it rejects time === 0 — and that's fine for a phone-clock chart but
+  // breaks the modulo-style alignment check when called with a unix epoch.)
+  if (normalized === 'D1' || normalized === 'W1' || normalized === 'MN') {
+    if (time === 0) {
+      return true;
+    }
+    return getBucketStart(time, timeframe) === time;
+  }
+  const intervalSeconds = getTimeframeSeconds(normalized);
+  return intervalSeconds > 0 && time % intervalSeconds === 0;
 };
 
-const normalizeChartTimeframe = (timeframe: string): string => {
-  const raw = String(timeframe ?? '').trim();
-  if (!raw) {
-    return 'M1';
+/**
+ * Format a gap in terms of the active timeframe. The bar count comes from
+ * the canonical `getBucketGapCount` helper (handles calendar-month MN bars
+ * properly) so the same gap reported on M5 vs H1 gives different bar
+ * totals — exactly what the user expects when switching timeframes.
+ *
+ * Examples:
+ *   M1 gap = 5min  →  `5 bars`
+ *   M5 gap = 5min  →  `1 bar`
+ *   M5 gap = 17min →  `3 bars (17m 0s)` (sub-bar leftover shown)
+ *   M5 gap = 30s   →  `30s` (sub-bar — bar count would be misleading)
+ */
+export const formatCandleGapForTimeframe = (
+  fromTime: number,
+  toTime: number,
+  timeframe: string,
+): { label: string; missingBars: number; missingSeconds: number } => {
+  const safeFrom = Math.max(0, Math.floor(Number.isFinite(fromTime) ? fromTime : 0));
+  const safeTo = Math.max(safeFrom, Math.floor(Number.isFinite(toTime) ? toTime : 0));
+  const missingSeconds = Math.max(0, safeTo - safeFrom);
+  if (missingSeconds === 0) {
+    return { label: '0s', missingBars: 0, missingSeconds };
   }
-
-  const caseSensitiveAliases: Record<string, string> = {
-    '1m': 'M1',
-    '3m': 'M3',
-    '5m': 'M5',
-    '15m': 'M15',
-    '30m': 'M30',
-    '1h': 'H1',
-    '2h': 'H2',
-    '4h': 'H4',
-    '1d': 'D1',
-    '1w': 'W1',
-    '1M': 'MN',
+  const missingBars = getBucketGapCount(safeFrom, safeTo, timeframe);
+  if (missingBars === 0) {
+    return {
+      label: formatCandleGapDuration(missingSeconds),
+      missingBars: 0,
+      missingSeconds,
+    };
+  }
+  const barsLabel = missingBars === 1 ? '1 bar' : `${missingBars} bars`;
+  // For non-MN timeframes the bar boundary is exact, so check whether the
+  // gap is a clean multiple. (For MN we always append the duration since
+  // calendar months vary and a numeric multiple wouldn't be reliable.)
+  const tfSeconds = getTimeframeSeconds(timeframe);
+  const isCleanMultiple = normalizeTimeframe(timeframe) !== 'MN' && missingSeconds === missingBars * tfSeconds;
+  if (isCleanMultiple) {
+    return { label: barsLabel, missingBars, missingSeconds };
+  }
+  return {
+    label: `${barsLabel} (${formatCandleGapDuration(missingSeconds)})`,
+    missingBars,
+    missingSeconds,
   };
-  const caseSensitive = caseSensitiveAliases[raw];
-  if (caseSensitive) {
-    return caseSensitive;
-  }
-
-  const normalized = raw.toUpperCase();
-  return normalized;
-};
-
-const getChartTimeframeSeconds = (timeframe: string): number =>
-  TIMEFRAME_SECONDS[normalizeChartTimeframe(timeframe)] ?? TIMEFRAME_SECONDS.M1;
-
-const getExpectedNextChartCandleTime = (time: number, timeframe: string): number => {
-  const normalizedTimeframe = normalizeChartTimeframe(timeframe);
-  if (normalizedTimeframe !== 'MN') {
-    return time + getChartTimeframeSeconds(normalizedTimeframe);
-  }
-
-  const date = new Date(time * 1000);
-  return Math.floor(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth() + 1,
-      1,
-      0,
-      0,
-      0,
-    ) / 1000,
-  );
 };
 
 export const formatCandleGapDuration = (seconds: number): string => {
@@ -132,28 +152,77 @@ export const formatCandleGapDuration = (seconds: number): string => {
 export const resolveLatestCandleGap = (
   candles: RenderableChartCandle[],
   timeframe: string,
+  options: { nowSeconds?: number } = {},
 ): ChartCandleGap | null => {
-  if (candles.length < 2) {
-    return null;
-  }
-
   const sortedCandles = [...candles]
     .filter((candle) => Number.isFinite(candle.time))
     .sort((left, right) => left.time - right.time);
 
+  if (sortedCandles.length === 0) {
+    return null;
+  }
+
+  // Bucket-alignment guard: when the user changes timeframe the chart goes
+  // through a transient where the candles array is still the *old*
+  // timeframe's data while `chartTimeframe` already updated to the new
+  // value. Computing a gap during that window produces nonsense numbers
+  // (e.g. M1 candles read against an M5 expected interval claim ~4-bar
+  // gaps everywhere). If the most recent candles aren't bucket-aligned to
+  // the requested timeframe, suppress the gap until the candle stream
+  // catches up.
+  const lastCandle = sortedCandles[sortedCandles.length - 1];
+  if (!isCandleAlignedToTimeframe(lastCandle.time, timeframe)) {
+    return null;
+  }
+  if (sortedCandles.length >= 2) {
+    const previousCandle = sortedCandles[sortedCandles.length - 2];
+    if (!isCandleAlignedToTimeframe(previousCandle.time, timeframe)) {
+      return null;
+    }
+  }
+
+  // Stale-tail check first: if the most recent candle is older than the
+  // expected next bucket relative to `now`, surface that as a missing-bar
+  // gap. Adjacent-pair iteration alone would miss it (no "next" candle to
+  // compare against).
+  const expectedNextAfterLast = getExpectedNextCandleTime(lastCandle.time, timeframe);
+  const nowSeconds =
+    typeof options.nowSeconds === 'number' && Number.isFinite(options.nowSeconds)
+      ? options.nowSeconds
+      : Math.floor(Date.now() / 1000);
+  const tailGap = formatCandleGapForTimeframe(expectedNextAfterLast, nowSeconds, timeframe);
+  if (tailGap.missingBars >= 1) {
+    return {
+      fromTime: lastCandle.time,
+      expectedTime: expectedNextAfterLast,
+      toTime: nowSeconds,
+      missingSeconds: tailGap.missingSeconds,
+      missingBars: tailGap.missingBars,
+      label: tailGap.label,
+    };
+  }
+
+  if (sortedCandles.length < 2) {
+    return null;
+  }
+
+  // Walk pairs from latest backward — return the most recent in-between gap.
   for (let index = sortedCandles.length - 2; index >= 0; index -= 1) {
     const current = sortedCandles[index];
     const next = sortedCandles[index + 1];
-    const expectedTime = getExpectedNextChartCandleTime(current.time, timeframe);
-    const missingSeconds = next.time - expectedTime;
-
-    if (missingSeconds > 0) {
+    const expectedTime = getExpectedNextCandleTime(current.time, timeframe);
+    if (next.time <= expectedTime) {
+      continue;
+    }
+    const gap = formatCandleGapForTimeframe(expectedTime, next.time, timeframe);
+    if (gap.missingBars >= 1) {
       return {
         fromTime: current.time,
         expectedTime,
         toTime: next.time,
-        missingSeconds,
-        label: formatCandleGapDuration(missingSeconds),
+        missingSeconds: gap.missingSeconds,
+        missingBars: gap.missingBars,
+        label: gap.label,
       };
     }
   }

@@ -1,6 +1,6 @@
 import type { Candle, MutableCandle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
-import { createCandleMap, materializeCandleMap, mergeCandleIntoMap } from './candleSeriesMerger';
+import { createCandleMap, materializeCandleMap } from './candleSeriesMerger';
 
 export const buildFreshHistoryLiveCandleSeries = (
   historyCandles: readonly Candle[],
@@ -9,15 +9,19 @@ export const buildFreshHistoryLiveCandleSeries = (
 ): Candle[] => {
   const map = createCandleMap(historyCandles);
 
+  // Live-candle entries fully overwrite the same-time history bucket. The
+  // broker's live snapshot is authoritative for OHLCV — merging here would
+  // pin `open` to the REST seed value, double-count volume across every
+  // snapshot we receive, and prevent corrected high/low from narrowing back.
   for (const candle of liveCandles) {
     if (!validateCandle(candle)) {
       continue;
     }
 
-    mergeCandleIntoMap(map, candle, {
+    map.set(candle.time, {
+      ...candle,
       source: 'live_candle',
       closed: false,
-      volumeStrategy: 'sum',
     });
   }
 

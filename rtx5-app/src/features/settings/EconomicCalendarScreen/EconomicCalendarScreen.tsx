@@ -6,9 +6,11 @@
  * multi-dimension filtering, and live countdown timers.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -28,6 +30,7 @@ export function EconomicCalendarScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
+  const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState('Today');
   const [selectedImpacts, setSelectedImpacts] = useState<Set<ImpactLevel>>(new Set(['high', 'medium', 'low', 'holiday']));
@@ -220,6 +223,22 @@ export function EconomicCalendarScreen() {
 
   return (
     <Screen style={styles.screen}>
+      <View style={{
+        paddingTop: insets.top,
+        backgroundColor: T.bg,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      }}>
+        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
+          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+            <Ionicons name="arrow-back" size={26} color={T.text} />
+          </Pressable>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
+            Economic Calender
+          </Text>
+          <View style={{ width: 46 }} />
+        </View>
+      </View>
       <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
         <View style={[styles.heroCard, { marginBottom: 0 }]}>
           <View style={styles.heroContent}>

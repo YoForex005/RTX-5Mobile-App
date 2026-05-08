@@ -185,7 +185,15 @@ function resolveClosedPositionTicket(position: ClosedPosition, index: number): s
     return String(ticket).trim();
   }
 
-  return `${position.symbol ?? 'trade'}-${resolveClosedPositionCloseTime(position) || index}`;
+  // No ticket field on the record — fall back to a numeric handle so the UI
+  // shows e.g. `#1776852277` instead of `#EURUSD-1776852277`. We prefer the
+  // close time (always available, broker-issued, monotonically increasing)
+  // and only use the row index as a last resort.
+  const closeTime = resolveClosedPositionCloseTime(position);
+  if (closeTime) {
+    return String(closeTime);
+  }
+  return String(index + 1);
 }
 
 function getClosedPositionPriceDecimals(position: ClosedPosition): number {
@@ -208,6 +216,7 @@ function ClosedTradePnlRow({ position, index, isLast, isDark, styles, T, t }: Cl
         !isLast && { borderBottomColor: T.borderSubtle },
       ]}
     >
+      <Text style={[styles.closedTradeCornerId, { color: T.textDimmed }]}>#{ticket}</Text>
       <View style={styles.closedTradeTop}>
         <View style={styles.closedTradeLeft}>
           <Text style={[styles.closedTradeSymbol, { color: T.text }]}>{fmt.symbol(position.symbol)}</Text>
@@ -240,11 +249,6 @@ function ClosedTradePnlRow({ position, index, isLast, isDark, styles, T, t }: Cl
         <Text style={[styles.closedTradeTime, { color: T.textMuted }]}>
           {closeTime ? formatBrokerTime(closeTime) : '--'}
         </Text>
-      </View>
-
-      <View style={styles.closedTradeTicketRow}>
-        <Text style={[styles.closedTradeTicket, { color: T.textDimmed }]}>#{ticket}</Text>
-        <Text style={[styles.closedTradeLabel, { color: T.textMuted }]}>{t('Closed Trade P/L')}</Text>
       </View>
     </View>
   );
@@ -403,7 +407,7 @@ export function HistoryNetProfitLossScreen() {
             adjustsFontSizeToFit
             minimumFontScale={0.85}
           >
-            {t('Net P/L')}
+            {t('Closed Trade Net P/L')}
           </Text>
         </View>
 
@@ -499,7 +503,6 @@ export function HistoryNetProfitLossScreen() {
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: T.text, marginBottom: 0 }]}>{t('Closed Trade P/L')}</Text>
             <Text style={[styles.sectionCount, { color: T.textMuted }]}>
               {closedTradePnlRows.length} {t('trades')}
             </Text>
@@ -535,6 +538,7 @@ export function HistoryNetProfitLossScreen() {
                   <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
                     {t(topWinner.side.toUpperCase())} | {topWinner.volume.toFixed(2)} {t('lots')}
                   </Text>
+                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topWinner, 0)}</Text>
                 </View>
               </View>
               <Text style={[styles.leaderPnl, { color: T.up }]}>{fmt.pnl(topWinner.netPnl)}</Text>
@@ -551,6 +555,7 @@ export function HistoryNetProfitLossScreen() {
                   <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
                     {t(topLoser.side.toUpperCase())} | {topLoser.volume.toFixed(2)} {t('lots')}
                   </Text>
+                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topLoser, 0)}</Text>
                 </View>
               </View>
               <Text style={[styles.leaderPnl, { color: T.down }]}>{fmt.pnl(topLoser.netPnl)}</Text>
@@ -706,7 +711,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
     sectionHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
       marginBottom: 4,
       gap: 12,
     },
@@ -774,7 +779,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       lineHeight: 15,
     },
     closedTradeRow: {
-      paddingVertical: 10,
+      paddingTop: 18,
+      paddingBottom: 10,
+      position: 'relative',
     },
     closedTradeRowDivider: {
       borderBottomWidth: 1,
@@ -843,24 +850,14 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       textAlign: 'right',
       fontVariant: ['tabular-nums'],
     },
-    closedTradeTicketRow: {
-      marginTop: 5,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 10,
-    },
-    closedTradeTicket: {
+    closedTradeCornerId: {
+      position: 'absolute',
+      top: 4,
+      left: 0,
       fontSize: 10,
       fontWeight: '800',
       letterSpacing: 0.4,
       fontVariant: ['tabular-nums'],
-    },
-    closedTradeLabel: {
-      fontSize: 10,
-      fontWeight: '700',
-      letterSpacing: 0.5,
-      textTransform: 'uppercase',
     },
     leaderRow: {
       flexDirection: 'row',
@@ -894,6 +891,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean) =>
       marginTop: 1,
       fontSize: 11,
       fontWeight: '500',
+    },
+    leaderTicket: {
+      marginTop: 2,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+      fontVariant: ['tabular-nums'],
     },
     leaderPnl: {
       flexShrink: 0,

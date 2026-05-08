@@ -837,7 +837,6 @@ export function OrderTicketScreen() {
                 }
                 unstable_pressDelay={0}
               >
-                <View style={[styles.orderTypeTabDot, { backgroundColor: isSell ? SELL_C : BUY_C }]} />
                 <Text style={[styles.orderTypeTabText, active && styles.orderTypeTabTextActive]}>{option}</Text>
               </Pressable>
             );
@@ -1198,11 +1197,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     orderTypeTabActive: {
       backgroundColor: isDark ? 'rgba(59,130,246,0.1)' : T.glass3,
-    },
-    orderTypeTabDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
     },
     orderTypeTabText: {
       color: SUB,

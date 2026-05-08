@@ -812,6 +812,7 @@ export function ChartScreen() {
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const candlesRef = useRef(candles);
   const [forceHideLoading, setForceHideLoading] = useState(false);
+  const candlesAvailable = candles.length > 0;
 
   useEffect(() => {
     candlesRef.current = candles;
@@ -819,9 +820,15 @@ export function ChartScreen() {
 
   useEffect(() => {
     setForceHideLoading(false);
-    const tmr = setTimeout(() => setForceHideLoading(true), 2000);
+    const tmr = setTimeout(() => setForceHideLoading(true), 10000);
     return () => clearTimeout(tmr);
   }, [chartSymbol, chartTimeframe]);
+
+  useEffect(() => {
+    if (candlesAvailable && forceHideLoading) {
+      setForceHideLoading(false);
+    }
+  }, [candlesAvailable, forceHideLoading]);
 
   const isLoading = candles.length === 0 && !forceHideLoading;
   const isError = false;
@@ -843,8 +850,10 @@ export function ChartScreen() {
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
-        horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
+        // Tight dotted grid (LineStyle.Dotted) matches the MT5 desktop look,
+        // mirroring the native chart's grid style for cross-platform parity.
+        vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.Dotted },
+        horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.Dotted },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -2122,6 +2131,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     tradeControlsRow: {
       flexDirection: 'row',
+      marginHorizontal: 40,
       marginBottom: 10,
       gap: 12,
     },

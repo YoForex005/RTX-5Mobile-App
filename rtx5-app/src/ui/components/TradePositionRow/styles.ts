@@ -90,7 +90,7 @@ export const tradePositionRowStyles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   arrow: {
-    marginHorizontal: 2,
+    marginHorizontal: 4,
   },
   dateRight: {
     fontSize: 11,

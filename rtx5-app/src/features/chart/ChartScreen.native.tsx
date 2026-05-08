@@ -2576,9 +2576,10 @@ export function ChartScreen() {
         color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
         style: CHART_GRID_LINE_STYLE,
       },
-      // Horizontal grid lines are rendered in a fixed overlay layer so they
-      // stay locked to screen space during vertical price-range panning.
-      horzLines: { color: 'transparent' },
+      horzLines: {
+        color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+        style: CHART_GRID_LINE_STYLE,
+      },
     },
     crosshair: {
       mode: 0,
@@ -2600,19 +2601,17 @@ export function ChartScreen() {
       mouseWheel: true,
       pressedMouseMove: true,
       horzTouchDrag: true,
-      vertTouchDrag: false,
+      vertTouchDrag: true,
     },
     handleScale: {
       mouseWheel: true,
       pinch: true,
-      // Prevent press-and-drag on the PRICE axis from manually expanding
-      // the visible price range either.
-      axisPressedMouseMove: false,
+      axisPressedMouseMove: true,
     },
     rightPriceScale: {
       borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
-      autoScale: true,
-      entireTextOnly: true,
+      autoScale: false,
+      entireTextOnly: false,
       scaleMargins: {
         top: 0.08,
         bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0.08,
@@ -2647,16 +2646,32 @@ export function ChartScreen() {
   // indefinite blocking overlay when the chart fails to respond.
   const [loadingDelayPassed, setLoadingDelayPassed] = useState(false);
   const [loadingFallback, setLoadingFallback] = useState(false);
+  const candlesAvailable = candles.length > 0;
   useEffect(() => {
     setLoadingDelayPassed(false);
     setLoadingFallback(false);
     const delayTmr = setTimeout(() => setLoadingDelayPassed(true), 500);
-    const fallbackTmr = setTimeout(() => setLoadingFallback(true), 3000);
+    // Bumped 3 s → 10 s. The previous 3 s fallback was firing on slow first
+    // REST loads (cold network, demo broker handshake) and showing the
+    // "No market data available" screen even though the candle stream was
+    // still in flight. The timer is now long enough to cover a worst-case
+    // first fetch but still short enough to recover from a hard failure
+    // (otherwise the spinner would hang forever).
+    const fallbackTmr = setTimeout(() => setLoadingFallback(true), 10000);
     return () => {
       clearTimeout(delayTmr);
       clearTimeout(fallbackTmr);
     };
   }, [chartSymbol, chartTimeframe, chartType]);
+  // The moment candles arrive, drop the "no market data" fallback regardless
+  // of how long the REST/WS handshake took. This prevents a brief flash of
+  // the empty-state overlay when the timer happens to fire just before the
+  // first candle batch lands.
+  useEffect(() => {
+    if (candlesAvailable && loadingFallback) {
+      setLoadingFallback(false);
+    }
+  }, [candlesAvailable, loadingFallback]);
   useEffect(() => {
     drawingSignatureRef.current = chartDrawingSignature;
   }, [chartDrawingSignature]);
@@ -3885,8 +3900,11 @@ export function ChartScreen() {
                   } catch (_e) { }
                 }}
               />
+              {/* Grid lines are handled by lightweight-charts natively
+                  (both vertLines and horzLines) so they move with scroll/zoom.
+                  Custom SVG overlay is kept in the tree but disabled. */}
               <ChartFixedHorizontalGridOverlay
-                visible={chartDisplay.showGrid}
+                visible={false}
                 plotArea={chartPlotArea}
                 color={resolvedChartColors.grid}
               />

@@ -228,9 +228,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           >
             <Ionicons
               name="chevron-down"
-              size={16}
+              size={12}
               style={[
                 themeStyles.actionLotAdjustIcon,
+                { marginLeft: 4 },
                 (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />
@@ -284,9 +285,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           >
             <Ionicons
               name="chevron-up"
-              size={16}
+              size={12}
               style={[
                 themeStyles.actionLotAdjustIcon,
+                { marginRight: 4 },
                 (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
               ]}
             />

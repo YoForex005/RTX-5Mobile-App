@@ -180,7 +180,7 @@ test('preserves explicit higher-timeframe backend timestamps', () => {
   ]);
 });
 
-test('backend live candle merges with existing timestamp without losing the original open', () => {
+test('backend live candle overwrites the same-time history bucket with the broker snapshot', () => {
   const map = createCandleMap([candle(60, 1.1)]);
   const result = applyLiveCandleToCandleMap(map, {
     time: 60,
@@ -192,12 +192,16 @@ test('backend live candle merges with existing timestamp without losing the orig
   });
 
   assert.equal(result.changed, true);
+  // Backend snapshots are authoritative for OHLCV: the broker's live candle
+  // fully replaces the same-time history bucket, including the open price.
+  // (Merging — preserving history's open — silently freezes the active bar's
+  // open at the REST seed value and prevents the broker from correcting it.)
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 60, open: 1.1, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
+    { time: 60, open: 1.2, high: 1.4, low: 1.1, close: 1.3, volume: 50 },
   ]);
 });
 
-test('backend live candle snapshots inside one timeframe bucket merge one candle', () => {
+test('backend live candle snapshots inside one timeframe bucket overwrite to one candle', () => {
   const map = createCandleMap();
 
   applyLiveCandleToCandleMap(
@@ -211,8 +215,11 @@ test('backend live candle snapshots inside one timeframe bucket merge one candle
     'M1',
   );
 
+  // Broker is authoritative: each snapshot fully replaces the active bucket.
+  // Volume is a cumulative tick count, not an additive batch — the second
+  // snapshot's `volume: 4` already includes the ticks the first one reported.
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 7 },
+    { time: 1_713_744_000, open: 100, high: 102, low: 98, close: 101, volume: 4 },
   ]);
 });
 
@@ -355,8 +362,12 @@ test('older backend live candle snapshots can widen wicks without rewinding clos
 
   assert.equal(stale.ignored, false);
   assert.equal(stale.reason, 'merged_out_of_order_live_candle');
+  // Wicks widen from the older snapshot, but `close` stays anchored to the
+  // newer snapshot. Volume is the broker's cumulative tick count, so we keep
+  // the higher count (the latest one) rather than summing both numbers — the
+  // older snapshot reported a smaller cumulative count, not a separate batch.
   assert.deepEqual(materializeCandleMap(map), [
-    { time: 1_713_744_000, open: 100, high: 106, low: 98, close: 104, volume: 12 },
+    { time: 1_713_744_000, open: 100, high: 106, low: 98, close: 104, volume: 10 },
   ]);
 });
 

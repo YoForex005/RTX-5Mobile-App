@@ -1,10 +1,7 @@
 import type { Candle, LiveCandle, MutableCandle } from '../core/candleTypes';
 import { getBucketStart, normalizeTimestampToSeconds } from '../core/timeframeUtils';
 import { validateCandle } from '../core/candleValidator';
-import {
-  areCandleValuesEqual,
-  mergeCandleByTimestamp,
-} from './candleSeriesMerger';
+import { areCandleValuesEqual } from './candleSeriesMerger';
 
 export type ApplyCandleOptions = {
   historyCutoffTime?: number | null;
@@ -75,23 +72,44 @@ export const applyLiveCandleToCandleMap = (
     return { candle: toPublicCandle(existing), changed: false, ignored: false };
   }
 
-  const merged = existing
-    ? mergeCandleByTimestamp(existing, incoming, {
-        closeSource: isOutOfOrderSameBucket ? 'existing' : 'incoming',
-        volumeStrategy: 'sum',
-      })
-    : incoming;
-
-  const next: MutableCandle = {
-    ...merged,
-    source: 'live_candle',
-    closed: liveCandle.closed ?? false,
-    firstUpdateTime:
-      existing?.firstUpdateTime === undefined
-        ? eventTime
-        : Math.min(existing.firstUpdateTime, eventTime),
-    lastUpdateTime: isOutOfOrderSameBucket ? existing?.lastUpdateTime ?? eventTime : eventTime,
-  };
+  // Backend live-candle snapshots are AUTHORITATIVE: each one carries the
+  // current OHLCV for the active bucket as the broker computed it. We must
+  // overwrite, not merge — merging would (a) freeze `open` to the history
+  // bucket's value, (b) accumulate volume across every snapshot via summing,
+  // and (c) prevent the broker from correcting an over-widened high/low back
+  // down. The only same-bucket nuance is out-of-order delivery: if a snapshot
+  // arrives whose event time precedes the latest one we accepted, we keep the
+  // current `close` but still let the snapshot widen high/low and update
+  // volume to its broker-supplied value.
+  const next: MutableCandle = isOutOfOrderSameBucket && existing
+    ? {
+        time: bucketStart,
+        open: incoming.open,
+        high: Math.max(existing.high, incoming.high),
+        low: Math.min(existing.low, incoming.low),
+        close: existing.close,
+        // Live candle volume is the broker's cumulative tick count for the
+        // bucket. An out-of-order snapshot reports an EARLIER count — keep
+        // the latest (existing) count instead of regressing.
+        volume: Math.max(existing.volume ?? 0, incoming.volume),
+        source: 'live_candle',
+        closed: liveCandle.closed ?? existing.closed ?? false,
+        firstUpdateTime:
+          existing.firstUpdateTime === undefined
+            ? eventTime
+            : Math.min(existing.firstUpdateTime, eventTime),
+        lastUpdateTime: existing.lastUpdateTime ?? eventTime,
+      }
+    : {
+        ...incoming,
+        source: 'live_candle',
+        closed: liveCandle.closed ?? false,
+        firstUpdateTime:
+          existing?.firstUpdateTime === undefined
+            ? eventTime
+            : Math.min(existing.firstUpdateTime, eventTime),
+        lastUpdateTime: eventTime,
+      };
 
   if (!validateCandle(next)) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_ohlc_after_live_candle' };

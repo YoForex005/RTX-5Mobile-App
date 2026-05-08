@@ -97,13 +97,16 @@ async function fetchClosedHistoryPage(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    console.warn('[ClosedHistory] Error response:', response.status, errorData);
     const headers: Record<string, string> = {};
     if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
     throw createTradingApiError(response.status, errorData, headers);
   }
 
   const json = await response.json();
+  console.log('[ClosedHistory] Response json:', JSON.stringify(json).substring(0, 200));
   const rows = pickArrayPayload(json);
+  console.log('[ClosedHistory] Parsed rows length:', rows?.length);
   if (!rows) return [];
   return rows
     .map(normalizeClosedHistoryRecord)

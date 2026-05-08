@@ -43,6 +43,14 @@ type ActionSheetProps = {
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
 
+// Comfortable tap-to-dismiss zone above the sheet, beyond the safe-area inset.
+// Without this, a tall sheet can extend to within a few pixels of the status
+// bar — and on phones with edge gestures (Android nav-gesture, iOS notch
+// pull-down), tapping that thin strip triggers the OS gesture instead of
+// dismissing the sheet. 80dp guarantees the user has a usable strip of
+// overlay above the sheet that's well clear of the system gesture region.
+const TAPPABLE_TOP_DISMISS_MARGIN = 80;
+
 export function ActionSheet({
   visible,
   title,
@@ -84,7 +92,13 @@ export function ActionSheet({
       })
     : actions;
   const keyboardLift = Platform.OS === 'android' && searchable ? Math.max(0, keyboardHeight) : 0;
-  const topInset = Math.max(insets.top, minimumTopInset ?? 12);
+  // Reserve a tappable dismiss strip above the sheet that sits clear of any
+  // OS edge-gesture region. `minimumTopInset` (when explicitly passed by a
+  // caller) still wins if it asks for more.
+  const topInset = Math.max(
+    insets.top + TAPPABLE_TOP_DISMISS_MARGIN,
+    minimumTopInset ?? 0,
+  );
   const bottomInset = Math.max(insets.bottom, 12);
   const usesLargeDetent = detent === 'large';
   const usesAdaptiveDetent = detent === 'adaptive';

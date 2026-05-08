@@ -183,6 +183,17 @@ const createStyles = (isDark: boolean) =>
       fontWeight: '800',
       letterSpacing: 0.4,
     },
+    innerDismissArea: {
+      position: 'absolute',
+      width: CHART_TAP_MENU_SIZE - CHART_TAP_RING_WIDTH * 2,
+      height: CHART_TAP_MENU_SIZE - CHART_TAP_RING_WIDTH * 2,
+      top: CHART_TAP_RING_WIDTH,
+      left: CHART_TAP_RING_WIDTH,
+      borderRadius: (CHART_TAP_MENU_SIZE - CHART_TAP_RING_WIDTH * 2) / 2,
+      backgroundColor: 'transparent',
+      // Below timeframe / action items so their presses still win on overlap.
+      zIndex: 1,
+    },
   });
 
 export function ChartTapRadialMenu({
@@ -398,6 +409,16 @@ export function ChartTapRadialMenu({
         {...panResponder.panHandlers}
       >
         <View style={[styles.ring, { borderColor: accentColor, shadowColor: accentColor }]} />
+
+        {/* Tapping inside the empty inner circle dismisses the menu. Without
+            this, the ring's containing View absorbs the touch but the
+            panResponder only claims drags — so taps in the centre fall into
+            a dead zone instead of reaching the backdrop Pressable behind. */}
+        <Pressable
+          style={styles.innerDismissArea}
+          onPressIn={handleBackdropPress}
+          unstable_pressDelay={0}
+        />
 
         {TIMEFRAME_ITEMS.map((item) => {
           const position = getRadialItemPosition(

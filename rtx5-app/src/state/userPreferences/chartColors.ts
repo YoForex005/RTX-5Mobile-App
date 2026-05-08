@@ -56,7 +56,12 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
   background: '#080B11',
   foreground: '#94A3B8',
-  grid: 'rgba(255,255,255,0.04)',
+  // 0.15 — matches MT5 desktop's default dark-theme grid opacity. The
+  // fine-dotted (LineStyle.Dotted) pattern at this opacity gives the
+  // same "barely-there but always visible" reference grid that MT5
+  // ships with on dark backgrounds. Lower values fade out on AMOLED
+  // screens; higher values read as a beaded line behind candle wicks.
+  grid: 'rgba(255,255,255,0.15)',
   candlesUptrend: '#2962FF',
   candlesDowntrend: '#EF5350',
   hollowBody: '#1E293B',

@@ -100,7 +100,10 @@ function coerceTimestampToMs(raw: unknown): number | null {
     if (Number.isFinite(asNumber)) {
       numeric = asNumber;
     } else {
-      const parsedDate = Date.parse(trimmed);
+      // Replace dots with hyphens only if they appear in the date part (e.g. 2024.05.08)
+      // This avoids replacing the decimal dot in milliseconds (e.g. 14:02:00.123)
+      const normalizedIso = trimmed.replace(/^(\d{4})\.(\d{2})\.(\d{2})/, '$1-$2-$3').replace(' ', 'T');
+      const parsedDate = Date.parse(normalizedIso);
       return Number.isFinite(parsedDate) ? parsedDate : null;
     }
   }

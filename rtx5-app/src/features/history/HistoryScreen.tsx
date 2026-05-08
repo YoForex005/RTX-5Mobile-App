@@ -24,6 +24,7 @@ import { Deal } from '../../api/deals';
 import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
+import { deriveClosedPositionsFromDeals, mergeClosedPositionSources } from './derivedClosedPositions';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -46,6 +47,13 @@ type HistoryRow = {
   profit?: number | null;
   /** Optional note shown beneath the price row (e.g. deal comment from EA or manual entry) */
   note?: string;
+  /** Structured fields used by the closed-position card layout (Positions tab). */
+  symbolRaw?: string;
+  sideRaw?: string;
+  volumeNum?: number;
+  openPrice?: number;
+  closePrice?: number;
+  priceDecimals?: number;
 };
 
 type Tone = 'positive' | 'negative' | 'neutral';
@@ -201,13 +209,30 @@ function buildHistoryFallbackId(source: Record<string, unknown>, parts: unknown[
   return sourceValues.join('-') || 'record';
 }
 
+function pickNumericFallbackTicket(fallbackParts: unknown[]): string | null {
+  // When the broker omits the ticket field we still want `#1776852277`-style
+  // numeric handles, not `#EURUSD-sell-1776852277-0.10`. Pick the first
+  // numeric part with magnitude >= 1 — that filters out lot sizes (e.g. 0.10)
+  // and lands on the timestamp, which is broker-issued and effectively unique.
+  for (const part of fallbackParts) {
+    const numeric = toFiniteNumber(part);
+    if (numeric !== undefined && Math.abs(numeric) >= 1) {
+      return String(Math.trunc(numeric));
+    }
+  }
+  return null;
+}
+
 function buildHistoryRowIdentity(prefix: string, source: Record<string, unknown>, fallbackParts: unknown[]) {
   const ticketLabel = resolveHistoryTicketLabel(source);
   const fallbackId = buildHistoryFallbackId(source, fallbackParts);
+  const numericFallback = ticketLabel ? null : pickNumericFallbackTicket(fallbackParts);
 
   return {
+    // `id` stays as the joined-string fallback so the React key is unique
+    // across rows that happen to share the same numeric handle.
     id: `${prefix}-${ticketLabel ?? fallbackId}`,
-    ticketLabel: ticketLabel ?? fallbackId,
+    ticketLabel: ticketLabel ?? numericFallback ?? fallbackId,
   };
 }
 
@@ -311,6 +336,12 @@ function mapClosedPositionToRow(position: ClosedPosition): HistoryRow {
     recordKind: 'closed-position',
     profit: netProfit,
     note,
+    symbolRaw: symbol,
+    sideRaw: side,
+    volumeNum: volume,
+    openPrice,
+    closePrice,
+    priceDecimals,
   };
 }
 
@@ -393,9 +424,22 @@ export function HistoryScreen() {
     () => resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs),
     [historyRange, historyFromMs, historyToMs],
   );
+  // Demo brokers (and occasionally real brokers under load) don't always
+  // populate /positions/{login}/history immediately after a close, so we
+  // also rebuild closed positions from the deals stream and merge the two
+  // sources. The history endpoint wins on collisions when it does return
+  // a record. This is what makes freshly-closed demo trades show up here.
+  const derivedClosedPositions = useMemo(
+    () => deriveClosedPositionsFromDeals(rawDeals),
+    [rawDeals],
+  );
+  const mergedClosedPositions = useMemo(
+    () => mergeClosedPositionSources(rawPositionHistory, derivedClosedPositions),
+    [rawPositionHistory, derivedClosedPositions],
+  );
   const positionHistory = useMemo(
-    () => filterClosedRecordsByDateRange(rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs),
-    [rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs],
+    () => filterClosedRecordsByDateRange(mergedClosedPositions, effectiveHistoryFromMs, effectiveHistoryToMs),
+    [mergedClosedPositions, effectiveHistoryFromMs, effectiveHistoryToMs],
   );
 
   // Calculate actual history summary stats from the raw API payload
@@ -507,7 +551,7 @@ export function HistoryScreen() {
             </View>
             <View style={styles.gridRow}>
               <Pressable
-                style={[styles.gridCol, { borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}
+                style={styles.gridCol}
                 onPress={() => traceUiInteraction('history.filter.open', () => router.push('/history/filter'))}
                 unstable_pressDelay={0}
               >
@@ -516,14 +560,6 @@ export function HistoryScreen() {
                 </View>
                 <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRangeLabel}</Text>
               </Pressable>
-              <View style={styles.gridCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Net P/L')}:</Text>
-                </View>
-                <Text style={[styles.gridValue, { color: netProfit >= 0 ? T.up : T.down, opacity: 0.9 }]}>
-                  {fmt.pnl(netProfit)}
-                </Text>
-              </View>
             </View>
           </View>
         ) : null}
@@ -615,7 +651,7 @@ export function HistoryScreen() {
                 />
                 <MetricPill label={t('Trades')} value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
                 <MetricPill
-                  label={t('Net P/L')}
+                  label={t('Closed Trade Net P/L')}
                   value={fmt.pnl(netProfit)}
                   icon='wallet-outline'
                   tone={netTone}
@@ -639,20 +675,26 @@ export function HistoryScreen() {
             </View>
           </>
         )}
-        renderItem={({ item }) => <HistoryItemRow item={item} T={T} isDark={isDark} />}
+        renderItem={({ item }) => <HistoryItemRow item={item} T={T} isDark={isDark} currency={currency} />}
         ListEmptyComponent={<Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No history records')}</Text>}
       />
     </Screen>
   );
 }
 
-function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors; isDark: boolean }) {
+function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: ThemeColors; isDark: boolean; currency: string }) {
+  const isClosedPosition = item.recordKind === 'closed-position';
+
+  if (isClosedPosition) {
+    return <ClosedPositionRow item={item} T={T} isDark={isDark} currency={currency} />;
+  }
+
   const { symbol, side, volume } = parseLine1(item.line1);
   const sideLower = side.toLowerCase().replace(',', '');
   const isBuy = sideLower.includes('buy');
   const isSell = sideLower.includes('sell');
   const profit = typeof item.profit === 'number' ? item.profit : null;
-  const isClosedTrade = item.recordKind === 'closed-position' || item.status === 'closed';
+  const isClosedTrade = item.status === 'closed';
   const cardBg = T.glass2;
 
   return (
@@ -665,8 +707,8 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
       !isDark && rStyles.cardShadowLight,
       isDark && rStyles.cardShadowDark,
     ]}>
+      <Text style={[rStyles.cornerId, { color: T.textMuted }]}>#{item.ticketLabel}</Text>
       <View style={rStyles.rowBody}>
-        <Text style={[rStyles.rowIdText, { color: T.textMuted }]}>#{item.ticketLabel}</Text>
         <View style={rStyles.rowTop}>
           <View style={rStyles.symbolLine}>
             <Text style={[rStyles.symbolText, { color: T.text }]}>{symbol}</Text>
@@ -714,7 +756,7 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
           {item.line2.includes('→') ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2.split('→')[0].trim()}</Text>
-              <Ionicons name="arrow-forward" size={14} color={T.textMuted} />
+              <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} />
               <Text style={[rStyles.priceTrack, { color: T.text, fontWeight: '700' }]}>{item.line2.split('→')[1].trim()}</Text>
             </View>
           ) : (
@@ -727,6 +769,98 @@ function HistoryItemRow({ item, T, isDark }: { item: HistoryRow; T: ThemeColors;
           <View style={rStyles.noteRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={11} color={T.textMuted} />
             <Text style={[rStyles.noteText, { color: T.textMuted }]} numberOfLines={1}>{item.note}</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Closed-position card — mirrors the open-position card on the Trade screen,
+ * but renders the *final* close price and close P&L instead of streaming live values.
+ */
+function ClosedPositionRow({ item, T, isDark, currency }: { item: HistoryRow; T: ThemeColors; isDark: boolean; currency: string }) {
+  const symbol = item.symbolRaw ?? parseLine1(item.line1).symbol;
+  const sideRaw = (item.sideRaw ?? '').toLowerCase();
+  const isBuy = sideRaw === 'buy';
+  const isSell = sideRaw === 'sell';
+  const sideLabel = isBuy ? 'buy' : isSell ? 'sell' : sideRaw;
+  const volumeNum = typeof item.volumeNum === 'number' ? item.volumeNum : Number(parseLine1(item.line1).volume) || 0;
+  const decimals = typeof item.priceDecimals === 'number' ? item.priceDecimals : (symbol.includes('JPY') ? 3 : 5);
+  const openPrice = typeof item.openPrice === 'number' ? item.openPrice : NaN;
+  const closePrice = typeof item.closePrice === 'number' ? item.closePrice : NaN;
+  const profit = typeof item.profit === 'number' ? item.profit : 0;
+  const sideTint = isBuy ? T.trading.buy.primary : isSell ? T.trading.sell.primary : T.border;
+
+  return (
+    <View
+      style={[
+        cpStyles.row,
+        {
+          backgroundColor: isDark ? '#0E141F' : T.glass2,
+          borderColor: T.border,
+          borderLeftColor: sideTint,
+        },
+        !isDark && cpStyles.shadowLight,
+        isDark && cpStyles.shadowDark,
+      ]}
+    >
+      <Text style={[cpStyles.cornerId, { color: T.textMuted }]}>#{item.ticketLabel}</Text>
+
+      <View style={cpStyles.body}>
+        <View style={cpStyles.headerRow}>
+          <View style={cpStyles.symbolLine}>
+            <Text style={[cpStyles.symbol, { color: T.text }]}>{fmt.symbol(symbol)}</Text>
+            {sideLabel ? (
+              <View
+                style={[
+                  cpStyles.sideBadge,
+                  isBuy
+                    ? { backgroundColor: 'rgba(37,99,235,0.15)' }
+                    : isSell
+                      ? { backgroundColor: 'rgba(220,38,38,0.12)' }
+                      : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : T.glass1 },
+                ]}
+              >
+                <Text
+                  style={[
+                    cpStyles.sideText,
+                    { color: isBuy ? T.trading.buy.hover : isSell ? T.trading.sell.hover : T.textMuted },
+                  ]}
+                >
+                  {sideLabel}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={[cpStyles.volume, { color: T.textMuted }]}>{volumeNum.toFixed(2)}</Text>
+          </View>
+          <View style={cpStyles.rightCol}>
+            <Text style={[cpStyles.pnl, { color: profit >= 0 ? T.trading.profit : T.trading.loss }]}>
+              {fmt.pnlPrecise(profit)} {currency}
+            </Text>
+          </View>
+        </View>
+
+        <View style={cpStyles.priceRow}>
+          <View style={cpStyles.priceLeft}>
+            <Text style={[cpStyles.price, { color: T.textSub }]}>
+              {Number.isFinite(openPrice) ? openPrice.toFixed(decimals) : '---'}
+            </Text>
+            <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} style={cpStyles.arrow} />
+            <Text style={[cpStyles.price, { color: T.textSub }]}>
+              {Number.isFinite(closePrice) ? closePrice.toFixed(decimals) : '---'}
+            </Text>
+          </View>
+          <Text style={[cpStyles.dateRight, { color: T.textSub }]}>
+            {item.time.replace(' ', '   ')}
+          </Text>
+        </View>
+
+        {item.note ? (
+          <View style={cpStyles.noteRow}>
+            <Ionicons name="chatbubble-ellipses-outline" size={11} color={T.textMuted} />
+            <Text style={[cpStyles.noteText, { color: T.textMuted }]} numberOfLines={1}>{item.note}</Text>
           </View>
         ) : null}
       </View>
@@ -752,7 +886,14 @@ function MetricPill({
       >
         <View style={mpS.metricTop}>
           <Ionicons name={icon} size={12} color={T.textSub} />
-          <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
+          <Text
+            style={[mpS.metricLabel, { color: T.textSub }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {label}
+          </Text>
         </View>
         <Text
           style={[
@@ -783,9 +924,9 @@ function MetricPill({
           tone === 'negative' && { color: T.down },
         ]}
         numberOfLines={1}
-        >
-          {value}
-        </Text>
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -830,7 +971,7 @@ function sortHistoryRows(rows: HistoryRow[], sortBy: SortBy) {
 const rStyles = StyleSheet.create({
   rowCard: {
     marginHorizontal: spacing.md, marginTop: spacing.sm,
-    paddingTop: 12, paddingBottom: 10, paddingHorizontal: spacing.md,
+    paddingTop: 18, paddingBottom: 10, paddingHorizontal: spacing.md,
     borderRadius: 16, borderWidth: 1,
   },
   cardShadowLight: { shadowColor: '#0F172A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 1 },
@@ -841,7 +982,7 @@ const rStyles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  rowIdText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5, marginBottom: 4 },
+  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
   rowBody: { width: '100%' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap', minWidth: 0 },
@@ -862,10 +1003,44 @@ const rStyles = StyleSheet.create({
   noteText: { fontSize: 11, fontWeight: '500', flex: 1 },
 });
 
+/* Closed-position card — visually mirrors TradePositionRow so the user sees the
+ * same shape as live open positions, with close price + close time + final P&L. */
+const cpStyles = StyleSheet.create({
+  row: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    paddingTop: 18,
+    paddingBottom: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderLeftWidth: 2,
+  },
+  shadowLight: { shadowColor: '#64748B', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
+  shadowDark: { shadowColor: '#2563EB', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
+  body: { width: '100%' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  symbol: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
+  sideText: { fontSize: 11, fontWeight: '800', textTransform: 'lowercase', letterSpacing: 0.3 },
+  volume: { fontSize: 13, fontWeight: '700' },
+  pnl: { minWidth: 126, textAlign: 'right', fontSize: 16, fontWeight: '800', letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  priceLeft: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  price: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  arrow: { marginHorizontal: 4 },
+  dateRight: { fontSize: 11, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
+  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  noteText: { fontSize: 11, fontWeight: '500', flex: 1 },
+});
+
 const mpS = StyleSheet.create({
   metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 6, marginRight: spacing.sm, alignItems: 'center', justifyContent: 'center' },
-  metricTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  metricLabel: { marginLeft: 4, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
+  metricTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4, paddingHorizontal: 2 },
+  metricLabel: { marginLeft: 6, flexShrink: 1, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
   metricValue: { fontSize: 15, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
 });
 
