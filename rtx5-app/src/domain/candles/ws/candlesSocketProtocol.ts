@@ -2,6 +2,10 @@ import { normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
 
 export const DEFAULT_CANDLES_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 
+/**
+ * Normalizes the backend WebSocket URL for candle subscriptions.
+ * Ensures the app connects to the specific `/ws/v2` endpoint required for candlestick data.
+ */
 export const resolveCandlesWsUrl = (configuredUrl?: string): string => {
   const url = (configuredUrl || DEFAULT_CANDLES_WS_URL).trim();
   if (!url) {
@@ -42,6 +46,10 @@ export const appendCandleWsToken = (baseUrl: string, token: string | null): stri
   return `${base}?${params.join('&')}`;
 };
 
+/**
+ * Constructs the standardized dot-delimited channel string used to subscribe
+ * to a specific market symbol and timeframe (e.g. `candles.EURUSD.M1`).
+ */
 export const createCandleChannel = (symbol: string, tf: string): string | null => {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeTimeframeStrict(tf);
@@ -94,6 +102,11 @@ const getNestedRecord = (record: Record<string, unknown> | null): Record<string,
 const hasAnyKey = (record: Record<string, unknown> | null, keys: readonly string[]): boolean =>
   Boolean(record && keys.some((key) => record[key] !== undefined && record[key] !== null && record[key] !== ''));
 
+/**
+ * Type guard / shape validator for incoming WebSocket messages.
+ * Verifies that the payload contains at least the 4 mandatory OHLC properties,
+ * accommodating various capitalizations used by different backend environments.
+ */
 export const hasBackendCandleShape = (payload: unknown): boolean => {
   const record = asRecord(payload);
   const nested = getNestedRecord(record);
@@ -124,6 +137,11 @@ const extractChannelContext = (channel: unknown): { symbol: string | null; tf: s
   };
 };
 
+/**
+ * Extracts the symbol and timeframe metadata from an incoming WebSocket message.
+ * Searches through standard payload structures, nested data objects, and the routing
+ * channel string itself to resolve the exact context of the update.
+ */
 export const extractCandlePayloadContext = (payload: unknown): { symbol: string | null; tf: string | null } => {
   const record = asRecord(payload);
   const nested = getNestedRecord(record);
@@ -143,6 +161,11 @@ export const extractCandlePayloadContext = (payload: unknown): { symbol: string 
   };
 };
 
+/**
+ * Flattens various possible JSON envelope formats into a consistent array of candle objects.
+ * Handles nested `{ data: [...] }`, `{ items: [...] }`, `{ result: [...] }`, 
+ * and single-object updates.
+ */
 export const getCandlePayloadItems = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) {
     return payload;

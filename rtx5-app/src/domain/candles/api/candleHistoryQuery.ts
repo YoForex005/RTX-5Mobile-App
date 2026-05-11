@@ -1,11 +1,15 @@
 import { normalizeTimeframeStrict } from '../core/candles';
 
+/** Options for paginating historical candle requests. */
 export type CandleHistoryRequestOptions = {
   signal?: AbortSignal;
+  /** Unix timestamp in SECONDS. Fetch candles that occurred after this time. */
   from?: number;
+  /** Unix timestamp in SECONDS. Fetch candles that occurred before this time. */
   to?: number;
 };
 
+/** The normalized shape extracted from various possible backend JSON responses. */
 export type ExtractedCandleHistoryPayload = {
   candles: unknown[];
   symbol?: string;
@@ -13,6 +17,7 @@ export type ExtractedCandleHistoryPayload = {
   priceBasis?: string;
 };
 
+/** Safely casts an unknown value to a Record if it is an object and not an array. */
 const asObjectRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -31,6 +36,11 @@ const pickFirstArray = (...candidates: unknown[]): unknown[] => {
   return [];
 };
 
+/**
+ * Highly permissive extractor that searches through a JSON payload to find
+ * the array of candles. Deals with various backend nesting formats like
+ * `{ data: { candles: [...] } }`, `{ result: [...] }`, etc.
+ */
 export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHistoryPayload => {
   if (Array.isArray(payload)) {
     return { candles: payload };
@@ -84,6 +94,10 @@ export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHi
   };
 };
 
+/**
+ * Builds the URL query parameters for fetching historical candles.
+ * Specifically converts frontend Unix SECONDS timestamps into backend MILLISECONDS.
+ */
 export const buildCandleHistorySearchParams = (
   timeframe: string,
   count: number,
@@ -100,11 +114,13 @@ export const buildCandleHistorySearchParams = (
   params.set('limit', String(count));
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
-    params.set('from', String(Math.floor(options.from)));
+    // The backend API expects epoch in milliseconds, so we convert the seconds timestamp.
+    params.set('from', String(Math.floor(options.from * 1000)));
   }
 
   if (typeof options?.to === 'number' && Number.isFinite(options.to) && options.to > 0) {
-    params.set('to', String(Math.floor(options.to)));
+    // The backend API expects epoch in milliseconds, so we convert the seconds timestamp.
+    params.set('to', String(Math.floor(options.to * 1000)));
   }
 
   return params;

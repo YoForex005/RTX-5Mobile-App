@@ -1,3 +1,7 @@
+/** 
+ * Represents a horizontally rendered geometric span (e.g., a wick or a body)
+ * in exact pixel coordinates on the canvas. 
+ */
 export type CandleSpan = {
   center: number;
   left: number;
@@ -5,6 +9,10 @@ export type CandleSpan = {
   width: number;
 };
 
+/**
+ * A fully calculated, pixel-perfect set of coordinates for drawing a single candlestick.
+ * All Y coordinates map directly to prices, and X coordinates map to the time axis.
+ */
 export type CandleGeometry = {
   index: number;
   roundedX: number;
@@ -24,6 +32,7 @@ export type CandleGeometry = {
   lowerWickBodyY: number;
 };
 
+/** The raw inputs required to calculate the final pixel geometry of a candle. */
 export type CandleGeometryInput = {
   index: number;
   roundedX: number;
@@ -36,18 +45,27 @@ export type CandleGeometryInput = {
   wickMinLeft?: number | null;
 };
 
+/** Maximum allowed deviation when checking if a wick is perfectly centered on a body. */
 export const CANDLE_CENTER_EPSILON = 1e-6;
 
+/** Ensures a calculated width is at least 1 pixel. */
 export const clampBitmapWidth = (width: number) => Math.max(1, Math.floor(width));
 
+/** Scales a logical CSS pixel value to actual physical screen pixels based on device density. */
 export const scaleToBitmapCoordinate = (value: number, pixelRatio: number) =>
   Math.round(value * pixelRatio);
 
+/** Adjusts the visual spacing between bars based on zoom level and data conflation. */
 export const getEffectiveBitmapBarSpacing = (
   barSpacing: number,
   conflationFactor: number = 1,
 ) => Math.max(barSpacing * Math.max(1, conflationFactor), 0);
 
+/**
+ * Calculates the best possible pixel width for a candle body given the current zoom level (`barSpacing`).
+ * Employs anti-aliasing logic from TradingView Lightweight Charts to ensure bodies don't overlap 
+ * or become invisible when zoomed out.
+ */
 export const getOptimalCandlestickBodyWidth = (barSpacing: number, pixelRatio: number) => {
   const barSpacingSpecialCaseFrom = 2.5;
   const barSpacingSpecialCaseTo = 4;
@@ -69,6 +87,7 @@ export const getOptimalCandlestickBodyWidth = (barSpacing: number, pixelRatio: n
   return Math.max(Math.floor(pixelRatio), optimalWidth);
 };
 
+/** Calculates the best pixel width for the wick, ensuring it doesn't exceed the body width. */
 export const getOptimalCandlestickWickWidth = (
   barSpacing: number,
   pixelRatio: number,
@@ -148,6 +167,11 @@ export const createCenteredSpan = (
   return span;
 };
 
+/**
+ * Calculates the exact bounding boxes for the body and wick of a candlestick.
+ * Ensures the wick is perfectly centered within the body, snapping to physical pixels
+ * to prevent blurry edges or asymmetric rendering.
+ */
 export const createCandleGeometry = ({
   index,
   roundedX,
@@ -193,6 +217,7 @@ export const getCandleGeometryInvariantDelta = (
   geometry: Pick<CandleGeometry, 'bodyLeft' | 'bodyWidth' | 'wickX'>,
 ) => Math.abs(getBodyCenterFromGeometry(geometry) - geometry.wickX);
 
+/** Verifies that a generated candle geometry maintains the wick perfectly centered on the body. */
 export const hasCenteredWickInvariant = (
   geometry: Pick<CandleGeometry, 'bodyLeft' | 'bodyWidth' | 'wickX'>,
   epsilon: number = CANDLE_CENTER_EPSILON,

@@ -28,6 +28,11 @@ export const shouldRenderBootstrapPreview = (
   _visibleCandlesLength: number,
 ): boolean => false;
 
+/**
+ * Determines whether the stream manager should replace its currently active series 
+ * with a series loaded from the local storage cache. 
+ * Allows the UI to render immediately on boot while fetching fresh REST history in the background.
+ */
 export const shouldAdoptCachedSeries = (
   status: 'idle' | 'bootstrapping' | 'ready',
   historyCandlesLength: number,
@@ -50,8 +55,13 @@ export const shouldAdoptCachedSeries = (
   );
 };
 
+/** Describes the current state of the chart data pipeline. */
 export type VisibleSeriesMode = 'empty' | 'current' | 'history' | 'merged';
 
+/**
+ * Evaluates the available data sources (REST history vs Live WS stream) to determine 
+ * how the final chart series should be constructed.
+ */
 export const resolveVisibleSeriesMode = (
   historyCandles: MinimalEngineCandle[],
   liveCandles: MinimalEngineCandle[],
@@ -69,6 +79,10 @@ export const resolveVisibleSeriesMode = (
   return 'merged';
 };
 
+/**
+ * Selects the most authoritative array of candles to display based on the current state.
+ * Live data takes precedence if available, falling back to cached or historical data.
+ */
 export const resolveCurrentVisibleSeries = <TCandle extends MinimalEngineCandle>(
   historyCandles: readonly TCandle[],
   liveCandles: readonly TCandle[],

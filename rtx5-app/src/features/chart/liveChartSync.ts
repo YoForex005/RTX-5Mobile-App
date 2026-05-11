@@ -181,27 +181,6 @@ export const resolveLatestCandleGap = (
     }
   }
 
-  // Stale-tail check first: if the most recent candle is older than the
-  // expected next bucket relative to `now`, surface that as a missing-bar
-  // gap. Adjacent-pair iteration alone would miss it (no "next" candle to
-  // compare against).
-  const expectedNextAfterLast = getExpectedNextCandleTime(lastCandle.time, timeframe);
-  const nowSeconds =
-    typeof options.nowSeconds === 'number' && Number.isFinite(options.nowSeconds)
-      ? options.nowSeconds
-      : Math.floor(Date.now() / 1000);
-  const tailGap = formatCandleGapForTimeframe(expectedNextAfterLast, nowSeconds, timeframe);
-  if (tailGap.missingBars >= 1) {
-    return {
-      fromTime: lastCandle.time,
-      expectedTime: expectedNextAfterLast,
-      toTime: nowSeconds,
-      missingSeconds: tailGap.missingSeconds,
-      missingBars: tailGap.missingBars,
-      label: tailGap.label,
-    };
-  }
-
   if (sortedCandles.length < 2) {
     return null;
   }

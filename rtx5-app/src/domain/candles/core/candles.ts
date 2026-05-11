@@ -49,26 +49,40 @@ export const MAX_PERSISTED_CANDLE_CACHE_ENTRIES = 8;
 export const CANDLE_HISTORY_QUERY_GC_MS = 60_000;
 export const LATEST_DAILY_CANDLE_HISTORY_LIMIT = 2;
 
+/**
+ * Represents the different types of WebSocket events that can arrive for a candle stream.
+ * - 'full_sync': Replaces the entire series (e.g., initial load, timeframe change).
+ * - 'replace_last': Overwrites the current active candle (standard live update).
+ * - 'append': Adds a new closed candle and starts the next one.
+ * - 'resync_required': Instructs the frontend to drop state and re-fetch from REST.
+ */
 export type CandleStreamEvent =
   | { type: 'full_sync'; symbol: string; tf: string; candles: Candle[]; reason: 'subscription_change' | 'history_seed' | 'resync' | 'historical_patch' }
   | { type: 'replace_last'; symbol: string; tf: string; candle: Candle }
   | { type: 'append'; symbol: string; tf: string; candle: Candle }
   | { type: 'resync_required'; symbol: string; tf: string; reason: string };
 
+/**
+ * A wrapper for a raw live candle payload that also tracks whether the backend
+ * explicitly provided high/low boundaries, which affects how we merge it.
+ */
 export type NormalizedIncomingCandle = {
   candle: Candle;
   hasExplicitHighLow: boolean;
 };
 
+/** Snaps a raw Unix seconds timestamp to the start of its respective candle bucket. */
 export const alignTimeToBucket = (timeInSeconds: number, timeframe: string): number =>
   getBucketStart(timeInSeconds, timeframe) ?? Math.floor(timeInSeconds);
 
+/** Alias for alignTimeToBucket (reference bucket time is currently unused but kept for interface compatibility). */
 export const alignTimeToBucketWithReference = (
   timeInSeconds: number,
   timeframe: string,
   _referenceBucketTime?: number | null,
 ): number => alignTimeToBucket(timeInSeconds, timeframe);
 
+/** Parses an unknown timestamp and snaps it directly to a bucket start time in seconds. */
 export const normalizeTimestampToBucket = (
   value: unknown,
   timeframe: string,
@@ -78,10 +92,12 @@ export const normalizeTimestampToBucket = (
   return timestamp === null ? null : alignTimeToBucket(timestamp, timeframe);
 };
 
+/** Validates if an object loosely matches the required OHLC properties of a Candle. */
 export const isStructurallyValidCandle = (
   candle: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'> | null | undefined,
 ): candle is Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'> => validateCandle(candle);
 
+/** Checks if a candle's timestamp perfectly aligns with the start of a bucket for the given timeframe. */
 export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: string): boolean => {
   if (!Number.isFinite(candle.time)) {
     return false;
@@ -95,6 +111,10 @@ export const isBucketAlignedCandle = (candle: Pick<Candle, 'time'>, timeframe: s
   return alignTimeToBucket(candle.time, normalizedTimeframe) === candle.time;
 };
 
+/**
+ * Normalizes an unknown WebSocket payload into a structured NormalizedIncomingCandle.
+ * Attempts to parse nested payload structures (e.g., { candle: { ... } }).
+ */
 export const parseIncomingCandlePayload = (
   input: unknown,
   _timeframe: string,
@@ -117,6 +137,7 @@ export const parseIncomingCandlePayload = (
   return { candle, hasExplicitHighLow };
 };
 
+/** Removes duplicate candles belonging to the same bucket from an array of incoming payloads. */
 export const dedupeIncomingCandlePayloads = (
   entries: NormalizedIncomingCandle[],
 ): NormalizedIncomingCandle[] => {
@@ -132,6 +153,7 @@ export const dedupeIncomingCandlePayloads = (
   return Array.from(byTime.values()).sort((left, right) => left.candle.time - right.candle.time);
 };
 
+/** Extracts a normalized array of incoming candles from heavily nested or varying REST/WS JSON structures. */
 export const extractIncomingCandlePayloads = (
   payload: unknown,
   timeframe: string,
@@ -169,30 +191,38 @@ export const extractIncomingCandlePayloads = (
   return dedupeIncomingCandlePayloads(parsed);
 };
 
+/** Converts an array of raw unknown data objects into a strictly validated and sorted array of Candles. */
 export const normalizeCandleSeries = (candles: unknown[], _timeframe: string): Candle[] =>
   canonicalSortAndDedupeCandles(normalizeHistoryCandles(candles));
 
+/** Deduplicates and sorts an array of Candles by time. */
 export const sortAndDedupeCandles = (candles: Candle[]): Candle[] =>
   canonicalSortAndDedupeCandles(candles);
 
+/** Attempts to merge a live candle over an existing candle. Returns null if either is geometrically invalid. */
 export const mergeCandleUpdate = (existing: Candle, incoming: Candle): Candle | null =>
   validateCandle(existing) && validateCandle(incoming)
     ? mergeCandleByTimestamp(existing, incoming, { volumeStrategy: 'sum' })
     : null;
 
+/** Gets the exact Unix SECONDS of the bucket that encompasses the current system time. */
 export const getCurrentBucketTime = (
   timeframe: string,
   nowInSeconds: number = Math.floor(Date.now() / 1000),
 ): number => alignTimeToBucket(nowInSeconds, timeframe);
 
+/** Checks if a candle's time belongs to the active, unclosed bucket currently forming right now. */
 export const isWithinLiveBucketHorizon = (
   candleTime: number,
   timeframe: string,
   nowInSeconds: number = Math.floor(Date.now() / 1000),
 ): boolean => candleTime <= getExpectedNextCandleTime(getCurrentBucketTime(timeframe, nowInSeconds), timeframe);
 
-
-
+/**
+ * Detects if the candle series ends with a very short sequence of candles (a "tail")
+ * that is separated from the main historical block by a massive time gap.
+ * Useful for catching bad historical pagination jumps.
+ */
 export const hasDetachedShortCandleTail = (
   candles: Candle[],
   timeframe: string,
@@ -212,6 +242,7 @@ export const hasDetachedShortCandleTail = (
   return false;
 };
 
+/** Checks if we have enough continuous historical candles to render a chart properly. */
 export const isTrustworthyCandleBootstrapSeed = (
   candles: Candle[],
   _timeframe: string,
@@ -221,6 +252,7 @@ export const isTrustworthyCandleBootstrapSeed = (
   return normalized.length >= minCandles;
 };
 
+/** Checks if the most recent candle in a series is sufficiently close to current time (not hopelessly stale). */
 export const isRecentCandleBootstrapSeed = (
   candles: Candle[],
   timeframe: string,
@@ -240,6 +272,7 @@ export const isRecentCandleBootstrapSeed = (
   return nowInSeconds <= allowed;
 };
 
+/** Combines trustworthiness (length) and recency checks to determine if a chart can safely render. */
 export const isRenderableCandleBootstrapSeed = (
   candles: Candle[],
   timeframe: string,
@@ -250,6 +283,10 @@ export const isRenderableCandleBootstrapSeed = (
   isTrustworthyCandleBootstrapSeed(candles, timeframe, minCandles) &&
   isRecentCandleBootstrapSeed(candles, timeframe, maxStalenessBuckets, nowInSeconds);
 
+/**
+ * Checks if an incoming real-time price tick is dangerously far into the future compared to the last known candle.
+ * This indicates a disconnect/sleep event where the user lost network for a long time.
+ */
 export const hasExcessiveLivePriceGap = (
   candles: Candle[],
   price: number,
@@ -269,6 +306,7 @@ export const hasExcessiveLivePriceGap = (
   );
 };
 
+/** Discards live real-time candles that fall in a time range now covered by authoritative REST history. */
 export const pruneLiveCandlesCoveredByHistory = (
   historyCandles: Candle[],
   liveCandles: Candle[],
@@ -279,21 +317,23 @@ export const pruneLiveCandlesCoveredByHistory = (
   return historyLast === undefined ? live : live.filter((candle) => candle.time > historyLast);
 };
 
+/** Merges REST history and active WebSocket candles into a single unified array. */
 export const materializeHistoryAndLiveCandles = (
   historyCandles: Candle[],
   liveCandles: Candle[],
-  _timeframe: string,
-): Candle[] => mergeHistoryAndLiveMaps(historyCandles, liveCandles, MAX_CANDLE_SERIES_LENGTH);
+  timeframe: string,
+): Candle[] => mergeHistoryAndLiveMaps(historyCandles, liveCandles, timeframe, MAX_CANDLE_SERIES_LENGTH);
 
 export const materializeCanonicalHistoryAndLiveCandles = materializeHistoryAndLiveCandles;
 
-
-
+/** Merges REST history and active WebSocket candles into a single unified array (alias). */
 export const overlayLiveCandlesOnHistory = (
   historyCandles: Candle[],
   liveCandles: Candle[],
-): Candle[] => mergeHistoryAndLiveMaps(historyCandles, liveCandles, MAX_CANDLE_SERIES_LENGTH);
+  timeframe: string = 'M1', // Default or require passing it if used
+): Candle[] => mergeHistoryAndLiveMaps(historyCandles, liveCandles, timeframe, MAX_CANDLE_SERIES_LENGTH);
 
+/** Safely splices a newly fetched chunk of REST history into the existing full series map. */
 export const mergeRecentHistoryIntoCandles = (
   candles: Candle[],
   recentHistory: Candle[],

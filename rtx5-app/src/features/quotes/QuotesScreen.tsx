@@ -308,7 +308,7 @@ const QuoteCard = React.memo(function QuoteCard({
   const liveItem = useLiveQuoteSnapshot(symbol);
   const noData = !hasFreshLiveQuote(liveItem);
 
-  if (noData) {
+  if (noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
     const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
 
     return (

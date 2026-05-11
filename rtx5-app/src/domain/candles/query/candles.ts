@@ -15,6 +15,10 @@ import {
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
+/**
+ * Standardized TanStack Query cache keys for candlestick data.
+ * Used for invalidating or prefetching queries.
+ */
 export const candleKeys = {
   all: ['candles'] as const,
   history: (symbol: string, timeframe: string) =>
@@ -52,6 +56,11 @@ export function useCandleHistory(symbol: string, timeframe: string) {
   });
 }
 
+/**
+ * Fetches only the most recent D1 (Daily) candle for a given symbol.
+ * Useful for calculating simple 24h price changes or daily highs/lows in UI components
+ * (e.g., watchlists or account summaries) without subscribing to a full streaming chart.
+ */
 export function useLatestDailyCandle(symbol: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
 

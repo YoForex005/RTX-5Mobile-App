@@ -23,8 +23,10 @@ import {
   scaleToBitmapCoordinate,
 } from './candleGeometry';
 
+/** Allowed visual rendering styles for the custom candlestick series. */
 export type RTX5CustomCandleChartType = 'candles' | 'hollow';
 
+/** Lightweight Charts custom data interface extended with core OHLCV values. */
 export type RTX5CustomCandlestickData = CustomData<any> & {
   time: number;
   open: number;
@@ -35,6 +37,7 @@ export type RTX5CustomCandlestickData = CustomData<any> & {
   color?: string;
 };
 
+/** Full set of styling options specific to our custom renderer. */
 export type RTX5CustomCandlestickSeriesOptions = CustomSeriesOptions & {
   bodyUpColor: string;
   bodyDownColor: string;
@@ -87,6 +90,11 @@ const DEFAULT_CUSTOM_CANDLE_OPTIONS: RTX5CustomCandlestickSeriesOptions = {
 const SHOULD_LOG_CENTER_INVARIANTS =
   typeof __DEV__ !== 'undefined' ? __DEV__ : true;
 
+/**
+ * Draws an inner border within a bounding box. 
+ * Prevents the border from spilling out into the anti-aliasing space,
+ * ensuring sharp 1px borders regardless of zoom level.
+ */
 const fillRectInnerBorder = (
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -103,6 +111,10 @@ const fillRectInnerBorder = (
 
 const isTransparentFill = (color: string) => color.trim().toLowerCase() === 'transparent';
 
+/**
+ * Converts a raw price value into a physical Y-axis pixel coordinate on the canvas.
+ * Correctly scales the logical coordinate by the device pixel ratio to maintain crispness.
+ */
 const normalizeCoordinate = (
   priceToCoordinate: PriceToCoordinateConverter,
   price: number,
@@ -112,6 +124,14 @@ const normalizeCoordinate = (
   return coordinate === null ? null : coordinate * verticalPixelRatio;
 };
 
+/**
+ * Low-level Canvas API renderer for our custom candlestick style.
+ * Iterates over the visible time range and manually calculates sub-pixel bounds
+ * for each candle's wick and body, applying custom color overrides.
+ * 
+ * Replaces the default Lightweight Charts renderer to give us pixel-perfect control
+ * over borders and transparent/hollow candle fills.
+ */
 class RTX5CustomCandlestickRenderer implements ICustomSeriesPaneRenderer {
   private data: PaneRendererCustomData<any, RTX5CustomCandlestickData> | null = null;
   private options: RTX5CustomCandlestickSeriesOptions = DEFAULT_CUSTOM_CANDLE_OPTIONS;
@@ -274,6 +294,11 @@ class RTX5CustomCandlestickRenderer implements ICustomSeriesPaneRenderer {
   }
 }
 
+/**
+ * Bridge class that connects the Lightweight Charts plugin system
+ * to our custom Canvas renderer. Extracts visible price data so the chart 
+ * knows how to auto-scale the Y-axis.
+ */
 class RTX5CustomCandlestickPaneView
   implements ICustomSeriesPaneView<any, RTX5CustomCandlestickData, RTX5CustomCandlestickSeriesOptions>
 {

@@ -73,14 +73,21 @@ export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
 
 export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
   const symbolsKey = JSON.stringify(symbols);
+  
+  const rawUniqueSymbols = useMemo(
+    () => Array.from(new Set(symbols.filter(Boolean))),
+    [symbolsKey],
+  );
+
   const normalizedSymbols = useMemo(
     () => uniqueNormalizedSymbols(symbols),
     [symbolsKey],
   );
+  
   const normalizedSymbolsKey = normalizedSymbols.join('|');
 
   useEffect(() => {
-    if (!active || normalizedSymbols.length === 0) {
+    if (!active || rawUniqueSymbols.length === 0) {
       return;
     }
 
@@ -95,14 +102,16 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
     };
 
     quotesWsService.addTickListener(listener);
-    quotesWsService.subscribe(normalizedSymbols);
+    // CRITICAL: We must send RAW symbols to the backend (e.g., EURUSDm)
+    // because the backend will reject or ignore normalized subscriptions.
+    quotesWsService.subscribe(rawUniqueSymbols);
     quotesWsService.connect();
 
     return () => {
       quotesWsService.removeTickListener(listener);
-      quotesWsService.unsubscribe(normalizedSymbols);
+      quotesWsService.unsubscribe(rawUniqueSymbols);
     };
-  }, [active, normalizedSymbolsKey]);
+  }, [active, symbolsKey, normalizedSymbolsKey]);
 
   return normalizedSymbols;
 }

@@ -59,6 +59,10 @@ export class CandlesWebSocketService {
     return CandlesWebSocketService.instance;
   }
 
+  /**
+   * Establishes the WebSocket connection using the currently stored JWT access token.
+   * Re-authenticates and resubscribes to all active channels automatically if the token changes.
+   */
   public connect(): void {
     if (this.subscriptions.size === 0) {
       return;
@@ -126,6 +130,10 @@ export class CandlesWebSocketService {
     }
   }
 
+  /**
+   * Intentionally closes the WebSocket connection and halts the automatic reconnect loop.
+   * Cleans up all subscriptions and internal state.
+   */
   public disconnect(): void {
     this.manualDisconnect = true;
     this.clearReconnectTimer();
@@ -173,6 +181,10 @@ export class CandlesWebSocketService {
     } catch (_error) {}
   }
 
+  /**
+   * Requests a live candle stream for a specific market symbol and timeframe.
+   * Multiplexes the subscription if the socket is already open, or initiates a connection.
+   */
   public subscribe(symbol: string, tf: string): void {
     const normalizedSymbol = normalizeSymbol(symbol);
     const normalizedTimeframe = normalizeTimeframeStrict(tf);
@@ -204,6 +216,10 @@ export class CandlesWebSocketService {
     }
   }
 
+  /**
+   * Decrements the consumer count for a specific stream. If no consumers remain,
+   * sends an unsubscribe message to the backend and cleans up the engine listener.
+   */
   public unsubscribe(symbol?: string, tf?: string): void {
     const normalizedSymbol = normalizeSymbol(symbol ?? '');
     const normalizedTimeframe = normalizeTimeframeStrict(tf);
@@ -258,6 +274,10 @@ export class CandlesWebSocketService {
     this.streamListeners.delete(listener);
   }
 
+  /**
+   * Processes all incoming WebSocket messages. Routes them to the correct candle stream
+   * based on explicit channel metadata or payload context.
+   */
   private handlePayload(payload: unknown): void {
     const items = getCandlePayloadItems(payload);
     if (items.length === 0) {

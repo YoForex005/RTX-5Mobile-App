@@ -937,7 +937,7 @@ export function ChartScreen() {
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe);
   const latestChartClose = useMemo(() => candles[candles.length - 1]?.close ?? 0, [candles]);
   const quoteFallbackSpread =
     baseSymbol.includes('BTC') ? 25 : baseSymbol.includes('XAU') || baseSymbol.includes('XAG') ? 0.3 : 0.00015;
@@ -2218,10 +2218,6 @@ export function ChartScreen() {
             { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
           ]
         : [];
-
-      if (chartLatestCandleGap) {
-        items.push({ label: 'Gap', value: chartLatestCandleGap.label });
-      }
 
       return items;
     },
@@ -3835,6 +3831,8 @@ export function ChartScreen() {
                       setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
                     } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
                       handleChartTradePreviewDragMessage(msg);
+                    } else if (msg.type === 'ON_PAGINATE_HISTORY') {
+                      paginate();
                     } else if (msg.type === 'CHART_TAP') {
                       if (shouldSuppressChartTapMenu({
                         activeTool,

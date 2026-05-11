@@ -75,6 +75,17 @@ const getQuoteTimestampMs = (quote: Record<string, any> | undefined): number | n
 
 export type { CandleParams } from '../ws/liveCandlesEngine';
 
+/**
+ * React hook that binds a specific market symbol and timeframe to the `LiveCandleStreamManager`.
+ * 
+ * - Triggers WebSocket subscription logic for the requested stream.
+ * - Utilizes `useSyncExternalStore` for optimized, tearing-free React renders.
+ * - Manages the lifecycle of cache hydration and prefetching when the component mounts.
+ * 
+ * @param symbol The requested market symbol (e.g. 'EURUSD').
+ * @param timeframe The requested bucket size (e.g. 'M1').
+ * @returns An object containing the active candle series and pagination/refresh controllers.
+ */
 export function useLiveCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
@@ -177,12 +188,23 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     liveCandlesEngine.refresh(normalizedSymbol, normalizedTimeframe);
   }, [normalizedSymbol, normalizedTimeframe]);
 
-  return { candles, refresh };
+  const paginate = useCallback(() => {
+    if (!normalizedSymbol || !normalizedTimeframe) {
+      return;
+    }
+
+    liveCandlesEngine.paginateHistory(normalizedSymbol, normalizedTimeframe);
+  }, [normalizedSymbol, normalizedTimeframe]);
+
+  return { candles, refresh, paginate };
 }
 
 /**
- * Lightweight live price hook for UI elements that only need the latest price.
- * Reads from the quote feed directly so it stays aligned with the rest of the app.
+ * A lightweight hook that provides just the most recent real-time quote tick
+ * for a given symbol, completely bypassing the heavy candle aggregation pipeline.
+ * Useful for simple UI overlays that just need to display the current bid/ask.
+ * 
+ * Includes staleness checks to discard quotes older than `LIVE_TICK_STALE_MS`.
  */
 export function useLiveTick(symbol: string, _timeframe?: string): LivePriceTick | null {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);

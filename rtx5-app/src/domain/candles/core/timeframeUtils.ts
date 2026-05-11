@@ -1,6 +1,10 @@
 import { normalizeSymbol as normalizeMarketSymbol } from '../../symbols';
 import type { CandleStreamKey, Timeframe } from './candleTypes';
 
+/**
+ * A standard list of all timeframe identifiers supported by the frontend logic.
+ * These map to recognizable minute, hour, day, week, and month buckets.
+ */
 export const SUPPORTED_TIMEFRAMES: readonly Timeframe[] = [
   'M1',
   'M3',
@@ -81,8 +85,16 @@ const NORMALIZED_ALIASES: Record<string, Timeframe> = {
 
 const DAY_SECONDS = 24 * 60 * 60;
 
+/**
+ * Normalizes a market symbol to a standard uppercase format for cache keys and matching.
+ */
 export const normalizeSymbol = (symbol: string): string => normalizeMarketSymbol(symbol);
 
+/**
+ * Strictly parses an unknown timeframe value against known aliases and normalizes it.
+ * Returns null if the timeframe is unrecognized.
+ * @param timeframe The raw timeframe string (e.g., '1m', '1H', '60', 'MONTHLY').
+ */
 export const normalizeTimeframeStrict = (timeframe: unknown): Timeframe | null => {
   const raw = String(timeframe ?? '').trim();
   if (!raw) {
@@ -98,18 +110,27 @@ export const normalizeTimeframeStrict = (timeframe: unknown): Timeframe | null =
   return NORMALIZED_ALIASES[normalized] ?? null;
 };
 
+/** Returns true if the provided timeframe resolves to a recognized bucket size. */
 export const isSupportedTimeframe = (timeframe: unknown): boolean =>
   normalizeTimeframeStrict(timeframe) !== null;
 
+/** Returns the normalized timeframe, defaulting to 'M1' (1 minute) if invalid. */
 export const normalizeTimeframe = (timeframe: string | number | null | undefined): Timeframe =>
   normalizeTimeframeStrict(timeframe) ?? 'M1';
 
+/** Returns the exact duration of a timeframe in seconds (Note: 'MN' is treated as a flat 30 days here). */
 export const getTimeframeSeconds = (timeframe: string): number =>
   TIMEFRAME_SECONDS[normalizeTimeframe(timeframe)];
 
+/** Returns the exact duration of a timeframe in milliseconds. */
 export const getTimeframeMs = (timeframe: string): number =>
   getTimeframeSeconds(timeframe) * 1000;
 
+/**
+ * Highly permissive timestamp normalizer.
+ * Takes a Unix timestamp (seconds or ms), a date string, or a Date object,
+ * and standardizes it to a strictly positive integer in Unix SECONDS.
+ */
 export const normalizeTimestampToSeconds = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -148,6 +169,7 @@ export const normalizeTimestampToSeconds = (value: unknown): number | null => {
   return Math.floor(numeric);
 };
 
+/** Same as normalizeTimestampToSeconds, but returns Unix MILLISECONDS. */
 export const normalizeTimestampToMs = (value: unknown): number | null => {
   const seconds = normalizeTimestampToSeconds(value);
   return seconds === null ? null : seconds * 1000;
@@ -170,6 +192,14 @@ const getUtcMonthStart = (timestampSeconds: number): number => {
   return Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000);
 };
 
+/**
+ * Calculates the exact start time of the bucket (candle) that a given timestamp belongs to.
+ * Uses strict UTC calendar logic for Daily (D1), Weekly (W1 - starting Monday), and Monthly (MN) boundaries.
+ * 
+ * @param timestamp The raw timestamp to snap to a grid.
+ * @param timeframe The resolution of the grid.
+ * @returns The Unix SECONDS of the bucket's start, or null if invalid.
+ */
 export const getBucketStart = (timestamp: unknown, timeframe: string): number | null => {
   const timestampSeconds = normalizeTimestampToSeconds(timestamp);
   if (timestampSeconds === null) {
@@ -191,6 +221,7 @@ export const getBucketStart = (timestamp: unknown, timeframe: string): number | 
   return Math.floor(timestampSeconds / intervalSeconds) * intervalSeconds;
 };
 
+/** Alias for getBucketStart that returns Unix MILLISECONDS. */
 export const getBucketStartMs = (timestamp: unknown, timeframe: string): number | null => {
   const bucketStart = getBucketStart(timestamp, timeframe);
   return bucketStart === null ? null : bucketStart * 1000;
@@ -210,6 +241,10 @@ const addUtcMonths = (timestampSeconds: number, monthOffset: number): number => 
   );
 };
 
+/**
+ * Given a bucket's start time, calculates exactly when the next bucket should start.
+ * Safely handles variable month lengths for the 'MN' timeframe via UTC dates.
+ */
 export const getExpectedNextCandleTime = (lastTime: number, timeframe: string): number => {
   const normalizedTimeframe = normalizeTimeframe(timeframe);
   if (normalizedTimeframe === 'MN') {
@@ -219,6 +254,10 @@ export const getExpectedNextCandleTime = (lastTime: number, timeframe: string): 
   return lastTime + getTimeframeSeconds(normalizedTimeframe);
 };
 
+/**
+ * Calculates how many theoretical candles exist between two timestamps.
+ * Used primarily for detecting missing data or calculating pagination limits.
+ */
 export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: string): number => {
   if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || toTime <= fromTime) {
     return 0;
@@ -238,6 +277,7 @@ export const getBucketGapCount = (fromTime: number, toTime: number, timeframe: s
   return count;
 };
 
+/** Generates a deterministic string key representing a specific chart configuration. */
 export const createCandleStreamKey = (symbol: string, timeframe: string): CandleStreamKey => {
   const normalizedSymbol = normalizeSymbol(symbol);
   const normalizedTimeframe = normalizeTimeframe(timeframe);

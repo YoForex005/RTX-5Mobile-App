@@ -1,3 +1,16 @@
+/**
+ * WebView injection script for custom candlestick rendering.
+ * 
+ * IMPORTANT: This file contains a stringified, ES5-compatible version of the 
+ * custom rendering logic from `candleGeometry.ts` and `customCandlestickSeries.ts`.
+ * 
+ * Why? The TradingView Lightweight Charts library runs inside a React Native WebView.
+ * To use the `addCustomSeries` API, the custom renderer class must be evaluated 
+ * inside the WebView's JavaScript context. We cannot pass functions over the bridge.
+ * 
+ * If you update `candleGeometry.ts` or `customCandlestickSeries.ts`, you MUST 
+ * manually sync those changes here in plain ES5 syntax.
+ */
 export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
 (function () {
   var CANDLE_CENTER_EPSILON = 1e-6;

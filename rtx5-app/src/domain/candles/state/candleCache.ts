@@ -20,6 +20,10 @@ import {
   splitRestHistoryCandles,
 } from '../core/candleProvenance';
 
+/**
+ * Strict equality check for two candle objects, comparing all core OHLCV values.
+ * Used to avoid redundant state updates.
+ */
 const areCandlesEqual = (left: Candle, right: Candle): boolean =>
   left.time === right.time &&
   left.open === right.open &&
@@ -28,6 +32,10 @@ const areCandlesEqual = (left: Candle, right: Candle): boolean =>
   left.close === right.close &&
   (left.volume ?? 0) === (right.volume ?? 0);
 
+/**
+ * Checks if two entire candle series are identical.
+ * Short-circuits on length mismatches before checking individual candles.
+ */
 const areSeriesEqual = (left: Candle[], right: Candle[]): boolean => {
   if (left === right || left.length !== right.length) {
     return left === right;
@@ -60,6 +68,10 @@ type SyncMergedCandleCacheOptions = {
   canonical?: boolean;
 };
 
+/**
+ * Extracts and sanitizes ONLY the fully closed, trusted historical candles from a raw array.
+ * We never cache active/live candles to prevent persisting temporary, incomplete states.
+ */
 const buildClosedHistoryCacheSeries = (candles: Candle[], timeframe: string): Candle[] => {
   const trustedHistory = candles.filter(isTrustedHistoryCandle);
   if (trustedHistory.length > 0) {
@@ -74,6 +86,13 @@ const buildClosedHistoryCacheSeries = (candles: Candle[], timeframe: string): Ca
   return closedHistory.slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
+/**
+ * Synchronizes an array of candles into the global in-memory Zustand store and 
+ * the persistent local storage cache. 
+ * Only updates if the new series differs from the current cached series.
+ * 
+ * @returns True if the cache was updated, false if skipped (identical data or errors).
+ */
 export const syncMergedCandleCache = (
   symbol: string,
   timeframe: string,
@@ -100,6 +119,10 @@ export const syncMergedCandleCache = (
   return true;
 };
 
+/**
+ * Similar to `syncMergedCandleCache`, but explicitly returns the newly built 
+ * cache array for immediate use by the caller.
+ */
 export const mergeHistoryIntoCandleCache = (
   symbol: string,
   timeframe: string,

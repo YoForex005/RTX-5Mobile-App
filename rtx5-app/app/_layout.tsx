@@ -138,9 +138,11 @@ import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navig
 import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
+import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
 
 export default function RootLayout() {
   useOtaUpdateOnLaunch();
+  useDataAnalyzer();
 
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);

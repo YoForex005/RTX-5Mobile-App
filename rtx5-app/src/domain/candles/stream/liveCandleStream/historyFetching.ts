@@ -21,6 +21,11 @@ import {
   type StreamEntry,
 } from './types';
 
+/**
+ * A minimal interface that exposes only the methods of LiveCandleStreamManager
+ * needed by the history fetching logic. This prevents circular dependencies 
+ * and makes the history logic easily mockable/testable.
+ */
 export interface HistoryFetchManagerBridge {
   readonly entries: Map<string, StreamEntry>;
   readonly historyPrefetches: Map<string, Promise<number>>;
@@ -29,10 +34,25 @@ export interface HistoryFetchManagerBridge {
   commit(entry: StreamEntry): void;
 }
 
+import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
+
+/**
+ * Executes an async fetch of authoritative historical candles from the REST API.
+ * 
+ * - Handles race conditions via `abortController` and `requestId`.
+ * - Replays any live websocket ticks that buffered while history was downloading.
+ * - Safely stitches the trusted history underneath the live mutating candles.
+ * 
+ * @param manager The bridge to the main stream manager.
+ * @param entry The specific stream state being updated.
+ * @param limit Max number of candles to fetch.
+ * @param options Optional parameters for pagination (e.g. fetching older history).
+ */
 export const runLoadHistory = (
   manager: HistoryFetchManagerBridge,
   entry: StreamEntry,
   limit: number,
+  options?: { to?: number },
 ): void => {
   if (!manager.entries.has(entry.key)) {
     return;
@@ -44,16 +64,18 @@ export const runLoadHistory = (
   const controller = new AbortController();
   entry.abortController = controller;
   entry.loading = true;
-  entry.historyLoading = true;
   entry.error = null;
-  entry.bufferedEvents = [];
+  if (!options?.to) {
+    entry.historyLoading = true;
+    entry.bufferedEvents = [];
+  }
   manager.notify(entry);
 
   const symbol = entry.symbol;
   const timeframe = entry.timeframe;
-  logDebug('history_request', { symbol, timeframe, requestId });
+  logDebug('history_request', { symbol, timeframe, requestId, to: options?.to });
 
-  void getCandleHistory(symbol, timeframe, limit, { signal: controller.signal })
+  void getCandleHistory(symbol, timeframe, limit, { signal: controller.signal, to: options?.to })
     .then((history) => {
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
@@ -61,16 +83,24 @@ export const runLoadHistory = (
       }
 
       const historySeed = getHistorySeedSnapshot(history);
-      const historyCandles = historySeed.candles;
+      let historyCandles = historySeed.candles;
+
+      if (options?.to) {
+        historyCandles = sanitizeCandlesForChart([...historyCandles, ...live.historyCandles]);
+      }
 
       // Keep REST history and backend live candles separate. The visible
       // chart series is rebuilt fresh from these two sources in commit().
       live.historyCandles = historyCandles;
-      live.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
-        live.liveCandleMap,
-        historySeed.closedHistoryLastTime,
-      );
-      live.historyLastTime = historySeed.closedHistoryLastTime;
+      
+      if (!options?.to) {
+        live.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
+          live.liveCandleMap,
+          historySeed.closedHistoryLastTime,
+        );
+        live.historyLastTime = historySeed.closedHistoryLastTime;
+      }
+      
       live.loading = false;
       live.historyLoading = false;
       live.error = null;
@@ -122,6 +152,15 @@ export const runLoadHistory = (
     });
 };
 
+/**
+ * Initiates a background fetch of history before the UI explicitly requests it
+ * (e.g., when hovering over an instrument in a watchlist).
+ * 
+ * - Deduplicates in-flight prefetches using `historyPrefetches`.
+ * - Silently aborts or yields if a real `runLoadHistory` takes over.
+ * 
+ * @returns A promise resolving to the number of fetched candles, or 0 if failed.
+ */
 export const runPrefetchHistory = (
   manager: HistoryFetchManagerBridge,
   symbol: string,

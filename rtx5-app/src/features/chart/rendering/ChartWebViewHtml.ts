@@ -1549,9 +1549,19 @@ export const CH_HTML = `
             typeof chart.timeScale === 'function' &&
             typeof chart.timeScale().subscribeVisibleLogicalRangeChange === 'function'
           ) {
-            chart.timeScale().subscribeVisibleLogicalRangeChange(function() {
+            var lastPaginateTime = 0;
+            chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
               scheduleOverlayPriceScaleLock(false);
               refreshOverlayDomLabels(_overlayPayload);
+              if (range && typeof range.from === 'number' && range.from < 50) {
+                var now = Date.now();
+                if (now - lastPaginateTime > 2000) {
+                  lastPaginateTime = now;
+                  try {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ON_PAGINATE_HISTORY' }));
+                  } catch (e) {}
+                }
+              }
             });
           }
         } catch (_overlayLabelSubErr) {}
@@ -1989,23 +1999,21 @@ export const CH_HTML = `
         }
 
         var open = item.open;
-        var high = item.high;
-        var low = item.low;
+        var rawHigh = item.high;
+        var rawLow = item.low;
         var close = item.close;
+
         if (
           !isFiniteNumber(open) ||
-          !isFiniteNumber(high) ||
-          !isFiniteNumber(low) ||
-          !isFiniteNumber(close) ||
-          high < open ||
-          high < close ||
-          high < low ||
-          low > open ||
-          low > close ||
-          low > high
+          !isFiniteNumber(rawHigh) ||
+          !isFiniteNumber(rawLow) ||
+          !isFiniteNumber(close)
         ) {
           return null;
         }
+
+        var high = Math.max(open, close, rawHigh);
+        var low = Math.min(open, close, rawLow);
 
         return {
           time: time,

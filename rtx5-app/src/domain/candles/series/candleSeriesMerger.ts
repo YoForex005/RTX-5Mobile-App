@@ -148,14 +148,28 @@ export const materializeCandleMap = (
   return typeof limit === 'number' && limit > 0 ? candles.slice(-limit) : candles;
 };
 
+import { getBucketStart } from '../core/timeframeUtils';
+
 export const mergeHistoryAndLiveMaps = (
   historyCandles: readonly Candle[],
   liveCandles: readonly Candle[],
+  timeframe: string,
   limit?: number,
 ): Candle[] => {
-  const map = createCandleMap(historyCandles);
+  const map = new Map<number, MutableCandle>();
+  
+  for (const candle of sortAndDedupeCandles(historyCandles)) {
+    const bucketStart = getBucketStart(candle.time, timeframe) ?? candle.time;
+    map.set(bucketStart, {
+      ...candle,
+      source: 'history',
+      closed: true,
+    });
+  }
+
   for (const candle of sortAndDedupeCandles(liveCandles)) {
-    mergeCandleIntoMap(map, candle, {
+    const bucketStart = getBucketStart(candle.time, timeframe) ?? candle.time;
+    mergeCandleIntoMap(map, { ...candle, time: bucketStart }, {
       source: 'live_candle',
       closed: false,
       volumeStrategy: 'sum',

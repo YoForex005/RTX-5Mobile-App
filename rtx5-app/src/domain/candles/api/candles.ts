@@ -36,6 +36,10 @@ export interface CandleHistoryResponse {
 }
 export type { CandleHistoryRequestOptions } from './candleHistoryQuery';
 
+/** 
+ * Represents a single attempt to fetch and parse historical candle data.
+ * Used internally to aggregate results from potentially multiple fallback requests.
+ */
 type CandleHistoryAttempt = {
   extractedPayload: ReturnType<typeof extractCandleHistoryPayload>;
   resolvedTimeframe: string;
@@ -52,6 +56,15 @@ const getStoredAccessToken = (): string | null =>
 const appendCacheBust = (url: string): string =>
   `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
+/**
+ * Processes a raw HTTP response from the backend candle API.
+ * 
+ * - Parses JSON and extracts the standard payload structure.
+ * - Resolves the exact timeframe and price basis returned by the server.
+ * - Normalizes the raw data into strict `Candle` objects and applies the count limit.
+ * 
+ * @throws Error if the response is not OK or if parsing fails.
+ */
 const readCandleHistoryResponse = async (
   response: Response,
   requestTimeframe: string,
@@ -90,6 +103,10 @@ const readCandleHistoryResponse = async (
   };
 };
 
+/**
+ * Attempts to fetch history using the authenticated API client.
+ * Relies on the standard `apiClient` wrapper which handles auth headers automatically.
+ */
 const fetchAuthenticatedCandleHistory = async (
   requestedSymbol: string,
   requestTimeframe: string,
@@ -105,6 +122,13 @@ const fetchAuthenticatedCandleHistory = async (
   return readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
 };
 
+/**
+ * Fallback mechanism for fetching history from public demo endpoints.
+ * 
+ * Tries multiple URL routing structures since different backend versions 
+ * might expose the candle API via path params vs query params.
+ * Returns the first successful attempt that yields actual candles.
+ */
 const fetchPublicCandleHistory = async (
   requestedSymbol: string,
   requestTimeframe: string,

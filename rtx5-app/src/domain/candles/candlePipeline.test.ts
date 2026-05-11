@@ -44,8 +44,22 @@ test('normalizes backend history aliases and rejects invalid OHLC', () => {
     volume: 7,
   });
 
+  // Backend geometry errors (high < open) are auto-corrected by sanitization.
+  // safeHigh = max(1.1, 1.11, 1.09) = 1.11, safeLow = min(1.1, 1.11, 1.08) = 1.08
+  const sanitized = normalizeHistoryCandle({
+    t: 1_713_744_000,
+    o: 1.1,
+    h: 1.09,
+    l: 1.08,
+    c: 1.11,
+  });
+  assert.ok(sanitized, 'sanitized geometry candle should not be null');
+  assert.equal(sanitized!.high, 1.11);
+  assert.equal(sanitized!.low, 1.08);
+
+  // A truly invalid candle (NaN field) is rejected.
   assert.equal(
-    normalizeHistoryCandle({ t: 1_713_744_000, o: 1.1, h: 1.09, l: 1.08, c: 1.11 }),
+    normalizeHistoryCandle({ t: 1_713_744_000, o: NaN, h: 1, l: 1, c: 1 }),
     null,
   );
 });
@@ -74,8 +88,24 @@ test('normalizes backend live candle symbol and timeframe metadata', () => {
     },
   );
 
+  // Backend geometry errors (high < open) are sanitized, not rejected.
+  // safeHigh = max(1.2, 1.15, 1.1) = 1.2, safeLow = min(1.2, 1.15, 1) = 1
+  const sanitized = normalizeLiveCandle({
+    symbol: 'EURUSD',
+    timeframe: 'M1',
+    time: 1,
+    open: 1.2,
+    high: 1.1,
+    low: 1,
+    close: 1.15,
+  });
+  assert.ok(sanitized, 'sanitized geometry candle should not be null');
+  assert.equal(sanitized!.high, 1.2);
+  assert.equal(sanitized!.low, 1);
+
+  // A truly invalid candle (missing OHLC field) is rejected.
   assert.equal(
-    normalizeLiveCandle({ symbol: 'EURUSD', timeframe: 'M1', time: 1, open: 1.2, high: 1.1, low: 1, close: 1.15 }),
+    normalizeLiveCandle({ symbol: 'EURUSD', timeframe: 'M1', time: 1, open: NaN, high: 1, low: 1, close: 1 }),
     null,
   );
 });
@@ -327,13 +357,16 @@ test('M1 REST history seeds the backend current candle so first websocket candle
   }
 });
 
-test('backend live candles cannot rewrite the closed history cutoff candle', () => {
+test('backend live candles at the closed history cutoff boundary update the transition candle', () => {
   const history = [
     { time: 1_713_744_000, open: 1, high: 1.1, low: 0.9, close: 1.05, volume: 10 },
     { time: 1_713_744_060, open: 1.05, high: 1.2, low: 1.01, close: 1.15, volume: 12 },
   ];
   const map = createCandleMap(history);
 
+  // A live candle whose bucket equals historyCutoffTime is the transition
+  // bucket — backend is authoritative and should be allowed to update it.
+  // Only buckets strictly BEFORE the cutoff are rejected.
   const result = applyLiveCandleToCandleMap(
     map,
     { symbol: 'EURUSD', time: 1_713_744_062, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 1 },
@@ -341,9 +374,19 @@ test('backend live candles cannot rewrite the closed history cutoff candle', () 
     { historyCutoffTime: history[history.length - 1].time },
   );
 
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, 'older_than_history_cutoff');
-  assert.deepEqual(materializeCandleMap(map), history);
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true);
+
+  // A live candle that maps to a bucket BEFORE the cutoff IS rejected.
+  const olderResult = applyLiveCandleToCandleMap(
+    map,
+    { symbol: 'EURUSD', time: 1_713_744_001, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 1 },
+    'M1',
+    { historyCutoffTime: history[history.length - 1].time },
+  );
+
+  assert.equal(olderResult.ignored, true);
+  assert.equal(olderResult.reason, 'older_than_history_cutoff');
 });
 
 test('older backend live candle snapshots can widen wicks without rewinding close', () => {
