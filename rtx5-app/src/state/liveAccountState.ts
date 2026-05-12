@@ -25,10 +25,21 @@ export type LiveAccountData = {
   floating: number;
 };
 
+export type LiveAccountMetricFlags = Record<keyof Omit<LiveAccountData, 'login'>, boolean>;
+
 /**
  * Zustand store interface for managing live account metrics.
  */
 type LiveAccountState = LiveAccountData & {
+  /**
+   * True once at least one financial metric has arrived for the current login.
+   * A known login alone is not enough because the numeric defaults are all zero.
+   */
+  hasMetrics: boolean;
+  /**
+   * Tracks which individual financial metrics have arrived for the current login.
+   */
+  metricFlags: LiveAccountMetricFlags;
   /**
    * Updates one or more properties of the live account state.
    * @param data - Partial metrics to merge into current state
@@ -50,6 +61,43 @@ const initialState: LiveAccountData = {
   floating: 0,
 };
 
+const financialMetricKeys: Array<keyof Omit<LiveAccountData, 'login'>> = [
+  'balance',
+  'equity',
+  'margin',
+  'margin_free',
+  'margin_level',
+  'floating',
+];
+
+const initialMetricFlags: LiveAccountMetricFlags = {
+  balance: false,
+  equity: false,
+  margin: false,
+  margin_free: false,
+  margin_level: false,
+  floating: false,
+};
+
+function buildMetricFlags(
+  data: Partial<LiveAccountData>,
+  currentFlags: LiveAccountMetricFlags,
+): LiveAccountMetricFlags {
+  const nextFlags = { ...currentFlags };
+
+  for (const key of financialMetricKeys) {
+    if (key in data) {
+      nextFlags[key] = true;
+    }
+  }
+
+  return nextFlags;
+}
+
+function hasAnyMetric(flags: LiveAccountMetricFlags): boolean {
+  return financialMetricKeys.some((key) => flags[key]);
+}
+
 /**
  * Global Zustand store for real-time account financial metrics.
  * Designed to be updated frequently (e.g., via WebSocket) without triggering full UI re-renders
@@ -57,7 +105,23 @@ const initialState: LiveAccountData = {
  */
 export const useLiveAccountState = create<LiveAccountState>((set) => ({
   ...initialState,
-  updateMetrics: (data) => set((state) => ({ ...state, ...data })),
-  resetMetrics: () => set(initialState),
+  hasMetrics: false,
+  metricFlags: initialMetricFlags,
+  updateMetrics: (data) => set((state) => {
+    const loginChanged = data.login !== undefined && data.login !== state.login;
+    const nextMetricFlags = buildMetricFlags(
+      data,
+      loginChanged ? initialMetricFlags : state.metricFlags,
+    );
+    const baseState = loginChanged ? initialState : state;
+
+    return {
+      ...baseState,
+      ...data,
+      hasMetrics: hasAnyMetric(nextMetricFlags),
+      metricFlags: nextMetricFlags,
+    };
+  }),
+  resetMetrics: () => set({ ...initialState, hasMetrics: false, metricFlags: initialMetricFlags }),
 }));
 

@@ -8,7 +8,7 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
   const subText = isDark ? '#64748B' : '#94A3B8';
-  const accent = isDark ? '#F59E0B' : '#D97706';
+  const accent = isDark ? '#22D3EE' : '#06B6D4';
 
   const isWin = trade.result === 'Win';
 

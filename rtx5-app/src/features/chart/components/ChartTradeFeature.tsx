@@ -232,9 +232,14 @@ function ChartTradeVolumeSection({
             {t('Margin')} <Text style={styles.chartTradeMetaText}>≈ {sheet.chartTradeMarginEstimate} {sheet.accountCurrency}</Text>
           </Text>
         )}
-        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
-          {t('Free')}: {sheet.accountFreeMargin} {sheet.accountCurrency}
-        </Text>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+            {t('Balance')}: {sheet.accountBalance} {sheet.accountCurrency}
+          </Text>
+          <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+            {t('Free')}: {sheet.accountFreeMargin} {sheet.accountCurrency}
+          </Text>
+        </View>
       </View>
     </>
   );

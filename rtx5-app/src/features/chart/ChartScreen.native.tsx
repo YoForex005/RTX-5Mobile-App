@@ -73,9 +73,13 @@ import { useMarketSymbols } from '../../query/market';
 import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { WebView } from 'react-native-webview';
-import { useMarketData } from '../../query/websocket';
+import { hasLiveQuoteFeedData, useMarketData } from '../../query/websocket';
 import { normalizeTimeframe } from '../../domain/candles/core/candles';
 import { sanitizeCandlesForChart } from '../../domain/candles/normalization/chartAdapter';
+import {
+  getBucketGapCount,
+  getExpectedNextCandleTime,
+} from '../../domain/candles/core/timeframeUtils';
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
 import {
   getChartDrawingBucketKey,
@@ -370,6 +374,7 @@ export function ChartScreen() {
   const liveAccountEquity = useLiveAccountState((s) => s.equity);
   const liveAccountMargin = useLiveAccountState((s) => s.margin);
   const liveAccountMarginLevel = useLiveAccountState((s) => s.margin_level);
+  const liveAccountBalance = useLiveAccountState((s) => s.balance);
   const overlayAccountMetrics = useMemo(() => {
     const hasLiveMetrics =
       (Number.isFinite(liveAccountEquity) && liveAccountEquity > 0) ||
@@ -939,16 +944,23 @@ export function ChartScreen() {
   ]);
   const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe);
   const latestChartClose = useMemo(() => candles[candles.length - 1]?.close ?? 0, [candles]);
+  const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
   const quoteFallbackSpread =
     baseSymbol.includes('BTC') ? 25 : baseSymbol.includes('XAU') || baseSymbol.includes('XAG') ? 0.3 : 0.00015;
   const chartBid = useMemo(() => {
-    const liveBid = typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0 ? chartLiveQuote.bid : null;
+    const liveBid =
+      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null;
     return liveBid ?? latestChartClose;
-  }, [chartLiveQuote?.bid, latestChartClose]);
+  }, [chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose]);
   const chartAsk = useMemo(() => {
-    const liveAsk = typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0 ? chartLiveQuote.ask : null;
+    const liveAsk =
+      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null;
     return liveAsk ?? (chartBid > 0 ? chartBid + quoteFallbackSpread : 0);
-  }, [chartBid, chartLiveQuote?.ask, quoteFallbackSpread]);
+  }, [chartBid, chartLiveQuote?.ask, hasLiveChartQuote, quoteFallbackSpread]);
   const chartTradeTickTimestamp = useMemo(() => {
     const candidates = [
       chartLiveQuote?.lastReceivedAt,
@@ -1933,6 +1945,7 @@ export function ChartScreen() {
     [applyChartTradePreviewDragPrice, closeChartTapMenu],
   );
   const accountFreeMargin = Number((accountSummary as any)?.freeMargin ?? (accountSummary as any)?.free_margin ?? 0);
+  const accountBalance = Number(liveAccountBalance > 0 ? liveAccountBalance : ((accountSummary as any)?.balance ?? 0));
   const chartTradeMaxVolume = useMemo(
     () => resolveMaxTradeVolumeForMargin(accountFreeMargin, chartTradeMarginPerLot, tradeVolumeBounds),
     [accountFreeMargin, chartTradeMarginPerLot, tradeVolumeBounds],
@@ -2800,23 +2813,42 @@ export function ChartScreen() {
     // Sort + dedupe defensively because lightweight-charts requires strictly
     // monotonic time values. A duplicate or out-of-order timestamp would
     // throw "Cannot update oldest data" and abort the entire chart paint.
-    const cleaned = sanitizeCandlesForChart(sourceCandles);
+    const cleaned = sanitizeCandlesForChart(sourceCandles, { timeframe: chartTimeframe });
     if (cleaned.length === 0) {
       return [];
     }
 
-    if (chartType === 'line') {
-      return cleaned.map((c) => ({ time: c.time, value: c.close }));
+    const MAX_WHITESPACE_INJECTION = 2880; // Up to 48 hours of gaps to prevent OOM
+    const result: any[] = [];
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const c = cleaned[i];
+      if (chartType === 'line') {
+        result.push({ time: c.time, value: c.close });
+      } else {
+        result.push({
+          time: c.time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume ?? 0,
+        });
+      }
+
+      if (i < cleaned.length - 1) {
+        // We removed whitespace injection here because it causes the chart bridge
+        // to render invalid gaps or spikes if the custom series plugin doesn't 
+        // properly ignore WhitespaceData objects.
+      }
     }
-    return cleaned.map((c) => ({
-      time: c.time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume ?? 0,
-    }));
-  }, [chartType]);
+
+    if (result.length > 0) {
+      const lastFew = result.slice(-3);
+      console.log('CHART DATA DEBUG: Last 3 candles mapped:', JSON.stringify(lastFew));
+    }
+    return result;
+  }, [chartType, chartTimeframe]);
 
   // Track current config signature. When it changes, mark chart as
   // not-initialized so the watchdog knows to retry for the new config.
@@ -2888,7 +2920,7 @@ export function ChartScreen() {
       return;
     }
 
-    const renderableCandles = candles;
+    const renderableCandles = sanitizeCandlesForChart(candles, { timeframe: chartTimeframe });
     if (renderableCandles.length === 0) {
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       return;
@@ -3333,6 +3365,7 @@ export function ChartScreen() {
         chartTradeMarginEstimate: fmt.price(chartTradeMarginEstimate),
         chartTradeMaxVolumeDisplay,
         accountFreeMargin: fmt.price(accountFreeMargin),
+        accountBalance: fmt.price(accountBalance),
         accountCurrency,
         chartTradePrice,
         chartTradeStopLimitPrice,
@@ -3764,7 +3797,7 @@ export function ChartScreen() {
                       // a fast switch could end up rendering an empty chart
                       // until the engine emits its next update.
                       try {
-                        const readyCandles = sanitizeCandlesForChart(candlesRef.current);
+                        const readyCandles = sanitizeCandlesForChart(candlesRef.current, { timeframe: chartTimeframe });
                         if (readyCandles.length > 0 && webViewRef.current) {
                           const mapped = buildMappedData(readyCandles as typeof candles);
                           if (mapped.length > 0) {
@@ -4154,6 +4187,9 @@ export function ChartScreen() {
                             {t('Margin')} <Text style={styles.chartTradeMetaText}>≈ {fmt.price(chartTradeMarginEstimate)} {accountCurrency}</Text>
                           </Text>
                         )}
+                        <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
+                          {t('Balance')}: {fmt.price(accountBalance)} {accountCurrency}
+                        </Text>
                         <Text style={[styles.chartTradeMetaText, useMtPendingTradeSheetLayout && styles.chartTradeMetaTextPending]}>
                           {t('Free')}: {fmt.price(accountFreeMargin)} {accountCurrency}
                         </Text>

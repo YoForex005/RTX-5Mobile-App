@@ -34,7 +34,7 @@ export class CandleMemoryCache {
 
   set(symbol: string, timeframe: string, candles: readonly Candle[]): Candle[] {
     const key = createCandleStreamKey(symbol, timeframe);
-    const safeCandles = sanitizeCandlesForChart(candles).slice(-this.maxCandlesPerEntry);
+    const safeCandles = sanitizeCandlesForChart(candles, { timeframe }).slice(-this.maxCandlesPerEntry);
     this.entries.set(key, {
       key,
       candles: safeCandles,

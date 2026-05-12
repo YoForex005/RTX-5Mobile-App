@@ -35,7 +35,7 @@ test('does not split live candle from latest history candle', () => {
   ];
   const live = [makeBackendLiveCandle(t1001, { open: 105, high: 109, low: 99, close: 99 })];
 
-  const visible = buildFreshHistoryLiveCandleSeries(history, live);
+  const visible = buildFreshHistoryLiveCandleSeries(history, live, 'M1');
 
   assert.deepEqual(visible.map((candle) => candle.time), [t1000, t1001]);
   assert.equal(visible.filter((candle) => candle.time === t1001).length, 1);
@@ -45,7 +45,7 @@ test('does not split live candle from latest history candle', () => {
     high: 109,
     low: 99,
     close: 99,
-    volume: 20,
+    volume: 10,
   });
 });
 
@@ -55,7 +55,7 @@ test('does not create artificial gaps', () => {
     makeTrustedHistoryCandle(t1002, { open: 103, high: 106, low: 100, close: 104 }),
   ];
 
-  const visible = buildFreshHistoryLiveCandleSeries(history, []);
+  const visible = buildFreshHistoryLiveCandleSeries(history, [], 'M1');
 
   assert.deepEqual(visible.map((candle) => candle.time), [t1000, t1002]);
   assert.equal(visible.some((candle) => candle.time === t1001), false);
@@ -68,7 +68,7 @@ test('preserves candle wick high and low', () => {
     low: 90,
     close: 100,
   });
-  const visible = buildFreshHistoryLiveCandleSeries([], [live]);
+  const visible = buildFreshHistoryLiveCandleSeries([], [live], 'M1');
   const chartCandles = convertCandlesForChart(visible);
 
   assert.deepEqual(chartCandles, [
@@ -100,10 +100,10 @@ test('invalid backend candle does not crash chart', () => {
   const normalized = [
     normalizeHistoryCandle({ time: t1000, open: 100, high: 110, low: 95, close: 105, volume: 1 }),
     normalizeHistoryCandle({ time: t1001, open: null, high: 108, low: 101, close: 102 }),
-    normalizeHistoryCandle({ time: t1002, open: 103, high: 100, low: 106, close: 104 }),
+    normalizeHistoryCandle({ time: t1002, open: 103, high: 100, low: 106, close: 'bad' }),
   ].filter((candle): candle is NonNullable<typeof candle> => candle !== null);
 
-  const visible = buildFreshHistoryLiveCandleSeries(normalized, []);
+  const visible = buildFreshHistoryLiveCandleSeries(normalized, [], 'M1');
   assert.deepEqual(visible.map((candle) => candle.time), [t1000]);
   assertValidCandleSeries(visible);
 });
@@ -144,7 +144,7 @@ test('history reload after live update reconciles without duplication', () => {
     makeTrustedHistoryCandle(t1001, { open: 105, high: 109, low: 101, close: 108 }),
   ];
   const prunedLive = pruneLiveCandleMapCoveredByHistory(map, caughtUpHistory[caughtUpHistory.length - 1].time);
-  const visible = buildFreshHistoryLiveCandleSeries(caughtUpHistory, materializeCandleMap(prunedLive));
+  const visible = buildFreshHistoryLiveCandleSeries(caughtUpHistory, materializeCandleMap(prunedLive), 'M1');
 
   assert.deepEqual(visible.map((candle) => candle.time), [t1000, t1001]);
   assert.equal(visible.filter((candle) => candle.time === t1001).length, 1);
@@ -158,7 +158,7 @@ test('timestamp unit normalization does not create false gaps', () => {
     buildFreshHistoryLiveCandleSeries([
       makeTrustedHistoryCandle(getBucketStart(t1000 * 1000, 'M1') ?? 0),
       makeTrustedHistoryCandle(getBucketStart((t1000 + 60) * 1000, 'M1') ?? 0),
-    ], []).map((candle) => candle.time),
+    ], [], 'M1').map((candle) => candle.time),
     [t1000, t1001],
   );
 });
@@ -172,7 +172,7 @@ test('scrolling left retains previous candles', () => {
   }));
   const live = [makeBackendLiveCandle(t1000 + 1_000 * 60, { open: 1200, high: 1202, low: 1199, close: 1201 })];
 
-  const visible = buildFreshHistoryLiveCandleSeries(history, live);
+  const visible = buildFreshHistoryLiveCandleSeries(history, live, 'M1');
 
   assert.equal(visible.length, 1_001);
   assert.equal(visible[0].time, t1000);

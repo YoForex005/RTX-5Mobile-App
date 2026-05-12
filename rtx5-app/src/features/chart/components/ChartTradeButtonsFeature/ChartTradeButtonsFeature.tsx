@@ -62,9 +62,12 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   sellColor,
 }: ChartTradeButtonsProps) {
   const latestTick = useLiveTick(symbol);
-  const latestClose = latestTick?.close ?? 0;
-  const latestBid = latestClose;
-  const latestAsk = latestClose + (symbol.includes('XAU') ? 0.3 : symbol.includes('BTC') ? 25 : 0.00015);
+  const latestBid = typeof latestTick?.bid === 'number' && Number.isFinite(latestTick.bid) ? latestTick.bid : 0;
+  const latestAsk = typeof latestTick?.ask === 'number' && Number.isFinite(latestTick.ask) ? latestTick.ask : 0;
+  const hasLiveBid = latestBid > 0;
+  const hasLiveAsk = latestAsk > 0;
+  const formattedBid = hasLiveBid ? latestBid.toFixed(displayDecimals) : '---';
+  const formattedAsk = hasLiveAsk ? latestAsk.toFixed(displayDecimals) : '---';
   const formattedLotSize = formatTradeVolume(lotSize, volumeBounds);
   const hasLotValueEditor = typeof onEditLot === 'function';
   const lotEditorAction = hasLotValueEditor ? onEditLot : undefined;
@@ -149,7 +152,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <>
               <Text style={baseStyles.chartTradeMarketActionTitle}>{sellAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {formattedLotSize} Lots · {(latestBid || 0).toFixed(displayDecimals)}
+                {formattedLotSize} Lots · {formattedBid}
               </Text>
             </>
           )}
@@ -173,7 +176,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <>
               <Text style={baseStyles.chartTradeMarketActionTitle}>{buyAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {formattedLotSize} Lots · {(latestAsk || 0).toFixed(displayDecimals)}
+                {formattedLotSize} Lots · {formattedAsk}
               </Text>
             </>
           )}
@@ -202,7 +205,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <Text style={baseStyles.actionBtnLabelTitle}>{sellAction.displayLabel}</Text>
           </View>
           <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
-            {(latestBid || 0).toFixed(displayDecimals)}
+            {formattedBid}
           </Text>
         </Pressable>
       </View>
@@ -314,7 +317,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <Text style={baseStyles.actionBtnLabelTitle}>{buyAction.displayLabel}</Text>
           </View>
           <Text style={baseStyles.actionBtnPriceText} numberOfLines={1} adjustsFontSizeToFit>
-            {(latestAsk || 0).toFixed(displayDecimals)}
+            {formattedAsk}
           </Text>
         </Pressable>
       </View>

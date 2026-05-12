@@ -26,11 +26,11 @@ export type StreamListener = () => void;
 export type BufferedLiveEvent =
   | { type: 'live_candle'; candle: LiveCandle; order: number }
   // Quote-tick extension. Carries a single price + timestamp from the quote
-  // feed and ONLY mutates the close (and widens high/low) of the active
-  // bucket's candle that backend already created. It never invents a new
-  // bucket and never touches closed history. Any subsequent backend
-  // live_candle snapshot fully overwrites the bucket's OHLC, so backend
-  // remains authoritative.
+  // feed and mutates an already-open active bucket's close (and widens
+  // high/low), or opens the next contiguous live bucket from the latest real
+  // candle. It never backfills missing buckets or touches closed history.
+  // Any subsequent backend live_candle snapshot fully overwrites the bucket's
+  // OHLC, so backend remains authoritative.
   | { type: 'quote_tick_extension'; price: number; time: number; order: number };
 
 export type UnorderedLiveEvent =

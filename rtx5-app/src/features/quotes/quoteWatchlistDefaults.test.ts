@@ -1,22 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDefaultQuoteWatchlist, DEFAULT_QUOTE_WATCHLIST } from './quoteWatchlistDefaults';
+import { buildDefaultQuoteWatchlist, resolveQuoteFeedSymbols } from './quoteWatchlistDefaults';
 
-test('buildDefaultQuoteWatchlist uses typed public-feed defaults when catalog is unavailable', () => {
-  assert.deepEqual(buildDefaultQuoteWatchlist([]), [...DEFAULT_QUOTE_WATCHLIST]);
-});
-
-test('buildDefaultQuoteWatchlist filters defaults through available catalog symbols', () => {
+test('resolveQuoteFeedSymbols maps persisted display symbols to broker feed symbols', () => {
   assert.deepEqual(
-    buildDefaultQuoteWatchlist(['EURUSD', 'XAUUSD', 'AAPL']),
-    ['EURUSD', 'XAUUSD'],
+    resolveQuoteFeedSymbols(['BTCUSD', 'GBPUSD', 'XAUUSD'], ['BTCUSDm', 'GBPUSD.c', 'XAUUSDm']),
+    ['BTCUSDm', 'GBPUSD.c', 'XAUUSDm'],
   );
 });
 
-test('buildDefaultQuoteWatchlist falls back to the first catalog symbols when defaults are absent', () => {
+test('buildDefaultQuoteWatchlist keeps curated defaults using available raw feed symbols', () => {
   assert.deepEqual(
-    buildDefaultQuoteWatchlist(['US30', 'NAS100', 'GER40', 'UK100', 'FRA40', 'AAPL']),
-    ['US30', 'NAS100', 'GER40', 'UK100', 'FRA40'],
+    buildDefaultQuoteWatchlist(['BTCUSDm', 'XAUUSDm', 'GBPUSD.c', 'EURUSD', 'USDJPY']),
+    ['EURUSD', 'GBPUSD.c', 'USDJPY', 'XAUUSDm', 'BTCUSDm'],
   );
 });

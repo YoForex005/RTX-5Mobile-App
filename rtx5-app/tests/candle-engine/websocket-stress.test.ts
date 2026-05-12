@@ -37,7 +37,7 @@ test('high-frequency backend live candle snapshots keep one stable active bucket
     high: 1.1 + (count - 1) / 100000 + 0.0002,
     low: 1.099,
     close: 1.1 + (count - 1) / 100000,
-    volume: (count * (count + 1)) / 2,
+    volume: count,
   });
 });
 

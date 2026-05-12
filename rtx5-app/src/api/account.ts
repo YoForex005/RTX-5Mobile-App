@@ -6,20 +6,29 @@
  */
 
 import { apiClient } from './apiClient';
+import { buildAccountDetailPath } from './accountsRoutes';
 
 /** Raw API response from GET /api/account/summary */
 export interface AccountSummaryApiResponse {
   id: string;
-  balance: number;
-  equity: number;
-  margin_used: number;
-  margin_available: number;
-  unrealized_pl: number;
-  realized_pl: number;
-  open_positions: number;
-  pending_orders: number;
+  balance: number | string;
+  credit?: number | string;
+  equity: number | string;
+  margin?: number | string;
+  margin_used?: number | string;
+  used_margin?: number | string;
+  margin_available?: number | string;
+  margin_free?: number | string;
+  free_margin?: number | string;
+  margin_level?: number | string;
+  unrealized_pl?: number | string;
+  floating?: number | string;
+  floating_pnl?: number | string;
+  realized_pl?: number | string;
+  open_positions?: number | string;
+  pending_orders?: number | string;
   currency: string;
-  leverage: number;
+  leverage: number | string;
 }
 
 /** Normalized account summary for UI consumption */
@@ -40,23 +49,43 @@ export interface AccountSummary {
 /**
  * Maps the raw API response (snake_case) to the UI-friendly interface (camelCase).
  */
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
 function mapApiResponse(raw: AccountSummaryApiResponse): AccountSummary {
-  const marginLevel = raw.margin_used > 0
-    ? (raw.equity / raw.margin_used) * 100
+  const balance = toFiniteNumber(raw.balance);
+  const equity = toFiniteNumber(raw.equity);
+  const margin = toFiniteNumber(raw.margin_used ?? raw.used_margin ?? raw.margin);
+  const marginLevel = raw.margin_level !== undefined
+    ? toFiniteNumber(raw.margin_level)
+    : margin > 0
+    ? (equity / margin) * 100
     : 0;
 
   return {
-    balance: raw.balance,
-    credit: 0, // Not provided by the new API
-    profit: raw.unrealized_pl,
-    equity: raw.equity,
-    margin: raw.margin_used,
-    freeMargin: raw.margin_available,
+    balance,
+    credit: toFiniteNumber(raw.credit),
+    profit: toFiniteNumber(raw.unrealized_pl ?? raw.floating_pnl ?? raw.floating),
+    equity,
+    margin,
+    freeMargin: toFiniteNumber(raw.margin_available ?? raw.free_margin ?? raw.margin_free),
     marginLevel,
-    leverage: raw.leverage,
+    leverage: toFiniteNumber(raw.leverage),
     currency: raw.currency || 'USD',
-    openPositions: raw.open_positions,
-    pendingOrders: raw.pending_orders,
+    openPositions: Math.trunc(toFiniteNumber(raw.open_positions)),
+    pendingOrders: Math.trunc(toFiniteNumber(raw.pending_orders)),
   };
 }
 
@@ -64,10 +93,15 @@ function mapApiResponse(raw: AccountSummaryApiResponse): AccountSummary {
  * Fetches the live account summary.
  * Uses JWT auth (no login param needed).
  *
- * GET /api/account/summary
+ * GET /api/v2/account/{login}
  */
-export async function getAccountSummary(_login?: string): Promise<AccountSummary> {
-  const response = await apiClient('/api/account/summary');
+export async function getAccountSummary(login?: string): Promise<AccountSummary> {
+  const parsedLogin = Number(login);
+  if (!Number.isFinite(parsedLogin) || parsedLogin <= 0) {
+    throw new Error('Login ID is required to fetch account summary');
+  }
+
+  const response = await apiClient(buildAccountDetailPath(Math.trunc(parsedLogin)));
 
   if (!response.ok) {
     let errorMsg = 'Failed to fetch account summary';

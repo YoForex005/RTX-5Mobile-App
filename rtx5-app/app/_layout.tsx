@@ -4,6 +4,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
+import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
 import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
@@ -55,7 +56,8 @@ function InnerLayout() {
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <WebIPhoneFrame bgColor={T.bg}>
-        <Stack
+        <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+          <Stack
           screenOptions={{
             headerStyle: { backgroundColor: T.bg },
             headerTintColor: T.text,
@@ -125,6 +127,7 @@ function InnerLayout() {
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
           <Stack.Screen name='settings/journal' options={{ headerShown: false }} />
         </Stack>
+        </ThemeProvider>
       </WebIPhoneFrame>
     </>
   );

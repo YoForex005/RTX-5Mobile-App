@@ -2,6 +2,7 @@ import type { Candle, MutableCandle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
 import { createCandleMap, materializeCandleMap, sortAndDedupeCandles } from './candleSeriesMerger';
 import { getBucketStart } from '../core/timeframeUtils';
+import { areCandlePricesCoherent } from './priceCoherence';
 
 /**
  * Builds a clean, unified array of candles from a combination of authoritative historical data
@@ -44,7 +45,8 @@ export const buildFreshHistoryLiveCandleSeries = (
 
     const bucketStart = getBucketStart(candle.time, timeframe) ?? candle.time;
     const existing = map.get(bucketStart);
-    if (existing) {
+
+    if (existing && areCandlePricesCoherent(existing, candle)) {
       map.set(bucketStart, {
         ...existing,
         ...candle,

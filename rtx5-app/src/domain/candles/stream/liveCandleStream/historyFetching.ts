@@ -52,7 +52,7 @@ export const runLoadHistory = (
   manager: HistoryFetchManagerBridge,
   entry: StreamEntry,
   limit: number,
-  options?: { to?: number },
+  options?: { to?: number; from?: number },
 ): void => {
   if (!manager.entries.has(entry.key)) {
     return;
@@ -75,7 +75,7 @@ export const runLoadHistory = (
   const timeframe = entry.timeframe;
   logDebug('history_request', { symbol, timeframe, requestId, to: options?.to });
 
-  void getCandleHistory(symbol, timeframe, limit, { signal: controller.signal, to: options?.to })
+  void getCandleHistory(symbol, timeframe, limit, { signal: controller.signal, to: options?.to, from: options?.from })
     .then((history) => {
       const live = manager.entries.get(entry.key);
       if (!live || live.requestId !== requestId || controller.signal.aborted) {
@@ -86,7 +86,7 @@ export const runLoadHistory = (
       let historyCandles = historySeed.candles;
 
       if (options?.to) {
-        historyCandles = sanitizeCandlesForChart([...historyCandles, ...live.historyCandles]);
+        historyCandles = sanitizeCandlesForChart([...historyCandles, ...live.historyCandles], { timeframe });
       }
 
       // Keep REST history and backend live candles separate. The visible

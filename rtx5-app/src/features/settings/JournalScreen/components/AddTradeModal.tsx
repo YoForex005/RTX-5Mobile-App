@@ -8,7 +8,7 @@ export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
   const subText = isDark ? '#64748B' : '#94A3B8';
   const inputBg = isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC';
-  const accent = isDark ? '#F59E0B' : '#D97706';
+  const accent = '#007ACC';
 
   const [step, setStep] = useState(1);
 

@@ -28,6 +28,11 @@ function isFreshLiveQuote(liveQuote?: Partial<QuoteItem>): boolean {
   return !!liveQuote && (liveQuoteTickAt === null || Date.now() - liveQuoteTickAt <= LIVE_QUOTE_STALE_MS);
 }
 
+export function hasLiveQuoteFeedData(liveQuote?: Partial<QuoteItem>): boolean {
+  const liveQuoteTickAt = getQuoteFreshnessAnchorMs(liveQuote);
+  return !!liveQuote && liveQuoteTickAt !== null && Date.now() - liveQuoteTickAt <= LIVE_QUOTE_STALE_MS;
+}
+
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
 
 /**
@@ -62,6 +67,10 @@ export function useWebSocketConnection() {
  */
 export function useMarketData(symbols: string[] = []) {
   const symbolsKey = JSON.stringify(symbols);
+  const transportSymbols = React.useMemo(
+    () => Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))),
+    [symbolsKey],
+  );
   const normalizedSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))),
     [symbolsKey],
@@ -88,14 +97,14 @@ export function useMarketData(symbols: string[] = []) {
   const liveQuotes = useTradingState(useShallow(selector));
 
   useEffect(() => {
-    if (normalizedSymbols.length === 0) return;
+    if (transportSymbols.length === 0) return;
     quotesWsService.connect();
-    quotesWsService.subscribe(normalizedSymbols);
+    quotesWsService.subscribe(transportSymbols);
 
     return () => {
-      quotesWsService.unsubscribe(normalizedSymbols);
+      quotesWsService.unsubscribe(transportSymbols);
     };
-  }, [stableKey]);
+  }, [transportSymbols]);
 
   if (symbols.length === 0) return liveQuotes;
   return symbols.reduce((acc, sym) => {
@@ -290,7 +299,7 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       scheduleQuoteCommit();
     };
 
-    const unsubscribe = quotesWsService.subscribeToSymbol(normalizedSymbol, listener);
+    const unsubscribe = quotesWsService.subscribeToSymbol(symbol, listener);
 
     return () => {
       unsubscribe();

@@ -25,7 +25,7 @@ import { ActionSheet } from '../../ui/components/ActionSheet';
 
 
 // ── API Integration: fetches live account + broker data for active card ──
-import { useAccounts } from '../../query/accounts';
+import { useAccountDetails, useAccounts } from '../../query/accounts';
 import { useBrokerConfig } from '../../query/broker';
 import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
@@ -63,7 +63,10 @@ export function AccountsScreen() {
 
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
-  const activeAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+  const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
+  const activeLogin = listedAccount?.login ?? currentLogin;
+  const { data: activeAccountDetails } = useAccountDetails(activeLogin, isLoggedIn && !!activeLogin);
+  const activeAccount = activeAccountDetails ?? listedAccount;
   const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
   const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
   const activeBadgeLabel = t(activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live'));
@@ -72,21 +75,24 @@ export function AccountsScreen() {
   const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
 
   // ── Live WebSocket account metrics (real-time balance/equity from accountSocket) ──
+  const liveLogin = useLiveAccountState((s) => s.login);
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveEquity = useLiveAccountState((s) => s.equity);
   const liveMarginFree = useLiveAccountState((s) => s.margin_free);
   const liveFloating = useLiveAccountState((s) => s.floating);
+  const liveMetricFlags = useLiveAccountState((s) => s.metricFlags);
 
   // Extract the essential display values — prefer live WS data, fall back to REST API
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
   const rawDisplayName = activeAccount?.name?.trim() || (displayLogin !== '---' ? `Account ${displayLogin}` : '---');
   const displayName = rawDisplayName === '---' ? rawDisplayName : translateAccountCardName(rawDisplayName, t);
   const displayCurrency = activeAccount?.currency ?? 'USD';
-  const displayBalance = liveBalance > 0 ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
-  const displayEquity = liveEquity > 0 ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
+  const liveMatchesActiveAccount = liveLogin !== 0 && (!activeAccount || liveLogin === activeAccount.login);
+  const displayBalance = liveMetricFlags.balance && liveMatchesActiveAccount ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
+  const displayEquity = liveMetricFlags.equity && liveMatchesActiveAccount ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
   const displayLeverage = activeAccount ? `1:${activeAccount.leverage}` : '---';
-  const displayFreeMargin = liveMarginFree !== 0 ? fmt.price(liveMarginFree) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
-  const displayFloatingPnl = liveFloating !== 0 ? liveFloating : (activeAccount?.floatingPnl ?? 0);
+  const displayFreeMargin = liveMetricFlags.margin_free && liveMatchesActiveAccount ? fmt.price(liveMarginFree) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
+  const displayFloatingPnl = liveMetricFlags.floating && liveMatchesActiveAccount ? liveFloating : (activeAccount?.floatingPnl ?? 0);
   const displayOpenPositions = activeAccount?.openPositions ?? 0;
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
@@ -187,7 +193,7 @@ export function AccountsScreen() {
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
               <View style={styles.avatarWrap}>
-                <Image source={require('../../../assets/icon.png')} style={styles.avatarImage} />
+                <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.avatarImage} />
               </View>
               <View style={styles.activeInfoCol}>
                 <View style={styles.nameAndBadges}>
@@ -298,7 +304,7 @@ export function AccountsScreen() {
                 <View style={styles.secondaryTopRow}>
                   <View style={styles.secondaryLeft}>
                     <View style={styles.secondaryAvatar}>
-                      <Image source={require('../../../assets/icon.png')} style={styles.secondaryAvatarImage} />
+                      <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.secondaryAvatarImage} />
                     </View>
                     <View style={styles.secondaryInfo}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

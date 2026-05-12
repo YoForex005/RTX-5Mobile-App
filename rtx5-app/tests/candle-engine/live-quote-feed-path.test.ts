@@ -28,7 +28,7 @@ import { buildChartSeriesSnapshot, getChartSeriesUpdateMode } from '../../src/fe
 import { resolveVisibleSeriesMode, shouldSyncVisibleSeriesCache } from '../../src/domain/candles/ws/liveCandlesEnginePolicy';
 import { makeTrustedHistoryCandle, secondsUtc } from '../support/candleTestUtils';
 
-test('live quote payload updates bid ask data without becoming a candle input', () => {
+test('live quote payload normalizes bid ask data for active candle extension', () => {
   const payload = {
     symbol: 'XAUUSDm',
     bidPrice: '2300.10',
@@ -56,7 +56,7 @@ test('live quote payload updates bid ask data without becoming a candle input', 
   );
 });
 
-test('backend live candle snapshot, not quote tick, creates the chart incremental update', () => {
+test('backend live candle snapshot creates the chart incremental update', () => {
   const history = [
     makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 10, 0, 0), { close: 2299.5 }),
     makeTrustedHistoryCandle(secondsUtc(2024, 3, 22, 10, 1, 0), { close: 2299.8 }),
@@ -161,4 +161,35 @@ test('useLiveCandles subscribes backend candle socket instead of quote-tick cand
   assert.match(protocolSource, /export const extractCandlePayloadContext = \(payload: unknown\)/);
   assert.match(socketSource, /if \(!hasBackendCandleShape\(item\)\) \{/);
   assert.doesNotMatch(source, /pushPrice\(/);
+});
+
+test('legacy prices websocket also forwards quote ticks into active candle stream', () => {
+  const socketSource = readModuleSource('src/api/ws/socket');
+
+  assert.match(socketSource, /import \{ liveCandleStream \} from '..\/..\/domain\/candles\/stream\/liveCandleStream'/);
+  assert.match(socketSource, /channel === 'prices' \|\| channel\.startsWith\('quotes\.'\)/);
+  assert.match(socketSource, /store\.setQuote\(data\.symbol,[\s\S]*lastTickAt: tickTime/);
+  assert.match(socketSource, /liveCandleStream\.extendActiveCandlesFromQuoteTick\(data\.symbol,[\s\S]*price: bid,[\s\S]*time: tickTime/);
+});
+
+test('public quote websocket routes nested backend candle update payloads', () => {
+  const quoteSocketSource = readModuleSource('src/api/ws/quotesSocket');
+
+  assert.match(quoteSocketSource, /routeBackendCandleUpdates/);
+  assert.match(quoteSocketSource, /isExplicitCandlePayload\(payload\)/);
+  assert.match(quoteSocketSource, /hasNestedCandleEnvelope\(record\)/);
+  assert.match(quoteSocketSource, /getCandlePayloadItems\(payload\)/);
+  assert.match(quoteSocketSource, /hasBackendCandleShape\(item\)/);
+  assert.match(quoteSocketSource, /const routedItem = mergeCandleEnvelopeContext\(payload, item, symbol, tf\)/);
+  assert.match(quoteSocketSource, /liveCandleStream\.ingestLiveCandle\(routedItem, symbol \?\? undefined, tf \?\? undefined\)/);
+  assert.match(quoteSocketSource, /payloadRecord\?\.timestamp === undefined/);
+});
+
+test('live candle stream can infer timeframe for single active feed candle stream', () => {
+  const streamSource = readModuleSource('src/domain/candles/stream/liveCandleStream');
+
+  assert.match(streamSource, /let normalizedTimeframe =[\s\S]*normalizeTimeframeStrict\(timeframe\)/);
+  assert.match(streamSource, /const candidates = Array\.from\(this\.entries\.values\(\)\)\.filter\(\(entry\) => entry\.symbol === normalizedSymbol\)/);
+  assert.match(streamSource, /if \(candidates\.length !== 1\)/);
+  assert.match(streamSource, /normalizedTimeframe = candidates\[0\]\.timeframe/);
 });

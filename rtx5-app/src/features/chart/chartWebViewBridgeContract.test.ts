@@ -61,7 +61,7 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
 test('webview bridge: updateChartData full reload reapplies overlays and market price lines', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'updateChartData');
 
-  assertSourceContains(body, /lastRawSeriesData = Array\.isArray\(data\) \? data\.slice\(\) : \[\]/, 'full reload must remember raw data for recovery');
+  assertSourceContains(body, /lastRawSeriesData = sanitizeSeriesData\(data\)/, 'full reload must remember sanitized raw data for recovery');
   assertSourceContains(body, /series\.setData\(mapped\)/, 'full reload must replace the chart series');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'full reload must clear stale overlay line refs');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'full reload must reapply overlays after setData');
@@ -80,7 +80,7 @@ test('webview bridge: updateTick uses an incremental requestAnimationFrame path'
 test('webview bridge: renders backend candle timestamps directly', () => {
   assertSourceContains(
     source,
-    /const cleaned = sanitizeCandlesForChart\(sourceCandles\)[\s\S]*return cleaned\.map\(\(c\) => \(\{ time: c\.time, value: c\.close \}\)\)[\s\S]*time: c\.time/,
+    /const cleaned = sanitizeCandlesForChart\(sourceCandles, \{ timeframe: chartTimeframe \}\)[\s\S]*time: c\.time[\s\S]*value: c\.close[\s\S]*time: c\.time/,
     'native host must pass backend candle timestamps to the WebView',
   );
   assert.doesNotMatch(source, /setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
@@ -117,7 +117,7 @@ test('webview bridge: recoverChartSurface restores data overlays market lines an
 
 test('webview bridge: native handler accepts CHART_READY geometry drag and errors', () => {
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must force-paint retained candles into the WebView');
+  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current, \{ timeframe: chartTimeframe \}\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must force-paint retained candles into the WebView');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*renderedSeriesSnapshotRef\.current = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY retained-candle paint must update the rendered snapshot');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*setChartPlotArea/, 'CHART_GEOMETRY must update plot area');
   assertSourceContains(source, /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/, 'trade-line drag messages must reach React state');

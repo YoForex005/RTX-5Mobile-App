@@ -316,7 +316,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-start',
       paddingHorizontal: 4,
       paddingVertical: 3,
-      marginTop: 0,
+      marginTop: 8,
       backgroundColor: isDark ? '#080B11' : '#F8FAFC',
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
@@ -1429,7 +1429,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     bottomArea: {
       backgroundColor: isDark ? '#080B11' : T.glass2,
-      paddingHorizontal: 8,
+      paddingHorizontal: 0,
       paddingTop: 0,
       paddingBottom: 0,
       overflow: 'visible',
@@ -1497,7 +1497,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       position: 'absolute',
       left: 0,
       right: 0,
-      paddingHorizontal: 8,
       paddingTop: 10,
       // Stable keyboard clearance. The dock is positioned at `bottom: 0` while
       // the lot editor is focused on Android (Android `adjustResize` shrinks
@@ -1507,7 +1506,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       // (instead of bumping the `bottom` value when the editor focuses)
       // guarantees there is never a vertical jump when the user taps the lot
       // input — the gap is the same whether the keyboard is open or closed.
-      paddingBottom: 24,
+      paddingBottom: 16,
       backgroundColor: isDark ? '#080B11' : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,

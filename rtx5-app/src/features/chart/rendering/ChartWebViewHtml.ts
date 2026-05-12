@@ -1975,6 +1975,178 @@ export const CH_HTML = `
         return typeof value === 'number' && isFinite(value);
       }
 
+      var RAW_SERIES_SAME_BUCKET_RANGE_MULTIPLE = 10;
+      var RAW_SERIES_SAME_BUCKET_RELATIVE_TOLERANCE = 0.02;
+      var RAW_SERIES_REGIME_RANGE_MULTIPLE = 10;
+      var RAW_SERIES_REGIME_RELATIVE_TOLERANCE = 0.2;
+      var RAW_SERIES_INTERNAL_RANGE_MULTIPLE = 10;
+      var RAW_SERIES_INTERNAL_RELATIVE_TOLERANCE = 0.2;
+      var RAW_SERIES_CONTIGUOUS_TIME_TOLERANCE_MULTIPLE = 1.5;
+
+      function getRawSeriesBounds(item) {
+        return {
+          high: Math.max(item.open, item.high, item.low, item.close),
+          low: Math.min(item.open, item.high, item.low, item.close),
+        };
+      }
+
+      function getRawSeriesReferencePrice(item) {
+        return Math.max(Math.abs(item.close), Math.abs(item.open), 1);
+      }
+
+      function isPriceCoherentWithRawSeriesDatum(item, price, rangeMultiple, relativeTolerance) {
+        if (!isFiniteNumber(price)) {
+          return false;
+        }
+
+        var bounds = getRawSeriesBounds(item);
+        if (price >= bounds.low && price <= bounds.high) {
+          return true;
+        }
+
+        var range = Math.max(0, bounds.high - bounds.low);
+        var distance = price < bounds.low ? bounds.low - price : price - bounds.high;
+        var toleratedDistance = Math.max(range * rangeMultiple, getRawSeriesReferencePrice(item) * relativeTolerance);
+        return distance <= toleratedDistance;
+      }
+
+      function areRawSeriesDataPriceCoherent(left, right, rangeMultiple, relativeTolerance) {
+        var leftBounds = getRawSeriesBounds(left);
+        var rightBounds = getRawSeriesBounds(right);
+        if (leftBounds.low <= rightBounds.high && rightBounds.low <= leftBounds.high) {
+          return true;
+        }
+
+        return (
+          isPriceCoherentWithRawSeriesDatum(left, right.open, rangeMultiple, relativeTolerance) ||
+          isPriceCoherentWithRawSeriesDatum(left, right.close, rangeMultiple, relativeTolerance) ||
+          isPriceCoherentWithRawSeriesDatum(right, left.open, rangeMultiple, relativeTolerance) ||
+          isPriceCoherentWithRawSeriesDatum(right, left.close, rangeMultiple, relativeTolerance)
+        );
+      }
+
+      function areRawSeriesDataSameBucketCoherent(left, right) {
+        return areRawSeriesDataPriceCoherent(
+          left,
+          right,
+          RAW_SERIES_SAME_BUCKET_RANGE_MULTIPLE,
+          RAW_SERIES_SAME_BUCKET_RELATIVE_TOLERANCE
+        );
+      }
+
+      function areRawSeriesDataRegimesCoherent(left, right) {
+        return areRawSeriesDataPriceCoherent(
+          left,
+          right,
+          RAW_SERIES_REGIME_RANGE_MULTIPLE,
+          RAW_SERIES_REGIME_RELATIVE_TOLERANCE
+        );
+      }
+
+      function isRawSeriesDatumInternallyCoherent(item) {
+        var values = [item.open, item.high, item.low, item.close];
+        for (var i = 0; i < values.length; i++) {
+          if (!isFiniteNumber(values[i])) {
+            return false;
+          }
+        }
+
+        values.sort(function(left, right) { return left - right; });
+        var reference = Math.max(Math.abs(item.close), Math.abs(item.open), 1);
+
+        var lowClusterRange = Math.max(0, values[2] - values[0]);
+        var highOutlierDistance = Math.max(0, values[3] - values[2]);
+        var highOutlierTolerance = Math.max(
+          lowClusterRange * RAW_SERIES_INTERNAL_RANGE_MULTIPLE,
+          reference * RAW_SERIES_INTERNAL_RELATIVE_TOLERANCE
+        );
+        if (highOutlierDistance > highOutlierTolerance) {
+          return false;
+        }
+
+        var highClusterRange = Math.max(0, values[3] - values[1]);
+        var lowOutlierDistance = Math.max(0, values[1] - values[0]);
+        var lowOutlierTolerance = Math.max(
+          highClusterRange * RAW_SERIES_INTERNAL_RANGE_MULTIPLE,
+          reference * RAW_SERIES_INTERNAL_RELATIVE_TOLERANCE
+        );
+        return lowOutlierDistance <= lowOutlierTolerance;
+      }
+
+      function inferRawSeriesExpectedSeconds(data) {
+        var diffs = [];
+        for (var i = 1; i < data.length; i++) {
+          var diff = data[i].time - data[i - 1].time;
+          if (isFiniteNumber(diff) && diff > 0) {
+            diffs.push(diff);
+          }
+        }
+        if (diffs.length < 2) {
+          return null;
+        }
+        diffs.sort(function(left, right) { return left - right; });
+        return diffs[Math.floor(diffs.length / 2)];
+      }
+
+      function isRawSeriesContiguousPair(left, right, expectedSeconds) {
+        var delta = right.time - left.time;
+        if (!isFiniteNumber(delta) || delta <= 0) {
+          return false;
+        }
+        if (!isFiniteNumber(expectedSeconds) || expectedSeconds <= 0) {
+          return false;
+        }
+        return delta <= expectedSeconds * RAW_SERIES_CONTIGUOUS_TIME_TOLERANCE_MULTIPLE;
+      }
+
+      function filterRawSeriesDataByPriceContinuity(data) {
+        if (!Array.isArray(data) || data.length <= 1) {
+          return Array.isArray(data) ? data.slice() : [];
+        }
+
+        var expectedSeconds = inferRawSeriesExpectedSeconds(data);
+        var segments = [];
+        var currentSegment = [];
+        for (var i = 0; i < data.length; i++) {
+          var datum = data[i];
+          var previous = currentSegment[currentSegment.length - 1];
+          if (
+            previous &&
+            isRawSeriesContiguousPair(previous, datum, expectedSeconds) &&
+            !areRawSeriesDataRegimesCoherent(previous, datum)
+          ) {
+            segments.push(currentSegment);
+            currentSegment = [datum];
+          } else {
+            currentSegment.push(datum);
+          }
+        }
+        if (currentSegment.length > 0) {
+          segments.push(currentSegment);
+        }
+        if (segments.length <= 1) {
+          return data.slice();
+        }
+
+        var keptSegments = [segments[segments.length - 1]];
+        for (var segmentIndex = segments.length - 2; segmentIndex >= 0; segmentIndex--) {
+          var candidate = segments[segmentIndex];
+          var candidateTail = candidate[candidate.length - 1];
+          var keptHead = keptSegments[0][0];
+          if (candidateTail && keptHead && areRawSeriesDataRegimesCoherent(candidateTail, keptHead)) {
+            keptSegments.unshift(candidate);
+          }
+        }
+
+        var out = [];
+        for (var keptIndex = 0; keptIndex < keptSegments.length; keptIndex++) {
+          for (var itemIndex = 0; itemIndex < keptSegments[keptIndex].length; itemIndex++) {
+            out.push(keptSegments[keptIndex][itemIndex]);
+          }
+        }
+        return out;
+      }
+
       function normalizeRawSeriesDatum(item) {
         if (!item || !isFiniteNumber(item.time) || item.time <= 0) {
           return null;
@@ -1987,7 +2159,7 @@ export const CH_HTML = `
           if (!isFiniteNumber(value)) {
             return null;
           }
-          return {
+          var lineDatum = {
             time: time,
             value: value,
             open: isFiniteNumber(item.open) ? item.open : value,
@@ -1996,6 +2168,7 @@ export const CH_HTML = `
             close: isFiniteNumber(item.close) ? item.close : value,
             volume: volume,
           };
+          return isRawSeriesDatumInternallyCoherent(lineDatum) ? lineDatum : null;
         }
 
         var open = item.open;
@@ -2015,7 +2188,7 @@ export const CH_HTML = `
         var high = Math.max(open, close, rawHigh);
         var low = Math.min(open, close, rawLow);
 
-        return {
+        var normalized = {
           time: time,
           open: open,
           high: high,
@@ -2023,10 +2196,14 @@ export const CH_HTML = `
           close: close,
           volume: volume,
         };
+        return isRawSeriesDatumInternallyCoherent(normalized) ? normalized : null;
       }
 
       function mergeRawSeriesDatum(existing, incoming) {
         if (!existing) {
+          return incoming;
+        }
+        if (!areRawSeriesDataSameBucketCoherent(existing, incoming)) {
           return incoming;
         }
         var close = typeof incoming.close === 'number'

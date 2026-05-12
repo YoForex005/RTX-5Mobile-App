@@ -571,7 +571,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       fontSize: 14,
     },
     registerLinkText: {
-      color: T.accent,
+      color: '#007ACC',
       fontSize: 14,
       fontWeight: '600',
     },

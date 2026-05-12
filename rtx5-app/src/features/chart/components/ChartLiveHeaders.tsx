@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLiveTick } from '../../../domain/candles/hooks/useLiveCandles';
-import { useMarketData } from '../../../query/websocket';
+import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import {
   type TradeVolumeBounds,
 } from '../../../utils/tradeVolume';
@@ -20,12 +20,13 @@ export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, pr
   const latestTick = useLiveTick(symbol);
   const liveQuotes = useMarketData([symbol]);
   const q = liveQuotes[symbol] || {};
+  const hasLiveQuote = hasLiveQuoteFeedData(q);
   const priceLabel = t('Price');
 
   const selectedQuote =
     priceSource === 'ask'
-      ? (typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
-      : (typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
+      ? (hasLiveQuote && typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
+      : (hasLiveQuote && typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
   const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
   const currentPrice = selectedQuote ?? candleClose;
 

@@ -1,7 +1,12 @@
 import type { Candle, LiveCandle, MutableCandle } from '../core/candleTypes';
-import { getBucketStart, normalizeTimestampToSeconds } from '../core/timeframeUtils';
+import {
+  getBucketStart,
+  getExpectedNextCandleTime,
+  normalizeTimestampToSeconds,
+} from '../core/timeframeUtils';
 import { validateCandle } from '../core/candleValidator';
 import { areCandleValuesEqual } from './candleSeriesMerger';
+import { isPriceCoherentWithCandle } from './priceCoherence';
 
 /**
  * Options used when applying a live candle update from the backend to the internal candle map.
@@ -133,8 +138,6 @@ export const applyLiveCandleToCandleMap = (
       }
     : {
         ...incoming,
-        high: existing ? Math.max(existing.high, incoming.high) : incoming.high,
-        low: existing ? Math.min(existing.low, incoming.low) : incoming.low,
         source: 'live_candle',
         closed: liveCandle.closed ?? false,
         firstUpdateTime:
@@ -195,9 +198,9 @@ export type ApplyQuoteTickExtensionResult = {
  * real-time price tick from the quote feed.
  *
  * STRICT extension contract:
- *   - Only updates an EXISTING bucket created by backend (live candle map or
- *     `latestHistoryCandle` when its time === the active bucket).
- *   - Never invents a new bucket. If neither matches, returns `ignored=true`.
+ *   - Updates an existing backend bucket when one is present.
+ *   - Can open only the next contiguous live bucket from the last real
+ *     backend candle/quote-built live candle, using live tick price data.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
  *   - The next backend `applyLiveCandleToCandleMap` call fully overwrites the
  *     bucket, so backend remains the authoritative source on every snapshot.
@@ -244,6 +247,9 @@ export const applyQuoteTickExtensionToCandleMap = (
     // always fails and ticks are rejected as 'tick_older_than_history'.
     const restTailBucket = restTail ? (getBucketStart(restTail.time, timeframe) ?? restTail.time) : null;
     if (restTail && restTailBucket === bucketStart) {
+      if (!isPriceCoherentWithCandle(restTail, tick.price)) {
+        return { candle: null, changed: false, ignored: true, reason: 'stale_history_seed' };
+      }
       existing = {
         time: bucketStart,
         open: restTail.open,
@@ -254,22 +260,63 @@ export const applyQuoteTickExtensionToCandleMap = (
         source: 'live_candle',
         closed: false,
       };
-    } else if (!restTail || (restTailBucket !== null && restTailBucket < bucketStart)) {
-      // The tick belongs to a new bucket that hasn't been created by a backend
-      // snapshot yet. We start a new candle strictly based on the FIRST TICK 
-      // of this bucket (Standard OHLC method).
-      existing = {
-        time: bucketStart,
-        open: tick.price,
-        high: tick.price,
-        low: tick.price,
-        close: tick.price,
-        volume: 0,
-        source: 'live_candle',
-        closed: false,
-      };
     } else {
-      return { candle: null, changed: false, ignored: true, reason: 'tick_older_than_history' };
+      const liveTailTime = Array.from(candleMap.keys()).reduce<number | null>(
+        (latest, time) => (latest === null || time > latest ? time : latest),
+        null,
+      );
+      const latestKnownBucket = [restTailBucket, liveTailTime]
+        .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
+        .reduce<number | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
+
+      if (latestKnownBucket !== null && bucketStart < latestKnownBucket) {
+        return {
+          candle: null,
+          changed: false,
+          ignored: true,
+          reason: restTailBucket !== null && restTailBucket > bucketStart
+            ? 'tick_older_than_history'
+            : 'tick_older_than_live_tail',
+        };
+      }
+
+      if (latestKnownBucket === null) {
+        existing = {
+          time: bucketStart,
+          open: tick.price,
+          high: tick.price,
+          low: tick.price,
+          close: tick.price,
+          volume: 0,
+          source: 'live_candle',
+          closed: false,
+        };
+      } else {
+        const expectedNextBucket = getExpectedNextCandleTime(latestKnownBucket, timeframe);
+        if (bucketStart !== expectedNextBucket) {
+          return { candle: null, changed: false, ignored: true, reason: 'no_active_backend_candle' };
+        }
+
+        const liveTail = liveTailTime === latestKnownBucket ? candleMap.get(latestKnownBucket) : undefined;
+        const seed = liveTail ?? (restTailBucket === latestKnownBucket ? restTail : null);
+        if (!seed) {
+          return { candle: null, changed: false, ignored: true, reason: 'no_active_backend_candle' };
+        }
+        if (!isPriceCoherentWithCandle(seed, tick.price)) {
+          return { candle: null, changed: false, ignored: true, reason: 'stale_history_seed' };
+        }
+
+        existing = {
+          time: bucketStart,
+          open: seed.close,
+          high: Math.max(seed.close, tick.price),
+          low: Math.min(seed.close, tick.price),
+          close: tick.price,
+          volume: 0,
+          source: 'live_candle',
+          closed: false,
+        };
+      }
     }
   }
 

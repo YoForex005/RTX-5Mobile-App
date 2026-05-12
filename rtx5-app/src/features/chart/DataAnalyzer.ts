@@ -62,7 +62,7 @@ export function useDataAnalyzer() {
             console.log(`✅ ${symbol} ${timeframe}: ${candles.length} candles.`);
             console.log(`   -> Missing Buckets (Gaps): ${gapCount} total gaps (Max contiguous gap: ${maxGap})`);
             console.log(`   -> Invalid OHLC Geometry: ${invalidOhlc}`);
-            console.log(`   -> Last Candle Age: ${ageSeconds} seconds ago (Is forming? ${!lastCandle.closed})`);
+            console.log(`   -> Last Candle Age: ${ageSeconds} seconds ago (Is forming? ${!(lastCandle as any).closed})`);
             
           } catch (error: any) {
             console.log(`❌ Error fetching ${symbol} ${timeframe}: ${error.message}`);

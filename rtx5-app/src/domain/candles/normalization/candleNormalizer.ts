@@ -1,6 +1,7 @@
 import type { Candle, LiveCandle, RawCandle } from '../core/candleTypes';
 import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToSeconds } from '../core/timeframeUtils';
 import { logInvalidCandleInDevelopment, validateCandle } from '../core/candleValidator';
+import { isCandleInternallyCoherent } from '../series/priceCoherence';
 
 // --- Field Mapping Constants ---
 // These arrays define the possible keys that might contain relevant data in an unstructured payload.
@@ -156,6 +157,10 @@ const normalizeBackendCandle = (raw: unknown, label: string): Candle | null => {
 
   if (!validateCandle(candle)) {
     logInvalidCandleInDevelopment(`${label}:invalid_ohlc`, raw);
+    return null;
+  }
+  if (!isCandleInternallyCoherent(candle)) {
+    logInvalidCandleInDevelopment(`${label}:incoherent_ohlc`, raw);
     return null;
   }
 

@@ -44,6 +44,6 @@ test('same-bucket backend snapshots merge the active candle without adding dupli
 
   assert.equal(updated.changed, true);
   assert.deepEqual(materializeCandleMap(map), [
-    { time: bucket, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 12 },
+    { time: bucket, open: 1.1, high: 1.14, low: 1.08, close: 1.13, volume: 8 },
   ]);
 });

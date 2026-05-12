@@ -35,7 +35,7 @@ export const toCandleParams = (candles: Candle[]): CandleParams[] => candles as 
 export const getHistorySeedSnapshot = (history: CandleHistorySnapshot): HistorySeedSnapshot => {
   const seed = buildRestHistorySeedCandles(history.closedCandles, history.currentCandle);
   return {
-    candles: sanitizeCandlesForChart(seed.candles).slice(-MAX_CANDLE_SERIES_LENGTH),
+    candles: sanitizeCandlesForChart(seed.candles, { timeframe: history.timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH),
     closedHistoryLastTime: seed.closedHistoryLastTime,
     currentCandleTime: seed.currentCandleTime,
   };
@@ -52,7 +52,7 @@ export const getStoreCache = (symbol: string, timeframe: string): Candle[] => {
     return [];
   }
   const cached = useTradingState.getState().candles[`${normalizedSymbol}.${normalizedTimeframe}`] ?? [];
-  return sanitizeCandlesForChart(cached).slice(-MAX_CANDLE_SERIES_LENGTH);
+  return sanitizeCandlesForChart(cached, { timeframe: normalizedTimeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
 };
 
 export const getEventTime = (event: BufferedLiveEvent): number =>

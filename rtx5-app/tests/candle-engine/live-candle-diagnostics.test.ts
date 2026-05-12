@@ -59,7 +59,7 @@ test('canonical live stream seeds REST history plus backend current candle befor
   assert.match(source, /closedHistoryLastTime: seed\.closedHistoryLastTime/);
   assert.match(source, /currentCandleTime: seed\.currentCandleTime/);
   assert.match(source, /const historySeed = getHistorySeedSnapshot\(history\)/);
-  assert.match(source, /const historyCandles = historySeed\.candles/);
+  assert.match(source, /let historyCandles = historySeed\.candles/);
   assert.doesNotMatch(source, /normalizeHistoryCandles\(history\.candles/);
   assert.doesNotMatch(source, /history\.candles\.length > 0 \? history\.candles/);
 });
@@ -80,11 +80,13 @@ test('canonical live stream buffers and replays live data around REST history', 
   assert.match(source, /(?:this|manager)\.applyLiveEvents\(live, replayEvents\)/);
 });
 
-test('canonical live stream does not generate candles from quote ticks', () => {
+test('canonical live stream uses quote ticks only through the managed active-candle extension', () => {
   assert.doesNotMatch(source, /applyTickToCandleMap/);
   assert.doesNotMatch(source, /ingestQuoteTick/);
   assert.doesNotMatch(source, /quotesWsService\.addTickListener/);
   assert.doesNotMatch(source, /quotesWsService\.subscribe/);
+  assert.match(source, /extendActiveCandlesFromQuoteTick/);
+  assert.match(source, /applyQuoteTickExtensionToCandleMap/);
   assert.match(source, /ingestLiveCandle\(rawCandle: unknown, symbol\?: string, timeframe\?: string\): void/);
 });
 
@@ -110,7 +112,7 @@ test('canonical live stream commits one fresh history plus backend live candle s
   assert.match(source, /liveCandleMap: Map<number, MutableCandle>/);
   assert.match(source, /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime\)/);
   assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
-  assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, nextCandles\)/);
+  assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, safeNextCandles\)/);
   assert.match(source, /syncMergedCandleCache\(symbol, timeframe, history\.closedCandles, \{ canonical: true \}\)/);
   assert.doesNotMatch(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);
   assert.doesNotMatch(source, /materializeCandleMap\(entry\.candleMap/);

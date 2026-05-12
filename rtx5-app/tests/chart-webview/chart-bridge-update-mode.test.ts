@@ -76,6 +76,11 @@ test('ChartScreen routes full reload and incremental update to the correct bridg
 
   assertSourceContains(syncEffect, /updateMode === 'full_reload'[\s\S]*updateChartData\(/, 'full reload must call updateChartData');
   assertSourceContains(syncEffect, /else \{[\s\S]*updateTick\(/, 'incremental mode must call updateTick');
+  assertSourceContains(
+    source,
+    /const renderableCandles = sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/,
+    'incremental mode must use the same sanitized OHLC series as full reload',
+  );
 });
 
 test('WebView full data reload restores overlays and market price lines after setData', () => {
@@ -134,13 +139,13 @@ test('quote updates never patch candle geometry inside the WebView', () => {
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(\) \{[\s\S]*scheduleOverlayPriceScaleLock\(true\)[\s\S]*refreshOverlayDomLabels/,
-    'visible logical range changes must re-enable price autoscale before refreshing overlays',
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*refreshOverlayDomLabels/,
+    'visible logical range changes must refresh overlays without overriding an active manual price range',
   );
   assertSourceContains(
     source,
-    /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: false/,
-    'mobile pinch zoom must stay enabled while price-axis drag scaling remains disabled',
+    /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: true/,
+    'mobile pinch zoom and price-axis scaling must stay enabled in the host chart options',
   );
 });
 

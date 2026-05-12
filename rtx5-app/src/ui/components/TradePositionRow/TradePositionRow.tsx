@@ -225,7 +225,7 @@ function TradePositionRowComponent({
             <View style={styles.slTpRow}>
               {!!item.sl && (
                 <View style={styles.slTpBadge}>
-                  <Text style={[styles.slTpText, { color: '#F57C00' }]}>SL {fmt.price(item.sl as number)}</Text>
+                  <Text style={[styles.slTpText, { color: T.accent }]}>SL {fmt.price(item.sl as number)}</Text>
                 </View>
               )}
               {!!item.tp && (

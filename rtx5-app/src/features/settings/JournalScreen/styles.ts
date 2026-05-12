@@ -5,7 +5,7 @@ export function makeJournalStyles(T: ThemeColors, isDark: boolean) {
   const cardBg = isDark ? '#111827' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const subtleText = isDark ? '#64748B' : '#94A3B8';
-  const accent = isDark ? '#F59E0B' : '#D97706'; // Amber/Yellow accent
+  const accent = '#007ACC'; // Custom VS Code Blue accent
 
   return StyleSheet.create({
     screen: { backgroundColor: isDark ? '#080B11' : '#F1F5F9' },
@@ -25,6 +25,7 @@ export function makeJournalStyles(T: ThemeColors, isDark: boolean) {
       ...(Platform.OS === 'web' ? { minWidth: 200, width: '25%' } as any : {})
     },
     statCard: {
+      flex: 1,
       backgroundColor: cardBg,
       borderRadius: 16,
       padding: 16,

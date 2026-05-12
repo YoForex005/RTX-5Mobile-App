@@ -102,8 +102,9 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
     };
 
     quotesWsService.addTickListener(listener);
-    // CRITICAL: We must send RAW symbols to the backend (e.g., EURUSDm)
-    // because the backend will reject or ignore normalized subscriptions.
+    // Send the broker's raw feed symbols (for example BTCUSDm or GBPUSD.c).
+    // Incoming ticks are normalized only after they arrive so UI rows can
+    // match suffix variants without changing the backend subscription key.
     quotesWsService.subscribe(rawUniqueSymbols);
     quotesWsService.connect();
 

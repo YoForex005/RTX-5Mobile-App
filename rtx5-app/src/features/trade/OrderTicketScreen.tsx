@@ -1196,7 +1196,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: T.border,
     },
     orderTypeTabActive: {
-      backgroundColor: isDark ? 'rgba(59,130,246,0.1)' : T.glass3,
+      backgroundColor: isDark ? 'rgba(34,211,238,0.1)' : T.glass3,
     },
     orderTypeTabText: {
       color: SUB,

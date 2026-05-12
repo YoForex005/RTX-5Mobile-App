@@ -40,6 +40,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [ ] Unit: list item formatting helpers.
 - [x] Unit: active-language dictionary coverage includes reported Settings account-card status and finance labels.
 - [x] Unit: active-language dictionary coverage includes broker login, contest login, demo registration, and broker directory labels.
+- [x] Unit: account API numeric normalization and live metric readiness guard.
 - [ ] Integration: navigation from settings to all sub-screens.
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
@@ -58,6 +59,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - 2026-04-27: Integrated `POST /api/v1/public/demo-account` for public Orrnn demo creation. The registration screen now posts user-entered identity/password data with the demo group from `GET /api/v1/public/demo-groups`, stores the returned login plus `api_key` when present, falls back to V2 login when live deployments omit `api_key`, and treats documented 201 ExceptionResult payloads as creation errors.
 - 2026-04-27: Expanded the public demo registration form with visible fields for group, email, master/investor passwords, first/last name, phone, country, currency, leverage, initial balance, and origin broker. The optional backend `comment` field is intentionally not shown in the UI.
 - 2026-04-27: Added chart runtime language coverage for the live price label, chart loading/error states, and expiration picker options so changing the persisted language updates ChartScreen text immediately without restarting.
+- 2026-05-12: Fixed the Settings and Accounts balance display path so backend numeric strings are normalized before formatting, login-only live account hydration no longer overrides the REST account balance with the zero default, and the active account detail fetch uses the contracted singular `/api/v2/account/{login}` route instead of the plural list route.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.

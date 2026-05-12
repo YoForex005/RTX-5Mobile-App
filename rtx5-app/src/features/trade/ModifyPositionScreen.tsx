@@ -61,8 +61,9 @@ export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const insets = useSafeAreaInsets();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -320,7 +321,7 @@ export function ModifyPositionScreen() {
           <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
         </Animated.View>
         <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
-          <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
+          <View style={styles.sheetSurface}>
             <GestureDetector gesture={sheetDragGesture}>
               <View collapsable={false}>
                 <View style={styles.dragZone}>
@@ -416,7 +417,7 @@ export function ModifyPositionScreen() {
         <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
       </Animated.View>
       <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
-        <View style={[styles.sheetSurface, { backgroundColor: T.bg, borderColor: T.border }]}>
+        <View style={styles.sheetSurface}>
           <GestureDetector gesture={sheetDragGesture}>
             <View collapsable={false}>
               <View style={styles.dragZone}>
@@ -493,7 +494,7 @@ export function ModifyPositionScreen() {
       {/* SL / TP Adjusters — enterprise premium card design */}
       {(() => {
         const PRESET_PIPS = [10, 25, 50, 100];
-        const SL_COLOR = '#F57C00';
+        const SL_COLOR = isDark ? '#22D3EE' : '#06B6D4';
         const TP_COLOR = '#22C55E';
         const contractSize = isJpy ? 1000 : 100000;
         const lots = position.volume || 0;
@@ -635,9 +636,9 @@ export function ModifyPositionScreen() {
             {/* Stop Loss & Take Profit Visual Overlays */}
             {stopLoss ? (
               <G>
-                <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke="#F57C00" strokeDasharray="6 6" strokeWidth="1" />
+                <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={isDark ? '#22D3EE' : '#06B6D4'} strokeDasharray="6 6" strokeWidth="1" />
                 <G x={w - 60} y={yPos(stopLoss) - 10}>
-                  <Rect width={60} height={20} fill="#F57C00" />
+                  <Rect width={60} height={20} fill={isDark ? '#22D3EE' : '#06B6D4'} />
                   <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
                     SL
                   </SvgText>
@@ -719,7 +720,7 @@ export function ModifyPositionScreen() {
   );
 }
 
-const makeStyles = (T: ThemeColors) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -727,7 +728,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(2, 6, 23, 0.42)',
+    backgroundColor: isDark ? 'rgba(2, 6, 23, 0.42)' : 'rgba(15, 23, 42, 0.2)',
   },
   sheetFrame: {
     position: 'absolute',
@@ -738,6 +739,8 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   sheetSurface: {
     flex: 1,
+    backgroundColor: isDark ? '#06080D' : '#FFFFFF',
+    borderColor: isDark ? '#1E293B' : 'rgba(0,0,0,0.05)',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -869,7 +872,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   priceCardDivider: {
     width: 1,
     height: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.06)',
   },
   priceLabel: {
     color: T.textMuted,
@@ -1057,12 +1060,12 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(148, 163, 184, 0.08)',
+    backgroundColor: isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
     padding: 14,
     borderRadius: 12,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.1)',
+    borderColor: isDark ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.05)',
   },
   disclaimerIcon: {
     marginRight: 8,
@@ -1087,7 +1090,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
-    shadowColor: '#2563EB',
+    shadowColor: isDark ? '#22D3EE' : '#0F172A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,

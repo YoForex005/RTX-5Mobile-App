@@ -23,7 +23,7 @@ test('older backend live candle snapshots merge safely without rewinding close',
   assert.equal(stale.ignored, false);
   assert.equal(stale.reason, 'merged_out_of_order_live_candle');
   assert.deepEqual(materializeCandleMap(map), [
-    { time: bucket, open: 1.1, high: 1.16, low: 1.08, close: 1.14, volume: 12 },
+    { time: bucket, open: 1.1, high: 1.16, low: 1.08, close: 1.14, volume: 10 },
   ]);
 });
 

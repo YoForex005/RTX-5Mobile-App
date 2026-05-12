@@ -1,4 +1,5 @@
-import { normalizeSymbol } from '../../domain/symbols';
+export const normalizeQuoteTransportSymbol = (symbol: string): string =>
+  symbol.trim().replace(/[\/\s]+/g, '');
 
 export const applyQuoteSubscriptionDelta = (
   currentCounts: ReadonlyMap<string, number>,
@@ -8,7 +9,7 @@ export const applyQuoteSubscriptionDelta = (
   const nextCounts = new Map(currentCounts);
 
   for (const rawSymbol of symbols) {
-    const symbol = normalizeSymbol(rawSymbol);
+    const symbol = normalizeQuoteTransportSymbol(rawSymbol);
     if (!symbol) {
       continue;
     }
@@ -34,14 +35,14 @@ export const buildActiveQuoteSymbols = (
   const merged = new Set<string>();
 
   for (const rawSymbol of stickySymbols) {
-    const symbol = normalizeSymbol(rawSymbol);
+    const symbol = normalizeQuoteTransportSymbol(rawSymbol);
     if (symbol) {
       merged.add(symbol);
     }
   }
 
   consumerCounts.forEach((count, rawSymbol) => {
-    const symbol = normalizeSymbol(rawSymbol);
+    const symbol = normalizeQuoteTransportSymbol(rawSymbol);
     if (count > 0 && symbol) {
       merged.add(symbol);
     }

@@ -16,7 +16,7 @@ import {
   normalizeTimeframeStrict,
 } from '../core/candles';
 import { normalizeTimestampToMs } from '../core/timeframeUtils';
-import { useMarketData } from '../../../query/websocket';
+import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
 import { useTradingState } from '../../../state/tradingState';
 
@@ -212,6 +212,10 @@ export function useLiveTick(symbol: string, _timeframe?: string): LivePriceTick 
   const liveQuote = liveQuotes[symbol] || liveQuotes[normalizedSymbol];
 
   return useMemo(() => {
+    if (!hasLiveQuoteFeedData(liveQuote)) {
+      return null;
+    }
+
     const price = getQuotePrice(liveQuote);
     const timestampMs = getQuoteTimestampMs(liveQuote);
     if (price === null || timestampMs === null) {

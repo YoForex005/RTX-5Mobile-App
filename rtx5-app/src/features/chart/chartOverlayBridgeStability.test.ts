@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   buildChartOverlayPayload,
   type ChartOverlayCandle,
-} from './chartOverlays.ts';
+} from './chartOverlays';
 import {
   assertSourceContains,
   extractFunctionBody,
@@ -178,7 +178,7 @@ test('overlay payload: duplicate position and order inputs produce unique line i
     },
   });
 
-  const ids = payload.priceLines.map((line) => line.id);
+  const ids = payload.priceLines.map((line: any) => line.id);
   assert.deepEqual(new Set(ids).size, ids.length);
   assert.deepEqual(ids.sort(), ['open-same-ticket', 'order-entry-77', 'order-sl-77', 'order-tp-77', 'sl-same-ticket', 'tp-same-ticket'].sort());
 });

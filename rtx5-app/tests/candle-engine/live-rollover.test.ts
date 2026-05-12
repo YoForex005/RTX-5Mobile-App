@@ -45,7 +45,7 @@ test('same-bucket backend live candle snapshot replaces the active bucket instea
   );
 
   assert.deepEqual(materializeCandleMap(map), [
-    { time: bucket, open: 100, high: 102, low: 98, close: 102, volume: 22 },
+    { time: bucket, open: 100, high: 102, low: 98, close: 102, volume: 12 },
   ]);
 });
 

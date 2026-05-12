@@ -75,11 +75,11 @@ type SyncMergedCandleCacheOptions = {
 const buildClosedHistoryCacheSeries = (candles: Candle[], timeframe: string): Candle[] => {
   const trustedHistory = candles.filter(isTrustedHistoryCandle);
   if (trustedHistory.length > 0) {
-    return sanitizeCandlesForChart(trustedHistory).slice(-MAX_CANDLE_SERIES_LENGTH);
+    return sanitizeCandlesForChart(trustedHistory, { timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
   }
 
   const { closedHistory } = splitRestHistoryCandles(
-    sanitizeCandlesForChart(candles),
+    sanitizeCandlesForChart(candles, { timeframe }),
     timeframe,
     getConfiguredCandlePriceBasis(),
   );

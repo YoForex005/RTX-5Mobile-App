@@ -1,5 +1,6 @@
 import type { Candle, MutableCandle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
+import { areCandlePricesCoherent, isCandleInternallyCoherent } from './priceCoherence';
 
 export const cloneCandle = <TCandle extends Candle>(candle: TCandle): TCandle => ({ ...candle });
 
@@ -73,13 +74,15 @@ export const mergeCandleIntoMap = (
     lastUpdateTime?: number;
   } = {},
 ): MutableCandle | null => {
-  if (!validateCandle(candle)) {
+  if (!validateCandle(candle) || !isCandleInternallyCoherent(candle)) {
     return null;
   }
 
   const existing = candleMap.get(candle.time);
   const next: MutableCandle = existing
-    ? mergeCandleByTimestamp(existing, candle, options)
+    ? areCandlePricesCoherent(existing, candle)
+      ? mergeCandleByTimestamp(existing, candle, options)
+      : { ...candle }
     : {
         ...candle,
       };
@@ -89,7 +92,7 @@ export const mergeCandleIntoMap = (
   next.firstUpdateTime = options.firstUpdateTime ?? existing?.firstUpdateTime;
   next.lastUpdateTime = options.lastUpdateTime ?? existing?.lastUpdateTime;
 
-  if (!validateCandle(next)) {
+  if (!validateCandle(next) || !isCandleInternallyCoherent(next)) {
     return null;
   }
 
@@ -101,13 +104,17 @@ export const sortAndDedupeCandles = <TCandle extends Candle>(candles: readonly T
   const byTime = new Map<number, TCandle>();
 
   for (const candle of candles) {
-    if (!validateCandle(candle)) {
+    if (!validateCandle(candle) || !isCandleInternallyCoherent(candle)) {
       continue;
     }
     const existing = byTime.get(candle.time);
     byTime.set(
       candle.time,
-      existing ? mergeCandleByTimestamp(existing, candle) : cloneCandle(candle),
+      existing
+        ? areCandlePricesCoherent(existing, candle)
+          ? mergeCandleByTimestamp(existing, candle)
+          : cloneCandle(candle)
+        : cloneCandle(candle),
     );
   }
 
@@ -134,7 +141,7 @@ export const materializeCandleMap = (
   limit?: number,
 ): Candle[] => {
   const candles = Array.from(candleMap.values())
-    .filter(validateCandle)
+    .filter((candle) => validateCandle(candle) && isCandleInternallyCoherent(candle))
     .map((candle) => ({
       time: candle.time,
       open: candle.open,

@@ -53,7 +53,7 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
+    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current, \{ timeframe: chartTimeframe \}\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
     'CHART_READY must force-paint retained candles so fast switches cannot remain blank',
   );
 });
@@ -243,6 +243,16 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
     chartSource,
     /function normalizeRawSeriesDatum\(item\)[\s\S]*isFiniteNumber\(item\.open\)[\s\S]*isFiniteNumber\(item\.high\)[\s\S]*isFiniteNumber\(item\.low\)[\s\S]*isFiniteNumber\(item\.close\)/,
     'WebView must reject incomplete candle objects before chart update',
+  );
+  assertSourceContains(
+    chartSource,
+    /function normalizeRawSeriesDatum\(item\)[\s\S]*isRawSeriesDatumInternallyCoherent\(normalized\) \? normalized : null/,
+    'WebView must reject one OHLC candle that mixes incompatible price regimes',
+  );
+  assert.doesNotMatch(
+    chartSource,
+    /return filterRawSeriesDataByPriceContinuity\(sorted\)/,
+    'WebView must not trim structurally valid history segments before setData',
   );
 });
 

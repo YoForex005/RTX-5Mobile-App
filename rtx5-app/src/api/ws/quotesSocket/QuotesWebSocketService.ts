@@ -124,7 +124,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return () => {};
     }
 
-    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [normalized], 1);
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [symbol], 1);
     this.syncActiveSymbols();
 
     let bucket = this.symbolListeners.get(normalized);
@@ -145,7 +145,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           this.symbolListeners.delete(normalized);
         }
       }
-      this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [normalized], -1);
+      this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [symbol], -1);
       this.syncActiveSymbols();
     };
   }

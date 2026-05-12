@@ -73,7 +73,7 @@ export function JournalScreen() {
             {/* STATS HERO */}
             <View style={styles.heroGrid}>
               {renderStatCard('WIN RATE', `${winRate}%`, `${winTrades}/${totalTrades} Trades`)}
-              {renderStatCard('NET P&L', fmt.price(totalPnl), undefined, totalPnl > 0, totalPnl < 0)}
+              {renderStatCard('NET P&L', fmt.price(totalPnl), 'All Time', totalPnl > 0, totalPnl < 0)}
               {renderStatCard('AVG R MULTIPLE', `${avgR.toFixed(1)}R`, 'Per Trade')}
               {renderStatCard('DISCIPLINE', '6.0', 'Average Score')}
             </View>

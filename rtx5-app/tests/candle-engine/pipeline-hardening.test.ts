@@ -11,8 +11,8 @@
  * - duplicate stream replay 100x stays idempotent
  * - negative price candles are rejected (frontend never invents valid OHLC)
  * - high < open or high < close OHLC is rejected (validateCandle gate)
- * - same-bucket precedence: the first accepted open is preserved, high/low
- *   keep wick extremes, and the latest accepted live snapshot wins close
+ * - same-bucket precedence: the latest accepted backend snapshot wins OHLC,
+ *   while out-of-order snapshots cannot rewind the active close
  */
 
 import assert from 'node:assert/strict';
@@ -94,6 +94,150 @@ test('candle with NaN or Infinity OHLC field is rejected during normalization', 
   assert.equal(missingTime, null);
 });
 
+test('history candle with mixed price regimes is rejected before chart render', () => {
+  const corruptedBtc = normalizeHistoryCandle({
+    time: t1000,
+    open: 49_131.11,
+    high: 81_238.7,
+    low: 48_984.54,
+    close: 49_325.24,
+    volume: 1,
+  });
+
+  assert.equal(corruptedBtc, null);
+
+  const good = makeCandle(t1001, {
+    open: 81_237.42,
+    high: 81_238.7,
+    low: 81_217.59,
+    close: 81_222.95,
+  });
+  const sanitized = sanitizeCandlesForChart([
+    {
+      time: t1000,
+      open: 49_131.11,
+      high: 81_238.7,
+      low: 48_984.54,
+      close: 49_325.24,
+      volume: 1,
+    },
+    good,
+  ]);
+
+  assert.deepEqual(sanitized, [good]);
+});
+
+test('same timestamp candles from different price regimes do not merge into a synthetic wick', () => {
+  const deduped = sortAndDedupeCandles([
+    makeCandle(t1000, {
+      open: 49_131.11,
+      high: 49_340,
+      low: 48_984.54,
+      close: 49_325.24,
+    }),
+    makeCandle(t1000, {
+      open: 81_237.42,
+      high: 81_238.7,
+      low: 81_217.59,
+      close: 81_222.95,
+    }),
+  ]);
+
+  assert.deepEqual(deduped, [
+    {
+      time: t1000,
+      open: 81_237.42,
+      high: 81_238.7,
+      low: 81_217.59,
+      close: 81_222.95,
+      volume: 10,
+    },
+  ]);
+});
+
+test('chart sanitizer keeps all structurally valid history candles across price-regime breaks', () => {
+  const staleHistory = [
+    makeCandle(t1000, {
+      open: 49_100,
+      high: 49_250,
+      low: 49_000,
+      close: 49_200,
+    }),
+    makeCandle(t1001, {
+      open: 49_200,
+      high: 49_340,
+      low: 49_150,
+      close: 49_325,
+    }),
+  ];
+  const currentBackend = makeCandle(t1002, {
+    open: 81_237.42,
+    high: 81_238.7,
+    low: 81_217.59,
+    close: 81_222.95,
+  });
+
+  const sanitized = sanitizeCandlesForChart([...staleHistory, currentBackend], { timeframe: 'M1' });
+
+  assert.deepEqual(sanitized, [...staleHistory, currentBackend]);
+});
+
+test('isolated structurally valid outlier candle is trimmed between coherent neighbors', () => {
+  const before = makeCandle(t1000, {
+    open: 80_300,
+    high: 80_350,
+    low: 80_250,
+    close: 80_320,
+  });
+  const outlier = makeCandle(t1001, {
+    open: 49_100,
+    high: 49_250,
+    low: 49_000,
+    close: 49_200,
+  });
+  const after = makeCandle(t1002, {
+    open: 80_330,
+    high: 80_380,
+    low: 80_310,
+    close: 80_360,
+  });
+
+  const sanitized = sanitizeCandlesForChart([before, outlier, after], { timeframe: 'M1' });
+
+  assert.deepEqual(sanitized, [before, after]);
+});
+
+test('short isolated outlier runs are trimmed without filling missing candles', () => {
+  const before = makeCandle(t1000, {
+    open: 80_300,
+    high: 80_350,
+    low: 80_250,
+    close: 80_320,
+  });
+  const outlierOne = makeCandle(t1001, {
+    open: 49_100,
+    high: 49_250,
+    low: 49_000,
+    close: 49_200,
+  });
+  const outlierTwo = makeCandle(t1002, {
+    open: 49_220,
+    high: 49_260,
+    low: 49_100,
+    close: 49_180,
+  });
+  const after = makeCandle(secondsUtc(2024, 3, 22, 10, 3, 0), {
+    open: 80_330,
+    high: 80_380,
+    low: 80_310,
+    close: 80_360,
+  });
+
+  const sanitized = sanitizeCandlesForChart([before, outlierOne, outlierTwo, after], { timeframe: 'M1' });
+
+  assert.deepEqual(sanitized, [before, after]);
+});
+
 test('rapid timeframe sequence M1 -> M5 -> M15 produces deterministic buckets per timeframe', () => {
   const ts = secondsUtc(2024, 3, 22, 10, 7, 30);
   // M1 bucket of 10:07:30 is 10:07:00; M5 bucket is 10:05:00; M15 bucket is 10:00:00.
@@ -112,8 +256,8 @@ test('symbol quick-switch A -> B -> A keeps each series isolated by symbol cutof
   const symbolB = buildContiguousHistory(t1000, 5, 'M1', () => ({ close: 2.2 }));
 
   // Materializing each independently must yield distinct close prices.
-  const visibleA = buildFreshHistoryLiveCandleSeries(symbolA, []);
-  const visibleB = buildFreshHistoryLiveCandleSeries(symbolB, []);
+  const visibleA = buildFreshHistoryLiveCandleSeries(symbolA, [], 'M1');
+  const visibleB = buildFreshHistoryLiveCandleSeries(symbolB, [], 'M1');
 
   assert.equal(visibleA.length, 5);
   assert.equal(visibleB.length, 5);
@@ -145,7 +289,7 @@ test('duplicate stream replay 100x stays idempotent', () => {
   });
 });
 
-test('latest live snapshot wins close while same-bucket merge preserves open and wicks', () => {
+test('latest live snapshot wins same-bucket OHLC and volume', () => {
   const map = createCandleMap();
   const t = t1001;
 
@@ -175,7 +319,7 @@ test('latest live snapshot wins close while same-bucket merge preserves open and
     high: 105,
     low: 98,
     close: 101,
-    volume: 15,
+    volume: 9,
   });
 });
 
@@ -192,12 +336,12 @@ test('large 10000 candle history merges with one live candle without duplicating
   ];
 
   // Without limit: merge keeps every history candle plus the one live candle.
-  const visibleAll = buildFreshHistoryLiveCandleSeries(history, live);
+  const visibleAll = buildFreshHistoryLiveCandleSeries(history, live, 'M1');
   assert.equal(visibleAll.length, 10_001);
   assert.equal(visibleAll[visibleAll.length - 1].time, startTime + 10_000 * 60);
 
   // With explicit limit: caps to most-recent N candles.
-  const visibleCapped = buildFreshHistoryLiveCandleSeries(history, live, 2500);
+  const visibleCapped = buildFreshHistoryLiveCandleSeries(history, live, 'M1', 2500);
   assert.equal(visibleCapped.length, 2500);
   assert.equal(visibleCapped[visibleCapped.length - 1].time, startTime + 10_000 * 60);
 });
@@ -217,7 +361,7 @@ test('history reload with overlapping latest bucket merges into one candle (no d
     ...initial,
     makeTrustedHistoryCandle(start + 5 * 60, { open: 1.2, high: 1.25, low: 1.18, close: 1.22 }),
   ];
-  visible = buildFreshHistoryLiveCandleSeries(reloaded, []);
+  visible = buildFreshHistoryLiveCandleSeries(reloaded, [], 'M1');
   assert.equal(visible.length, 6);
   assertNoDuplicateCandleTimes(visible);
   assertValidCandleSeries(visible);
@@ -272,8 +416,8 @@ test('history candle for one symbol cannot leak into a different symbols stream 
   const eurUsdHistory = buildContiguousHistory(t1000, 3, 'M1', () => ({ close: 1.1 }));
   const btcUsdHistory = buildContiguousHistory(t1000, 3, 'M1', () => ({ close: 60_000 }));
 
-  const eurVisible = buildFreshHistoryLiveCandleSeries(eurUsdHistory, []);
-  const btcVisible = buildFreshHistoryLiveCandleSeries(btcUsdHistory, []);
+  const eurVisible = buildFreshHistoryLiveCandleSeries(eurUsdHistory, [], 'M1');
+  const btcVisible = buildFreshHistoryLiveCandleSeries(btcUsdHistory, [], 'M1');
 
   assert.notDeepEqual(eurVisible, btcVisible);
   assert.equal(eurVisible.every((c) => c.close === 1.1), true);
@@ -361,7 +505,7 @@ test('backend live candle for a missing bucket above tail keeps subsequent live 
     high: 105,
     low: 99,
     close: 104,
-    volume: 20,
+    volume: 10,
   });
 });
 

@@ -8,13 +8,12 @@
  *
  * `applyQuoteTickExtensionToCandleMap` is the pure helper the engine wraps:
  *
- *   - Updates only an EXISTING bucket (live map or REST current candle whose
- *     time matches the active bucket).
- *   - Never invents a new bucket. If neither matches, returns `ignored=true`.
+ *   - Updates an existing backend-opened bucket when present.
+ *   - Opens only the next contiguous bucket from the latest real candle when
+ *     the quote feed is ahead of the candle socket.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
  *   - Subsequent backend `applyLiveCandleToCandleMap` calls own the latest
- *     close while the merged bucket preserves wick extremes already observed
- *     from valid live feed ticks.
+ *     close and OHLC geometry, correcting quote-expanded temporary wicks.
  */
 
 import assert from 'node:assert/strict';
@@ -114,7 +113,7 @@ test('quote tick falls back to seeding from REST current candle when no live can
   assert.equal(active.low, 1.103);
 });
 
-test('quote tick is dropped when no backend candle exists at the active bucket (no fake candle invented)', () => {
+test('quote tick opens the next contiguous live bucket from the previous real close', () => {
   const map = createCandleMap([makeTrustedHistoryCandle(t1000, { close: 1.105 })]);
 
   const result = applyQuoteTickExtensionToCandleMap(
@@ -124,14 +123,21 @@ test('quote tick is dropped when no backend candle exists at the active bucket (
     { historyCutoffTime: t1000 },
   );
 
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, 'no_active_backend_candle');
-  // Series unchanged: only the closed history candle remains.
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true);
   const candles = materializeCandleMap(map);
-  assert.deepEqual(candles.map((c) => c.time), [t1000]);
+  assert.deepEqual(candles.map((c) => c.time), [t1000, t1001]);
+  assert.deepEqual(candles[1], {
+    time: t1001,
+    open: 1.105,
+    high: 1.115,
+    low: 1.105,
+    close: 1.115,
+    volume: 0,
+  });
 });
 
-test('backend live candle snapshot updates close while preserving quote-observed wick extremes', () => {
+test('backend live candle snapshot overwrites quote-observed wick extremes', () => {
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -152,12 +158,35 @@ test('backend live candle snapshot updates close while preserving quote-observed
 
   const candles = materializeCandleMap(map);
   const active = candles[candles.length - 1];
-  // Backend wins for close, while valid quote-observed high remains as wick.
+  // Backend snapshots are authoritative and correct quote-expanded geometry.
   assert.equal(active.time, t1001);
   assert.equal(active.open, 1.105);
-  assert.equal(active.high, 1.112);
+  assert.equal(active.high, 1.108);
   assert.equal(active.low, 1.103);
   assert.equal(active.close, 1.107);
+});
+
+test('quote tick does not seed from stale same-bucket REST geometry far away from live price', () => {
+  const map = createCandleMap();
+  const staleRestCurrent = {
+    time: t1001,
+    open: 48_050,
+    high: 48_250,
+    low: 47_900,
+    close: 48_100,
+    volume: 0,
+  };
+
+  const result = applyQuoteTickExtensionToCandleMap(
+    map,
+    { price: 81_224.54, time: t1001 + 25 },
+    'M1',
+    { historyCutoffTime: t1000, latestHistoryCandle: staleRestCurrent },
+  );
+
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, 'stale_history_seed');
+  assert.deepEqual(materializeCandleMap(map), []);
 });
 
 test('quote tick for a closed history bucket is rejected (closed history is immutable)', () => {
@@ -280,9 +309,9 @@ test('quote tick preserves wick high once widened — subsequent lower ticks do 
   assert.equal(active.close, 1.10);
 });
 
-test('quote tick reaching a future bucket above the live tail extends nothing without a backend bucket', () => {
+test('quote tick reaching the next live-tail bucket keeps visible candles generating', () => {
   // History up to t1000. Live has t1001 as the active bucket. Tick lands in
-  // t1002 (no backend candle yet). Must NOT fabricate t1002.
+  // t1002 before the backend candle socket emits that bucket.
   const map = createCandleMap([makeTrustedHistoryCandle(t1000, { close: 1.105 })]);
   applyLiveCandleToCandleMap(
     map,
@@ -298,17 +327,37 @@ test('quote tick reaching a future bucket above the live tail extends nothing wi
     { historyCutoffTime: t1000 },
   );
 
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, 'no_active_backend_candle');
+  assert.equal(result.ignored, false);
   const candles = materializeCandleMap(map);
-  // Series stays at [t1000, t1001] — no fabricated t1002.
-  assert.deepEqual(candles.map((c) => c.time), [t1000, t1001]);
+  assert.deepEqual(candles.map((c) => c.time), [t1000, t1001, t1002]);
+  assert.deepEqual(candles[2], {
+    time: t1002,
+    open: 1.106,
+    high: 1.11,
+    low: 1.106,
+    close: 1.11,
+    volume: 0,
+  });
 });
 
-test('quote tick across multiple subsequent backend snapshots preserves wicks and latest backend close', () => {
+test('quote tick far ahead of the latest bucket waits for backend OHLC instead of backfilling gaps', () => {
+  const map = createCandleMap([makeTrustedHistoryCandle(t1000, { close: 1.105 })]);
+
+  const result = applyQuoteTickExtensionToCandleMap(
+    map,
+    { price: 1.11, time: t1002 + 5 },
+    'M1',
+    { historyCutoffTime: t1000 },
+  );
+
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, 'no_active_backend_candle');
+  assert.deepEqual(materializeCandleMap(map).map((c) => c.time), [t1000]);
+});
+
+test('quote tick across multiple subsequent backend snapshots keeps latest backend geometry', () => {
   // Simulates the full lifecycle: backend creates a bucket, ticks extend close,
-  // backend snapshots update close, and wicks are merged from all valid live
-  // feed inputs.
+  // and later backend snapshots correct the temporary quote-expanded geometry.
   const map = createCandleMap();
   applyLiveCandleToCandleMap(
     map,
@@ -319,7 +368,7 @@ test('quote tick across multiple subsequent backend snapshots preserves wicks an
   applyQuoteTickExtensionToCandleMap(map, { price: 1.5, time: t1001 + 5 }, 'M1');
   applyQuoteTickExtensionToCandleMap(map, { price: 0.5, time: t1001 + 10 }, 'M1');
 
-  // Backend snapshot 2: updates close but does not shrink observed wicks.
+  // Backend snapshot 2: updates close and corrects quote-observed wicks.
   applyLiveCandleToCandleMap(
     map,
     makeBackendLiveCandle(t1001, { open: 1.0, high: 1.05, low: 0.95, close: 1.02 }),
@@ -328,8 +377,8 @@ test('quote tick across multiple subsequent backend snapshots preserves wicks an
 
   let candles = materializeCandleMap(map);
   let active = candles[candles.length - 1];
-  assert.equal(active.high, 1.5);
-  assert.equal(active.low, 0.5);
+  assert.equal(active.high, 1.05);
+  assert.equal(active.low, 0.95);
   assert.equal(active.close, 1.02);
 
   // Now ticks again.
@@ -337,10 +386,10 @@ test('quote tick across multiple subsequent backend snapshots preserves wicks an
   candles = materializeCandleMap(map);
   active = candles[candles.length - 1];
   assert.equal(active.close, 1.10);
-  assert.equal(active.high, 1.5);
-  assert.equal(active.low, 0.5);
+  assert.equal(active.high, 1.10);
+  assert.equal(active.low, 0.95);
 
-  // Backend snapshot 3: close moves again, wicks stay preserved.
+  // Backend snapshot 3: close and geometry move again from backend authority.
   applyLiveCandleToCandleMap(
     map,
     makeBackendLiveCandle(t1001, { open: 1.0, high: 1.08, low: 0.98, close: 1.04 }),
@@ -348,7 +397,7 @@ test('quote tick across multiple subsequent backend snapshots preserves wicks an
   );
   candles = materializeCandleMap(map);
   active = candles[candles.length - 1];
-  assert.equal(active.high, 1.5);
-  assert.equal(active.low, 0.5);
+  assert.equal(active.high, 1.08);
+  assert.equal(active.low, 0.98);
   assert.equal(active.close, 1.04);
 });

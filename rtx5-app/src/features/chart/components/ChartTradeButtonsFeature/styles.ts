@@ -20,7 +20,7 @@ export const baseStyles = StyleSheet.create({
     flexDirection: 'row', direction: 'ltr', alignItems: 'stretch',
     marginBottom: 0, gap: 6, paddingLeft: 0, paddingRight: 0,
     paddingVertical: 0,
-    borderTopWidth: 0, borderBottomWidth: 1, borderColor: '#9E9E9E',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#9E9E9E',
   },
   actionButtonSlot: { flex: 1, minWidth: 0, alignItems: 'stretch', marginVertical: -1 },
   actionBtn: {

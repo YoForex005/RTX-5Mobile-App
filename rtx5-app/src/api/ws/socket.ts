@@ -4,6 +4,7 @@
 
 import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
+import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
@@ -167,12 +168,19 @@ export class WebSocketService {
     if (type === 'channel_message') {
       // 1. Live Prices
       if (channel === 'prices' || channel.startsWith('quotes.')) {
-        if (data.symbol && data.bid && data.ask) {
-          store.setQuote(data.symbol, { 
-            bid: data.bid, 
-            ask: data.ask,
-            lastTickAt: data.lastTickAt ?? data.timestamp ?? data.time ?? data.t,
+        const bid = typeof data?.bid === 'number' ? data.bid : Number(data?.bid);
+        const ask = typeof data?.ask === 'number' ? data.ask : Number(data?.ask);
+        if (data?.symbol && Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
+          const tickTime = data.lastTickAt ?? data.timestamp ?? data.time ?? data.t ?? Date.now();
+          store.setQuote(data.symbol, {
+            bid,
+            ask,
+            lastTickAt: tickTime,
             lastReceivedAt: Date.now(),
+          });
+          liveCandleStream.extendActiveCandlesFromQuoteTick(data.symbol, {
+            price: bid,
+            time: tickTime,
           });
         }
       }

@@ -155,7 +155,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return;
     }
 
-    const safeCandles = sanitizeCandlesForChart(candles).slice(-MAX_CANDLE_SERIES_LENGTH);
+    const safeCandles = sanitizeCandlesForChart(candles, { timeframe: entry.timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
     if (safeCandles.length === 0 || isSameSeries(entry.candles, safeCandles)) {
       return;
     }
@@ -183,11 +183,23 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     }
 
     const normalizedSymbol = normalizeSymbol(candle.symbol ?? symbol ?? '');
-    const normalizedTimeframe =
+    let normalizedTimeframe =
       normalizeTimeframeStrict(candle.timeframe) ??
       normalizeTimeframeStrict(timeframe);
-    if (!normalizedSymbol || !normalizedTimeframe) {
+    if (!normalizedSymbol) {
       return;
+    }
+    if (!normalizedTimeframe) {
+      const candidates = Array.from(this.entries.values()).filter((entry) => entry.symbol === normalizedSymbol);
+      if (candidates.length !== 1) {
+        logDebug('live_candle_ignored', {
+          symbol: normalizedSymbol,
+          reason: 'missing_timeframe_context',
+          activeTimeframes: candidates.map((entry) => entry.timeframe),
+        });
+        return;
+      }
+      normalizedTimeframe = candidates[0].timeframe;
     }
 
     const entry = this.entries.get(this.getKey(normalizedSymbol, normalizedTimeframe));
@@ -200,8 +212,10 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
   /**
    * Extend the active candle of every (symbol, *) subscription using a single
-   * real-time price tick from the quote feed. STRICT extension contract:
-   *   - Only updates an existing bucket created by backend, never invents one.
+   * real-time price tick from the quote feed.
+   *   - Updates an existing backend bucket when one is present.
+   *   - Opens only the next contiguous active bucket from the last real
+   *     backend candle/quote-built live candle, never backfills gaps.
    *   - Never modifies closed history (gated by `historyLastTime`).
    *   - Backend `live_candle` snapshots fully overwrite the bucket's OHLC, so
    *     backend remains authoritative on every snapshot.
@@ -305,12 +319,13 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       entry.timeframe,
       MAX_CANDLE_SERIES_LENGTH,
     );
-    const nextParams = toCandleParams(nextCandles);
+    const safeNextCandles = sanitizeCandlesForChart(nextCandles, { timeframe: entry.timeframe });
+    const nextParams = toCandleParams(safeNextCandles);
     entry.loading = entry.historyLoading;
     entry.isLiveConnected = true;
     entry.lastUpdateTime = Date.now();
 
-    candleMemoryCache.set(entry.symbol, entry.timeframe, nextCandles);
+    candleMemoryCache.set(entry.symbol, entry.timeframe, safeNextCandles);
 
     if (isSameSeries(entry.candles, nextParams)) {
       return;
@@ -331,7 +346,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     const cache = candleMemoryCache.get(symbol, timeframe);
     const storeCache = cache.length > 0 ? cache : getStoreCache(symbol, timeframe);
-    const safeCache = sanitizeCandlesForChart(storeCache).slice(-MAX_CANDLE_SERIES_LENGTH);
+    const safeCache = sanitizeCandlesForChart(storeCache, { timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
     const entry: StreamEntry = {
       key,
       symbol,

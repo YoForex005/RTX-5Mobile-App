@@ -57,7 +57,11 @@ import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { normalizeSymbol } from '../../domain/symbols';
 import { hasFreshLiveQuote } from './liveQuoteSnapshot';
-import { buildDefaultQuoteWatchlist, DEFAULT_QUOTE_WATCHLIST } from './quoteWatchlistDefaults';
+import {
+  buildDefaultQuoteWatchlist,
+  DEFAULT_QUOTE_WATCHLIST,
+  resolveQuoteFeedSymbols,
+} from './quoteWatchlistDefaults';
 import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
 
 /* ───── Symbol Display Names ───── */
@@ -496,7 +500,7 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {t('Vol')} <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
+              {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
             </Text>
 
             <Text
@@ -504,7 +508,7 @@ const QuoteCard = React.memo(function QuoteCard({
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {t('Spread')}{' '}
+              {t('Spread')}:{' '}
               <Text style={[sc.statValue, { color: T.text }]}>
                 {(item.spread || 0).toFixed(1)}
               </Text>
@@ -993,7 +997,11 @@ export function QuotesScreen() {
   // nested focus value: React Navigation can briefly report false during tab
   // transitions and pushed quote sub-screens, which leaves the visible Quotes
   // list mounted but unsubscribed.
-  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteSymbols, true);
+  const quoteFeedSymbols = useMemo(
+    () => resolveQuoteFeedSymbols(quoteSymbols, apiSymbols),
+    [quoteSymbols, apiSymbols],
+  );
+  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteFeedSymbols, true);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');

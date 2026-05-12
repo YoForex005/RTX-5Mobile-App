@@ -23,7 +23,7 @@ export function JournalTabs({ activeTab, setActiveTab, isDark }: JournalTabsProp
           >
             {isActive && (
               <LinearGradient
-                colors={isDark ? ['#F59E0B', '#D97706'] : ['#F59E0B', '#B45309']}
+                colors={isDark ? ['#007ACC', '#005999'] : ['#007ACC', '#005999']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={[StyleSheet.absoluteFillObject, { borderRadius: 10 }]}
               />

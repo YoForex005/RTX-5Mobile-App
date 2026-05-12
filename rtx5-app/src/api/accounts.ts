@@ -6,28 +6,33 @@
  */
 
 import { apiClient } from './apiClient';
+import { mapRawAccount, type TradingAccount, type TradingAccountRaw } from './accountsMapper';
+import { ACCOUNTS_LIST_PATH, buildAccountDetailPath } from './accountsRoutes';
+
+export { mapRawAccount };
+export type { TradingAccount, TradingAccountRaw };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Accounts API — https://backend.orrnn.com/api/v2/accounts
 //
 // Endpoints integrated:
-//   GET /accounts         — List all trading accounts for the authenticated user
-//   GET /accounts/{login}  — Get details of a specific account by login number
+//   GET /accounts        — List all trading accounts for the authenticated user
+//   GET /account/{login} — Get details of a specific account by login number
 //
 // Authentication:
 //   Requires Bearer token (JWT). Returns 401 if no token provided.
 //   Token injection and 401 refresh are handled automatically by apiClient.
 //
 // Response format:
-//   GET /accounts         → flat JSON array: [ { login, name, ... }, ... ]
-//   GET /accounts/{login} → single JSON object: { login, name, ... }
+//   GET /accounts        → flat JSON array: [ { login, name, ... }, ... ]
+//   GET /account/{login} → single JSON object: { login, name, ... }
 //   Note: single-account response may omit open_positions field.
 //
 // Error responses handled:
 //   200 — Success
 //   401 — Unauthorized (handled by apiClient token refresh cycle)
 //   403 — Forbidden (insufficient permissions)
-//   404 — Account not found (GET /accounts/{login} only)
+//   404 — Account not found (GET /account/{login} only)
 //   422 — Validation error
 //   500 — Internal server error
 //   503 — Service unavailable (backend down or maintenance)
@@ -48,88 +53,6 @@ export class AccountsApiError extends Error {
     this.name = 'AccountsApiError';
     this.statusCode = statusCode;
   }
-}
-
-// ─── Response Types ─────────────────────────────────────────────────────────────
-
-/**
- * Single trading account as returned by the API (snake_case).
- * Used by both GET /accounts (list) and GET /accounts/{login} (detail).
- *
- * Note: open_positions is present in the list response but may be
- * absent in the single-account detail response.
- *
- * Verified against live responses on 2026-03-18.
- */
-export interface TradingAccountRaw {
-  login: number;
-  name: string;
-  group: string;
-  currency: string;
-  leverage: number;
-  balance: number;
-  credit: number;
-  equity: number;
-  used_margin: number;
-  free_margin: number;
-  margin_level: number;
-  floating_pnl: number;
-  total_swap: number;
-  open_positions?: number;         // Present in list, may be absent in detail
-  status: string;                  // e.g. "active"
-  created_at: number;              // Unix timestamp (seconds)
-  updated_at: number;              // Unix timestamp (seconds)
-}
-
-/**
- * Normalized trading account for UI consumption (camelCase).
- * Maps from the raw API snake_case to idiomatic TypeScript.
- */
-export interface TradingAccount {
-  login: number;
-  name: string;
-  group: string;
-  currency: string;
-  leverage: number;
-  balance: number;
-  credit: number;
-  equity: number;
-  usedMargin: number;
-  freeMargin: number;
-  marginLevel: number;
-  floatingPnl: number;
-  totalSwap: number;
-  openPositions: number;
-  status: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ─── Mapping ────────────────────────────────────────────────────────────────────
-
-/**
- * Maps a single raw API account (snake_case) to the UI-friendly shape (camelCase).
- */
-export function mapRawAccount(raw: TradingAccountRaw): TradingAccount {
-  return {
-    login: raw.login,
-    name: raw.name || `Account ${raw.login}`,
-    group: raw.group || 'standard',
-    currency: raw.currency || 'USD',
-    leverage: raw.leverage ?? 0,
-    balance: raw.balance ?? 0,
-    credit: raw.credit ?? 0,
-    equity: raw.equity ?? 0,
-    usedMargin: raw.used_margin ?? 0,
-    freeMargin: raw.free_margin ?? 0,
-    marginLevel: raw.margin_level ?? 0,
-    floatingPnl: raw.floating_pnl ?? 0,
-    totalSwap: raw.total_swap ?? 0,
-    openPositions: raw.open_positions ?? 0,
-    status: raw.status || 'active',
-    createdAt: raw.created_at,
-    updatedAt: raw.updated_at,
-  };
 }
 
 // ─── Status-specific error messages ─────────────────────────────────────────────
@@ -168,7 +91,7 @@ export async function getAccounts(): Promise<TradingAccount[]> {
   let response: Response;
 
   try {
-    response = await apiClient('/accounts');
+    response = await apiClient(ACCOUNTS_LIST_PATH);
   } catch (networkError) {
     // Network-level failures (DNS, timeout, connection refused)
     throw new AccountsApiError(
@@ -208,7 +131,7 @@ export async function getAccounts(): Promise<TradingAccount[]> {
 // ─── API Function: Single Account ───────────────────────────────────────────────
 
 /**
- * GET /accounts/{login}
+ * GET /account/{login}
  *
  * Fetches details for a specific trading account by login number.
  * Uses apiClient for automatic Bearer token injection and 401 refresh handling.
@@ -229,7 +152,7 @@ export async function getAccountById(login: number): Promise<TradingAccount> {
   let response: Response;
 
   try {
-    response = await apiClient(`/accounts/${login}`);
+    response = await apiClient(buildAccountDetailPath(login));
   } catch (networkError) {
     // Network-level failures (DNS, timeout, connection refused)
     throw new AccountsApiError(

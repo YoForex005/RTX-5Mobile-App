@@ -10,6 +10,11 @@
  * service.
  */
 import { liveCandleStream } from '../../../domain/candles/stream/liveCandleStream';
+import {
+  extractCandlePayloadContext,
+  getCandlePayloadItems,
+  hasBackendCandleShape,
+} from '../../../domain/candles/ws/candlesSocketProtocol';
 import { normalizeQuoteTickPayload } from '../quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
@@ -20,6 +25,128 @@ export interface TickProcessorBridge {
   emitSymbolTick(symbol: string, tick: QuoteTickEvent): void;
   logCandleFeed(event: string, details?: Record<string, unknown>, limit?: number): void;
 }
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const pickString = (record: Record<string, unknown> | null, keys: readonly string[]): string | null => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+};
+
+const hasNestedCandleEnvelope = (record: Record<string, unknown>): boolean => {
+  const data = asRecord(record.data);
+  const payload = asRecord(record.payload);
+  const result = asRecord(record.result);
+  return Boolean(
+    record.candle ||
+    record.bar ||
+    data?.candle ||
+    data?.bar ||
+    payload?.candle ||
+    payload?.bar ||
+    result?.candle ||
+    result?.bar,
+  );
+};
+
+const isExplicitCandlePayload = (payload: unknown): boolean => {
+  const record = asRecord(payload);
+  if (!record) {
+    return false;
+  }
+
+  const channel = pickString(record, ['channel', 'topic', 'stream']);
+  if (channel && /(?:^|[.:/])candles?(?:[.:/]|$)/i.test(channel)) {
+    return true;
+  }
+
+  if (hasNestedCandleEnvelope(record)) {
+    return true;
+  }
+
+  const type = pickString(record, ['type', 'event', 'name']);
+  return Boolean(
+    type &&
+    /^(?:update|candle|bar|ohlc|candle\.update|candles\.update)$/i.test(type) &&
+    hasBackendCandleShape(record),
+  );
+};
+
+const mergeCandleEnvelopeContext = (
+  payload: unknown,
+  item: unknown,
+  symbol: string | null,
+  tf: string | null,
+): unknown => {
+  const itemRecord = asRecord(item);
+  if (!itemRecord) {
+    return item;
+  }
+
+  const payloadRecord = asRecord(payload);
+  return {
+    ...(payloadRecord?.time === undefined ? {} : { time: payloadRecord.time }),
+    ...(payloadRecord?.timestamp === undefined ? {} : { timestamp: payloadRecord.timestamp }),
+    ...(payloadRecord?.t === undefined ? {} : { t: payloadRecord.t }),
+    ...(payloadRecord?.serverTime === undefined ? {} : { serverTime: payloadRecord.serverTime }),
+    ...(payloadRecord?.server_time === undefined ? {} : { server_time: payloadRecord.server_time }),
+    ...itemRecord,
+    ...(symbol ? { symbol } : {}),
+    ...(tf ? { timeframe: tf } : {}),
+  };
+};
+
+const routeBackendCandleUpdates = (bridge: TickProcessorBridge, payload: unknown): boolean => {
+  if (Array.isArray(payload)) {
+    let routedAny = false;
+    for (const item of payload) {
+      routedAny = routeBackendCandleUpdates(bridge, item) || routedAny;
+    }
+    return routedAny;
+  }
+  if (!isExplicitCandlePayload(payload)) {
+    return false;
+  }
+
+  const items = getCandlePayloadItems(payload);
+  if (items.length === 0) {
+    return false;
+  }
+
+  const outerContext = extractCandlePayloadContext(payload);
+  let routed = false;
+
+  for (const item of items) {
+    if (!hasBackendCandleShape(item)) {
+      continue;
+    }
+
+    const itemContext = extractCandlePayloadContext(item);
+    const symbol = itemContext.symbol ?? outerContext.symbol;
+    const tf = itemContext.tf ?? outerContext.tf;
+    const routedItem = mergeCandleEnvelopeContext(payload, item, symbol, tf);
+
+    liveCandleStream.ingestLiveCandle(routedItem, symbol ?? undefined, tf ?? undefined);
+    bridge.logCandleFeed('feed_candle_update_routed', {
+      symbol,
+      tf,
+    }, 20);
+    routed = true;
+  }
+
+  return routed;
+};
 
 export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   const receivedAt = Date.now();
@@ -92,13 +219,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
   bridge.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
-  // Extend the chart's active candle so its close (and wick high/low) keep
-  // ticking in real time even when the backend candle channel is quiet
-  // between authoritative snapshots. The engine guards this strictly:
-  //   - Only updates an EXISTING bucket created by backend.
-  //   - Never invents a new bucket / closed-history candle.
-  //   - Backend live_candle snapshots fully overwrite the bucket on arrival,
-  //     preserving backend authority on every snapshot.
+  // Extend the chart's already-open active candle so its close (and wick
+  // high/low) keep ticking in real time between authoritative snapshots. This
+  // does not create a new candle from quote-only data; backend OHLC `update`
+  // messages routed above must open the bucket first.
   // We pick `bid` as the price source (matches the configured candle price
   // basis); falling back to `ask` if `bid` is somehow missing.
   const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)
@@ -149,7 +273,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
 };
 
 export const processIncomingPayload = (bridge: TickProcessorBridge, payload: any): boolean => {
-  let hasUpdates = false;
+  let hasUpdates = routeBackendCandleUpdates(bridge, payload);
   const applyCandidate = (candidate: unknown) => {
     if (processTick(bridge, candidate)) hasUpdates = true;
   };

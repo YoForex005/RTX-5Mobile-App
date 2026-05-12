@@ -56,7 +56,7 @@ const normalizeCacheKey = (symbol: string, timeframe: string) => {
 
 /** Ensures a restored array of candles fits within safe memory limits. */
 const sanitizeCandles = (candles: Candle[], timeframe: string): Candle[] =>
-  sanitizeCandlesForChart(candles).slice(-MAX_CANDLE_SERIES_LENGTH);
+  sanitizeCandlesForChart(candles, { timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
 
 /** 
  * Enforces a maximum number of cached chart series on disk. 
