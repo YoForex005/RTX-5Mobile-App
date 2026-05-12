@@ -1345,7 +1345,7 @@ export const CH_HTML = `
             typeof time.month === 'number' &&
             typeof time.day === 'number'
           ) {
-            return new Date(time.year, time.month - 1, time.day);
+            return new Date(Date.UTC(time.year, time.month - 1, time.day));
           }
 
           if (
@@ -1355,7 +1355,7 @@ export const CH_HTML = `
             typeof time.businessDay.month === 'number' &&
             typeof time.businessDay.day === 'number'
           ) {
-            return new Date(time.businessDay.year, time.businessDay.month - 1, time.businessDay.day);
+            return new Date(Date.UTC(time.businessDay.year, time.businessDay.month - 1, time.businessDay.day));
           }
         }
 
@@ -1371,10 +1371,10 @@ export const CH_HTML = `
           }
 
           var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          var day = String(date.getDate()).padStart(2, '0');
-          var month = months[date.getMonth()] || '';
-          var hours = String(date.getHours()).padStart(2, '0');
-          var minutes = String(date.getMinutes()).padStart(2, '0');
+          var day = String(date.getUTCDate()).padStart(2, '0');
+          var month = months[date.getUTCMonth()] || '';
+          var hours = String(date.getUTCHours()).padStart(2, '0');
+          var minutes = String(date.getUTCMinutes()).padStart(2, '0');
 
           if (tickMarkType === 3 || tickMarkType === 4) {
             return day + ' ' + month + ' ' + hours + ':' + minutes;
@@ -1385,11 +1385,11 @@ export const CH_HTML = `
           }
 
           if (tickMarkType === 1) {
-            return month + ' ' + String(date.getFullYear());
+            return month + ' ' + String(date.getUTCFullYear());
           }
 
           if (tickMarkType === 0) {
-            return String(date.getFullYear());
+            return String(date.getUTCFullYear());
           }
 
           return day + ' ' + month;
@@ -1526,10 +1526,10 @@ export const CH_HTML = `
             var date = resolveTickDate(resolveSource);
             if (!date || !isFinite(date.getTime())) return '';
             var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var d = String(date.getDate()).padStart(2, '0');
-            var m = months[date.getMonth()] || '';
-            var hh = String(date.getHours()).padStart(2, '0');
-            var mm = String(date.getMinutes()).padStart(2, '0');
+            var d = String(date.getUTCDate()).padStart(2, '0');
+            var m = months[date.getUTCMonth()] || '';
+            var hh = String(date.getUTCHours()).padStart(2, '0');
+            var mm = String(date.getUTCMinutes()).padStart(2, '0');
             return d + ' ' + m + ' ' + hh + ':' + mm;
           } catch (_e) {
             return '';

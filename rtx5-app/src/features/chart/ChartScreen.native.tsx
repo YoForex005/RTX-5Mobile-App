@@ -4501,6 +4501,7 @@ export function ChartScreen() {
                         bidColor="#2563EB"
                         askColor="#EF4444"
                         height={286}
+                        isDark={isDark}
                       />
                     </View>
                   </ScrollView>

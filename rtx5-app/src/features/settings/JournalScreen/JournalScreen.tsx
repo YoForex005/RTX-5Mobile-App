@@ -138,9 +138,9 @@ export function JournalScreen() {
           </>
         )}
 
-        {activeTab === 'Analytics' && <AnalyticsTab isDark={isDark} />}
+        {activeTab === 'Analytics' && <AnalyticsTab isDark={isDark} trades={trades} />}
         
-        {activeTab === 'Review' && <ReviewTab isDark={isDark} />}
+        {activeTab === 'Review' && <ReviewTab isDark={isDark} trades={trades} />}
 
       </ScrollView>
 

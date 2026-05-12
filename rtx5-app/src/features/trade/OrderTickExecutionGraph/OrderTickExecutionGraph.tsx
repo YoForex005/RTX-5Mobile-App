@@ -34,8 +34,15 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
   bidColor = '#2563EB',
   askColor = '#E53935',
   priceDecimals = 5,
+  isDark = false,
 }: OrderTickExecutionGraphProps) {
   const [layoutWidth, setLayoutWidth] = useState(0);
+  // Keep the embedded execution graph visually attached to the parent order
+  // sheet. Without these theme-aware drawing colors, dark mode still showed a
+  // light graph card at the bottom of the SL/TP flow.
+  const surfaceColor = isDark ? '#080B11' : '#FFFFFF';
+  const gridColor = isDark ? 'rgba(148,163,184,0.2)' : '#D3D8E0';
+  const labelColor = isDark ? '#94A3B8' : '#7B8794';
 
   const visibleTicks = useMemo(() => {
     const nextTicks = ticks.filter(isValidTickPoint).slice(-120);
@@ -153,7 +160,7 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
   };
 
   return (
-    <View style={[styles.card, { height }]} onLayout={handleLayout}>
+    <View style={[styles.card, { height, backgroundColor: surfaceColor }]} onLayout={handleLayout}>
       {layoutWidth > 0 ? (
         <Svg width={layoutWidth} height={height}>
           {priceLevels.map((priceLevel, index) => {
@@ -162,7 +169,7 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
               <Line
                 key={`grid-${index}`}
                 x1={plotLeft} y1={y} x2={plotRight} y2={y}
-                stroke="#D3D8E0" strokeDasharray="4 4" strokeWidth="1"
+                stroke={gridColor} strokeDasharray="4 4" strokeWidth="1"
               />
             );
           })}
@@ -184,7 +191,7 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
             <SvgText
               key={`label-${index}`}
               x={priceLabelX} y={yForPrice(priceLevel) + 4}
-              fill="#7B8794" fontSize="10" fontWeight="500" textAnchor="end"
+              fill={labelColor} fontSize="10" fontWeight="500" textAnchor="end"
             >
               {priceLevel.toFixed(priceDecimals)}
             </SvgText>
@@ -192,11 +199,11 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
 
           <Line
             x1={plotLeft} y1={graphBottomGuideY} x2={plotRight} y2={graphBottomGuideY}
-            stroke="#D3D8E0" strokeDasharray="4 4" strokeWidth="1"
+            stroke={gridColor} strokeDasharray="4 4" strokeWidth="1"
           />
           <SvgText
             x={priceLabelX} y={graphBottomGuideY + 4}
-            fill="#7B8794" fontSize="10" fontWeight="500" textAnchor="end"
+            fill={labelColor} fontSize="10" fontWeight="500" textAnchor="end"
           >
             {bottomGuidePriceLevel.toFixed(priceDecimals)}
           </SvgText>
@@ -240,6 +247,7 @@ export function LiveOrderTickExecutionGraph(props: LiveOrderTickExecutionGraphPr
       bidColor={props.bidColor}
       askColor={props.askColor}
       priceDecimals={props.priceDecimals}
+      isDark={props.isDark}
     />
   );
 }

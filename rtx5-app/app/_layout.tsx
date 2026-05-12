@@ -126,6 +126,10 @@ function InnerLayout() {
           <Stack.Screen name='settings/economic-calendar' options={{ headerShown: false }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
           <Stack.Screen name='settings/journal' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/traders-community' options={{ title: t('Traders Community') }} />
+          <Stack.Screen name='settings/mql5-algo-trading' options={{ title: t('MQL5 Algo Trading') }} />
+          <Stack.Screen name='settings/user-guide' options={{ title: t('User Guide') }} />
+          <Stack.Screen name='settings/about' options={{ title: t('About') }} />
         </Stack>
         </ThemeProvider>
       </WebIPhoneFrame>

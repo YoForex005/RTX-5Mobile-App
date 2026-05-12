@@ -60,6 +60,26 @@ const hasEnabledOverlayFeatures = (showOnChart: ChartShowOnChartSettings): boole
   showOnChart.priceAlerts ||
   showOnChart.potentialStopOut;
 
+const getAxisLabelPriceKey = (price: number): string => Number(price).toFixed(8);
+
+const hideDuplicateAxisLabels = (lines: ChartOverlayPriceLine[]): ChartOverlayPriceLine[] => {
+  const visiblePrices = new Set<string>();
+
+  return lines.map((line) => {
+    if (line.axisLabelVisible === false) {
+      return line;
+    }
+
+    const key = getAxisLabelPriceKey(line.price);
+    if (visiblePrices.has(key)) {
+      return { ...line, axisLabelVisible: false };
+    }
+
+    visiblePrices.add(key);
+    return line;
+  });
+};
+
 export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
@@ -196,7 +216,9 @@ export const buildChartOverlayPayload = ({
   }
 
   const result = {
-    priceLines: Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
+    priceLines: hideDuplicateAxisLabels(
+      Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
+    ),
     markers: Array.from(markers.values()).sort((left, right) => left.time - right.time),
   };
 

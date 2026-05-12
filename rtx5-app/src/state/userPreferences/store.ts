@@ -43,7 +43,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       quoteSymbols: defaultSymbols,
       quoteViewMode: 'list',
       chartSymbol: 'GBPUSD',
-      chartTimeframe: 'H1',
+      chartTimeframe: 'M1',
       tradeVolume: DEFAULT_TRADE_VOLUME,
       chartTradeVolumeDisplayMode: 'lots',
       chartVisualType: 'candles',
@@ -320,6 +320,10 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartVisualType: state.chartVisualType ?? 'candles',
           chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
           chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar ?? false,
+          chartTimeframe:
+            typeof state.chartTimeframe === 'string' && state.chartTimeframe.trim().length > 0
+              ? state.chartTimeframe
+              : 'M1',
           tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
           chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode === 'margin' ? 'margin' : 'lots',
           chartColorScheme: state.chartColorScheme ?? 'custom',

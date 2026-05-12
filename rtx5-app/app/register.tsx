@@ -53,12 +53,33 @@ export default function RegisterScreen() {
     isFetching: isDemoGroupsFetching,
     error: demoGroupsError,
     refetch: refetchDemoGroups,
-  } = useOrrnnDemoGroups(isDemoServiceReady);
+  } = useOrrnnDemoGroups();
   const createDemoAccount = useCreateOrrnnDemoAccount();
   const [selectedGroupName, setSelectedGroupName] = useState('');
+  const demoGroupOptions = demoGroups?.groups ?? [];
   const selectedDemoGroup =
-    demoGroups?.groups?.find((group) => group.name === selectedGroupName) ??
-    demoGroups?.groups?.[0];
+    demoGroupOptions.find((group) => group.name === selectedGroupName) ??
+    demoGroupOptions[0];
+  // Cold-start network checks should never hide the form. They only control
+  // whether the final submit is enabled once the live demo contract is ready.
+  const isPreparingDemoAccount =
+    isDemoStatusLoading || (isDemoServiceReady && isDemoGroupsLoading);
+  const isDemoServiceUnavailable = !isDemoStatusLoading && !isDemoServiceReady;
+  const isDemoGroupUnavailable =
+    isDemoServiceReady && !isDemoGroupsLoading && !selectedDemoGroup?.name;
+  const isDemoSetupUnavailable = isDemoServiceUnavailable || isDemoGroupUnavailable;
+  const isRetryingDemoSetup = isDemoServiceUnavailable
+    ? isDemoStatusFetching
+    : isDemoGroupUnavailable
+      ? isDemoGroupsFetching
+      : false;
+  const canSubmitDemoAccount =
+    isDemoServiceReady && !!selectedDemoGroup?.name && !isPreparingDemoAccount;
+  const registerButtonLabel = isPreparingDemoAccount
+    ? t('PREPARING...')
+    : isDemoSetupUnavailable
+      ? t('SERVICE UNAVAILABLE')
+      : t('REGISTER');
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -80,6 +101,14 @@ export default function RegisterScreen() {
   const styles = makeStyles(T, isDark, insets.top);
 
   const handleRegister = async () => {
+    if (isPreparingDemoAccount) {
+      Alert.alert(
+        t('Demo account unavailable'),
+        t('Demo account details are still loading. Please try again in a moment.'),
+      );
+      return;
+    }
+
     if (!isDemoServiceReady) {
       Alert.alert(
         t('Demo account unavailable'),
@@ -256,71 +285,73 @@ export default function RegisterScreen() {
         >
           <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
 
-            {isDemoStatusLoading || (isDemoServiceReady && isDemoGroupsLoading) ? (
-              <View style={styles.statusGate}>
-                <ActivityIndicator color={T.accent} />
-                <Text style={styles.statusGateTitle}>{t('Checking demo account service...')}</Text>
-              </View>
-            ) : !isDemoServiceReady ? (
-              <View style={styles.statusGate}>
-                <View style={styles.statusGateIcon}>
-                  <Ionicons name="cloud-offline-outline" size={28} color={T.textMuted} />
-                </View>
-                <Text style={styles.statusGateTitle}>{t('Demo accounts are temporarily unavailable')}</Text>
-                <Text style={styles.statusGateText}>
-                  {demoStatusError?.message || t('The Orrnn demo broker is not ready for account creation.')}
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.retryBtn,
-                    (pressed || isDemoStatusFetching) && styles.retryBtnPressed,
-                  ]}
-                  onPress={() => refetchDemoStatus()}
-                  disabled={isDemoStatusFetching}
-                >
-                  {isDemoStatusFetching ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.retryBtnText}>{t('Retry')}</Text>
+            <View style={styles.formContainer}>
+
+              {/* Non-blocking readiness banner keeps the first render instant. */}
+              {(isPreparingDemoAccount || isDemoSetupUnavailable) && (
+                <View style={[
+                  styles.inlineStatus,
+                  isDemoSetupUnavailable && styles.inlineStatusError,
+                ]}>
+                  <View style={styles.inlineStatusIcon}>
+                    {isPreparingDemoAccount ? (
+                      <ActivityIndicator size="small" color={T.accent} />
+                    ) : (
+                      <Ionicons
+                        name={isDemoServiceUnavailable ? 'cloud-offline-outline' : 'list-outline'}
+                        size={18}
+                        color={isDemoSetupUnavailable ? '#EF4444' : T.accent}
+                      />
+                    )}
+                  </View>
+                  <View style={styles.inlineStatusBody}>
+                    <Text style={styles.inlineStatusTitle}>
+                      {isPreparingDemoAccount
+                        ? t('Preparing demo account details')
+                        : t('Demo accounts are temporarily unavailable')}
+                    </Text>
+                    <Text style={styles.inlineStatusText}>
+                      {isPreparingDemoAccount
+                        ? t('You can start filling the form while RTX5 loads the live demo groups.')
+                        : isDemoServiceUnavailable
+                          ? (demoStatusError?.message || t('The Orrnn demo broker is not ready for account creation.'))
+                          : (demoGroupsError?.message || t('No Orrnn demo group is available for account creation.'))}
+                    </Text>
+                  </View>
+                  {isDemoSetupUnavailable && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.inlineRetryBtn,
+                        (pressed || isRetryingDemoSetup) && styles.retryBtnPressed,
+                      ]}
+                      onPress={() => {
+                        if (isDemoServiceUnavailable) {
+                          refetchDemoStatus();
+                        } else {
+                          refetchDemoGroups();
+                        }
+                      }}
+                      disabled={isRetryingDemoSetup}
+                    >
+                      {isRetryingDemoSetup ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Text style={styles.inlineRetryBtnText}>{t('Retry')}</Text>
+                      )}
+                    </Pressable>
                   )}
-                </Pressable>
-              </View>
-            ) : !selectedDemoGroup?.name ? (
-              <View style={styles.statusGate}>
-                <View style={styles.statusGateIcon}>
-                  <Ionicons name="list-outline" size={28} color={T.textMuted} />
                 </View>
-                <Text style={styles.statusGateTitle}>{t('Demo accounts are temporarily unavailable')}</Text>
-                <Text style={styles.statusGateText}>
-                  {demoGroupsError?.message || t('No Orrnn demo group is available for account creation.')}
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.retryBtn,
-                    (pressed || isDemoGroupsFetching) && styles.retryBtnPressed,
-                  ]}
-                  onPress={() => refetchDemoGroups()}
-                  disabled={isDemoGroupsFetching}
-                >
-                  {isDemoGroupsFetching ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.retryBtnText}>{t('Retry')}</Text>
-                  )}
-                </Pressable>
-              </View>
-            ) : (
-              <View style={styles.formContainer}>
+              )}
 
               {/* Group Field */}
               <View style={styles.groupSelector}>
                 <View style={styles.groupHeaderRow}>
                   <Text style={styles.groupSectionLabel}>{t('Group')}</Text>
-                  <Text style={styles.groupSectionCount}>{demoGroups?.count ?? demoGroups?.groups?.length ?? 0}</Text>
+                  <Text style={styles.groupSectionCount}>{demoGroups?.count ?? demoGroupOptions.length}</Text>
                 </View>
                 <View style={styles.groupOptions}>
-                  {(demoGroups?.groups ?? []).map((group) => {
-                    const isSelected = group.name === selectedDemoGroup.name;
+                  {demoGroupOptions.length > 0 ? demoGroupOptions.map((group) => {
+                    const isSelected = group.name === selectedDemoGroup?.name;
                     return (
                       <Pressable
                         key={group.name}
@@ -360,7 +391,18 @@ export default function RegisterScreen() {
                         </View>
                       </Pressable>
                     );
-                  })}
+                  }) : (
+                    <View style={styles.groupLoadingOption}>
+                      {isPreparingDemoAccount ? (
+                        <ActivityIndicator size="small" color={T.accent} />
+                      ) : (
+                        <Ionicons name="server-outline" size={18} color={T.textMuted} />
+                      )}
+                      <Text style={styles.groupLoadingText}>
+                        {isPreparingDemoAccount ? t('Loading available demo groups...') : t('Demo groups unavailable')}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
               <View style={styles.fieldDivider} />
@@ -368,14 +410,14 @@ export default function RegisterScreen() {
               {/* Currency Field */}
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>{t('Currency')}</Text>
-                <Text style={styles.readonlyValue}>{selectedDemoGroup.currency}</Text>
+                <Text style={styles.readonlyValue}>{selectedDemoGroup?.currency ?? '--'}</Text>
               </View>
               <View style={styles.fieldDivider} />
 
               {/* Leverage Field */}
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>{t('Leverage')}</Text>
-                <Text style={styles.readonlyValue}>1:{selectedDemoGroup.leverage}</Text>
+                <Text style={styles.readonlyValue}>{selectedDemoGroup?.leverage ? `1:${selectedDemoGroup.leverage}` : '--'}</Text>
               </View>
               <View style={styles.fieldDivider} />
 
@@ -581,19 +623,19 @@ export default function RegisterScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.registerBtn,
-                  (pressed || isLoading) && styles.registerBtnPressed
+                  (!canSubmitDemoAccount || isLoading) && styles.registerBtnDisabled,
+                  (pressed && canSubmitDemoAccount) && styles.registerBtnPressed
                 ]}
                 onPress={handleRegister}
-                disabled={isLoading}
+                disabled={isLoading || !canSubmitDemoAccount}
               >
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.registerBtnText}>{t('REGISTER')}</Text>
+                  <Text style={styles.registerBtnText}>{registerButtonLabel}</Text>
                 )}
               </Pressable>
               </View>
-            )}
 
           </ScrollView>
         </KeyboardAvoidingView>
@@ -646,6 +688,59 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     formContainer: {
       paddingHorizontal: 20,
       marginTop: 6,
+    },
+    inlineStatus: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(59,130,246,0.28)' : 'rgba(59,130,246,0.18)',
+      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.06)',
+    },
+    inlineStatusError: {
+      borderColor: isDark ? 'rgba(239,68,68,0.32)' : 'rgba(239,68,68,0.22)',
+      backgroundColor: isDark ? 'rgba(239,68,68,0.10)' : 'rgba(239,68,68,0.06)',
+    },
+    inlineStatusIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.7)',
+    },
+    inlineStatusBody: {
+      flex: 1,
+      minWidth: 0,
+    },
+    inlineStatusTitle: {
+      color: T.text,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    inlineStatusText: {
+      color: T.textSub,
+      fontSize: 11,
+      lineHeight: 15,
+      marginTop: 2,
+    },
+    inlineRetryBtn: {
+      minWidth: 64,
+      height: 34,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      backgroundColor: T.accent,
+    },
+    inlineRetryBtnText: {
+      color: '#ffffff',
+      fontSize: 12,
+      fontWeight: '800',
     },
     statusGate: {
       marginHorizontal: 20,
@@ -731,6 +826,24 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     groupOptions: {
       gap: 6,
+    },
+    groupLoadingOption: {
+      minHeight: 58,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: isDark ? T.border : T.borderMedium,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+    },
+    groupLoadingText: {
+      color: T.textSub,
+      fontSize: 12,
+      fontWeight: '600',
     },
     groupOption: {
       flexDirection: 'row',
@@ -893,6 +1006,11 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     registerBtnPressed: {
       opacity: 0.85,
       transform: [{ scale: 0.98 }],
+    },
+    registerBtnDisabled: {
+      opacity: 0.55,
+      shadowOpacity: 0,
+      elevation: 0,
     },
     registerBtnText: {
       color: '#ffffff',

@@ -10,6 +10,20 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     const BLUE = T.trading.buy.primary;
     const RED = T.trading.sell.primary;
     const TEXT_MUTED = T.textMuted;
+    // The SL/TP order sheet has many nested controls; keeping its colors in
+    // one local palette prevents dark theme switches from leaving light panels
+    // behind in tabs, inputs, stop levels, and stepper dialogs.
+    const TRADE_SHEET_BG = isDark ? '#080B11' : '#FFFFFF';
+    const TRADE_SHEET_PANEL = isDark ? '#0E141F' : '#FFFFFF';
+    const TRADE_SHEET_PANEL_SOFT = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
+    const TRADE_SHEET_PANEL_ACTIVE = isDark ? 'rgba(37,99,235,0.18)' : '#EEF4FF';
+    const TRADE_SHEET_BLUE_SOFT = isDark ? 'rgba(37,99,235,0.18)' : '#E8F0FE';
+    const TRADE_SHEET_BORDER = isDark ? 'rgba(148,163,184,0.22)' : '#E2E8F0';
+    const TRADE_SHEET_BORDER_SOFT = isDark ? 'rgba(148,163,184,0.16)' : '#D7DEE7';
+    const TRADE_SHEET_TEXT = isDark ? '#F8FAFC' : '#0F172A';
+    const TRADE_SHEET_TEXT_SUB = isDark ? '#CBD5E1' : '#334155';
+    const TRADE_SHEET_TEXT_MUTED = isDark ? '#94A3B8' : '#64748B';
+    const TRADE_SHEET_TEXT_DIM = isDark ? '#64748B' : '#6B7280';
 
     return StyleSheet.create({
     flex1: {
@@ -453,20 +467,20 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: 'rgba(0,0,0,0.18)',
     },
     chartTradeSheet: {
-      backgroundColor: isDark ? '#F8FAFC' : '#FFFFFF',
+      backgroundColor: TRADE_SHEET_BG,
       borderTopLeftRadius: 18,
       borderTopRightRadius: 18,
       borderTopWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0',
+      borderColor: TRADE_SHEET_BORDER,
       overflow: 'hidden',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: -8 },
-      shadowOpacity: 0.2,
+      shadowOpacity: isDark ? 0.35 : 0.2,
       shadowRadius: 16,
       elevation: 24,
     },
     chartTradeSheetPending: {
-      backgroundColor: '#F5F6F8',
+      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
       borderTopLeftRadius: 0,
       borderTopRightRadius: 0,
       borderTopWidth: 0,
@@ -502,16 +516,16 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeSheetDragRegion: {
       borderBottomWidth: 1,
-      borderBottomColor: '#E2E8F0',
-      backgroundColor: isDark ? '#F8FAFC' : '#FFFFFF',
+      borderBottomColor: TRADE_SHEET_BORDER,
+      backgroundColor: TRADE_SHEET_BG,
       paddingTop: 2,
     },
     chartTradeSheetDragRegionPending: {
-      backgroundColor: '#F5F6F8',
+      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
     },
     chartTradeSheetDragSpacer: {
       height: 4,
-      backgroundColor: '#F5F6F8',
+      backgroundColor: isDark ? '#080B11' : '#F5F6F8',
     },
     chartTradeSheetContent: {
       flexGrow: 1,
@@ -532,7 +546,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 52,
       height: 5,
       borderRadius: 999,
-      backgroundColor: '#CBD5E1',
+      backgroundColor: isDark ? 'rgba(148,163,184,0.5)' : '#CBD5E1',
     },
     chartTradeQuickBar: {
       flexDirection: 'row',
@@ -575,7 +589,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeQuickChipText: {
       fontSize: 12,
       fontWeight: '800',
-      color: '#334155',
+      color: TRADE_SHEET_TEXT_SUB,
     },
     chartTradeQuickChipTextActive: {
       color: '#FFFFFF',
@@ -618,18 +632,18 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexShrink: 1,
     },
     chartTradeSheetSymbolMeta: {
-      color: '#6B7280',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 11,
       fontWeight: '500',
       marginTop: 2,
     },
     chartTradeOrderTypeSummary: {
-      color: '#334155',
+      color: TRADE_SHEET_TEXT_SUB,
       fontSize: 16,
       fontWeight: '700',
     },
     chartTradeInstrumentMeta: {
-      color: '#94A3B8',
+      color: TRADE_SHEET_TEXT_DIM,
       fontSize: 13,
       fontWeight: '500',
       paddingHorizontal: 16,
@@ -658,16 +672,16 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'stretch',
       borderWidth: 1,
-      borderColor: '#D7DEE7',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
       borderRadius: 6,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       minHeight: 44,
       marginTop: 6,
     },
     chartTradeVolumeCardPending: {
       minHeight: 58,
       borderRadius: 10,
-      borderColor: '#D9DEE5',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
     },
     chartTradeVolumeSide: {
       flex: 1,
@@ -694,7 +708,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeVolumeDivider: {
       width: 1,
-      backgroundColor: '#E2E8F0',
+      backgroundColor: TRADE_SHEET_BORDER,
     },
     chartTradeVolumeValueGroup: {
       flexDirection: 'row',
@@ -707,17 +721,17 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 0,
     },
     chartTradeCardLabel: {
-      color: '#475569',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 15,
       fontWeight: '500',
     },
     chartTradeCardLabelPending: {
-      color: '#111827',
+      color: TRADE_SHEET_TEXT,
       fontSize: 18,
       fontWeight: '500',
     },
     chartTradeCardValue: {
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 16,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -731,21 +745,21 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       borderWidth: 1,
-      borderColor: '#D7DEE7',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
       borderRadius: 6,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       paddingHorizontal: 14,
       minHeight: 44,
     },
     chartTradePriceCardPending: {
-      borderColor: '#F97373',
-      backgroundColor: '#FFFDFD',
+      borderColor: isDark ? 'rgba(248,113,113,0.36)' : '#F97373',
+      backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : '#FFFDFD',
     },
     chartTradePriceCardPendingMt: {
       minHeight: 60,
       borderRadius: 10,
-      borderColor: '#E85A4F',
-      backgroundColor: '#FFFFFF',
+      borderColor: isDark ? 'rgba(248,113,113,0.42)' : '#E85A4F',
+      backgroundColor: TRADE_SHEET_PANEL,
     },
     chartTradeMetaLink: {
       color: '#2563EB',
@@ -788,8 +802,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 8,
       borderBottomWidth: 1,
       borderRadius: 999,
-      borderColor: '#D9DEE5',
-      backgroundColor: '#F8FAFC',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -804,16 +818,16 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeTypeTabPendingActive: {
       borderBottomWidth: 1,
-      borderColor: '#BFD3F7',
-      backgroundColor: '#EEF4FF',
+      borderColor: isDark ? 'rgba(96,165,250,0.45)' : '#BFD3F7',
+      backgroundColor: TRADE_SHEET_PANEL_ACTIVE,
     },
     chartTradeTypeTabText: {
-      color: '#64748B',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 15,
       fontWeight: '700',
     },
     chartTradeTypeTabTextPending: {
-      color: '#787C84',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
       fontWeight: '700',
       textAlign: 'center',
@@ -830,10 +844,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeCard: {
       marginHorizontal: 12,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: '#E2E8F0',
+      borderColor: TRADE_SHEET_BORDER,
       padding: 14,
       gap: 12,
     },
@@ -844,7 +858,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 12,
     },
     chartTradeFieldLabel: {
-      color: '#475569',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
       fontWeight: '500',
     },
@@ -857,7 +871,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 28,
       height: 28,
       borderRadius: 8,
-      backgroundColor: '#F1F5F9',
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -865,9 +879,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 26,
       height: 28,
       borderRadius: 6,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       borderWidth: 1,
-      borderColor: '#D7DEE7',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -888,11 +902,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       height: 32,
       paddingHorizontal: 10,
       borderRadius: 8,
-      backgroundColor: '#F8FAFC',
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
       borderWidth: 1,
-      borderColor: '#E2E8F0',
+      borderColor: TRADE_SHEET_BORDER,
       textAlign: 'center',
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 15,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -907,7 +921,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       height: 32,
       paddingVertical: 0,
       textAlign: 'right',
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 16,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -921,7 +935,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       color: '#E4554B',
     },
     chartTradeFieldSuffix: {
-      color: '#475569',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
       fontWeight: '600',
     },
@@ -934,7 +948,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeSliderTrack: {
       height: 3,
       borderRadius: 2,
-      backgroundColor: '#DBEAFE',
+      backgroundColor: isDark ? 'rgba(59,130,246,0.22)' : '#DBEAFE',
       overflow: 'visible',
     },
     chartTradeSliderFill: {
@@ -950,7 +964,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 9,
       backgroundColor: '#3B82F6',
       borderWidth: 3,
-      borderColor: '#FFFFFF',
+      borderColor: TRADE_SHEET_BG,
       shadowColor: '#000',
       shadowOpacity: 0.15,
       shadowRadius: 3,
@@ -965,7 +979,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       marginTop: 0,
     },
     chartTradeMetaText: {
-      color: '#64748B',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
       fontWeight: '500',
     },
@@ -974,19 +988,19 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       textDecorationLine: 'none',
     },
     chartTradeMetaSummaryValue: {
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontWeight: '700',
     },
     chartTradeMetaRowPending: {
       marginTop: 0,
     },
     chartTradeMetaTextPending: {
-      color: '#5C6470',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 14,
     },
     chartTradeStopButton: {
       borderRadius: 6,
-      backgroundColor: '#E7F0FE',
+      backgroundColor: TRADE_SHEET_BLUE_SOFT,
       paddingVertical: 11,
       alignItems: 'center',
       justifyContent: 'center',
@@ -994,7 +1008,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeStopButtonPending: {
       minHeight: 56,
       borderRadius: 8,
-      backgroundColor: '#E8F0FE',
+      backgroundColor: TRADE_SHEET_BLUE_SOFT,
     },
     chartTradeStopButtonText: {
       color: '#2563EB',
@@ -1013,7 +1027,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeStopUnitTab: {
       flex: 1,
-      backgroundColor: '#EFF4FE',
+      backgroundColor: TRADE_SHEET_BLUE_SOFT,
       borderWidth: 1,
       borderColor: 'transparent',
       borderRadius: 8,
@@ -1022,7 +1036,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     chartTradeStopUnitTabActive: {
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       borderColor: '#2563EB',
     },
     chartTradeStopUnitTabText: {
@@ -1038,15 +1052,15 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'stretch',
       borderWidth: 1,
-      borderColor: '#E2E8F0',
+      borderColor: TRADE_SHEET_BORDER,
       borderRadius: 10,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       overflow: 'hidden',
       minHeight: 58,
     },
     chartTradeStopPairDivider: {
       width: 1,
-      backgroundColor: '#E2E8F0',
+      backgroundColor: TRADE_SHEET_BORDER,
     },
     chartTradeStopPairCard: {
       flex: 1,
@@ -1070,13 +1084,13 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: '#DCFCE7',
     },
     chartTradeStopPairLabel: {
-      color: '#475569',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 15,
       fontWeight: '600',
     },
     chartTradeStopPairValue: {
       marginLeft: 'auto',
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 14,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -1088,7 +1102,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeStopValue: {
       minWidth: 96,
       textAlign: 'center',
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 15,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -1104,13 +1118,13 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 1,
     },
     chartTradeInfoLabel: {
-      color: '#475569',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 15,
       fontWeight: '500',
       minWidth: 90,
     },
     chartTradeInfoLabelPending: {
-      color: '#111827',
+      color: TRADE_SHEET_TEXT,
       fontSize: 17,
       minWidth: 118,
     },
@@ -1143,7 +1157,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeCommentInfoRowActive: {
       borderRadius: 8,
-      backgroundColor: '#EFF6FF',
+      backgroundColor: TRADE_SHEET_PANEL_ACTIVE,
       paddingHorizontal: 8,
       paddingVertical: 4,
     },
@@ -1152,7 +1166,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeCommentInlineValue: {
       flex: 1,
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 14,
       fontWeight: '500',
     },
@@ -1176,14 +1190,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minHeight: 40,
       borderRadius: 7,
       borderWidth: 1,
-      borderColor: '#E2E8F0',
-      backgroundColor: '#FFFFFF',
+      borderColor: TRADE_SHEET_BORDER,
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
       justifyContent: 'center',
       paddingHorizontal: 10,
     },
     chartTradeCommentEditorInlineInput: {
       flex: 1,
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 13,
       fontWeight: '500',
       paddingVertical: 0,
@@ -1192,9 +1206,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 40,
       minHeight: 40,
       borderRadius: 7,
-      backgroundColor: '#EFF6FF',
+      backgroundColor: TRADE_SHEET_PANEL_ACTIVE,
       borderWidth: 1,
-      borderColor: '#DBEAFE',
+      borderColor: isDark ? 'rgba(96,165,250,0.32)' : '#DBEAFE',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1212,14 +1226,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minHeight: 46,
       borderRadius: 8,
       borderWidth: 1,
-      borderColor: '#E2E8F0',
-      backgroundColor: '#FFFFFF',
+      borderColor: TRADE_SHEET_BORDER,
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
       justifyContent: 'center',
       paddingHorizontal: 8,
     },
     chartTradeCommentEditorInput: {
       flex: 1,
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 14,
       fontWeight: '500',
       paddingVertical: 0,
@@ -1228,19 +1242,19 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 46,
       minHeight: 46,
       borderRadius: 7,
-      backgroundColor: '#EFF6FF',
+      backgroundColor: TRADE_SHEET_PANEL_ACTIVE,
       borderWidth: 1,
-      borderColor: '#DBEAFE',
+      borderColor: isDark ? 'rgba(96,165,250,0.32)' : '#DBEAFE',
       alignItems: 'center',
       justifyContent: 'center',
     },
     chartTradeCommentEditorSubmitDisabled: {
-      backgroundColor: '#F8FAFC',
-      borderColor: '#E2E8F0',
+      backgroundColor: TRADE_SHEET_PANEL_SOFT,
+      borderColor: TRADE_SHEET_BORDER,
     },
     stepperModalLayer: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(15,23,42,0.35)',
+      backgroundColor: isDark ? 'rgba(0,0,0,0.62)' : 'rgba(15,23,42,0.35)',
       alignItems: 'center',
       justifyContent: 'center',
       padding: 24,
@@ -1248,8 +1262,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     stepperModalCard: {
       width: '88%',
       maxWidth: 360,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_PANEL,
       borderRadius: 14,
+      borderWidth: 1,
+      borderColor: TRADE_SHEET_BORDER,
       paddingHorizontal: 18,
       paddingTop: 14,
       paddingBottom: 6,
@@ -1261,7 +1277,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     stepperModalTitle: {
       textAlign: 'center',
-      color: '#64748B',
+      color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 13,
       fontWeight: '500',
       marginBottom: 8,
@@ -1280,17 +1296,17 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     stepperModalDivider: {
       width: '72%',
       height: 1,
-      backgroundColor: '#0F172A',
+      backgroundColor: TRADE_SHEET_TEXT,
       marginVertical: 6,
     },
     stepperModalMain: {
-      color: '#0F172A',
+      color: TRADE_SHEET_TEXT,
       fontSize: 22,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
     stepperModalGhost: {
-      color: '#CBD5E1',
+      color: isDark ? '#475569' : '#CBD5E1',
       fontSize: 17,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
@@ -1299,7 +1315,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 52,
       height: 44,
       borderRadius: 10,
-      backgroundColor: '#FEE2E2',
+      backgroundColor: isDark ? 'rgba(239,68,68,0.18)' : '#FEE2E2',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1313,7 +1329,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 52,
       height: 44,
       borderRadius: 10,
-      backgroundColor: '#DBEAFE',
+      backgroundColor: isDark ? 'rgba(37,99,235,0.2)' : '#DBEAFE',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1375,7 +1391,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingTop: 10,
       paddingBottom: 10,
       borderTopWidth: 0,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: TRADE_SHEET_BG,
       overflow: 'hidden',
     },
     chartOverlay: {

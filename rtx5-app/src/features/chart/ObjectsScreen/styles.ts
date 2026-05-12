@@ -3,10 +3,10 @@ import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
   const screenBg = isDark ? '#06080D' : '#F3F4F6';
-  const surface = '#FFFFFF';
+  const surface = isDark ? '#0E1522' : '#FFFFFF';
   const border = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
-  const primaryText = '#0F172A';
-  const secondaryText = '#64748B';
+  const primaryText = isDark ? '#F8FAFC' : '#0F172A';
+  const secondaryText = isDark ? '#94A3B8' : '#64748B';
   const divider = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
 
   return StyleSheet.create({
@@ -50,7 +50,14 @@ export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
     },
     rowPressed: { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)' },
     rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
-    rowIconWrap: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    rowIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(37,99,235,0.18)' : 'rgba(37,99,235,0.08)',
+    },
     rowCopy: { flex: 1, minWidth: 0 },
     rowTitle: { color: primaryText, fontSize: 15, fontWeight: '600' },
     rowSubtitle: { color: secondaryText, fontSize: 12, marginTop: 2 },
@@ -71,6 +78,7 @@ export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
     emptyPanel: {
       alignItems: 'center', justifyContent: 'center',
       paddingVertical: 32, paddingHorizontal: 24,
+      backgroundColor: surface,
     },
     emptyTitle: { color: primaryText, fontSize: 16, fontWeight: '700', marginTop: 12 },
     emptySubtitle: {

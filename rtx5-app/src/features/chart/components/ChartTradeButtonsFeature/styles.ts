@@ -18,19 +18,19 @@ export const baseStyles = StyleSheet.create({
   },
   tradeControlsRow: {
     flexDirection: 'row', direction: 'ltr', alignItems: 'stretch',
-    marginBottom: 0, gap: 6, paddingLeft: 0, paddingRight: 0,
+    marginBottom: 0, gap: 0, paddingLeft: 0, paddingRight: 0,
     paddingVertical: 0,
     borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#9E9E9E',
   },
   actionButtonSlot: { flex: 1, minWidth: 0, alignItems: 'stretch', marginVertical: -1 },
   actionBtn: {
-    width: '100%', borderRadius: 2, minHeight: 32, minWidth: 0,
+    width: '100%', borderRadius: 0, minHeight: 32, minWidth: 0,
     paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, justifyContent: 'space-between',
   },
   actionLotSlot: { width: 164, minWidth: 156, maxWidth: 176, flexShrink: 0 },
   actionLotControl: {
     flexDirection: 'row', alignItems: 'center', width: '100%', height: 34,
-    borderRadius: 2, borderWidth: 1, overflow: 'hidden',
+    borderRadius: 0, borderWidth: 1, overflow: 'hidden',
   },
   actionLotControlEditing: { borderBottomWidth: 0, borderBottomColor: 'transparent' },
   actionLotPill: {

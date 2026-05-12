@@ -272,8 +272,15 @@ export function ActionSheet({
     onClose();
   }, [onClose, runActionAfterClose]);
 
-  // No fixed height on Android – the overlay uses flex:1 to fill the Modal
-  // (which is always at full height because we dismissed the keyboard above).
+  if (!visible) {
+    // A closed action sheet must not leave any native full-screen touch layer
+    // mounted. Returning null is stricter than a hidden transparent Modal and
+    // prevents stale overlays from blocking taps after long app sessions.
+    return null;
+  }
+
+  // No fixed height on Android: the overlay uses flex:1 to fill the Modal
+  // after the keyboard has been dismissed and layout has settled.
   const sheetBody = (
     <Animated.View
       style={[
@@ -342,7 +349,7 @@ export function ActionSheet({
             const localizedLabel = t(action.label);
             return (
               <Pressable
-                key={action.label}
+                key={`${action.label}-${index}`}
                 onPress={action.disabled ? undefined : () =>
                   traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
                 }

@@ -25,20 +25,20 @@ import { useAccounts } from '../../query/accounts';
 type MenuItem = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-  onPress?: () => void;
+  route: string;
 };
 
 const MENU_ITEMS: MenuItem[] = [
-  { label: 'Trade', icon: 'flash-outline' },
-  { label: 'News', icon: 'reader-outline' },
-  { label: 'Mailbox', icon: 'mail-outline' },
-  { label: 'Journal', icon: 'book-outline' },
-  { label: 'Settings', icon: 'settings-outline' },
-  { label: 'Economic Calendar', icon: 'calendar-outline' },
-  { label: 'Traders Community', icon: 'people-outline' },
-  { label: 'MQL5 Algo Trading', icon: 'code-slash-outline' },
-  { label: 'User Guide', icon: 'help-circle-outline' },
-  { label: 'About', icon: 'information-circle-outline' },
+  { label: 'Trade', icon: 'flash-outline', route: '/(tabs)/trade' },
+  { label: 'News', icon: 'reader-outline', route: '/settings/news' },
+  { label: 'Mailbox', icon: 'mail-outline', route: '/settings/mailbox' },
+  { label: 'Journal', icon: 'book-outline', route: '/settings/journal' },
+  { label: 'Settings', icon: 'settings-outline', route: '/(tabs)/settings' },
+  { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
+  { label: 'Traders Community', icon: 'people-outline', route: '/settings/traders-community' },
+  { label: 'MQL5 Algo Trading', icon: 'code-slash-outline', route: '/settings/mql5-algo-trading' },
+  { label: 'User Guide', icon: 'help-circle-outline', route: '/settings/user-guide' },
+  { label: 'About', icon: 'information-circle-outline', route: '/settings/about' },
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -96,6 +96,11 @@ export function SidebarDrawer() {
     onClose();
     isClosingRef.current = false;
     afterClose?.();
+  };
+
+  const handleMenuItemPress = (item: MenuItem) => {
+    // Every sidebar row owns a concrete route so taps never become no-ops.
+    handleClose(() => router.push(item.route as any));
   };
 
   /* Close handler: run actions immediately instead of waiting on drawer animation */
@@ -241,7 +246,7 @@ export function SidebarDrawer() {
                   pressed && ds.menuItemPressed,
                 ]}
                 onPress={() =>
-                  traceUiInteraction(`sidebar.menu.${item.label}`, () => handleClose(item.onPress))
+                  traceUiInteraction(`sidebar.menu.${item.label}`, () => handleMenuItemPress(item))
                 }
                 unstable_pressDelay={0}
               >

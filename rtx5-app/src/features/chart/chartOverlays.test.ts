@@ -423,3 +423,50 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
     ['open-1', 'open-2', 'sl-1', 'tp-1'].sort(),
   );
 });
+
+test('buildChartOverlayPayload hides duplicate right-axis labels for stacked lines at the same price', () => {
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'GBPUSD',
+    candles,
+    positions: [
+      {
+        id: 'stack-a',
+        symbol: 'GBPUSD',
+        side: 'buy',
+        volume: 0.1,
+        openPrice: 1.34266,
+        currentPrice: 1.3533,
+        pnl: 10,
+        swap: 0,
+        openTime: new Date(candles[5].time * 1000).toISOString(),
+      },
+      {
+        id: 'stack-b',
+        symbol: 'GBPUSDm',
+        side: 'buy',
+        volume: 0.2,
+        openPrice: 1.34266,
+        currentPrice: 1.3533,
+        pnl: 20,
+        swap: 0,
+        openTime: new Date(candles[6].time * 1000).toISOString(),
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: {
+      openPositions: true,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
+  });
+
+  const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);
+  assert.equal(stackedLines.length, 2);
+  assert.equal(stackedLines.filter((line: any) => line.axisLabelVisible !== false).length, 1);
+});

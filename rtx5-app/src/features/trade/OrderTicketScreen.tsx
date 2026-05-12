@@ -738,7 +738,7 @@ export function OrderTicketScreen() {
           style={styles.backBtn}
           unstable_pressDelay={0}
         >
-          <Ionicons name="chevron-back" size={28} color={T.text} />
+          <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <View style={styles.hCenter}>
           <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
@@ -1071,6 +1071,7 @@ export function OrderTicketScreen() {
             bidColor="#2563EB"
             askColor="#EF4444"
             height={300}
+            isDark={isDark}
           />
         </View>
 
@@ -1245,7 +1246,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
     execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
-    executionGraphWrap: { marginTop: 12 },
+    executionGraphWrap: {
+      marginTop: 12,
+      borderRadius: 12,
+      overflow: 'hidden',
+      backgroundColor: isDark ? '#080B11' : '#FFFFFF',
+      borderWidth: 1,
+      borderColor: T.border,
+    },
     pendingSubmitPlaceholder: {
       flexDirection: 'row',
       alignItems: 'flex-start',

@@ -472,10 +472,10 @@ const formatChartTickLabel = (value: number | string, includeDate: boolean): str
   const date = resolveChartDate(value);
   if (!date || !Number.isFinite(date.getTime())) return '';
 
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = CHART_MONTHS[date.getMonth()] || '';
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = CHART_MONTHS[date.getUTCMonth()] || '';
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
 
   if (!includeDate) {
     return `${hours}:${minutes}`;
@@ -489,10 +489,10 @@ const formatXLabel = (time: number, tf: string): string => {
   const d = resolveChartDate(time);
   if (!d) return '';
   if (['D1', 'W1', 'MN'].includes(tf)) {
-    return `${d.getDate()}/${d.getMonth() + 1}`;
+    return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
   }
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
 };
 

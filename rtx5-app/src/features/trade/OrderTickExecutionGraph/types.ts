@@ -10,6 +10,7 @@ export type OrderTickExecutionGraphProps = {
   bidColor?: string;
   askColor?: string;
   priceDecimals?: number;
+  isDark?: boolean;
 };
 
 export type LiveOrderTickExecutionGraphProps = {
@@ -23,6 +24,7 @@ export type LiveOrderTickExecutionGraphProps = {
   askColor?: string;
   maxTicks?: number;
   priceDecimals?: number;
+  isDark?: boolean;
 };
 
 export const DEFAULT_GRAPH_HEIGHT = 296;

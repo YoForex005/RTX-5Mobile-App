@@ -12,6 +12,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useCallback,
   useDeferredValue,
@@ -25,7 +26,7 @@ import {
   Easing,
   FlatList,
   Pressable,
-  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -63,61 +64,6 @@ import {
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
 import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
-
-/* ───── Symbol Display Names ───── */
-
-const SYMBOL_DISPLAY_NAMES: Record<string, string> = {
-  EURUSD: 'Euro vs US Dollar',
-  GBPUSD: 'Great Britain Pound vs US Dollar',
-  AUDUSD: 'Australian Dollar vs US Dollar',
-  USDJPY: 'US Dollar vs Japanese Yen',
-  NZDUSD: 'New Zealand Dollar vs US Dollar',
-  USDCAD: 'US Dollar vs Canadian Dollar',
-  EURGBP: 'Euro vs Great Britain Pound',
-  AUDCAD: 'Australian Dollar vs Canadian Dollar',
-  AUDCHF: 'Australian Dollar vs Swiss Franc',
-  AUDJPY: 'Australian Dollar vs Japanese Yen',
-  AUDNZD: 'Australian Dollar vs New Zealand Dollar',
-  AUDHUF: 'Australian Dollar vs Hungarian Forint',
-  CADCHF: 'Canadian Dollar vs Swiss Franc',
-  CADJPY: 'Cad vs Japanese Yen',
-  CHFJPY: 'Swiss Franc vs Japanese Yen',
-  EURAUD: 'Euro vs Australian Dollar',
-  EURCAD: 'Euro vs Canadian Dollar',
-  EURCHF: 'Euro vs Swiss Franc',
-  EURJPY: 'Euro vs Japanese Yen',
-  EURNZD: 'Euro vs New Zealand Dollar',
-  GBPAUD: 'Great Britain Pound vs Australian Dollar',
-  GBPCAD: 'Great Britain Pound vs Canadian Dollar',
-  GBPCHF: 'Great Britain Pound vs Swiss Franc',
-  GBPJPY: 'Great Britain Pound vs Japanese Yen',
-  GBPNZD: 'Great Britain Pound vs New Zealand Dollar',
-  NZDCAD: 'New Zealand Dollar vs Canadian Dollar',
-  NZDCHF: 'New Zealand Dollar vs Swiss Franc',
-  NZDJPY: 'New Zealand Dollar vs Japanese Yen',
-  USDCHF: 'US Dollar vs Swiss Franc',
-  USDTRY: 'US Dollar vs Turkish Lira',
-  USDZAR: 'US Dollar vs South African Rand',
-  USDMXN: 'US Dollar vs Mexican Peso',
-  USDSEK: 'US Dollar vs Swedish Krona',
-  USDNOK: 'US Dollar vs Norwegian Krone',
-  USDDKK: 'US Dollar vs Danish Krone',
-  USDCNH: 'US Dollar vs Chinese Yuan',
-  USDSGD: 'US Dollar vs Singapore Dollar',
-  USDHKD: 'US Dollar vs Hong Kong Dollar',
-  USDPLN: 'US Dollar vs Polish Zloty',
-  USDHUF: 'US Dollar vs Hungarian Forint',
-  USDCZK: 'US Dollar vs Czech Koruna',
-  XAUUSD: 'Gold vs US Dollar',
-  XAGUSD: 'Silver vs US Dollar',
-  BTCUSD: 'Bitcoin vs US Dollar',
-  ETHUSD: 'Ethereum vs US Dollar',
-};
-
-const getSymbolDescription = (symbol: string): string => {
-  const base = normalizeSymbol(symbol);
-  return SYMBOL_DISPLAY_NAMES[base] ?? base;
-};
 
 /* ───── Helpers ───── */
 
@@ -230,10 +176,14 @@ function useQuotesThemeRotation(isDark: boolean, enabled: boolean) {
   const [previousIndex, setPreviousIndex] = useState(0);
   const transition = useRef(new Animated.Value(1)).current;
   const activeIndexRef = useRef(0);
+  const rotationLength = QUOTES_THEME_ROTATION.length;
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || rotationLength <= 1) {
+      // The current palettes contain one stable color. Avoid running a forever
+      // interval and JS-driven color animation when there is nothing to rotate.
       transition.stopAnimation();
+      transition.setValue(1);
       return () => {
         transition.stopAnimation();
       };
@@ -262,7 +212,7 @@ function useQuotesThemeRotation(isDark: boolean, enabled: boolean) {
       clearInterval(interval);
       transition.stopAnimation();
     };
-  }, [enabled, transition]);
+  }, [enabled, rotationLength, transition]);
 
   const previousTheme = QUOTES_THEME_ROTATION[previousIndex];
   const activeTheme = QUOTES_THEME_ROTATION[activeIndex];
@@ -293,6 +243,7 @@ const QuoteCard = React.memo(function QuoteCard({
   T,
   isDark,
   cardBackground,
+  viewMode,
   onPress,
   onPressIn,
   onLongPress,
@@ -301,32 +252,41 @@ const QuoteCard = React.memo(function QuoteCard({
   T: ThemeColors;
   isDark: boolean;
   cardBackground: AnimatedColorValue | string;
+  viewMode: 'list' | 'table' | 'edit';
   onPress: () => void;
   onPressIn?: () => void;
   onLongPress: () => void;
 }) {
   const { t } = useTranslation();
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+  const isSimpleMode = viewMode === 'table';
   // Read from the Quotes external store. The watchlist-level hook owns the
   // socket subscription and each row subscribes only to its own symbol snapshot.
   const liveItem = useLiveQuoteSnapshot(symbol);
   const noData = !hasFreshLiveQuote(liveItem);
 
-  if (noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
+  if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
     const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
 
     return (
-      <View
-        style={[
+      <Pressable
+        style={({ pressed }) => [
           sc.card,
+          isSimpleMode && sc.cardSimple,
           {
-            height: 74,
+            height: isSimpleMode ? 64 : 74,
             paddingVertical: 0,
             paddingLeft: 24,
             justifyContent: 'center',
             borderColor: cardBorder,
           },
+          pressed && sc.cardPressed,
         ]}
+        unstable_pressDelay={0}
+        onPressIn={onPressIn}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={260}
       >
         <Animated.View
           pointerEvents="none"
@@ -372,7 +332,7 @@ const QuoteCard = React.memo(function QuoteCard({
             {t('Connecting...')}
           </Text>
         </View>
-      </View>
+      </Pressable>
     );
   }
 
@@ -443,6 +403,7 @@ const QuoteCard = React.memo(function QuoteCard({
     <Pressable
       style={({ pressed }) => [
         sc.card,
+        isSimpleMode && sc.cardSimple,
         { borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
         isDark && sc.cardShadowDark,
@@ -452,7 +413,7 @@ const QuoteCard = React.memo(function QuoteCard({
       onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={400}
+      delayLongPress={260}
     >
       <Animated.View
         pointerEvents="none"
@@ -471,9 +432,9 @@ const QuoteCard = React.memo(function QuoteCard({
         style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
       />
 
-      <View style={sc.cardInner}>
+      <View style={[sc.cardInner, isSimpleMode && sc.cardInnerSimple]}>
         <View style={sc.symbolCol}>
-          <View style={sc.cardRow1}>
+          <View style={[sc.cardRow1, isSimpleMode && sc.cardRowSimple]}>
             <Text
               style={[sc.symbolText, { color: T.text }]}
               numberOfLines={1}
@@ -482,42 +443,46 @@ const QuoteCard = React.memo(function QuoteCard({
               {displaySymbol}
             </Text>
 
-            <View style={sc.changePill}>
+            {!isSimpleMode && (
+              <View style={sc.changePill}>
+                <Text
+                  style={[
+                    sc.changePillText,
+                    { color: noData ? T.textMuted : color },
+                  ]}
+                >
+                  {noData ? '--' : pct}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {!isSimpleMode && (
+            <View style={sc.cardRow2}>
               <Text
-                style={[
-                  sc.changePillText,
-                  { color: noData ? T.textMuted : color },
-                ]}
+                style={[sc.volText, { color: T.textSub, flexShrink: 1 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
-                {noData ? '--' : pct}
+                {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
+              </Text>
+
+              <Text
+                style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {t('Spread')}:{' '}
+                <Text style={[sc.statValue, { color: T.text }]}>
+                  {(item.spread || 0).toFixed(1)}
+                </Text>
               </Text>
             </View>
-          </View>
-
-          <View style={sc.cardRow2}>
-            <Text
-              style={[sc.volText, { color: T.textSub, flexShrink: 1 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
-            </Text>
-
-            <Text
-              style={[sc.spreadText, { color: T.textSub, flexShrink: 1 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {t('Spread')}:{' '}
-              <Text style={[sc.statValue, { color: T.text }]}>
-                {(item.spread || 0).toFixed(1)}
-              </Text>
-            </Text>
-          </View>
+          )}
         </View>
 
-        <View style={sc.pricesRow}>
-          <View style={sc.priceBlock}>
+        <View style={[sc.pricesRow, isSimpleMode && sc.pricesRowSimple]}>
+          <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
             <View style={sc.labelWithTick}>
               <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('BID')}</Text>
               {showBidCaret && (
@@ -536,14 +501,14 @@ const QuoteCard = React.memo(function QuoteCard({
             >
               {noData ? '--' : fmt.price(item.bid, priceDigits)}
             </Text>
-            {!noData && item.low > 0 && (
+            {!isSimpleMode && !noData && item.low > 0 && (
               <Text style={[sc.lowHighText, { color: T.textMuted }]}>
                 L: {fmt.price(item.low, priceDigits)}
               </Text>
             )}
           </View>
 
-          <View style={sc.priceBlock}>
+          <View style={[sc.priceBlock, isSimpleMode && sc.priceBlockSimple]}>
             <View style={sc.labelWithTick}>
               <Text style={[sc.priceLabel, { color: T.textMuted }]}>{t('ASK')}</Text>
               {showAskCaret && (
@@ -562,7 +527,7 @@ const QuoteCard = React.memo(function QuoteCard({
             >
               {noData ? '--' : fmt.price(item.ask, priceDigits)}
             </Text>
-            {!noData && item.high > 0 && (
+            {!isSimpleMode && !noData && item.high > 0 && (
               <Text style={[sc.lowHighText, { color: T.textMuted }]}>
                 H: {fmt.price(item.high, priceDigits)}
               </Text>
@@ -653,7 +618,7 @@ function EditQuoteRow({
   );
 }
 
-function AddSymbolModal({
+function LegacyAddSymbolModal({
   visible,
   onClose,
   onAdd,
@@ -843,6 +808,698 @@ function AddSymbolModal({
 
 /* ───── QuotesScreen ───── */
 
+/* Add symbol tree: MT5-style folders derived from broker symbols. */
+type AddSymbolLeafCategory = 'commodities' | 'cryptocurrenciesMtt' | 'forexMarket' | 'indices' | 'metalsMtt';
+type AddSymbolFolderKey = 'root' | 'forex' | 'metals' | 'quotes' | AddSymbolLeafCategory;
+type SymbolKind = 'forex' | 'metal' | 'crypto' | 'commodity' | 'index' | 'other';
+
+type AddSymbolFolderRow = {
+  key: AddSymbolFolderKey;
+  label: string;
+  symbols: string[];
+};
+type AddSymbolListItem = string | AddSymbolFolderRow;
+
+const FX_CODES = new Set([
+  'AUD', 'BRL', 'CAD', 'CHF', 'CNH', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD',
+  'HUF', 'ILS', 'INR', 'JPY', 'MXN', 'NOK', 'NZD', 'PLN', 'RUB', 'SEK',
+  'SGD', 'TRY', 'USD', 'ZAR',
+]);
+
+const CURRENCY_NAMES: Record<string, string> = {
+  AUD: 'Australian Dollar',
+  BRL: 'Brazilian Real',
+  CAD: 'Canadian Dollar',
+  CHF: 'Swiss Franc',
+  CNH: 'Chinese Yuan',
+  CZK: 'Czech Koruna',
+  DKK: 'Danish Krone',
+  EUR: 'Euro',
+  GBP: 'British Pound',
+  HKD: 'Hong Kong Dollar',
+  HUF: 'Hungarian Forint',
+  ILS: 'Israeli Shekel',
+  INR: 'Indian Rupee',
+  JPY: 'Japanese Yen',
+  MXN: 'Mexican Peso',
+  NOK: 'Norwegian Krone',
+  NZD: 'New Zealand Dollar',
+  PLN: 'Polish Zloty',
+  RUB: 'Russian Ruble',
+  SEK: 'Swedish Krona',
+  SGD: 'Singapore Dollar',
+  TRY: 'Turkish Lira',
+  USD: 'US Dollar',
+  ZAR: 'South African Rand',
+};
+
+const CRYPTO_CODES = new Set([
+  'ADA', 'ALGO', 'ATOM', 'AVAX', 'BCH', 'BNB', 'BTC', 'DOGE', 'DOT',
+  'ETH', 'FIL', 'LINK', 'LTC', 'MATIC', 'NEAR', 'SOL', 'UNI', 'XLM',
+  'XRP',
+]);
+
+const CRYPTO_NAMES: Record<string, string> = {
+  ADA: 'Cardano',
+  ALGO: 'Algorand',
+  ATOM: 'Cosmos',
+  AVAX: 'Avalanche',
+  BCH: 'Bitcoin Cash',
+  BNB: 'BNB',
+  BTC: 'Bitcoin',
+  DOGE: 'Dogecoin',
+  DOT: 'Polkadot',
+  ETH: 'Ethereum',
+  FIL: 'Filecoin',
+  LINK: 'Chainlink',
+  LTC: 'Litecoin',
+  MATIC: 'Polygon',
+  NEAR: 'Near Protocol',
+  SOL: 'Solana',
+  UNI: 'Uniswap',
+  XLM: 'Stellar',
+  XRP: 'Ripple',
+};
+
+const METAL_NAMES: Record<string, string> = {
+  XAG: 'Silver',
+  XAU: 'Gold',
+  XPD: 'Palladium',
+  XPT: 'Platinum',
+};
+
+const METAL_ALIASES: Record<string, string> = {
+  GOLD: 'Gold',
+  SILVER: 'Silver',
+  PALLADIUM: 'Palladium',
+  PLATINUM: 'Platinum',
+};
+
+const QUOTE_ASSET_CODES = ['USDT', 'USD', 'EUR', 'GBP', 'JPY', 'BTC', 'ETH'];
+
+const QUOTES_CATEGORY_DEFS: Array<{ key: AddSymbolLeafCategory; label: string }> = [
+  { key: 'commodities', label: 'Commodities' },
+  { key: 'cryptocurrenciesMtt', label: 'Cryptocurrencies MTT' },
+  { key: 'forexMarket', label: 'Forex Market' },
+  { key: 'indices', label: 'Indices' },
+  { key: 'metalsMtt', label: 'Metals MTT' },
+];
+
+const ADD_SYMBOL_FOLDER_LABELS: Record<AddSymbolFolderKey, string> = {
+  root: '',
+  forex: 'Forex',
+  metals: 'Metals',
+  quotes: 'Quotes',
+  commodities: 'Commodities',
+  cryptocurrenciesMtt: 'Cryptocurrencies MTT',
+  forexMarket: 'Forex Market',
+  indices: 'Indices',
+  metalsMtt: 'Metals MTT',
+};
+
+const stripTransportSuffix = (symbol: string) =>
+  symbol.trim().toUpperCase().replace(/[\/\s]+/g, '').replace(/[._-].*$/, '');
+
+const stripLegacySuffix = (symbol: string) =>
+  symbol.endsWith('M') && symbol.length > 3 ? symbol.slice(0, -1) : symbol;
+
+const splitQuotedAsset = (symbol: string): { asset: string; quote: string } | null => {
+  for (const quote of QUOTE_ASSET_CODES) {
+    if (symbol.length > quote.length && symbol.endsWith(quote)) {
+      return { asset: symbol.slice(0, -quote.length), quote };
+    }
+  }
+  return null;
+};
+
+const resolveMetalName = (symbol: string): string | null => {
+  const metalCode = symbol.slice(0, 3);
+  if (METAL_NAMES[metalCode]) {
+    return METAL_NAMES[metalCode];
+  }
+
+  const aliasKey = Object.keys(METAL_ALIASES).find((alias) => symbol.startsWith(alias));
+  return aliasKey ? METAL_ALIASES[aliasKey] : null;
+};
+
+function classifyCleanSymbol(symbol: string): SymbolKind {
+  const fxBase = symbol.slice(0, 3);
+  const fxQuote = symbol.slice(3, 6);
+  if (symbol.length === 6 && FX_CODES.has(fxBase) && FX_CODES.has(fxQuote)) {
+    return 'forex';
+  }
+
+  if (resolveMetalName(symbol)) {
+    return 'metal';
+  }
+
+  const quotedAsset = splitQuotedAsset(symbol);
+  if (quotedAsset && CRYPTO_CODES.has(quotedAsset.asset)) {
+    return 'crypto';
+  }
+
+  if (/(?:OIL|BRENT|WTI|GAS|COPPER|COFFEE|COCOA|WHEAT|CORN|SUGAR|COTTON)/.test(symbol)) {
+    return 'commodity';
+  }
+
+  if (/\d/.test(symbol) || /(?:INDEX|IDX|DAX|DOW|NASDAQ|NIKKEI|SPX|NAS|GER|FRA|HK|JPN|AUS)/.test(symbol)) {
+    return 'index';
+  }
+
+  return 'other';
+}
+
+const resolveSymbolAnalysisBase = (symbol: string) => {
+  const direct = stripTransportSuffix(symbol);
+  const withoutLegacySuffix = stripLegacySuffix(direct);
+  return classifyCleanSymbol(direct) === 'other' ? withoutLegacySuffix : direct;
+};
+
+const classifyMarketSymbol = (symbol: string): SymbolKind =>
+  classifyCleanSymbol(resolveSymbolAnalysisBase(symbol));
+
+const describeMarketSymbol = (symbol: string): string => {
+  const base = resolveSymbolAnalysisBase(symbol);
+  const kind = classifyCleanSymbol(base);
+
+  if (kind === 'forex') {
+    const baseCode = base.slice(0, 3);
+    const quoteCode = base.slice(3, 6);
+    return `${CURRENCY_NAMES[baseCode] ?? baseCode} vs ${CURRENCY_NAMES[quoteCode] ?? quoteCode}`;
+  }
+
+  if (kind === 'metal') {
+    const metalName = resolveMetalName(base) ?? 'Metal';
+    const metalPrefix = base.startsWith('X') ? base.slice(0, 3) : Object.keys(METAL_ALIASES).find((alias) => base.startsWith(alias)) ?? '';
+    const quoteCode = metalPrefix ? base.slice(metalPrefix.length) : '';
+    return quoteCode ? `${metalName} vs ${CURRENCY_NAMES[quoteCode] ?? quoteCode}` : `${metalName} Spot`;
+  }
+
+  if (kind === 'crypto') {
+    const quotedAsset = splitQuotedAsset(base);
+    if (quotedAsset) {
+      return `${CRYPTO_NAMES[quotedAsset.asset] ?? quotedAsset.asset} / ${CURRENCY_NAMES[quotedAsset.quote] ?? quotedAsset.quote}`;
+    }
+  }
+
+  if (kind === 'commodity') {
+    if (/(?:BRENT|UKOIL)/.test(base)) return 'CFD based on spot on UK Oil';
+    if (/(?:WTI|USOIL)/.test(base)) return 'CFD based on spot on US Oil';
+    if (/(?:NGAS|NATGAS|GAS)/.test(base)) return 'CFD based on spot on Natural Gas';
+    return 'Commodity CFD';
+  }
+
+  if (kind === 'index') {
+    return 'Cash index CFD';
+  }
+
+  return `${fmt.symbol(symbol)} Instrument`;
+};
+
+const getAddSymbolParentFolder = (folder: AddSymbolFolderKey): AddSymbolFolderKey | null => {
+  if (folder === 'root') return null;
+  if (folder === 'forex' || folder === 'metals') return 'quotes';
+  if (folder === 'quotes') return null;
+  return 'quotes';
+};
+
+const getAddSymbolBreadcrumb = (folder: AddSymbolFolderKey): AddSymbolFolderKey[] => {
+  if (folder === 'root') return [];
+  if (folder === 'forex' || folder === 'metals' || folder === 'quotes') return [folder];
+  return ['quotes', folder];
+};
+
+type AddSymbolPalette = {
+  screenBg: string;
+  headerBorder: string;
+  searchBg: string;
+  searchBorder: string;
+  rowBg: string;
+  rowBorder: string;
+  rowPressed: string;
+  iconBg: string;
+  chipBg: string;
+  chipBorder: string;
+  mutedText: string;
+  actionBg: string;
+  actionAddedBg: string;
+};
+
+function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette {
+  if (isDark) {
+    return {
+      screenBg: '#05070C',
+      headerBorder: 'rgba(148,163,184,0.14)',
+      searchBg: '#0E141F',
+      searchBorder: 'rgba(148,163,184,0.22)',
+      rowBg: '#0B111C',
+      rowBorder: 'rgba(148,163,184,0.16)',
+      rowPressed: 'rgba(255,255,255,0.045)',
+      iconBg: 'rgba(255,255,255,0.05)',
+      chipBg: 'rgba(37,99,235,0.14)',
+      chipBorder: 'rgba(96,165,250,0.30)',
+      mutedText: '#94A3B8',
+      actionBg: 'rgba(37,99,235,0.14)',
+      actionAddedBg: 'rgba(16,185,129,0.14)',
+    };
+  }
+
+  return {
+    screenBg: '#F4F6FA',
+    headerBorder: '#E5E7EB',
+    searchBg: '#FFFFFF',
+    searchBorder: '#E1E7F0',
+    rowBg: '#FFFFFF',
+    rowBorder: '#E3E8F0',
+    rowPressed: '#F1F5F9',
+    iconBg: '#F3F6FB',
+    chipBg: '#EEF4FF',
+    chipBorder: '#C7D8FA',
+    mutedText: T.textMuted,
+    actionBg: '#EEF4FF',
+    actionAddedBg: '#EAF8F1',
+  };
+}
+
+const SYMBOL_KIND_META: Record<SymbolKind, { label: string; accent: string; tintDark: string; tintLight: string }> = {
+  forex: { label: 'FX', accent: '#2563EB', tintDark: 'rgba(37,99,235,0.16)', tintLight: '#EEF4FF' },
+  metal: { label: 'METAL', accent: '#D97706', tintDark: 'rgba(217,119,6,0.18)', tintLight: '#FFF7ED' },
+  crypto: { label: 'CRYPTO', accent: '#7C3AED', tintDark: 'rgba(124,58,237,0.18)', tintLight: '#F5F3FF' },
+  commodity: { label: 'CFD', accent: '#059669', tintDark: 'rgba(5,150,105,0.18)', tintLight: '#ECFDF5' },
+  index: { label: 'INDEX', accent: '#0F766E', tintDark: 'rgba(15,118,110,0.18)', tintLight: '#F0FDFA' },
+  other: { label: 'SYMBOL', accent: '#64748B', tintDark: 'rgba(148,163,184,0.14)', tintLight: '#F8FAFC' },
+};
+
+function AddSymbolModal({
+  visible,
+  onClose,
+  onAdd,
+  T,
+  isDark,
+  existingSymbols,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onAdd: (symbol: string) => void;
+  T: ThemeColors;
+  isDark: boolean;
+  existingSymbols: string[];
+  cardBackground?: AnimatedColorValue;
+}) {
+  const { data: apiSymbols, isLoading } = useMarketSymbols();
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
+  const [folder, setFolder] = useState<AddSymbolFolderKey>('quotes');
+  const addPalette = useMemo(() => getAddSymbolPalette(T, isDark), [T, isDark]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setFolder('quotes');
+    setQuery('');
+  }, [visible]);
+
+  const allSymbols = useMemo(() => apiSymbols ?? [], [apiSymbols]);
+
+  const existingSymbolKeys = useMemo(() => {
+    const keys = new Set<string>();
+    (existingSymbols ?? []).forEach((symbol) => {
+      keys.add(stripTransportSuffix(symbol).toLowerCase());
+      keys.add(resolveSymbolAnalysisBase(symbol).toLowerCase());
+    });
+    return keys;
+  }, [existingSymbols]);
+
+  const isSymbolAdded = useCallback(
+    (symbol: string) =>
+      existingSymbolKeys.has(stripTransportSuffix(symbol).toLowerCase()) ||
+      existingSymbolKeys.has(resolveSymbolAnalysisBase(symbol).toLowerCase()),
+    [existingSymbolKeys],
+  );
+
+  const groupedSymbols = useMemo(() => {
+    const groups: Record<AddSymbolLeafCategory, string[]> = {
+      commodities: [],
+      cryptocurrenciesMtt: [],
+      forexMarket: [],
+      indices: [],
+      metalsMtt: [],
+    };
+
+    // The picker mirrors MT5 folders without hardcoding exact symbols. Each
+    // broker symbol is classified from its structure or asset-code pattern.
+    allSymbols.forEach((symbol) => {
+      const kind = classifyMarketSymbol(symbol);
+      if (kind === 'forex') groups.forexMarket.push(symbol);
+      else if (kind === 'metal') groups.metalsMtt.push(symbol);
+      else if (kind === 'crypto') groups.cryptocurrenciesMtt.push(symbol);
+      else if (kind === 'commodity') groups.commodities.push(symbol);
+      else if (kind === 'index') groups.indices.push(symbol);
+    });
+
+    return groups;
+  }, [allSymbols]);
+
+  const quoteBranchSymbols = useMemo(
+    () => Array.from(new Set(QUOTES_CATEGORY_DEFS.flatMap((entry) => groupedSymbols[entry.key]))),
+    [groupedSymbols],
+  );
+
+  const currentScopeSymbols = useMemo(() => {
+    if (folder === 'root') return allSymbols;
+    if (folder === 'forex') return groupedSymbols.forexMarket;
+    if (folder === 'metals') return groupedSymbols.metalsMtt;
+    if (folder === 'quotes') return quoteBranchSymbols;
+    return groupedSymbols[folder];
+  }, [allSymbols, folder, groupedSymbols, quoteBranchSymbols]);
+
+  const visibleSymbols = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return currentScopeSymbols;
+    return currentScopeSymbols.filter((symbol) => {
+      const label = fmt.symbol(symbol).toLowerCase();
+      const description = describeMarketSymbol(symbol).toLowerCase();
+      return label.includes(q) || description.includes(q);
+    });
+  }, [currentScopeSymbols, query]);
+
+  const countAdded = useCallback(
+    (symbols: string[]) => symbols.reduce((count, symbol) => count + (isSymbolAdded(symbol) ? 1 : 0), 0),
+    [isSymbolAdded],
+  );
+
+  const folderRows = useMemo<AddSymbolFolderRow[]>(() => {
+    if (query.trim()) return [];
+    if (folder === 'root') {
+      return [
+        { key: 'forex', label: 'Forex', symbols: groupedSymbols.forexMarket },
+        { key: 'metals', label: 'Metals', symbols: groupedSymbols.metalsMtt },
+        { key: 'quotes', label: 'Quotes', symbols: quoteBranchSymbols },
+      ];
+    }
+    if (folder === 'quotes') {
+      return QUOTES_CATEGORY_DEFS.map((entry) => ({
+        key: entry.key,
+        label: entry.label,
+        symbols: groupedSymbols[entry.key],
+      }));
+    }
+    return [];
+  }, [folder, groupedSymbols, query, quoteBranchSymbols]);
+
+  const shouldShowSymbols = query.trim().length > 0 || (folder !== 'root' && folder !== 'quotes');
+  const listData = useMemo<AddSymbolListItem[]>(
+    () => (shouldShowSymbols ? visibleSymbols : folderRows),
+    [folderRows, shouldShowSymbols, visibleSymbols],
+  );
+  const breadcrumb = getAddSymbolBreadcrumb(folder);
+  const parentFolder = getAddSymbolParentFolder(folder);
+  const activeFolderLabel = folder === 'root' ? t('All symbols') : t(ADD_SYMBOL_FOLDER_LABELS[folder]);
+  const activeScopeAdded = countAdded(currentScopeSymbols);
+
+  const handleHeaderBack = () => {
+    if (parentFolder) {
+      setFolder(parentFolder);
+      setQuery('');
+      return;
+    }
+    onClose();
+  };
+
+  if (!visible) return null;
+
+  const content = (
+    <View
+      style={[
+        addSymbolStyles.root,
+        {
+          paddingTop: Math.max(insets.top, Platform.OS === 'web' ? 16 : 28),
+          paddingBottom: Math.max(insets.bottom, 12),
+          backgroundColor: addPalette.screenBg,
+        },
+      ]}
+    >
+      <View style={[addSymbolStyles.header, { borderBottomColor: addPalette.headerBorder }]}>
+        <Pressable
+          onPress={() => traceUiInteraction('quotes.addSymbol.back', handleHeaderBack)}
+          hitSlop={12}
+          unstable_pressDelay={0}
+          style={({ pressed }) => [
+            addSymbolStyles.backButton,
+            { backgroundColor: addPalette.iconBg, borderColor: addPalette.rowBorder },
+            pressed && { backgroundColor: addPalette.rowPressed },
+          ]}
+        >
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <View style={addSymbolStyles.titleBlock}>
+          <Text style={[addSymbolStyles.title, { color: T.text }]}>{t('Add symbol')}</Text>
+          <Text style={[addSymbolStyles.subtitle, { color: addPalette.mutedText }]} numberOfLines={1}>
+            {activeFolderLabel}
+          </Text>
+        </View>
+        <View
+          style={[
+            addSymbolStyles.headerCountPill,
+            { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
+          ]}
+        >
+          <Text style={[addSymbolStyles.headerCountText, { color: T.accent }]}>
+            {activeScopeAdded}/{currentScopeSymbols.length}
+          </Text>
+        </View>
+      </View>
+
+      <View
+        style={[
+          addSymbolStyles.searchRow,
+          { backgroundColor: addPalette.searchBg, borderColor: addPalette.searchBorder },
+        ]}
+      >
+        <Ionicons name="search" size={21} color={addPalette.mutedText} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={isLoading ? t('Loading assets...') : t('Find symbols')}
+          placeholderTextColor={isDark ? 'rgba(226,232,240,0.48)' : '#B8B8B8'}
+          style={[addSymbolStyles.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <Pressable
+          onPress={() => setQuery('')}
+          disabled={query.length === 0}
+          hitSlop={8}
+          unstable_pressDelay={0}
+          style={[addSymbolStyles.searchClearButton, query.length === 0 && addSymbolStyles.searchClearButtonHidden]}
+        >
+          <Ionicons name="close-circle" size={18} color={addPalette.mutedText} />
+        </Pressable>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={addSymbolStyles.breadcrumbScroll}
+        contentContainerStyle={addSymbolStyles.breadcrumbRow}
+      >
+        <Pressable
+          onPress={() => {
+            setFolder('quotes');
+            setQuery('');
+          }}
+          hitSlop={10}
+          unstable_pressDelay={0}
+          style={[
+            addSymbolStyles.breadcrumbChip,
+            {
+              backgroundColor: addPalette.iconBg,
+              borderColor: addPalette.rowBorder,
+            },
+          ]}
+        >
+          <Ionicons name="home-outline" size={19} color={addPalette.mutedText} />
+        </Pressable>
+        {breadcrumb.map((item) => (
+          <React.Fragment key={item}>
+            <Ionicons name="chevron-forward" size={14} color={addPalette.mutedText} />
+            <Pressable
+              onPress={() => {
+                setFolder(item);
+                setQuery('');
+              }}
+              unstable_pressDelay={0}
+              style={[
+                addSymbolStyles.breadcrumbChip,
+                {
+                  backgroundColor: item === folder ? addPalette.chipBg : addPalette.iconBg,
+                  borderColor: item === folder ? addPalette.chipBorder : addPalette.rowBorder,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  addSymbolStyles.breadcrumbText,
+                  { color: item === folder ? T.accent : addPalette.mutedText },
+                ]}
+              >
+                {t(ADD_SYMBOL_FOLDER_LABELS[item])}
+              </Text>
+            </Pressable>
+          </React.Fragment>
+        ))}
+      </ScrollView>
+
+      <FlatList
+        data={listData}
+        keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          addSymbolStyles.listContent,
+          { paddingBottom: Math.max(insets.bottom + 28, 40) },
+        ]}
+        renderItem={({ item }) => {
+          if (typeof item !== 'string') {
+            const added = countAdded(item.symbols);
+            const disabled = item.symbols.length === 0;
+            return (
+              <Pressable
+                onPress={() => {
+                  if (disabled) return;
+                  setFolder(item.key);
+                  setQuery('');
+                }}
+                unstable_pressDelay={0}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  addSymbolStyles.folderRow,
+                  {
+                    backgroundColor: addPalette.rowBg,
+                    borderColor: addPalette.rowBorder,
+                    opacity: disabled ? 0.52 : 1,
+                  },
+                  pressed && !disabled && { backgroundColor: addPalette.rowPressed },
+                ]}
+              >
+                <View style={addSymbolStyles.folderLeft}>
+                  <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
+                    <Ionicons name="folder-open" size={22} color="#FBBF24" />
+                  </View>
+                  <View style={addSymbolStyles.folderTextCol}>
+                    <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
+                    <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
+                      {item.symbols.length} {t('symbols')}
+                    </Text>
+                  </View>
+                </View>
+                <View style={addSymbolStyles.folderRight}>
+                  <View
+                    style={[
+                      addSymbolStyles.folderCountPill,
+                      { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
+                    ]}
+                  >
+                    <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
+                      {added}/{item.symbols.length}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={addPalette.mutedText} />
+                </View>
+              </Pressable>
+            );
+          }
+
+          const alreadyAdded = isSymbolAdded(item);
+          const kind = classifyMarketSymbol(item);
+          const kindMeta = SYMBOL_KIND_META[kind];
+          return (
+            <Pressable
+              onPress={() => {
+                if (!alreadyAdded) onAdd(item);
+              }}
+              unstable_pressDelay={0}
+              disabled={alreadyAdded}
+              style={({ pressed }) => [
+                addSymbolStyles.symbolRow,
+                {
+                  backgroundColor: addPalette.rowBg,
+                  borderColor: addPalette.rowBorder,
+                  opacity: alreadyAdded ? 0.72 : 1,
+                },
+                pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
+              ]}
+            >
+              <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
+              <View style={addSymbolStyles.symbolTextCol}>
+                <View style={addSymbolStyles.symbolNameRow}>
+                  <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
+                  <View
+                    style={[
+                      addSymbolStyles.symbolKindPill,
+                      {
+                        backgroundColor: isDark ? kindMeta.tintDark : kindMeta.tintLight,
+                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
+                      },
+                    ]}
+                  >
+                    <Text style={[addSymbolStyles.symbolKindText, { color: kindMeta.accent }]}>
+                      {kindMeta.label}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[addSymbolStyles.symbolDescription, { color: T.textMuted }]} numberOfLines={1}>
+                  {describeMarketSymbol(item)}
+                </Text>
+              </View>
+              <View
+                style={[
+                  addSymbolStyles.symbolActionButton,
+                  { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
+                ]}
+              >
+                <Ionicons
+                  name={alreadyAdded ? 'checkmark' : 'add'}
+                  size={20}
+                  color={alreadyAdded ? T.trading.profit : T.accent}
+                />
+              </View>
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={
+          <View
+            style={[
+              addSymbolStyles.emptyCard,
+              { backgroundColor: addPalette.rowBg, borderColor: addPalette.rowBorder },
+            ]}
+          >
+            <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
+            <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
+              {isLoading ? t('Fetching markets...') : t('No matching assets available.')}
+            </Text>
+          </View>
+        }
+      />
+    </View>
+  );
+
+  if (Platform.OS === 'web') {
+    return <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>{content}</View>;
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      {...OVERLAY_MODAL_PROPS}
+      onRequestClose={handleHeaderBack}
+    >
+      {content}
+    </Modal>
+  );
+}
+
 export function QuotesScreen() {
   const router = useRouter();
   const isScreenFocused = useIsFocused();
@@ -863,7 +1520,7 @@ export function QuotesScreen() {
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const showActionSheet = useUIState((s) => s.showActionSheet);
-  const { data: apiSymbols = [], refetch: refetchSymbols } = useMarketSymbols();
+  const { data: apiSymbols = [] } = useMarketSymbols();
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
@@ -873,21 +1530,6 @@ export function QuotesScreen() {
   const { mutate: serverAdd } = useAddToWatchlistMutation();
   const { mutate: serverRemove } = useRemoveWatchlistMutation();
   const { mutate: serverReplace } = useReplaceWatchlistMutation();
-
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      // Refresh should not create sticky global subscriptions. The focused
-      // screen subscription effect below already keeps the visible watchlist
-      // live; forcing sticky symbols here keeps the whole watchlist active
-      // across every screen and makes touches/navigation feel blocked later.
-      quotesWsService.connect();
-      await refetchSymbols();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetchSymbols]);
 
   const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
@@ -1008,14 +1650,14 @@ export function QuotesScreen() {
     setIsEditing(!isEditing);
   };
 
-  const moveQuote = (fromIndex: number, toIndex: number) => {
+  const moveQuote = useCallback((fromIndex: number, toIndex: number) => {
     const newQueue = [...quoteSymbols];
     const element = newQueue.splice(fromIndex, 1)[0];
     newQueue.splice(toIndex, 0, element);
     // Update local state immediately for instant UI response, then sync to server
     setQuoteSymbols(newQueue);
     serverReplace(newQueue);
-  };
+  }, [quoteSymbols, serverReplace, setQuoteSymbols]);
 
   // Clock timer moved into isolated GmtClock component to prevent
   // the 1-second interval from re-rendering the entire QuotesScreen
@@ -1040,19 +1682,19 @@ export function QuotesScreen() {
   const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
 
-  const goDetail = (sym: string) => {
+  const goDetail = useCallback((sym: string) => {
     prefetchQuoteDetails(sym);
     setChartSymbol(sym);
     router.push({ pathname: '/quotes/details', params: { symbol: sym } });
-  };
+  }, [router, setChartSymbol]);
 
   const handleSymbolTap = useCallback((sym: string) => {
     const displayName = fmt.symbol(sym);
-    const description = getSymbolDescription(sym);
-    const sheetTitle = `${displayName}: ${description}`;
+    const sheetTitle = `${displayName}: ${describeMarketSymbol(sym)}`;
 
     showActionSheet({
       title: sheetTitle,
+      detent: 'auto',
       actions: [
         {
           label: t('New Order'),
@@ -1092,11 +1734,78 @@ export function QuotesScreen() {
         },
       ],
     });
-  }, [showActionSheet, setChartSymbol, setQuoteViewMode, quoteViewMode, t]);
+  }, [goDetail, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showActionSheet, t]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
   }, []);
+
+  const renderQuoteItem = useCallback(({ item: sym }: { item: string }) => {
+    if (isEditing) {
+      const globalIndex = quoteSymbols.indexOf(sym);
+      return (
+        <EditQuoteRow
+          symbol={sym}
+          index={globalIndex}
+          total={quoteSymbols.length}
+          T={T}
+          isDark={isDark}
+          cardBackground={animatedCardBackground}
+          onRemove={() => { removeQuoteSymbol(sym); serverRemove(sym); }}
+          onMoveUp={() => moveQuote(globalIndex, globalIndex - 1)}
+          onMoveDown={() => moveQuote(globalIndex, globalIndex + 1)}
+        />
+      );
+    }
+
+    return (
+      <QuoteCard
+        symbol={sym}
+        T={T}
+        isDark={isDark}
+        cardBackground={animatedCardBackground}
+        viewMode={quoteViewMode}
+        onPress={() => handleSymbolTap(sym)}
+        onLongPress={() =>
+          showActionSheet({
+            title: fmt.symbol(sym),
+            detent: 'auto',
+            actions: [
+              {
+                label: t('Chart'),
+                onPress: () => {
+                  setChartSymbol(sym);
+                  router.push('/(tabs)/chart');
+                },
+              },
+              { label: t('Details'), onPress: () => goDetail(sym) },
+              {
+                label: t('Hide'),
+                danger: true,
+                onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
+              },
+            ],
+          })
+        }
+      />
+    );
+  }, [
+    T,
+    animatedCardBackground,
+    goDetail,
+    handleSymbolTap,
+    isDark,
+    isEditing,
+    moveQuote,
+    quoteSymbols,
+    quoteViewMode,
+    removeQuoteSymbol,
+    router,
+    serverRemove,
+    setChartSymbol,
+    showActionSheet,
+    t,
+  ]);
 
   return (
     <View style={s.root}>
@@ -1182,67 +1891,20 @@ export function QuotesScreen() {
           <FlatList
             data={filtered}
             keyExtractor={(sym) => sym}
-            extraData={isEditing}
-            renderItem={({ item: sym }) => {
-              if (isEditing) {
-                const globalIndex = quoteSymbols.indexOf(sym);
-                return (
-                  <EditQuoteRow
-                    symbol={sym}
-                    index={globalIndex}
-                    total={quoteSymbols.length}
-                    T={T}
-                    isDark={isDark}
-                    cardBackground={animatedCardBackground}
-                    onRemove={() => { removeQuoteSymbol(sym); serverRemove(sym); }}
-                    onMoveUp={() => moveQuote(globalIndex, globalIndex - 1)}
-                    onMoveDown={() => moveQuote(globalIndex, globalIndex + 1)}
-                  />
-                );
-              }
-
-              return (
-                <QuoteCard
-                  symbol={sym}
-                  T={T}
-                  isDark={isDark}
-                  cardBackground={animatedCardBackground}
-                  onPress={() => handleSymbolTap(sym)}
-                  onLongPress={() =>
-                    showActionSheet({
-                      title: fmt.symbol(sym),
-                      actions: [
-                        {
-                          label: t('Chart'),
-                          onPress: () => {
-                            setChartSymbol(sym);
-                            router.push('/(tabs)/chart');
-                          },
-                        },
-                        { label: t('Details'), onPress: () => goDetail(sym) },
-                        {
-                          label: t('Hide'),
-                          danger: true,
-                          onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
-                        },
-                      ],
-                    })
-                  }
-                />
-              );
-            }}
+            extraData={`${isEditing ? 'edit' : 'view'}:${quoteViewMode}`}
+            renderItem={renderQuoteItem}
             style={s.list}
             contentContainerStyle={s.listPad}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={isDark ? '#D1D4DC' : '#131722'}
-                colors={[isDark ? '#D1D4DC' : '#131722']}
-                progressBackgroundColor={isDark ? '#0E141F' : '#FFFFFF'}
-              />
-            }
+            // Quotes are websocket-driven, so pull-to-refresh is intentionally
+            // removed. These FlatList limits keep row mounting work bounded so
+            // Android's touch responder is not starved during heavy tick flow.
+            keyboardShouldPersistTaps="handled"
+            removeClippedSubviews
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            updateCellsBatchingPeriod={50}
+            windowSize={7}
             ListEmptyComponent={
               <View
                 style={[
@@ -1276,7 +1938,6 @@ export function QuotesScreen() {
         onAdd={(sym: string) => {
           addQuoteSymbol(sym);
           serverAdd(sym);
-          setShowAddModal(false);
         }}
         T={T}
         isDark={isDark}
@@ -1288,6 +1949,249 @@ export function QuotesScreen() {
 }
 
 /* ───── Styles ───── */
+
+const addSymbolStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    width: '100%',
+  },
+  header: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 12,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  subtitle: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerCountPill: {
+    minWidth: 62,
+    minHeight: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCountText: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  searchRow: {
+    minHeight: 54,
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  searchClearButton: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchClearButtonHidden: {
+    opacity: 0,
+  },
+  breadcrumbScroll: {
+    flexGrow: 0,
+    marginBottom: 6,
+  },
+  breadcrumbRow: {
+    minHeight: 42,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  breadcrumbChip: {
+    minHeight: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  breadcrumbText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
+  folderRow: {
+    minHeight: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  folderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  folderIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  folderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  folderMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  folderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 10,
+  },
+  folderCountPill: {
+    minWidth: 62,
+    minHeight: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderCount: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  symbolRow: {
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  symbolRail: {
+    position: 'absolute',
+    left: 0,
+    top: 14,
+    bottom: 14,
+    width: 3,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+  },
+  symbolTextCol: {
+    flex: 1,
+    paddingRight: 12,
+    minWidth: 0,
+  },
+  symbolNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  symbolName: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0,
+    flexShrink: 1,
+  },
+  symbolKindPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  symbolKindText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  symbolDescription: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  symbolActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCard: {
+    minHeight: 140,
+    marginTop: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  emptyText: {
+    marginTop: 12,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+});
 
 const s = StyleSheet.create({
   root: { flex: 1 },
@@ -1395,6 +2299,12 @@ const sc = StyleSheet.create({
     overflow: 'hidden',
   },
 
+  cardSimple: {
+    paddingVertical: 16,
+    paddingLeft: 20,
+    paddingRight: 18,
+  },
+
   cardFill: StyleSheet.absoluteFillObject,
 
   cardShadowLight: {
@@ -1420,6 +2330,10 @@ const sc = StyleSheet.create({
     alignItems: 'center',
   },
 
+  cardInnerSimple: {
+    minHeight: 40,
+  },
+
   symbolCol: { flex: 1 },
 
   cardRow1: {
@@ -1427,6 +2341,10 @@ const sc = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 14,
+  },
+
+  cardRowSimple: {
+    marginBottom: 0,
   },
 
   symbolText: {
@@ -1461,9 +2379,17 @@ const sc = StyleSheet.create({
     alignItems: 'center',
   },
 
+  pricesRowSimple: {
+    gap: 10,
+  },
+
   priceBlock: {
     alignItems: 'flex-end',
     minWidth: 68,
+  },
+
+  priceBlockSimple: {
+    minWidth: 62,
   },
 
   labelWithTick: {

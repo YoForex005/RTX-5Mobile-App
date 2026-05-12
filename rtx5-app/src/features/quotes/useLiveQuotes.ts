@@ -13,7 +13,10 @@ type SnapshotListener = () => void;
 
 const snapshotsBySymbol = new Map<string, LiveQuoteSnapshot | undefined>();
 const listenersBySymbol = new Map<string, Set<SnapshotListener>>();
+const pendingNotifySymbols = new Set<string>();
 let updateSeq = 0;
+let notifyAnimationFrame: number | null = null;
+let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
 const uniqueNormalizedSymbols = (symbols: string[]): string[] =>
   Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean)));
@@ -22,6 +25,41 @@ const notifySymbol = (symbol: string): void => {
   const listeners = listenersBySymbol.get(symbol);
   if (!listeners) return;
   listeners.forEach((listener) => listener());
+};
+
+const flushPendingNotifications = (): void => {
+  if (notifyAnimationFrame !== null) {
+    cancelAnimationFrame(notifyAnimationFrame);
+    notifyAnimationFrame = null;
+  }
+  if (notifyTimer) {
+    clearTimeout(notifyTimer);
+    notifyTimer = null;
+  }
+
+  if (pendingNotifySymbols.size === 0) {
+    return;
+  }
+
+  const symbols = Array.from(pendingNotifySymbols);
+  pendingNotifySymbols.clear();
+  symbols.forEach(notifySymbol);
+};
+
+const scheduleSymbolNotification = (symbol: string): void => {
+  pendingNotifySymbols.add(symbol);
+
+  if (notifyAnimationFrame !== null || notifyTimer) {
+    return;
+  }
+
+  // Market feeds can deliver many ticks in one frame. Notify quote rows once
+  // per frame so touch handling and navigation keep priority while the latest
+  // bid/ask still paints immediately on the next visual frame.
+  notifyTimer = setTimeout(flushPendingNotifications, 16);
+  if (typeof requestAnimationFrame === 'function') {
+    notifyAnimationFrame = requestAnimationFrame(flushPendingNotifications);
+  }
 };
 
 const getStateQuote = (symbol: string): LiveQuoteSnapshot | undefined => {
@@ -68,7 +106,7 @@ export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
   const previous = ensureSnapshot(symbol);
   const next = applyLiveQuoteTickToSnapshot(symbol, previous, tick, ++updateSeq);
   snapshotsBySymbol.set(symbol, next);
-  notifySymbol(symbol);
+  scheduleSymbolNotification(symbol);
 };
 
 export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
