@@ -10,7 +10,7 @@ export function makeJournalStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: { backgroundColor: isDark ? '#080B11' : '#F1F5F9' },
     container: { flex: 1 },
-    content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40 },
+    content: { paddingHorizontal: 8, paddingTop: 20, paddingBottom: 40 },
     
     // Header & Stats
     heroGrid: {

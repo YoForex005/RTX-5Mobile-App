@@ -1,5 +1,5 @@
-import { StaticSettingsInfoScreen } from '../../src/features/settings/StaticSettingsInfoScreen';
+import { UserGuideScreen } from '../../src/features/settings/UserGuideScreen';
 
 export default function UserGuideRoute() {
-  return <StaticSettingsInfoScreen variant="user-guide" />;
+  return <UserGuideScreen />;
 }

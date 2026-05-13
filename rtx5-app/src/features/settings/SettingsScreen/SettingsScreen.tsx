@@ -358,9 +358,9 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles} icon="chatbubble-outline" color="#1D4ED8" title={t('Chat & Messages')} sub={t('Sign in to MQL5.community')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="people-outline" color="#1D4ED8" title={t('Traders Community')} />
+              <SettingRow T={T} styles={styles} icon="people-outline" color="#1D4ED8" title={t('Traders Community')} onPress={() => router.push('/settings/traders-community')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="flash-outline" color="#1D4ED8" title={t('MQL5 Algo Trading')} />
+              <SettingRow T={T} styles={styles} icon="flash-outline" color="#1D4ED8" title={t('MQL5 Algo Trading')} onPress={() => router.push('/settings/mql5-algo-trading')} />
             </View>
 
             <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
@@ -391,7 +391,7 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={t('Contact our dedicated team')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQs & Documentation')} />
+              <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQs & Documentation')} onPress={() => router.push('/settings/user-guide')} />
             </View>
 
             <View style={styles.logoutContainer}>

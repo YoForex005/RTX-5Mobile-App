@@ -1711,7 +1711,7 @@ export function QuotesScreen() {
           },
         },
         {
-          label: t('Properties'),
+          label: t('Symbol Details'),
           onPress: () => goDetail(sym),
         },
         {

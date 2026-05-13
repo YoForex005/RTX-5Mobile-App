@@ -1166,7 +1166,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     priceHalf: { flex: 1, alignItems: 'center', paddingVertical: 10 },
     priceTag: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
-    priceMain: { color: WHITE, fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 1, letterSpacing: -0.5 },
+    priceMain: { color: WHITE, fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: -0.5 },
     priceLabel: { color: T.textSub, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 2 },
     spreadCenter: { width: 40, alignItems: 'center', justifyContent: 'center' },
     spreadVal: { color: WHITE, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 1 },

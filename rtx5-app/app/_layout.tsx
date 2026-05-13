@@ -119,17 +119,17 @@ function InnerLayout() {
           <Stack.Screen name='chart/menu-order' options={chartPageScreenOptions} />
           <Stack.Screen name='history/filter' options={{ title: t('History Filter') }} />
           <Stack.Screen name='settings/accounts' options={{ title: t('Accounts') }} />
-          <Stack.Screen name='settings/mailbox' options={{ title: t('Mailbox') }} />
-          <Stack.Screen name='settings/news' options={{ title: t('News') }} />
+          <Stack.Screen name='settings/mailbox' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/news' options={{ headerShown: false }} />
           <Stack.Screen name='settings/brokers' options={{ title: t('Brokers') }} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
           <Stack.Screen name='settings/economic-calendar' options={{ headerShown: false }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
           <Stack.Screen name='settings/journal' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/traders-community' options={{ title: t('Traders Community') }} />
-          <Stack.Screen name='settings/mql5-algo-trading' options={{ title: t('MQL5 Algo Trading') }} />
-          <Stack.Screen name='settings/user-guide' options={{ title: t('User Guide') }} />
-          <Stack.Screen name='settings/about' options={{ title: t('About') }} />
+          <Stack.Screen name='settings/traders-community' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/mql5-algo-trading' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/user-guide' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/about' options={{ headerShown: false }} />
         </Stack>
         </ThemeProvider>
       </WebIPhoneFrame>

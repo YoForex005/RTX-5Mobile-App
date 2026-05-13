@@ -249,7 +249,6 @@ function makePalette(isDark: boolean) {
 function makeStyles(colors: ReturnType<typeof makePalette>) {
   return StyleSheet.create({
     container: {
-      paddingHorizontal: 16,
       paddingBottom: 40,
     },
     headerBlock: {

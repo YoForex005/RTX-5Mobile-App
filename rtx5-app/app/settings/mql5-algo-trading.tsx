@@ -1,5 +1,5 @@
-import { StaticSettingsInfoScreen } from '../../src/features/settings/StaticSettingsInfoScreen';
+import { Mql5AlgoTradingScreen } from '../../src/features/settings/Mql5AlgoTradingScreen';
 
 export default function Mql5AlgoTradingRoute() {
-  return <StaticSettingsInfoScreen variant="mql5-algo-trading" />;
+  return <Mql5AlgoTradingScreen />;
 }

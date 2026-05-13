@@ -1,5 +1,5 @@
-import { StaticSettingsInfoScreen } from '../../src/features/settings/StaticSettingsInfoScreen';
+import { AboutScreen } from '../../src/features/settings/AboutScreen';
 
 export default function AboutRoute() {
-  return <StaticSettingsInfoScreen variant="about" />;
+  return <AboutScreen />;
 }

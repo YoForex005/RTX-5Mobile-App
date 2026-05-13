@@ -5,7 +5,7 @@
  * Shows Bid, Bid high, Bid low, Ask, Ask high, Ask low, Open price,
  * and Close price with live tick data from WebSocket.
  *
- * Matches the MT5 "Market Statistics" popup reference design.
+ * Presents the MT5-style statistics as an enterprise trading-desk panel.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -22,14 +22,59 @@ import { normalizeSymbol } from '../../../domain/symbols';
 import { useInstrumentMeta } from '../../../query/instruments';
 import { useLatestDailyCandle } from '../../../domain/candles/query/candles';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
+import { getMeta } from '../SymbolDetailsScreen/instrumentMeta';
 import { makeMarketStatisticsStyles } from './styles';
 
-type StatDirection = 'up' | 'neutral';
+const LIVE_FEED_STALE_MS = 45_000;
+
+type StatDirection = 'up' | 'down' | 'neutral';
 
 type StatRow = {
   label: string;
   value: string;
   direction: StatDirection;
+};
+
+type MetricTile = {
+  label: string;
+  value: string;
+  accent?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
+
+const finiteOr = (value: number | undefined | null, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const formatVolume = (volume?: number) => {
+  const safeVolume = finiteOr(volume, 0);
+  if (safeVolume >= 1_000_000) return `${(safeVolume / 1_000_000).toFixed(2)}M`;
+  if (safeVolume >= 1_000) return `${(safeVolume / 1_000).toFixed(1)}K`;
+  return safeVolume.toLocaleString();
+};
+
+const formatTickTime = (timestamp?: number) => {
+  if (!timestamp || !Number.isFinite(timestamp)) return '--';
+  return new Date(timestamp).toLocaleTimeString('en-GB', { hour12: false });
+};
+
+const pickLatestTimestamp = (quote: QuoteItem) => {
+  const candidates = [
+    quote.lastReceivedAt,
+    quote.lastTickAt,
+    quote.feedTickAt,
+    quote.lastPriceChangedAt,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return candidates.length > 0 ? Math.max(...candidates) : undefined;
+};
+
+const resolveDirection = (current: number, previous?: number): StatDirection => {
+  if (typeof previous !== 'number' || !Number.isFinite(previous)) return 'neutral';
+  if (current > previous) return 'up';
+  if (current < previous) return 'down';
+  return 'neutral';
 };
 
 export function MarketStatisticsScreen() {
@@ -61,7 +106,7 @@ export function MarketStatisticsScreen() {
     [dailyRangeCandle, q],
   );
 
-  const bidHigh = sentiment.dayHigh;
+  const bidHigh = Number.isFinite(sentiment.dayHigh) ? sentiment.dayHigh : q.high;
   const bidLow = sentiment.dayLow !== Infinity ? sentiment.dayLow : q.low;
   const askHigh = useMemo(() => {
     const spread = (q.ask || 0) - (q.bid || 0);
@@ -83,122 +128,301 @@ export function MarketStatisticsScreen() {
 
   const isUp = q.changePct >= 0;
   const priceDigits = q.digits ?? 2;
+  const pip = 1 / Math.pow(10, priceDigits);
+  const midPrice = ((q.bid || 0) + (q.ask || 0)) / 2;
+  const absoluteChange = (q.bid || 0) - openPrice;
+  const pointsChange = pip > 0 ? absoluteChange / pip : 0;
+  const rangePositionPct = clampPercent(sentiment.rangePositionPct);
+  const rangePct = bidLow > 0 && bidHigh > bidLow ? ((bidHigh - bidLow) / bidLow) * 100 : 0;
+  const latestTickAt = pickLatestTimestamp(q);
+  const liveSnapshotAvailable = Boolean(liveQuotes[symbol]);
+  const hasRecentTick = latestTickAt ? Date.now() - latestTickAt <= LIVE_FEED_STALE_MS : liveSnapshotAvailable;
+  const feedStatusLabel = hasRecentTick ? 'LIVE' : 'CONNECTING';
+  const feedStatusColor = hasRecentTick ? T.up : T.textMuted;
+  const marketStatusLabel = q.tradeAllowed === false ? 'Closed' : 'Open';
+  const marketStatusColor = q.tradeAllowed === false ? T.down : T.up;
+  const localMeta = useMemo(() => getMeta(symbol), [symbol]);
+  const instrumentName = remoteMeta?.name ?? localMeta.name;
+  const instrumentCategory = remoteMeta?.category ?? localMeta.category;
+  const instrumentSector = remoteMeta?.sector ?? localMeta.sector;
+  const instrumentDescriptor = [instrumentCategory, instrumentSector].filter(Boolean).join(' / ');
+  const bidDirection = resolveDirection(q.bid, q.prevBid);
+  const askDirection = resolveDirection(q.ask, q.prevAsk);
+  const changeAccent = isUp ? T.up : T.down;
+  const signedChange = `${isUp ? '+' : ''}${(q.changePct || 0).toFixed(2)}%`;
+  const signedPoints = `${pointsChange >= 0 ? '+' : ''}${pointsChange.toFixed(0)} pts`;
 
   const rows: StatRow[] = useMemo(() => [
-    { label: 'Bid', value: fmt.price(q.bid, priceDigits), direction: 'up' as StatDirection },
-    { label: 'Bid high', value: fmt.price(bidHigh, priceDigits), direction: 'neutral' as StatDirection },
-    { label: 'Bid low', value: fmt.price(bidLow, priceDigits), direction: 'neutral' as StatDirection },
-    { label: 'Ask', value: fmt.price(q.ask, priceDigits), direction: 'up' as StatDirection },
-    { label: 'Ask high', value: fmt.price(askHigh, priceDigits), direction: 'neutral' as StatDirection },
-    { label: 'Ask low', value: fmt.price(askLow, priceDigits), direction: 'neutral' as StatDirection },
-    { label: 'Open price', value: fmt.price(openPrice, priceDigits), direction: 'neutral' as StatDirection },
-    { label: 'Close price', value: fmt.price(closePrice, priceDigits), direction: 'neutral' as StatDirection },
-  ], [q.bid, q.ask, priceDigits, bidHigh, bidLow, askHigh, askLow, openPrice, closePrice]);
+    { label: 'Bid high', value: fmt.price(bidHigh, priceDigits), direction: 'up' },
+    { label: 'Bid low', value: fmt.price(bidLow, priceDigits), direction: 'down' },
+    { label: 'Ask high', value: fmt.price(askHigh, priceDigits), direction: 'up' },
+    { label: 'Ask low', value: fmt.price(askLow, priceDigits), direction: 'down' },
+    { label: 'Open price', value: fmt.price(openPrice, priceDigits), direction: 'neutral' },
+    { label: 'Close price', value: fmt.price(closePrice, priceDigits), direction: closePrice >= openPrice ? 'up' : 'down' },
+    { label: 'Mid price', value: fmt.price(midPrice, priceDigits), direction: 'neutral' },
+    { label: 'Day range', value: `${rangePct.toFixed(2)}%`, direction: 'neutral' },
+  ], [askHigh, askLow, bidHigh, bidLow, closePrice, midPrice, openPrice, priceDigits, rangePct]);
+
+  const overviewTiles: MetricTile[] = useMemo(() => [
+    {
+      label: 'Spread',
+      value: parseFloat(Number(q.spread || 0).toFixed(2)).toString(),
+      icon: 'swap-horizontal-outline',
+    },
+    {
+      label: 'Change',
+      value: signedChange,
+      accent: changeAccent,
+      icon: isUp ? 'trending-up-outline' : 'trending-down-outline',
+    },
+    {
+      label: 'Points',
+      value: signedPoints,
+      accent: pointsChange >= 0 ? T.up : T.down,
+      icon: 'analytics-outline',
+    },
+    {
+      label: 'Volume',
+      value: formatVolume(q.volume),
+      icon: 'bar-chart-outline',
+    },
+    {
+      label: 'Digits',
+      value: String(priceDigits),
+      icon: 'calculator-outline',
+    },
+    {
+      label: 'Last Tick',
+      value: formatTickTime(latestTickAt),
+      icon: 'time-outline',
+    },
+  ], [changeAccent, isUp, latestTickAt, pointsChange, priceDigits, q.spread, q.volume, signedChange, signedPoints, T.down, T.up]);
 
   const styles = useMemo(() => makeMarketStatisticsStyles(T, isDark), [T, isDark]);
   const displaySymbol = fmt.symbol(symbol);
+  const bidColor = bidDirection === 'down' ? T.down : bidDirection === 'up' ? T.up : T.text;
+  const askColor = askDirection === 'down' ? T.down : askDirection === 'up' ? T.up : T.text;
+
+  const markerColor = (direction: StatDirection) => {
+    if (direction === 'up') return T.up;
+    if (direction === 'down') return T.down;
+    return T.textMuted;
+  };
 
   return (
-    <View style={[styles.root, { backgroundColor: T.bg }]}>
+    <View style={styles.root}>
       <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} hitSlop={15} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{displaySymbol}</Text>
-          <View style={styles.headerRight}>
-            <View style={[styles.liveDot, { backgroundColor: T.up, shadowColor: T.up }]} />
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle} numberOfLines={1}>Market Statistics</Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>{displaySymbol}</Text>
+          </View>
+          <View style={[styles.feedChip, { borderColor: feedStatusColor }]}>
+            <View style={[styles.liveDot, { backgroundColor: feedStatusColor, shadowColor: feedStatusColor }]} />
+            <Text style={[styles.feedText, { color: feedStatusColor }]}>{feedStatusLabel}</Text>
           </View>
         </View>
       </View>
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
         showsVerticalScrollIndicator={false}
       >
-        {rows.map((row, index) => (
-          <View key={row.label} style={[styles.statRow, index < rows.length - 1 && styles.statRowBorder]}>
-            <View style={styles.statLeft}>
-              {row.direction === 'up' ? (
-                <Ionicons name="caret-up" size={12} color={T.up} style={styles.directionIcon} />
-              ) : (
-                <View style={[styles.neutralDot, { backgroundColor: T.up }]} />
-              )}
-              <Text style={styles.statLabel}>{row.label}</Text>
+        <View style={styles.heroPanel}>
+          <View style={styles.instrumentRow}>
+            <View style={styles.symbolMark}>
+              <Ionicons name="stats-chart-outline" size={22} color={T.trading.buy.primary} />
             </View>
-            <Text style={styles.statValue}>{row.value}</Text>
+            <View style={styles.instrumentCopy}>
+              <Text style={styles.symbolText} numberOfLines={1}>{displaySymbol}</Text>
+              <Text style={styles.instrumentName} numberOfLines={1}>{instrumentName}</Text>
+              <Text style={styles.instrumentDescriptor} numberOfLines={1}>{instrumentDescriptor}</Text>
+            </View>
+            <View style={[styles.marketChip, { borderColor: marketStatusColor }]}>
+              <View style={[styles.marketDot, { backgroundColor: marketStatusColor }]} />
+              <Text style={[styles.marketChipText, { color: marketStatusColor }]}>{marketStatusLabel}</Text>
+            </View>
           </View>
-        ))}
 
-        <View style={styles.additionalCard}>
-          <Text style={styles.additionalTitle}>OVERVIEW</Text>
-          <View style={styles.additionalGrid}>
-            <View style={styles.additionalGridItem}>
-              <Text style={styles.additionalGridLabel}>SPREAD</Text>
-              <Text style={styles.additionalGridValue}>
-                {parseFloat(Number(q.spread || 0).toFixed(2)).toString()}
+          <View style={styles.quoteBand}>
+            <View style={styles.quoteSide}>
+              <View style={styles.quoteLabelRow}>
+                <Text style={[styles.quoteLabel, { color: T.down }]}>BID</Text>
+                {bidDirection !== 'neutral' && (
+                  <Ionicons name={bidDirection === 'up' ? 'caret-up' : 'caret-down'} size={11} color={bidColor} />
+                )}
+              </View>
+              <Text style={[styles.quoteValue, { color: bidColor }]} numberOfLines={1} adjustsFontSizeToFit>
+                {fmt.price(q.bid, priceDigits)}
               </Text>
+              <View style={styles.quoteMetaRow}>
+                <Text style={styles.quoteMetaLabel}>Low</Text>
+                <Text style={styles.quoteMetaValue}>{fmt.price(bidLow, priceDigits)}</Text>
+                <Text style={styles.quoteMetaDivider}>/</Text>
+                <Text style={styles.quoteMetaLabel}>High</Text>
+                <Text style={styles.quoteMetaValue}>{fmt.price(bidHigh, priceDigits)}</Text>
+              </View>
             </View>
-            <View style={styles.additionalGridItem}>
-              <Text style={styles.additionalGridLabel}>CHANGE</Text>
-              <Text style={[styles.additionalGridValue, { color: isUp ? T.up : T.down }]}>
-                {isUp ? '+' : ''}{(q.changePct || 0).toFixed(2)}%
+
+            <View style={styles.quoteDivider} />
+
+            <View style={styles.quoteSide}>
+              <View style={styles.quoteLabelRow}>
+                <Text style={[styles.quoteLabel, { color: T.up }]}>ASK</Text>
+                {askDirection !== 'neutral' && (
+                  <Ionicons name={askDirection === 'up' ? 'caret-up' : 'caret-down'} size={11} color={askColor} />
+                )}
+              </View>
+              <Text style={[styles.quoteValue, { color: askColor }]} numberOfLines={1} adjustsFontSizeToFit>
+                {fmt.price(q.ask, priceDigits)}
               </Text>
+              <View style={styles.quoteMetaRow}>
+                <Text style={styles.quoteMetaLabel}>Low</Text>
+                <Text style={styles.quoteMetaValue}>{fmt.price(askLow, priceDigits)}</Text>
+                <Text style={styles.quoteMetaDivider}>/</Text>
+                <Text style={styles.quoteMetaLabel}>High</Text>
+                <Text style={styles.quoteMetaValue}>{fmt.price(askHigh, priceDigits)}</Text>
+              </View>
             </View>
-            <View style={styles.additionalGridItem}>
-              <Text style={styles.additionalGridLabel}>VOLUME</Text>
-              <Text style={styles.additionalGridValue}>
-                {(q.volume ?? 0).toLocaleString()}
-              </Text>
+          </View>
+
+          <View style={styles.changeStrip}>
+            <View style={styles.changeItem}>
+              <Text style={styles.changeLabel} numberOfLines={1}>Net Change</Text>
+              <Text style={[styles.changeValue, { color: changeAccent }]} numberOfLines={1} adjustsFontSizeToFit>{signedChange}</Text>
             </View>
-            <View style={styles.additionalGridItem}>
-              <Text style={styles.additionalGridLabel}>DIGITS</Text>
-              <Text style={styles.additionalGridValue}>{q.digits ?? 2}</Text>
+            <View style={styles.changeDivider} />
+            <View style={styles.changeItem}>
+              <Text style={styles.changeLabel} numberOfLines={1}>Points</Text>
+              <Text style={[styles.changeValue, { color: pointsChange >= 0 ? T.up : T.down }]} numberOfLines={1} adjustsFontSizeToFit>{signedPoints}</Text>
+            </View>
+            <View style={styles.changeDivider} />
+            <View style={styles.changeItem}>
+              <Text style={styles.changeLabel} numberOfLines={1}>Range Position</Text>
+              <Text style={styles.changeValue} numberOfLines={1} adjustsFontSizeToFit>{rangePositionPct.toFixed(0)}%</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.rangeCard}>
-          <Text style={styles.rangeTitle}>DAY RANGE</Text>
-          <View style={styles.rangeBar}>
-            <View style={styles.rangeTrack}>
-              <View
-                style={[
-                  styles.rangeFill,
-                  {
-                    width: `${Math.min(100, Math.max(0, sentiment.rangePositionPct))}%` as any,
-                    backgroundColor: isUp ? T.up : T.down,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.rangeKnob,
-                  {
-                    left: `${Math.min(100, Math.max(0, sentiment.rangePositionPct))}%` as any,
-                    borderColor: isUp ? T.up : T.down,
-                  },
-                ]}
-              />
+        <View style={styles.sectionPanel}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="pulse-outline" size={15} color={T.trading.buy.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Session Statistics</Text>
             </View>
+            <Text style={styles.sectionMeta}>Realtime</Text>
           </View>
-          <View style={styles.rangeLabels}>
-            <Text style={styles.rangeLabelValue}>{fmt.price(bidLow, priceDigits)}</Text>
-            <Text style={[styles.rangeLabelValue, { color: isUp ? T.up : T.down }]}>
-              {fmt.price(q.bid, priceDigits)}
-            </Text>
-            <Text style={styles.rangeLabelValue}>{fmt.price(bidHigh, priceDigits)}</Text>
+          {rows.map((row, index) => (
+            <View key={row.label} style={[styles.statRow, index < rows.length - 1 && styles.statRowBorder]}>
+              <View style={styles.statLeft}>
+                <View style={[styles.rowMarker, { backgroundColor: markerColor(row.direction) }]} />
+                <Text style={styles.statLabel}>{row.label}</Text>
+              </View>
+              <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.sectionPanel}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="grid-outline" size={15} color={T.trading.buy.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Market Overview</Text>
+            </View>
+            <Text style={styles.sectionMeta}>{marketStatusLabel}</Text>
           </View>
-          <View style={styles.rangeLabels}>
-            <Text style={styles.rangeLabelSmall}>LOW</Text>
-            <Text style={styles.rangeLabelSmall}>CURRENT</Text>
-            <Text style={styles.rangeLabelSmall}>HIGH</Text>
+          <View style={styles.overviewGrid}>
+            {overviewTiles.map((tile, index) => (
+              <View
+                key={tile.label}
+                style={[
+                  styles.overviewCell,
+                  index % 2 === 0 && styles.overviewCellRightBorder,
+                  index < overviewTiles.length - 2 && styles.overviewCellBottomBorder,
+                ]}
+              >
+                <View style={styles.overviewLabelRow}>
+                  <Ionicons name={tile.icon} size={13} color={tile.accent ?? T.textMuted} />
+                  <Text style={styles.overviewLabel}>{tile.label}</Text>
+                </View>
+                <Text
+                  style={[styles.overviewValue, tile.accent ? { color: tile.accent } : null]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {tile.value}
+                </Text>
+              </View>
+            ))}
           </View>
         </View>
 
-        <View style={styles.sentimentCard}>
-          <Text style={styles.sentimentTitle}>MARKET SENTIMENT</Text>
+        <View style={styles.rangePanel}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="resize-outline" size={15} color={T.trading.buy.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Day Range</Text>
+            </View>
+            <Text style={styles.sectionMeta}>{rangePct.toFixed(2)}%</Text>
+          </View>
+          <View style={styles.rangeValueRow}>
+            <View style={styles.rangeValueBlock}>
+              <Text style={styles.rangeLabelSmall}>LOW</Text>
+              <Text style={styles.rangeLabelValue}>{fmt.price(bidLow, priceDigits)}</Text>
+            </View>
+            <View style={[styles.rangeValueBlock, styles.rangeValueBlockCenter]}>
+              <Text style={styles.rangeLabelSmall}>CURRENT</Text>
+              <Text style={[styles.rangeLabelValue, { color: changeAccent }]}>{fmt.price(q.bid, priceDigits)}</Text>
+            </View>
+            <View style={[styles.rangeValueBlock, styles.rangeValueBlockRight]}>
+              <Text style={styles.rangeLabelSmall}>HIGH</Text>
+              <Text style={styles.rangeLabelValue}>{fmt.price(bidHigh, priceDigits)}</Text>
+            </View>
+          </View>
+          <View style={styles.rangeTrack}>
+            <View
+              style={[
+                styles.rangeFill,
+                {
+                  width: `${rangePositionPct}%` as any,
+                  backgroundColor: changeAccent,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.rangeKnob,
+                {
+                  left: `${rangePositionPct}%` as any,
+                  borderColor: changeAccent,
+                },
+              ]}
+            />
+          </View>
+        </View>
+
+        <View style={styles.sentimentPanel}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="people-outline" size={15} color={T.trading.buy.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Market Sentiment</Text>
+            </View>
+            <Text style={styles.sectionMeta}>Range model</Text>
+          </View>
           <View style={styles.sentimentBarRow}>
             <Text style={[styles.sentimentPct, { color: T.up }]}>
               {sentiment.buyPct.toFixed(0)}%

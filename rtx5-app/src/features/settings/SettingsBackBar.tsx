@@ -1,0 +1,71 @@
+/**
+ * Slim back navigation row used by enterprise settings screens that hide the
+ * default Stack header in favor of the in-screen hero heading.
+ */
+
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../ui/theme/useTheme';
+import { spacing } from '../../ui/theme/index';
+
+export function SettingsBackBar({ title }: { title?: string }) {
+  const T = useTheme();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const barHeight = 48;
+
+  return (
+    <View style={[styles.row, { height: insets.top + barHeight, paddingTop: insets.top }]}>
+      <Pressable
+        onPress={() => router.back()}
+        hitSlop={15}
+        style={styles.button}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+      >
+        <Ionicons name="arrow-back" size={24} color={T.text} />
+      </Pressable>
+      <View
+        style={[styles.titleWrap, { top: insets.top, height: barHeight }]}
+        pointerEvents="none"
+      >
+        {title ? (
+          <Text style={[styles.title, { color: T.text }]} numberOfLines={1}>
+            {title}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  row: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  button: {
+    width: 52,
+    height: 48,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingLeft: 4,
+  },
+  titleWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+});

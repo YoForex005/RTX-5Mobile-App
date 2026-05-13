@@ -1,5 +1,5 @@
-import { StaticSettingsInfoScreen } from '../../src/features/settings/StaticSettingsInfoScreen';
+import { TradersCommunityScreen } from '../../src/features/settings/TradersCommunityScreen';
 
 export default function TradersCommunityRoute() {
-  return <StaticSettingsInfoScreen variant="traders-community" />;
+  return <TradersCommunityScreen />;
 }
