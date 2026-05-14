@@ -35,12 +35,20 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   listContent: {
     paddingHorizontal: spacing.md,
   },
+  fixedHeader: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: isDark ? 'rgba(2,7,19,0.96)' : 'rgba(243,246,251,0.96)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: NEWS_BORDER,
+    zIndex: 2,
+    elevation: 4,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.md,
   },
   headerCopy: {
     flex: 1,

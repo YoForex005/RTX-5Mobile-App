@@ -72,16 +72,18 @@ export function TradersCommunityScreen() {
         style={styles.background}
       />
 
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 18 }]}>
+        <CommunityHeader T={T} styles={styles} />
+      </View>
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 96 },
+          { paddingTop: 16, paddingBottom: insets.bottom + 96 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <CommunityHeader T={T} styles={styles} />
-
         <MarketSentimentCard sentiments={MARKET_SENTIMENTS} T={T} isDark={isDark} styles={styles} />
 
         <CategoryTabs
@@ -149,7 +151,7 @@ function CommunityHeader({
   return (
     <View style={styles.header}>
       <View style={styles.headerCopy}>
-        <Text style={styles.headerTitle} numberOfLines={1}>Trader Community</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>Traders Community</Text>
       </View>
 
       <View style={styles.headerActions}>

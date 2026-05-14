@@ -6,10 +6,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -37,11 +38,11 @@ import {
   type UserMailboxState,
 } from './mailboxViewModel';
 
-const MAIL_CYAN = '#38BDF8';
-const MAIL_BLUE = '#3B82F6';
+const MAIL_CYAN = '#2F9BFF';
+const MAIL_BLUE = '#2F9BFF';
 const MAIL_GOLD = '#F5B942';
 const MAIL_AMBER = '#F59E0B';
-const MAIL_PURPLE = '#8B5CF6';
+const MAIL_PURPLE = '#7C3AED';
 const MAIL_RED = '#EF4444';
 
 type ConfirmationConfig = {
@@ -62,43 +63,69 @@ export function MailboxScreen() {
   const [selectedCategory, setSelectedCategory] = useState(data.mailboxState.selected_category);
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState(data.mailboxState.selected_priority_filter);
   const [searchQuery, setSearchQuery] = useState(data.mailboxState.search_query);
+  const [searchMode, setSearchMode] = useState(false);
+  const [readMessageIds, setReadMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [refreshing, setRefreshing] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | undefined>(data.uiActionState.selected_message_id);
   const [actionSheetMessageId, setActionSheetMessageId] = useState<string | undefined>();
+  const [riskDashboardMessageId, setRiskDashboardMessageId] = useState<string | undefined>();
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [mailboxOptionsOpen, setMailboxOptionsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationConfig | null>(null);
 
+  const mailboxMessages = useMemo(
+    () => data.messages.map((message) => (readMessageIds.has(message.message_id) ? { ...message, read_status: 'Read' as const } : message)),
+    [data.messages, readMessageIds],
+  );
+  const categoryItems = useMemo(
+    () => deriveCategoryItemsFromMessages(data.categories, mailboxMessages),
+    [data.categories, mailboxMessages],
+  );
   const mailboxState = useMemo(
-    () => deriveMailboxStateFromMessages(data.mailboxState, data.messages),
-    [data.mailboxState, data.messages],
+    () => deriveMailboxStateFromMessages(data.mailboxState, mailboxMessages),
+    [data.mailboxState, mailboxMessages],
   );
   const categories = useMemo(
-    () => selectMailboxCategories(data.categories, selectedCategory),
-    [data.categories, selectedCategory],
+    () => selectMailboxCategories(categoryItems, selectedCategory),
+    [categoryItems, selectedCategory],
   );
   const priorityFilters = useMemo(
     () => selectPriorityFilters(data.priorityFilters, selectedPriorityFilter),
     [data.priorityFilters, selectedPriorityFilter],
   );
   const messages = useMemo(
-    () => filterMailboxMessages(data.messages, selectedCategory, selectedPriorityFilter, searchQuery),
-    [data.messages, selectedCategory, selectedPriorityFilter, searchQuery],
+    () => filterMailboxMessages(mailboxMessages, selectedCategory, selectedPriorityFilter, searchQuery),
+    [mailboxMessages, selectedCategory, selectedPriorityFilter, searchQuery],
   );
   const importantAnnouncement = useMemo(
-    () => getImportantAnnouncement(data.importantAnnouncement, data.messages),
-    [data.importantAnnouncement, data.messages],
+    () => getImportantAnnouncement(data.importantAnnouncement, mailboxMessages),
+    [data.importantAnnouncement, mailboxMessages],
+  );
+  const importantAnnouncementMessage = useMemo(
+    () => getAnnouncementSourceMessage(importantAnnouncement, mailboxMessages),
+    [importantAnnouncement, mailboxMessages],
   );
   const selectedMessage = useMemo(
-    () => getSelectedMessage(data.messages, selectedMessageId),
-    [data.messages, selectedMessageId],
+    () => getSelectedMessage(mailboxMessages, selectedMessageId),
+    [mailboxMessages, selectedMessageId],
   );
   const actionSheetMessage = useMemo(
-    () => getSelectedMessage(data.messages, actionSheetMessageId),
-    [data.messages, actionSheetMessageId],
+    () => getSelectedMessage(mailboxMessages, actionSheetMessageId),
+    [mailboxMessages, actionSheetMessageId],
+  );
+  const riskDashboardMessage = useMemo(
+    () => getSelectedMessage(mailboxMessages, riskDashboardMessageId),
+    [mailboxMessages, riskDashboardMessageId],
   );
 
   const showLoading = mailboxState.loading_status === 'loading';
   const showError = mailboxState.loading_status === 'error';
+  // Search mode hides the centered title so the mailbox focuses on filtering.
+  const searchActive = searchMode || searchQuery.trim().length > 0;
+  const quickFilterCounts = useMemo(
+    () => getQuickFilterCounts(mailboxState, mailboxMessages),
+    [mailboxState, mailboxMessages],
+  );
 
   const openDeleteConfirmation = (message: MailboxMessage) => {
     setActionSheetMessageId(undefined);
@@ -111,6 +138,83 @@ export function MailboxScreen() {
     });
   };
 
+  const refreshMailbox = () => {
+    setMailboxOptionsOpen(false);
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 500);
+  };
+
+  const openMarkAllReadConfirmation = () => {
+    setMailboxOptionsOpen(false);
+    setConfirmation({
+      title: 'Mark All as Read',
+      message: 'Mark all official mailbox messages as read on this device?',
+      confirmLabel: 'Mark Read',
+      tone: 'warning',
+      onConfirm: () => {
+        setReadMessageIds(new Set(data.messages.map((message) => message.message_id)));
+        setConfirmation(null);
+      },
+    });
+  };
+
+  const openSafetyNotice = () => {
+    setMailboxOptionsOpen(false);
+    setConfirmation({
+      title: 'Official Message Safety',
+      message: 'YoPips support will never ask for your password, OTP, seed phrase, or remote device access inside mailbox messages.',
+      confirmLabel: 'Understood',
+      tone: 'warning',
+      onConfirm: () => setConfirmation(null),
+    });
+  };
+
+  const openSuspiciousReportConfirmation = () => {
+    setMailboxOptionsOpen(false);
+    setConfirmation({
+      title: 'Report Suspicious Message',
+      message: 'Send this mailbox activity to the security team for review?',
+      confirmLabel: 'Report',
+      tone: 'warning',
+      onConfirm: () => setConfirmation(null),
+    });
+  };
+
+  const selectQuickFilter = (filterId: string) => {
+    if (filterId === 'support') {
+      setSelectedCategory('tickets');
+      setSelectedPriorityFilter('last-7-days');
+    } else {
+      setSelectedCategory('all');
+      setSelectedPriorityFilter(filterId);
+    }
+    setMailboxOptionsOpen(false);
+  };
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/settings');
+  };
+
+  const openAnnouncementMessage = () => {
+    if (importantAnnouncementMessage) setSelectedMessageId(importantAnnouncementMessage.message_id);
+  };
+
+  const openRiskDashboardPreview = () => {
+    if (importantAnnouncementMessage) setRiskDashboardMessageId(importantAnnouncementMessage.message_id);
+  };
+
+  const closeSearchModeIfEmpty = () => {
+    if (searchQuery.trim().length === 0) setSearchMode(false);
+  };
+
+  const dismissSearchInput = () => {
+    if (!searchActive) return;
+
+    Keyboard.dismiss();
+    closeSearchModeIfEmpty();
+  };
+
   return (
     <Screen noBottomInset style={styles.screen}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -121,13 +225,38 @@ export function MailboxScreen() {
         style={styles.background}
       />
 
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 12 }]}>
+        {searchActive ? (
+          <MailboxSearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onSearchFocus={() => setSearchMode(true)}
+            onSearchBlur={closeSearchModeIfEmpty}
+            onOpenFilters={() => setFilterSheetOpen(true)}
+            autoFocus
+            T={T}
+            styles={styles}
+          />
+        ) : (
+          <MailboxHeader
+            onBack={goBack}
+            onOpenOptions={() => setMailboxOptionsOpen(true)}
+            T={T}
+            styles={styles}
+          />
+        )}
+      </View>
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 28 },
+          { paddingTop: 14, paddingBottom: insets.bottom + 28 },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={dismissSearchInput}
+        onTouchStart={dismissSearchInput}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -139,13 +268,6 @@ export function MailboxScreen() {
           />
         }
       >
-        <MailboxHeader
-          mailboxState={mailboxState}
-          onOpenFilters={() => setFilterSheetOpen(true)}
-          T={T}
-          styles={styles}
-        />
-
         {mailboxState.offline_status ? <OfflineState styles={styles} /> : null}
 
         {showLoading ? (
@@ -154,19 +276,28 @@ export function MailboxScreen() {
           <MailboxErrorState title="Unable to load mailbox" description="Check your internet connection and try again." buttonLabel="Retry" styles={styles} />
         ) : (
           <>
-            <MailboxSummaryStrip mailboxState={mailboxState} messages={data.messages} styles={styles} />
-            <MailboxSearchBar
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onOpenFilters={() => setFilterSheetOpen(true)}
+            {!searchActive ? (
+              <MailboxSearchBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onSearchFocus={() => setSearchMode(true)}
+                onSearchBlur={() => undefined}
+                onOpenFilters={() => setFilterSheetOpen(true)}
+                T={T}
+                styles={styles}
+              />
+            ) : null}
+            <MailboxCategoryTabs categories={categories} onSelect={setSelectedCategory} styles={styles} />
+            <ImportantAnnouncementCard
+              announcement={importantAnnouncement}
+              isDark={isDark}
               T={T}
               styles={styles}
+              onPrimaryAction={openRiskDashboardPreview}
+              onReadMore={openAnnouncementMessage}
             />
-            <MailboxCategoryTabs categories={categories} onSelect={setSelectedCategory} styles={styles} />
-            <MailboxFilterChips filters={priorityFilters} onSelect={setSelectedPriorityFilter} T={T} styles={styles} />
-            <ImportantAnnouncementCard announcement={importantAnnouncement} T={T} styles={styles} />
             <MessageList
-              allMessagesCount={data.messages.length}
+              allMessagesCount={mailboxMessages.length}
               messages={messages}
               onOpenMessage={setSelectedMessageId}
               onLongPressMessage={setActionSheetMessageId}
@@ -174,11 +305,11 @@ export function MailboxScreen() {
               T={T}
               styles={styles}
             />
-            <SupportShortcutCard supportState={data.supportState} styles={styles} />
+            <SupportShortcutCard supportState={data.supportState} isDark={isDark} styles={styles} />
             <View style={styles.securityNote}>
               <Ionicons name="lock-closed-outline" size={15} color={T.textMuted} />
               <Text style={styles.securityNoteText}>
-                Official account, payout, KYC, and risk messages will appear here. Never share passwords or OTPs with anyone.
+                Official account, payout, KYC, and risk messages appear here. Never share passwords or OTPs with support.
               </Text>
             </View>
           </>
@@ -189,6 +320,18 @@ export function MailboxScreen() {
         message={selectedMessage}
         onClose={() => setSelectedMessageId(undefined)}
         onDelete={openDeleteConfirmation}
+        T={T}
+        styles={styles}
+      />
+      <RiskDashboardPreviewSheet
+        message={riskDashboardMessage}
+        onClose={() => setRiskDashboardMessageId(undefined)}
+        onReadMore={() => {
+          if (riskDashboardMessage) {
+            setRiskDashboardMessageId(undefined);
+            setSelectedMessageId(riskDashboardMessage.message_id);
+          }
+        }}
         T={T}
         styles={styles}
       />
@@ -209,119 +352,154 @@ export function MailboxScreen() {
         T={T}
         styles={styles}
       />
+      <MailboxOptionsSheet
+        visible={mailboxOptionsOpen}
+        quickFilterCounts={quickFilterCounts}
+        onClose={() => setMailboxOptionsOpen(false)}
+        onSelectQuickFilter={selectQuickFilter}
+        onMarkAllRead={openMarkAllReadConfirmation}
+        onRefresh={refreshMailbox}
+        onOpenArchived={() => setMailboxOptionsOpen(false)}
+        onNotificationPreferences={() => setMailboxOptionsOpen(false)}
+        onSafetyInfo={openSafetyNotice}
+        onReportSuspicious={openSuspiciousReportConfirmation}
+        T={T}
+        styles={styles}
+      />
       <ConfirmationModal config={confirmation} onClose={() => setConfirmation(null)} styles={styles} />
     </Screen>
   );
 }
 
-function MailboxHeader({ mailboxState, onOpenFilters, T, styles }: {
-  mailboxState: UserMailboxState;
-  onOpenFilters: () => void;
+function MailboxHeader({ onBack, onOpenOptions, T, styles }: {
+  onBack: () => void;
+  onOpenOptions: () => void;
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
   return (
     <View style={styles.headerBlock}>
-      <LinearGradient
-        colors={['rgba(245,185,66,0.14)', 'rgba(56,189,248,0.08)', 'rgba(255,255,255,0)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGlow}
-      />
       <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <View style={styles.headerTitleRow}>
-            <Text style={styles.title} numberOfLines={1}>Mailbox</Text>
-            {mailboxState.unread_messages > 0 ? (
-              <Text style={styles.unreadCountText}>{mailboxState.unread_messages} unread</Text>
-            ) : null}
-          </View>
-          <Text style={styles.subtitle} numberOfLines={1}>Secure trading account communications</Text>
+        <HeaderIcon icon="arrow-back" onPress={onBack} accessibilityLabel="Go back" T={T} styles={styles} />
+
+        <View style={styles.headerCenter}>
+          <Text style={styles.title} numberOfLines={1}>Mailbox</Text>
         </View>
 
         <View style={styles.headerActions}>
-          <HeaderIcon icon="search" T={T} styles={styles} />
-          <HeaderIcon icon="options-outline" onPress={onOpenFilters} T={T} styles={styles} />
-          <HeaderIcon icon="ellipsis-horizontal" T={T} styles={styles} />
+          <HeaderIcon icon="ellipsis-horizontal" onPress={onOpenOptions} accessibilityLabel="Open mailbox options" T={T} styles={styles} />
         </View>
       </View>
     </View>
   );
+}
+
+type QuickFilterCounts = {
+  unread: number;
+  critical: number;
+  support: number;
+  actionNeeded: number;
+};
+
+function getQuickFilterCounts(
+  mailboxState: UserMailboxState,
+  messages: readonly MailboxMessage[],
+): QuickFilterCounts {
+  return {
+    unread: mailboxState.unread_messages,
+    critical: messages.filter((message) => message.priority === 'Critical').length,
+    support: mailboxState.support_replies,
+    actionNeeded: mailboxState.pending_action_messages,
+  };
+}
+
+function getAnnouncementSourceMessage(
+  announcement: ImportantAnnouncement | null,
+  messages: readonly MailboxMessage[],
+): MailboxMessage | null {
+  if (!announcement) return null;
+
+  return messages.find((message) => (
+    message.title === announcement.title &&
+    message.sender_name === announcement.sender &&
+    message.created_at === announcement.published_at
+  )) ?? null;
 }
 
 function HeaderIcon({
   icon,
   onPress,
+  accessibilityLabel,
   T,
   styles,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   onPress?: () => void;
+  accessibilityLabel?: string;
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
   return (
-    <Pressable style={styles.headerIconButton} onPress={onPress} hitSlop={8}>
-      <Ionicons name={icon} size={21} color={T.textSub} />
+    <Pressable style={styles.headerIconButton} onPress={onPress} hitSlop={8} accessibilityLabel={accessibilityLabel}>
+      <Ionicons name={icon} size={19} color={T.textSub} />
     </Pressable>
   );
 }
 
-function MailboxSummaryStrip({
-  mailboxState,
-  messages,
-  styles,
-}: {
-  mailboxState: UserMailboxState;
-  messages: readonly MailboxMessage[];
-  styles: MailboxScreenStyles;
-}) {
-  const criticalCount = messages.filter((message) => message.priority === 'Critical').length;
-  const metrics = [
-    { id: 'unread', label: 'Unread', value: mailboxState.unread_messages, icon: 'mail-unread-outline' as const, color: MAIL_CYAN },
-    { id: 'critical', label: 'Critical', value: criticalCount, icon: 'warning-outline' as const, color: MAIL_RED },
-    { id: 'support', label: 'Support', value: mailboxState.support_replies, icon: 'chatbubbles-outline' as const, color: MAIL_PURPLE },
-    { id: 'action', label: 'Action Needed', value: mailboxState.pending_action_messages, icon: 'flag-outline' as const, color: MAIL_AMBER },
-  ];
+function deriveCategoryItemsFromMessages(
+  categories: MessageCategoryItem[],
+  messages: readonly MailboxMessage[],
+): MessageCategoryItem[] {
+  return categories.map((category) => {
+    const categoryMessages = messages.filter((message) => matchesCategorySummary(message, category.category_id));
 
-  return (
-    <View style={styles.summaryStrip}>
-      {metrics.map((metric) => (
-        <SummaryMetricCard key={metric.id} metric={metric} styles={styles} />
-      ))}
-    </View>
-  );
+    return {
+      ...category,
+      total_count: categoryMessages.length,
+      unread_count: categoryMessages.filter((message) => message.read_status === 'Unread').length,
+    };
+  });
 }
 
-function SummaryMetricCard({
-  metric,
-  styles,
-}: {
-  metric: { label: string; value: number; icon: keyof typeof Ionicons.glyphMap; color: string };
-  styles: MailboxScreenStyles;
-}) {
-  return (
-    <View style={[styles.summaryCard, { borderColor: withAlpha(metric.color, 0.14) }]}>
-      <View style={[styles.summaryAccent, { backgroundColor: metric.color }]} />
-      <View style={[styles.summaryIcon, { backgroundColor: withAlpha(metric.color, 0.12) }]}>
-        <Ionicons name={metric.icon} size={16} color={metric.color} />
-      </View>
-      <Text style={styles.summaryValue}>{metric.value}</Text>
-      <Text style={styles.summaryLabel} numberOfLines={1}>{metric.label}</Text>
-    </View>
-  );
+function matchesCategorySummary(message: MailboxMessage, categoryId: string): boolean {
+  switch (categoryId) {
+    case 'all':
+      return true;
+    case 'alerts':
+      return ['Risk', 'Security', 'Account', 'Prop Firm'].includes(message.category) || ['Risk', 'Security', 'Compliance'].includes(message.sender_type);
+    case 'tickets':
+      return message.category === 'Support' || Boolean(message.related_ticket_id);
+    case 'broker':
+      return message.category === 'Broker' || message.sender_type === 'Broker';
+    case 'prop-firm':
+      return message.category === 'Prop Firm';
+    case 'security':
+      return message.category === 'Security' || message.sender_type === 'Security';
+    default:
+      return normalizeCategoryId(message.category) === categoryId;
+  }
+}
+
+function normalizeCategoryId(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, '-');
 }
 
 function MailboxSearchBar({
   searchQuery,
   onSearchChange,
+  onSearchFocus,
+  onSearchBlur,
   onOpenFilters,
+  autoFocus,
   T,
   styles,
 }: {
   searchQuery: string;
   onSearchChange: (value: string) => void;
+  onSearchFocus: () => void;
+  onSearchBlur: () => void;
   onOpenFilters: () => void;
+  autoFocus?: boolean;
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
@@ -331,10 +509,13 @@ function MailboxSearchBar({
       <TextInput
         value={searchQuery}
         onChangeText={onSearchChange}
-        placeholder="Search messages, tickets, orders..."
+        placeholder="Search messages, tickets, payouts..."
         placeholderTextColor={T.textMuted}
         style={styles.searchInput}
         selectionColor={MAIL_CYAN}
+        onFocus={onSearchFocus}
+        onBlur={onSearchBlur}
+        autoFocus={autoFocus}
         autoCapitalize="none"
         autoCorrect={false}
         accessibilityLabel="Search mailbox messages"
@@ -345,7 +526,7 @@ function MailboxSearchBar({
         </Pressable>
       ) : (
         <Pressable style={styles.searchShortcut} onPress={onOpenFilters} hitSlop={8}>
-          <Ionicons name="funnel-outline" size={15} color={MAIL_GOLD} />
+          <Ionicons name="options-outline" size={15} color={MAIL_BLUE} />
         </Pressable>
       )}
     </View>
@@ -365,73 +546,32 @@ function MailboxCategoryTabs({
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRail}>
       {categories.map((category) => (
         <Pressable key={category.category_id} onPress={() => onSelect(category.category_id)} hitSlop={6}>
-          {category.is_selected ? (
-            <LinearGradient
-              colors={[MAIL_CYAN, MAIL_BLUE]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.categoryPill, styles.categoryPillActive]}
-            >
-              <Text style={[styles.categoryText, styles.categoryTextActive]}>{category.category_name}</Text>
-              {category.unread_count > 0 ? (
-                <Text style={[styles.categoryCount, styles.categoryCountActive]}>{category.unread_count}</Text>
-              ) : null}
-            </LinearGradient>
-          ) : (
-            <View style={styles.categoryPill}>
-              <Text style={styles.categoryText}>{category.category_name}</Text>
-              {category.unread_count > 0 ? <Text style={styles.categoryCount}>{category.unread_count}</Text> : null}
-            </View>
-          )}
+          <View style={[styles.categoryPill, category.is_selected && styles.categoryPillActive]}>
+            <Text style={[styles.categoryText, category.is_selected && styles.categoryTextActive]}>{category.category_name}</Text>
+            {category.unread_count > 0 ? (
+              <Text style={[styles.categoryCount, category.is_selected && styles.categoryCountActive]}>{category.unread_count}</Text>
+            ) : null}
+          </View>
         </Pressable>
       ))}
     </ScrollView>
   );
 }
 
-function MailboxFilterChips({
-  filters,
-  onSelect,
-  T,
-  styles,
-}: {
-  filters: PriorityFilterItem[];
-  onSelect: (filterId: string) => void;
-  T: ThemeColors;
-  styles: MailboxScreenStyles;
-}) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.priorityRail}>
-      {filters.map((filter) => {
-        const color = getPriorityFilterColor(filter.filter_id, T);
-
-        return (
-          <Pressable
-            key={filter.filter_id}
-            style={[
-              styles.priorityChip,
-              filter.is_selected && { borderColor: color, backgroundColor: withAlpha(color, 0.14) },
-            ]}
-            onPress={() => onSelect(filter.filter_id)}
-            hitSlop={6}
-          >
-            <Text style={[styles.priorityChipText, filter.is_selected && { color }]}>{filter.filter_name}</Text>
-            <Text style={[styles.priorityChipCount, filter.is_selected && { color }]}>{filter.count}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
 function ImportantAnnouncementCard({
   announcement,
+  isDark,
   T,
   styles,
+  onPrimaryAction,
+  onReadMore,
 }: {
   announcement: ImportantAnnouncement | null;
+  isDark: boolean;
   T: ThemeColors;
   styles: MailboxScreenStyles;
+  onPrimaryAction: () => void;
+  onReadMore: () => void;
 }) {
   if (!announcement) return null;
 
@@ -439,43 +579,29 @@ function ImportantAnnouncementCard({
 
   return (
     <LinearGradient
-      colors={getAnnouncementGradient(announcement.priority)}
+      colors={getAnnouncementGradient(announcement.priority, isDark)}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={[styles.announcementCard, { borderColor: withAlpha(priorityMeta.color, 0.34) }]}
+      style={[styles.announcementCard, { borderColor: withAlpha(priorityMeta.color, 0.34), borderLeftColor: priorityMeta.color }]}
     >
-      <View style={[styles.announcementAccent, { backgroundColor: priorityMeta.color }]} />
       <View style={styles.announcementHeader}>
         <View style={styles.sectionTitleRow}>
-          <View style={[styles.sectionIcon, { backgroundColor: withAlpha(priorityMeta.color, 0.14) }]}>
-            <Ionicons name="warning-outline" size={17} color={priorityMeta.color} />
-          </View>
           <View>
-            <Text style={styles.sectionTitle}>Important Updates</Text>
-            <Text style={styles.sectionCaption}>{announcement.sender} / {formatShortTime(announcement.published_at)}</Text>
+            <Text style={styles.announcementSender}>{announcement.sender}</Text>
+            <Text style={styles.announcementTime}>{formatShortTime(announcement.published_at)}</Text>
           </View>
         </View>
-        {announcement.dismissible ? (
-          <Pressable style={styles.iconActionButton} accessibilityLabel="Mark announcement as read">
-            <Ionicons name="checkmark-done-outline" size={17} color={T.textMuted} />
-          </Pressable>
-        ) : null}
       </View>
 
       <Text style={styles.announcementTitle} numberOfLines={2}>{announcement.title}</Text>
       <Text style={styles.announcementSummary} numberOfLines={2}>{announcement.summary}</Text>
 
-      <View style={styles.announcementFooter}>
-        <PriorityBadge priority={announcement.priority} T={T} styles={styles} />
-        <CategoryBadge category={announcement.category} T={T} styles={styles} />
-      </View>
-
       {announcement.action_required && announcement.action_label ? (
         <View style={styles.announcementActions}>
-          <Pressable style={styles.primaryButton}>
+          <Pressable style={styles.primaryButton} onPress={onPrimaryAction}>
             <Text style={styles.primaryButtonText}>{announcement.action_label}</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton}>
+          <Pressable style={styles.secondaryButton} onPress={onReadMore}>
             <Text style={styles.secondaryButtonText}>Read More</Text>
           </Pressable>
         </View>
@@ -501,20 +627,27 @@ function MessageList({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
+  const groupedMessages = groupMessagesByDate(messages);
+
   return (
     <View style={styles.sectionBlock}>
       <SectionHeader title="Messages" count={messages.length} styles={styles} />
       {messages.length ? (
-        messages.map((message) => (
-          <MailboxMessageCard
-            key={message.message_id}
-            message={message}
-            onPress={() => onOpenMessage(message.message_id)}
-            onLongPress={() => onLongPressMessage(message.message_id)}
-            onDelete={() => onDeleteMessage(message)}
-            T={T}
-            styles={styles}
-          />
+        groupedMessages.map((group) => (
+          <View key={group.label} style={styles.messageDateGroup}>
+            <Text style={styles.dateGroupTitle}>{group.label}</Text>
+            {group.messages.map((message) => (
+              <MailboxMessageCard
+                key={message.message_id}
+                message={message}
+                onPress={() => onOpenMessage(message.message_id)}
+                onLongPress={() => onLongPressMessage(message.message_id)}
+                onDelete={() => onDeleteMessage(message)}
+                T={T}
+                styles={styles}
+              />
+            ))}
+          </View>
         ))
       ) : (
         <MailboxEmptyState
@@ -530,6 +663,40 @@ function MessageList({
       )}
     </View>
   );
+}
+
+type MessageDateLabel = 'Today' | 'Yesterday' | 'Earlier';
+
+function groupMessagesByDate(messages: MailboxMessage[]): Array<{ label: MessageDateLabel; messages: MailboxMessage[] }> {
+  const groups: Record<MessageDateLabel, MailboxMessage[]> = {
+    Today: [],
+    Yesterday: [],
+    Earlier: [],
+  };
+  const now = startOfLocalDay(new Date());
+
+  messages.forEach((message) => {
+    const createdAt = new Date(message.created_at);
+    if (Number.isNaN(createdAt.getTime())) {
+      groups.Earlier.push(message);
+      return;
+    }
+
+    const messageDay = startOfLocalDay(createdAt);
+    const ageInDays = Math.floor((now.getTime() - messageDay.getTime()) / 86400000);
+
+    if (ageInDays <= 0) groups.Today.push(message);
+    else if (ageInDays === 1) groups.Yesterday.push(message);
+    else groups.Earlier.push(message);
+  });
+
+  return (['Today', 'Yesterday', 'Earlier'] as const)
+    .map((label) => ({ label, messages: groups[label] }))
+    .filter((group) => group.messages.length > 0);
+}
+
+function startOfLocalDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
 function MailboxMessageCard({
@@ -550,6 +717,7 @@ function MailboxMessageCard({
   const priorityMeta = getPriorityMeta(message.priority, T);
   const senderColor = getSenderColor(message.sender_type, T);
   const unread = message.read_status === 'Unread';
+  const showPriorityAccent = message.priority === 'Critical';
 
   return (
     <Swipeable
@@ -572,7 +740,8 @@ function MailboxMessageCard({
         style={[
           styles.messageCard,
           unread && styles.messageCardUnread,
-          { borderLeftColor: priorityMeta.color },
+          showPriorityAccent && styles.messageCardCritical,
+          showPriorityAccent && { borderLeftColor: priorityMeta.color },
         ]}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -594,8 +763,8 @@ function MailboxMessageCard({
             </View>
           </View>
           <View style={styles.messageRightMeta}>
-            <Text style={styles.timestampText}>{formatShortTime(message.created_at)}</Text>
             <View style={styles.messageMetaIcons}>
+              <Text style={styles.timestampText}>{formatShortTime(message.created_at)}</Text>
               {message.attachments.length > 0 ? <Ionicons name="attach-outline" size={15} color={T.textMuted} /> : null}
               <Ionicons name="chevron-forward" size={17} color={T.textMuted} />
             </View>
@@ -603,16 +772,9 @@ function MailboxMessageCard({
         </View>
 
         <View style={styles.messageTitleRow}>
-          {unread ? <UnreadIndicator styles={styles} /> : null}
           <Text style={[styles.messageTitle, unread && styles.messageTitleUnread]} numberOfLines={2}>{message.title}</Text>
         </View>
         <Text style={styles.messagePreview} numberOfLines={2}>{message.preview}</Text>
-
-        <View style={styles.messageFooter}>
-          <CategoryBadge category={message.category} T={T} styles={styles} />
-          <PriorityBadge priority={message.priority} T={T} styles={styles} />
-          {message.action_required ? <StatusBadge label="Action Needed" color={MAIL_AMBER} styles={styles} /> : null}
-        </View>
       </Pressable>
     </Swipeable>
   );
@@ -663,37 +825,35 @@ function SenderAvatar({
 }) {
   return (
     <View style={[styles.messageIcon, { backgroundColor: withAlpha(color, 0.13), borderColor: withAlpha(color, 0.28) }]}>
-      <Ionicons name={getSenderIcon(senderType)} size={17} color={color} />
+      <Ionicons name={getSenderIcon(senderType)} size={12} color={color} />
     </View>
   );
 }
 
-function UnreadIndicator({ styles }: { styles: MailboxScreenStyles }) {
-  return <View style={styles.unreadDot} />;
-}
-
 function SupportShortcutCard({
   supportState,
+  isDark,
   styles,
 }: {
   supportState: SupportState;
+  isDark: boolean;
   styles: MailboxScreenStyles;
 }) {
   return (
     <LinearGradient
-      colors={['rgba(49,46,129,0.82)', 'rgba(15,23,42,0.94)']}
+      colors={getSupportCardGradient(isDark)}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.supportCard}
     >
       <View style={styles.supportTopRow}>
         <View style={styles.sectionTitleRow}>
-          <View style={[styles.sectionIcon, { backgroundColor: 'rgba(139,92,246,0.16)' }]}>
+          <View style={[styles.sectionIcon, { backgroundColor: 'rgba(47,155,255,0.12)' }]}>
             <Ionicons name="headset-outline" size={18} color="#C4B5FD" />
           </View>
           <View>
-            <Text style={styles.sectionTitle}>Need help?</Text>
-            <Text style={styles.sectionCaption}>Open a support ticket or check existing replies.</Text>
+            <Text style={styles.supportTitle}>Need help?</Text>
+            <Text style={styles.supportCaption}>Open a support ticket or check existing replies.</Text>
           </View>
         </View>
       </View>
@@ -736,6 +896,8 @@ function MailboxDetailScreen({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
+  const detailContext = message ? getDetailContextConfig(message, T) : null;
+
   return (
     <Modal transparent visible={Boolean(message)} animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
@@ -763,28 +925,222 @@ function MailboxDetailScreen({
               </Pressable>
             </View>
 
-            <View style={styles.detailBadgeRow}>
-              <CategoryBadge category={message.category} T={T} styles={styles} />
-              <PriorityBadge priority={message.priority} T={T} styles={styles} />
-            </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
+              {detailContext ? <DetailContextPanel config={detailContext} styles={styles} /> : null}
+              {!detailContext ? <MessageDetailMetaPanel message={message} T={T} styles={styles} /> : null}
 
-            <Text style={styles.detailTitle}>{message.title}</Text>
-            <Text style={styles.detailBody}>{message.full_body}</Text>
+              <Text style={styles.detailTitle}>{message.title}</Text>
+              <Text style={styles.detailBody}>{message.full_body}</Text>
 
-            {message.attachments.length > 0 ? (
-              <View style={styles.attachmentPanel}>
-                <Text style={styles.relatedInfoTitle}>Attachments</Text>
-                {message.attachments.map((attachment) => (
-                  <AttachmentCard key={attachment.attachment_id} attachment={attachment} styles={styles} />
-                ))}
-              </View>
-            ) : null}
+              <RelatedMessageInfo message={message} styles={styles} />
 
-            <MessageActionButtons message={message} onDelete={() => onDelete(message)} styles={styles} />
+              {message.attachments.length > 0 ? (
+                <View style={styles.attachmentPanel}>
+                  <Text style={styles.relatedInfoTitle}>Attachments</Text>
+                  {message.attachments.map((attachment) => (
+                    <AttachmentCard key={attachment.attachment_id} attachment={attachment} styles={styles} />
+                  ))}
+                </View>
+              ) : null}
+
+              {detailContext ? <MessageDetailMetaPanel message={message} T={T} styles={styles} trailing /> : null}
+
+              <MessageActionButtons message={message} onDelete={() => onDelete(message)} styles={styles} />
+            </ScrollView>
           </>
         ) : null}
       </View>
     </Modal>
+  );
+}
+
+function RiskDashboardPreviewSheet({
+  message,
+  onClose,
+  onReadMore,
+  T,
+  styles,
+}: {
+  message: MailboxMessage | null;
+  onClose: () => void;
+  onReadMore: () => void;
+  T: ThemeColors;
+  styles: MailboxScreenStyles;
+}) {
+  const rows = message
+    ? [
+        { label: 'Account', value: message.related_account_id ?? 'Protected' },
+        { label: 'Challenge', value: message.related_challenge_id ?? 'Prop Firm' },
+        { label: 'Rule Set', value: message.category },
+        { label: 'Priority', value: message.priority },
+        { label: 'Status', value: message.status },
+        { label: 'Alert Time', value: formatShortTime(message.created_at) },
+      ]
+    : [];
+
+  return (
+    <Modal transparent visible={Boolean(message)} animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetOverlay} onPress={onClose} />
+      <View style={styles.riskSheet}>
+        {message ? (
+          <>
+            <View style={styles.sheetHandle} />
+            <View style={styles.riskSheetHeader}>
+              <View style={[styles.detailContextIcon, { backgroundColor: withAlpha(MAIL_RED, 0.1), borderColor: withAlpha(MAIL_RED, 0.24) }]}>
+                <Ionicons name="speedometer-outline" size={18} color={MAIL_RED} />
+              </View>
+              <View style={styles.detailContextCopy}>
+                <Text style={styles.riskSheetTitle}>Risk Dashboard</Text>
+                <Text style={styles.riskSheetSubtitle}>Daily loss limit monitor</Text>
+              </View>
+              <Pressable style={styles.iconActionButton} onPress={onClose} accessibilityLabel="Close risk dashboard preview">
+                <Ionicons name="close" size={19} color={T.textSub} />
+              </Pressable>
+            </View>
+
+            <View style={styles.riskAlertPanel}>
+              <Text style={styles.riskAlertLabel}>Official Risk Alert</Text>
+              <Text style={styles.riskAlertTitle}>{message.title}</Text>
+              <Text style={styles.riskAlertBody}>{message.preview}</Text>
+            </View>
+
+            <View style={styles.riskMetricGrid}>
+              {rows.map((row) => (
+                <View key={row.label} style={styles.riskMetricItem}>
+                  <Text style={styles.detailContextMetricLabel}>{row.label}</Text>
+                  <Text style={styles.detailContextMetricValue} numberOfLines={1}>{row.value}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.riskGuidance}>
+              <Ionicons name="shield-checkmark-outline" size={17} color={MAIL_AMBER} />
+              <Text style={styles.riskGuidanceText}>
+                Review open positions, reduce exposure if needed, and avoid placing additional trades until your loss buffer is comfortable.
+              </Text>
+            </View>
+
+            <View style={styles.detailSecondaryActions}>
+              <Pressable style={styles.secondaryButton} onPress={onReadMore}>
+                <Text style={styles.secondaryButtonText}>Read Full Message</Text>
+              </Pressable>
+              <Pressable style={styles.primaryButton} onPress={onClose}>
+                <Text style={styles.primaryButtonText}>Done</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
+type DetailContextConfig = {
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  statusLabel: string;
+  metrics: Array<{ label: string; value: string }>;
+};
+
+function DetailContextPanel({
+  config,
+  styles,
+}: {
+  config: DetailContextConfig;
+  styles: MailboxScreenStyles;
+}) {
+  return (
+    <View style={[styles.detailContextPanel, { borderLeftColor: config.color }]}>
+      <View style={styles.detailContextHeader}>
+        <View style={styles.detailContextIdentity}>
+          <View
+            style={[
+              styles.detailContextIcon,
+              { backgroundColor: withAlpha(config.color, 0.1), borderColor: withAlpha(config.color, 0.22) },
+            ]}
+          >
+            <Ionicons name={config.icon} size={18} color={config.color} />
+          </View>
+          <View style={styles.detailContextCopy}>
+            <Text style={styles.detailContextTitle} numberOfLines={1}>{config.title}</Text>
+            <Text style={styles.detailContextSubtitle} numberOfLines={1}>{config.subtitle}</Text>
+          </View>
+        </View>
+        <View
+          style={[
+            styles.detailContextStatusPill,
+            { backgroundColor: withAlpha(config.color, 0.1), borderColor: withAlpha(config.color, 0.28) },
+          ]}
+        >
+          <Text style={[styles.detailContextStatusText, { color: config.color }]} numberOfLines={1}>{config.statusLabel}</Text>
+        </View>
+      </View>
+
+      <View style={styles.detailContextGrid}>
+        {config.metrics.map((metric) => (
+          <View key={metric.label} style={styles.detailContextMetric}>
+            <Text style={styles.detailContextMetricLabel}>{metric.label}</Text>
+            <Text style={styles.detailContextMetricValue} numberOfLines={1}>{metric.value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function MessageDetailMetaPanel({
+  message,
+  T,
+  styles,
+  trailing,
+}: {
+  message: MailboxMessage;
+  T: ThemeColors;
+  styles: MailboxScreenStyles;
+  trailing?: boolean;
+}) {
+  return (
+    <View style={[styles.detailMetaPanel, trailing && styles.detailMetaPanelTrailing]}>
+      <Text style={styles.detailMetaTitle}>Message Details</Text>
+      <View style={styles.detailBadgeRow}>
+        <CategoryBadge category={message.category} T={T} styles={styles} />
+        <PriorityBadge priority={message.priority} T={T} styles={styles} />
+        {message.action_required ? <StatusBadge label="Action Needed" color={MAIL_AMBER} styles={styles} /> : null}
+        <StatusBadge label={message.status} color={getMessageStatusColor(message.status, T)} styles={styles} />
+      </View>
+    </View>
+  );
+}
+
+function RelatedMessageInfo({
+  message,
+  styles,
+}: {
+  message: MailboxMessage;
+  styles: MailboxScreenStyles;
+}) {
+  const rows = [
+    { label: 'Account', value: message.related_account_id },
+    { label: 'Ticket', value: message.related_ticket_id },
+    { label: 'Challenge', value: message.related_challenge_id },
+    { label: 'Order', value: message.related_order_id },
+    { label: 'Symbol', value: message.related_symbol },
+  ].filter((row): row is { label: string; value: string } => Boolean(row.value));
+
+  if (!rows.length) return null;
+
+  return (
+    <View style={styles.relatedInfoPanel}>
+      <Text style={styles.relatedInfoTitle}>Related Context</Text>
+      {rows.map((row) => (
+        <View key={row.label} style={styles.relatedInfoRow}>
+          <Text style={styles.relatedInfoLabel}>{row.label}</Text>
+          <Text style={styles.relatedInfoValue} numberOfLines={1}>{row.value}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -810,15 +1166,48 @@ function MessageActionButtons({
   onDelete: () => void;
   styles: MailboxScreenStyles;
 }) {
-  return (
-    <View style={styles.detailActions}>
-      {message.action_required && message.action_label ? (
+  const isSupport = isSupportMessage(message);
+
+  if (isSupport) {
+    return (
+      <View style={styles.detailActionStack}>
+        <Pressable style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>Reply to Support</Text>
+        </Pressable>
+        <View style={styles.detailSecondaryActions}>
+          <Pressable style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>View Ticket</Text>
+          </Pressable>
+          <Pressable style={styles.dangerButton} onPress={onDelete}>
+            <Text style={styles.dangerButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (message.action_required && message.action_label) {
+    return (
+      <View style={styles.detailActionStack}>
         <Pressable style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>{message.action_label}</Text>
         </Pressable>
-      ) : null}
+        <View style={styles.detailSecondaryActions}>
+          <Pressable style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Mark Read</Text>
+          </Pressable>
+          <Pressable style={styles.dangerButton} onPress={onDelete}>
+            <Text style={styles.dangerButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.detailActions}>
       <Pressable style={styles.secondaryButton}>
-        <Text style={styles.secondaryButtonText}>{message.sender_type === 'Support' ? 'Reply' : 'Mark Read'}</Text>
+        <Text style={styles.secondaryButtonText}>Mark Read</Text>
       </Pressable>
       <Pressable style={styles.dangerButton} onPress={onDelete}>
         <Text style={styles.dangerButtonText}>Delete</Text>
@@ -943,6 +1332,62 @@ function FilterOption({
   );
 }
 
+function MailboxOptionsSheet({
+  visible,
+  quickFilterCounts,
+  onClose,
+  onSelectQuickFilter,
+  onMarkAllRead,
+  onRefresh,
+  onOpenArchived,
+  onNotificationPreferences,
+  onSafetyInfo,
+  onReportSuspicious,
+  T,
+  styles,
+}: {
+  visible: boolean;
+  quickFilterCounts: QuickFilterCounts;
+  onClose: () => void;
+  onSelectQuickFilter: (filterId: string) => void;
+  onMarkAllRead: () => void;
+  onRefresh: () => void;
+  onOpenArchived: () => void;
+  onNotificationPreferences: () => void;
+  onSafetyInfo: () => void;
+  onReportSuspicious: () => void;
+  T: ThemeColors;
+  styles: MailboxScreenStyles;
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetOverlay} onPress={onClose} />
+      <View style={styles.actionSheet}>
+        <View style={styles.sheetHandle} />
+        <Text style={styles.filterTitle}>Mailbox Options</Text>
+        <Text style={styles.optionsSubtitle}>Manage official account messages and security actions.</Text>
+
+        <Text style={styles.optionsSectionTitle}>Quick filters</Text>
+        <ActionRow icon="mail-unread-outline" label="Unread" count={quickFilterCounts.unread} accentColor={MAIL_CYAN} onPress={() => onSelectQuickFilter('unread')} T={T} styles={styles} />
+        <ActionRow icon="warning-outline" label="Critical" count={quickFilterCounts.critical} accentColor={MAIL_RED} onPress={() => onSelectQuickFilter('critical')} T={T} styles={styles} />
+        <ActionRow icon="headset-outline" label="Support" count={quickFilterCounts.support} accentColor={MAIL_PURPLE} onPress={() => onSelectQuickFilter('support')} T={T} styles={styles} />
+        <ActionRow icon="flag-outline" label="Action Needed" count={quickFilterCounts.actionNeeded} accentColor={MAIL_AMBER} onPress={() => onSelectQuickFilter('action-needed')} T={T} styles={styles} />
+
+        <View style={styles.optionsDivider} />
+        <Text style={styles.optionsSectionTitle}>Mailbox actions</Text>
+        <ActionRow icon="checkmark-done-outline" label="Mark all as read" onPress={onMarkAllRead} T={T} styles={styles} />
+        <ActionRow icon="refresh-outline" label="Refresh mailbox" onPress={onRefresh} T={T} styles={styles} />
+        <ActionRow icon="archive-outline" label="View archived messages" onPress={onOpenArchived} T={T} styles={styles} />
+        <ActionRow icon="notifications-outline" label="Notification preferences" onPress={onNotificationPreferences} T={T} styles={styles} />
+
+        <View style={styles.optionsDivider} />
+        <ActionRow icon="shield-checkmark-outline" label="Official message safety" onPress={onSafetyInfo} T={T} styles={styles} />
+        <ActionRow icon="flag-outline" label="Report suspicious message" destructive onPress={onReportSuspicious} T={T} styles={styles} />
+      </View>
+    </Modal>
+  );
+}
+
 function MailboxActionSheet({
   message,
   onClose,
@@ -976,6 +1421,8 @@ function MailboxActionSheet({
 function ActionRow({
   icon,
   label,
+  count,
+  accentColor,
   destructive,
   onPress,
   T,
@@ -983,17 +1430,22 @@ function ActionRow({
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  count?: number;
+  accentColor?: string;
   destructive?: boolean;
   onPress: () => void;
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
-  const color = destructive ? MAIL_RED : T.textSub;
+  const color = destructive ? MAIL_RED : accentColor ?? T.textSub;
 
   return (
     <Pressable style={styles.actionRow} onPress={onPress}>
       <Ionicons name={icon} size={18} color={color} />
       <Text style={[styles.actionRowText, destructive && styles.actionRowTextDanger]}>{label}</Text>
+      {typeof count === 'number' ? (
+        <Text style={[styles.actionRowCount, { color }]}>{count}</Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -1114,14 +1566,6 @@ function MailboxEmptyState({
 function MailboxLoadingSkeleton({ styles }: { styles: MailboxScreenStyles }) {
   return (
     <View style={styles.skeletonStack}>
-      <View style={styles.summaryStrip}>
-        {[0, 1, 2].map((item) => (
-          <View key={item} style={styles.skeletonSummaryCard}>
-            <View style={styles.skeletonLineShort} />
-            <View style={styles.skeletonLineWide} />
-          </View>
-        ))}
-      </View>
       {[0, 1, 2, 3, 4].map((item) => (
         <View key={item} style={styles.skeletonCard}>
           <View style={styles.skeletonLineWide} />
@@ -1139,11 +1583,11 @@ function MailboxLoadingSkeleton({ styles }: { styles: MailboxScreenStyles }) {
 function getPriorityMeta(priority: MessagePriority, T: ThemeColors): { color: string } {
   switch (priority) {
     case 'Critical':
-      return { color: T.down };
+      return { color: MAIL_RED };
     case 'Important':
       return { color: MAIL_AMBER };
     case 'Success':
-      return { color: T.up };
+      return { color: '#22C55E' };
     case 'Promotion':
       return { color: MAIL_GOLD };
     case 'Info':
@@ -1152,21 +1596,28 @@ function getPriorityMeta(priority: MessagePriority, T: ThemeColors): { color: st
   }
 }
 
-function getPriorityFilterColor(filterId: string, T: ThemeColors): string {
-  if (filterId === 'critical') return T.down;
-  if (filterId === 'attachments') return MAIL_PURPLE;
-  if (filterId === 'unread') return MAIL_CYAN;
-  if (filterId === 'action-needed') return MAIL_AMBER;
-  return MAIL_GOLD;
+function getMessageStatusColor(status: MailboxMessage['status'], T: ThemeColors): string {
+  switch (status) {
+    case 'Open':
+      return MAIL_BLUE;
+    case 'Pending':
+      return MAIL_AMBER;
+    case 'Resolved':
+      return '#22C55E';
+    case 'Archived':
+    default:
+      return T.textMuted;
+  }
 }
 
 function getCategoryColor(category: MessageCategory, T: ThemeColors): string {
   switch (category) {
     case 'Payments':
-      return T.up;
+      return '#22C55E';
     case 'Prop Firm':
+      return MAIL_PURPLE;
     case 'Risk':
-      return MAIL_AMBER;
+      return MAIL_RED;
     case 'Support':
       return MAIL_PURPLE;
     case 'Promotions':
@@ -1189,13 +1640,14 @@ function getSenderColor(senderType: SenderType, T: ThemeColors): string {
     case 'Support':
       return MAIL_PURPLE;
     case 'Payments':
-      return T.up;
+      return '#22C55E';
     case 'KYC':
-      return MAIL_CYAN;
+      return MAIL_BLUE;
     case 'Risk':
+      return MAIL_RED;
     case 'Compliance':
     case 'Security':
-      return MAIL_AMBER;
+      return MAIL_CYAN;
     case 'Admin':
     case 'Broker':
     case 'Promotions':
@@ -1209,9 +1661,9 @@ function getSenderColor(senderType: SenderType, T: ThemeColors): string {
 function getSenderIcon(senderType: SenderType): keyof typeof Ionicons.glyphMap {
   switch (senderType) {
     case 'Support':
-      return 'chatbubbles-outline';
+      return 'headset-outline';
     case 'Payments':
-      return 'wallet-outline';
+      return 'receipt-outline';
     case 'KYC':
       return 'id-card-outline';
     case 'Risk':
@@ -1232,18 +1684,110 @@ function getSenderIcon(senderType: SenderType): keyof typeof Ionicons.glyphMap {
 }
 
 function isOfficialSender(senderType: SenderType): boolean {
-  return ['Admin', 'Broker', 'System', 'Risk', 'Payments', 'KYC', 'Compliance', 'Security'].includes(senderType);
+  return ['Admin', 'Support', 'Broker', 'System', 'Risk', 'Payments', 'KYC', 'Compliance', 'Security'].includes(senderType);
 }
 
-function getAnnouncementGradient(priority: MessagePriority): readonly [string, string, string] {
+// Detects support-ticket messages so the detail sheet can show secure ticket context.
+function isSupportMessage(message: MailboxMessage): boolean {
+  return message.sender_type === 'Support' || message.category === 'Support' || Boolean(message.related_ticket_id);
+}
+
+function getDetailContextConfig(message: MailboxMessage, T: ThemeColors): DetailContextConfig | null {
+  if (isSupportMessage(message)) {
+    return {
+      title: 'Support Ticket',
+      subtitle: 'Secure support conversation',
+      icon: 'headset-outline',
+      color: MAIL_PURPLE,
+      statusLabel: message.status,
+      metrics: [
+        { label: 'Ticket ID', value: message.related_ticket_id ?? 'Not assigned' },
+        { label: 'Latest Reply', value: formatShortTime(message.updated_at) },
+        { label: 'Attachments', value: message.attachments.length ? `${message.attachments.length}` : 'None' },
+      ],
+    };
+  }
+
+  if (isKycMessage(message)) {
+    return {
+      title: 'KYC Verification Review',
+      subtitle: 'Secure identity document workflow',
+      icon: 'id-card-outline',
+      color: MAIL_AMBER,
+      statusLabel: message.action_required ? 'Action Needed' : message.status,
+      metrics: [
+        { label: 'Required Step', value: message.action_label ?? 'Review' },
+        { label: 'Queue', value: 'Identity Check' },
+        { label: 'Received', value: formatShortTime(message.created_at) },
+      ],
+    };
+  }
+
+  if (isSecurityMessage(message)) {
+    return {
+      title: 'Account Security Notice',
+      subtitle: 'Verified platform security message',
+      icon: 'shield-checkmark-outline',
+      color: MAIL_CYAN,
+      statusLabel: message.status,
+      metrics: [
+        { label: 'Account', value: message.related_account_id ?? 'Protected' },
+        { label: 'Priority', value: message.priority },
+        { label: 'Received', value: formatShortTime(message.created_at) },
+      ],
+    };
+  }
+
+  if (isYoPipsMessage(message)) {
+    return {
+      title: 'YoPips Platform Update',
+      subtitle: 'Official prop firm account message',
+      icon: 'trophy-outline',
+      color: message.priority === 'Success' ? '#22C55E' : getMessageStatusColor(message.status, T),
+      statusLabel: message.status,
+      metrics: [
+        { label: 'Challenge', value: message.related_challenge_id ?? 'Prop Firm' },
+        { label: 'Outcome', value: message.priority === 'Success' ? 'Passed' : message.priority },
+        { label: 'Received', value: formatShortTime(message.created_at) },
+      ],
+    };
+  }
+
+  return null;
+}
+
+function isYoPipsMessage(message: MailboxMessage): boolean {
+  return message.sender_name === 'YoPips' || message.sender_type === 'Broker' || message.category === 'Prop Firm';
+}
+
+function isSecurityMessage(message: MailboxMessage): boolean {
+  return message.sender_type === 'Security' || message.category === 'Security';
+}
+
+function isKycMessage(message: MailboxMessage): boolean {
+  return message.sender_type === 'KYC' || message.category === 'KYC';
+}
+
+function getAnnouncementGradient(priority: MessagePriority, isDark: boolean): readonly [string, string, string] {
+  if (!isDark) {
+    if (priority === 'Critical') return ['#FFFFFF', '#FFF7F7', '#F8FAFC'];
+    if (priority === 'Important') return ['#FFFFFF', '#FFF8ED', '#F8FAFC'];
+    if (priority === 'Success') return ['#FFFFFF', '#F0FDF4', '#F8FAFC'];
+    return ['#FFFFFF', '#F3F8FF', '#F8FAFC'];
+  }
+
   if (priority === 'Critical') return ['rgba(18,24,38,0.98)', 'rgba(15,23,42,0.98)', 'rgba(9,13,22,0.98)'];
   if (priority === 'Important') return ['rgba(24,28,40,0.98)', 'rgba(17,24,39,0.98)', 'rgba(9,13,22,0.98)'];
   if (priority === 'Success') return ['rgba(14,32,29,0.96)', 'rgba(15,23,42,0.98)', 'rgba(9,13,22,0.98)'];
   return ['rgba(15,35,53,0.96)', 'rgba(8,21,39,0.98)', 'rgba(15,23,42,0.96)'];
 }
 
+function getSupportCardGradient(isDark: boolean): readonly [string, string] {
+  return isDark ? ['#121A2B', '#162033'] : ['#FFFFFF', '#F3F7FF'];
+}
+
 function getScreenGradient(isDark: boolean): readonly [string, string, string] {
-  return isDark ? ['#070B12', '#101827', '#05070D'] : ['#F8FAFC', '#EEF4FF', '#FFFFFF'];
+  return isDark ? ['#070B12', '#0B1020', '#070B12'] : ['#F5F8FC', '#F5F8FC', '#EEF4FF'];
 }
 
 function formatShortTime(value: string): string {

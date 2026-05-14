@@ -18,12 +18,20 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   content: {
     paddingHorizontal: spacing.md,
   },
+  fixedHeader: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: isDark ? 'rgba(2,7,19,0.96)' : 'rgba(247,250,255,0.96)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.1)',
+    zIndex: 2,
+    elevation: 4,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.md,
   },
   headerCopy: {
     flex: 1,

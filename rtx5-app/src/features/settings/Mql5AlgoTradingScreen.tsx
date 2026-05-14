@@ -100,11 +100,15 @@ export function Mql5AlgoTradingScreen() {
         style={styles.background}
       />
 
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 14 }]}>
+        <AlgoHeader uiState={screenData.uiState} T={T} styles={styles} />
+      </View>
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 28 },
+          { paddingTop: 18, paddingBottom: insets.bottom + 28 },
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -118,8 +122,6 @@ export function Mql5AlgoTradingScreen() {
           />
         }
       >
-        <AlgoHeader uiState={screenData.uiState} T={T} styles={styles} />
-
         {screenData.uiState.offline_status ? <OfflineState T={T} styles={styles} /> : null}
         {screenData.uiState.risk_limit_triggered ? (
           <StateBanner

@@ -50,7 +50,9 @@ import {
   roundOrderTicketPrice,
 } from './orderTicketPreviewUtils';
 
-/* ── Component ─────────────────────────────────────────────────────────── */
+/* Main screen */
+// A single action model keeps BUY and SELL button behavior consistent across
+// the top price panel and the lower execution buttons.
 type OrderTicketTradeAction = {
   side: TradeSide;
   displayLabel: 'BUY' | 'SELL';
@@ -65,6 +67,8 @@ type OrderTicketTradeAction = {
 };
 
 export function OrderTicketScreen() {
+  // Route params let chart and quote screens open the ticket with a specific
+  // symbol, initial trade side, or order comment.
   const { symbol: routeSymbol, comment: routeComment, side: routeSideParam } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string }>();
   const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const routeSide = normalizeTradeSide(routeSideParam);
@@ -88,11 +92,14 @@ export function OrderTicketScreen() {
   const WHITE = T.text;
   const SUB = T.textSub;
 
+  // The order type decides whether this ticket submits immediately or prepares
+  // a pending order with an editable trigger price.
   const [orderType, setOrderType] = useState<ChartOrderType>('Market Execution');
   const orderTypeTabsRef = useRef<ScrollView | null>(null);
   const orderTypeTabsViewportWidthRef = useRef(0);
   const orderTypeTabLayoutsRef = useRef<Partial<Record<ChartOrderType, { x: number; width: number }>>>({});
   const { data: instrumentMeta } = useInstrumentMeta(symbol);
+  // Broker metadata defines the valid lot range and step size for the symbol.
   const volumeBounds = useMemo(
     () => ({
       minVolume: instrumentMeta?.minVolume,
@@ -108,6 +115,7 @@ export function OrderTicketScreen() {
   const [tpEnabled, setTpEnabled] = useState(false);
   const [tpPrice, setTpPrice] = useState(0);
 
+  // One modal state handles both success and error feedback from trade actions.
   const [modalState, setModalState] = useState<{
     visible: boolean;
     type: 'success' | 'error';
@@ -125,6 +133,8 @@ export function OrderTicketScreen() {
   const modalOpacityAnim = useRef(new Animated.Value(0)).current;
   const autoDismissTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Show feedback with a short animation. Successful orders also vibrate and
+  // auto-dismiss after a few seconds.
   const showModal = useCallback((state: typeof modalState) => {
     setModalState(state);
     modalScaleAnim.setValue(0.85);
@@ -140,6 +150,8 @@ export function OrderTicketScreen() {
     }
   }, []);
 
+  // After a successful order, closing the modal returns the user to the
+  // previous screen. Errors just close the modal and leave the ticket open.
   const handleModalClose = useCallback(() => {
     if (autoDismissTimer.current) {
       clearTimeout(autoDismissTimer.current);
@@ -158,22 +170,26 @@ export function OrderTicketScreen() {
     });
   }, [modalState.type]);
 
+  // Clear any pending auto-dismiss timer when the screen unmounts.
   useEffect(() => {
     return () => {
       if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
     };
   }, []);
 
+  // Keep the editable volume field aligned with saved preferences and the
+  // latest broker volume limits.
   useEffect(() => {
     const normalized = normalizeTradeVolume(tradeVolume, volumeBounds);
     setVolume(normalized);
     setVolumeInput(formatTradeVolume(normalized, volumeBounds));
   }, [tradeVolume, volumeBounds]);
 
-  // Live WebSocket Pricing
+  // Live WebSocket pricing drives the BID/ASK buttons and every price preview.
   const latestTick = useLiveTick(symbol);
   const latestClose = latestTick?.close || 0;
-  // Compute synthetic BID/ASK if true bid/ask not provided by the socket schema
+  // Some tick payloads only include close price, so create a conservative ASK
+  // fallback until true bid/ask data arrives.
   const syntheticAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
 
   const BID = (latestTick as any)?.bid || latestClose;
@@ -190,7 +206,8 @@ export function OrderTicketScreen() {
   const leverage = accountSummary?.leverage || 100;
   const currency = accountSummary?.currency || 'USD';
 
-  // Estimate required margin for this trade size
+  // Estimate margin locally for display only. The backend remains the final
+  // authority for real margin and execution validation.
   let contractSize = 100000;
   if (symbol.includes('XAU') || symbol.includes('XAG')) contractSize = 100;
   else if (symbol.includes('BTC') || symbol.includes('ETH')) contractSize = 1;
@@ -208,6 +225,8 @@ export function OrderTicketScreen() {
   const displayDecimals = 2;
   const pipSize = baseSymbol.includes('JPY') ? 0.01 : baseSymbol.includes('BTC') ? 10 : baseSymbol.includes('XAU') ? 0.1 : 0.0001;
   const priceTickSize = instrumentMeta?.tickSize && instrumentMeta.tickSize > 0 ? instrumentMeta.tickSize : pipSize;
+  // Price precision comes from broker tick size when available; otherwise the
+  // ticket falls back to a symbol-family pip size.
   const priceDecimals = useMemo(
     () => resolveOrderTicketPriceDecimals(priceTickSize, BID, ASK),
     [ASK, BID, priceTickSize],
@@ -247,6 +266,8 @@ export function OrderTicketScreen() {
   const isPendingOrderType = isPendingChartOrderType(orderType);
   const isStopLimitOrderType = isStopLimitChartOrderType(orderType);
 
+  // When the user switches into a pending order type, seed the trigger and
+  // stop-limit prices once. User edits are preserved until the type changes.
   useEffect(() => {
     if (!isPendingOrderType) {
       lastConfiguredPendingOrderTypeRef.current = null;
@@ -279,6 +300,8 @@ export function OrderTicketScreen() {
     stopLimitOffset,
   ]);
 
+  // Stepper changes always round to the valid tick size and keep the stop-limit
+  // price aligned with the current trigger.
   const handlePendingEntryPriceChange = useCallback(
     (nextPrice: number) => {
       const roundedEntry = roundPendingPrice(nextPrice);
@@ -293,6 +316,7 @@ export function OrderTicketScreen() {
     },
     [orderType, roundPendingPrice, stopLimitOffset],
   );
+  // Helper text explains which pending-order line can be moved in the preview.
   const pendingPreviewSummary = useMemo(() => {
     const triggerValue = pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--';
     if (!isPendingOrderType) {
@@ -313,6 +337,7 @@ export function OrderTicketScreen() {
     priceDecimals,
   ]);
 
+  // Keep the selected order type centered in the horizontal tab rail.
   const scrollOrderTypeTabsToSelection = useCallback(
     (selected: ChartOrderType, animated: boolean) => {
       const layout = orderTypeTabLayoutsRef.current[selected];
@@ -332,8 +357,8 @@ export function OrderTicketScreen() {
     scrollOrderTypeTabsToSelection(orderType, false);
   }, [orderType, scrollOrderTypeTabsToSelection]);
 
-  // Synthesize dynamic live order book updates tied to actual ticking price streams
-  // Seed DOM simulation values once so they don't strobe with every tick
+  // Synthesize a small depth-of-market preview from live prices. The seed keeps
+  // displayed volumes moving gently instead of resetting hard on every tick.
   const domSeed = useRef({
     v1s: Math.floor(Math.random() * 60 + 20), v1b: Math.floor(Math.random() * 20 + 5),
     v2s: Math.floor(Math.random() * 80 + 40), v2b: Math.floor(Math.random() * 80 + 40),
@@ -341,7 +366,7 @@ export function OrderTicketScreen() {
   });
 
   const domRows = useMemo(() => {
-    // Perturb the DOM volumes slightly on each price tick to simulate live order book depth
+    // Slightly perturb each row so the depth table feels live without large jumps.
     const perturb = (val: number) => {
       const v = val + (Math.random() * 14 - 7);
       return Math.max(5, Math.min(95, v));
@@ -362,6 +387,7 @@ export function OrderTicketScreen() {
 
   const [pendingSide, setPendingSide] = useState<TradeSide | null>(null);
   const [tradeActionLocked, setTradeActionLocked] = useState(false);
+  // The tap lock blocks double-submits while a trade request is in flight.
   const tradeTapLockRef = useRef(false);
   const tradeTapLockSideRef = useRef<TradeSide | null>(null);
   const tradeActionDisabled = pendingSide !== null || tradeActionLocked;
@@ -399,6 +425,8 @@ export function OrderTicketScreen() {
   const sellTradeAction = tradeButtonActions[0];
   const buyTradeAction = tradeButtonActions[1];
 
+  // After an optimistic local insert, poll positions briefly so local state
+  // converges with the server-created ticket once it is available.
   const syncOpenedPosition = async (login: string, ticketId?: number) => {
     const maxAttempts = 15;
 
@@ -417,6 +445,8 @@ export function OrderTicketScreen() {
     }
   };
 
+  // Submit a market order. This path validates account context, builds the API
+  // payload, handles backend rejection, and updates the positions list.
   const handlePlaceOrder = async (side: TradeSide) => {
     const requestedSide = assertTradeSide(side);
     if (!isMarketExecution) {
@@ -495,14 +525,14 @@ export function OrderTicketScreen() {
       // Live API Integration: POST /api/v2/orders
       // Places a market order via the centralized ordersApi.
       // Rate limited: 60 requests/min per account.
-      // Routed through ordersApi → apiClient which handles:
-      //   • Automatic Bearer token injection from Zustand state
-      //   • 401 token refresh loops (cyclic refresh_token renewal)
-      //   • DB transaction atomicity on the server side
-      //   • Rejection on zero/negative market prices
-      //   • SL/TP validation against current market price
+      // Routed through ordersApi -> apiClient which handles:
+      //   - Automatic Bearer token injection from Zustand state
+      //   - 401 token refresh loops
+      //   - DB transaction atomicity on the server side
+      //   - Rejection on zero/negative market prices
+      //   - SL/TP validation against current market price
       // Read the broker_id that was persisted at login time. The server
-      // requires this to route the order to the correct MT5 manager — without
+      // requires this to route the order to the correct MT5 manager; without
       // it the response is 403 "No broker context found".
       const brokerIdForOrder = brokerId || undefined;
 
@@ -550,7 +580,8 @@ export function OrderTicketScreen() {
 
       const positionTicket = data.position_ticket ?? data.order_ticket;
 
-      // OPTIMISTIC UPDATE: Add position to state immediately so it renders without delay
+      // Optimistic update: add the position immediately so the trading UI does
+      // not wait for the background positions refresh.
       const state = usePositionsState.getState();
       const newPos = {
         id: String(positionTicket || Math.floor(Math.random() * 10000000)),
@@ -567,10 +598,10 @@ export function OrderTicketScreen() {
         clientCreatedAt: Date.now(),
       };
 
-      // prepend the new position
+      // Prepend so the newest position appears first in position lists.
       state.setPositions([newPos, ...state.positions]);
 
-      // Refresh positions state from server in the background
+      // Refresh positions state from the server in the background.
       const mt5Login = resolveTradingLoginString();
       if (mt5Login) {
         void syncOpenedPosition(mt5Login, positionTicket);
@@ -607,6 +638,8 @@ export function OrderTicketScreen() {
 
   const queryClient = useQueryClient();
 
+  // All volume changes go through one helper so typed values, stepper presses,
+  // quick presets, and persisted preferences stay consistent.
   const updateVolume = useCallback(
     (nextVolume: number | string) => {
       const normalized = normalizeTradeVolume(nextVolume, volumeBounds);
@@ -632,7 +665,9 @@ export function OrderTicketScreen() {
     [updateVolume, volume, volumeBounds],
   );
 
-  /* ── Pending order placement ─────────────────────────────────────── */
+  /* Pending order placement */
+  // Pending orders share market-order safety checks, then add price_open and
+  // type so the backend can create the correct pending order.
   const handlePlacePendingOrder = async () => {
     if (isMarketExecution) return;
     if (tradeTapLockRef.current || tradeActionLocked || pendingSide !== null) return;
@@ -684,7 +719,7 @@ export function OrderTicketScreen() {
 
       console.log('[PENDING-ORDER-PAYLOAD]', payload);
 
-      // Use the same placeMarketOrder endpoint — the backend differentiates
+      // Use the same placeMarketOrder endpoint; the backend differentiates
       // via the `type` field. If not supported, it falls through gracefully.
       const data = await ordersApi.placeMarketOrder(payload as any);
 
@@ -697,7 +732,7 @@ export function OrderTicketScreen() {
         return;
       }
 
-      // Invalidate orders query so chart overlay picks up the new pending order
+      // Invalidate order queries so the chart overlay can pick up the new order.
       queryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
       queryClient.invalidateQueries({ queryKey: ['accountOrders'] });
 
@@ -730,7 +765,7 @@ export function OrderTicketScreen() {
     <View style={[styles.root, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* ── Compact Header ─────────────────────────────────────────── */}
+      {/* Compact header: back button, current symbol, and live status. */}
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
         <Pressable
           onPress={() => traceUiInteraction('orderTicket.back', () => router.canGoBack() ? router.back() : router.replace('/'))}
@@ -749,7 +784,7 @@ export function OrderTicketScreen() {
         </View>
       </View>
 
-      {/* ── Price Panel (HERO — always visible) ────────────────────── */}
+      {/* Price panel: large BID/ASK tap targets for one-click market execution. */}
       <View style={styles.pricePanel}>
         <Pressable
           style={[styles.priceHalf, { backgroundColor: sellTradeAction.backgroundColor, opacity: getPricePanelActionOpacity(sellTradeAction.side) }]}
@@ -766,7 +801,7 @@ export function OrderTicketScreen() {
           <Text style={styles.priceLabel}>{sellTradeAction.priceLabel}</Text>
         </Pressable>
 
-        {/* Spread pillar */}
+        {/* Spread pillar: shows the current difference between ASK and BID. */}
         <View style={styles.spreadCenter}>
           <Ionicons name="swap-horizontal" size={11} color={T.textSub} />
           <Text style={styles.spreadVal}>{spread}</Text>
@@ -789,14 +824,14 @@ export function OrderTicketScreen() {
         </Pressable>
       </View>
 
-      {/* ── Scrollable Form ────────────────────────────────────────── */}
+      {/* Scrollable form: order type, volume, risk controls, market data, and submit controls. */}
       <ScrollView
         style={styles.root}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Order Type */}
+        {/* Order type tabs: market execution or one of the pending order types. */}
         <Text style={styles.sectionTitle}>ORDER TYPE</Text>
         <ScrollView
           ref={orderTypeTabsRef}
@@ -843,7 +878,7 @@ export function OrderTicketScreen() {
           })}
         </ScrollView>
 
-        {/* Volume */}
+        {/* Volume controls: typed lot input, plus/minus stepper, and quick presets. */}
         <View style={styles.volSection}>
           <Text style={styles.rowLabel}>Volume</Text>
           <View style={styles.volStepper}>
@@ -884,7 +919,7 @@ export function OrderTicketScreen() {
         </View>
         <View style={styles.hairline} />
 
-        {/* Risk Management */}
+        {/* Risk management: optional stop loss, take profit, and future trailing stop control. */}
         <Text style={styles.sectionTitle}>RISK MANAGEMENT</Text>
         <ToggleRow label="Stop Loss" icon="shield-half-outline" enabled={slEnabled} onToggle={() => {
           if (!slEnabled) setSlPrice(latestClose);
@@ -929,7 +964,7 @@ export function OrderTicketScreen() {
         <ToggleRow label="Trailing Stop" icon="git-commit-outline" enabled={false} onToggle={() => { }} T={T} isDark={isDark} styles={styles} />
         <View style={styles.hairline} />
 
-        {/* Market Data (inline key-value) */}
+        {/* Market data: compact read-only values that affect the order decision. */}
         <Text style={styles.sectionTitle}>{t('MARKET DATA')}</Text>
         <InfoRow label={t('Fill Policy')} value="FOK" styles={styles} />
         <View style={styles.hairline} />
@@ -940,16 +975,16 @@ export function OrderTicketScreen() {
         <InfoRow label={t('Acc. Leverage')} value={`1:${leverage}`} styles={styles} />
         <View style={styles.hairline} />
 
-        {/* Depth of Market — compact table */}
+        {/* Depth of market: compact simulated liquidity rows around current price. */}
         <Text style={styles.sectionTitle}>DEPTH OF MARKET</Text>
         <View style={styles.domTable}>
-          {/* Header */}
+          {/* Column labels for the depth rows. */}
           <View style={styles.domHeaderRow}>
             <Text style={[styles.domColHead, { textAlign: 'right' }]}>SELL VOL</Text>
             <Text style={styles.domColHead}>PRICE</Text>
             <Text style={styles.domColHead}>BUY VOL</Text>
           </View>
-          {/* Rows */}
+          {/* Depth rows render sell volume, reference price, and buy volume. */}
           {domRows.map((r, i) => (
             <View key={i} style={styles.domRow}>
               <View style={styles.domBarCol}>
@@ -963,7 +998,7 @@ export function OrderTicketScreen() {
           ))}
         </View>
 
-        {/* Execution Buttons */}
+        {/* Execution buttons: market orders submit immediately; pending orders show trigger controls first. */}
         {isMarketExecution ? (
           <View style={styles.execRow}>
             {tradeButtonActions.map((action) => (
@@ -996,7 +1031,7 @@ export function OrderTicketScreen() {
           </View>
         ) : (
           <View>
-            {/* Pending order info card */}
+            {/* Pending order info card explains the selected order type and trigger price. */}
             <View style={styles.pendingSubmitPlaceholder}>
               <Ionicons name='analytics-outline' size={18} color={T.accent} />
               <View style={styles.pendingSubmitCopy}>
@@ -1007,7 +1042,7 @@ export function OrderTicketScreen() {
               </View>
             </View>
 
-            {/* Pending entry price stepper */}
+            {/* Pending entry price stepper moves the trigger by ten price points. */}
             <View style={[styles.volSection, { marginTop: 10 }]}>
               <Text style={styles.rowLabel}>{t('Price')}</Text>
               <View style={styles.volStepper}>
@@ -1033,7 +1068,7 @@ export function OrderTicketScreen() {
               </View>
             </View>
 
-            {/* Submit button */}
+            {/* Submit button sends the configured pending order. */}
             <View style={[styles.execRow, { marginTop: 8 }]}>
               <Pressable
                 style={({ pressed }) => [
@@ -1075,7 +1110,7 @@ export function OrderTicketScreen() {
           />
         </View>
 
-        {/* Disclaimer */}
+        {/* Disclaimer: reminds users that final market execution can slip. */}
         <View style={styles.disclaimer}>
           <Text style={styles.disclaimerTxt}>
             *Final execution price may slightly differ due to market volatility.
@@ -1083,7 +1118,7 @@ export function OrderTicketScreen() {
         </View>
       </ScrollView>
 
-      {/* Success/Error Modal Overlay */}
+      {/* Success/error modal overlay for order feedback. */}
       <TradeFeedbackModal
         state={modalState}
         onClose={handleModalClose}
@@ -1093,7 +1128,8 @@ export function OrderTicketScreen() {
   );
 }
 
-/* ── ToggleRow ─────────────────────────────────────────────────────────── */
+/* Toggle row */
+// Reusable switch row for simple on/off settings such as Stop Loss.
 function ToggleRow({ label, icon, enabled, onToggle, T, isDark, styles }: {
   T: ThemeColors;
   isDark: boolean;
@@ -1119,7 +1155,8 @@ function ToggleRow({ label, icon, enabled, onToggle, T, isDark, styles }: {
   );
 }
 
-/* ── InfoRow ────────────────────────────────────────────────────────────── */
+/* Info row */
+// Reusable key-value row used by the market data section.
 function InfoRow({ label, value, styles }: {
   label: string;
   value: string;
@@ -1133,7 +1170,9 @@ function InfoRow({ label, value, styles }: {
   );
 }
 
-/* ── Styles ─────────────────────────────────────────────────────────────── */
+/* Styles */
+// Local styles live with the screen because this ticket has many compact,
+// screen-specific controls that are not shared elsewhere.
 function makeStyles(T: ThemeColors, isDark: boolean) {
   const BG = T.bg;
   const SURFACE = T.glass2;

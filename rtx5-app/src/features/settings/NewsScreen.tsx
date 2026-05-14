@@ -94,6 +94,10 @@ export function NewsScreen() {
         style={styles.background}
       />
 
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 18 }]}>
+        <NewsHeader colors={newsColors} styles={styles} />
+      </View>
+
       <FlatList
         style={styles.list}
         data={status === 'loading' ? [] : latestNews}
@@ -102,7 +106,7 @@ export function NewsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.listContent,
-          { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 28 },
+          { paddingTop: 16, paddingBottom: insets.bottom + 28 },
         ]}
         ListHeaderComponent={
           <MarketNewsHeaderContent
@@ -179,8 +183,6 @@ function MarketNewsHeaderContent({
 }) {
   return (
     <View>
-      <NewsHeader colors={colors} styles={styles} />
-
       {status === 'offline' ? <OfflineState colors={colors} styles={styles} /> : null}
 
       {status === 'loading' ? (

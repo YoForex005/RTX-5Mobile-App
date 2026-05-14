@@ -53,10 +53,23 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       paddingHorizontal: 16,
       gap: 22,
     },
+    fixedHeader: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      backgroundColor: isDark ? 'rgba(7,17,31,0.96)' : 'rgba(245,248,252,0.96)',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: palette.border,
+      zIndex: 2,
+      elevation: 4,
+    },
     header: {
-      gap: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
     },
     headerCopy: {
+      flex: 1,
       minWidth: 0,
     },
     title: {
