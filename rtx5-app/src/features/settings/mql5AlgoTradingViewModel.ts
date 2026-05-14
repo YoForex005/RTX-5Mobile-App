@@ -19,6 +19,7 @@ export type UserAccount = {
   algo_trading_status: AlgoTradingStatus;
   balance: number | null;
   equity: number | null;
+  free_margin: number | null;
   currency: string;
   last_sync_time: string | null;
 };
@@ -162,6 +163,7 @@ export const MQL5_ALGO_PREVIEW_DATA: Mql5AlgoTradingScreenData = {
     algo_trading_status: 'Enabled',
     balance: 24860.4,
     equity: 25114.72,
+    free_margin: 18732.18,
     currency: 'USD',
     last_sync_time: '2026-05-13T09:20:00.000Z',
   },
@@ -178,7 +180,7 @@ export const MQL5_ALGO_PREVIEW_DATA: Mql5AlgoTradingScreenData = {
     max_drawdown: 4.8,
     risk_score: 32,
     active_symbols: ['XAUUSD', 'EURUSD', 'US30'],
-    sparkline_data: [22, 26, 24, 31, 35, 33, 41, 39, 46, 44, 51, 54],
+    sparkline_data: [-8, 4, 8, 14, 18, 20, 28, 24, 34, 38, 45, 52, 58, 63],
   },
   categories: [
     { category_id: 'all', category_name: 'All', is_selected: true, strategy_count: 5 },

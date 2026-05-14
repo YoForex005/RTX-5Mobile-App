@@ -6,10 +6,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import type { ThemeColors } from '../../ui/theme/glass';
@@ -34,7 +35,6 @@ import {
   type RiskSettings,
   type Strategy,
   type UserAccount,
-  type UserUiState,
 } from './mql5AlgoTradingViewModel';
 
 type ConfirmationConfig = {
@@ -55,6 +55,8 @@ export function Mql5AlgoTradingScreen() {
   const [selectedCategory, setSelectedCategory] = useState(screenData.uiState.selected_category);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationConfig | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const categories = useMemo(
     () => selectAlgoCategories(screenData.categories, selectedCategory),
@@ -90,6 +92,17 @@ export function Mql5AlgoTradingScreen() {
     });
   };
 
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/settings');
+  };
+
+  const closeSearch = () => {
+    Keyboard.dismiss();
+    setSearchQuery('');
+    setSearchOpen(false);
+  };
+
   return (
     <Screen noBottomInset style={styles.screen}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -101,7 +114,22 @@ export function Mql5AlgoTradingScreen() {
       />
 
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 14 }]}>
-        <AlgoHeader uiState={screenData.uiState} T={T} styles={styles} />
+        {searchOpen ? (
+          <AlgoSearchHeader
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onClose={closeSearch}
+            T={T}
+            styles={styles}
+          />
+        ) : (
+          <AlgoHeader
+            onBack={goBack}
+            onOpenSearch={() => setSearchOpen(true)}
+            T={T}
+            styles={styles}
+          />
+        )}
       </View>
 
       <ScrollView
@@ -210,7 +238,14 @@ function AlgoScreenContent({
 
   return (
     <>
-      <ConnectedAccountCard account={data.account} accountConnected={accountConnected} isDark={isDark} T={T} styles={styles} />
+      <ConnectedAccountCard
+        account={data.account}
+        performance={data.performance}
+        accountConnected={accountConnected}
+        isDark={isDark}
+        T={T}
+        styles={styles}
+      />
       <PerformanceOverviewCard performance={data.performance} currency={data.account?.currency} T={T} styles={styles} />
       <AlgoCategoryTabs categories={categories} onSelect={onSelectCategory} styles={styles} />
       <FeaturedStrategiesSection strategies={visibleStrategies} T={T} styles={styles} />
@@ -234,11 +269,13 @@ function AlgoScreenContent({
 }
 
 function AlgoHeader({
-  uiState,
+  onBack,
+  onOpenSearch,
   T,
   styles,
 }: {
-  uiState: UserUiState;
+  onBack: () => void;
+  onOpenSearch: () => void;
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
@@ -246,57 +283,96 @@ function AlgoHeader({
 
   return (
     <View style={styles.header}>
+      <View style={styles.headerSide}>
+        <Pressable style={styles.headerIconButton} hitSlop={8} onPress={onBack} accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={18} color={palette.secondary} />
+        </Pressable>
+      </View>
+
       <View style={styles.headerCopy}>
         <Text style={styles.title} numberOfLines={1}>MQL5 Algo Trading</Text>
-        <Text style={styles.subtitle} numberOfLines={1}>Automated strategy control center</Text>
       </View>
 
       <View style={styles.headerActions}>
-        <HeaderIcon icon="search" T={T} styles={styles} />
+        <HeaderIcon icon="search" onPress={onOpenSearch} T={T} styles={styles} />
         <HeaderIcon icon="options-outline" T={T} styles={styles} />
-        <Pressable style={styles.headerIconButton} hitSlop={8}>
-          <Ionicons name="notifications-outline" size={21} color={palette.secondary} />
-          {uiState.notification_count > 0 ? (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationText}>{uiState.notification_count}</Text>
-            </View>
-          ) : null}
-        </Pressable>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{uiState.user_avatar ?? 'U'}</Text>
-          <View style={[styles.userStatusDot, { backgroundColor: getUserStatusColor(uiState.user_status, T) }]} />
-        </View>
       </View>
     </View>
   );
 }
 
-function HeaderIcon({
-  icon,
+function AlgoSearchHeader({
+  searchQuery,
+  onSearchChange,
+  onClose,
   T,
   styles,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  onClose: () => void;
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
   const palette = getAlgoUiPalette(T);
 
   return (
-    <Pressable style={styles.headerIconButton} hitSlop={8}>
-      <Ionicons name={icon} size={21} color={palette.secondary} />
+    <View style={styles.searchHeader}>
+      <Pressable style={styles.searchBackButton} onPress={onClose} hitSlop={8} accessibilityLabel="Back from search">
+        <Ionicons name="arrow-back" size={18} color={palette.secondary} />
+      </Pressable>
+      <Ionicons name="search" size={16} color={palette.secondary} />
+      <TextInput
+        value={searchQuery}
+        onChangeText={onSearchChange}
+        placeholder="Search strategies, bots, symbols..."
+        placeholderTextColor={palette.secondary}
+        selectionColor={palette.primary}
+        autoFocus
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={styles.searchInput}
+        accessibilityLabel="Search MQL5 algo trading"
+      />
+      {searchQuery.length > 0 ? (
+        <Pressable style={styles.searchCloseButton} onPress={() => onSearchChange('')} hitSlop={8} accessibilityLabel="Clear search">
+          <Ionicons name="close" size={17} color={palette.secondary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function HeaderIcon({
+  icon,
+  onPress,
+  T,
+  styles,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress?: () => void;
+  T: ThemeColors;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  const palette = getAlgoUiPalette(T);
+
+  return (
+    <Pressable style={styles.headerIconButton} hitSlop={8} onPress={onPress}>
+      <Ionicons name={icon} size={18} color={palette.secondary} />
     </Pressable>
   );
 }
 
 function ConnectedAccountCard({
   account,
+  performance,
   accountConnected,
   isDark,
   T,
   styles,
 }: {
   account: UserAccount | null;
+  performance: PerformanceOverview | null;
   accountConnected: boolean;
   isDark: boolean;
   T: ThemeColors;
@@ -305,6 +381,17 @@ function ConnectedAccountCard({
   const connectionMeta = getConnectionMeta(account?.connection_status, T);
   const algoMeta = getAlgoStatusMeta(account?.algo_trading_status, T);
   const palette = getAlgoUiPalette(T);
+  const todayPnlTone = getPnlTone(performance?.today_pnl);
+  const accountMetricItems = [
+    { label: 'Balance', value: formatUnsignedCurrency(account?.balance, account?.currency) },
+    { label: 'Equity', value: formatUnsignedCurrency(account?.equity, account?.currency) },
+    { label: 'Free Margin', value: formatUnsignedCurrency(account?.free_margin, account?.currency) },
+    {
+      label: 'Daily P/L',
+      value: formatCurrency(performance?.today_pnl, account?.currency),
+      valueColor: getToneColor(todayPnlTone, T),
+    },
+  ];
 
   return (
     <LinearGradient
@@ -313,12 +400,12 @@ function ConnectedAccountCard({
       end={{ x: 1, y: 1 }}
       style={[styles.card, accountConnected ? styles.connectedCard : styles.warningCard]}
     >
-      <View style={styles.cardTopRow}>
-        <View style={styles.sectionTitleRow}>
+      <View style={styles.accountHeaderRow}>
+        <View style={styles.accountHeaderIdentity}>
           <View style={styles.sectionIcon}>
             <Ionicons name="server-outline" size={18} color={palette.primary} />
           </View>
-          <View>
+          <View style={styles.accountHeaderCopy}>
             <Text style={styles.sectionTitle}>Connected Account</Text>
             <Text style={styles.sectionCaption}>
               {accountConnected ? formatLastSync(account?.last_sync_time) : 'Connect your trading account to enable algo trading.'}
@@ -345,8 +432,16 @@ function ConnectedAccountCard({
 
       {accountConnected ? (
         <View style={styles.accountMetrics}>
-          <InlineMetric label="Balance" value={formatCurrency(account?.balance, account?.currency)} styles={styles} />
-          <InlineMetric label="Equity" value={formatCurrency(account?.equity, account?.currency)} styles={styles} />
+          {accountMetricItems.map((item, index) => (
+            <InlineMetric
+              key={item.label}
+              label={item.label}
+              value={item.value}
+              valueColor={item.valueColor}
+              showDivider={index > 0}
+              styles={styles}
+            />
+          ))}
         </View>
       ) : (
         <Pressable style={styles.reconnectButton}>
@@ -370,31 +465,44 @@ function PerformanceOverviewCard({
   styles: Mql5AlgoTradingStyles;
 }) {
   const metricTiles = [
-    { label: 'Today P/L', value: formatCurrency(performance?.today_pnl, currency), tone: getPnlTone(performance?.today_pnl) },
-    { label: 'Active Bots', value: formatNumber(performance?.total_active_bots), tone: 'neutral' as const },
-    { label: 'Win Rate', value: formatPercent(performance?.win_rate), tone: 'neutral' as const },
-    { label: 'Open Trades', value: formatNumber(performance?.open_trades), tone: 'neutral' as const },
-    { label: 'Max Drawdown', value: formatPercent(performance?.max_drawdown), tone: 'danger' as const },
-    { label: 'Risk Score', value: formatNumber(performance?.risk_score), tone: getRiskScoreTone(performance?.risk_score) },
+    { label: 'Today P/L', value: formatCurrency(performance?.today_pnl, currency), tone: getPnlTone(performance?.today_pnl), icon: 'trending-up-outline' as const },
+    { label: 'Active Bots', value: formatNumber(performance?.total_active_bots), tone: 'neutral' as const, icon: 'hardware-chip-outline' as const },
+    { label: 'Win Rate', value: formatPercent(performance?.win_rate), tone: 'neutral' as const, icon: 'analytics-outline' as const },
+    { label: 'Open Trades', value: formatNumber(performance?.open_trades), tone: 'neutral' as const, icon: 'swap-vertical-outline' as const },
+    { label: 'Max Drawdown', value: formatPercent(performance?.max_drawdown), tone: 'danger' as const, icon: 'trending-down-outline' as const },
+    { label: 'Risk Score', value: formatNumber(performance?.risk_score), tone: getRiskScoreTone(performance?.risk_score), icon: 'shield-checkmark-outline' as const },
   ];
 
   return (
-    <View style={styles.card}>
-      <SectionHeader title="Performance Snapshot" styles={styles} />
+    <View style={[styles.card, styles.performanceCard]}>
+      <View style={styles.performanceHeaderRow}>
+        <Text style={styles.performanceTitle}>Performance Snapshot</Text>
+        <Pressable style={styles.periodSelector} hitSlop={8}>
+          <Text style={styles.periodSelectorText}>Today</Text>
+          <Ionicons name="chevron-down" size={15} color={getAlgoUiPalette(T).secondary} />
+        </Pressable>
+      </View>
       <View style={styles.performanceGrid}>
         {metricTiles.map((tile) => (
-          <MetricTile key={tile.label} label={tile.label} value={tile.value} tone={tile.tone} T={T} styles={styles} />
+          <MetricTile
+            key={tile.label}
+            label={tile.label}
+            value={tile.value}
+            tone={tile.tone}
+            icon={tile.icon}
+            T={T}
+            styles={styles}
+          />
         ))}
       </View>
       {performance?.sparkline_data.length ? (
-        <View style={styles.sparklineRow}>
-          <Sparkline values={performance.sparkline_data} color={getPnlColor(performance.net_pnl, T)} styles={styles} />
-          <View style={styles.symbolRail}>
-            {performance.active_symbols.slice(0, 4).map((symbol) => (
-              <SmallChip key={symbol} label={symbol} styles={styles} />
-            ))}
-          </View>
-        </View>
+        <PerformanceChart
+          values={performance.sparkline_data}
+          symbols={performance.active_symbols}
+          color={getPnlColor(performance.net_pnl, T)}
+          T={T}
+          styles={styles}
+        />
       ) : null}
     </View>
   );
@@ -404,19 +512,82 @@ function MetricTile({
   label,
   value,
   tone,
+  icon,
   T,
   styles,
 }: {
   label: string;
   value: string;
   tone: 'positive' | 'danger' | 'warning' | 'neutral';
+  icon: keyof typeof Ionicons.glyphMap;
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
+  const color = getToneColor(tone, T);
+  const palette = getAlgoUiPalette(T);
+  const iconColor = tone === 'neutral' ? palette.primary : color;
+
   return (
     <View style={styles.metricTile}>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, { color: getToneColor(tone, T) }]}>{value}</Text>
+      <Text style={[styles.metricValue, { color }]}>{value}</Text>
+      <View style={[styles.metricIconBubble, { backgroundColor: withAlpha(iconColor, 0.1) }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
+      </View>
+    </View>
+  );
+}
+
+function PerformanceChart({
+  values,
+  symbols,
+  color,
+  T,
+  styles,
+}: {
+  values: number[];
+  symbols: string[];
+  color: string;
+  T: ThemeColors;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  const palette = getAlgoUiPalette(T);
+
+  return (
+    <View style={styles.performanceChartSection}>
+      <View style={styles.chartPanel}>
+        <Text style={styles.chartTitle}>Performance (Last 14 Days)</Text>
+        <View style={styles.chartBodyRow}>
+          <View style={styles.chartAxis}>
+            <Text style={styles.chartAxisText}>4K</Text>
+            <Text style={styles.chartAxisText}>2K</Text>
+            <Text style={styles.chartAxisText}>0</Text>
+            <Text style={styles.chartAxisText}>-2K</Text>
+          </View>
+          <View style={styles.chartColumn}>
+            <Sparkline values={values} color={color} styles={styles} />
+            <View style={styles.chartDateRow}>
+              <Text style={styles.chartDateText}>May 9</Text>
+              <Text style={styles.chartDateText}>May 22</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.symbolStack}>
+        {symbols.slice(0, 3).map((symbol) => (
+          <View key={symbol} style={styles.symbolPill}>
+            <View style={[styles.symbolDot, { backgroundColor: getSymbolColor(symbol, T) }]} />
+            <Text style={styles.symbolPillText} numberOfLines={1}>{symbol}</Text>
+          </View>
+        ))}
+        {symbols.length === 0 ? (
+          <View style={styles.symbolPill}>
+            <View style={[styles.symbolDot, { backgroundColor: palette.secondary }]} />
+            <Text style={styles.symbolPillText}>No symbols</Text>
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -885,15 +1056,17 @@ function InlineMetric({
   label,
   value,
   valueColor,
+  showDivider = false,
   styles,
 }: {
   label: string;
   value: string;
   valueColor?: string;
+  showDivider?: boolean;
   styles: Mql5AlgoTradingStyles;
 }) {
   return (
-    <View style={styles.inlineMetric}>
+    <View style={[styles.inlineMetric, showDivider && styles.inlineMetricDivider]}>
       <Text style={styles.inlineMetricLabel}>{label}</Text>
       <Text style={[styles.inlineMetricValue, valueColor ? { color: valueColor } : null]} numberOfLines={1}>{value}</Text>
     </View>
@@ -1109,14 +1282,6 @@ function getActivitySeverityMeta(severity: ActivitySeverity, T: ThemeColors) {
   }
 }
 
-function getUserStatusColor(status: UserUiState['user_status'], T: ThemeColors): string {
-  const palette = getAlgoUiPalette(T);
-
-  if (status === 'online') return palette.success;
-  if (status === 'syncing') return palette.warning;
-  return palette.secondary;
-}
-
 function getPnlTone(value: number | null | undefined): 'positive' | 'danger' | 'neutral' {
   if (typeof value !== 'number') return 'neutral';
   if (value > 0) return 'positive';
@@ -1149,6 +1314,16 @@ function getPnlColor(value: number | null | undefined, T: ThemeColors): string {
   return palette.secondary;
 }
 
+function getSymbolColor(symbol: string, T: ThemeColors): string {
+  const palette = getAlgoUiPalette(T);
+  const normalizedSymbol = symbol.toUpperCase();
+
+  if (normalizedSymbol.includes('XAU') || normalizedSymbol.includes('GOLD')) return palette.warning;
+  if (normalizedSymbol.includes('EUR')) return palette.primary;
+  if (normalizedSymbol.includes('US')) return palette.danger;
+  return palette.secondary;
+}
+
 function getAlgoUiPalette(T: ThemeColors) {
   const isDark = T.text === '#F8FAFC' || T.bgRoot === '#020617';
 
@@ -1176,6 +1351,12 @@ function formatCurrency(value: number | null | undefined, currency = ''): string
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
   const label = Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${sign}${currency ? `${currency} ` : ''}${label}`;
+}
+
+function formatUnsignedCurrency(value: number | null | undefined, currency = ''): string {
+  if (typeof value !== 'number') return '--';
+  const label = value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${currency ? `${currency} ` : ''}${label}`;
 }
 
 function formatPercent(value: number | null | undefined): string {

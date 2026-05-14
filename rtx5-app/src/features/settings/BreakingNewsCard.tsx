@@ -1,15 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import Svg, {
-  Circle,
-  Defs,
-  G,
-  LinearGradient as SvgLinearGradient,
-  Path,
-  RadialGradient,
-  Stop,
-} from 'react-native-svg';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { NewsSentiment } from './newsViewModel';
 
 export type BreakingNewsCardData = {
   id: string;
@@ -17,10 +9,8 @@ export type BreakingNewsCardData = {
   summary: string;
   source: string;
   published_at: string;
-  relative_time: string;
+  sentiment?: NewsSentiment;
   affected_symbols: string[];
-  is_saved: boolean;
-  read_url: string;
 };
 
 type BreakingNewsCardProps = {
@@ -28,337 +18,377 @@ type BreakingNewsCardProps = {
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
-  onReadMore?: (readUrl: string, id: string) => void;
-  onToggleSaved?: (id: string, nextSaved: boolean) => void;
+  isDark?: boolean;
 };
 
-const MAX_VISIBLE_SYMBOLS = 5;
-const SYMBOL_ROW_GAP = 5;
-const SYMBOL_RAIL_SCREEN_GUTTER = 80;
-const FOOTER_ACTION_GAP = 10;
-const READ_MORE_BUTTON_WIDTH = 102;
+const MAX_VISIBLE_SYMBOLS = 4;
+const BREAKING_NEWS_HEADING = 'Global Market Drivers & Sentiment';
+const BREAKING_NEWS_SUBHEADING =
+  'Track high-impact news, volatility shifts, and price-moving events across Forex, indices, commodities, and metals.';
+
+type BreakingNewsTonePalette = {
+  cardGradient: readonly [string, string, string, string];
+  glassGradient: readonly [string, string, string];
+  badgeGradient: readonly [string, string];
+  borderColor: string;
+  badgeBorderColor: string;
+  iconColor: string;
+  badgeTextColor: string;
+  readMoreTextColor: string;
+  readMoreBackgroundColor: string;
+  readMoreBorderColor: string;
+};
+
+const BREAKING_NEWS_PALETTES: Record<'dark' | 'light', Record<NewsSentiment, BreakingNewsTonePalette>> = {
+  dark: {
+    negative: {
+      cardGradient: ['rgba(30,37,57,0.96)', '#1B253A', '#142B44', '#1B2238'],
+      glassGradient: ['rgba(239,68,68,0.045)', 'rgba(239,68,68,0.014)', 'rgba(239,68,68,0)'],
+      badgeGradient: ['rgba(239,68,68,0.075)', 'rgba(255,255,255,0.035)'],
+      borderColor: 'rgba(226,232,240,0.14)',
+      badgeBorderColor: 'rgba(226,232,240,0.14)',
+      iconColor: '#FF6B74',
+      badgeTextColor: '#FFFFFF',
+      readMoreTextColor: '#FCA5A5',
+      readMoreBackgroundColor: 'rgba(239,68,68,0.045)',
+      readMoreBorderColor: 'rgba(226,232,240,0.12)',
+    },
+    positive: {
+      cardGradient: ['rgba(30,37,57,0.96)', '#1B253A', '#142B44', '#1B2238'],
+      glassGradient: ['rgba(47,155,255,0.048)', 'rgba(47,155,255,0.016)', 'rgba(47,155,255,0)'],
+      badgeGradient: ['rgba(47,155,255,0.08)', 'rgba(255,255,255,0.035)'],
+      borderColor: 'rgba(226,232,240,0.14)',
+      badgeBorderColor: 'rgba(226,232,240,0.14)',
+      iconColor: '#7DD3FC',
+      badgeTextColor: '#FFFFFF',
+      readMoreTextColor: '#7DD3FC',
+      readMoreBackgroundColor: 'rgba(47,155,255,0.045)',
+      readMoreBorderColor: 'rgba(226,232,240,0.12)',
+    },
+    neutral: {
+      cardGradient: ['rgba(30,37,57,0.96)', '#1B253A', '#142B44', '#1B2238'],
+      glassGradient: ['rgba(148,163,184,0.035)', 'rgba(148,163,184,0.012)', 'rgba(148,163,184,0)'],
+      badgeGradient: ['rgba(148,163,184,0.075)', 'rgba(255,255,255,0.035)'],
+      borderColor: 'rgba(226,232,240,0.14)',
+      badgeBorderColor: 'rgba(226,232,240,0.14)',
+      iconColor: '#CBD5E1',
+      badgeTextColor: '#FFFFFF',
+      readMoreTextColor: '#CBD5E1',
+      readMoreBackgroundColor: 'rgba(148,163,184,0.035)',
+      readMoreBorderColor: 'rgba(226,232,240,0.12)',
+    },
+  },
+  light: {
+    negative: {
+      cardGradient: ['#FFFFFF', '#F8FBFF', '#EFF6FF', '#FFFFFF'],
+      glassGradient: ['rgba(239,68,68,0.034)', 'rgba(239,68,68,0.011)', 'rgba(239,68,68,0)'],
+      badgeGradient: ['rgba(239,68,68,0.045)', 'rgba(255,255,255,0.86)'],
+      borderColor: '#DCE6F3',
+      badgeBorderColor: 'rgba(15,23,42,0.08)',
+      iconColor: '#DC2626',
+      badgeTextColor: '#B91C1C',
+      readMoreTextColor: '#DC2626',
+      readMoreBackgroundColor: 'rgba(239,68,68,0.03)',
+      readMoreBorderColor: 'rgba(15,23,42,0.08)',
+    },
+    positive: {
+      cardGradient: ['#FFFFFF', '#F8FBFF', '#EFF6FF', '#FFFFFF'],
+      glassGradient: ['rgba(47,155,255,0.038)', 'rgba(47,155,255,0.012)', 'rgba(47,155,255,0)'],
+      badgeGradient: ['rgba(47,155,255,0.05)', 'rgba(255,255,255,0.88)'],
+      borderColor: '#DCE6F3',
+      badgeBorderColor: 'rgba(15,23,42,0.08)',
+      iconColor: '#2563EB',
+      badgeTextColor: '#1D4ED8',
+      readMoreTextColor: '#2563EB',
+      readMoreBackgroundColor: 'rgba(37,99,235,0.032)',
+      readMoreBorderColor: 'rgba(15,23,42,0.08)',
+    },
+    neutral: {
+      cardGradient: ['#FFFFFF', '#F8FBFF', '#EFF6FF', '#FFFFFF'],
+      glassGradient: ['rgba(100,116,139,0.028)', 'rgba(100,116,139,0.009)', 'rgba(100,116,139,0)'],
+      badgeGradient: ['rgba(100,116,139,0.038)', 'rgba(255,255,255,0.88)'],
+      borderColor: '#DCE6F3',
+      badgeBorderColor: 'rgba(15,23,42,0.08)',
+      iconColor: '#475569',
+      badgeTextColor: '#334155',
+      readMoreTextColor: '#2563EB',
+      readMoreBackgroundColor: 'rgba(37,99,235,0.028)',
+      readMoreBorderColor: 'rgba(15,23,42,0.08)',
+    },
+  },
+};
 
 export function BreakingNewsCard({
   breakingNews,
   isLoading = false,
   errorMessage,
   onRetry,
-  onReadMore,
-  onToggleSaved,
+  isDark = true,
 }: BreakingNewsCardProps) {
   if (isLoading) {
-    return <BreakingNewsSkeleton />;
+    return <BreakingNewsSkeleton isDark={isDark} />;
   }
 
   if (errorMessage) {
-    return <BreakingNewsError message={errorMessage} onRetry={onRetry} />;
+    return <BreakingNewsError message={errorMessage} onRetry={onRetry} isDark={isDark} />;
   }
 
   if (!breakingNews) {
     return null;
   }
 
-  const handleReadMore = () => {
-    if (onReadMore) {
-      onReadMore(breakingNews.read_url, breakingNews.id);
-      return;
-    }
-
-    if (breakingNews.read_url) {
-      Linking.openURL(breakingNews.read_url).catch(() => undefined);
-    }
-  };
+  const tone = resolveBreakingNewsTone(breakingNews.sentiment);
+  const palette = getBreakingNewsPalette(tone, isDark);
 
   return (
-    <LinearGradient
-      colors={['#050B14', '#07111F', '#160A12']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.card}
-    >
+    <View style={styles.cardShadow}>
       <LinearGradient
-        colors={['rgba(255,77,90,0.22)', 'rgba(7,17,31,0.2)', 'rgba(255,77,90,0.12)']}
+        colors={palette.cardGradient}
+        locations={[0, 0.28, 0.7, 1]}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        pointerEvents="none"
-        style={styles.redGlow}
-      />
-      <MarketPulseGraphic />
-
-      <View style={styles.topRow}>
-        <BreakingBadge />
-        <SaveButton
-          isSaved={breakingNews.is_saved}
-          onPress={() => onToggleSaved?.(breakingNews.id, !breakingNews.is_saved)}
+        end={{ x: 1, y: 1 }}
+        style={[styles.card, !isDark && styles.cardLight, { borderColor: palette.borderColor }]}
+      >
+        <LinearGradient
+          colors={palette.glassGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0.7 }}
+          pointerEvents="none"
+          style={styles.cardGlassOverlay}
         />
-      </View>
+        <View style={styles.topRow}>
+          <BreakingBadge isDark={isDark} palette={palette} />
+          <NewsMetaRow
+            source={breakingNews.source}
+            publishedAt={breakingNews.published_at}
+            isDark={isDark}
+          />
+        </View>
 
-      <View style={styles.leftColumn}>
-        <NewsTimeRow relativeTime={breakingNews.relative_time || breakingNews.published_at} />
-        <NewsHeadline title={breakingNews.title} />
-        <NewsSummary summary={breakingNews.summary} />
-        <NewsMetaRow source={breakingNews.source} publishedAt={breakingNews.published_at} />
-      </View>
+        <View style={styles.leftColumn}>
+          <NewsHeadline title={BREAKING_NEWS_HEADING} isDark={isDark} />
+          <NewsSubheading text={BREAKING_NEWS_SUBHEADING} isDark={isDark} />
+        </View>
 
-      <View style={styles.divider} />
+        <View style={[styles.divider, !isDark && styles.dividerLight]} />
 
-      <View style={styles.bottomRow}>
-        <AffectedSymbolsRow symbols={breakingNews.affected_symbols} />
-        <ReadMoreButton onPress={handleReadMore} />
-      </View>
+        <View style={styles.bottomRow}>
+          <AffectedSymbolsRow
+            symbols={breakingNews.affected_symbols}
+            isDark={isDark}
+            palette={palette}
+          />
+        </View>
+      </LinearGradient>
+    </View>
+  );
+}
+
+function BreakingBadge({
+  isDark,
+  palette,
+}: {
+  isDark: boolean;
+  palette: BreakingNewsTonePalette;
+}) {
+  return (
+    <LinearGradient
+      colors={palette.badgeGradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={[styles.badge, !isDark && styles.badgeLight, { borderColor: palette.badgeBorderColor }]}
+    >
+      <Ionicons name="flash" size={14} color={palette.iconColor} />
+      <Text style={[styles.badgeText, !isDark && styles.badgeTextLight, { color: palette.badgeTextColor }]}>
+        BREAKING NEWS
+      </Text>
     </LinearGradient>
   );
 }
 
-function BreakingBadge() {
+function NewsHeadline({ title, isDark }: { title: string; isDark: boolean }) {
   return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>BREAKING NEWS</Text>
-    </View>
-  );
-}
-
-function SaveButton({ isSaved, onPress }: { isSaved: boolean; onPress: () => void }) {
-  return (
-    <Pressable style={styles.saveButton} hitSlop={8} onPress={onPress}>
-      <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={24} color="#F8FAFC" />
-    </Pressable>
-  );
-}
-
-function NewsTimeRow({ relativeTime }: { relativeTime: string }) {
-  return (
-    <View style={styles.timeRow}>
-      <View style={styles.liveDot} />
-      <Text style={styles.timeText} numberOfLines={1}>{relativeTime}</Text>
-    </View>
-  );
-}
-
-function NewsHeadline({ title }: { title: string }) {
-  return (
-    <Text style={styles.headline} numberOfLines={3}>
+    <Text style={[styles.headline, !isDark && styles.headlineLight]} numberOfLines={4}>
       {title}
     </Text>
   );
 }
 
-function NewsSummary({ summary }: { summary: string }) {
+function NewsSubheading({ text, isDark }: { text: string; isDark: boolean }) {
   return (
-    <Text style={styles.summary} numberOfLines={2}>
-      {summary}
+    <Text style={[styles.subheading, !isDark && styles.subheadingLight]} numberOfLines={3}>
+      {text}
     </Text>
   );
 }
 
-function NewsMetaRow({ source, publishedAt }: { source: string; publishedAt: string }) {
+function NewsMetaRow({
+  source,
+  publishedAt,
+  isDark,
+}: {
+  source: string;
+  publishedAt: string;
+  isDark: boolean;
+}) {
+  const metaIconColor = isDark ? '#C8CED8' : '#64748B';
+
   return (
     <View style={styles.metaRow}>
-      <Ionicons name="globe-outline" size={15} color="#AEB6C4" />
-      <Text style={[styles.metaText, styles.metaSourceText]} numberOfLines={1}>{source}</Text>
-      <View style={styles.metaDivider} />
-      <Ionicons name="time-outline" size={15} color="#AEB6C4" />
-      <Text style={[styles.metaText, styles.metaTimeText]} numberOfLines={1}>{publishedAt}</Text>
+      <Ionicons name="globe-outline" size={15} color={metaIconColor} />
+      <Text
+        style={[styles.metaText, !isDark && styles.metaTextLight, styles.metaSourceText]}
+        numberOfLines={1}
+      >
+        {source}
+      </Text>
+      <View style={[styles.metaDivider, !isDark && styles.metaDividerLight]} />
+      <Ionicons name="time-outline" size={15} color={metaIconColor} />
+      <Text
+        style={[styles.metaText, !isDark && styles.metaTextLight, styles.metaTimeText]}
+        numberOfLines={1}
+      >
+        {publishedAt}
+      </Text>
     </View>
   );
 }
 
-function AffectedSymbolsRow({ symbols }: { symbols: string[] }) {
-  const { width } = useWindowDimensions();
-
+function AffectedSymbolsRow({
+  symbols,
+  isDark,
+  palette,
+}: {
+  symbols: string[];
+  isDark: boolean;
+  palette: BreakingNewsTonePalette;
+}) {
   if (symbols.length === 0) return null;
 
-  const railWidth = Math.max(
-    128,
-    width - SYMBOL_RAIL_SCREEN_GUTTER - READ_MORE_BUTTON_WIDTH - FOOTER_ACTION_GAP,
-  );
-  const { visibleSymbols, overflowCount } = getOneLineSymbolSet(symbols, railWidth);
+  const visibleSymbols = symbols.slice(0, MAX_VISIBLE_SYMBOLS);
+  const overflowCount = Math.max(0, symbols.length - visibleSymbols.length);
 
   return (
     <View style={styles.symbolBlock}>
-      <Text style={styles.symbolLabel}>Affected Symbols</Text>
-      <View style={styles.symbolRail}>
+      <Text style={[styles.symbolLabel, !isDark && styles.symbolLabelLight]}>
+        Affected Symbols
+      </Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.symbolRail}
+        style={styles.symbolScroller}
+      >
         {visibleSymbols.map((symbol) => (
-          <View key={symbol} style={styles.symbolChip}>
-            <Text style={styles.symbolText} numberOfLines={1}>{symbol}</Text>
+          <View key={symbol} style={[styles.symbolChip, !isDark && styles.symbolChipLight]}>
+            <Text style={[styles.symbolText, !isDark && styles.symbolTextLight]} numberOfLines={1}>
+              {symbol}
+            </Text>
           </View>
         ))}
         {overflowCount > 0 ? (
-          <View style={styles.symbolChip}>
-            <Text style={styles.symbolText}>+{overflowCount}</Text>
+          <View style={[styles.symbolChip, !isDark && styles.symbolChipLight]}>
+            <Text style={[styles.symbolText, !isDark && styles.symbolTextLight]}>
+              +{overflowCount}
+            </Text>
           </View>
         ) : null}
-      </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Read more breaking news"
+          hitSlop={8}
+          style={[
+            styles.readMoreChip,
+            !isDark && styles.readMoreChipLight,
+            {
+              backgroundColor: palette.readMoreBackgroundColor,
+              borderColor: palette.readMoreBorderColor,
+            },
+          ]}
+        >
+          <Text style={[styles.readMoreText, !isDark && styles.readMoreTextLight, { color: palette.readMoreTextColor }]}>
+            Read More
+          </Text>
+          <Ionicons name="chevron-forward" size={12} color={palette.readMoreTextColor} />
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
 
-function getOneLineSymbolSet(symbols: string[], railWidth: number) {
-  let usedWidth = 0;
-  const visibleSymbols: string[] = [];
-
-  for (let index = 0; index < symbols.length && visibleSymbols.length < MAX_VISIBLE_SYMBOLS; index += 1) {
-    const symbol = symbols[index];
-    const remainingAfterThis = symbols.length - index - 1;
-    const symbolWidth = getEstimatedSymbolChipWidth(symbol);
-    const symbolGap = visibleSymbols.length > 0 ? SYMBOL_ROW_GAP : 0;
-    const overflowWidth = remainingAfterThis > 0 ? SYMBOL_ROW_GAP + getEstimatedSymbolChipWidth(`+${remainingAfterThis}`) : 0;
-
-    if (usedWidth + symbolGap + symbolWidth + overflowWidth > railWidth) break;
-
-    usedWidth += symbolGap + symbolWidth;
-    visibleSymbols.push(symbol);
-  }
-
-  if (visibleSymbols.length === 0) {
-    return {
-      visibleSymbols: symbols.slice(0, 1),
-      overflowCount: Math.max(0, symbols.length - 1),
-    };
-  }
-
-  return {
-    visibleSymbols,
-    overflowCount: Math.max(0, symbols.length - visibleSymbols.length),
-  };
+function resolveBreakingNewsTone(sentiment?: NewsSentiment): NewsSentiment {
+  if (sentiment === 'positive' || sentiment === 'neutral') return sentiment;
+  return 'negative';
 }
 
-function getEstimatedSymbolChipWidth(symbol: string) {
-  return Math.min(66, Math.max(28, symbol.length * 6.5 + 18));
+function getBreakingNewsPalette(tone: NewsSentiment, isDark: boolean): BreakingNewsTonePalette {
+  return BREAKING_NEWS_PALETTES[isDark ? 'dark' : 'light'][tone];
 }
 
-function ReadMoreButton({ onPress }: { onPress: () => void }) {
+function BreakingNewsSkeleton({ isDark }: { isDark: boolean }) {
   return (
-    <Pressable style={styles.readButton} hitSlop={8} onPress={onPress}>
-      <LinearGradient
-        colors={['#005BFF', '#007BFF']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.readButtonFill}
-      >
-        <Text style={styles.readText}>Read More</Text>
-        <Ionicons name="arrow-forward" size={18} color="#45C7FF" />
-      </LinearGradient>
-    </Pressable>
-  );
-}
-
-function MarketPulseGraphic() {
-  const mapDotRows: Array<{ y: number; ranges: Array<[number, number, number]> }> = [
-    { y: 24, ranges: [[66, 96, 6], [176, 206, 6], [228, 282, 6]] },
-    { y: 30, ranges: [[52, 112, 6], [164, 212, 6], [220, 304, 6]] },
-    { y: 36, ranges: [[44, 124, 6], [154, 206, 6], [214, 322, 6]] },
-    { y: 42, ranges: [[38, 116, 6], [150, 194, 6], [210, 330, 6]] },
-    { y: 48, ranges: [[42, 104, 6], [158, 204, 6], [218, 334, 6]] },
-    { y: 54, ranges: [[52, 98, 6], [164, 216, 6], [228, 326, 6]] },
-    { y: 60, ranges: [[62, 108, 6], [170, 224, 6], [238, 314, 6]] },
-    { y: 66, ranges: [[72, 116, 6], [176, 230, 6], [248, 300, 6]] },
-    { y: 72, ranges: [[82, 122, 6], [180, 236, 6], [258, 292, 6]] },
-    { y: 78, ranges: [[90, 126, 6], [184, 238, 6], [268, 288, 6]] },
-    { y: 84, ranges: [[94, 122, 6], [188, 236, 6]] },
-    { y: 90, ranges: [[98, 124, 6], [190, 232, 6]] },
-    { y: 96, ranges: [[102, 124, 6], [192, 228, 6]] },
-    { y: 102, ranges: [[106, 126, 6], [194, 224, 6]] },
-    { y: 108, ranges: [[110, 126, 6], [196, 222, 6]] },
-    { y: 114, ranges: [[112, 128, 6], [198, 218, 6]] },
-    { y: 120, ranges: [[116, 128, 6], [200, 216, 6]] },
-    { y: 126, ranges: [[118, 130, 6], [204, 216, 6], [280, 310, 6]] },
-    { y: 132, ranges: [[120, 130, 6], [208, 216, 6], [274, 322, 6]] },
-    { y: 138, ranges: [[124, 130, 6], [282, 316, 6]] },
-    { y: 144, ranges: [[288, 306, 6]] },
-  ];
-  const mapDots = mapDotRows.flatMap((row) =>
-    row.ranges.flatMap(([start, end, step]) =>
-      Array.from({ length: Math.floor((end - start) / step) + 1 }, (_, index) => ({
-        cx: start + index * step,
-        cy: row.y,
-      })),
-    ),
-  );
-
-  return (
-    <View style={styles.graphic} pointerEvents="none">
-      <Svg width="100%" height="100%" viewBox="0 0 360 190">
-        <Defs>
-          <RadialGradient id="globeGlow" cx="48%" cy="35%" r="68%">
-            <Stop offset="0%" stopColor="#FF4D5A" stopOpacity={0.28} />
-            <Stop offset="58%" stopColor="#7F1D1D" stopOpacity={0.12} />
-            <Stop offset="100%" stopColor="#020617" stopOpacity={0} />
-          </RadialGradient>
-          <SvgLinearGradient id="signalStroke" x1="0" y1="0" x2="1" y2="0">
-            <Stop offset="0%" stopColor="#8B1E2D" stopOpacity={0.65} />
-            <Stop offset="46%" stopColor="#FF3D4F" stopOpacity={1} />
-            <Stop offset="100%" stopColor="#FF8A92" stopOpacity={0.95} />
-          </SvgLinearGradient>
-        </Defs>
-        <Circle cx={214} cy={78} r={128} fill="url(#globeGlow)" />
-        <G opacity={0.22}>
-          <Path d="M34 92C34 48 92 20 178 20C278 20 338 50 338 92C338 137 278 166 178 166C88 166 34 138 34 92Z" stroke="#FF4D5A" strokeWidth={0.75} fill="none" />
-          <Path d="M34 92H338M72 53C125 66 250 66 306 53M72 132C126 117 250 117 306 132M178 20C150 48 138 70 138 92C138 116 150 139 178 166M178 20C208 48 222 70 222 92C222 116 208 139 178 166M98 30C86 58 80 78 80 92C80 113 91 137 114 157M258 30C270 58 276 78 276 92C276 113 265 137 242 157" stroke="#FF4D5A" strokeWidth={0.55} fill="none" />
-        </G>
-        <G opacity={0.82}>
-          {mapDots.map(({ cx, cy }, index) => (
-            <Circle key={`${cx}-${cy}-${index}`} cx={cx} cy={cy} r={1.25} fill="#FF3D4F" opacity={index % 3 === 0 ? 0.82 : 0.46} />
-          ))}
-        </G>
-        <G opacity={0.18}>
-          {Array.from({ length: 12 }).map((_, index) => (
-            <Path
-              key={index}
-              d={`M${168 + index * 13} 172V${126 - (index % 5) * 12}`}
-              stroke="#FF4D5A"
-              strokeWidth={5}
-              strokeLinecap="round"
-            />
-          ))}
-        </G>
-        <Path
-          d="M126 132H148L158 113L170 143L182 116L196 126L211 94L226 111L242 68L258 102L274 86L289 112L306 62L323 82L348 66"
-          stroke="#7F1D1D"
-          strokeWidth={7}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          opacity={0.26}
-        />
-        <Path
-          d="M126 132H148L158 113L170 143L182 116L196 126L211 94L226 111L242 68L258 102L274 86L289 112L306 62L323 82L348 66"
-          stroke="url(#signalStroke)"
-          strokeWidth={2.6}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-      </Svg>
-    </View>
-  );
-}
-
-function BreakingNewsSkeleton() {
-  return (
-    <View style={styles.card}>
-      <View style={[styles.skeletonBlock, styles.skeletonBadge]} />
-      <View style={[styles.skeletonLine, { width: '28%', marginTop: 24 }]} />
-      <View style={[styles.skeletonLine, { width: '58%', height: 22, marginTop: 14 }]} />
-      <View style={[styles.skeletonLine, { width: '48%', height: 22, marginTop: 8 }]} />
-      <View style={[styles.skeletonLine, { width: '54%', marginTop: 18 }]} />
-      <View style={styles.divider} />
+    <View style={[styles.card, !isDark && styles.cardLight]}>
+      <View style={[styles.skeletonBlock, !isDark && styles.skeletonBlockLight, styles.skeletonBadge]} />
+      <View
+        style={[
+          styles.skeletonLine,
+          !isDark && styles.skeletonBlockLight,
+          { width: '28%', marginTop: 24 },
+        ]}
+      />
+      <View
+        style={[
+          styles.skeletonLine,
+          !isDark && styles.skeletonBlockLight,
+          { width: '58%', height: 22, marginTop: 14 },
+        ]}
+      />
+      <View
+        style={[
+          styles.skeletonLine,
+          !isDark && styles.skeletonBlockLight,
+          { width: '48%', height: 22, marginTop: 8 },
+        ]}
+      />
+      <View
+        style={[
+          styles.skeletonLine,
+          !isDark && styles.skeletonBlockLight,
+          { width: '54%', marginTop: 18 },
+        ]}
+      />
+      <View style={[styles.divider, !isDark && styles.dividerLight]} />
       <View style={styles.bottomRow}>
-        <View style={[styles.skeletonBlock, { width: 130, height: 34 }]} />
-        <View style={[styles.skeletonBlock, { width: 138, height: 48 }]} />
+        <View
+          style={[
+            styles.skeletonBlock,
+            !isDark && styles.skeletonBlockLight,
+            { width: 130, height: 34 },
+          ]}
+        />
       </View>
     </View>
   );
 }
 
-function BreakingNewsError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+function BreakingNewsError({
+  message,
+  onRetry,
+  isDark,
+}: {
+  message: string;
+  onRetry?: () => void;
+  isDark: boolean;
+}) {
   return (
-    <View style={[styles.card, styles.stateCard]}>
-      <Text style={styles.stateTitle}>Breaking news unavailable</Text>
-      <Text style={styles.stateText}>{message}</Text>
+    <View style={[styles.card, !isDark && styles.cardLight, styles.stateCard]}>
+      <Text style={[styles.stateTitle, !isDark && styles.stateTitleLight]}>
+        Breaking news unavailable
+      </Text>
+      <Text style={[styles.stateText, !isDark && styles.stateTextLight]}>{message}</Text>
       {onRetry ? (
-        <Pressable style={styles.retryButton} onPress={onRetry}>
-          <Text style={styles.retryText}>Retry</Text>
+        <Pressable style={[styles.retryButton, !isDark && styles.retryButtonLight]} onPress={onRetry}>
+          <Text style={[styles.retryText, !isDark && styles.retryTextLight]}>Retry</Text>
         </Pressable>
       ) : null}
     </View>
@@ -366,209 +396,223 @@ function BreakingNewsError({ message, onRetry }: { message: string; onRetry?: ()
 }
 
 const styles = StyleSheet.create({
-  card: {
-    height: 326,
+  cardShadow: {
+    width: '100%',
+    height: 292,
     borderRadius: 22,
-    padding: 20,
+    shadowColor: '#FF3347',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  card: {
+    width: '100%',
+    height: 292,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 14,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,70,90,0.28)',
-    backgroundColor: '#050B14',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.28,
-    shadowRadius: 24,
-    elevation: 6,
+    borderColor: 'rgba(226,232,240,0.14)',
+    backgroundColor: '#17233A',
   },
-  redGlow: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.9,
+  cardLight: {
+    borderColor: '#DCE6F3',
+    backgroundColor: '#FFFFFF',
+  },
+  cardGlassOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 108,
+    opacity: 1,
   },
   topRow: {
     zIndex: 3,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   badge: {
-    minHeight: 34,
-    maxWidth: '76%',
-    paddingHorizontal: 13,
-    borderRadius: 10,
+    height: 32,
+    paddingHorizontal: 11,
+    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,45,65,0.18)',
+    gap: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255,70,90,0.65)',
+    borderColor: 'rgba(226,232,240,0.14)',
+    shadowColor: '#FF2C45',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+  },
+  badgeLight: {
+    borderColor: 'rgba(15,23,42,0.08)',
+    shadowOpacity: 0,
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
     textTransform: 'uppercase',
   },
-  saveButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(8,16,30,0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(220,230,255,0.42)',
+  badgeTextLight: {
+    color: '#B91C1C',
   },
   leftColumn: {
-    zIndex: 2,
-    width: '68%',
-  },
-  timeRow: {
-    marginTop: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FF4D5A',
-  },
-  timeText: {
-    color: '#C8CDD6',
-    fontSize: 13,
-    fontWeight: '500',
+    zIndex: 3,
+    width: '100%',
   },
   headline: {
-    marginTop: 8,
+    marginTop: 14,
     color: '#FFFFFF',
-    fontSize: 20,
-    lineHeight: 23,
-    fontWeight: '800',
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
     letterSpacing: 0,
   },
-  summary: {
+  headlineLight: {
+    color: '#0F172A',
+  },
+  subheading: {
     marginTop: 9,
     color: '#C5CAD3',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '500',
+  },
+  subheadingLight: {
+    color: '#475569',
   },
   metaRow: {
-    marginTop: 10,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    justifyContent: 'flex-end',
+    gap: 5,
   },
   metaText: {
-    color: '#B9C0CC',
-    fontSize: 12,
+    color: '#C5CAD3',
+    fontSize: 11,
     fontWeight: '500',
   },
+  metaTextLight: {
+    color: '#64748B',
+  },
   metaSourceText: {
-    maxWidth: 86,
+    maxWidth: 78,
   },
   metaTimeText: {
-    maxWidth: 54,
+    maxWidth: 48,
   },
   metaDivider: {
     width: 1,
-    height: 18,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    height: 14,
+    marginHorizontal: 2,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  metaDividerLight: {
+    backgroundColor: 'rgba(15,23,42,0.14)',
   },
   divider: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 104,
+    left: 16,
+    right: 16,
+    bottom: 62,
     zIndex: 2,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  dividerLight: {
+    backgroundColor: 'rgba(15,23,42,0.1)',
   },
   bottomRow: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 18,
+    left: 16,
+    right: 16,
+    bottom: 10,
     zIndex: 3,
-    minHeight: 55,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: FOOTER_ACTION_GAP,
   },
   symbolBlock: {
-    flex: 1,
-    minWidth: 0,
+    paddingRight: 0,
   },
   symbolLabel: {
-    marginBottom: 7,
-    color: '#A8B0BD',
+    marginBottom: 6,
+    color: '#AEB6C4',
     fontSize: 12,
     fontWeight: '500',
   },
+  symbolLabelLight: {
+    color: '#64748B',
+  },
+  symbolScroller: {
+    marginRight: -16,
+  },
   symbolRail: {
+    paddingRight: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    flexWrap: 'nowrap',
-    overflow: 'hidden',
-  },
-  symbolChip: {
-    height: 26,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    justifyContent: 'center',
-    flexShrink: 0,
-    maxWidth: 66,
-    backgroundColor: 'rgba(5,11,20,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(180,190,210,0.35)',
-  },
-  symbolText: {
-    maxWidth: 50,
-    color: '#FFFFFF',
-    fontSize: 10.5,
-    fontWeight: '700',
-  },
-  readButton: {
-    width: READ_MORE_BUTTON_WIDTH,
-    height: 38,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(0,180,255,0.65)',
-    shadowColor: '#007BFF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  readButtonFill: {
-    flex: 1,
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 7,
   },
-  readText: {
+  symbolChip: {
+    height: 24,
+    minWidth: 48,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    backgroundColor: 'rgba(5,11,20,0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(190,200,220,0.42)',
+  },
+  symbolChipLight: {
+    backgroundColor: 'rgba(241,245,249,0.92)',
+    borderColor: 'rgba(15,23,42,0.1)',
+  },
+  symbolText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
   },
-  graphic: {
-    position: 'absolute',
-    left: 102,
-    right: -82,
-    top: 74,
-    height: 182,
-    opacity: 0.84,
+  symbolTextLight: {
+    color: '#334155',
+  },
+  readMoreChip: {
+    height: 24,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+    backgroundColor: 'rgba(56,189,248,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,232,240,0.12)',
+  },
+  readMoreChipLight: {
+    backgroundColor: 'rgba(37,99,235,0.06)',
+    borderColor: 'rgba(15,23,42,0.08)',
+  },
+  readMoreText: {
+    color: '#7DD3FC',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  readMoreTextLight: {
+    color: '#2563EB',
   },
   skeletonBlock: {
     borderRadius: 12,
     backgroundColor: 'rgba(148,163,184,0.16)',
+  },
+  skeletonBlockLight: {
+    backgroundColor: 'rgba(100,116,139,0.12)',
   },
   skeletonBadge: {
     width: 170,
@@ -588,12 +632,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  stateTitleLight: {
+    color: '#0F172A',
+  },
   stateText: {
     marginTop: 6,
     color: '#C5CAD3',
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  stateTextLight: {
+    color: '#64748B',
   },
   retryButton: {
     marginTop: 14,
@@ -606,9 +656,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,180,255,0.45)',
   },
+  retryButtonLight: {
+    backgroundColor: 'rgba(37,99,235,0.08)',
+    borderColor: 'rgba(37,99,235,0.2)',
+  },
   retryText: {
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  retryTextLight: {
+    color: '#2563EB',
   },
 });

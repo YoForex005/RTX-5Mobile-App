@@ -95,7 +95,9 @@ export function SidebarDrawer() {
     overlayAnim.setValue(0);
     onClose();
     isClosingRef.current = false;
-    afterClose?.();
+    if (afterClose) {
+      requestAnimationFrame(afterClose);
+    }
   };
 
   const handleMenuItemPress = (item: MenuItem) => {

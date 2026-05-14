@@ -6,10 +6,11 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import type { ThemeColors } from '../../ui/theme/glass';
@@ -35,6 +36,8 @@ import {
   type TradingRoom,
 } from './tradersCommunityViewModel';
 
+const COMMUNITY_GOLD = '#F5B642';
+
 const CHART_CANDLES = [
   { body: 20, wick: 42, up: true },
   { body: 28, wick: 56, up: true },
@@ -56,11 +59,23 @@ export function TradersCommunityScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeTradersCommunityStyles(T, isDark), [T, isDark]);
   const [selectedFilter, setSelectedFilter] = useState<CommunityFilter>('All');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const visiblePosts = useMemo(
-    () => filterCommunityPosts(COMMUNITY_POSTS, selectedFilter, ''),
-    [selectedFilter],
+    () => filterCommunityPosts(COMMUNITY_POSTS, selectedFilter, searchQuery),
+    [selectedFilter, searchQuery],
   );
+
+  const closeSearch = () => {
+    setSearchQuery('');
+    setSearchOpen(false);
+  };
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/settings');
+  };
 
   return (
     <Screen noBottomInset style={styles.screen}>
@@ -73,7 +88,22 @@ export function TradersCommunityScreen() {
       />
 
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 18 }]}>
-        <CommunityHeader T={T} styles={styles} />
+        {searchOpen ? (
+          <CommunitySearchHeader
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onClose={closeSearch}
+            T={T}
+            styles={styles}
+          />
+        ) : (
+          <CommunityHeader
+            onBack={goBack}
+            onOpenSearch={() => setSearchOpen(true)}
+            T={T}
+            styles={styles}
+          />
+        )}
       </View>
 
       <ScrollView
@@ -119,9 +149,13 @@ export function TradersCommunityScreen() {
         <View style={styles.feedPollGrid}>
           <View style={styles.feedColumn}>
             <SectionHeader title="Community Feed" styles={styles} />
-            {visiblePosts.map((post) => (
-              <CommunityPostCard key={post.id} post={post} T={T} isDark={isDark} styles={styles} />
-            ))}
+            {visiblePosts.length ? (
+              visiblePosts.map((post) => (
+                <CommunityPostCard key={post.id} post={post} T={T} isDark={isDark} styles={styles} />
+              ))
+            ) : (
+              <CommunityEmptyState searchQuery={searchQuery} styles={styles} />
+            )}
           </View>
 
           <View style={styles.pollColumn}>
@@ -142,24 +176,32 @@ export function TradersCommunityScreen() {
 }
 
 function CommunityHeader({
+  onBack,
+  onOpenSearch,
   T,
   styles,
 }: {
+  onBack: () => void;
+  onOpenSearch: () => void;
   T: ThemeColors;
   styles: TradersCommunityStyles;
 }) {
   return (
     <View style={styles.header}>
+      <Pressable style={styles.headerIconButton} onPress={onBack} hitSlop={8} accessibilityLabel="Go back">
+        <Ionicons name="arrow-back" size={20} color={T.textSub} />
+      </Pressable>
+
       <View style={styles.headerCopy}>
         <Text style={styles.headerTitle} numberOfLines={1}>Traders Community</Text>
       </View>
 
       <View style={styles.headerActions}>
-        <Pressable style={styles.headerIconButton} hitSlop={8}>
-          <Ionicons name="search" size={23} color={T.textSub} />
+        <Pressable style={styles.headerIconButton} onPress={onOpenSearch} hitSlop={8} accessibilityLabel="Search community">
+          <Ionicons name="search" size={20} color={T.textSub} />
         </Pressable>
         <Pressable style={styles.headerIconButton} hitSlop={8}>
-          <Ionicons name="notifications-outline" size={23} color={T.textSub} />
+          <Ionicons name="notifications-outline" size={20} color={T.textSub} />
           <View style={styles.notificationDot} />
         </Pressable>
         <View style={styles.userAvatar}>
@@ -167,6 +209,41 @@ function CommunityHeader({
           <VerifiedBadge styles={styles} size="small" />
         </View>
       </View>
+    </View>
+  );
+}
+
+function CommunitySearchHeader({
+  searchQuery,
+  onSearchChange,
+  onClose,
+  T,
+  styles,
+}: {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  onClose: () => void;
+  T: ThemeColors;
+  styles: TradersCommunityStyles;
+}) {
+  return (
+    <View style={styles.searchHeader}>
+      <Ionicons name="search" size={18} color={T.textMuted} />
+      <TextInput
+        value={searchQuery}
+        onChangeText={onSearchChange}
+        placeholder="Search traders, symbols, rooms..."
+        placeholderTextColor={T.textMuted}
+        selectionColor={COMMUNITY_GOLD}
+        autoFocus
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={styles.searchInput}
+        accessibilityLabel="Search traders community"
+      />
+      <Pressable style={styles.searchCloseButton} onPress={onClose} hitSlop={8} accessibilityLabel="Close search">
+        <Ionicons name="close" size={18} color={T.textSub} />
+      </Pressable>
     </View>
   );
 }
@@ -294,6 +371,26 @@ function SectionHeader({
           <Text style={styles.sectionActionText}>{action}</Text>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function CommunityEmptyState({
+  searchQuery,
+  styles,
+}: {
+  searchQuery: string;
+  styles: TradersCommunityStyles;
+}) {
+  return (
+    <View style={styles.emptyState}>
+      <Ionicons name="search-outline" size={22} color="#94A3B8" />
+      <Text style={styles.emptyTitle}>No community posts found</Text>
+      <Text style={styles.emptyText}>
+        {searchQuery.trim().length > 0
+          ? 'Try another trader, symbol, room, or topic.'
+          : 'Try another category to widen the community feed.'}
+      </Text>
     </View>
   );
 }

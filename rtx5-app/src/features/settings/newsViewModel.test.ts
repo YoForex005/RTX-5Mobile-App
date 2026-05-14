@@ -23,7 +23,7 @@ test('buildMarketNewsPreviewData exposes API-ready dynamic sections', () => {
 test('preview breaking news uses the supplied reference copy through the view model', () => {
   const data = buildMarketNewsPreviewData();
 
-  assert.equal(data.breakingNews?.title, 'Major Central Bank Signals Potential Rate Cut in Next Policy Meeting');
+  assert.equal(data.breakingNews?.title, 'Rate Cut Signal Moves Global Markets');
   assert.equal(
     data.breakingNews?.summary,
     'The statement hints at easing inflation pressures and a shift in monetary policy stance.',

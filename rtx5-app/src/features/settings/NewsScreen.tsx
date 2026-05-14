@@ -6,16 +6,20 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import type { ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
+  Keyboard,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
+  TextInput,
   View,
   type ListRenderItemInfo,
 } from 'react-native';
@@ -53,27 +57,65 @@ export function NewsScreen() {
   const [selectedCategory, setSelectedCategory] = useState('category-all');
   const [selectedImpactFilter, setSelectedImpactFilter] = useState('filter-high-impact');
   const [visibleCount, setVisibleCount] = useState(8);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEconomicEvent, setSelectedEconomicEvent] = useState<EconomicCalendarEvent | null>(null);
+  const [selectedLatestNews, setSelectedLatestNews] = useState<LatestNewsItem | null>(null);
+  const [selectedAiBrief, setSelectedAiBrief] = useState<AiMarketBrief | null>(null);
+  const [selectedWatchlistNews, setSelectedWatchlistNews] = useState<WatchlistNewsItem | null>(null);
 
   const previewData = useMemo(() => buildMarketNewsPreviewData(watchlistSymbols), [watchlistSymbols]);
   const data = useMemo(
     () => applyMarketNewsSelection(previewData, selectedCategory, selectedImpactFilter, watchlistSymbols),
     [previewData, selectedCategory, selectedImpactFilter, watchlistSymbols],
   );
-  const latestNews = useMemo(
-    () => filterLatestNews(data.latestNews, data.categories, data.impactFilters).slice(0, visibleCount),
-    [data.latestNews, data.categories, data.impactFilters, visibleCount],
-  );
+  const latestNews = useMemo(() => {
+    const filteredNews = filterLatestNews(data.latestNews, data.categories, data.impactFilters);
+    return filterNewsByQuery(filteredNews, searchQuery).slice(0, visibleCount);
+  }, [data.latestNews, data.categories, data.impactFilters, searchQuery, visibleCount]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 700);
   }, []);
 
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/settings');
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setSearchQuery('');
+    setSearchOpen(false);
+  }, []);
+
+  const closeEconomicEvent = useCallback(() => {
+    setSelectedEconomicEvent(null);
+  }, []);
+
+  const closeLatestNews = useCallback(() => {
+    setSelectedLatestNews(null);
+  }, []);
+
+  const closeAiBrief = useCallback(() => {
+    setSelectedAiBrief(null);
+  }, []);
+
+  const closeWatchlistNews = useCallback(() => {
+    setSelectedWatchlistNews(null);
+  }, []);
+
+  const dismissSearchFromContent = useCallback(() => {
+    if (!searchOpen) return;
+    closeSearch();
+  }, [closeSearch, searchOpen]);
+
   const renderNewsCard = useCallback(
     ({ item }: ListRenderItemInfo<LatestNewsItem>) => (
-      <NewsCard item={item} T={T} colors={newsColors} styles={styles} />
+      <NewsCard item={item} colors={newsColors} styles={styles} onOpenNews={setSelectedLatestNews} />
     ),
-    [T, newsColors, styles],
+    [newsColors, styles],
   );
 
   if (status === 'error') {
@@ -91,11 +133,34 @@ export function NewsScreen() {
         colors={newsColors.screenGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
+        pointerEvents="none"
         style={styles.background}
       />
 
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 18 }]}>
-        <NewsHeader colors={newsColors} styles={styles} />
+        <LinearGradient
+          colors={newsColors.headerGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          pointerEvents="none"
+          style={styles.headerGlassLayer}
+        />
+        {searchOpen ? (
+          <NewsSearchHeader
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onClose={closeSearch}
+            colors={newsColors}
+            styles={styles}
+          />
+        ) : (
+          <NewsHeader
+            onBack={goBack}
+            onOpenSearch={() => setSearchOpen(true)}
+            colors={newsColors}
+            styles={styles}
+          />
+        )}
       </View>
 
       <FlatList
@@ -104,6 +169,9 @@ export function NewsScreen() {
         keyExtractor={(item) => item.newsId}
         renderItem={renderNewsCard}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={dismissSearchFromContent}
+        onTouchStart={dismissSearchFromContent}
         contentContainerStyle={[
           styles.listContent,
           { paddingTop: 16, paddingBottom: insets.bottom + 28 },
@@ -118,8 +186,12 @@ export function NewsScreen() {
             selectedImpactFilter={selectedImpactFilter}
             setSelectedCategory={setSelectedCategory}
             setSelectedImpactFilter={setSelectedImpactFilter}
+            onOpenAiBrief={setSelectedAiBrief}
+            onOpenEconomicEvent={setSelectedEconomicEvent}
+            onOpenWatchlistNews={setSelectedWatchlistNews}
             styles={styles}
             colors={newsColors}
+            isDark={isDark}
           />
         }
         ListEmptyComponent={
@@ -154,6 +226,37 @@ export function NewsScreen() {
         onEndReachedThreshold={0.45}
       />
 
+      <EconomicEventDetailModal
+        event={selectedEconomicEvent}
+        visible={Boolean(selectedEconomicEvent)}
+        onClose={closeEconomicEvent}
+        T={T}
+        colors={newsColors}
+        styles={styles}
+      />
+      <LatestNewsDetailModal
+        item={selectedLatestNews}
+        visible={Boolean(selectedLatestNews)}
+        onClose={closeLatestNews}
+        T={T}
+        colors={newsColors}
+        styles={styles}
+      />
+      <AiMarketBriefDetailModal
+        brief={selectedAiBrief}
+        visible={Boolean(selectedAiBrief)}
+        onClose={closeAiBrief}
+        colors={newsColors}
+        styles={styles}
+      />
+      <WatchlistNewsDetailModal
+        item={selectedWatchlistNews}
+        visible={Boolean(selectedWatchlistNews)}
+        onClose={closeWatchlistNews}
+        T={T}
+        colors={newsColors}
+        styles={styles}
+      />
     </Screen>
   );
 }
@@ -167,8 +270,12 @@ function MarketNewsHeaderContent({
   selectedImpactFilter,
   setSelectedCategory,
   setSelectedImpactFilter,
+  onOpenAiBrief,
+  onOpenEconomicEvent,
+  onOpenWatchlistNews,
   styles,
   colors,
+  isDark,
 }: {
   T: ThemeColors;
   status: NewsScreenStatus;
@@ -178,8 +285,12 @@ function MarketNewsHeaderContent({
   selectedImpactFilter: string;
   setSelectedCategory: (value: string) => void;
   setSelectedImpactFilter: (value: string) => void;
+  onOpenAiBrief: (brief: AiMarketBrief) => void;
+  onOpenEconomicEvent: (event: EconomicCalendarEvent) => void;
+  onOpenWatchlistNews: (item: WatchlistNewsItem) => void;
   styles: NewsScreenStyles;
   colors: NewsThemeColors;
+  isDark: boolean;
 }) {
   return (
     <View>
@@ -188,7 +299,7 @@ function MarketNewsHeaderContent({
       {status === 'loading' ? (
         <NewsSkeletonLoader styles={styles} compact />
       ) : data.breakingNews ? (
-        <BreakingNewsCard breakingNews={toBreakingNewsCardData(data.breakingNews)} />
+        <BreakingNewsCard breakingNews={toBreakingNewsCardData(data.breakingNews)} isDark={isDark} />
       ) : (
         <EmptyState
           title="No market news available right now."
@@ -198,7 +309,12 @@ function MarketNewsHeaderContent({
       )}
 
       {data.aiMarketBrief ? (
-        <AiMarketBriefCard brief={data.aiMarketBrief} colors={colors} styles={styles} />
+        <AiMarketBriefCard
+          brief={data.aiMarketBrief}
+          colors={colors}
+          styles={styles}
+          onOpenDetails={onOpenAiBrief}
+        />
       ) : null}
 
       <CategoryTabs
@@ -215,9 +331,19 @@ function MarketNewsHeaderContent({
         styles={styles}
       />
 
-      <EconomicCalendarPreview events={data.economicEvents} T={T} colors={colors} styles={styles} />
+      <EconomicCalendarPreview
+        events={data.economicEvents}
+        colors={colors}
+        styles={styles}
+        onOpenEvent={onOpenEconomicEvent}
+      />
 
-      <WatchlistNewsSection items={data.watchlistNews} T={T} colors={colors} styles={styles} />
+      <WatchlistNewsSection
+        items={data.watchlistNews}
+        colors={colors}
+        styles={styles}
+        onOpenItem={onOpenWatchlistNews}
+      />
 
       <LatestNewsFeed count={latestNewsCount} styles={styles} />
     </View>
@@ -239,40 +365,87 @@ function MarketNewsFooterContent({
 
   return (
     <View>
-      <View style={styles.disclaimer}>
+      <LinearGradient
+        colors={colors.panelGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.disclaimer}
+      >
         <Ionicons name="information-circle-outline" size={16} color={colors.muted} />
         <Text style={styles.disclaimerText}>
           News is for information only. Always verify market conditions before trading.
         </Text>
-      </View>
+      </LinearGradient>
     </View>
   );
 }
 
 function NewsHeader({
+  onBack,
+  onOpenSearch,
   colors,
   styles,
 }: {
+  onBack: () => void;
+  onOpenSearch: () => void;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
 }) {
   return (
     <View style={styles.header}>
+      <View style={styles.headerSide}>
+        <Pressable style={styles.headerIconButton} onPress={onBack} hitSlop={8} accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.sub} />
+        </Pressable>
+      </View>
+
       <View style={styles.headerCopy}>
         <Text style={styles.headerTitle}>Market News</Text>
-        <Text style={styles.headerSubtitle} numberOfLines={1}>
-          Real-time updates and market-moving events
-        </Text>
       </View>
 
       <View style={styles.headerActions}>
-        <Pressable style={styles.headerIconButton} hitSlop={8}>
+        <Pressable style={styles.headerIconButton} onPress={onOpenSearch} hitSlop={8} accessibilityLabel="Search market news">
           <Ionicons name="search" size={21} color={colors.sub} />
         </Pressable>
         <Pressable style={styles.headerIconButton} hitSlop={8}>
           <Ionicons name="filter" size={20} color={colors.sub} />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function NewsSearchHeader({
+  searchQuery,
+  onSearchChange,
+  onClose,
+  colors,
+  styles,
+}: {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  onClose: () => void;
+  colors: NewsThemeColors;
+  styles: NewsScreenStyles;
+}) {
+  return (
+    <View style={styles.searchHeader}>
+      <Ionicons name="search" size={18} color={colors.muted} />
+      <TextInput
+        value={searchQuery}
+        onChangeText={onSearchChange}
+        placeholder="Search market news, symbols, sources..."
+        placeholderTextColor={colors.muted}
+        selectionColor={colors.cyan}
+        autoFocus
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={styles.searchInput}
+        accessibilityLabel="Search market news"
+      />
+      <Pressable style={styles.searchCloseButton} onPress={onClose} hitSlop={8} accessibilityLabel="Close search">
+        <Ionicons name="close" size={18} color={colors.sub} />
+      </Pressable>
     </View>
   );
 }
@@ -284,22 +457,42 @@ function toBreakingNewsCardData(item: NonNullable<MarketNewsScreenData['breaking
     summary: item.summary,
     source: item.source,
     published_at: item.publishedAt,
-    relative_time: item.relativeTime ?? item.publishedAt,
+    sentiment: item.sentiment,
     affected_symbols: item.affectedSymbols,
-    is_saved: item.isSaved,
-    read_url: item.readUrl ?? '',
   };
+}
+
+function filterNewsByQuery(news: LatestNewsItem[], query: string): LatestNewsItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return news;
+
+  return news.filter((item) => {
+    const searchableText = [
+      item.title,
+      item.summary,
+      item.source,
+      item.category,
+      item.impactLevel,
+      item.affectedSymbols.join(' '),
+    ].join(' ').toLowerCase();
+
+    return searchableText.includes(normalizedQuery);
+  });
 }
 
 function AiMarketBriefCard({
   brief,
   colors,
   styles,
+  onOpenDetails,
 }: {
   brief: AiMarketBrief;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
+  onOpenDetails: (brief: AiMarketBrief) => void;
 }) {
+  const currentRead = brief.currentRead ?? brief.summary;
+
   return (
     <LinearGradient
       colors={colors.aiGradient}
@@ -307,14 +500,20 @@ function AiMarketBriefCard({
       end={{ x: 1, y: 1 }}
       style={styles.aiCard}
     >
-      <View style={styles.aiAccentLine} />
+      <LinearGradient
+        colors={colors.aiGlassHighlight}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0.8 }}
+        pointerEvents="none"
+        style={styles.aiGlassHighlight}
+      />
+
       <View style={styles.aiHeader}>
         <View style={styles.aiTitleBlock}>
           <View style={styles.aiIcon}>
-            <Ionicons name="analytics-outline" size={16} color={colors.cyan} />
+            <Ionicons name="sparkles-outline" size={16} color={colors.cyan} />
           </View>
           <View style={styles.aiTitleCopy}>
-            <Text style={styles.aiKicker}>Market Intelligence</Text>
             <Text style={styles.aiTitle}>AI Market Brief</Text>
           </View>
         </View>
@@ -325,56 +524,142 @@ function AiMarketBriefCard({
       </View>
 
       <View style={styles.aiSummaryBlock}>
-        <View style={styles.aiSummaryAccent} />
-        <Text style={styles.aiSummary} numberOfLines={3}>{brief.summary}</Text>
+        <View style={styles.aiSummaryCopy}>
+          <Text style={styles.aiSummaryLabel}>Current read</Text>
+          <Text style={styles.aiSummary} numberOfLines={2}>{currentRead}</Text>
+        </View>
       </View>
 
-      <View style={styles.aiFooter}>
-        <AiMarketChips markets={brief.affectedMarkets} styles={styles} />
-        <View style={styles.aiSignalRail}>
-          {brief.sentimentLabel ? (
-            <View style={styles.aiSignalChip}>
-              <Ionicons name="pulse-outline" size={12} color={colors.cyan} />
-              <Text style={styles.aiSignalText}>{brief.sentimentLabel}</Text>
-            </View>
-          ) : null}
-          {brief.confidenceLabel ? (
-            <View style={styles.aiSignalChip}>
-              <Ionicons name="shield-checkmark-outline" size={12} color={colors.gold} />
-              <Text style={styles.aiSignalText}>{brief.confidenceLabel}</Text>
-            </View>
-          ) : null}
+      <View style={styles.aiCompactFooter}>
+        <View style={styles.aiCompactMeta}>
+          <Ionicons name="shield-checkmark-outline" size={12} color={colors.muted} />
+          <Text style={styles.aiCompactMetaText}>Verified platform brief</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open AI market brief details"
+          hitSlop={8}
+          style={styles.aiDetailsButton}
+          onPress={() => onOpenDetails(brief)}
+        >
+          <Text style={styles.aiDetailsButtonText}>Details</Text>
+          <Ionicons name="chevron-forward" size={13} color={colors.cyan} />
+        </Pressable>
       </View>
     </LinearGradient>
   );
 }
 
-function AiMarketChips({
-  markets,
+function AiMarketBriefDetailModal({
+  brief,
+  visible,
+  onClose,
+  colors,
   styles,
 }: {
-  markets: string[];
+  brief: AiMarketBrief | null;
+  visible: boolean;
+  onClose: () => void;
+  colors: NewsThemeColors;
   styles: NewsScreenStyles;
 }) {
-  if (markets.length === 0) return null;
+  if (!brief) return null;
 
-  const visibleMarkets = markets.slice(0, 3);
-  const overflowCount = Math.max(0, markets.length - visibleMarkets.length);
+  const confidenceValue = brief.confidenceLabel?.replace(/^confidence\s*/i, '');
+  const visibleMarkets = brief.affectedMarkets.slice(0, 6);
+  const remainingMarkets = Math.max(0, brief.affectedMarkets.length - visibleMarkets.length);
 
   return (
-    <View style={styles.aiMarketRail}>
-      {visibleMarkets.map((market) => (
-        <View key={market} style={styles.aiMarketChip}>
-          <Text style={styles.aiMarketText} numberOfLines={1}>{market}</Text>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.aiDetailModalOverlay}>
+        <Pressable style={styles.aiDetailModalBackdrop} onPress={onClose} />
+        <View style={styles.aiDetailModalSheet}>
+          <View style={styles.eventModalHandle} />
+
+          <View style={styles.aiDetailHeader}>
+            <View style={styles.aiTitleBlock}>
+              <View style={styles.aiIcon}>
+                <Ionicons name="sparkles-outline" size={16} color={colors.cyan} />
+              </View>
+              <View style={styles.aiTitleCopy}>
+                <Text style={styles.aiTitle}>AI Market Brief</Text>
+              </View>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close AI market brief details"
+              style={styles.eventModalCloseButton}
+              hitSlop={8}
+              onPress={onClose}
+            >
+              <Ionicons name="close" size={18} color={colors.sub} />
+            </Pressable>
+          </View>
+
+          <View style={styles.aiDetailUpdatedRow}>
+            <Ionicons name="time-outline" size={13} color={colors.muted} />
+            <Text style={styles.aiUpdatedText} numberOfLines={1}>{brief.updatedAt}</Text>
+          </View>
+
+          <View style={styles.aiDetailSummaryPanel}>
+            <Text style={styles.aiSummaryLabel}>Full read</Text>
+            <Text style={styles.aiDetailSummaryText}>{brief.summary}</Text>
+          </View>
+
+          <View style={styles.aiSignalRail}>
+            {brief.sentimentLabel ? (
+              <View style={styles.aiSignalChip}>
+                <Ionicons name="pulse-outline" size={13} color={colors.cyan} />
+                <View style={styles.aiSignalCopy}>
+                  <Text style={styles.aiSignalLabel}>Bias</Text>
+                  <Text style={styles.aiSignalValue} numberOfLines={1}>{brief.sentimentLabel}</Text>
+                </View>
+              </View>
+            ) : null}
+            {confidenceValue ? (
+              <View style={styles.aiSignalChip}>
+                <Ionicons name="shield-checkmark-outline" size={13} color={colors.gold} />
+                <View style={styles.aiSignalCopy}>
+                  <Text style={styles.aiSignalLabel}>Confidence</Text>
+                  <Text style={styles.aiSignalValue} numberOfLines={1}>{confidenceValue}</Text>
+                </View>
+              </View>
+            ) : null}
+          </View>
+
+          {visibleMarkets.length > 0 ? (
+            <View style={styles.aiDetailMarketsPanel}>
+              <Text style={styles.aiMarketFocusLabel}>Focus markets</Text>
+              <View style={styles.aiMarketRail}>
+                {visibleMarkets.map((market) => (
+                  <View key={market} style={styles.aiMarketChip}>
+                    <Text style={styles.aiMarketText} numberOfLines={1}>{market}</Text>
+                  </View>
+                ))}
+                {remainingMarkets > 0 ? (
+                  <View style={styles.aiMarketChip}>
+                    <Text style={styles.aiMarketText}>+{remainingMarkets}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.eventModalNotice}>
+            <Ionicons name="lock-closed-outline" size={15} color={colors.muted} />
+            <Text style={styles.eventModalNoticeText}>
+              AI-generated market context only. Use it with price action, risk limits, and official calendar data.
+            </Text>
+          </View>
         </View>
-      ))}
-      {overflowCount > 0 ? (
-        <View style={styles.aiMarketChip}>
-          <Text style={styles.aiMarketText}>+{overflowCount}</Text>
-        </View>
-      ) : null}
-    </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -450,31 +735,36 @@ function ImpactFilterChips({
 
 function EconomicCalendarPreview({
   events,
-  T,
   colors,
   styles,
+  onOpenEvent,
 }: {
   events: EconomicCalendarEvent[];
-  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
+  onOpenEvent: (event: EconomicCalendarEvent) => void;
 }) {
   return (
     <View>
       <SectionHeader title="Upcoming Economic Events" styles={styles} />
       {events.length > 0 ? (
-        <View style={styles.calendarCard}>
+        <LinearGradient
+          colors={colors.panelGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.calendarCard}
+        >
           {events.map((event, index) => (
             <EconomicEventRow
               key={event.eventId}
               event={event}
-              T={T}
               colors={colors}
               styles={styles}
               showDivider={index > 0}
+              onOpenEvent={onOpenEvent}
             />
           ))}
-        </View>
+        </LinearGradient>
       ) : (
         <EmptyState
           title="No upcoming economic events."
@@ -488,16 +778,16 @@ function EconomicCalendarPreview({
 
 function EconomicEventRow({
   event,
-  T,
   colors,
   styles,
   showDivider,
+  onOpenEvent,
 }: {
   event: EconomicCalendarEvent;
-  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
   showDivider: boolean;
+  onOpenEvent: (event: EconomicCalendarEvent) => void;
 }) {
   return (
     <View style={[styles.eventRow, showDivider && styles.eventDivider]}>
@@ -525,10 +815,129 @@ function EconomicEventRow({
       </View>
 
       <View style={styles.eventRightRail}>
-        <ImpactBadge impact={event.impactLevel} T={T} styles={styles} compact hideDot />
-        <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${event.eventName} details`}
+          style={styles.eventChevronButton}
+          hitSlop={8}
+          onPress={() => onOpenEvent(event)}
+        >
+          <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
       </View>
     </View>
+  );
+}
+
+function EconomicEventDetailModal({
+  event,
+  visible,
+  onClose,
+  T,
+  colors,
+  styles,
+}: {
+  event: EconomicCalendarEvent | null;
+  visible: boolean;
+  onClose: () => void;
+  T: ThemeColors;
+  colors: NewsThemeColors;
+  styles: NewsScreenStyles;
+}) {
+  if (!event) return null;
+
+  const valueItems = [
+    { label: 'Previous', value: event.previousValue ?? '--' },
+    { label: 'Forecast', value: event.forecastValue ?? '--' },
+    { label: 'Actual', value: event.actualValue ?? '--' },
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.eventModalOverlay}>
+        <Pressable style={styles.eventModalBackdrop} onPress={onClose} />
+        <View style={styles.eventModalSheet}>
+          <View style={styles.eventModalHandle} />
+
+          <View style={styles.eventModalHeader}>
+            <View style={styles.eventModalIdentity}>
+              <View style={styles.eventModalCurrencyBadge}>
+                <Text style={styles.currencyText}>{event.currency}</Text>
+              </View>
+              <View style={styles.eventModalHeaderCopy}>
+                <Text style={styles.eventModalLabel}>Economic Event</Text>
+                <Text style={styles.eventModalTime} numberOfLines={1}>
+                  {event.eventTime}{event.countdown ? ` - ${event.countdown}` : ''}
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close event details"
+              style={styles.eventModalCloseButton}
+              hitSlop={8}
+              onPress={onClose}
+            >
+              <Ionicons name="close" size={18} color={colors.sub} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.eventModalTitle}>{event.eventName}</Text>
+
+          <View style={styles.eventSchedulePanel}>
+            <View style={styles.eventScheduleItem}>
+              <Text style={styles.eventScheduleLabel}>Time</Text>
+              <Text style={styles.eventScheduleValue} numberOfLines={1}>{event.eventTime}</Text>
+            </View>
+            <View style={styles.eventScheduleDivider} />
+            <View style={styles.eventScheduleItem}>
+              <Text style={styles.eventScheduleLabel}>Countdown</Text>
+              <Text style={styles.eventScheduleValue} numberOfLines={1}>{event.countdown ?? '--'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.eventImpactPanel}>
+            <View style={styles.eventImpactCopy}>
+              <Text style={styles.eventModalLabel}>Market Impact</Text>
+              <Text style={styles.eventImpactDescription}>
+                Expected sensitivity around the release window.
+              </Text>
+            </View>
+            <ImpactBadge impact={event.impactLevel} T={T} styles={styles} />
+          </View>
+
+          <View style={styles.eventValueGrid}>
+            {valueItems.map((item) => (
+              <View key={item.label} style={styles.eventValueCard}>
+                <Text style={styles.eventValueLabel}>{item.label}</Text>
+                <Text style={styles.eventValueText} numberOfLines={1}>{item.value}</Text>
+              </View>
+            ))}
+          </View>
+
+          {event.isLive ? (
+            <View style={styles.eventLiveNotice}>
+              <View style={styles.liveDot} />
+              <Text style={styles.eventLiveNoticeText}>Live event in progress</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.eventModalNotice}>
+            <Ionicons name="information-circle-outline" size={15} color={colors.muted} />
+            <Text style={styles.eventModalNoticeText}>
+              Review spread, slippage, and volatility conditions before trading around this event.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -544,69 +953,157 @@ function LatestNewsFeed({
 
 function NewsCard({
   item,
+  colors,
+  styles,
+  onOpenNews,
+}: {
+  item: LatestNewsItem;
+  colors: NewsThemeColors;
+  styles: NewsScreenStyles;
+  onOpenNews: (item: LatestNewsItem) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${item.title}`}
+      hitSlop={4}
+      onPress={() => onOpenNews(item)}
+      style={({ pressed }) => (pressed ? styles.newsCardPressed : undefined)}
+    >
+      <LinearGradient
+        colors={colors.breakingGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.newsCard}
+      >
+        <LinearGradient
+          colors={colors.cardGlassHighlight}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          pointerEvents="none"
+          style={styles.cardGlassHighlight}
+        />
+        <View style={styles.newsCardTop}>
+          <View style={styles.newsSourceBlock}>
+            <Text style={styles.newsSourceText} numberOfLines={1}>{item.source}</Text>
+            <View style={styles.newsTimeRow}>
+              <Ionicons name="time-outline" size={12} color={colors.muted} />
+              <Text style={styles.metaText} numberOfLines={1}>{item.publishedAt}</Text>
+            </View>
+          </View>
+          <View style={styles.newsOpenButton}>
+            <Ionicons name="chevron-forward" size={16} color={colors.sub} />
+          </View>
+        </View>
+
+        <Text style={styles.newsTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.newsSummary} numberOfLines={2}>{item.summary}</Text>
+
+        <View style={styles.newsFooter}>
+          <SymbolRail symbols={item.affectedSymbols} styles={styles} maxVisible={3} />
+        </View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function LatestNewsDetailModal({
+  item,
+  visible,
+  onClose,
   T,
   colors,
   styles,
 }: {
-  item: LatestNewsItem;
+  item: LatestNewsItem | null;
+  visible: boolean;
+  onClose: () => void;
   T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
 }) {
+  if (!item) return null;
+
   return (
-    <LinearGradient
-      colors={colors.breakingGradient}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.newsCard}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
     >
-      <View style={styles.newsCardTop}>
-        <View style={styles.newsSourceRow}>
-          <Text style={styles.newsSourceText} numberOfLines={1}>{item.source}</Text>
-          <View style={styles.categoryTag}>
-            <Text style={styles.categoryTagText}>{item.category}</Text>
+      <View style={styles.latestNewsModalOverlay}>
+        <Pressable style={styles.latestNewsModalBackdrop} onPress={onClose} />
+        <View style={styles.latestNewsModalSheet}>
+          <View style={styles.eventModalHandle} />
+
+          <View style={styles.latestNewsModalHeader}>
+            <View style={styles.latestNewsSourceBlock}>
+              <Text style={styles.latestNewsSourceText} numberOfLines={1}>{item.source}</Text>
+              <View style={styles.newsTimeRow}>
+                <Ionicons name="time-outline" size={12} color={colors.muted} />
+                <Text style={styles.metaText} numberOfLines={1}>{item.publishedAt}</Text>
+              </View>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close news details"
+              style={styles.eventModalCloseButton}
+              hitSlop={8}
+              onPress={onClose}
+            >
+              <Ionicons name="close" size={18} color={colors.sub} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.latestNewsModalTitle}>{item.title}</Text>
+          <Text style={styles.latestNewsModalSummary}>{item.summary}</Text>
+
+          <View style={styles.latestNewsMetaPanel}>
+            <Text style={styles.latestNewsLabel}>Classification</Text>
+            <View style={styles.latestNewsChipRow}>
+              <View style={styles.categoryTag}>
+                <Text style={styles.categoryTagText}>{item.category}</Text>
+              </View>
+              <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
+              {item.isSaved ? (
+                <View style={styles.latestNewsSavedPill}>
+                  <Ionicons name="bookmark" size={12} color={colors.gold} />
+                  <Text style={styles.latestNewsSavedText}>Saved</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          {item.affectedSymbols.length > 0 ? (
+            <View style={styles.latestNewsSymbolsBlock}>
+              <Text style={styles.latestNewsLabel}>Affected Symbols</Text>
+              <SymbolRail symbols={item.affectedSymbols} styles={styles} maxVisible={6} />
+            </View>
+          ) : null}
+
+          <View style={styles.eventModalNotice}>
+            <Ionicons name="information-circle-outline" size={15} color={colors.muted} />
+            <Text style={styles.eventModalNoticeText}>
+              Use this update as context only. Confirm liquidity, spread, and chart structure before taking action.
+            </Text>
           </View>
         </View>
-        <View style={styles.newsMetaActions}>
-          <Text style={styles.metaText} numberOfLines={1}>{item.publishedAt}</Text>
-          <Pressable style={styles.iconActionButton} hitSlop={8}>
-            <Ionicons name={item.isSaved ? 'bookmark' : 'bookmark-outline'} size={15} color={colors.sub} />
-          </Pressable>
-        </View>
       </View>
-
-      <Text style={styles.newsTitle} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.newsSummary} numberOfLines={2}>{item.summary}</Text>
-
-      <View style={styles.newsFooter}>
-        <View style={styles.newsFooterInfo}>
-          <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
-          <SymbolRail symbols={item.affectedSymbols} styles={styles} maxVisible={2} />
-        </View>
-        <View style={styles.newsActions}>
-          <Pressable style={styles.readIndicator} hitSlop={8}>
-            <Text style={styles.readIndicatorText}>Read</Text>
-            <Ionicons name="arrow-forward" size={13} color={colors.cyan} />
-          </Pressable>
-          <Pressable style={styles.shareButton} hitSlop={8}>
-            <Ionicons name="share-social-outline" size={14} color={colors.sub} />
-          </Pressable>
-        </View>
-      </View>
-    </LinearGradient>
+    </Modal>
   );
 }
 
 function WatchlistNewsSection({
   items,
-  T,
   colors,
   styles,
+  onOpenItem,
 }: {
   items: WatchlistNewsItem[];
-  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
+  onOpenItem: (item: WatchlistNewsItem) => void;
 }) {
   if (items.length === 0) return null;
 
@@ -618,9 +1115,9 @@ function WatchlistNewsSection({
           <WatchlistNewsCard
             key={`${item.userSymbol}-${item.publishedAt}`}
             item={item}
-            T={T}
             colors={colors}
             styles={styles}
+            onOpenItem={onOpenItem}
           />
         ))}
       </ScrollView>
@@ -630,14 +1127,14 @@ function WatchlistNewsSection({
 
 function WatchlistNewsCard({
   item,
-  T,
   colors,
   styles,
+  onOpenItem,
 }: {
   item: WatchlistNewsItem;
-  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
+  onOpenItem: (item: WatchlistNewsItem) => void;
 }) {
   return (
     <LinearGradient
@@ -646,14 +1143,20 @@ function WatchlistNewsCard({
       end={{ x: 1, y: 1 }}
       style={styles.watchlistCard}
     >
-      <View style={styles.watchlistAccent} />
+      <LinearGradient
+        colors={colors.cardGlassHighlight}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        pointerEvents="none"
+        style={styles.cardGlassHighlight}
+      />
       <View style={styles.watchlistTopRow}>
         <View style={styles.watchlistIdentity}>
           <View style={styles.watchlistSymbolPill}>
             <Text style={styles.watchlistSymbolText} numberOfLines={1}>{item.userSymbol}</Text>
           </View>
+          <Text style={styles.watchlistMatchText} numberOfLines={1}>Watchlist match</Text>
         </View>
-        <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
       </View>
       <Text style={styles.watchlistTitle} numberOfLines={2}>{item.relatedNews}</Text>
       <View style={styles.watchlistBottomRow}>
@@ -661,12 +1164,102 @@ function WatchlistNewsCard({
           <Ionicons name="time-outline" size={13} color={colors.muted} />
           <Text style={styles.watchlistTimeText} numberOfLines={1}>{item.publishedAt}</Text>
         </View>
-        <View style={styles.watchlistReadAction}>
-          <Text style={styles.watchlistActionText}>Open</Text>
-          <Ionicons name="arrow-forward" size={13} color={colors.cyan} />
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`View ${item.userSymbol} watchlist news`}
+          hitSlop={8}
+          style={styles.watchlistReadAction}
+          onPress={() => onOpenItem(item)}
+        >
+          <Text style={styles.watchlistActionText}>View</Text>
+          <Ionicons name="chevron-forward" size={13} color={colors.cyan} />
+        </Pressable>
       </View>
     </LinearGradient>
+  );
+}
+
+function WatchlistNewsDetailModal({
+  item,
+  visible,
+  onClose,
+  T,
+  colors,
+  styles,
+}: {
+  item: WatchlistNewsItem | null;
+  visible: boolean;
+  onClose: () => void;
+  T: ThemeColors;
+  colors: NewsThemeColors;
+  styles: NewsScreenStyles;
+}) {
+  if (!item) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.latestNewsModalOverlay}>
+        <Pressable style={styles.latestNewsModalBackdrop} onPress={onClose} />
+        <View style={styles.latestNewsModalSheet}>
+          <View style={styles.eventModalHandle} />
+
+          <View style={styles.watchlistDetailHeader}>
+            <View style={styles.watchlistDetailIdentity}>
+              <View style={styles.watchlistSymbolPill}>
+                <Text style={styles.watchlistSymbolText} numberOfLines={1}>{item.userSymbol}</Text>
+              </View>
+              <View style={styles.watchlistDetailHeaderCopy}>
+                <Text style={styles.watchlistDetailKicker}>Watchlist Match</Text>
+                <Text style={styles.watchlistDetailTime} numberOfLines={1}>{item.publishedAt}</Text>
+              </View>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close watchlist news details"
+              style={styles.eventModalCloseButton}
+              hitSlop={8}
+              onPress={onClose}
+            >
+              <Ionicons name="close" size={18} color={colors.sub} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.watchlistDetailTitle}>{item.relatedNews}</Text>
+
+          <View style={styles.watchlistDetailMetaGrid}>
+            <View style={styles.watchlistDetailMetaCard}>
+              <Text style={styles.watchlistDetailLabel}>Symbol</Text>
+              <Text style={styles.watchlistDetailValue} numberOfLines={1}>{item.userSymbol}</Text>
+            </View>
+            <View style={styles.watchlistDetailMetaCard}>
+              <Text style={styles.watchlistDetailLabel}>Impact</Text>
+              <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
+            </View>
+          </View>
+
+          <View style={styles.watchlistDetailPanel}>
+            <Text style={styles.watchlistDetailLabel}>Why this appeared</Text>
+            <Text style={styles.watchlistDetailText}>
+              This update matched a symbol saved in your local watchlist. Review the symbol before acting on the news.
+            </Text>
+          </View>
+
+          <View style={styles.eventModalNotice}>
+            <Ionicons name="information-circle-outline" size={15} color={colors.muted} />
+            <Text style={styles.eventModalNoticeText}>
+              Check spreads, volatility, and chart structure before placing a trade from watchlist news.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 

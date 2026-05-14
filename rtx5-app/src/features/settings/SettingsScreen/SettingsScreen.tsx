@@ -349,7 +349,7 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow]}>
               <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} />
               <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" />
+              <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" onPress={() => router.push('/settings/news')} />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles} icon="calendar-outline" color="#1D4ED8" title={t('Economic Calender')} sub="" onPress={() => router.push('/settings/economic-calendar')} />
             </View>

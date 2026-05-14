@@ -1,5 +1,6 @@
 export type NewsImpactLevel = 'High' | 'Medium' | 'Low' | 'Neutral';
 export type NewsScreenStatus = 'ready' | 'loading' | 'error' | 'offline';
+export type NewsSentiment = 'positive' | 'negative' | 'neutral';
 
 export type BreakingNewsItem = {
   id: string;
@@ -9,9 +10,9 @@ export type BreakingNewsItem = {
   publishedAt: string;
   relativeTime?: string;
   impactLevel: NewsImpactLevel;
+  sentiment?: NewsSentiment;
   affectedSymbols: string[];
   category: string;
-  imageOrChartPreview?: string;
   isSaved: boolean;
   readUrl?: string;
 };
@@ -30,6 +31,7 @@ export type ImpactFilter = {
 };
 
 export type AiMarketBrief = {
+  currentRead?: string;
   summary: string;
   updatedAt: string;
   affectedMarkets: string[];
@@ -59,7 +61,6 @@ export type LatestNewsItem = {
   affectedSymbols: string[];
   impactLevel: NewsImpactLevel;
   category: string;
-  thumbnail?: string;
   isSaved: boolean;
   shareUrl?: string;
   readUrl?: string;
@@ -120,15 +121,15 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
   return {
     breakingNews: {
       id: 'preview-breaking-001',
-      title: 'Major Central Bank Signals Potential Rate Cut in Next Policy Meeting',
+      title: 'Rate Cut Signal Moves Global Markets',
       summary: 'The statement hints at easing inflation pressures and a shift in monetary policy stance.',
       source: 'Global Finance',
       publishedAt: '2m ago',
       relativeTime: 'Just now',
       impactLevel: 'High',
-      affectedSymbols: ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'USDJPY', 'US500', 'NAS100', 'BTCUSD', 'ETHUSD', 'USDCHF'],
+      sentiment: 'negative',
+      affectedSymbols: ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'USDJPY', 'US500', 'NAS100', 'BTCUSD', 'USDCHF'],
       category: 'Economy',
-      imageOrChartPreview: 'market-pulse',
       isSaved: false,
       readUrl: undefined,
     },
@@ -144,6 +145,7 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
       isSelected: index === 0,
     })),
     aiMarketBrief: {
+      currentRead: 'Markets are cautious before the next rate signal.',
       summary: 'Macro risk remains elevated while traders wait for confirmation from rate guidance, liquidity conditions, and the next calendar catalyst.',
       updatedAt: 'Updated 2m ago',
       affectedMarkets: ['FX Majors', 'Gold', 'US Indices'],
@@ -198,7 +200,6 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
         affectedSymbols: ['EURUSD', 'GBPUSD', 'XAUUSD'],
         impactLevel: 'High',
         category: 'Forex',
-        thumbnail: 'pulse',
         isSaved: false,
         shareUrl: undefined,
         readUrl: undefined,
@@ -212,7 +213,6 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
         affectedSymbols: ['USDJPY', 'US30', 'NAS100'],
         impactLevel: 'Medium',
         category: 'Central Banks',
-        thumbnail: 'calendar',
         isSaved: true,
         shareUrl: undefined,
         readUrl: undefined,
@@ -226,7 +226,6 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
         affectedSymbols: normalizedWatchlist.slice(0, 2).length > 0 ? normalizedWatchlist.slice(0, 2) : ['WATCHLIST'],
         impactLevel: 'Low',
         category: 'Commodities',
-        thumbnail: 'watchlist',
         isSaved: false,
         shareUrl: undefined,
         readUrl: undefined,
