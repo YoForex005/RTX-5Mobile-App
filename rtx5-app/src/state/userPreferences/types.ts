@@ -81,6 +81,7 @@ export type UserPreferencesState = {
   tradeSummaryDetailsVisible: boolean;
   oneClickAccepted: boolean;
   historyRange: string;
+  marketNewsSavedIds: string[];
   /**
    * Unix millisecond timestamps for the active history date filter.
    * Set alongside `historyRange` so query hooks can pass `from`/`to` params
@@ -141,6 +142,8 @@ export type UserPreferencesState = {
   setOpenOrderMode: (mode: 'Regular' | 'Risk calculator' | 'One-click') => void;
   setOneClickAccepted: (accepted: boolean) => void;
   setHistoryRange: (range: string) => void;
+  setMarketNewsSavedIds: (newsIds: string[]) => void;
+  toggleMarketNewsSavedId: (newsId: string) => void;
   /** Persist the computed from/to Unix-ms timestamps alongside the range label. */
   setHistoryDateRange: (fromMs: number | null, toMs: number | null) => void;
   setIsDemoAccount: (isDemo: boolean) => void;

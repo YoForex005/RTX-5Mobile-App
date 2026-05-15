@@ -17,6 +17,7 @@ const pendingNotifySymbols = new Set<string>();
 let updateSeq = 0;
 let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 50;
 
 const uniqueNormalizedSymbols = (symbols: string[]): string[] =>
   Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean)));
@@ -53,13 +54,10 @@ const scheduleSymbolNotification = (symbol: string): void => {
     return;
   }
 
-  // Market feeds can deliver many ticks in one frame. Notify quote rows once
-  // per frame so touch handling and navigation keep priority while the latest
-  // bid/ask still paints immediately on the next visual frame.
-  notifyTimer = setTimeout(flushPendingNotifications, 16);
-  if (typeof requestAnimationFrame === 'function') {
-    notifyAnimationFrame = requestAnimationFrame(flushPendingNotifications);
-  }
+  // Market feeds can deliver many ticks in one frame. Notify quote rows on a
+  // short timer so touch handling and navigation keep priority while the
+  // latest bid/ask still paints promptly.
+  notifyTimer = setTimeout(flushPendingNotifications, WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS);
 };
 
 const getStateQuote = (symbol: string): LiveQuoteSnapshot | undefined => {

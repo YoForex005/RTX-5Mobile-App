@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -10,8 +12,17 @@ import {
   makeCandle,
   makeBackendLiveCandle,
   makeTrustedHistoryCandle,
-  readChartScreenSource,
 } from './testing/chartStabilityTestUtils';
+
+const readChartWebViewHtmlSource = (): string => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/rendering/ChartWebViewHtml.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/rendering/ChartWebViewHtml.ts'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(filePath, 'ChartWebViewHtml.ts was not found from the test working directory');
+  return readFileSync(filePath, 'utf8');
+};
 
 test('stability helpers: validate candle series rejects duplicate candle times', () => {
   assert.throws(
@@ -77,8 +88,8 @@ test('mock WebSocket quote stream isolates symbols and pauses while disconnected
   assert.deepEqual(eurusdTicks, [100]);
 });
 
-test('WebView source helper extracts embedded bridge functions from the real ChartScreen', () => {
-  const source = readChartScreenSource();
+test('WebView source helper extracts bridge functions from the real WebView source', () => {
+  const source = readChartWebViewHtmlSource();
   const updateChartDataBody = extractFunctionBody(source, 'updateChartData');
 
   assert.match(updateChartDataBody, /series\.setData\(mapped\)/);

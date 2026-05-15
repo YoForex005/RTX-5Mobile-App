@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 import { getBrokerConfig } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
@@ -37,6 +38,7 @@ import {
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
   const setIsDemoAccount = useUserPreferences((s) => s.setIsDemoAccount);
+  const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const {
@@ -225,6 +227,23 @@ export default function RegisterScreen() {
         canonicalBrokerId
       );
       setIsDemoAccount(true);
+
+      // Persist the new demo account in the directory + secure-store the
+      // master password so the user can switch back to it from the Accounts
+      // screen without re-typing credentials.
+      const savedLogin = String(sessionLogin);
+      upsertSavedAccount({
+        login: savedLogin,
+        name: accountName,
+        brokerId: canonicalBrokerId,
+        server: brokerConfig?.server_name || canonicalBrokerId,
+        accountType: 'demo',
+        lastUsedAt: Date.now(),
+        hasCredentials: true,
+      });
+      setSavedAccountPassword(canonicalBrokerId, savedLogin, password).catch((err) => {
+        console.warn('[Register] Failed to persist saved-account credential', err);
+      });
 
       // Invalidate cached queries
       queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });

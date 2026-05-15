@@ -53,15 +53,15 @@ test('does not permanently blank chart after rapid switching', () => {
   );
   assertSourceContains(
     chartSource,
-    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current, \{ timeframe: chartTimeframe \}\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
-    'CHART_READY must force-paint retained candles so fast switches cannot remain blank',
+    /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/,
+    'CHART_READY must paint retained candles only when initChart did not already seed the same series',
   );
 });
 
 test('empty history and empty live data surfaces a no-market-data state', () => {
   assertSourceContains(
     chartSource,
-    /const isNoMarketData = candles\.length === 0 && !isLoading && loadingFallback/,
+    /const isNoMarketData = sanitizedCandles\.length === 0 && !isLoading && loadingFallback/,
     'native chart must stop showing only a blank shell after history/live both remain empty',
   );
   assertSourceContains(
@@ -116,12 +116,11 @@ test('logged-out user can render market chart when public data exists', () => {
   );
 });
 
-test('candle websocket appends JWT token from user preferences so live candles flow for every timeframe', () => {
-  // The /ws/v2 endpoint requires authentication for candle channels per the
-  // backend contract. Without `?token=...` the connection is anonymous and
-  // backend silently drops candle subscriptions, which manifests as: REST
-  // history loads fine but no live candle ever updates the chart, regardless
-  // of selected timeframe.
+test('candle websocket appends stored JWT when available and reconnects on token changes', () => {
+  // Public /ws/v2 candle channels can stream anonymously, but logged-in
+  // sessions may still depend on the token for account or broker-scoped
+  // routing. The socket should attach the stored token when present and
+  // reconnect after login/logout/account switches.
   assertSourceContains(
     socketSource,
     /const getStoredAccessToken = \(\): string \| null =>[\s\S]*useUserPreferences\.getState\(\)\.accountDetails\?\.credentials\?\.accessToken/,

@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
 import { getBrokerConfig } from '../src/api/broker';
@@ -24,39 +25,23 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
+import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
 
-type LoginVariant = 'broker' | 'contest';
-
-const LOGIN_SCREEN_COPY: Record<
-  LoginVariant,
-  {
-    headerTitle: string;
-    sectionTitle: string;
-    savedLoginKey: string;
-    showRegisterPrompt: boolean;
-  }
-> = {
-  broker: {
-    headerTitle: 'Broker Login',
-    sectionTitle: 'Login to an existing account',
-    savedLoginKey: 'rtx5_saved_login',
-    showRegisterPrompt: true,
-  },
-  contest: {
-    headerTitle: 'Contest Account Login',
-    sectionTitle: 'Login to an existing contest account',
-    savedLoginKey: 'rtx5_saved_contest_login',
-    showRegisterPrompt: false,
-  },
+const LOGIN_SCREEN_COPY = {
+  headerTitle: 'Login Account',
+  sectionTitle: 'Login to an existing account',
+  savedLoginKey: 'rtx5_saved_login',
 };
 
-export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVariant }) {
+export function AccountLoginScreen() {
   const login = useUserPreferences((s) => s.login);
+  const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
+  const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
   // can fetch GET /broker/config with the correct broker context app-wide
   const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
   const queryClient = useQueryClient();
-  const screenCopy = LOGIN_SCREEN_COPY[variant];
+  const screenCopy = LOGIN_SCREEN_COPY;
   const { t } = useTranslation();
 
   const [accountId, setAccountId] = useState('');
@@ -177,10 +162,12 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
       // validates and returns it, so it's always correct. Falls back to
       // the user-typed value if the response doesn't include it.
       const canonicalBrokerId = response.broker_id || response.brokerId || brokerId.trim();
+      const accountType = getTradingAccountTypeFromBackend(response);
 
       console.log('[Login] success', {
         accountLogin,
         brokerId: canonicalBrokerId,
+        accountType,
         hasToken: !!accessToken,
         hasRefresh: !!refreshToken,
       });
@@ -198,6 +185,27 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
         },
         canonicalBrokerId,
       );
+
+      // The backend owns account classification. One login screen can connect
+      // demo, contest, and real accounts without route-specific hardcoding.
+      setIsDemoAccountFlag(accountType === 'demo');
+
+      // Record this account in the persistent directory and stash the master
+      // password securely so the user can one-tap switch back to it later
+      // from the Accounts screen.
+      const savedLogin = String(accountLogin);
+      upsertSavedAccount({
+        login: savedLogin,
+        name: accountName,
+        brokerId: canonicalBrokerId,
+        server: serverName || brokerConfig?.server_name || canonicalBrokerId,
+        accountType,
+        lastUsedAt: Date.now(),
+        hasCredentials: true,
+      });
+      setSavedAccountPassword(canonicalBrokerId, savedLogin, password).catch((err) => {
+        console.warn('[Login] Failed to persist saved-account credential', err);
+      });
 
       // ── Invalidate cached queries so fresh data loads for the new session ──
       // Without this, stale accounts/broker data from a previous login persists
@@ -377,15 +385,6 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
                   <Text style={styles.loginBtnText}>{t('LOGIN')}</Text>
                 )}
               </Pressable>
-
-              {screenCopy.showRegisterPrompt ? (
-                <View style={styles.registerPromptContainer}>
-                  <Text style={styles.registerPromptText}>{t("Don't have an account?")} </Text>
-                  <Pressable onPress={() => router.push('/register')} disabled={isLoading} hitSlop={10}>
-                    <Text style={styles.registerLinkText}>{t('Register')}</Text>
-                  </Pressable>
-                </View>
-              ) : null}
             </View>
 
           </ScrollView>
@@ -411,7 +410,7 @@ export function AccountLoginScreen({ variant = 'broker' }: { variant?: LoginVari
 
 // ─── RTX5 Dynamic Theme + Minimalist Layout ──────────────────────────────────
 export default function LoginScreen() {
-  return <AccountLoginScreen variant="broker" />;
+  return <AccountLoginScreen />;
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
@@ -631,4 +630,3 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
   });
 }
-

@@ -154,9 +154,22 @@ export const resolveLatestCandleGap = (
   timeframe: string,
   options: { nowSeconds?: number } = {},
 ): ChartCandleGap | null => {
-  const sortedCandles = [...candles]
-    .filter((candle) => Number.isFinite(candle.time))
-    .sort((left, right) => left.time - right.time);
+  const sortedCandles: RenderableChartCandle[] = [];
+  let sorted = true;
+  let previousTime = -Infinity;
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time)) {
+      continue;
+    }
+    if (candle.time < previousTime) {
+      sorted = false;
+    }
+    previousTime = candle.time;
+    sortedCandles.push(candle);
+  }
+  if (!sorted) {
+    sortedCandles.sort((left, right) => left.time - right.time);
+  }
 
   if (sortedCandles.length === 0) {
     return null;
@@ -183,6 +196,24 @@ export const resolveLatestCandleGap = (
 
   if (sortedCandles.length < 2) {
     return null;
+  }
+
+  const nowSeconds = Math.floor(Number.isFinite(options.nowSeconds) ? Number(options.nowSeconds) : 0);
+  if (nowSeconds > 0) {
+    const expectedTime = getExpectedNextCandleTime(lastCandle.time, timeframe);
+    if (nowSeconds > expectedTime) {
+      const gap = formatCandleGapForTimeframe(expectedTime, nowSeconds, timeframe);
+      if (gap.missingBars >= 1) {
+        return {
+          fromTime: lastCandle.time,
+          expectedTime,
+          toTime: nowSeconds,
+          missingSeconds: gap.missingSeconds,
+          missingBars: gap.missingBars,
+          label: gap.label,
+        };
+      }
+    }
   }
 
   // Walk pairs from latest backward — return the most recent in-between gap.

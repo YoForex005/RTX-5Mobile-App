@@ -78,8 +78,8 @@ test('ChartScreen routes full reload and incremental update to the correct bridg
   assertSourceContains(syncEffect, /else \{[\s\S]*updateTick\(/, 'incremental mode must call updateTick');
   assertSourceContains(
     source,
-    /const renderableCandles = sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/,
-    'incremental mode must use the same sanitized OHLC series as full reload',
+    /const renderableCandles = sanitizedCandles/,
+    'incremental mode must use the same memoized sanitized OHLC series as full reload',
   );
 });
 
@@ -141,6 +141,16 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
     source,
     /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*refreshOverlayDomLabels/,
     'visible logical range changes must refresh overlays without overriding an active manual price range',
+  );
+  assertSourceContains(
+    source,
+    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*scaleSpan > dataSpan \* 30[\s\S]*enableRightPriceAutoScale\(\)/,
+    'stale price-scale ranges must self-heal when normal candles collapse into a line',
+  );
+  assertSourceContains(
+    source,
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)/,
+    'horizontal navigation must be allowed to clear a stale manual price range',
   );
   assertSourceContains(
     source,

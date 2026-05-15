@@ -16,8 +16,8 @@ test('READY resets bridge state and allows candles that arrived earlier to initi
   );
   assertSourceContains(
     source,
-    /const candlesRef = useRef\(candles\)[\s\S]*candlesRef\.current = candles/,
-    'latest candle array must be retained outside READY timing',
+    /const candlesRef = useRef\(sanitizedCandles\)[\s\S]*candlesRef\.current = sanitizedCandles/,
+    'latest sanitized candle array must be retained outside READY timing',
   );
   assertSourceContains(
     source,
@@ -46,7 +46,7 @@ test('CHART_READY marks canvas ready and bumps chartReadyEpoch for bridge effect
 test('watchdog retries init while valid candles exist but CHART_READY has not arrived', () => {
   assertSourceContains(
     source,
-    /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*!chartInitializedRef\.current[\s\S]*webViewReady[\s\S]*sendInit\(\)/,
+    /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*!chartInitializedRef\.current[\s\S]*webViewReady[\s\S]*sendInit\(true\)/,
     'watchdog must resend initChart until the chart is confirmed',
   );
 });

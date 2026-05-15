@@ -65,8 +65,8 @@ test('buildCandleHistorySearchParams anchors history requests to a bounded recen
 
   assert.equal(params.get('timeframe'), 'M1');
   assert.equal(params.get('limit'), '500');
-  assert.equal(params.get('from'), '1775738200');
-  assert.equal(params.get('to'), '1775738800');
+  assert.equal(params.get('from'), '1775738200900');
+  assert.equal(params.get('to'), '1775738800400');
 });
 
 test('buildCandleHistorySearchParams leaves explicit backend timeframe token casing intact', () => {
@@ -97,4 +97,13 @@ test('candle history loader keeps a public no-login backend fallback', () => {
   assert.match(source, /fetchPublicCandleHistory\(/);
   assert.match(source, /\/candles\/\$\{encodeURIComponent\(requestedSymbol\)\}/);
   assert.match(source, /\/candles\?\$\{queryParams\.toString\(\)\}/);
+});
+
+test('candle history abort handling is safe in React Native without DOMException globals', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/domain/candles/api/candles.ts'), 'utf8');
+
+  assert.match(source, /const isAbortSignalLike = \(value: unknown\)/);
+  assert.match(source, /const isAbortError = \(error: unknown\)/);
+  assert.doesNotMatch(source, /instanceof DOMException/);
+  assert.doesNotMatch(source, /instanceof AbortSignal/);
 });

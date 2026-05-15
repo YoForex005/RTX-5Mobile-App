@@ -91,9 +91,19 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
     },
+    actionWithSubtitle: {
+      minHeight: 68,
+      paddingVertical: 9,
+    },
     actionLeft: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
+      minWidth: 0,
+    },
+    actionTextBlock: {
+      flex: 1,
+      minWidth: 0,
     },
     iconWrap: {
       width: 24,
@@ -114,6 +124,12 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     actionText: {
       fontSize: 17,
       fontWeight: '500',
+    },
+    actionSubtitle: {
+      marginTop: 2,
+      fontSize: 12,
+      fontWeight: '500',
+      color: T.textMuted,
     },
     actionTextNormal: {
       color: T.text,

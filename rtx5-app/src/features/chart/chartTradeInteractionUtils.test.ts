@@ -148,13 +148,13 @@ test('resolveFooterLotChevronState keeps both lot chevrons enabled between min a
   );
 });
 
-test('resolveFooterLotChevronPressBehavior prefers the lot picker over direct step actions', () => {
+test('resolveFooterLotChevronPressBehavior prefers direct step actions over the lot picker', () => {
   assert.equal(
     resolveFooterLotChevronPressBehavior({
       hasStepAction: true,
       hasLotPickerAction: true,
     }),
-    'picker',
+    'step',
   );
 });
 

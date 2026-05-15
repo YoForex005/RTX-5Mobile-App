@@ -87,7 +87,33 @@ import {
 } from '../../utils/tradeVolume';
 import type { TradeSide } from '../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from './chartTradeActions';
+import {
+  DEFAULT_CHART_SYMBOLS,
+  SYMBOL_FLAGS,
+  SYMBOL_LOGOS,
+  resolveChartSymbolCategory,
+  resolveChartSymbolFullName,
+  resolveChartSymbolKey,
+} from './chartSymbolMetadata';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+
+const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (symbol: string | null | undefined) => {
+    const trimmed = symbol?.trim();
+    if (!trimmed) return;
+    const key = trimmed.toUpperCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push(trimmed);
+  };
+
+  push(chartSymbol);
+  apiSymbols.forEach(push);
+  DEFAULT_CHART_SYMBOLS.forEach(push);
+  return ordered;
+};
 
 type VolumeSourceCandle = {
   time: number;
@@ -410,31 +436,6 @@ const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, bo
   );
 };
 
-const SYMBOL_FLAGS: Record<string, [string, string]> = {
-  EURUSD: ['eu', 'us'], GBPUSD: ['gb', 'us'], AUDUSD: ['au', 'us'],
-  USDJPY: ['us', 'jp'], NZDUSD: ['nz', 'us'], USDCAD: ['us', 'ca'],
-  EURGBP: ['eu', 'gb'], AUDCAD: ['au', 'ca'], AUDCHF: ['au', 'ch'],
-  AUDJPY: ['au', 'jp'],
-};
-
-const SYMBOL_LOGOS: Record<string, string> = {
-  BTCUSD: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
-  XAUUSD: 'https://assets.coingecko.com/coins/images/10481/small/tether-gold.png',
-};
-
-const SYMBOL_NAMES: Record<string, string> = {
-  EURUSD: 'Euro / US Dollar', GBPUSD: 'British Pound / USD',
-  AUDUSD: 'Australian Dollar / USD', USDJPY: 'US Dollar / Japanese Yen',
-  NZDUSD: 'New Zealand Dollar / USD', USDCAD: 'US Dollar / Canadian Dollar',
-  EURGBP: 'Euro / British Pound', AUDCAD: 'Australian / Canadian Dollar',
-  AUDCHF: 'Australian / Swiss Franc', AUDJPY: 'Australian / Japanese Yen',
-  XAUUSD: 'Gold / US Dollar', BTCUSD: 'Bitcoin / US Dollar',
-};
-
-const SYMBOL_CATEGORY: Record<string, string> = {
-  XAUUSD: 'METAL', BTCUSD: 'CRYPTO',
-};
-
 const mapTf = (tf: string) => {
   if (tf.startsWith('M') && tf !== 'MN') return tf.replace('M', '') + ' m';
   if (tf.startsWith('H')) return tf.replace('H', '') + ' h';
@@ -507,10 +508,10 @@ const mapWebChartData = (
   chartType: 'candles' | 'hollow' | 'bars' | 'line',
   colors: ReturnType<typeof resolveChartColorsForTheme>,
 ) => {
-  const uniqueData = sanitizeCandlesForChart(sourceCandles.map((item) => ({
+  const uniqueData = sourceCandles.map((item) => ({
     ...item,
     volume: item.volume ?? 0,
-  })));
+  }));
 
   if (chartType === 'line') {
     return uniqueData.map((item) => ({
@@ -595,7 +596,7 @@ export function ChartScreen() {
     [chartColors, chartColorScheme, isDark],
   );
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
-  const baseSymbol = useMemo(() => chartSymbol.replace(/[a-z_.-].*$/, ''), [chartSymbol]);
+  const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
   const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
   const chartLiveQuote = chartLiveQuotes[chartSymbol];
   const displayDecimals = useMemo(() => {
@@ -653,7 +654,10 @@ export function ChartScreen() {
   const [overlayRevision, setOverlayRevision] = useState(0);
 
   const { data: apiSymbols = [] } = useMarketSymbols();
-  const availableSymbols = apiSymbols;
+  const availableSymbols = useMemo(
+    () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
+    [apiSymbols, chartSymbol],
+  );
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
   const tradeVolumeBounds = useMemo(
     () => ({
@@ -664,12 +668,6 @@ export function ChartScreen() {
     [chartInstrumentMeta?.maxVolume, chartInstrumentMeta?.minVolume, chartInstrumentMeta?.stepVolume],
   );
   const [lotInput, setLotInput] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
-
-  useEffect(() => {
-    if (apiSymbols.length > 0 && !apiSymbols.includes(chartSymbol)) {
-      setChartSymbol(apiSymbols[0]);
-    }
-  }, [apiSymbols, chartSymbol, setChartSymbol]);
 
   useEffect(() => {
     const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
@@ -700,16 +698,25 @@ export function ChartScreen() {
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const sanitizedCandles = useMemo(
+    () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
+    [candles, chartTimeframe],
+  );
   const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol);
-  const hasCandles = candles.length > 0;
-  const timeRangeCandlesRef = useRef(candles);
+  const hasCandles = sanitizedCandles.length > 0;
+  const timeRangeCandlesRef = useRef(sanitizedCandles);
   const chartCandles = useMemo(
-    () => filterCandlesForChartTimeRange(activeDateRange, sanitizeCandlesForChart(candles), customDateValue),
-    [activeDateRange, candles, customDateValue],
+    () =>
+      filterCandlesForChartTimeRange(
+        activeDateRange,
+        sanitizedCandles,
+        customDateValue,
+      ),
+    [activeDateRange, customDateValue, sanitizedCandles],
   );
   useEffect(() => {
-    timeRangeCandlesRef.current = sanitizeCandlesForChart(candles);
-  }, [candles]);
+    timeRangeCandlesRef.current = sanitizedCandles;
+  }, [sanitizedCandles]);
   const formatChartValue = useCallback(
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
@@ -810,13 +817,8 @@ export function ChartScreen() {
     }, [refreshShowOnChartSources]),
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
-  const candlesRef = useRef(candles);
   const [forceHideLoading, setForceHideLoading] = useState(false);
-  const candlesAvailable = candles.length > 0;
-
-  useEffect(() => {
-    candlesRef.current = candles;
-  }, [candles]);
+  const candlesAvailable = sanitizedCandles.length > 0;
 
   useEffect(() => {
     setForceHideLoading(false);
@@ -830,9 +832,9 @@ export function ChartScreen() {
     }
   }, [candlesAvailable, forceHideLoading]);
 
-  const isLoading = candles.length === 0 && !forceHideLoading;
+  const isLoading = sanitizedCandles.length === 0 && !forceHideLoading;
   const isError = false;
-  const isNoMarketData = candles.length === 0 && !isLoading && !isError;
+  const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && !isError;
 
   // Initialize Lightweight Chart
   useEffect(() => {
@@ -1085,6 +1087,16 @@ export function ChartScreen() {
     });
   }, []);
 
+  const handleOpenSymbolPicker = useCallback(() => {
+    traceUiInteraction('chart.web.symbolPicker.open', () => {
+      setTfOpen(false);
+      setShowChartTypeMenu(false);
+      setShowMoreMenu(false);
+      setShowTemplatesMenu(false);
+      setSymbolPickerOpen(true);
+    });
+  }, []);
+
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     setActiveDateRange('auto');
     setCustomDateValue(null);
@@ -1093,11 +1105,15 @@ export function ChartScreen() {
   }, [chartSymbol, prefetchChartContext, setChartTimeframe]);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
+    if (nextSymbol === chartSymbol) {
+      return;
+    }
+
     setActiveDateRange('auto');
     setCustomDateValue(null);
     prefetchChartContext(nextSymbol, chartTimeframe);
     setChartSymbol(nextSymbol);
-  }, [chartTimeframe, prefetchChartContext, setChartSymbol]);
+  }, [chartSymbol, chartTimeframe, prefetchChartContext, setChartSymbol]);
 
   useEffect(() => {
     if (!hasCandles) return;
@@ -1113,7 +1129,7 @@ export function ChartScreen() {
     }
 
     const sig = `${chartSymbol}-${chartTimeframe}-${isDark}-${chartType}-${chartColorsSignature}`;
-    const safeCandles = sanitizeCandlesForChart(candles);
+    const safeCandles = sanitizedCandles;
     const nextSnapshot = buildChartSeriesSnapshot(safeCandles);
     const contextChanged = dataSignatureRef.current !== sig;
     const updateMode = contextChanged || (safeCandles.length === 0 && renderedSeriesSnapshotRef.current.length > 0)
@@ -1157,7 +1173,7 @@ export function ChartScreen() {
     } catch (e) {
       // Chart might be disposed.
     }
-  }, [candles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
+  }, [sanitizedCandles, isDark, chartSymbol, chartTimeframe, chartType, chartColorsSignature, resolvedChartColors]);
 
   const positions = usePositionsState((s) => s.positions);
   const positionLinesRef = useRef<any[]>([]);
@@ -1169,7 +1185,7 @@ export function ChartScreen() {
 
       return buildChartOverlayPayload({
         chartSymbol,
-        candles,
+        candles: sanitizedCandles,
         positions,
         orders,
         closedPositions,
@@ -1184,7 +1200,7 @@ export function ChartScreen() {
     [
       preferencesHydrated,
       chartSymbol,
-      candles,
+      sanitizedCandles,
       positions,
       orders,
       closedPositions,
@@ -1262,8 +1278,8 @@ export function ChartScreen() {
 
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolFlags = SYMBOL_FLAGS[baseSymbol] ?? null;
-  const symbolName = SYMBOL_NAMES[baseSymbol] ?? chartSymbol;
-  const symbolCategory = SYMBOL_CATEGORY[baseSymbol] ?? 'FX';
+  const symbolName = resolveChartSymbolFullName(chartSymbol);
+  const symbolCategory = resolveChartSymbolCategory(chartSymbol);
   const symbolLogo = SYMBOL_LOGOS[baseSymbol] ?? null;
 
   // Dynamic X-axis labels from actual candle timestamps
@@ -1304,15 +1320,17 @@ export function ChartScreen() {
             {/* Left: Symbol Info */}
             <Pressable
               style={styles.symbolSection}
-              onPressIn={() => traceUiInteraction('chart.web.symbolPicker.open', () => setSymbolPickerOpen(true))}
+              onPressIn={handleOpenSymbolPicker}
               unstable_pressDelay={0}
             >
               <View>
                 <View style={styles.symbolNameRow}>
                   <Text style={[styles.symbolText, { opacity: 0.9 }]}>{displaySymbol}</Text>
-                  <View style={styles.fxBadge}>
-                    <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
-                  </View>
+                  {symbolCategory ? (
+                    <View style={styles.fxBadge}>
+                      <Text style={styles.fxBadgeText}>{symbolCategory}</Text>
+                    </View>
+                  ) : null}
                   <Ionicons name="chevron-down" size={12} color={TEXT_MUTED} />
                 </View>
                 <Text style={styles.symbolSubText}>{symbolName}</Text>
@@ -1321,7 +1339,7 @@ export function ChartScreen() {
 
             {/* Right: Balance + Price + P/L */}
             <View style={styles.rightSection}>
-              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={candles} />
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={sanitizedCandles} />
             </View>
           </View>
         </View>
@@ -1336,10 +1354,10 @@ export function ChartScreen() {
               <View style={styles.toolbarButtonRow}>
                 {/* 1: Symbol & Add */}
                 <View style={styles.toolbarLeadingGroup}>
-                  <Pressable style={styles.toolbarSymbolButton} onPressIn={() => traceUiInteraction('chart.web.symbolPicker.open', () => setSymbolPickerOpen(true))} hitSlop={8} unstable_pressDelay={0}>
+                  <Pressable style={styles.toolbarSymbolButton} onPressIn={handleOpenSymbolPicker} hitSlop={8} unstable_pressDelay={0}>
                     <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                   </Pressable>
-                  <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.symbolPicker.add', () => setSymbolPickerOpen(true))} unstable_pressDelay={0}>
+                  <Pressable style={styles.toolbarIconButton} onPressIn={handleOpenSymbolPicker} unstable_pressDelay={0}>
                     <Ionicons name="add-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                   </Pressable>
                 </View>
@@ -1515,7 +1533,7 @@ export function ChartScreen() {
 
 
 
-              <LiveTvLegend symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={candles} />
+              <LiveTvLegend symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={sanitizedCandles} />
 
             </View>
           </View>
@@ -1626,9 +1644,11 @@ export function ChartScreen() {
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
         searchable={true}
+        instantOpen
         runActionAfterClose={false}
         actions={availableSymbols.map((sym) => ({
           label: sym,
+          subtitle: resolveChartSymbolFullName(sym),
           onPress: () => handleSymbolSelect(sym),
         }))}
       />

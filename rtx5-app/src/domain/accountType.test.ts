@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   getTradingAccountBadgeLabel,
+  getTradingAccountTypeFromBackend,
   getTradingAccountRibbonLabel,
   getTradingAccountType,
   isDemoTradingAccount,
@@ -29,4 +30,12 @@ test('treats non-demo groups as real accounts', () => {
   assert.equal(isDemoTradingAccount('real_standard'), false);
   assert.equal(getTradingAccountRibbonLabel('real_standard'), 'Real');
   assert.equal(getTradingAccountBadgeLabel('real_standard'), 'Live');
+});
+
+test('detects login account type from backend auth payload aliases', () => {
+  assert.equal(getTradingAccountTypeFromBackend({ account_type: 'demo account' }), 'demo');
+  assert.equal(getTradingAccountTypeFromBackend({ accountType: 'contest account' }), 'contest');
+  assert.equal(getTradingAccountTypeFromBackend({ user: { account: { group: 'Demo\\STD' } } }), 'demo');
+  assert.equal(getTradingAccountTypeFromBackend({ account: { is_contest: true } }), 'contest');
+  assert.equal(getTradingAccountTypeFromBackend({ is_demo: false, group: 'real_standard' }), 'real');
 });

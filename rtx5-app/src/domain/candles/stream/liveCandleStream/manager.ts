@@ -50,7 +50,7 @@ import { computeClosedHistoryLastTime } from './helpers';
  * Responsibilities:
  * - Manages concurrent streams of (symbol x timeframe) candle data.
  * - Handles the async fetching of REST historical data and coordinates it with real-time WS ticks.
- * - Buffers, sorts, and flushes high-frequency WebSocket ticks at 60fps to prevent React render-thrashing.
+ * - Buffers, sorts, and flushes high-frequency WebSocket ticks at a controlled mobile cadence to prevent React render-thrashing.
  * - Caches and deduplicates state to avoid memory leaks or redundant network requests.
  * 
  * Note: Implements `HistoryFetchManagerBridge` to allow history fetching logic to live in a separate, testable file.
@@ -214,16 +214,17 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    * Extend the active candle of every (symbol, *) subscription using a single
    * real-time price tick from the quote feed.
    *   - Updates an existing backend bucket when one is present.
-   *   - Opens only the next contiguous active bucket from the last real
-   *     backend candle/quote-built live candle, never backfills gaps.
+   *   - Opens the current tick bucket when the candle backend is stale, while
+   *     preserving any missing backend buckets as visible gaps.
    *   - Never modifies closed history (gated by `historyLastTime`).
    *   - Backend `live_candle` snapshots fully overwrite the bucket's OHLC, so
    *     backend remains authoritative on every snapshot.
    *
    * Why this exists: most broker WS candle channels emit on bar-close (or on
    * a slow cadence), but real-time price movement within the active bar
-   * arrives only via the quote feed. This forwards tick data into a backend-
-   * created bucket so the forming candle visibly ticks in real time.
+   * arrives only via the quote feed. This forwards tick data into a live
+   * bucket so the forming candle visibly ticks in real time even when the
+   * candle backend is late or only publishes history.
    */
   public extendActiveCandlesFromQuoteTick(
     symbol: string,

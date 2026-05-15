@@ -1176,12 +1176,33 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     borderWidth: 1,
     borderColor: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.08)',
   },
+  newsBookmarkButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.66)',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.08)',
+  },
+  newsBookmarkButtonSaved: {
+    backgroundColor: 'rgba(245,182,66,0.1)',
+    borderColor: 'rgba(245,182,66,0.28)',
+  },
+  newsChipRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flexWrap: 'wrap',
+  },
   newsTitle: {
     color: NEWS_TEXT,
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
-    marginTop: 11,
+    marginTop: 9,
   },
   newsSummary: {
     color: NEWS_SUB,
@@ -1299,6 +1320,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     borderWidth: 1,
     borderColor: NEWS_BORDER,
   },
+  latestNewsSummaryPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.025)',
+    borderWidth: 1,
+    borderColor: NEWS_BORDER,
+  },
   latestNewsLabel: {
     marginBottom: 8,
     color: NEWS_MUTED,
@@ -1311,10 +1340,10 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     paddingRight: spacing.md,
   },
   watchlistCard: {
-    width: 294,
-    minHeight: 126,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    width: 318,
+    minHeight: 140,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: isDark ? 'rgba(226,232,240,0.12)' : 'rgba(15,23,42,0.08)',
@@ -1548,6 +1577,24 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     fontSize: 12,
     fontWeight: '700',
   },
+  freshnessRow: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.72)',
+    borderWidth: 1,
+    borderColor: NEWS_BORDER,
+  },
+  freshnessText: {
+    color: NEWS_MUTED,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   skeletonCard: {
     borderRadius: radius.lg,
     backgroundColor: isDark ? 'rgba(15,28,50,0.7)' : 'rgba(255,255,255,0.72)',
@@ -1648,13 +1695,21 @@ export function getNewsThemeColors(isDark: boolean) {
       : ['#FAFCFF', '#EEF6FF', '#F4F7FB'] as const,
     panelGradient: isDark
       ? ['rgba(15,28,50,0.78)', 'rgba(8,17,33,0.72)', 'rgba(3,9,20,0.78)'] as const
-      : ['rgba(255,255,255,0.86)', 'rgba(248,251,255,0.78)', 'rgba(238,245,255,0.72)'] as const,
+      // Light theme: a single solid white so Upcoming Economic Events,
+      // Watchlist News and Latest News cards render as one flat background
+      // (no top-to-bottom tint). The previous multi-stop semi-transparent
+      // gradient bled the screen color through and produced a visible
+      // two-tone effect.
+      : ['#FFFFFF', '#FFFFFF', '#FFFFFF'] as const,
     cardGlassHighlight: isDark
       ? ['rgba(255,255,255,0.055)', 'rgba(56,189,248,0.025)', 'rgba(255,255,255,0)'] as const
-      : ['rgba(255,255,255,0.72)', 'rgba(219,234,254,0.22)', 'rgba(255,255,255,0)'] as const,
+      // Disable the glossy light-mode top-of-card overlay too; otherwise the
+      // overlay reintroduces a top-to-bottom tone shift on top of the now
+      // flat panel background.
+      : ['rgba(255,255,255,0)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0)'] as const,
     breakingGradient: isDark
       ? ['rgba(15,28,50,0.86)', 'rgba(8,17,33,0.82)', 'rgba(3,9,20,0.88)'] as const
-      : ['rgba(255,255,255,0.9)', 'rgba(248,251,255,0.82)', 'rgba(238,245,255,0.76)'] as const,
+      : ['#FFFFFF', '#FFFFFF', '#FFFFFF'] as const,
     breakingHeroGradient: ['#2A0D17', '#0B1528', '#03101F'] as const,
     breakingHeatGradient: ['rgba(153,27,27,0.38)', 'rgba(15,23,42,0.26)', 'rgba(2,6,23,0.05)'] as const,
     aiGradient: isDark
@@ -1665,7 +1720,7 @@ export function getNewsThemeColors(isDark: boolean) {
       : ['rgba(255,255,255,0.88)', 'rgba(219,234,254,0.4)', 'rgba(255,255,255,0)'] as const,
     watchlistGradient: isDark
       ? ['rgba(15,28,50,0.86)', 'rgba(7,17,31,0.84)', 'rgba(3,9,20,0.88)'] as const
-      : ['rgba(255,255,255,0.9)', 'rgba(248,251,255,0.82)', 'rgba(238,245,255,0.76)'] as const,
+      : ['#FFFFFF', '#FFFFFF', '#FFFFFF'] as const,
     navActiveGradient: ['#38BDF8', '#2563EB'] as const,
     navActiveIcon: isDark ? '#FFFFFF' : '#07111F',
   };

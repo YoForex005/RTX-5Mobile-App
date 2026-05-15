@@ -6,64 +6,42 @@
  * Rate limited: 60 requests per minute per account.
  * Uses a DB transaction for atomicity. Rejected if market data returns
  * zero or negative prices. SL/TP values are validated server-side.
- *
- * Error responses:
- * - 400: Invalid SL/TP, zero/negative market price, or invalid parameters
- * - 404: Account not found
- * - 429: Rate limited — check Retry-After header
  */
-import { getSecureItemAsync } from '../../utils/secureStorage';
-import { apiClient, decodeBrokerIdFromToken, API_BASE_URL } from '../apiClient';
-import { normalizeSymbol } from '../../domain/symbols';
+import { apiClient, decodeBrokerIdFromToken } from '../apiClient';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
 import { useUserPreferences } from '../../state/userPreferences';
-import { resolveBrokerSymbol } from './symbolResolver';
+import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
+import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
 import type { PlaceOrderPayload, PlaceOrderResponse } from './types';
 
+const acceptedOrderSymbolCache = new Map<string, string>();
+
 export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
-  // V2 server resolves broker context EXCLUSIVELY from the JWT `broker_id` claim.
-  // Query params, headers, and body fields are all ignored by the server (confirmed
-  // via Swagger). The three-layer recovery in this function + apiClient ensures the
-  // JWT always has a valid broker_id claim before and after the order is sent.
-  // V2 contract requires `login` (integer) — NOT `account_login`.
+  // V2 contract requires `login` (integer), not `account_login`.
   const { account_login, ...rest } = payload;
   const loginInt =
     typeof account_login === 'string' ? parseInt(account_login, 10) : account_login;
 
-  // Symbol routing: the backend's market-data service keys market prices on
-  // the broker-specific symbol (e.g. "XAUUSDm"), but other parts of the
-  // client normalise to the base form (e.g. "XAUUSD"). Previously we sent
-  // the normalised form here and the server replied with "market data not
-  // available" because the backend couldn't find a live price under the
-  // stripped key. We now send the symbol AS-IS for the primary attempt —
-  // the caller (chart / order ticket) is responsible for passing the
-  // tradable symbol. If that 400s with a market-data error, the retry path
-  // below tries the normalised base form as a fallback, and vice-versa.
+  // Symbol routing must stay out of the tap-to-POST critical path. The first
+  // attempt uses already-known local data. A network /instruments lookup is
+  // only performed after the server reports a market-data/symbol miss.
   const callerSymbol = (payload.symbol ?? '').trim();
-  // Resolve to the exact symbol the backend's instrument catalog lists.
-  // If the catalog is unavailable or has no match, falls back to callerSymbol.
-  const rawSymbol = await resolveBrokerSymbol(callerSymbol);
-  const baseSymbol = normalizeSymbol(rawSymbol);
 
-  // Remove broker_id from the body — the server resolves it from the JWT
-  // claim only (confirmed via Swagger: no query param or body field needed).
-  // Sending it in those places doesn't help and can cause unexpected failures.
+  // Remove broker_id from the body. The server resolves broker context from
+  // the JWT claim; apiClient owns token refresh and broker-context recovery.
   const { broker_id: _ignored, ...restWithoutBroker } = rest;
 
-  // CRITICAL: the server's Swagger spec treats price_sl / price_tp as
-  // optional, and when provided validates them against the current market
-  // price. Sending `price_sl: 0` / `price_tp: 0` causes a 400 "Invalid
-  // SL/TP" rejection because 0 is not a valid price. We must omit these
-  // fields entirely when the caller wants no SL/TP. Same reasoning for
-  // the optional integer fields when they're 0 (their "off" value).
   const requestedSide = assertTradeSide(restWithoutBroker.side);
   const orderBody: Record<string, unknown> = {
     login: loginInt,
-    symbol: rawSymbol,
+    symbol: callerSymbol,
     side: requestedSide,
     volume: restWithoutBroker.volume,
   };
+
+  // Optional order fields are omitted when disabled. Sending zero can make
+  // some bridges validate against a real zero price and reject the trade.
   if (typeof restWithoutBroker.price_sl === 'number' && restWithoutBroker.price_sl > 0) {
     orderBody.price_sl = restWithoutBroker.price_sl;
   }
@@ -83,13 +61,15 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     orderBody.magic = restWithoutBroker.magic;
   }
 
-  // Verify the JWT has broker_id claim. Log so we can diagnose issues.
   const state = useUserPreferences.getState();
   const currentToken = state.accountDetails?.credentials?.accessToken;
   const jwtBrokerId = decodeBrokerIdFromToken(currentToken);
   console.log('[RTX5 Order] JWT broker_id:', jwtBrokerId, '| stored brokerId:', state.brokerId);
+  if (!jwtBrokerId) {
+    console.warn('[RTX5 Order] JWT missing broker_id; apiClient will recover on 401/403 if saved credentials are available');
+  }
   console.log('[TRADE-PAYLOAD]', {
-    symbol: rawSymbol,
+    symbol: callerSymbol,
     side: requestedSide,
     action: requestedSide,
     orderType: 'market',
@@ -100,64 +80,13 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     rawPayload: orderBody,
   });
 
-  // ── Silent re-login if JWT has lost its broker_id claim ───────────────
-  // The V2 refresh endpoint strips broker_id from the new JWT. When this
-  // happens all trades fail with 403 "No broker context found" because the
-  // server resolves broker context exclusively from the JWT claim. We recover
-  // by silently re-logging in with saved credentials to get a fresh JWT.
-  if (!jwtBrokerId) {
-    console.warn('[RTX5 Order] JWT missing broker_id — attempting silent re-login');
-    try {
-      const saved = await getSecureItemAsync('rtx5_saved_login');
-      if (saved) {
-        const { broker, login: savedLogin, pass } = JSON.parse(saved);
-        if (broker && savedLogin && pass) {
-          const loginData = await fetch(`${API_BASE_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({ username: savedLogin, password: pass, broker_id: broker }),
-          });
-          if (loginData.ok) {
-            const freshAuth: any = await loginData.json();
-            // Accept BOTH legacy {access_token, expires_in} and spec
-            // {token, expires_at} shapes. Critical — otherwise the re-login
-            // silently stores `undefined` as the access token and every
-            // subsequent trade fails with 401.
-            const freshToken = freshAuth.access_token ?? freshAuth.token;
-            const freshRefresh = freshAuth.refresh_token ?? freshAuth.refreshToken ?? '';
-            let freshExpiry: string;
-            if (typeof freshAuth.expires_at === 'number' && freshAuth.expires_at > 0) {
-              const ms = freshAuth.expires_at > 1e12 ? freshAuth.expires_at : freshAuth.expires_at * 1000;
-              freshExpiry = new Date(ms).toISOString();
-            } else {
-              const sec = typeof freshAuth.expires_in === 'number' ? freshAuth.expires_in : 86400;
-              freshExpiry = new Date(Date.now() + sec * 1000).toISOString();
-            }
-            if (freshToken) {
-              state.updateTokens(freshToken, freshRefresh, freshExpiry);
-              const responseBrokerId = freshAuth.broker_id ?? freshAuth.brokerId;
-              if (responseBrokerId) state.setBrokerId(responseBrokerId);
-              console.log('[RTX5 Order] Silent re-login OK. New JWT broker_id:', decodeBrokerIdFromToken(freshToken));
-            } else {
-              console.warn('[RTX5 Order] Silent re-login: response missing access token. Keys:', Object.keys(freshAuth ?? {}));
-            }
-          }
-        }
-      }
-    } catch (reLoginErr) {
-      console.warn('[RTX5 Order] Silent re-login failed:', reLoginErr);
-    }
-  }
-
-  // Send helper + parse in one shot so the candidate loop can inspect the
-  // body (not just the status) to detect graceful rejections.
   type Attempt = {
     symbol: string;
     status: number;
     body: any;
     response: Response;
-    ok: boolean;          // HTTP ok AND not a graceful rejection
-    graceful: boolean;    // HTTP ok BUT body says status: rejected/failed/error
+    ok: boolean;
+    graceful: boolean;
   };
 
   const unwrap = (json: any): any => {
@@ -172,26 +101,24 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
     const body = { ...orderBody, symbol: symbolToSend };
     console.log('[RTX5 Order] POST /orders body:', JSON.stringify(body));
-    const r = await apiClient('/orders', {
+    const response = await apiClient('/orders', {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    const raw = await r.json().catch(() => ({}));
+    const raw = await response.json().catch(() => ({}));
     const inner = unwrap(raw);
     const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
-    const graceful = r.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
+    const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
     return {
       symbol: symbolToSend,
-      status: r.status,
+      status: response.status,
       body: raw,
-      response: r,
-      ok: r.ok && !graceful,
+      response,
+      ok: response.ok && !graceful,
       graceful,
     };
   };
 
-  // Is this attempt's failure a market-data / symbol-lookup issue? Works
-  // for both HTTP-error failures (4xx) and graceful 200-with-reject bodies.
   const isMarketDataMiss = (attempt: Attempt): boolean => {
     const isHttpError = attempt.status === 400 || attempt.status === 404;
     if (!isHttpError && !attempt.graceful) return false;
@@ -205,41 +132,26 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       msg.includes('symbol not found') ||
       msg.includes('unknown symbol') ||
       msg.includes('not available') ||
-      msg.includes('zero') // "zero or negative market price"
+      msg.includes('zero or negative market price') ||
+      msg.includes('zero market price')
     );
   };
 
-  // ── Symbol-variant probing ───────────────────────────────────────────
-  // The broker's trading server keys quotes on the broker-specific symbol
-  // (e.g. "XAUUSDm"), but the client's chart & quote stores normalise to
-  // the base form (e.g. "XAUUSD"). We try the caller's symbol first, then
-  // walk a list of common broker suffixes applied to both forms until the
-  // server accepts one. Each attempt's BODY is inspected — not just the
-  // HTTP status — because some servers return 200 with a rejection object
-  // instead of 400. If an attempt fails with anything OTHER than a
-  // market-data miss (auth, ownership, rate limit, SL/TP) we bail out
-  // immediately — retrying would just repeat the same real error.
-  const COMMON_BROKER_SUFFIXES = ['m', 'M', '.m', '.M', '.pro', '.PRO', 'pro', 'PRO', '.ecn', '.ECN', 'ecn', 'ECN', '.c', 'c', '.std', '.STD'];
-  const candidates: string[] = [];
-  const pushCandidate = (s: string) => {
-    const clean = (s ?? '').trim();
-    if (clean && !candidates.includes(clean)) candidates.push(clean);
-  };
-  pushCandidate(rawSymbol);
-  pushCandidate(baseSymbol);
-  for (const suffix of COMMON_BROKER_SUFFIXES) {
-    pushCandidate(baseSymbol + suffix);
-    pushCandidate(rawSymbol + suffix);
-  }
+  const brokerCacheKey = getAcceptedSymbolCacheKey(jwtBrokerId || state.brokerId, callerSymbol);
+  const candidates = buildMarketOrderSymbolCandidates({
+    callerSymbol,
+    acceptedSymbol: acceptedOrderSymbolCache.get(brokerCacheKey) ?? null,
+    cachedCatalogSymbol: resolveBrokerSymbolFromCache(callerSymbol),
+  });
 
   let accepted: Attempt | null = null;
   let lastBad: Attempt | null = null;
 
   for (const candidate of candidates) {
-    const a = await sendOrder(candidate);
-    if (a.ok) {
-      accepted = a;
-      if (candidate !== rawSymbol) {
+    const attempt = await sendOrder(candidate);
+    if (attempt.ok) {
+      accepted = attempt;
+      if (candidate !== callerSymbol) {
         console.log('[RTX5 Order] symbol accepted after fallback:', candidate);
       }
       break;
@@ -249,15 +161,38 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       '[RTX5 Order] attempt failed',
       JSON.stringify({
         symbol: candidate,
-        status: a.status,
-        graceful: a.graceful,
-        body: a.body,
+        status: attempt.status,
+        graceful: attempt.graceful,
+        body: attempt.body,
       }),
     );
-    lastBad = a;
+    lastBad = attempt;
 
-    // Only keep walking the suffix list for symbol/market-data misses.
-    if (!isMarketDataMiss(a)) break;
+    // Auth, ownership, rate-limit, and SL/TP errors are real failures; retrying
+    // another symbol would only hide the actual rejection reason.
+    if (!isMarketDataMiss(attempt)) break;
+  }
+
+  if (!accepted && lastBad && isMarketDataMiss(lastBad)) {
+    const catalogSymbol = await resolveBrokerSymbol(callerSymbol);
+    if (catalogSymbol && !candidates.includes(catalogSymbol)) {
+      const attempt = await sendOrder(catalogSymbol);
+      if (attempt.ok) {
+        accepted = attempt;
+        console.log('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
+      } else {
+        console.log(
+          '[RTX5 Order] /instruments fallback failed',
+          JSON.stringify({
+            symbol: catalogSymbol,
+            status: attempt.status,
+            graceful: attempt.graceful,
+            body: attempt.body,
+          }),
+        );
+        lastBad = attempt;
+      }
+    }
   }
 
   if (!accepted) {
@@ -266,24 +201,21 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       ? {
         message: unwrap(lastBad.body)?.comment
           || unwrap(lastBad.body)?.message
-          || 'Order rejected by the trading server.'
+          || 'Order rejected by the trading server.',
       }
-      : (lastBad?.body ?? {});
+      : (lastBad?.body ?? { message: 'Order rejected before a valid symbol candidate was available.' });
     const headers: Record<string, string> = {};
     if (status === 429 && lastBad?.response) {
       headers['retry-after'] = lastBad.response.headers.get('retry-after') || '';
     }
-    // If the final failure is a graceful rejection, throw with 400 so the
-    // error classifier treats it as a backend rejection (not server down).
     throw createTradingApiError(lastBad?.graceful ? 400 : status, body, headers);
   }
 
-  // ── Success path ────────────────────────────────────────────────────
-  let finalData = unwrap(accepted.body);
+  acceptedOrderSymbolCache.set(brokerCacheKey, accepted.symbol);
+  const finalData = unwrap(accepted.body);
 
-  // Normalise the response so existing call-sites that read the legacy
-  // `position_ticket` / `order_ticket` / `price` fields keep working —
-  // the V2 server returns the `Position` schema with `ticket` / `price_open`.
+  // Normalize the response so existing call-sites that read the legacy
+  // `position_ticket` / `order_ticket` / `price` fields keep working.
   if (finalData && typeof finalData === 'object') {
     if (finalData.position_ticket == null && finalData.ticket != null) {
       finalData.position_ticket = finalData.ticket;
@@ -295,6 +227,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       finalData.price = finalData.price_open;
     }
   }
+
   console.log('[TRADE-RESPONSE]', {
     requestSide: requestedSide,
     result: finalData?.status ?? accepted.status,
@@ -305,7 +238,7 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     console.warn('[TRADE-RESPONSE] backend side differs from request', {
       requestSide: requestedSide,
       backendSide: finalData.side,
-      symbol: finalData.symbol ?? rawSymbol,
+      symbol: finalData.symbol ?? accepted.symbol ?? callerSymbol,
     });
   }
 

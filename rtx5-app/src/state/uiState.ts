@@ -10,6 +10,8 @@ import type { ChartDrawingKind } from '../features/chart/drawingPersistence';
 type ActionSheetAction = {
   /** Display label for the button */
   label: string;
+  /** Optional secondary line below the main label */
+  subtitle?: string;
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
   /** If true, the action appears greyed-out and is not interactive */
@@ -32,6 +34,8 @@ type ActionSheetConfig = {
   detent?: 'auto' | 'adaptive' | 'large';
   /** Minimum distance from the top of the screen */
   minimumTopInset?: number;
+  /** If true, mounts the sheet visible immediately without the entry delay */
+  instantOpen?: boolean;
   /** If true, defers action execution until after sheet dismiss animation */
   runActionAfterClose?: boolean;
 };

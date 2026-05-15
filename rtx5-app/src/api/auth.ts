@@ -60,6 +60,14 @@ export interface AuthResponse {
   accountName?: string;
   server?: string;      // Note: backend may not always return server directly in V2
   broker_id?: string;
+  group?: string;
+  account_group?: string;
+  account_type?: string;
+  accountType?: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
+  is_contest?: boolean;
+  isContest?: boolean;
   expires_at?: number;
   role?: string;
   user_id?: number;

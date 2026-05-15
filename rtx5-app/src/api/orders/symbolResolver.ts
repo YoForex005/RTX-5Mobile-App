@@ -15,9 +15,13 @@ let instrumentCache: string[] | null = null;
 let instrumentCacheAt = 0;
 const INSTRUMENT_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function isInstrumentCacheFresh(now = Date.now()) {
+  return !!instrumentCache && now - instrumentCacheAt < INSTRUMENT_CACHE_TTL_MS;
+}
+
 async function fetchInstrumentsCached(): Promise<string[]> {
   const now = Date.now();
-  if (instrumentCache && now - instrumentCacheAt < INSTRUMENT_CACHE_TTL_MS) {
+  if (isInstrumentCacheFresh(now) && instrumentCache) {
     return instrumentCache;
   }
   try {
@@ -38,6 +42,25 @@ async function fetchInstrumentsCached(): Promise<string[]> {
   return instrumentCache ?? [];
 }
 
+function matchBrokerSymbolFromList(symbol: string, instruments: readonly string[]): string | null {
+  const raw = (symbol ?? '').trim();
+  if (!raw || instruments.length === 0) return null;
+  if (instruments.includes(raw)) return raw;
+
+  const targetBase = normalizeSymbol(raw);
+  return instruments.find((inst) => normalizeSymbol(inst) === targetBase) ?? null;
+}
+
+/**
+ * Synchronous lookup against the already-warmed instrument catalog.
+ * The order path uses this to avoid putting GET /instruments in front of
+ * every BUY/SELL tap when the cache is cold.
+ */
+export function resolveBrokerSymbolFromCache(symbol: string): string | null {
+  if (!isInstrumentCacheFresh() || !instrumentCache) return null;
+  return matchBrokerSymbolFromList(symbol, instrumentCache);
+}
+
 /**
  * Resolve the caller's symbol to the exact string the backend recognises.
  * Priority:
@@ -51,12 +74,11 @@ export async function resolveBrokerSymbol(symbol: string): Promise<string> {
   const raw = (symbol ?? '').trim();
   if (!raw) return raw;
   const instruments = await fetchInstrumentsCached();
-  if (instruments.length === 0) return raw;
-  if (instruments.includes(raw)) return raw;
-  const targetBase = normalizeSymbol(raw);
-  const match = instruments.find((inst) => normalizeSymbol(inst) === targetBase);
+  const match = matchBrokerSymbolFromList(raw, instruments);
   if (match) {
-    console.log('[RTX5 Order] symbol resolved via /instruments:', raw, '→', match);
+    if (match !== raw) {
+      console.log('[RTX5 Order] symbol resolved via /instruments:', raw, '->', match);
+    }
     return match;
   }
   return raw;

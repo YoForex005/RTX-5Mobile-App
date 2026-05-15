@@ -5,13 +5,11 @@
  * It only subscribes to backend candle messages and forwards valid payloads
  * into the canonical `liveCandlesEngine` stream.
  *
- * Authentication: per the backend WS contract, `/ws/v2` requires a JWT in the
- * `?token=` query string even for "public" candle channels. The token is
- * resolved dynamically from `useUserPreferences` at connect time and the
- * socket reconnects when the active token changes (login/logout/account
- * switch). Without a token the socket still connects (so guest mode is not
- * crashed), but backend may drop the candle subscription server-side until
- * the connection is re-established with a token.
+ * Authentication: the current `/ws/v2` public candle channels can stream
+ * anonymously, while logged-in sessions may still use the JWT for account or
+ * broker-scoped routing. The token is resolved dynamically from
+ * `useUserPreferences` at connect time and the socket reconnects when the
+ * active token changes (login/logout/account switch).
  */
 
 import { liveCandlesEngine } from '../liveCandlesEngine';
@@ -70,9 +68,8 @@ export class CandlesWebSocketService {
 
     const token = getStoredAccessToken();
     // If the socket is already up but the token has rotated, tear it down so
-    // the new connection authenticates with the fresh JWT. Backend candle
-    // channels are gated by the connection-level auth, so a stale connection
-    // would silently drop candle messages and the chart would never update.
+    // the new connection can use the fresh JWT for any account/broker-scoped
+    // routing while public candle channels continue to work anonymously.
     if (
       (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
       this.activeToken !== token

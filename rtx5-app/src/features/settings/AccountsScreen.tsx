@@ -9,8 +9,9 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Image, Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
+import { useQueryClient } from '@tanstack/react-query';
 
 
 import { useTheme } from '../../ui/theme/useTheme';
@@ -18,6 +19,14 @@ import { ThemeColors } from '../../ui/theme/glass';
 import { useMemo } from 'react';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
+import {
+  getSavedAccountPassword,
+  removeSavedAccountPassword,
+  useSavedAccounts,
+  type SavedAccountSnapshot,
+  type SavedAccountType,
+} from '../../state/savedAccounts';
+import { signInWithCredentials } from '../../api/authSession';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { QRCodeSheet } from './QRCodeSheet';
@@ -25,8 +34,13 @@ import { ActionSheet } from '../../ui/components/ActionSheet';
 
 
 // ── API Integration: fetches live account + broker data for active card ──
-import { useAccountDetails, useAccounts } from '../../query/accounts';
-import { useBrokerConfig } from '../../query/broker';
+import {
+  ACCOUNTS_LIST_KEY,
+  ACCOUNT_DETAIL_KEY,
+  useAccountDetails,
+  useAccounts,
+} from '../../query/accounts';
+import { BROKER_CONFIG_KEY, useBrokerConfig } from '../../query/broker';
 import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,18 +50,63 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
 import {
   getTradingAccountBadgeLabel,
-  getTradingAccountRibbonLabel,
+  getTradingAccountType,
   isDemoTradingAccount,
 } from '../../domain/accountType';
+import type { TradingAccount } from '../../api/accounts';
+
+type OtherAccountRow = {
+  key: string;
+  login: string;
+  name: string;
+  brokerId: string;
+  server: string;
+  accountType: SavedAccountType;
+  hasSavedCredentials: boolean;
+  snapshot: SavedAccountSnapshot | null;
+  liveAccount: TradingAccount | null;
+};
+
+const buildSavedAccountSnapshot = (account: TradingAccount): SavedAccountSnapshot => ({
+  balance: account.balance,
+  equity: account.equity,
+  freeMargin: account.freeMargin,
+  leverage: account.leverage,
+  floatingPnl: account.floatingPnl,
+  openPositions: account.openPositions,
+  currency: account.currency,
+  updatedAt: account.updatedAt,
+});
+
+const areSavedAccountSnapshotsEqual = (
+  left: SavedAccountSnapshot | undefined,
+  right: SavedAccountSnapshot,
+) => {
+  if (!left) return false;
+  return left.balance === right.balance
+    && left.equity === right.equity
+    && left.freeMargin === right.freeMargin
+    && left.leverage === right.leverage
+    && left.floatingPnl === right.floatingPnl
+    && left.openPositions === right.openPositions
+    && left.currency === right.currency
+    && left.updatedAt === right.updatedAt;
+};
 
 export function AccountsScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
+  const userLogin = useUserPreferences((s) => s.login);
+  const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
+  const savedAccounts = useSavedAccounts((s) => s.accounts);
+  const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
+  const removeSavedAccount = useSavedAccounts((s) => s.removeAccount);
   const T = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -71,8 +130,106 @@ export function AccountsScreen() {
   const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
   const activeBadgeLabel = t(activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live'));
 
-  // Filter out the active account to render the other connected accounts
-  const otherAccounts = accounts?.filter((a) => a.login !== activeAccount?.login) ?? [];
+  // Build the unified "Other Connected Accounts" list. We merge two sources:
+  //   1. `accounts` from /accounts — sub-accounts of the current session
+  //      (full live balance/equity), excluding the active account.
+  //   2. The persistent saved-accounts directory — accounts the user logged
+  //      into in prior sessions, even on different brokers.
+  // Entries are deduped by `${brokerId}:${login}`. When both sources have the
+  // same key, we keep the live data (richer) but treat credentials as saved.
+  const activeBrokerId = brokerId;
+  const activeLoginStr = activeAccount
+    ? String(activeAccount.login)
+    : accountDetails?.id ?? '';
+  const activeKey = `${activeBrokerId}:${activeLoginStr}`;
+
+  const otherRows: OtherAccountRow[] = useMemo(() => {
+    const map = new Map<string, OtherAccountRow>();
+
+    for (const sa of savedAccounts) {
+      const key = `${sa.brokerId}:${sa.login}`;
+      if (key === activeKey) continue;
+      map.set(key, {
+        key,
+        login: sa.login,
+        name: sa.name,
+        brokerId: sa.brokerId,
+        server: sa.server,
+        accountType: sa.accountType,
+        hasSavedCredentials: sa.hasCredentials,
+        snapshot: sa.snapshot ?? null,
+        liveAccount: null,
+      });
+    }
+
+    for (const a of accounts ?? []) {
+      const loginStr = String(a.login);
+      const key = `${activeBrokerId}:${loginStr}`;
+      if (key === activeKey) continue;
+      const existing = map.get(key);
+      const accountType: SavedAccountType = existing?.accountType ?? getTradingAccountType(a.group);
+      map.set(key, {
+        key,
+        login: loginStr,
+        name: a.name,
+        brokerId: activeBrokerId,
+        server: existing?.server || brokerConfig?.server_name || '',
+        accountType,
+        hasSavedCredentials: existing?.hasSavedCredentials ?? false,
+        snapshot: buildSavedAccountSnapshot(a),
+        liveAccount: a,
+      });
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      // Live entries first (they have actionable balances), then saved-only.
+      if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [accounts, activeBrokerId, activeKey, brokerConfig?.server_name, savedAccounts]);
+
+  // Backfill the active session into the directory so accounts that were
+  // logged in before this feature shipped (or pre-existing sessions on first
+  // open) show up once the user signs into another account. The entry has
+  // hasCredentials=false until the user signs in via the form again.
+  React.useEffect(() => {
+    if (!isLoggedIn || !activeAccount) return;
+    if (!activeBrokerId || !activeLoginStr) return;
+    const existing = savedAccounts.find(
+      (sa) => sa.brokerId === activeBrokerId && sa.login === activeLoginStr,
+    );
+    const snapshot = buildSavedAccountSnapshot(activeAccount);
+    const nextName = activeAccount.name || `Account ${activeLoginStr}`;
+    const nextServer = brokerConfig?.server_name || activeBrokerId;
+    const nextType = getTradingAccountType(activeAccount.group);
+    if (
+      existing
+      && existing.name === nextName
+      && existing.server === nextServer
+      && existing.accountType === nextType
+      && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
+    ) {
+      return;
+    }
+    upsertSavedAccount({
+      login: activeLoginStr,
+      name: nextName,
+      brokerId: activeBrokerId,
+      server: nextServer,
+      accountType: nextType,
+      lastUsedAt: existing?.lastUsedAt ?? Date.now(),
+      hasCredentials: existing?.hasCredentials ?? false,
+      snapshot,
+    });
+  }, [
+    activeAccount,
+    activeBrokerId,
+    activeLoginStr,
+    brokerConfig?.server_name,
+    isLoggedIn,
+    savedAccounts,
+    upsertSavedAccount,
+  ]);
 
   // ── Live WebSocket account metrics (real-time balance/equity from accountSocket) ──
   const liveLogin = useLiveAccountState((s) => s.login);
@@ -108,19 +265,102 @@ export function AccountsScreen() {
     showActionSheet({
       title: t('Connect account'),
       actions: [
-        { label: t('Login Real Account'), onPress: () => router.push('/login') },
-        { label: t('Login Contest Account'), onPress: () => router.push('/contest-login') },
-        { label: t('Open Demo Account'), onPress: () => router.push('/register') },
+        { label: t('Login Account'), onPress: () => router.push('/login') },
       ],
     });
   };
 
-  const [expandedLogin, setExpandedLogin] = React.useState<number | null>(null);
+  const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
+  const [expandedAccountKey, setExpandedAccountKey] = React.useState<string | null>(null);
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
   const [successMessage, setSuccessMessage] = React.useState('');
   const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
   const [qrData, setQRData] = React.useState('');
+
+  const handleConnectSavedAccount = async (row: OtherAccountRow) => {
+    if (connectingKey) return;
+    setConnectingKey(row.key);
+    try {
+      if (!row.hasSavedCredentials) {
+        Alert.alert(
+          t('Password not saved'),
+          t('Sign in to this account once so it can be reconnected with one tap next time.'),
+        );
+        router.push('/login');
+        return;
+      }
+
+      const password = await getSavedAccountPassword(row.brokerId, row.login);
+      if (!password) {
+        // Saved entry exists but secure-store lost the credential — clear the
+        // stale flag so the directory matches reality and prompt re-login.
+        removeSavedAccount(row.login, row.brokerId);
+        Alert.alert(
+          t('Password not saved'),
+          t('Sign in to this account once so it can be reconnected with one tap next time.'),
+        );
+        router.push('/login');
+        return;
+      }
+
+      const result = await signInWithCredentials({
+        username: row.login,
+        password,
+        brokerId: row.brokerId,
+      });
+
+      userLogin(
+        result.accountLogin,
+        result.accountName,
+        result.serverName || row.server || result.brokerId,
+        {
+          access_token: result.accessToken,
+          refresh_token: result.refreshToken,
+          expires_at: result.expiresAtIso,
+        },
+        result.brokerId,
+      );
+      setIsDemoAccountFlag(result.accountType === 'demo');
+      upsertSavedAccount({
+        login: result.accountLogin,
+        name: result.accountName || row.name,
+        brokerId: result.brokerId,
+        server: result.serverName || row.server,
+        accountType: result.accountType,
+        lastUsedAt: Date.now(),
+        hasCredentials: true,
+      });
+
+      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
+      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
+      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+
+      setSuccessMessage(t('Account switched successfully'));
+    } catch (error: any) {
+      Alert.alert(t('Switch failed'), error?.message || t('Unable to switch account.'));
+    } finally {
+      setConnectingKey(null);
+    }
+  };
+
+  const handleRemoveSavedAccount = (row: OtherAccountRow) => {
+    Alert.alert(
+      t('Remove account?'),
+      t('This will remove this account from the list on this device. You can sign in again to add it back.'),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        {
+          text: t('Remove'),
+          style: 'destructive',
+          onPress: () => {
+            removeSavedAccount(row.login, row.brokerId);
+            removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
+          },
+        },
+      ],
+    );
+  };
 
   const openQRSheet = (loginId: string) => {
     setQRData(loginId);
@@ -199,9 +439,11 @@ export function AccountsScreen() {
                 <View style={styles.nameAndBadges}>
                   <Text style={styles.activeName} numberOfLines={1}>{displayName}</Text>
                   <View style={styles.badgesRow}>
-                    <View style={activeIsDemo ? styles.demoBadgeActive : styles.liveBadge}>
-                      <Text style={activeIsDemo ? styles.demoBadgeActiveText : styles.liveBadgeText}>{activeBadgeLabel}</Text>
-                    </View>
+                    {!activeIsDemo && (
+                      <View style={styles.liveBadge}>
+                        <Text style={styles.liveBadgeText}>{activeBadgeLabel}</Text>
+                      </View>
+                    )}
                     <View style={styles.connectedBadge}>
                       <View style={styles.connectedDot} />
                       <Text style={styles.connectedLabel}>{t('Connected')}</Text>
@@ -278,96 +520,167 @@ export function AccountsScreen() {
           </View>
 
           {/* ── Other Accounts ── */}
-          {otherAccounts.length > 0 && (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionLabel}>{t('Other Accounts')}</Text>
-              <Text style={styles.sectionCount}>{otherAccounts.length}</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>{t('Other Accounts')}</Text>
+            {otherRows.length > 0 && (
+              <Text style={styles.sectionCount}>{otherRows.length}</Text>
+            )}
+          </View>
+
+          {otherRows.length === 0 && (
+            <View style={styles.emptyOtherCard}>
+              <Ionicons name="people-outline" size={20} color={T.textDimmed} />
+              <Text style={styles.emptyOtherTitle}>{t('No other accounts yet')}</Text>
+              <Text style={styles.emptyOtherText}>
+                {t('Sign in to another real, demo or contest account to switch between them with one tap.')}
+              </Text>
+              <Pressable
+                style={styles.emptyOtherButton}
+                onPress={() => traceUiInteraction('accounts.connect.open', handleConnectAccount)}
+              >
+                <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.emptyOtherButtonText}>{t('Add account')}</Text>
+              </Pressable>
             </View>
           )}
 
-          {otherAccounts.map((account) => {
-            const isDemo = isDemoTradingAccount(account.group);
-            const ribbonLabel = t(getTradingAccountRibbonLabel(account.group));
-            const accountDisplayName = translateAccountCardName(account.name || `Account ${account.login}`, t);
-            const isExpanded = expandedLogin === account.login;
+          {otherRows.map((row) => {
+            const ribbonLabel = t(
+              row.accountType === 'demo'
+                ? 'Demo'
+                : row.accountType === 'contest'
+                  ? 'Contest'
+                  : 'Real',
+            );
+            const accountDisplayName = translateAccountCardName(row.name || `Account ${row.login}`, t);
+            const isSwitching = connectingKey === row.key;
+            const live = row.liveAccount;
+            const metrics = live ? buildSavedAccountSnapshot(live) : row.snapshot;
+            const isExpanded = expandedAccountKey === row.key;
+            const ribbonStyle = row.accountType === 'demo' ? styles.ribbonRightDemo : styles.ribbonRightContest;
+            const serverLabel = row.server || displayServerName;
+            const balanceText = metrics ? fmt.price(metrics.balance) : '---';
+            const equityText = metrics ? fmt.price(metrics.equity) : '---';
+            const freeMarginText = metrics ? fmt.price(metrics.freeMargin) : '---';
+            const leverageText = metrics ? `1:${metrics.leverage}` : '---';
+            const floatingPnl = metrics?.floatingPnl ?? 0;
+            const floatingPnlText = metrics ? `${floatingPnl >= 0 ? '+' : ''}${fmt.price(floatingPnl)}` : '---';
+            const openPositionsText = metrics ? String(metrics.openPositions) : '---';
+            const switchButton = (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('Switch to this account')}
+                style={[styles.connectButton, isSwitching && styles.connectButtonBusy]}
+                onPress={() => handleConnectSavedAccount(row)}
+                disabled={isSwitching || !!connectingKey}
+                hitSlop={6}
+              >
+                {isSwitching ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" />
+                    <Text style={styles.connectButtonText}>{t('Switch')}</Text>
+                  </>
+                )}
+              </Pressable>
+            );
 
             return (
               <Pressable
-                key={account.login}
+                key={row.key}
                 style={[styles.secondaryCard, isExpanded && styles.secondaryCardExpanded]}
-                onPress={() => setExpandedLogin(isExpanded ? null : account.login)}
+                onPress={() => setExpandedAccountKey(isExpanded ? null : row.key)}
+                onLongPress={() => handleRemoveSavedAccount(row)}
+                delayLongPress={400}
               >
                 {/* Diagonal ribbon */}
-                <View style={isDemo ? styles.ribbonRightDemo : styles.ribbonRightContest}>
+                <View style={ribbonStyle}>
                   <Text style={styles.ribbonRightText}>{ribbonLabel}</Text>
                 </View>
+
+                {/* Top row: avatar + name + type pill — mirrors active card */}
                 <View style={styles.secondaryTopRow}>
                   <View style={styles.secondaryLeft}>
                     <View style={styles.secondaryAvatar}>
                       <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.secondaryAvatarImage} />
                     </View>
                     <View style={styles.secondaryInfo}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={styles.nameAndBadges}>
                         <Text style={styles.secondaryName} numberOfLines={1}>{accountDisplayName}</Text>
-                        <Ionicons
-                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                          size={14}
-                          color={T.textDimmed}
-                        />
+                        {row.accountType !== 'demo' && (
+                          <View style={styles.liveBadge}>
+                            <Text style={styles.liveBadgeText}>{ribbonLabel}</Text>
+                          </View>
+                        )}
                       </View>
-                      <Text style={styles.secondaryMeta}>{account.login} · {displayServerName}</Text>
+                      <Text style={styles.secondaryMeta} numberOfLines={1}>
+                        {row.login} · {serverLabel || row.brokerId}
+                      </Text>
                     </View>
                   </View>
-                </View>
-                <View style={styles.secondaryBalanceRow}>
-                  <Text style={styles.secondaryBalance}>{fmt.price(account.balance)}</Text>
-                  <Text style={styles.secondaryCurrency}>{account.currency}</Text>
+                  <Ionicons
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={T.textDimmed}
+                  />
                 </View>
 
                 {isExpanded && (
-                  <View style={styles.expandedSection}>
-                    <View style={styles.expandedDivider} />
-
-                    {/* Balance hero like active card */}
-                    <View style={styles.expandedBalanceSection}>
-                      <Text style={styles.expandedBalanceLabel}>{t('Balance')}</Text>
-                      <Text style={styles.expandedBalanceValue}>{fmt.price(account.balance)} <Text style={styles.expandedBalanceCurrency}>{account.currency}</Text></Text>
+                  <>
+                    {/* Balance hero — mirrors active card */}
+                    <View style={styles.balanceSection}>
+                      <Text style={styles.balanceLabel}>{t('Balance')}</Text>
+                      <Text style={styles.balanceValue}>
+                        {balanceText}{' '}
+                        {metrics ? <Text style={styles.balanceCurrency}>{metrics.currency}</Text> : null}
+                      </Text>
                     </View>
 
-                    {/* Metrics grid */}
-                    <View style={styles.expandedGrid}>
-                      <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>{t('Equity')}</Text>
-                        <Text style={styles.expandedValue}>{fmt.price(account.equity)}</Text>
+                    {/* Metrics grid — same fields as active card */}
+                    <View style={styles.metricsGrid}>
+                      <View style={styles.metricItem}>
+                        <Text style={styles.metricLabel}>{t('Equity')}</Text>
+                        <Text style={styles.metricValue}>{equityText}</Text>
                       </View>
-                      <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>{t('Free Margin')}</Text>
-                        <Text style={styles.expandedValue}>{fmt.price(account.freeMargin)}</Text>
+                      <View style={styles.metricItem}>
+                        <Text style={styles.metricLabel}>{t('Free Margin')}</Text>
+                        <Text style={styles.metricValue}>{freeMarginText}</Text>
                       </View>
-                      <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>{t('Leverage')}</Text>
-                        <Text style={styles.expandedValue}>1:{account.leverage}</Text>
+                      <View style={styles.metricItem}>
+                        <Text style={styles.metricLabel}>{t('Leverage')}</Text>
+                        <Text style={styles.metricValue}>{leverageText}</Text>
                       </View>
-                      <View style={styles.expandedItem}>
-                        <Text style={styles.expandedLabel}>{t('Floating P/L')}</Text>
-                        <Text style={[styles.expandedValue, { color: account.floatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{account.floatingPnl >= 0 ? '+' : ''}{fmt.price(account.floatingPnl)}</Text>
+                      <View style={styles.metricItem}>
+                        <Text style={styles.metricLabel}>{t('Floating P/L')}</Text>
+                        <Text
+                          style={[styles.metricValue, metrics && { color: floatingPnl >= 0 ? '#10B981' : '#EF4444' }]}
+                          numberOfLines={1}
+                        >
+                          {floatingPnlText}
+                        </Text>
                       </View>
                     </View>
 
                     {/* Detail chips */}
-                    <View style={styles.expandedChips}>
+                    <View style={styles.detailChipsRow}>
                       <View style={styles.detailChip}>
-                        <Ionicons name="briefcase-outline" size={12} color={T.textMuted} />
-                        <Text style={styles.detailChipText}>{account.openPositions} {t('open')}</Text>
+                        <Ionicons name="key-outline" size={13} color={T.textMuted} />
+                        <Text style={styles.detailChipText}>{row.login}</Text>
                       </View>
                       <View style={styles.detailChip}>
-                        <Ionicons name="server-outline" size={12} color={T.textMuted} />
-                        <Text style={styles.detailChipText}>{displayServerName}</Text>
+                        <Ionicons name="server-outline" size={13} color={T.textMuted} />
+                        <Text style={styles.detailChipText}>{serverLabel || row.brokerId}</Text>
+                      </View>
+                      <View style={styles.detailChip}>
+                        <Ionicons name="briefcase-outline" size={13} color={T.textMuted} />
+                        <Text style={styles.detailChipText}>{openPositionsText} {t('open')}</Text>
                       </View>
                     </View>
 
-                    {/* Status + Actions — same as active card */}
-                    <View style={styles.expandedDivider} />
+                    <View style={styles.activeDivider} />
+
+                    {/* Footer: status + Switch button */}
                     <View style={styles.activeFooter}>
                       <View style={styles.statusRow}>
                         <View style={[styles.statusDot, { backgroundColor: mt5Status?.connected ? '#10B981' : '#94A3B8' }]} />
@@ -376,16 +689,9 @@ export function AccountsScreen() {
                         <View style={[styles.statusDot, { backgroundColor: health?.status === 'healthy' ? '#10B981' : '#94A3B8' }]} />
                         <Text style={styles.statusText}>{t('Gateway')}</Text>
                       </View>
-                      <View style={styles.activeActions}>
-                        <Pressable style={styles.actionIcon} onPress={() => openQRSheet(String(account.login))} hitSlop={12}>
-                          <Ionicons name="qr-code-outline" size={16} color={T.textMuted} />
-                        </Pressable>
-                        <Pressable style={styles.actionIcon} hitSlop={12}>
-                          <Ionicons name="notifications-outline" size={16} color={T.textMuted} />
-                        </Pressable>
-                      </View>
+                      {switchButton}
                     </View>
-                  </View>
+                  </>
                 )}
               </Pressable>
             );
@@ -445,6 +751,11 @@ export function AccountsScreen() {
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
         onClose={hideActionSheet}
+        searchable={actionSheet?.searchable}
+        detent={actionSheet?.detent}
+        minimumTopInset={actionSheet?.minimumTopInset}
+        instantOpen={actionSheet?.instantOpen}
+        runActionAfterClose={actionSheet?.runActionAfterClose}
       />
     </Screen>
   );
@@ -851,13 +1162,18 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
 
   // ── Secondary cards ──
   secondaryCard: {
-    backgroundColor: isDark ? '#0C1018' : T.glass2,
-    borderRadius: 16,
+    backgroundColor: isDark ? '#0E1420' : '#FFFFFF',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-    padding: 14,
+    borderColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(0,0,0,0.06)',
+    padding: 10,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 10,
+    shadowColor: isDark ? '#3B82F6' : '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: isDark ? 0.06 : 0.04,
+    shadowRadius: 20,
+    elevation: 4,
   },
   secondaryLeft: {
     flexDirection: 'row',
@@ -962,11 +1278,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     marginTop: 1,
   },
   secondaryCardExpanded: {
-    borderColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.12)',
+    borderColor: isDark ? 'rgba(59,130,246,0.22)' : 'rgba(59,130,246,0.18)',
   },
   secondaryTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 10,
   },
   expandedSection: {
     marginTop: 0,
@@ -1064,5 +1381,85 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     flexDirection: 'row',
     gap: 8,
     marginTop: 10,
+  },
+  secondaryConnectRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  connectButton: {
+    minHeight: 32,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: T.accent,
+    shadowColor: T.accent,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  connectButtonBusy: {
+    opacity: 0.7,
+  },
+  connectButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  emptyOtherCard: {
+    marginTop: 4,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: isDark ? '#0C1018' : T.glass2,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyOtherTitle: {
+    color: T.text,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  emptyOtherText: {
+    color: T.textDimmed,
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  emptyOtherButton: {
+    marginTop: 6,
+    minHeight: 34,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.accent,
+  },
+  emptyOtherButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  savedPlaceholderText: {
+    color: T.textDimmed,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  savedFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
 });

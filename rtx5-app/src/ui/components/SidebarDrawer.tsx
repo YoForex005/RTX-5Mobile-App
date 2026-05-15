@@ -186,7 +186,7 @@ export function SidebarDrawer() {
                 </View>
               ) : (
                 <View style={ds.profileText}>
-                  <Text style={ds.loginText}>Login to existing account or open demo account</Text>
+                  <Text style={ds.loginText}>Login to an existing account</Text>
                   <Pressable
                     style={ds.getStartedBtn}
                     onPress={() =>

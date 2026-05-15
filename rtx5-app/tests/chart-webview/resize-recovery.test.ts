@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 
 import {
   assertSourceContains,
@@ -11,12 +12,12 @@ const source = readChartScreenSource();
 test('native viewport layout schedules resize and frame sync', () => {
   assertSourceContains(
     source,
-    /onLayout=\{\(event\) => \{[\s\S]*setChartTapMenuBounds\(\{ width, height \}\)[\s\S]*scheduleChartViewportResize\(width, height\)[\s\S]*syncChartViewportFrame\(\)/,
-    'chart viewport layout must resize WebView chart and update measured frame',
+    /onLayout=\{\(event\) => \{[\s\S]*setChartTapMenuBounds\(\{ width, height \}\)[\s\S]*scheduleChartViewportResize\(width, height, true\)[\s\S]*syncChartViewportFrame\(\)/,
+    'chart viewport layout must force a fast WebView resize and update measured frame',
   );
 });
 
-test('fullscreen enter and exit cancel stale resize frames and request recovery', () => {
+test('fullscreen enter and exit cancel stale resize frames and use the fast press path', () => {
   assertSourceContains(
     source,
     /useEffect\(\(\) => \{[\s\S]*cancelChartViewportRecovery\(\)[\s\S]*pendingChartViewportSizeRef\.current = null[\s\S]*\}, \[cancelChartViewportRecovery, isChartExpanded\]\)/,
@@ -26,6 +27,24 @@ test('fullscreen enter and exit cancel stale resize frames and request recovery'
     source,
     /useEffect\(\(\) => \{[\s\S]*requestChartViewportRecovery\(4\)[\s\S]*isChartExpanded/,
     'fullscreen changes must request chart viewport recovery',
+  );
+  assertSourceContains(
+    source,
+    /onPressIn=\{handleToggleChartExpanded\}/,
+    'fullscreen toggle must react on touch-down instead of waiting for press release',
+  );
+});
+
+test('chart viewport no longer renders the bottom horizontal dots button', () => {
+  assert.doesNotMatch(
+    source,
+    /chartViewportMenuButton|ellipsis-horizontal/,
+    'chart viewport must not render the old bottom horizontal dots button over the price scale',
+  );
+  assertSourceContains(
+    source,
+    /label: t\(showChartVolumePane \? 'Hide Volume Bar' : 'Show Volume Bar'\)[\s\S]*label: t\('Reset'\)/,
+    'chart volume/reset actions must remain available from the toolbar options sheet',
   );
 });
 

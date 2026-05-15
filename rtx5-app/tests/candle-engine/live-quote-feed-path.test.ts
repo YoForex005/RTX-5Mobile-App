@@ -21,7 +21,10 @@ const readModuleSource = (relativePath: string): string => {
   throw new Error(`module source not found: ${relativePath}`);
 };
 
-import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';
+import {
+  applyLiveCandleToCandleMap,
+  applyQuoteTickExtensionToCandleMap,
+} from '../../src/domain/candles/series/liveCandleAggregator';
 import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import { normalizeQuoteTickPayload } from '../../src/api/ws/quoteTickNormalizer';
 import { buildChartSeriesSnapshot, getChartSeriesUpdateMode } from '../../src/features/chart/liveChartSync';
@@ -54,6 +57,56 @@ test('live quote payload normalizes bid ask data for active candle extension', (
       timestamp: secondsUtc(2024, 3, 22, 10, 3, 23),
     },
   );
+});
+
+test('verified feed session high low metrics never become candle wick extremes', () => {
+  const feedPayload = {
+    symbol: 'XAUUSD',
+    bid: 4553.38,
+    ask: 4553.620000000001,
+    daily_open: 4651.335,
+    previous_close: 4651.335,
+    session: {
+      high_bid: 4665.37,
+      low_bid: 4531.8,
+      high_ask: 4665.6,
+      low_ask: 4532.04,
+    },
+    time: secondsUtc(2026, 4, 15, 10, 28, 13),
+  };
+  const normalized = normalizeQuoteTickPayload(feedPayload);
+  assert.equal(normalized.ok, true);
+  if (!normalized.ok) return;
+
+  const map = createCandleMap();
+  applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'XAUUSD',
+      timeframe: 'M1',
+      time: secondsUtc(2026, 4, 15, 10, 28, 0),
+      open: 4553.2,
+      high: 4553.35,
+      low: 4553.1,
+      close: 4553.25,
+      volume: 12,
+    },
+    'M1',
+  );
+
+  const result = applyQuoteTickExtensionToCandleMap(
+    map,
+    { price: normalized.update.bid, time: normalized.update.timestamp },
+    'M1',
+  );
+  const active = materializeCandleMap(map)[0];
+
+  assert.equal(result.ignored, false);
+  assert.equal(active.close, 4553.38);
+  assert.equal(active.high, 4553.38);
+  assert.equal(active.low, 4553.1);
+  assert.notEqual(active.high, normalized.update.high);
+  assert.notEqual(active.low, normalized.update.low);
 });
 
 test('backend live candle snapshot creates the chart incremental update', () => {

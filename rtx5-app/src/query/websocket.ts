@@ -15,6 +15,8 @@ import { normalizeTimeframeStrict } from '../domain/candles/core/candles';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 
 const LIVE_QUOTE_STALE_MS = 45_000;
+const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 50;
+const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
 
 function getQuoteFreshnessAnchorMs(liveQuote?: Partial<QuoteItem>): number | null {
   return (
@@ -84,7 +86,7 @@ export function useMarketData(symbols: string[] = []) {
   const stableKey = JSON.stringify(normalizedSymbols);
   const selector = useCallback(
     (state: any) => {
-      if (normalizedSymbols.length === 0) return state.quotes;
+      if (normalizedSymbols.length === 0) return EMPTY_LIVE_QUOTES;
       const result: Record<string, any> = {};
       for (const sym of normalizedSymbols) {
         if (state.quotes[sym]) result[sym] = state.quotes[sym];
@@ -264,10 +266,7 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       });
     };
 
-    quoteCommitTimerRef.current = setTimeout(commit, 16);
-    if (typeof requestAnimationFrame === 'function') {
-      quoteCommitAnimationFrameRef.current = requestAnimationFrame(commit);
-    }
+    quoteCommitTimerRef.current = setTimeout(commit, LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS);
   }, []);
 
   useEffect(() => {

@@ -8,35 +8,29 @@ import { validateCandle } from '../core/candleValidator';
 import { areCandleValuesEqual } from './candleSeriesMerger';
 import { isPriceCoherentWithCandle } from './priceCoherence';
 
-/**
- * Options used when applying a live candle update from the backend to the internal candle map.
- */
 export type ApplyCandleOptions = {
-  /** 
-   * A unix timestamp threshold. Any live candle whose bucket starts before this time
-   * is considered part of the closed history and will be ignored to prevent corrupting historical data.
-   */
   historyCutoffTime?: number | null;
 };
 
-/**
- * Represents the outcome of attempting to apply a live candle update.
- */
 export type ApplyCandleResult = {
-  /** The finalized public candle object, or null if the update was ignored/invalid. */
   candle: Candle | null;
-  /** True if the existing candle was changed or a new one was added. */
   changed: boolean;
-  /** True if the incoming live candle update was rejected and not applied. */
   ignored: boolean;
-  /** The reason why the update was ignored (e.g., 'older_than_history_cutoff', 'stale_tick'). */
   reason?: string;
 };
 
-/**
- * Converts a mutable internal candle representation into a read-only public Candle format.
- * Strips out internal tracking properties.
- */
+export type ApplyQuoteTickExtensionOptions = {
+  historyCutoffTime?: number | null;
+  latestHistoryCandle?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close' | 'volume'> | null;
+};
+
+export type ApplyQuoteTickExtensionResult = {
+  candle: Candle | null;
+  changed: boolean;
+  ignored: boolean;
+  reason?: string;
+};
+
 const toPublicCandle = (candle: MutableCandle): Candle => ({
   time: candle.time,
   open: candle.open,
@@ -46,170 +40,163 @@ const toPublicCandle = (candle: MutableCandle): Candle => ({
   volume: candle.volume ?? 0,
 });
 
-/**
- * Processes a "Live Candle" update received directly from the backend (usually via WebSocket).
- * 
- * Unlike raw ticks, a live candle contains pre-aggregated OHLCV values. This function merges
- * these authoritative updates into the frontend's real-time candle map, handling out-of-order 
- * messages and respecting history boundaries.
- *
- * @param candleMap - The mutable map storing the current real-time session's candles.
- * @param liveCandle - The incoming aggregated candle update from the backend.
- * @param timeframe - The timeframe resolution of the chart (e.g., '1m', '1H').
- * @param options - Additional validation rules like history cutoffs.
- * @returns The result of the update operation, indicating if the UI needs to redraw.
- */
+const toBucketedCandle = (
+  candle: Candle,
+  timeframe?: string,
+): Candle | null => {
+  if (!validateCandle(candle)) {
+    return null;
+  }
+
+  const bucketStart = timeframe ? getBucketStart(candle.time, timeframe) : candle.time;
+  if (bucketStart === null) {
+    return null;
+  }
+
+  const next: Candle = {
+    time: bucketStart,
+    open: candle.open,
+    high: Math.max(candle.high, candle.open, candle.close),
+    low: Math.min(candle.low, candle.open, candle.close),
+    close: candle.close,
+    volume: Number.isFinite(candle.volume) ? candle.volume : 0,
+  };
+
+  return validateCandle(next) ? next : null;
+};
+
+const getMapTailTime = (candleMap: Map<number, MutableCandle>): number | null => {
+  let tail: number | null = null;
+  for (const time of candleMap.keys()) {
+    if (tail === null || time > tail) {
+      tail = time;
+    }
+  }
+  return tail;
+};
+
+const getLatestKnownBucket = (...times: Array<number | null>): number | null =>
+  times
+    .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
+    .reduce<number | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
+
+const seedFromCandleClose = (
+  bucketStart: number,
+  seed: Pick<Candle, 'close'>,
+  price: number,
+): MutableCandle => ({
+  time: bucketStart,
+  open: seed.close,
+  high: Math.max(seed.close, price),
+  low: Math.min(seed.close, price),
+  close: price,
+  volume: 0,
+  source: 'live_candle',
+  closed: false,
+});
+
+const seedFromTick = (bucketStart: number, price: number): MutableCandle => ({
+  time: bucketStart,
+  open: price,
+  high: price,
+  low: price,
+  close: price,
+  volume: 0,
+  source: 'live_candle',
+  closed: false,
+});
+
+const seedFromHistoryBucket = (
+  bucketStart: number,
+  historyCandle: Pick<Candle, 'open' | 'high' | 'low' | 'close' | 'volume'>,
+  price: number,
+): MutableCandle => ({
+  time: bucketStart,
+  open: historyCandle.open,
+  high: Math.max(historyCandle.high, historyCandle.open, historyCandle.close, price),
+  low: Math.min(historyCandle.low, historyCandle.open, historyCandle.close, price),
+  close: price,
+  volume: historyCandle.volume ?? 0,
+  source: 'live_candle',
+  closed: false,
+});
+
 export const applyLiveCandleToCandleMap = (
   candleMap: Map<number, MutableCandle>,
   liveCandle: LiveCandle,
   timeframe?: string,
   options: ApplyCandleOptions = {},
 ): ApplyCandleResult => {
-  if (!validateCandle(liveCandle)) {
+  const incoming = toBucketedCandle(liveCandle, timeframe);
+  if (!incoming) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_live_candle' };
   }
 
-  const bucketStart = timeframe ? getBucketStart(liveCandle.time, timeframe) : liveCandle.time;
-  if (bucketStart === null) {
-    return { candle: null, changed: false, ignored: true, reason: 'invalid_bucket' };
-  }
-
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && bucketStart < historyCutoff) {
+  if (typeof historyCutoff === 'number' && incoming.time < historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
-  const existing = candleMap.get(bucketStart);
-  const eventTime = liveCandle.time;
-  const isOutOfOrderSameBucket =
-    existing?.source === 'live_candle' &&
-    typeof existing.lastUpdateTime === 'number' &&
-    eventTime < existing.lastUpdateTime;
-
-  // No `late_missing_bucket` rejection here. Backend is the source of truth for
-  // live candles. If history ends at T0 and live has emitted a future bucket Tf,
-  // a subsequent backend live candle for a bucket Ti where T0 < Ti < Tf is a
-  // legitimate backfill — not a stale message — and must fill the gap. The only
-  // boundary that protects closed history is `historyCutoffTime`, enforced
-  // above. Same-bucket replays are still guarded by the `lastUpdateTime` stale
-  // check above: out-of-order same-bucket snapshots can still widen wicks, but
-  // cannot rewind the close of the latest accepted snapshot.
-
-  const incoming: Candle = {
-    time: bucketStart,
-    open: liveCandle.open,
-    high: liveCandle.high,
-    low: liveCandle.low,
-    close: liveCandle.close,
-    volume: liveCandle.volume ?? 0,
-  };
-  const exactReplay = existing && areCandleValuesEqual(toPublicCandle(existing), incoming);
-  if (exactReplay) {
+  const existing = candleMap.get(incoming.time);
+  if (existing && areCandleValuesEqual(toPublicCandle(existing), incoming)) {
     return { candle: toPublicCandle(existing), changed: false, ignored: false };
   }
 
-  // Backend live-candle snapshots are AUTHORITATIVE: each one carries the
-  // current OHLCV for the active bucket as the broker computed it. We must
-  // overwrite, not merge — merging would (a) freeze `open` to the history
-  // bucket's value, (b) accumulate volume across every snapshot via summing,
-  // and (c) prevent the broker from correcting an over-widened high/low back
-  // down. The only same-bucket nuance is out-of-order delivery: if a snapshot
-  // arrives whose event time precedes the latest one we accepted, we keep the
-  // current `close` but still let the snapshot widen high/low and update
-  // volume to its broker-supplied value.
-  const next: MutableCandle = isOutOfOrderSameBucket && existing
-    ? {
-        time: bucketStart,
-        open: incoming.open,
-        high: Math.max(existing.high, incoming.high),
-        low: Math.min(existing.low, incoming.low),
-        close: existing.close,
-        // Live candle volume is the broker's cumulative tick count for the
-        // bucket. An out-of-order snapshot reports an EARLIER count — keep
-        // the latest (existing) count instead of regressing.
-        volume: Math.max(existing.volume ?? 0, incoming.volume),
-        source: 'live_candle',
-        closed: liveCandle.closed ?? existing.closed ?? false,
-        firstUpdateTime:
-          existing.firstUpdateTime === undefined
-            ? eventTime
-            : Math.min(existing.firstUpdateTime, eventTime),
-        lastUpdateTime: existing.lastUpdateTime ?? eventTime,
-      }
-    : {
-        ...incoming,
-        source: 'live_candle',
-        closed: liveCandle.closed ?? false,
-        firstUpdateTime:
-          existing?.firstUpdateTime === undefined
-            ? eventTime
-            : Math.min(existing.firstUpdateTime, eventTime),
-        lastUpdateTime: eventTime,
-      };
+  const eventTime = normalizeTimestampToSeconds(liveCandle.time) ?? incoming.time;
+  const outOfOrderSameBucket =
+    existing?.source === 'live_candle' &&
+    typeof existing.lastUpdateTime === 'number' &&
+    eventTime < existing.lastUpdateTime;
+  const isClosingSnapshot = liveCandle.closed === true;
+
+  let next: MutableCandle;
+  if (!existing || existing.source === 'history' || isClosingSnapshot) {
+    next = {
+      ...incoming,
+      source: 'live_candle',
+      closed: liveCandle.closed ?? false,
+      firstUpdateTime: existing?.firstUpdateTime ?? eventTime,
+      lastUpdateTime: eventTime,
+    };
+  } else if (outOfOrderSameBucket) {
+    next = {
+      time: incoming.time,
+      open: existing.open,
+      high: Math.max(existing.high, incoming.high, incoming.open, incoming.close, existing.open, existing.close),
+      low: Math.min(existing.low, incoming.low, incoming.open, incoming.close, existing.open, existing.close),
+      close: existing.close,
+      volume: Math.max(existing.volume ?? 0, incoming.volume ?? 0),
+      source: 'live_candle',
+      closed: existing.closed ?? false,
+      firstUpdateTime: Math.min(existing.firstUpdateTime ?? eventTime, eventTime),
+      lastUpdateTime: existing.lastUpdateTime,
+    };
+  } else {
+    next = {
+      ...incoming,
+      source: 'live_candle',
+      closed: false,
+      firstUpdateTime: Math.min(existing.firstUpdateTime ?? eventTime, eventTime),
+      lastUpdateTime: eventTime,
+    };
+  }
 
   if (!validateCandle(next)) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_ohlc_after_live_candle' };
   }
 
-  candleMap.set(bucketStart, next);
-
+  candleMap.set(incoming.time, next);
   const result: ApplyCandleResult = {
     candle: toPublicCandle(next),
     changed: !existing || !areCandleValuesEqual(toPublicCandle(existing), toPublicCandle(next)),
     ignored: false,
   };
-  if (isOutOfOrderSameBucket) {
+  if (outOfOrderSameBucket) {
     result.reason = 'merged_out_of_order_live_candle';
   }
   return result;
 };
 
-/**
- * Options used when extrapolating the active candle's shape using a raw quote tick.
- */
-export type ApplyQuoteTickExtensionOptions = {
-  /** Unix timestamp representing the end of the strictly validated historical period. */
-  historyCutoffTime?: number | null;
-  /**
-   * Optional latest REST history candle. When the live candle map has no
-   * entry at the active bucket but REST already returned a candle whose time
-   * matches the active bucket, the extension may seed from that REST candle —
-   * its OHLC came from backend so this is not invention.
-   */
-  latestHistoryCandle?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close' | 'volume'> | null;
-};
-
-/**
- * Represents the outcome of applying a quote tick to extend the active candle.
- */
-export type ApplyQuoteTickExtensionResult = {
-  /** The resulting extrapolated candle, or null if ignored. */
-  candle: Candle | null;
-  /** True if the tick caused the candle's price or boundaries to move. */
-  changed: boolean;
-  /** True if the tick was rejected. */
-  ignored: boolean;
-  /** The reason the tick was rejected. */
-  reason?: string;
-};
-
-/**
- * Extend the active live candle's close (and widen high/low) using a single
- * real-time price tick from the quote feed.
- *
- * STRICT extension contract:
- *   - Updates an existing backend bucket when one is present.
- *   - Can open only the next contiguous live bucket from the last real
- *     backend candle/quote-built live candle, using live tick price data.
- *   - Never modifies closed history (gated by `historyCutoffTime`).
- *   - The next backend `applyLiveCandleToCandleMap` call fully overwrites the
- *     bucket, so backend remains the authoritative source on every snapshot.
- *
- * Why this exists: most broker WS candle channels publish updates only on
- * bar-close (or on a slow cadence), while real-time price movement within
- * the active bar arrives only via the quote feed. Without this extension the
- * forming candle stays static while the bid/ask line moves above the chart.
- */
 export const applyQuoteTickExtensionToCandleMap = (
   candleMap: Map<number, MutableCandle>,
   tick: { price: number; time: unknown },
@@ -219,104 +206,61 @@ export const applyQuoteTickExtensionToCandleMap = (
   if (!Number.isFinite(tick.price) || tick.price <= 0) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_price' };
   }
-  const timeSeconds = normalizeTimestampToSeconds(tick.time);
-  if (timeSeconds === null) {
+
+  const tickTime = normalizeTimestampToSeconds(tick.time);
+  if (tickTime === null) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_timestamp' };
   }
 
-  const bucketStart = getBucketStart(timeSeconds, timeframe);
+  const bucketStart = getBucketStart(tickTime, timeframe);
   if (bucketStart === null) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_bucket' };
   }
 
-  // Use strict `<` (not `<=`) to match `applyLiveCandleToCandleMap`.
-  // `historyCutoff` is the last CLOSED candle's bucket time. A tick at
-  // exactly that bucket is the transition point and must be allowed
-  // through so the forming candle can receive live updates.
   const historyCutoff = options.historyCutoffTime;
   if (typeof historyCutoff === 'number' && bucketStart < historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
+  const hadExistingBucket = candleMap.has(bucketStart);
   let existing = candleMap.get(bucketStart);
+
   if (!existing) {
-    const restTail = options.latestHistoryCandle;
-    // Backend history timestamps may not be bucket-aligned (e.g. 1713744062
-    // for an M1 bucket starting at 1713744060). Align the rest tail's time
-    // to its bucket start before comparing, otherwise the equality check
-    // always fails and ticks are rejected as 'tick_older_than_history'.
+    const restTail = options.latestHistoryCandle ?? null;
     const restTailBucket = restTail ? (getBucketStart(restTail.time, timeframe) ?? restTail.time) : null;
+    const liveTailTime = getMapTailTime(candleMap);
+    const latestKnownBucket = getLatestKnownBucket(restTailBucket, liveTailTime);
+
     if (restTail && restTailBucket === bucketStart) {
       if (!isPriceCoherentWithCandle(restTail, tick.price)) {
-        return { candle: null, changed: false, ignored: true, reason: 'stale_history_seed' };
-      }
-      existing = {
-        time: bucketStart,
-        open: restTail.open,
-        high: restTail.high,
-        low: restTail.low,
-        close: restTail.close,
-        volume: restTail.volume ?? 0,
-        source: 'live_candle',
-        closed: false,
-      };
-    } else {
-      const liveTailTime = Array.from(candleMap.keys()).reduce<number | null>(
-        (latest, time) => (latest === null || time > latest ? time : latest),
-        null,
-      );
-      const latestKnownBucket = [restTailBucket, liveTailTime]
-        .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
-        .reduce<number | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
-
-      if (latestKnownBucket !== null && bucketStart < latestKnownBucket) {
-        return {
-          candle: null,
-          changed: false,
-          ignored: true,
-          reason: restTailBucket !== null && restTailBucket > bucketStart
-            ? 'tick_older_than_history'
-            : 'tick_older_than_live_tail',
-        };
-      }
-
-      if (latestKnownBucket === null) {
-        existing = {
-          time: bucketStart,
-          open: tick.price,
-          high: tick.price,
-          low: tick.price,
-          close: tick.price,
-          volume: 0,
-          source: 'live_candle',
-          closed: false,
-        };
+        existing = seedFromTick(bucketStart, tick.price);
       } else {
-        const expectedNextBucket = getExpectedNextCandleTime(latestKnownBucket, timeframe);
-        if (bucketStart !== expectedNextBucket) {
-          return { candle: null, changed: false, ignored: true, reason: 'no_active_backend_candle' };
-        }
-
-        const liveTail = liveTailTime === latestKnownBucket ? candleMap.get(latestKnownBucket) : undefined;
-        const seed = liveTail ?? (restTailBucket === latestKnownBucket ? restTail : null);
-        if (!seed) {
-          return { candle: null, changed: false, ignored: true, reason: 'no_active_backend_candle' };
-        }
-        if (!isPriceCoherentWithCandle(seed, tick.price)) {
-          return { candle: null, changed: false, ignored: true, reason: 'stale_history_seed' };
-        }
-
-        existing = {
-          time: bucketStart,
-          open: seed.close,
-          high: Math.max(seed.close, tick.price),
-          low: Math.min(seed.close, tick.price),
-          close: tick.price,
-          volume: 0,
-          source: 'live_candle',
-          closed: false,
-        };
+        existing = seedFromHistoryBucket(bucketStart, restTail, tick.price);
       }
+    } else if (latestKnownBucket !== null && bucketStart < latestKnownBucket) {
+      return {
+        candle: null,
+        changed: false,
+        ignored: true,
+        reason: restTailBucket !== null && restTailBucket > bucketStart
+          ? 'tick_older_than_history'
+          : 'tick_older_than_live_tail',
+      };
+    } else if (latestKnownBucket !== null && bucketStart === getExpectedNextCandleTime(latestKnownBucket, timeframe)) {
+      const liveTail = liveTailTime === latestKnownBucket ? candleMap.get(latestKnownBucket) : undefined;
+      const seed = liveTail ?? (restTailBucket === latestKnownBucket ? restTail : null);
+      if (seed && !isPriceCoherentWithCandle(seed, tick.price)) {
+        existing = seedFromTick(bucketStart, tick.price);
+      } else {
+        existing = seed ? seedFromCandleClose(bucketStart, seed, tick.price) : seedFromTick(bucketStart, tick.price);
+      }
+    } else if (latestKnownBucket === null) {
+      existing = seedFromTick(bucketStart, tick.price);
+    } else {
+      // The backend candle channel may be behind the quote feed by several
+      // buckets. Do not fabricate the missing buckets; open only the current
+      // tick bucket so the chart keeps forming live while preserving the gap.
+      existing = seedFromTick(bucketStart, tick.price);
     }
   }
 
@@ -327,30 +271,19 @@ export const applyQuoteTickExtensionToCandleMap = (
     close: tick.price,
     source: 'live_candle',
     closed: false,
-    // IMPORTANT: do NOT advance `lastUpdateTime` here. That field is used by
-    // `applyLiveCandleToCandleMap` to reject out-of-order BACKEND snapshots.
-    // If we wrote `tick.time` to it, a subsequent backend snapshot whose
-    // `time` field is the bucket-start (always older than mid-bucket tick
-    // times) would be rejected as stale and never overwrite our tick-driven
-    // OHLC. Preserving the existing `lastUpdateTime` keeps backend
-    // authoritative.
   };
 
   if (!validateCandle(next)) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_ohlc_after_tick' };
   }
 
-  const changed =
-    !candleMap.has(bucketStart) ||
-    next.close !== existing.close ||
-    next.high !== existing.high ||
-    next.low !== existing.low;
-
   candleMap.set(bucketStart, next);
-
   return {
     candle: toPublicCandle(next),
-    changed,
+    changed: !hadExistingBucket ||
+      next.high !== existing.high ||
+      next.low !== existing.low ||
+      next.close !== existing.close,
     ignored: false,
   };
 };

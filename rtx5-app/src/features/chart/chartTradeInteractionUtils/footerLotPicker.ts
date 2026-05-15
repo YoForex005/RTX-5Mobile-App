@@ -102,12 +102,12 @@ export function resolveFooterLotChevronPressBehavior({
   hasStepAction,
   hasLotPickerAction,
 }: FooterLotChevronPressBehaviorInput) {
-  if (hasLotPickerAction) {
-    return 'picker';
-  }
-
   if (hasStepAction) {
     return 'step';
+  }
+
+  if (hasLotPickerAction) {
+    return 'picker';
   }
 
   return 'none';

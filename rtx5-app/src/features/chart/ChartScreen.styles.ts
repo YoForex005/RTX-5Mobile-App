@@ -75,7 +75,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingLeft: 16,
+      paddingLeft: 8,
       paddingRight: 16,
       paddingTop: 0,
       paddingBottom: 18,
@@ -92,6 +92,19 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       minHeight: 36,
       marginTop: 4,
+    },
+    symbolSectionTapTarget: {
+      alignSelf: 'stretch',
+      justifyContent: 'center',
+      minHeight: 54,
+      marginTop: 0,
+      marginLeft: 0,
+      paddingLeft: 0,
+      paddingRight: 18,
+    },
+    symbolSectionContent: {
+      minWidth: 0,
+      flexShrink: 1,
     },
     flagStack: {
       flexDirection: 'row',
@@ -260,6 +273,17 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       position: 'relative',
       overflow: 'hidden',
+    },
+    chartViewportMenuButton: {
+      position: 'absolute',
+      right: 8,
+      bottom: 2,
+      minWidth: 34,
+      minHeight: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 45,
+      elevation: 45,
     },
     footerLotKeyboardProxyInput: {
       position: 'absolute',
@@ -1432,17 +1456,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    chartViewportMenuButton: {
-      position: 'absolute',
-      right: 10,
-      bottom: 16,
-      minWidth: 34,
-      minHeight: 26,
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 45,
-      elevation: 45,
-    },
     bottomArea: {
       backgroundColor: isDark ? '#080B11' : T.glass2,
       paddingHorizontal: 0,

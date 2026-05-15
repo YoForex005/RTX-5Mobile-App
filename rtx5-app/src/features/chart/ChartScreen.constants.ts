@@ -21,7 +21,17 @@ export const CHART_DEFAULT_VISIBLE_BAR_MIN = 26;
 export const CHART_DEFAULT_TIME_SCALE_BAR_SPACING = 13;
 export const CHART_DEFAULT_RESET_BAR_SPACING_MAX = 14;
 export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
-export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 0;
+// Reserved empty bars on the right of the time-scale.
+//
+// Why this is non-zero: with rightOffset=0 the *last* candle in the data is
+// flush against the right edge. When the next bucket starts forming, its
+// candle is rendered one bar-spacing further right — i.e. *off-screen* —
+// because there's no breathing room. The bid/ask price-line still paints
+// over the visible area so users see prices moving but no candle. Every
+// pro terminal (MT5, TradingView, cTrader) reserves a few bars of right
+// padding so the live forming candle has a place to live in the visible
+// range. 8 bars matches the convention without wasting too much canvas.
+export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 8;
 export const CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING = 3;
 // LightweightCharts v5 LineStyle enum:
 //   0 = Solid     []
@@ -40,6 +50,8 @@ export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 58;
 export const CHART_TRADE_SHEET_TOP_GAP = 10;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT = 44;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH = 56;
+export const CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS = 100;
+export const CHART_VIEWPORT_TOUCH_FAILSAFE_MS = 8000;
 
 export const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 

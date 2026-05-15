@@ -14,7 +14,7 @@ import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
-import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
+import { useResolvedTradingLogin } from '../../state/tradingLogin';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAccountDealsQuery } from '../../query/deals';
 import { useOrdersByLoginQuery } from '../../query/orders';
@@ -370,12 +370,13 @@ export function HistoryScreen() {
   // GET /api/v2/positions/{login}/history — closed position history
   // GET /api/v2/account/deals             — deal history (JWT-resolved, date-range aware)
   // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
-  const accountLogin = resolveTradingLogin();
+  const accountLogin = useResolvedTradingLogin();
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
     enabled: isScreenFocused,
     refetchOnMount: 'always',
   });
   const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
+    login: accountLogin,
     enabled: isScreenFocused,
     refetchOnMount: 'always',
   });
@@ -409,7 +410,7 @@ export function HistoryScreen() {
   }, [refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const accountLoginStr = String(accountDetails?.id ?? accountLogin ?? '—');
-  const accountLoginString = resolveTradingLoginString();
+  const accountLoginString = accountLogin !== undefined ? String(accountLogin) : undefined;
 
   // ── Account Summary from backend API ────────────────────────────────
   // GET /api/account/summary — provides balance, currency, leverage, etc.

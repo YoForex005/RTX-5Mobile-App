@@ -1,7 +1,5 @@
-import React from 'react';
-
-import { AccountLoginScreen } from './login';
+import { Redirect } from 'expo-router';
 
 export default function ContestLoginScreen() {
-  return <AccountLoginScreen variant="contest" />;
+  return <Redirect href="/login" />;
 }

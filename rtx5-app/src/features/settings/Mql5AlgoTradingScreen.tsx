@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
@@ -18,11 +18,17 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { makeMql5AlgoTradingStyles, type Mql5AlgoTradingStyles } from './Mql5AlgoTradingScreen.styles';
 import {
+  DEFAULT_ALGO_STRATEGY_FILTERS,
   MQL5_ALGO_PREVIEW_DATA,
+  applyAlgoStrategyFilters,
   filterStrategiesByCategory,
+  getActiveAlgoFilterCount,
   hasConnectedAlgoAccount,
   selectAlgoCategories,
   type AccountConnectionStatus,
+  type AlgoStrategyFilters,
+  type AlgoStrategyLibraryFilter,
+  type AlgoStrategySortOption,
   type ActiveBot,
   type ActivitySeverity,
   type AlgoCategory,
@@ -57,15 +63,21 @@ export function Mql5AlgoTradingScreen() {
   const [confirmation, setConfirmation] = useState<ConfirmationConfig | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [filters, setFilters] = useState<AlgoStrategyFilters>(DEFAULT_ALGO_STRATEGY_FILTERS);
 
   const categories = useMemo(
     () => selectAlgoCategories(screenData.categories, selectedCategory),
     [screenData.categories, selectedCategory],
   );
-  const visibleStrategies = useMemo(
-    () => filterStrategiesByCategory(screenData.featuredStrategies, selectedCategory),
-    [screenData.featuredStrategies, selectedCategory],
-  );
+  // Run sheet filters first, then narrow by category tab. Both are
+  // orthogonal concerns: filters cover trust/risk/library/sort, the tab
+  // rail covers strategy *type*.
+  const visibleStrategies = useMemo(() => {
+    const filtered = applyAlgoStrategyFilters(screenData.featuredStrategies, filters);
+    return filterStrategiesByCategory(filtered, selectedCategory);
+  }, [screenData.featuredStrategies, filters, selectedCategory]);
+  const activeFilterCount = useMemo(() => getActiveAlgoFilterCount(filters), [filters]);
 
   const showLoading = screenData.uiState.loading_status === 'loading';
   const showError = screenData.uiState.loading_status === 'error';
@@ -126,6 +138,8 @@ export function Mql5AlgoTradingScreen() {
           <AlgoHeader
             onBack={goBack}
             onOpenSearch={() => setSearchOpen(true)}
+            onOpenFilters={() => setFilterSheetOpen(true)}
+            activeFilterCount={activeFilterCount}
             T={T}
             styles={styles}
           />
@@ -207,6 +221,19 @@ export function Mql5AlgoTradingScreen() {
       </ScrollView>
 
       <ConfirmationModal config={confirmation} onClose={() => setConfirmation(null)} styles={styles} />
+      <AlgoFilterSheet
+        visible={filterSheetOpen}
+        filters={filters}
+        strategies={screenData.featuredStrategies}
+        onClose={() => setFilterSheetOpen(false)}
+        onApply={(next) => {
+          setFilters(next);
+          setFilterSheetOpen(false);
+        }}
+        onReset={() => setFilters(DEFAULT_ALGO_STRATEGY_FILTERS)}
+        T={T}
+        styles={styles}
+      />
     </Screen>
   );
 }
@@ -271,11 +298,15 @@ function AlgoScreenContent({
 function AlgoHeader({
   onBack,
   onOpenSearch,
+  onOpenFilters,
+  activeFilterCount,
   T,
   styles,
 }: {
   onBack: () => void;
   onOpenSearch: () => void;
+  onOpenFilters: () => void;
+  activeFilterCount: number;
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
@@ -295,7 +326,10 @@ function AlgoHeader({
 
       <View style={styles.headerActions}>
         <HeaderIcon icon="search" onPress={onOpenSearch} T={T} styles={styles} />
-        <HeaderIcon icon="options-outline" T={T} styles={styles} />
+        <View>
+          <HeaderIcon icon="options-outline" onPress={onOpenFilters} T={T} styles={styles} />
+          {activeFilterCount > 0 ? <View style={styles.headerFilterDot} /> : null}
+        </View>
       </View>
     </View>
   );
@@ -378,8 +412,6 @@ function ConnectedAccountCard({
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
-  const connectionMeta = getConnectionMeta(account?.connection_status, T);
-  const algoMeta = getAlgoStatusMeta(account?.algo_trading_status, T);
   const palette = getAlgoUiPalette(T);
   const todayPnlTone = getPnlTone(performance?.today_pnl);
   const accountMetricItems = [
@@ -423,10 +455,6 @@ function ConnectedAccountCard({
           <Text style={styles.accountServer} numberOfLines={1}>
             {[account?.account_number_masked, account?.broker_server, account?.account_type].filter(Boolean).join(' / ')}
           </Text>
-        </View>
-        <View style={styles.badgeColumn}>
-          <StatusBadge label={account?.connection_status ?? 'Disconnected'} color={connectionMeta.color} styles={styles} />
-          <StatusBadge label={account?.algo_trading_status ?? 'Disabled'} color={algoMeta.color} styles={styles} />
         </View>
       </View>
 
@@ -498,9 +526,7 @@ function PerformanceOverviewCard({
       {performance?.sparkline_data.length ? (
         <PerformanceChart
           values={performance.sparkline_data}
-          symbols={performance.active_symbols}
           color={getPnlColor(performance.net_pnl, T)}
-          T={T}
           styles={styles}
         />
       ) : null}
@@ -540,19 +566,13 @@ function MetricTile({
 
 function PerformanceChart({
   values,
-  symbols,
   color,
-  T,
   styles,
 }: {
   values: number[];
-  symbols: string[];
   color: string;
-  T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
-  const palette = getAlgoUiPalette(T);
-
   return (
     <View style={styles.performanceChartSection}>
       <View style={styles.chartPanel}>
@@ -572,21 +592,6 @@ function PerformanceChart({
             </View>
           </View>
         </View>
-      </View>
-
-      <View style={styles.symbolStack}>
-        {symbols.slice(0, 3).map((symbol) => (
-          <View key={symbol} style={styles.symbolPill}>
-            <View style={[styles.symbolDot, { backgroundColor: getSymbolColor(symbol, T) }]} />
-            <Text style={styles.symbolPillText} numberOfLines={1}>{symbol}</Text>
-          </View>
-        ))}
-        {symbols.length === 0 ? (
-          <View style={styles.symbolPill}>
-            <View style={[styles.symbolDot, { backgroundColor: palette.secondary }]} />
-            <Text style={styles.symbolPillText}>No symbols</Text>
-          </View>
-        ) : null}
       </View>
     </View>
   );
@@ -658,50 +663,96 @@ function StrategyCard({
   T: ThemeColors;
   styles: Mql5AlgoTradingStyles;
 }) {
-  const riskMeta = getRiskMeta(strategy.risk_level, T);
   const palette = getAlgoUiPalette(T);
-  const performanceLabel = strategy.live_verified || strategy.performance_summary ? strategy.performance_summary ?? 'Live verified' : 'Unverified';
+  const riskMeta = getRiskMeta(strategy.risk_level, T);
+  const ratingLabel = typeof strategy.rating === 'number' ? strategy.rating.toFixed(1) : null;
+  const usersLabel = formatCompactCount(strategy.users_count);
+  const priceLabel = formatMonthlyPrice(strategy.monthly_price);
+  const primaryActionLabel = strategy.is_installed ? 'Manage' : 'Connect';
+  const showTrialNote = strategy.trial_available && !strategy.is_installed;
+  const marketLineParts = [
+    ...strategy.supported_symbols.slice(0, 2),
+    ...strategy.supported_timeframes.slice(0, 2),
+  ];
 
   return (
     <View style={styles.strategyCard}>
+      {/* Type kicker + bookmark — quiet header so the title can lead */}
       <View style={styles.strategyTopRow}>
-        <View style={styles.providerAvatar}>
-          <Text style={styles.providerAvatarText}>{strategy.provider_avatar ?? strategy.provider_name.slice(0, 2)}</Text>
+        <View style={styles.strategyTypeChip}>
+          <Text style={styles.strategyTypeChipText} numberOfLines={1}>{strategy.strategy_type}</Text>
         </View>
-        <Pressable style={styles.favoriteButton}>
-          <Ionicons name={strategy.is_favorite ? 'bookmark' : 'bookmark-outline'} size={18} color={strategy.is_favorite ? palette.warning : palette.secondary} />
+        <Pressable style={styles.favoriteButton} hitSlop={6} accessibilityLabel="Bookmark strategy">
+          <Ionicons
+            name={strategy.is_favorite ? 'bookmark' : 'bookmark-outline'}
+            size={16}
+            color={strategy.is_favorite ? palette.warning : palette.secondary}
+          />
         </Pressable>
       </View>
 
-      <View style={styles.strategyTitleRow}>
-        <Text style={styles.strategyTitle} numberOfLines={2}>{strategy.strategy_name}</Text>
-        {strategy.verified_status ? <VerifiedBadge styles={styles} /> : null}
-      </View>
-      <Text style={styles.strategyProvider} numberOfLines={1}>{strategy.provider_name}</Text>
+      {/* Title — the single bold element in the body */}
+      <Text style={styles.strategyTitle} numberOfLines={2}>{strategy.strategy_name}</Text>
 
-      <View style={styles.badgeWrap}>
-        <TextChip label={strategy.strategy_type} styles={styles} />
-        <StatusBadge label={strategy.risk_level} color={riskMeta.color} styles={styles} />
-        <StatusBadge label={performanceLabel} color={strategy.live_verified ? palette.success : palette.secondary} styles={styles} />
-      </View>
-
-      <Text style={styles.strategyMarketLine} numberOfLines={1}>
-        {strategy.supported_symbols.slice(0, 2).join(', ')} / {strategy.supported_timeframes.slice(0, 2).join(', ')}
-      </Text>
-
-      <View style={styles.strategyStats}>
-        <InlineMetric label="Rating" value={strategy.rating ? strategy.rating.toFixed(1) : 'Unrated'} styles={styles} />
-        <InlineMetric label="Users" value={formatCompactCount(strategy.users_count)} styles={styles} />
-        <InlineMetric label="Price" value={formatMonthlyPrice(strategy.monthly_price)} styles={styles} />
+      {/* Provider attribution: small avatar, name, verified check inline */}
+      <View style={styles.providerRow}>
+        <View style={styles.providerAvatar}>
+          <Text style={styles.providerAvatarText}>
+            {strategy.provider_avatar ?? strategy.provider_name.slice(0, 2).toUpperCase()}
+          </Text>
+        </View>
+        <Text style={styles.providerName} numberOfLines={1}>{strategy.provider_name}</Text>
+        {strategy.verified_status ? (
+          <Ionicons name="checkmark-circle" size={14} color={palette.success} />
+        ) : null}
       </View>
 
-      <View style={styles.strategyActions}>
-        <Pressable style={styles.secondaryButton}>
-          <Text style={styles.secondaryButtonText}>View</Text>
-        </Pressable>
-        <Pressable style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>Connect</Text>
-        </Pressable>
+      {/* Meta row: rating · users · risk · live (only what's available) */}
+      <View style={styles.strategyMetaRow}>
+        {ratingLabel ? (
+          <View style={styles.strategyMetaItem}>
+            <Ionicons name="star" size={12} color={palette.warning} />
+            <Text style={styles.strategyMetaText}>{ratingLabel}</Text>
+          </View>
+        ) : null}
+        <View style={styles.strategyMetaItem}>
+          <Ionicons name="people" size={12} color={palette.secondary} />
+          <Text style={styles.strategyMetaText}>{usersLabel}</Text>
+        </View>
+        <View style={styles.strategyMetaItem}>
+          <View style={[styles.strategyRiskDot, { backgroundColor: riskMeta.color }]} />
+          <Text style={styles.strategyMetaText}>{strategy.risk_level} risk</Text>
+        </View>
+        {strategy.live_verified ? (
+          <View style={styles.strategyMetaItem}>
+            <View style={[styles.strategyRiskDot, { backgroundColor: palette.success }]} />
+            <Text style={styles.strategyMetaText}>Live</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Markets / timeframes — subdued reference line */}
+      {marketLineParts.length > 0 ? (
+        <Text style={styles.strategyMarketsLine} numberOfLines={1}>
+          {marketLineParts.join(' · ')}
+        </Text>
+      ) : null}
+
+      {/* Footer: price (left, prominent) + asymmetric actions (right) */}
+      <View style={styles.strategyDivider} />
+      <View style={styles.strategyFooter}>
+        <View style={styles.strategyPriceBlock}>
+          <Text style={styles.strategyPrice} numberOfLines={1}>{priceLabel}</Text>
+          {showTrialNote ? <Text style={styles.strategyPriceSub}>Free trial</Text> : null}
+        </View>
+        <View style={styles.strategyActions}>
+          <Pressable style={styles.strategyGhostButton} hitSlop={4}>
+            <Text style={styles.strategyGhostButtonText}>View</Text>
+          </Pressable>
+          <Pressable style={styles.strategyPrimaryButton} hitSlop={4}>
+            <Text style={styles.strategyPrimaryButtonText}>{primaryActionLabel}</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -995,6 +1046,256 @@ function ActivityRow({
   );
 }
 
+type LibraryOption = { id: AlgoStrategyLibraryFilter; label: string };
+type SortOption = { id: AlgoStrategySortOption; label: string };
+
+const LIBRARY_OPTIONS: LibraryOption[] = [
+  { id: 'all', label: 'All' },
+  { id: 'installed', label: 'Installed' },
+  { id: 'favorites', label: 'Favorites' },
+];
+
+const RISK_OPTIONS: AlgoRiskLevel[] = ['Low', 'Medium', 'High'];
+
+const SORT_OPTIONS: SortOption[] = [
+  { id: 'recommended', label: 'Recommended' },
+  { id: 'popular', label: 'Most popular' },
+  { id: 'rating', label: 'Top rated' },
+];
+
+function AlgoFilterSheet({
+  visible,
+  filters,
+  strategies,
+  onClose,
+  onApply,
+  onReset,
+  T,
+  styles,
+}: {
+  visible: boolean;
+  filters: AlgoStrategyFilters;
+  strategies: Strategy[];
+  onClose: () => void;
+  onApply: (next: AlgoStrategyFilters) => void;
+  onReset: () => void;
+  T: ThemeColors;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  // Local draft so users can play with toggles before committing via Apply.
+  const [draft, setDraft] = useState<AlgoStrategyFilters>(filters);
+
+  // Resync draft whenever the sheet reopens with the current applied filters.
+  useEffect(() => {
+    if (visible) setDraft(filters);
+  }, [visible, filters]);
+
+  const palette = getAlgoUiPalette(T);
+  // Live result count for the Apply button so users see what their toggles
+  // will produce before committing. Ignores the category tab — the sheet is
+  // orthogonal to it; users can verify their narrowing in the page after.
+  const previewCount = useMemo(
+    () => applyAlgoStrategyFilters(strategies, draft).length,
+    [strategies, draft],
+  );
+
+  const toggleRisk = (level: AlgoRiskLevel) => {
+    setDraft((prev) => ({
+      ...prev,
+      riskLevels: prev.riskLevels.includes(level)
+        ? prev.riskLevels.filter((existing) => existing !== level)
+        : [...prev.riskLevels, level],
+    }));
+  };
+
+  return (
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.filterSheetOverlay}>
+        <Pressable style={styles.filterSheetBackdrop} onPress={onClose} />
+        <View style={styles.filterSheet}>
+          <View style={styles.filterSheetHandle} />
+          <View style={styles.filterSheetHeader}>
+            <Text style={styles.filterSheetTitle}>Filters</Text>
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              style={styles.filterSheetCloseButton}
+              accessibilityRole="button"
+              accessibilityLabel="Close filters"
+            >
+              <Ionicons name="close" size={18} color={palette.secondary} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetBody}>
+            <FilterSection title="Library" styles={styles}>
+              <View style={styles.filterChipRow}>
+                {LIBRARY_OPTIONS.map((option) => (
+                  <FilterChip
+                    key={option.id}
+                    label={option.label}
+                    selected={draft.library === option.id}
+                    onPress={() => setDraft((prev) => ({ ...prev, library: option.id }))}
+                    palette={palette}
+                    styles={styles}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="Risk level" styles={styles}>
+              <View style={styles.filterChipRow}>
+                {RISK_OPTIONS.map((level) => (
+                  <FilterChip
+                    key={level}
+                    label={level}
+                    selected={draft.riskLevels.includes(level)}
+                    onPress={() => toggleRisk(level)}
+                    palette={palette}
+                    styles={styles}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="Verification" styles={styles}>
+              <FilterToggleRow
+                label="Verified seller only"
+                value={draft.verifiedSellerOnly}
+                onValueChange={(next) => setDraft((prev) => ({ ...prev, verifiedSellerOnly: next }))}
+                palette={palette}
+                styles={styles}
+              />
+              <FilterToggleRow
+                label="Live-verified track record"
+                value={draft.liveVerifiedOnly}
+                onValueChange={(next) => setDraft((prev) => ({ ...prev, liveVerifiedOnly: next }))}
+                palette={palette}
+                styles={styles}
+              />
+            </FilterSection>
+
+            <FilterSection title="Sort by" styles={styles}>
+              <View style={styles.filterChipRow}>
+                {SORT_OPTIONS.map((option) => (
+                  <FilterChip
+                    key={option.id}
+                    label={option.label}
+                    selected={draft.sort === option.id}
+                    onPress={() => setDraft((prev) => ({ ...prev, sort: option.id }))}
+                    palette={palette}
+                    styles={styles}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+          </ScrollView>
+
+          <View style={styles.filterSheetFooter}>
+            <Pressable
+              style={styles.filterResetButton}
+              onPress={() => {
+                setDraft(DEFAULT_ALGO_STRATEGY_FILTERS);
+                onReset();
+              }}
+              hitSlop={6}
+            >
+              <Text style={styles.filterResetButtonText}>Reset</Text>
+            </Pressable>
+            <Pressable
+              style={styles.filterApplyButton}
+              onPress={() => onApply(draft)}
+              hitSlop={6}
+            >
+              <Text style={styles.filterApplyButtonText}>
+                Apply · {previewCount} {previewCount === 1 ? 'result' : 'results'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function FilterSection({
+  title,
+  children,
+  styles,
+}: {
+  title: string;
+  children: React.ReactNode;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  return (
+    <View style={styles.filterSection}>
+      <Text style={styles.filterSectionTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function FilterChip({
+  label,
+  selected,
+  onPress,
+  palette,
+  styles,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  palette: ReturnType<typeof getAlgoUiPalette>;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={4}
+      style={[
+        styles.filterChip,
+        selected && {
+          borderColor: palette.primary,
+          backgroundColor: withAlpha(palette.primary, 0.16),
+        },
+      ]}
+    >
+      <Text style={[styles.filterChipText, selected && { color: palette.primary }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function FilterToggleRow({
+  label,
+  value,
+  onValueChange,
+  palette,
+  styles,
+}: {
+  label: string;
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  palette: ReturnType<typeof getAlgoUiPalette>;
+  styles: Mql5AlgoTradingStyles;
+}) {
+  return (
+    <View style={styles.filterToggleRow}>
+      <Text style={styles.filterToggleLabel}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{
+          false: withAlpha(palette.secondary, 0.34),
+          true: withAlpha(palette.primary, 0.42),
+        }}
+        thumbColor={value ? palette.primary : palette.secondary}
+      />
+    </View>
+  );
+}
+
 function ConfirmationModal({
   config,
   onClose,
@@ -1044,14 +1345,6 @@ function StatusBadge({ label, color, styles }: { label: string; color: string; s
   );
 }
 
-function VerifiedBadge({ styles }: { styles: Mql5AlgoTradingStyles }) {
-  return (
-    <View style={styles.verifiedBadge}>
-      <Ionicons name="checkmark" size={9} color="#07111F" />
-    </View>
-  );
-}
-
 function InlineMetric({
   label,
   value,
@@ -1069,14 +1362,6 @@ function InlineMetric({
     <View style={[styles.inlineMetric, showDivider && styles.inlineMetricDivider]}>
       <Text style={styles.inlineMetricLabel}>{label}</Text>
       <Text style={[styles.inlineMetricValue, valueColor ? { color: valueColor } : null]} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-function TextChip({ label, styles }: { label: string; styles: Mql5AlgoTradingStyles }) {
-  return (
-    <View style={styles.textChip}>
-      <Text style={styles.textChipText}>{label}</Text>
     </View>
   );
 }
@@ -1311,16 +1596,6 @@ function getPnlColor(value: number | null | undefined, T: ThemeColors): string {
   if (typeof value !== 'number') return palette.secondary;
   if (value > 0) return palette.success;
   if (value < 0) return palette.danger;
-  return palette.secondary;
-}
-
-function getSymbolColor(symbol: string, T: ThemeColors): string {
-  const palette = getAlgoUiPalette(T);
-  const normalizedSymbol = symbol.toUpperCase();
-
-  if (normalizedSymbol.includes('XAU') || normalizedSymbol.includes('GOLD')) return palette.warning;
-  if (normalizedSymbol.includes('EUR')) return palette.primary;
-  if (normalizedSymbol.includes('US')) return palette.danger;
   return palette.secondary;
 }
 

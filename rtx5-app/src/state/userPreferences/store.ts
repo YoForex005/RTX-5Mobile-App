@@ -60,6 +60,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
       openOrderMode: 'Regular',
       oneClickAccepted: false,
       historyRange: 'All time',
+      marketNewsSavedIds: [],
       historyFromMs: null,
       historyToMs: null,
       isDemoAccount: true,
@@ -215,6 +216,20 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setOpenOrderMode: (mode) => set({ openOrderMode: mode }),
       setOneClickAccepted: (accepted) => set({ oneClickAccepted: accepted }),
       setHistoryRange: (range) => set({ historyRange: range }),
+      setMarketNewsSavedIds: (newsIds) =>
+        set({
+          marketNewsSavedIds: Array.from(new Set(newsIds.map((id) => id.trim()).filter(Boolean))),
+        }),
+      toggleMarketNewsSavedId: (newsId) => {
+        const normalizedId = newsId.trim();
+        if (!normalizedId) return;
+
+        set((state) => ({
+          marketNewsSavedIds: state.marketNewsSavedIds.includes(normalizedId)
+            ? state.marketNewsSavedIds.filter((id) => id !== normalizedId)
+            : [...state.marketNewsSavedIds, normalizedId],
+        }));
+      },
       setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
@@ -254,7 +269,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 14,
+      version: 15,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -303,6 +318,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
           ...state,
           hasHydrated: false,
           historyRange: nextHistoryRange,
+          marketNewsSavedIds: Array.isArray(state.marketNewsSavedIds)
+            ? Array.from(new Set(state.marketNewsSavedIds.map((id) => id.trim()).filter(Boolean)))
+            : [],
           historyFromMs: state.historyFromMs ?? null,
           historyToMs: state.historyToMs ?? null,
           chartShowOnChart: nextChartShowOnChart,

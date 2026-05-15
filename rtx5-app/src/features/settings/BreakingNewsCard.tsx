@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { NewsSentiment } from './newsViewModel';
+import { useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { NewsImpactLevel, NewsSentiment } from './newsViewModel';
 
 export type BreakingNewsCardData = {
   id: string;
@@ -9,6 +10,8 @@ export type BreakingNewsCardData = {
   summary: string;
   source: string;
   published_at: string;
+  impact_level: NewsImpactLevel;
+  category: string;
   sentiment?: NewsSentiment;
   affected_symbols: string[];
 };
@@ -18,13 +21,11 @@ type BreakingNewsCardProps = {
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
+  onSymbolPress?: (symbol: string) => void;
   isDark?: boolean;
 };
 
-const MAX_VISIBLE_SYMBOLS = 4;
-const BREAKING_NEWS_HEADING = 'Global Market Drivers & Sentiment';
-const BREAKING_NEWS_SUBHEADING =
-  'Track high-impact news, volatility shifts, and price-moving events across Forex, indices, commodities, and metals.';
+const MAX_VISIBLE_SYMBOLS = 3;
 
 type BreakingNewsTonePalette = {
   cardGradient: readonly [string, string, string, string];
@@ -123,6 +124,7 @@ export function BreakingNewsCard({
   isLoading = false,
   errorMessage,
   onRetry,
+  onSymbolPress,
   isDark = true,
 }: BreakingNewsCardProps) {
   if (isLoading) {
@@ -166,9 +168,16 @@ export function BreakingNewsCard({
         </View>
 
         <View style={styles.leftColumn}>
-          <NewsHeadline title={BREAKING_NEWS_HEADING} isDark={isDark} />
-          <NewsSubheading text={BREAKING_NEWS_SUBHEADING} isDark={isDark} />
+          <NewsHeadline title={breakingNews.title} isDark={isDark} />
+          <NewsSubheading text={breakingNews.summary} isDark={isDark} />
         </View>
+
+        <BreakingContextRow
+          impactLevel={breakingNews.impact_level}
+          category={breakingNews.category}
+          isDark={isDark}
+          palette={palette}
+        />
 
         <View style={[styles.divider, !isDark && styles.dividerLight]} />
 
@@ -176,7 +185,7 @@ export function BreakingNewsCard({
           <AffectedSymbolsRow
             symbols={breakingNews.affected_symbols}
             isDark={isDark}
-            palette={palette}
+            onSymbolPress={onSymbolPress}
           />
         </View>
       </LinearGradient>
@@ -208,7 +217,7 @@ function BreakingBadge({
 
 function NewsHeadline({ title, isDark }: { title: string; isDark: boolean }) {
   return (
-    <Text style={[styles.headline, !isDark && styles.headlineLight]} numberOfLines={4}>
+    <Text style={[styles.headline, !isDark && styles.headlineLight]} numberOfLines={3}>
       {title}
     </Text>
   );
@@ -216,9 +225,43 @@ function NewsHeadline({ title, isDark }: { title: string; isDark: boolean }) {
 
 function NewsSubheading({ text, isDark }: { text: string; isDark: boolean }) {
   return (
-    <Text style={[styles.subheading, !isDark && styles.subheadingLight]} numberOfLines={3}>
+    <Text style={[styles.subheading, !isDark && styles.subheadingLight]} numberOfLines={2}>
       {text}
     </Text>
+  );
+}
+
+function BreakingContextRow({
+  impactLevel,
+  category,
+  isDark,
+  palette,
+}: {
+  impactLevel: NewsImpactLevel;
+  category: string;
+  isDark: boolean;
+  palette: BreakingNewsTonePalette;
+}) {
+  return (
+    <View style={styles.contextRow}>
+      <View style={[styles.contextChip, !isDark && styles.contextChipLight]}>
+        <Text style={[styles.contextText, !isDark && styles.contextTextLight]} numberOfLines={1}>
+          {category}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.contextChip,
+          !isDark && styles.contextChipLight,
+          { borderColor: palette.readMoreBorderColor },
+        ]}
+      >
+        <View style={[styles.impactDot, { backgroundColor: palette.iconColor }]} />
+        <Text style={[styles.contextText, { color: palette.readMoreTextColor }]} numberOfLines={1}>
+          {impactLevel} Impact
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -257,16 +300,23 @@ function NewsMetaRow({
 function AffectedSymbolsRow({
   symbols,
   isDark,
-  palette,
+  onSymbolPress,
 }: {
   symbols: string[];
   isDark: boolean;
-  palette: BreakingNewsTonePalette;
+  onSymbolPress?: (symbol: string) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
+
   if (symbols.length === 0) return null;
 
   const visibleSymbols = symbols.slice(0, MAX_VISIBLE_SYMBOLS);
   const overflowCount = Math.max(0, symbols.length - visibleSymbols.length);
+
+  const handleSymbolPress = (symbol: string) => {
+    setShowAll(false);
+    onSymbolPress?.(symbol);
+  };
 
   return (
     <View style={styles.symbolBlock}>
@@ -280,39 +330,117 @@ function AffectedSymbolsRow({
         style={styles.symbolScroller}
       >
         {visibleSymbols.map((symbol) => (
-          <View key={symbol} style={[styles.symbolChip, !isDark && styles.symbolChipLight]}>
+          <Pressable
+            key={symbol}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${symbol} chart`}
+            disabled={!onSymbolPress}
+            hitSlop={6}
+            onPress={() => onSymbolPress?.(symbol)}
+            style={[styles.symbolChip, !isDark && styles.symbolChipLight]}
+          >
             <Text style={[styles.symbolText, !isDark && styles.symbolTextLight]} numberOfLines={1}>
               {symbol}
             </Text>
-          </View>
+          </Pressable>
         ))}
         {overflowCount > 0 ? (
-          <View style={[styles.symbolChip, !isDark && styles.symbolChipLight]}>
-            <Text style={[styles.symbolText, !isDark && styles.symbolTextLight]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Show all ${symbols.length} affected symbols`}
+            hitSlop={6}
+            onPress={() => setShowAll(true)}
+            style={[styles.symbolChip, styles.symbolOverflowChip, !isDark && styles.symbolOverflowChipLight]}
+          >
+            <Text style={[styles.symbolText, styles.symbolOverflowText, !isDark && styles.symbolOverflowTextLight]}>
               +{overflowCount}
             </Text>
-          </View>
+          </Pressable>
         ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Read more breaking news"
-          hitSlop={8}
-          style={[
-            styles.readMoreChip,
-            !isDark && styles.readMoreChipLight,
-            {
-              backgroundColor: palette.readMoreBackgroundColor,
-              borderColor: palette.readMoreBorderColor,
-            },
-          ]}
-        >
-          <Text style={[styles.readMoreText, !isDark && styles.readMoreTextLight, { color: palette.readMoreTextColor }]}>
-            Read More
-          </Text>
-          <Ionicons name="chevron-forward" size={12} color={palette.readMoreTextColor} />
-        </Pressable>
       </ScrollView>
+
+      <AllSymbolsModal
+        visible={showAll}
+        symbols={symbols}
+        isDark={isDark}
+        onClose={() => setShowAll(false)}
+        onSymbolPress={onSymbolPress ? handleSymbolPress : undefined}
+      />
     </View>
+  );
+}
+
+function AllSymbolsModal({
+  visible,
+  symbols,
+  isDark,
+  onClose,
+  onSymbolPress,
+}: {
+  visible: boolean;
+  symbols: string[];
+  isDark: boolean;
+  onClose: () => void;
+  onSymbolPress?: (symbol: string) => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={[styles.allSymbolsOverlay, !isDark && styles.allSymbolsOverlayLight]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[styles.allSymbolsSheet, !isDark && styles.allSymbolsSheetLight]}>
+          <View style={[styles.allSymbolsHandle, !isDark && styles.allSymbolsHandleLight]} />
+          <View style={styles.allSymbolsHeader}>
+            <View style={styles.allSymbolsHeaderCopy}>
+              <Text style={[styles.allSymbolsTitle, !isDark && styles.allSymbolsTitleLight]}>
+                Affected Symbols
+              </Text>
+              <Text style={[styles.allSymbolsSubtitle, !isDark && styles.allSymbolsSubtitleLight]}>
+                {symbols.length} symbol{symbols.length === 1 ? '' : 's'} impacted by this story
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close affected symbols"
+              hitSlop={8}
+              onPress={onClose}
+              style={[styles.allSymbolsCloseButton, !isDark && styles.allSymbolsCloseButtonLight]}
+            >
+              <Ionicons name="close" size={18} color={isDark ? '#E2E8F0' : '#334155'} />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.allSymbolsGrid}
+          >
+            {symbols.map((symbol) => (
+              <Pressable
+                key={symbol}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${symbol} chart`}
+                disabled={!onSymbolPress}
+                hitSlop={4}
+                onPress={() => onSymbolPress?.(symbol)}
+                style={[styles.allSymbolsChip, !isDark && styles.allSymbolsChipLight]}
+              >
+                <Text
+                  style={[styles.allSymbolsChipText, !isDark && styles.allSymbolsChipTextLight]}
+                  numberOfLines={1}
+                >
+                  {symbol}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -398,7 +526,7 @@ function BreakingNewsError({
 const styles = StyleSheet.create({
   cardShadow: {
     width: '100%',
-    height: 292,
+    height: 290,
     borderRadius: 22,
     shadowColor: '#FF3347',
     shadowOffset: { width: 0, height: 0 },
@@ -408,7 +536,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    height: 292,
+    height: 290,
     borderRadius: 22,
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -469,10 +597,10 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   headline: {
-    marginTop: 14,
+    marginTop: 10,
     color: '#FFFFFF',
-    fontSize: 21,
-    lineHeight: 27,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '900',
     letterSpacing: 0,
   },
@@ -480,10 +608,10 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   subheading: {
-    marginTop: 9,
+    marginTop: 7,
     color: '#C5CAD3',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '500',
   },
   subheadingLight: {
@@ -519,11 +647,52 @@ const styles = StyleSheet.create({
   metaDividerLight: {
     backgroundColor: 'rgba(15,23,42,0.14)',
   },
+  contextRow: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 70,
+    zIndex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flexWrap: 'wrap',
+  },
+  contextChip: {
+    minHeight: 25,
+    maxWidth: 142,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(5,11,20,0.42)',
+    borderWidth: 1,
+    borderColor: 'rgba(190,200,220,0.24)',
+  },
+  contextChipLight: {
+    backgroundColor: 'rgba(241,245,249,0.9)',
+    borderColor: 'rgba(15,23,42,0.1)',
+  },
+  contextText: {
+    color: '#DDE7F6',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  contextTextLight: {
+    color: '#334155',
+  },
+  impactDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   divider: {
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 62,
+    bottom: 64,
     zIndex: 2,
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.22)',
@@ -582,6 +751,136 @@ const styles = StyleSheet.create({
   },
   symbolTextLight: {
     color: '#334155',
+  },
+  symbolOverflowChip: {
+    backgroundColor: 'rgba(56,189,248,0.16)',
+    borderColor: 'rgba(125,211,252,0.5)',
+  },
+  symbolOverflowChipLight: {
+    backgroundColor: 'rgba(37,99,235,0.1)',
+    borderColor: 'rgba(37,99,235,0.32)',
+  },
+  symbolOverflowText: {
+    color: '#7DD3FC',
+  },
+  symbolOverflowTextLight: {
+    color: '#1D4ED8',
+  },
+  allSymbolsOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(2,6,23,0.72)',
+  },
+  allSymbolsOverlayLight: {
+    backgroundColor: 'rgba(15,23,42,0.34)',
+  },
+  allSymbolsSheet: {
+    marginHorizontal: 16,
+    marginBottom: 24,
+    maxHeight: '70%',
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 18,
+    borderRadius: 24,
+    backgroundColor: '#0B1220',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.2)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.36,
+    shadowRadius: 26,
+    elevation: 10,
+  },
+  allSymbolsSheetLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(15,23,42,0.1)',
+    shadowOpacity: 0.12,
+  },
+  allSymbolsHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 14,
+    backgroundColor: 'rgba(148,163,184,0.34)',
+  },
+  allSymbolsHandleLight: {
+    backgroundColor: 'rgba(100,116,139,0.24)',
+  },
+  allSymbolsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148,163,184,0.16)',
+  },
+  allSymbolsHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  allSymbolsTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '900',
+  },
+  allSymbolsTitleLight: {
+    color: '#0F172A',
+  },
+  allSymbolsSubtitle: {
+    marginTop: 4,
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  allSymbolsSubtitleLight: {
+    color: '#64748B',
+  },
+  allSymbolsCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.16)',
+  },
+  allSymbolsCloseButtonLight: {
+    backgroundColor: 'rgba(15,23,42,0.04)',
+    borderColor: 'rgba(15,23,42,0.1)',
+  },
+  allSymbolsGrid: {
+    paddingTop: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  allSymbolsChip: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15,23,42,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.22)',
+  },
+  allSymbolsChipLight: {
+    backgroundColor: 'rgba(241,245,249,0.92)',
+    borderColor: 'rgba(15,23,42,0.1)',
+  },
+  allSymbolsChipText: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  allSymbolsChipTextLight: {
+    color: '#0F172A',
   },
   readMoreChip: {
     height: 24,

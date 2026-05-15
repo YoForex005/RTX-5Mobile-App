@@ -40,6 +40,22 @@ export interface Deal {
   time: number;
 }
 
+const readDealsPayload = (json: unknown, depth = 0): Deal[] => {
+  if (Array.isArray(json)) return json as Deal[];
+  if (!json || typeof json !== 'object') return [];
+
+  const payload = json as Record<string, unknown>;
+  const keys = ['data', 'deals', 'items', 'records', 'rows', 'result', 'history'];
+
+  for (const key of keys) {
+    const value = payload[key];
+    const deals = depth < 2 ? readDealsPayload(value, depth + 1) : [];
+    if (Array.isArray(value) || deals.length > 0) return deals;
+  }
+
+  return [];
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Trading API — Account Deals (JWT-resolved, date-range aware)
 // Endpoint: GET /api/v2/account/deals
@@ -78,16 +94,13 @@ export const dealsApi = {
       throw { response: { data: errorData, status: response.status } };
     }
 
-    const json = await response.json();
-    if (Array.isArray(json)) return json;
-    if (Array.isArray(json?.data)) return json.data;
-    return [];
+    return readDealsPayload(await response.json());
   },
 
   /**
    * Fetch deal history for a trading account.
    *
-   * GET /api/v2/deals/{login}?limit={limit}&offset={offset}
+   * GET /api/v2/deals/{login}?limit={limit}&offset={offset}[&from={from}&to={to}]
    *
    * Deals are the atomic execution records that compose positions.
    * Each deal has an `entry` field indicating whether it opened ("entry_in")
@@ -98,16 +111,21 @@ export const dealsApi = {
    * @param offset  - Pagination offset (default: 0)
    * @returns Array of Deal objects from the account's history
    */
-  getDeals: async (login: number, limit = 1000, offset = 0): Promise<Deal[]> => {
-    const response = await apiClient(
-      `/deals/${login}?limit=${limit}&offset=${offset}`,
-    );
+  getDeals: async (login: number, limit = 1000, offset = 0, from?: number, to?: number): Promise<Deal[]> => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (from != null) params.set('from', String(from));
+    if (to != null) params.set('to', String(to));
+
+    const response = await apiClient(`/deals/${login}?${params.toString()}`);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw { response: { data: errorData, status: response.status } };
     }
 
-    return response.json();
+    return readDealsPayload(await response.json());
   },
 };

@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -25,9 +25,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
+import { ActionSheet } from '../../ui/components/ActionSheet';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import { useMarketSymbols } from '../../query/market';
+import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
+import { resolveQuoteFeedSymbols } from '../quotes/quoteWatchlistDefaults';
 import { BreakingNewsCard, type BreakingNewsCardData } from './BreakingNewsCard';
 import { getNewsThemeColors, makeNewsScreenStyles, type NewsScreenStyles, type NewsThemeColors } from './NewsScreen.styles';
 import {
@@ -50,12 +54,18 @@ export function NewsScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const watchlistSymbols = useUserPreferences((s) => s.quoteSymbols);
+  const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
+  const savedNewsIds = useUserPreferences((s) => s.marketNewsSavedIds);
+  const toggleSavedNews = useUserPreferences((s) => s.toggleMarketNewsSavedId);
+  const showActionSheet = useUIState((s) => s.showActionSheet);
+  const actionSheet = useUIState((s) => s.actionSheet);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const { data: marketSymbols = [] } = useMarketSymbols();
   const styles = useMemo(() => makeNewsScreenStyles(T, isDark), [T, isDark]);
   const newsColors = useMemo(() => getNewsThemeColors(isDark), [isDark]);
   const [refreshing, setRefreshing] = useState(false);
   const [status] = useState<NewsScreenStatus>('ready');
-  const [selectedCategory, setSelectedCategory] = useState('category-all');
-  const [selectedImpactFilter, setSelectedImpactFilter] = useState('filter-high-impact');
+  const [selectedImpactFilter, setSelectedImpactFilter] = useState('filter-all');
   const [visibleCount, setVisibleCount] = useState(8);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -65,14 +75,18 @@ export function NewsScreen() {
   const [selectedWatchlistNews, setSelectedWatchlistNews] = useState<WatchlistNewsItem | null>(null);
 
   const previewData = useMemo(() => buildMarketNewsPreviewData(watchlistSymbols), [watchlistSymbols]);
-  const data = useMemo(
-    () => applyMarketNewsSelection(previewData, selectedCategory, selectedImpactFilter, watchlistSymbols),
-    [previewData, selectedCategory, selectedImpactFilter, watchlistSymbols],
-  );
+  const data = useMemo(() => {
+    const selectedData = applyMarketNewsSelection(previewData, 'category-all', selectedImpactFilter, watchlistSymbols);
+    return applySavedNewsState(selectedData, savedNewsIds);
+  }, [previewData, selectedImpactFilter, savedNewsIds, watchlistSymbols]);
   const latestNews = useMemo(() => {
     const filteredNews = filterLatestNews(data.latestNews, data.categories, data.impactFilters);
     return filterNewsByQuery(filteredNews, searchQuery).slice(0, visibleCount);
   }, [data.latestNews, data.categories, data.impactFilters, searchQuery, visibleCount]);
+  const selectedLatestNewsItem = useMemo(
+    () => (selectedLatestNews ? data.latestNews.find((item) => item.newsId === selectedLatestNews.newsId) ?? selectedLatestNews : null),
+    [data.latestNews, selectedLatestNews],
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -83,6 +97,43 @@ export function NewsScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)/settings');
   }, []);
+
+  const openBreakingSymbolChart = useCallback((symbol: string) => {
+    const [resolvedSymbol] = resolveQuoteFeedSymbols([symbol], marketSymbols);
+    setChartSymbol(resolvedSymbol ?? symbol);
+    router.push('/(tabs)/chart');
+  }, [marketSymbols, setChartSymbol]);
+
+  const openFilterMenu = useCallback(() => {
+    const iconColor = newsColors.sub;
+    const selectedIconColor = newsColors.cyan;
+    const makeFilterAction = (filterId: string, label: string, iconName: ComponentProps<typeof Ionicons>['name']) => {
+      const selected = selectedImpactFilter === filterId;
+
+      return {
+        label,
+        icon: (
+          <Ionicons
+            name={selected ? 'checkmark-circle' : iconName}
+            size={20}
+            color={selected ? selectedIconColor : iconColor}
+          />
+        ),
+        onPress: () => setSelectedImpactFilter(filterId),
+      };
+    };
+
+    showActionSheet({
+      title: 'Filter news',
+      actions: [
+        makeFilterAction('filter-all', 'All news', 'newspaper-outline'),
+        makeFilterAction('filter-high-impact', 'High impact', 'alert-circle-outline'),
+        makeFilterAction('filter-watchlist', 'Watchlist', 'list-outline'),
+        makeFilterAction('filter-saved', 'Bookmarks', 'bookmark-outline'),
+      ],
+      detent: 'auto',
+    });
+  }, [newsColors.cyan, newsColors.sub, selectedImpactFilter, showActionSheet]);
 
   const closeSearch = useCallback(() => {
     Keyboard.dismiss();
@@ -113,9 +164,16 @@ export function NewsScreen() {
 
   const renderNewsCard = useCallback(
     ({ item }: ListRenderItemInfo<LatestNewsItem>) => (
-      <NewsCard item={item} colors={newsColors} styles={styles} onOpenNews={setSelectedLatestNews} />
+      <NewsCard
+        item={item}
+        T={T}
+        colors={newsColors}
+        styles={styles}
+        onOpenNews={setSelectedLatestNews}
+        onToggleSaved={toggleSavedNews}
+      />
     ),
-    [newsColors, styles],
+    [T, newsColors, styles, toggleSavedNews],
   );
 
   if (status === 'error') {
@@ -157,6 +215,7 @@ export function NewsScreen() {
           <NewsHeader
             onBack={goBack}
             onOpenSearch={() => setSearchOpen(true)}
+            onOpenFilters={openFilterMenu}
             colors={newsColors}
             styles={styles}
           />
@@ -182,10 +241,7 @@ export function NewsScreen() {
             status={status}
             data={data}
             latestNewsCount={latestNews.length}
-            selectedCategory={selectedCategory}
-            selectedImpactFilter={selectedImpactFilter}
-            setSelectedCategory={setSelectedCategory}
-            setSelectedImpactFilter={setSelectedImpactFilter}
+            onOpenBreakingSymbolChart={openBreakingSymbolChart}
             onOpenAiBrief={setSelectedAiBrief}
             onOpenEconomicEvent={setSelectedEconomicEvent}
             onOpenWatchlistNews={setSelectedWatchlistNews}
@@ -235,8 +291,8 @@ export function NewsScreen() {
         styles={styles}
       />
       <LatestNewsDetailModal
-        item={selectedLatestNews}
-        visible={Boolean(selectedLatestNews)}
+        item={selectedLatestNewsItem}
+        visible={Boolean(selectedLatestNewsItem)}
         onClose={closeLatestNews}
         T={T}
         colors={newsColors}
@@ -257,6 +313,18 @@ export function NewsScreen() {
         colors={newsColors}
         styles={styles}
       />
+
+      <ActionSheet
+        visible={actionSheet !== null}
+        title={actionSheet?.title}
+        actions={actionSheet?.actions ?? []}
+        onClose={hideActionSheet}
+        searchable={actionSheet?.searchable}
+        detent={actionSheet?.detent}
+        minimumTopInset={actionSheet?.minimumTopInset}
+        instantOpen={actionSheet?.instantOpen}
+        runActionAfterClose={actionSheet?.runActionAfterClose}
+      />
     </Screen>
   );
 }
@@ -266,10 +334,7 @@ function MarketNewsHeaderContent({
   status,
   data,
   latestNewsCount,
-  selectedCategory,
-  selectedImpactFilter,
-  setSelectedCategory,
-  setSelectedImpactFilter,
+  onOpenBreakingSymbolChart,
   onOpenAiBrief,
   onOpenEconomicEvent,
   onOpenWatchlistNews,
@@ -281,10 +346,7 @@ function MarketNewsHeaderContent({
   status: NewsScreenStatus;
   data: MarketNewsScreenData;
   latestNewsCount: number;
-  selectedCategory: string;
-  selectedImpactFilter: string;
-  setSelectedCategory: (value: string) => void;
-  setSelectedImpactFilter: (value: string) => void;
+  onOpenBreakingSymbolChart: (symbol: string) => void;
   onOpenAiBrief: (brief: AiMarketBrief) => void;
   onOpenEconomicEvent: (event: EconomicCalendarEvent) => void;
   onOpenWatchlistNews: (item: WatchlistNewsItem) => void;
@@ -295,11 +357,16 @@ function MarketNewsHeaderContent({
   return (
     <View>
       {status === 'offline' ? <OfflineState colors={colors} styles={styles} /> : null}
+      <FreshnessRow updatedAt={data.lastUpdatedAt} colors={colors} styles={styles} />
 
       {status === 'loading' ? (
         <NewsSkeletonLoader styles={styles} compact />
       ) : data.breakingNews ? (
-        <BreakingNewsCard breakingNews={toBreakingNewsCardData(data.breakingNews)} isDark={isDark} />
+        <BreakingNewsCard
+          breakingNews={toBreakingNewsCardData(data.breakingNews)}
+          isDark={isDark}
+          onSymbolPress={onOpenBreakingSymbolChart}
+        />
       ) : (
         <EmptyState
           title="No market news available right now."
@@ -317,20 +384,6 @@ function MarketNewsHeaderContent({
         />
       ) : null}
 
-      <CategoryTabs
-        categories={data.categories}
-        selectedCategory={selectedCategory}
-        onSelect={setSelectedCategory}
-        styles={styles}
-      />
-
-      <ImpactFilterChips
-        filters={data.impactFilters}
-        selectedFilter={selectedImpactFilter}
-        onSelect={setSelectedImpactFilter}
-        styles={styles}
-      />
-
       <EconomicCalendarPreview
         events={data.economicEvents}
         colors={colors}
@@ -340,12 +393,13 @@ function MarketNewsHeaderContent({
 
       <WatchlistNewsSection
         items={data.watchlistNews}
+        T={T}
         colors={colors}
         styles={styles}
         onOpenItem={onOpenWatchlistNews}
       />
 
-      <LatestNewsFeed count={latestNewsCount} styles={styles} />
+      <LatestNewsFeed count={latestNewsCount} filterLabel={getSelectedFilterLabel(data.impactFilters)} styles={styles} />
     </View>
   );
 }
@@ -383,11 +437,13 @@ function MarketNewsFooterContent({
 function NewsHeader({
   onBack,
   onOpenSearch,
+  onOpenFilters,
   colors,
   styles,
 }: {
   onBack: () => void;
   onOpenSearch: () => void;
+  onOpenFilters: () => void;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
 }) {
@@ -407,8 +463,8 @@ function NewsHeader({
         <Pressable style={styles.headerIconButton} onPress={onOpenSearch} hitSlop={8} accessibilityLabel="Search market news">
           <Ionicons name="search" size={21} color={colors.sub} />
         </Pressable>
-        <Pressable style={styles.headerIconButton} hitSlop={8}>
-          <Ionicons name="filter" size={20} color={colors.sub} />
+        <Pressable style={styles.headerIconButton} onPress={onOpenFilters} hitSlop={8} accessibilityLabel="Open news filters">
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.sub} />
         </Pressable>
       </View>
     </View>
@@ -457,8 +513,26 @@ function toBreakingNewsCardData(item: NonNullable<MarketNewsScreenData['breaking
     summary: item.summary,
     source: item.source,
     published_at: item.publishedAt,
+    impact_level: item.impactLevel,
+    category: item.category,
     sentiment: item.sentiment,
     affected_symbols: item.affectedSymbols,
+  };
+}
+
+function applySavedNewsState(data: MarketNewsScreenData, savedNewsIds: readonly string[]): MarketNewsScreenData {
+  const savedIds = new Set(savedNewsIds);
+
+  return {
+    ...data,
+    latestNews: data.latestNews.map((item) => ({
+      ...item,
+      isSaved: savedIds.has(item.newsId),
+    })),
+    uiState: {
+      ...data.uiState,
+      savedNewsIds: [...savedIds],
+    },
   };
 }
 
@@ -478,6 +552,14 @@ function filterNewsByQuery(news: LatestNewsItem[], query: string): LatestNewsIte
 
     return searchableText.includes(normalizedQuery);
   });
+}
+
+function getSelectedFilterLabel(filters: ImpactFilter[]): string {
+  const selectedFilter = filters.find((filter) => filter.isSelected);
+  if (!selectedFilter) return 'All';
+  if (selectedFilter.filterName === 'Saved') return 'Bookmarks';
+  if (selectedFilter.filterName === 'High Impact') return 'High impact';
+  return selectedFilter.filterName;
 }
 
 function AiMarketBriefCard({
@@ -533,7 +615,7 @@ function AiMarketBriefCard({
       <View style={styles.aiCompactFooter}>
         <View style={styles.aiCompactMeta}>
           <Ionicons name="shield-checkmark-outline" size={12} color={colors.muted} />
-          <Text style={styles.aiCompactMetaText}>Verified platform brief</Text>
+          <Text style={styles.aiCompactMetaText}>Market brief</Text>
         </View>
         <Pressable
           accessibilityRole="button"
@@ -943,24 +1025,34 @@ function EconomicEventDetailModal({
 
 function LatestNewsFeed({
   count,
+  filterLabel,
   styles,
 }: {
   count: number;
+  filterLabel: string;
   styles: NewsScreenStyles;
 }) {
-  return <SectionHeader title="Latest Market News" action={count > 0 ? `${count} shown` : undefined} styles={styles} />;
+  const action = filterLabel === 'All'
+    ? `${count} shown`
+    : `${filterLabel} - ${count} shown`;
+
+  return <SectionHeader title="Latest Market News" action={count > 0 ? action : undefined} styles={styles} />;
 }
 
 function NewsCard({
   item,
+  T,
   colors,
   styles,
   onOpenNews,
+  onToggleSaved,
 }: {
   item: LatestNewsItem;
+  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
   onOpenNews: (item: LatestNewsItem) => void;
+  onToggleSaved: (newsId: string) => void;
 }) {
   return (
     <Pressable
@@ -991,8 +1083,25 @@ function NewsCard({
               <Text style={styles.metaText} numberOfLines={1}>{item.publishedAt}</Text>
             </View>
           </View>
-          <View style={styles.newsOpenButton}>
-            <Ionicons name="chevron-forward" size={16} color={colors.sub} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={item.isSaved ? 'Remove saved news' : 'Save news'}
+            hitSlop={8}
+            style={[styles.newsBookmarkButton, item.isSaved && styles.newsBookmarkButtonSaved]}
+            onPress={() => onToggleSaved(item.newsId)}
+          >
+            <Ionicons
+              name={item.isSaved ? 'bookmark' : 'bookmark-outline'}
+              size={16}
+              color={item.isSaved ? colors.gold : colors.sub}
+            />
+          </Pressable>
+        </View>
+
+        <View style={styles.newsChipRow}>
+          <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact />
+          <View style={styles.categoryTag}>
+            <Text style={styles.categoryTagText} numberOfLines={1}>{item.category}</Text>
           </View>
         </View>
 
@@ -1057,15 +1166,13 @@ function LatestNewsDetailModal({
           </View>
 
           <Text style={styles.latestNewsModalTitle}>{item.title}</Text>
-          <Text style={styles.latestNewsModalSummary}>{item.summary}</Text>
 
           <View style={styles.latestNewsMetaPanel}>
-            <Text style={styles.latestNewsLabel}>Classification</Text>
             <View style={styles.latestNewsChipRow}>
+              <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact />
               <View style={styles.categoryTag}>
                 <Text style={styles.categoryTagText}>{item.category}</Text>
               </View>
-              <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
               {item.isSaved ? (
                 <View style={styles.latestNewsSavedPill}>
                   <Ionicons name="bookmark" size={12} color={colors.gold} />
@@ -1082,6 +1189,11 @@ function LatestNewsDetailModal({
             </View>
           ) : null}
 
+          <View style={styles.latestNewsSummaryPanel}>
+            <Text style={styles.latestNewsLabel}>Summary</Text>
+            <Text style={styles.latestNewsModalSummary}>{item.summary}</Text>
+          </View>
+
           <View style={styles.eventModalNotice}>
             <Ionicons name="information-circle-outline" size={15} color={colors.muted} />
             <Text style={styles.eventModalNoticeText}>
@@ -1096,11 +1208,13 @@ function LatestNewsDetailModal({
 
 function WatchlistNewsSection({
   items,
+  T,
   colors,
   styles,
   onOpenItem,
 }: {
   items: WatchlistNewsItem[];
+  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
   onOpenItem: (item: WatchlistNewsItem) => void;
@@ -1115,6 +1229,7 @@ function WatchlistNewsSection({
           <WatchlistNewsCard
             key={`${item.userSymbol}-${item.publishedAt}`}
             item={item}
+            T={T}
             colors={colors}
             styles={styles}
             onOpenItem={onOpenItem}
@@ -1127,11 +1242,13 @@ function WatchlistNewsSection({
 
 function WatchlistNewsCard({
   item,
+  T,
   colors,
   styles,
   onOpenItem,
 }: {
   item: WatchlistNewsItem;
+  T: ThemeColors;
   colors: NewsThemeColors;
   styles: NewsScreenStyles;
   onOpenItem: (item: WatchlistNewsItem) => void;
@@ -1157,6 +1274,7 @@ function WatchlistNewsCard({
           </View>
           <Text style={styles.watchlistMatchText} numberOfLines={1}>Watchlist match</Text>
         </View>
+        <ImpactBadge impact={item.impactLevel} T={T} styles={styles} compact hideDot />
       </View>
       <Text style={styles.watchlistTitle} numberOfLines={2}>{item.relatedNews}</Text>
       <View style={styles.watchlistBottomRow}>
@@ -1327,6 +1445,25 @@ function OfflineState({ colors, styles }: { colors: NewsThemeColors; styles: New
     <View style={styles.offlineBanner}>
       <Ionicons name="cloud-offline-outline" size={16} color={colors.gold} />
       <Text style={styles.offlineText}>You are offline. Showing last updated news.</Text>
+    </View>
+  );
+}
+
+function FreshnessRow({
+  updatedAt,
+  colors,
+  styles,
+}: {
+  updatedAt?: string;
+  colors: NewsThemeColors;
+  styles: NewsScreenStyles;
+}) {
+  if (!updatedAt) return null;
+
+  return (
+    <View style={styles.freshnessRow}>
+      <Ionicons name="refresh" size={13} color={colors.muted} />
+      <Text style={styles.freshnessText} numberOfLines={1}>{updatedAt}</Text>
     </View>
   );
 }

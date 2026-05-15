@@ -33,11 +33,12 @@ import { makeActionSheetStyles } from './styles';
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
-  actions: Array<{ label: string; danger?: boolean; disabled?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
+  actions: Array<{ label: string; subtitle?: string; danger?: boolean; disabled?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
   searchable?: boolean;
   detent?: 'auto' | 'adaptive' | 'large';
   minimumTopInset?: number;
+  instantOpen?: boolean;
   runActionAfterClose?: boolean;
 };
 
@@ -59,6 +60,7 @@ export function ActionSheet({
   searchable,
   detent = 'adaptive',
   minimumTopInset,
+  instantOpen = false,
   runActionAfterClose = true,
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
@@ -87,8 +89,11 @@ export function ActionSheet({
     ? actions.filter((action) => {
         const rawLabel = action.label.toLowerCase();
         const localizedLabel = t(action.label).toLowerCase();
+        const rawSubtitle = action.subtitle?.toLowerCase() ?? '';
         const normalizedQuery = query.toLowerCase();
-        return rawLabel.includes(normalizedQuery) || localizedLabel.includes(normalizedQuery);
+        return rawLabel.includes(normalizedQuery) ||
+          localizedLabel.includes(normalizedQuery) ||
+          rawSubtitle.includes(normalizedQuery);
       })
     : actions;
   const keyboardLift = Platform.OS === 'android' && searchable ? Math.max(0, keyboardHeight) : 0;
@@ -112,7 +117,10 @@ export function ActionSheet({
     (title ? 58 : 28) +
     (searchable ? 56 : 0) +
     84;
-  const estimatedActionsHeight = filteredActions.length * ACTION_SHEET_ROW_MIN_HEIGHT;
+  const estimatedActionsHeight = filteredActions.reduce(
+    (height, action) => height + (action.subtitle ? 68 : ACTION_SHEET_ROW_MIN_HEIGHT),
+    0,
+  );
   const estimatedSheetHeight = reservedChromeHeight + estimatedActionsHeight;
   const adaptiveSheetFloor = usesLargeDetent
     ? Math.max(360, availableWindowHeight * 0.62)
@@ -167,19 +175,30 @@ export function ActionSheet({
     // shrink-then-expand flicker.
     if (Platform.OS === 'android' && !layoutReadyRef.current) {
       layoutReadyRef.current = true;
+      if (instantOpen) {
+        if (deferredAnimTimerRef.current) {
+          clearTimeout(deferredAnimTimerRef.current);
+          deferredAnimTimerRef.current = null;
+        }
+        overlayOpacity.setValue(1);
+        sheetTranslateY.setValue(0);
+        return;
+      }
       if (deferredAnimTimerRef.current) clearTimeout(deferredAnimTimerRef.current);
       deferredAnimTimerRef.current = setTimeout(() => {
         deferredAnimTimerRef.current = null;
         requestAnimationFrame(() => runEntryAnimation());
       }, 30);
     }
-  }, [runEntryAnimation]);
+  }, [instantOpen, overlayOpacity, runEntryAnimation, sheetTranslateY]);
 
   // Dismiss keyboard when the ActionSheet opens and reset measured height
   // so the first onLayout of this open cycle sets it to the actual value.
   useEffect(() => {
     if (visible) {
-      Keyboard.dismiss();
+      if (!instantOpen) {
+        Keyboard.dismiss();
+      }
       setQuery('');
       // Reset measuredHeight to screenHeight (the full physical display,
       // unaffected by adjustResize). This avoids initializing to a
@@ -188,7 +207,7 @@ export function ActionSheet({
       // precise real value.
       setMeasuredHeight(Dimensions.get('screen').height);
     }
-  }, [visible]);
+  }, [instantOpen, visible]);
 
   useEffect(() => {
     return () => {
@@ -234,12 +253,23 @@ export function ActionSheet({
       return;
     }
 
+    if (instantOpen) {
+      if (deferredAnimTimerRef.current) {
+        clearTimeout(deferredAnimTimerRef.current);
+        deferredAnimTimerRef.current = null;
+      }
+      layoutReadyRef.current = true;
+      overlayOpacity.setValue(1);
+      sheetTranslateY.setValue(0);
+      return;
+    }
+
     // On iOS, start animation immediately (no adjustResize issue).
     // On Android, animation is deferred to handleOverlayLayout.
     if (Platform.OS !== 'android') {
       runEntryAnimation();
     }
-  }, [overlayOpacity, runEntryAnimation, sheetTranslateY, visible]);
+  }, [instantOpen, overlayOpacity, runEntryAnimation, sheetTranslateY, visible]);
 
   useEffect(() => {
     if (visible || !pendingActionRef.current) {
@@ -359,19 +389,36 @@ export function ActionSheet({
                   styles.action,
                   index < filteredActions.length - 1 && styles.actionDivider,
                   action.danger && styles.actionDanger,
+                  action.subtitle && styles.actionWithSubtitle,
                   pressed && !action.disabled && styles.actionPressed,
                   action.disabled && styles.actionDisabled,
                 ]}
               >
                 <View style={styles.actionLeft}>
                   {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
-                  <Text style={[
-                    styles.actionText,
-                    action.danger ? styles.actionTextDanger : styles.actionTextNormal,
-                    action.disabled && styles.actionTextDisabled,
-                  ]}>
-                    {localizedLabel}
-                  </Text>
+                  <View style={styles.actionTextBlock}>
+                    <Text
+                      style={[
+                        styles.actionText,
+                        action.danger ? styles.actionTextDanger : styles.actionTextNormal,
+                        action.disabled && styles.actionTextDisabled,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {localizedLabel}
+                    </Text>
+                    {action.subtitle ? (
+                      <Text
+                        style={[
+                          styles.actionSubtitle,
+                          action.disabled && styles.actionTextDisabled,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {action.subtitle}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
                 {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
               </Pressable>

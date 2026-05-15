@@ -62,6 +62,7 @@ export type LatestNewsItem = {
   impactLevel: NewsImpactLevel;
   category: string;
   isSaved: boolean;
+  isWatchlistMatch?: boolean;
   shareUrl?: string;
   readUrl?: string;
 };
@@ -113,10 +114,11 @@ const PREVIEW_CATEGORY_NAMES = [
   'Prop Firm',
 ];
 
-const PREVIEW_FILTER_NAMES = ['High Impact', 'Medium Impact', 'Low Impact', 'Watchlist', 'Saved'];
+const PREVIEW_FILTER_NAMES = ['All', 'High Impact', 'Watchlist', 'Saved'];
 
 export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): MarketNewsScreenData {
   const normalizedWatchlist = uniqueStrings(watchlistSymbols);
+  const watchlistMatchedSymbols = normalizedWatchlist.slice(0, 2);
 
   return {
     breakingNews: {
@@ -155,23 +157,23 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
     economicEvents: [
       {
         eventId: 'preview-event-001',
-        currency: 'CUR',
-        eventName: 'Economic event placeholder',
-        eventTime: 'Preview time',
+        currency: 'USD',
+        eventName: 'US CPI Inflation Rate',
+        eventTime: 'Today 18:00',
         impactLevel: 'High',
-        countdown: 'T-00:00',
-        previousValue: '--',
-        forecastValue: '--',
+        countdown: '2h 15m',
+        previousValue: '3.2%',
+        forecastValue: '3.1%',
         actualValue: '--',
         isLive: false,
       },
       {
         eventId: 'preview-event-002',
-        currency: 'CUR',
-        eventName: 'Central bank event placeholder',
-        eventTime: 'Preview time',
+        currency: 'EUR',
+        eventName: 'ECB President Speech',
+        eventTime: 'Today 20:30',
         impactLevel: 'Medium',
-        countdown: 'T-00:00',
+        countdown: '4h 45m',
         previousValue: '--',
         forecastValue: '--',
         actualValue: '--',
@@ -179,13 +181,13 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
       },
       {
         eventId: 'preview-event-003',
-        currency: 'CUR',
-        eventName: 'Inflation data placeholder',
-        eventTime: 'Preview time',
+        currency: 'GBP',
+        eventName: 'Retail Sales Update',
+        eventTime: 'Tomorrow 12:30',
         impactLevel: 'Low',
-        countdown: 'T-00:00',
-        previousValue: '--',
-        forecastValue: '--',
+        countdown: '20h',
+        previousValue: '0.4%',
+        forecastValue: '0.2%',
         actualValue: '--',
         isLive: false,
       },
@@ -223,10 +225,11 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
         title: 'Watchlist Instruments React to Fresh Risk-Sentiment Shift',
         summary: 'Personalized market updates can surface when provider headlines match the trader watchlist.',
         publishedAt: '44m ago',
-        affectedSymbols: normalizedWatchlist.slice(0, 2).length > 0 ? normalizedWatchlist.slice(0, 2) : ['WATCHLIST'],
+        affectedSymbols: watchlistMatchedSymbols.length > 0 ? watchlistMatchedSymbols : ['XAUUSD', 'USOIL'],
         impactLevel: 'Low',
         category: 'Commodities',
         isSaved: false,
+        isWatchlistMatch: watchlistMatchedSymbols.length > 0,
         shareUrl: undefined,
         readUrl: undefined,
       },
@@ -235,11 +238,11 @@ export function buildMarketNewsPreviewData(watchlistSymbols: string[] = []): Mar
     uiState: {
       notificationCount: 2,
       selectedCategory: 'category-all',
-      selectedImpactFilter: 'filter-high-impact',
+      selectedImpactFilter: 'filter-all',
       savedNewsIds: ['preview-news-002'],
       watchlistSymbols: normalizedWatchlist,
     },
-    lastUpdatedAt: 'Preview update',
+    lastUpdatedAt: 'Updated 2m ago',
   };
 }
 
@@ -300,7 +303,7 @@ export function filterLatestNews(
     if (!categoryMatches) return false;
 
     if (!selectedImpactFilter) return true;
-    if (selectedImpactFilter.impactLevel === 'Watchlist') return item.affectedSymbols.length > 0;
+    if (selectedImpactFilter.impactLevel === 'Watchlist') return Boolean(item.isWatchlistMatch);
     if (selectedImpactFilter.impactLevel === 'Saved') return item.isSaved;
     if (!selectedImpactFilter.impactLevel) return true;
 
@@ -313,7 +316,7 @@ export function buildPreviewWatchlistNews(watchlistSymbols: readonly string[]): 
     userSymbol: symbol,
     relatedNews: `${symbol} matched a fresh market catalyst from the news intelligence feed.`,
     impactLevel: index === 0 ? 'High' : 'Medium',
-    publishedAt: 'Preview time',
+    publishedAt: index === 0 ? '18m ago' : '31m ago',
   }));
 }
 

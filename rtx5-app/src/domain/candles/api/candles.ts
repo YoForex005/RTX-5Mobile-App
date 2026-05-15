@@ -47,8 +47,20 @@ type CandleHistoryAttempt = {
   resolvedPriceBasis: CandlePriceBasis;
 };
 
-const isAbortError = (error: unknown): boolean =>
-  error instanceof DOMException && error.name === 'AbortError';
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object';
+
+const isAbortSignalLike = (value: unknown): value is AbortSignal => {
+  if (!isObjectRecord(value)) return false;
+  return typeof value.aborted === 'boolean' && typeof value.addEventListener === 'function';
+};
+
+const isAbortError = (error: unknown): boolean => {
+  if (!isObjectRecord(error)) return false;
+  const name = typeof error.name === 'string' ? error.name : '';
+  const message = typeof error.message === 'string' ? error.message : '';
+  return name === 'AbortError' || /\babort(?:ed)?\b/i.test(message);
+};
 
 const getStoredAccessToken = (): string | null =>
   useUserPreferences.getState().accountDetails?.credentials?.accessToken ?? null;
@@ -194,10 +206,9 @@ export async function getCandleHistory(
   if (!requestedSymbol || !requestedTimeframe) {
     throw new Error(`Unsupported candle history request: ${symbol} ${timeframe}`);
   }
-  const requestOptions =
-    options instanceof AbortSignal
-      ? { signal: options }
-      : options;
+  const requestOptions = isAbortSignalLike(options)
+    ? { signal: options }
+    : options;
   const requestTimeframes = getCandleHistoryRequestTimeframes(requestedTimeframe);
 
   let extractedPayload = extractCandleHistoryPayload([]);

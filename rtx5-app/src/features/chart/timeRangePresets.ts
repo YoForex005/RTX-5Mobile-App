@@ -55,9 +55,22 @@ export function getChartTimeframeForRange(range: ChartTimeRange) {
 }
 
 function normalizeCandles<T extends CandleLike>(candles: readonly T[]) {
-  return [...candles]
-    .filter((candle) => Number.isFinite(candle.time))
-    .sort((left, right) => left.time - right.time);
+  const normalized: T[] = [];
+  let sorted = true;
+  let previousTime = -Infinity;
+
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time)) {
+      continue;
+    }
+    if (candle.time < previousTime) {
+      sorted = false;
+    }
+    previousTime = candle.time;
+    normalized.push(candle);
+  }
+
+  return sorted ? normalized : normalized.sort((left, right) => left.time - right.time);
 }
 
 function getRangeStartTimestamp(range: Exclude<ChartTimeRange, 'auto' | 'all' | 'custom'>, latestTime: number) {

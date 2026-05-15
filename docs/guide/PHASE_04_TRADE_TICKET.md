@@ -50,6 +50,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - [x] Unit: account metrics accept live websocket alias fields and position mapping normalizes broker symbols plus common live-update aliases.
 - [x] Unit: position mapping preserves a stable symbol and ticket when partial close-screen updates carry `undefined` symbol sentinels or alternate ticket aliases.
 - [x] Unit: Trade-tab position merging keeps other symbols visible when a scoped live update arrives and rejects symbol-less placeholder rows.
+- [x] Unit: market order symbol candidates prefer cached broker symbols without brute-forcing hardcoded suffix POST attempts.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -57,6 +58,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - Trading UI flows are functionally complete with no blocking defects.
 
 ## Progress Notes
+- 2026-05-15: Reduced buy/sell response latency in the market order path by removing the cold `/instruments` preflight from the first order POST, caching the last accepted broker symbol per broker/base symbol, and replacing the previous hardcoded suffix POST loop with a single API-catalog fallback only after the server reports a market-data/symbol miss. Added a focused unit test for the candidate order and no-brute-force behavior.
 - 2026-05-05: Updated the shared live order execution graph so the final dotted guide uses the same vertical interval as the rest of the price grid, tightened the horizontal gap between right-side price labels and grid lines, added the missing right-side value for the lowest dotted guide, and softened generated bid/ask traces with a rounded pencil-style stroke treatment. This applies to the market order ticket and to the shared graph reused by chart trade SL/TP order tabs.
 - 2026-05-05: Fixed market buy/sell visual feedback so tapping one side no longer makes the opposite side look tapped. The order ticket now keeps duplicate-submission locks in place while only the pressed price/action side receives busy opacity and accessibility busy state.
 - 2026-05-05: Updated the trade success popup so BUY and SELL executions are visually distinct. Successful buy confirmations now use buy-colored title/badge/price-label treatment, and successful sell confirmations use sell-colored treatment, so the modal no longer looks like both sides share the same execution state.

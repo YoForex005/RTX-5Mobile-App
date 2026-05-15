@@ -27,8 +27,8 @@ export type BufferedLiveEvent =
   | { type: 'live_candle'; candle: LiveCandle; order: number }
   // Quote-tick extension. Carries a single price + timestamp from the quote
   // feed and mutates an already-open active bucket's close (and widens
-  // high/low), or opens the next contiguous live bucket from the latest real
-  // candle. It never backfills missing buckets or touches closed history.
+  // high/low), or opens the current tick bucket when the candle backend is
+  // stale. It never backfills missing buckets or touches closed history.
   // Any subsequent backend live_candle snapshot fully overwrites the bucket's
   // OHLC, so backend remains authoritative.
   | { type: 'quote_tick_extension'; price: number; time: number; order: number };
@@ -88,7 +88,7 @@ export const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
 /** Max buffer size before we forcefully drop ticks to save memory. */
 export const MAX_BUFFERED_LIVE_EVENTS = 4096;
 /** Throttle interval in ms for flushing real-time ticks into the UI. */
-export const FLUSH_INTERVAL_MS = 16;
+export const FLUSH_INTERVAL_MS = 100;
 
 export const EMPTY_CANDLES: readonly CandleParams[] = Object.freeze([]) as readonly CandleParams[];
 

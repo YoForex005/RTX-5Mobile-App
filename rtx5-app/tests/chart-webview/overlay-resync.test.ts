@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 
 import {
   assertSourceContains,
@@ -24,6 +25,25 @@ test('applyOverlayPayload always starts from a clean slate before creating lines
   assertSourceContains(body, /series\.createPriceLine/, 'overlay apply must create price lines from payload');
   assertSourceContains(clearBody, /series\.removePriceLine\(_positionLinesArr\[i\]\)/, 'clear must remove every previous line');
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
+});
+
+test('overlay right-axis labels are deduped at the displayed price precision', () => {
+  const body = extractFunctionBody(source, 'applyOverlayPayload');
+
+  assertSourceContains(source, /function getOverlayAxisLabelPriceKey\(price\)/, 'WebView must key labels by displayed precision');
+  assertSourceContains(body, /var visibleOverlayAxisLabelKeys = Object\.create\(null\)/, 'overlay apply must track visible price labels');
+  assertSourceContains(body, /var axisLabelKey = getOverlayAxisLabelPriceKey\(ln\.price\)/, 'overlay labels must use formatted price keys');
+  assertSourceContains(body, /axisLabelVisible = false/, 'duplicate formatted labels must be hidden');
+});
+
+test('market price lines keep right-axis highlight badges disabled', () => {
+  const setBidBody = extractFunctionBody(source, 'setBidPriceLine');
+  const setAskBody = extractFunctionBody(source, 'setAskPriceLine');
+  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+
+  assertSourceContains(setBidBody, /axisLabelVisible: false/, 'bid price line must not use native stacked axis labels');
+  assertSourceContains(setAskBody, /axisLabelVisible: false/, 'ask price line must not use native stacked axis labels');
+  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'DOM refresh must not render filled bid/ask price badges');
 });
 
 test('empty overlay payload clears old price lines and markers immediately', () => {

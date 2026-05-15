@@ -39,15 +39,19 @@ Implement settings and account ecosystem screens required for full screenshot pa
 ## Test Checklist
 - [x] Unit: list item formatting helpers.
 - [x] Unit: active-language dictionary coverage includes reported Settings account-card status and finance labels.
-- [x] Unit: active-language dictionary coverage includes broker login, contest login, demo registration, and broker directory labels.
+- [x] Unit: active-language dictionary coverage includes account login, demo registration, and broker directory labels.
 - [x] Unit: account API numeric normalization and live metric readiness guard.
+- [x] Unit: login auth payload account type aliases map demo, contest, and real accounts without route-specific hardcoding.
+- [x] Typecheck: Accounts screen other-account cards expand into the same balance/metric detail layout as the current account.
 - [ ] Integration: navigation from settings to all sub-screens.
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
 - Settings hub layout was redesigned with a responsive premium card structure, a live market preview section tied to the active chart/watchlist context, and direct navigation affordances for accounts, mailbox, news, brokers, and chart settings on mobile widths.
 - The settings hub live chart card now renders through the shared chart preview component so chart palette changes from chart properties appear in the settings preview with the same persisted colors and display options as the main chart screen.
-- Accounts now classify `contest` as its own backend account type while presenting it as `Real` in the account ribbon, keep `Demo` only for demo groups, and expose a dedicated contest account login route alongside broker login and demo registration entry points.
+- Accounts classify `contest` as its own backend account type while presenting it as `Real` in the account ribbon, and keep `Demo` only for backend demo groups.
+- 2026-05-15: Consolidated account connection into one `Login Account` entry. Demo, contest, and real classification now comes from the backend auth response (`account_type`, `is_demo`, `is_contest`, or group aliases) instead of separate login routes, and saved-account switching refreshes the stored type from the latest login response.
+- 2026-05-15: Updated the Accounts screen so other-account rows start as compact account headers and expand on tap into the same Balance, Equity, Free Margin, Leverage, Floating P/L, account chips, and status/footer structure used by the current account card. The saved-account registry now keeps a migration-safe optional last-known metrics snapshot so switched-away accounts can still show their latest details.
 - Account identity display now rehydrates from the actual account record after login, so account headers do not stay stuck on a stale profile/login name while switching between demo and real accounts.
 - 2026-04-25: Hardened Interface language selection by sanitizing persisted language codes, making stack titles react to language changes, and extending translations across the Settings hub, Trade empty/actions, History summary, and History Filter surfaces instead of leaving those labels hardcoded in English.
 - 2026-04-25: Renamed the Settings language entry to `Language Preference`, removed the visible `Interface` title from the picker screen, and added Bengali (`bn`) to the persisted language list and translation dictionaries.

@@ -34,27 +34,30 @@ test('preview breaking news uses the supplied reference copy through the view mo
   assert.deepEqual(data.breakingNews?.affectedSymbols.slice(0, 5), ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'USDJPY']);
   assert.equal(data.latestNews[0].title, 'Dollar Holds Firm as Traders Wait for Central Bank Guidance');
   assert.deepEqual(data.latestNews[0].affectedSymbols, ['EURUSD', 'GBPUSD', 'XAUUSD']);
-  assert.equal(data.economicEvents.every((event) => event.previousValue === '--'), true);
+  assert.deepEqual(data.impactFilters.map((filter) => filter.filterName), ['All', 'High Impact', 'Watchlist', 'Saved']);
+  assert.equal(data.economicEvents[0].currency, 'USD');
+  assert.equal(data.economicEvents[0].eventName, 'US CPI Inflation Rate');
+  assert.equal(data.lastUpdatedAt, 'Updated 2m ago');
 });
 
 test('applyMarketNewsSelection marks selected category and impact filter from UI state', () => {
   const data = buildMarketNewsPreviewData();
-  const selected = applyMarketNewsSelection(data, 'category-forex', 'filter-medium-impact', ['A', 'B']);
+  const selected = applyMarketNewsSelection(data, 'category-forex', 'filter-high-impact', ['A', 'B']);
 
   assert.equal(selected.categories.find((category) => category.categoryId === 'category-forex')?.isSelected, true);
-  assert.equal(selected.impactFilters.find((filter) => filter.filterId === 'filter-medium-impact')?.isSelected, true);
+  assert.equal(selected.impactFilters.find((filter) => filter.filterId === 'filter-high-impact')?.isSelected, true);
   assert.deepEqual(selected.uiState.watchlistSymbols, ['A', 'B']);
 });
 
-test('filterLatestNews supports selected category and impact filters', () => {
+test('filterLatestNews supports the high-impact filter', () => {
   const data = applyMarketNewsSelection(
     buildMarketNewsPreviewData(),
-    'category-central-banks',
-    'filter-medium-impact',
+    'category-all',
+    'filter-high-impact',
   );
   const filtered = filterLatestNews(data.latestNews, data.categories, data.impactFilters);
 
-  assert.deepEqual(filtered.map((item) => item.newsId), ['preview-news-002']);
+  assert.deepEqual(filtered.map((item) => item.newsId), ['preview-news-001']);
 });
 
 test('filterLatestNews supports saved filter state', () => {
@@ -62,6 +65,13 @@ test('filterLatestNews supports saved filter state', () => {
   const filtered = filterLatestNews(data.latestNews, data.categories, data.impactFilters);
 
   assert.deepEqual(filtered.map((item) => item.newsId), ['preview-news-002']);
+});
+
+test('filterLatestNews supports watchlist match filter state', () => {
+  const data = applyMarketNewsSelection(buildMarketNewsPreviewData(['XAUUSD']), 'category-all', 'filter-watchlist');
+  const filtered = filterLatestNews(data.latestNews, data.categories, data.impactFilters);
+
+  assert.deepEqual(filtered.map((item) => item.newsId), ['preview-news-003']);
 });
 
 test('buildMarketNewsSummary derives counts without hardcoded UI assumptions', () => {

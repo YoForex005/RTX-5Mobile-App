@@ -9,8 +9,8 @@
  * `applyQuoteTickExtensionToCandleMap` is the pure helper the engine wraps:
  *
  *   - Updates an existing backend-opened bucket when present.
- *   - Opens only the next contiguous bucket from the latest real candle when
- *     the quote feed is ahead of the candle socket.
+ *   - Opens the current tick bucket when the quote feed is ahead of the
+ *     candle socket, without fabricating any missing backend buckets.
  *   - Never modifies closed history (gated by `historyCutoffTime`).
  *   - Subsequent backend `applyLiveCandleToCandleMap` calls own the latest
  *     close and OHLC geometry, correcting quote-expanded temporary wicks.
@@ -166,7 +166,7 @@ test('backend live candle snapshot overwrites quote-observed wick extremes', () 
   assert.equal(active.close, 1.107);
 });
 
-test('quote tick does not seed from stale same-bucket REST geometry far away from live price', () => {
+test('quote tick falls back to tick-open candle when same-bucket REST geometry is stale', () => {
   const map = createCandleMap();
   const staleRestCurrent = {
     time: t1001,
@@ -184,9 +184,18 @@ test('quote tick does not seed from stale same-bucket REST geometry far away fro
     { historyCutoffTime: t1000, latestHistoryCandle: staleRestCurrent },
   );
 
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, 'stale_history_seed');
-  assert.deepEqual(materializeCandleMap(map), []);
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true);
+  assert.deepEqual(materializeCandleMap(map), [
+    {
+      time: t1001,
+      open: 81_224.54,
+      high: 81_224.54,
+      low: 81_224.54,
+      close: 81_224.54,
+      volume: 0,
+    },
+  ]);
 });
 
 test('quote tick for a closed history bucket is rejected (closed history is immutable)', () => {
@@ -340,7 +349,7 @@ test('quote tick reaching the next live-tail bucket keeps visible candles genera
   });
 });
 
-test('quote tick far ahead of the latest bucket waits for backend OHLC instead of backfilling gaps', () => {
+test('quote tick far ahead opens only the current bucket and preserves backend gaps', () => {
   const map = createCandleMap([makeTrustedHistoryCandle(t1000, { close: 1.105 })]);
 
   const result = applyQuoteTickExtensionToCandleMap(
@@ -350,9 +359,18 @@ test('quote tick far ahead of the latest bucket waits for backend OHLC instead o
     { historyCutoffTime: t1000 },
   );
 
-  assert.equal(result.ignored, true);
-  assert.equal(result.reason, 'no_active_backend_candle');
-  assert.deepEqual(materializeCandleMap(map).map((c) => c.time), [t1000]);
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true);
+  const candles = materializeCandleMap(map);
+  assert.deepEqual(candles.map((c) => c.time), [t1000, t1002]);
+  assert.deepEqual(candles[1], {
+    time: t1002,
+    open: 1.11,
+    high: 1.11,
+    low: 1.11,
+    close: 1.11,
+    volume: 0,
+  });
 });
 
 test('quote tick across multiple subsequent backend snapshots keeps latest backend geometry', () => {

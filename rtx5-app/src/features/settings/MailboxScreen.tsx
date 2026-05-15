@@ -825,7 +825,7 @@ function SenderAvatar({
 }) {
   return (
     <View style={[styles.messageIcon, { backgroundColor: withAlpha(color, 0.13), borderColor: withAlpha(color, 0.28) }]}>
-      <Ionicons name={getSenderIcon(senderType)} size={12} color={color} />
+      <Ionicons name={getSenderIcon(senderType)} size={18} color={color} />
     </View>
   );
 }

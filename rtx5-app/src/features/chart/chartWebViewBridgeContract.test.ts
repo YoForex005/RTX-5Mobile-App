@@ -25,12 +25,13 @@ const chartWebViewHtmlSource = (() => {
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
   assertSourceContains(source, /const sendInit = useCallback[\s\S]*if \(!webViewRef\.current \|\| !webViewReady\) return/, 'sendInit must wait for WebView readiness');
-  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*sendInit\(\);[\s\S]*\}, \[candles, sendInit\]\)/, 'candle arrival must trigger init after READY');
+  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*sendInit\(\);[\s\S]*\}, \[sanitizedCandles, sendInit\]\)/, 'sanitized candle arrival must trigger init after READY');
 });
 
 test('webview bridge: candles arriving before READY are retained and sent after readiness', () => {
-  assertSourceContains(source, /const candlesRef = useRef\(candles\)/, 'candles must be retained outside render timing');
-  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = candles;[\s\S]*\}, \[[^\]]*candles[^\]]*\]\)/, 'latest candles must update the retained ref');
+  assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/, 'native host must sanitize candles once per render');
+  assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
+  assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
 });
 
@@ -80,7 +81,7 @@ test('webview bridge: updateTick uses an incremental requestAnimationFrame path'
 test('webview bridge: renders backend candle timestamps directly', () => {
   assertSourceContains(
     source,
-    /const cleaned = sanitizeCandlesForChart\(sourceCandles, \{ timeframe: chartTimeframe \}\)[\s\S]*time: c\.time[\s\S]*value: c\.close[\s\S]*time: c\.time/,
+    /const cleaned = sourceCandles[\s\S]*time: c\.time[\s\S]*value: c\.close[\s\S]*time: c\.time/,
     'native host must pass backend candle timestamps to the WebView',
   );
   assert.doesNotMatch(source, /setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
@@ -102,12 +103,14 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
 
 test('webview bridge: setMarketPriceLines updates market lines without mutating candle geometry', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
+  const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
   assertSourceContains(body, /lastBidPrice = hasBid \? bid : null/, 'market line state must be cached for recovery');
-  assertSourceContains(body, /setBidPriceLine\(bid\)/, 'bid line must update through price-line API');
-  assertSourceContains(body, /setAskPriceLine\(ask\)/, 'ask line must update through price-line API');
+  assertSourceContains(body, /setBidPriceLine\(bid, false\)/, 'bid line must update through price-line API');
+  assertSourceContains(body, /setAskPriceLine\(ask, false\)/, 'ask line must update through price-line API');
   assertSourceContains(chartWebViewHtmlSource, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(chartWebViewHtmlSource, /renderMarketPriceBadges\(layer\)/, 'market bid\/ask lines must be mirrored into the DOM overlay');
+  assertSourceContains(chartWebViewHtmlSource, /axisLabelVisible: false/, 'market price line labels must stay disabled on the price scale');
+  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask lines must not render filled price-scale badges');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
 });
 
@@ -130,15 +133,15 @@ test('webview bridge: recoverChartSurface restores data overlays market lines an
 
 test('webview bridge: native handler accepts CHART_READY geometry drag and errors', () => {
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = sanitizeCandlesForChart\(candlesRef\.current, \{ timeframe: chartTimeframe \}\)[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must force-paint retained candles into the WebView');
-  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*renderedSeriesSnapshotRef\.current = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY retained-candle paint must update the rendered snapshot');
+  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must read the retained sanitized candles');
+  assertSourceContains(source, /getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*renderedSeriesSnapshotRef\.current = readySnapshot[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must skip duplicate full-history paint when init already seeded the same series');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*setChartPlotArea/, 'CHART_GEOMETRY must update plot area');
   assertSourceContains(source, /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/, 'trade-line drag messages must reach React state');
   assertSourceContains(source, /msg\.type === 'ERROR'[\s\S]*console\.warn\('\[CHART WEBVIEW ERROR\]'/, 'WebView errors must be logged without blocking recovery');
 });
 
 test('webview bridge: watchdog keeps re-sending initChart until CHART_READY', () => {
-  assertSourceContains(source, /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*!chartInitializedRef\.current[\s\S]*webViewReady[\s\S]*sendInit\(\)/, 'watchdog must retry init while chart is not confirmed');
+  assertSourceContains(source, /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*!chartInitializedRef\.current[\s\S]*webViewReady[\s\S]*sendInit\(true\)/, 'watchdog must retry init while chart is not confirmed');
   assertSourceContains(source, /setChartReadyEpoch\(\(c\) => c \+ 1\)/, 'CHART_READY must bump epoch for dependent bridge effects');
 });
 

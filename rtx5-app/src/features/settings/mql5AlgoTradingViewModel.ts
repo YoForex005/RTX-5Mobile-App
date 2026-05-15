@@ -351,6 +351,79 @@ export const MQL5_ALGO_PREVIEW_DATA: Mql5AlgoTradingScreenData = {
   },
 };
 
+// ─── Filter sheet ──────────────────────────────────────────────────────────
+//
+// v1 trim: only the filters that materially help users narrow the strategy
+// list. Strategy *type* (Scalping/Trend/Grid…) is already covered by the
+// horizontal category tab rail, and free-text is covered by the header
+// search. Anything not tied to a real `Strategy` field is intentionally
+// excluded so toggles never silently no-op.
+
+export type AlgoStrategyLibraryFilter = 'all' | 'installed' | 'favorites';
+
+export type AlgoStrategySortOption =
+  | 'recommended' // Default order (no sort)
+  | 'popular'     // users_count desc
+  | 'rating';     // rating desc (nulls last)
+
+export type AlgoStrategyFilters = {
+  library: AlgoStrategyLibraryFilter;
+  riskLevels: AlgoRiskLevel[];
+  verifiedSellerOnly: boolean;
+  liveVerifiedOnly: boolean;
+  sort: AlgoStrategySortOption;
+};
+
+export const DEFAULT_ALGO_STRATEGY_FILTERS: AlgoStrategyFilters = {
+  library: 'all',
+  riskLevels: [],
+  verifiedSellerOnly: false,
+  liveVerifiedOnly: false,
+  sort: 'recommended',
+};
+
+export function applyAlgoStrategyFilters(
+  strategies: Strategy[],
+  filters: AlgoStrategyFilters,
+): Strategy[] {
+  const filtered = strategies.filter((strategy) => {
+    if (filters.library === 'installed' && !strategy.is_installed) return false;
+    if (filters.library === 'favorites' && !strategy.is_favorite) return false;
+    if (filters.riskLevels.length > 0 && !filters.riskLevels.includes(strategy.risk_level)) return false;
+    if (filters.verifiedSellerOnly && !strategy.verified_status) return false;
+    if (filters.liveVerifiedOnly && !strategy.live_verified) return false;
+    return true;
+  });
+
+  return sortAlgoStrategies(filtered, filters.sort);
+}
+
+export function sortAlgoStrategies(
+  strategies: Strategy[],
+  sort: AlgoStrategySortOption,
+): Strategy[] {
+  if (sort === 'recommended') return strategies;
+  const next = [...strategies];
+
+  if (sort === 'popular') {
+    next.sort((a, b) => (b.users_count ?? -1) - (a.users_count ?? -1));
+  } else if (sort === 'rating') {
+    next.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
+  }
+
+  return next;
+}
+
+export function getActiveAlgoFilterCount(filters: AlgoStrategyFilters): number {
+  let count = 0;
+  if (filters.library !== 'all') count += 1;
+  if (filters.riskLevels.length > 0) count += 1;
+  if (filters.verifiedSellerOnly) count += 1;
+  if (filters.liveVerifiedOnly) count += 1;
+  if (filters.sort !== 'recommended') count += 1;
+  return count;
+}
+
 export function selectAlgoCategories(categories: AlgoCategory[], selectedCategoryId: string): AlgoCategory[] {
   return categories.map((category) => ({
     ...category,

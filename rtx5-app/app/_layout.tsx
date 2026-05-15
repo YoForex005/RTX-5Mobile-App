@@ -100,7 +100,6 @@ function InnerLayout() {
           />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
-          <Stack.Screen name='contest-login' options={{ title: t('Contest Login'), headerLeft: () => null }} />
           <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/settings' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/preferences' options={chartPageScreenOptions} />

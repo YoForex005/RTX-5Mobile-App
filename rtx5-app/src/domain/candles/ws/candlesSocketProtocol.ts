@@ -18,12 +18,10 @@ export const resolveCandlesWsUrl = (configuredUrl?: string): string => {
 /**
  * Append (or replace) the `?token=` query parameter on a WS URL.
  *
- * Backend `/ws/v2` requires JWT authentication for candle channel
- * subscriptions even though they are nominally "public". A connection without
- * a valid token is silently treated as having no candle channels: REST
- * history loads but no live candle update ever arrives. Pass the user's
- * stored access token in via `token` to authenticate the connection. Pass
- * `null` to keep the URL anonymous (used for guest mode).
+ * The current backend accepts public candle channels anonymously, but logged-in
+ * sessions may still need the active JWT for account-scoped routing. Pass the
+ * user's stored access token in via `token` when available, or `null` to keep
+ * the URL anonymous for guest mode.
  */
 export const appendCandleWsToken = (baseUrl: string, token: string | null): string => {
   if (!token) {
@@ -46,15 +44,34 @@ export const appendCandleWsToken = (baseUrl: string, token: string | null): stri
   return `${base}?${params.join('&')}`;
 };
 
+const CANDLE_WS_TIMEFRAME_BY_CANONICAL = {
+  M1: '1m',
+  M3: '3m',
+  M5: '5m',
+  M15: '15m',
+  M30: '30m',
+  H1: '1h',
+  H2: '2h',
+  H4: '4h',
+  D1: '1d',
+  W1: '1w',
+  MN: '1M',
+} as const;
+
+export const resolveCandleWsTimeframe = (tf: string): string | null => {
+  const normalizedTimeframe = normalizeTimeframeStrict(tf);
+  return normalizedTimeframe ? CANDLE_WS_TIMEFRAME_BY_CANONICAL[normalizedTimeframe] : null;
+};
+
 /**
  * Constructs the standardized dot-delimited channel string used to subscribe
- * to a specific market symbol and timeframe (e.g. `candles.EURUSD.M1`).
+ * to a specific market symbol and timeframe (e.g. `candles.EURUSD.1m`).
  */
 export const createCandleChannel = (symbol: string, tf: string): string | null => {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframeStrict(tf);
-  return normalizedSymbol && normalizedTimeframe
-    ? `candles.${normalizedSymbol}.${normalizedTimeframe}`
+  const wsTimeframe = resolveCandleWsTimeframe(tf);
+  return normalizedSymbol && wsTimeframe
+    ? `candles.${normalizedSymbol}.${wsTimeframe}`
     : null;
 };
 

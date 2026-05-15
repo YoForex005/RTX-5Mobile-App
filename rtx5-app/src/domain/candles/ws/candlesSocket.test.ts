@@ -7,6 +7,7 @@ import {
   extractCandlePayloadContext,
   getCandlePayloadItems,
   resolveCandlesWsUrl,
+  resolveCandleWsTimeframe,
 } from './candlesSocketProtocol';
 
 test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel websocket', () => {
@@ -67,21 +68,29 @@ test('appendCandleWsToken replaces a stale token instead of accumulating duplica
   );
 });
 
-test('createCandleChannel normalizes symbols and timeframe aliases', () => {
-  assert.equal(createCandleChannel('EURUSD.c', '1m'), 'candles.EURUSD.M1');
-  assert.equal(createCandleChannel('XAUUSDm', 'H1'), 'candles.XAUUSD.H1');
+test('resolveCandleWsTimeframe maps app timeframes to backend live-channel tokens', () => {
+  assert.equal(resolveCandleWsTimeframe('M1'), '1m');
+  assert.equal(resolveCandleWsTimeframe('M5'), '5m');
+  assert.equal(resolveCandleWsTimeframe('H1'), '1h');
+  assert.equal(resolveCandleWsTimeframe('MN'), '1M');
+  assert.equal(resolveCandleWsTimeframe('bad'), null);
+});
+
+test('createCandleChannel normalizes symbols and uses backend websocket timeframe tokens', () => {
+  assert.equal(createCandleChannel('EURUSD.c', 'M1'), 'candles.EURUSD.1m');
+  assert.equal(createCandleChannel('XAUUSDm', 'H1'), 'candles.XAUUSD.1h');
 });
 
 test('extractCandlePayloadContext parses v2 candle channels', () => {
   assert.deepEqual(
-    extractCandlePayloadContext({ channel: 'candles.EURUSD.M1' }),
+    extractCandlePayloadContext({ channel: 'candles.EURUSD.1m' }),
     { symbol: 'EURUSD', tf: 'M1' },
   );
 });
 
 test('getCandlePayloadItems unwraps v2 snapshot and update payloads', () => {
   const snapshot = {
-    channel: 'candles.EURUSD.M1',
+    channel: 'candles.EURUSD.1m',
     data: {
       candles: [
         { time: 1777431540, open: 1.17076, high: 1.17076, low: 1.17073, close: 1.17074, volume: 7 },
@@ -90,12 +99,28 @@ test('getCandlePayloadItems unwraps v2 snapshot and update payloads', () => {
     },
   };
   const update = {
-    channel: 'candles.EURUSD.M1',
+    channel: 'candles.EURUSD.1m',
     data: {
       candle: { time: 1777431600, open: 1.17074, high: 1.1708, low: 1.1707, close: 1.17078, volume: 5 },
+    },
+  };
+  const directUpdate = {
+    channel: 'candles.EURUSD.1m',
+    data: {
+      type: 'candle',
+      symbol: 'EURUSD',
+      tf: '1m',
+      time: 1777431660,
+      open: 1.17078,
+      high: 1.17082,
+      low: 1.17072,
+      close: 1.1708,
+      volume: 6,
+      closed: false,
     },
   };
 
   assert.equal(getCandlePayloadItems(snapshot).length, 2);
   assert.deepEqual(getCandlePayloadItems(update), [update.data.candle]);
+  assert.deepEqual(getCandlePayloadItems(directUpdate), [directUpdate.data]);
 });

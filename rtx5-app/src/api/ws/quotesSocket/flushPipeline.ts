@@ -1,12 +1,11 @@
 /**
  * Pending-tick flush pipeline.
  *
- * Quote ticks are coalesced to the next visual frame so React isn't asked to
- * re-render once per WS message. The "race rAF and setTimeout" pattern below
- * keeps the queue moving even under the React Native new architecture, where
- * the JS animation loop can be paused (no active animations / scrolling) and
- * a pure rAF-driven flush would be stranded forever. setTimeout(16) is the
- * unconditional safety net.
+ * Quote ticks are coalesced on a short timer so React isn't asked to re-render
+ * once per WS message. The broker can deliver bursts that are faster than a
+ * mobile chart can paint; keeping only the latest per-symbol snapshot per
+ * interval preserves the current price while leaving touch/navigation work
+ * room on the JS thread.
  *
  * Extracted from `QuotesWebSocketService` so the service stays under the
  * 500-line ceiling.
@@ -17,6 +16,7 @@ import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
+const QUOTE_STORE_FLUSH_INTERVAL_MS = 50;
 
 export interface FlushPipelineState {
   flushScheduled: boolean;
@@ -47,10 +47,7 @@ export const scheduleFlush = (state: FlushPipelineState): void => {
     flushUpdates(state);
   };
 
-  state.flushTimer = setTimeout(commitFlush, 16);
-  if (typeof requestAnimationFrame === 'function') {
-    state.flushAnimationFrame = requestAnimationFrame(commitFlush);
-  }
+  state.flushTimer = setTimeout(commitFlush, QUOTE_STORE_FLUSH_INTERVAL_MS);
 };
 
 export const cancelFlush = (state: FlushPipelineState): void => {

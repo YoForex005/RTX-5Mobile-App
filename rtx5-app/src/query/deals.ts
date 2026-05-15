@@ -9,14 +9,17 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { dealsApi } from '../api/deals';
+import { dealsApi, type Deal } from '../api/deals';
 import { resolveEffectiveHistoryDateRange } from '../features/history/historyDateRange';
+import { useResolvedTradingLogin } from '../state/tradingLogin';
 import { useUserPreferences } from '../state/userPreferences';
+import { buildAccountDealsQueryKey, filterDealsByTimeRange, mergeDealHistorySources } from './dealsHistory';
 
 type PollingQueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
   refetchOnMount?: boolean | 'always';
+  login?: number;
 };
 
 const resolvePollingRefetchInterval = (
@@ -24,6 +27,53 @@ const resolvePollingRefetchInterval = (
   fallbackMs: number,
   override?: number | false,
 ) => (enabled ? (override ?? fallbackMs) : false);
+
+const settleDeals = async (promise: Promise<Deal[]>) => {
+  try {
+    return { ok: true as const, data: await promise };
+  } catch (error) {
+    return { ok: false as const, error };
+  }
+};
+
+const getLoginDealsWithRangeFallback = async (
+  login: number,
+  from?: number,
+  to?: number,
+) => {
+  try {
+    return await dealsApi.getDeals(login, 1000, 0, from, to);
+  } catch (error) {
+    if (from == null && to == null) throw error;
+    return dealsApi.getDeals(login, 1000, 0);
+  }
+};
+
+const fetchAccountDealsWithLoginFallback = async (
+  login: number | undefined,
+  from?: number,
+  to?: number,
+) => {
+  const [accountResult, loginResult] = await Promise.all([
+    settleDeals(dealsApi.getAccountDeals(500, 0, from, to)),
+    login != null
+      ? settleDeals(getLoginDealsWithRangeFallback(login, from, to))
+      : settleDeals(Promise.resolve([])),
+  ]);
+
+  if (!accountResult.ok && !loginResult.ok) {
+    throw accountResult.error;
+  }
+
+  return filterDealsByTimeRange(
+    mergeDealHistorySources(
+      accountResult.ok ? accountResult.data : [],
+      loginResult.ok ? loginResult.data : [],
+    ),
+    from,
+    to,
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query hook for account deal history (JWT-resolved, date-range aware).
@@ -39,6 +89,8 @@ const resolvePollingRefetchInterval = (
  * Polls every 10 seconds (deals change less often than live positions).
  */
 export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
+  const resolvedLogin = useResolvedTradingLogin();
+  const login = options.login ?? resolvedLogin;
   const historyRange = useUserPreferences((s) => s.historyRange);
   const historyFromMs = useUserPreferences((s) => s.historyFromMs);
   const historyToMs = useUserPreferences((s) => s.historyToMs);
@@ -51,8 +103,8 @@ export function useAccountDealsQuery(options: PollingQueryOptions = {}) {
   const enabled = options.enabled ?? true;
 
   return useQuery({
-    queryKey: ['accountDeals', from, to],
-    queryFn: () => dealsApi.getAccountDeals(500, 0, from, to),
+    queryKey: buildAccountDealsQueryKey(login, from, to),
+    queryFn: () => fetchAccountDealsWithLoginFallback(login, from, to),
     enabled,
     refetchInterval: resolvePollingRefetchInterval(enabled, 10_000, options.refetchInterval),
     refetchOnMount: options.refetchOnMount,

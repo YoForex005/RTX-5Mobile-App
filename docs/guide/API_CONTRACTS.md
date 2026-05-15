@@ -21,6 +21,46 @@ export type AuthSession = {
   scopes: string[];
 };
 
+export type TradingAccountType = "demo" | "contest" | "real";
+
+export type AuthTokenResponse = {
+  access_token?: string;
+  token?: string; // accepted legacy alias
+  refresh_token?: string;
+  refreshToken?: string;
+  expires_in?: number;
+  expires_at?: number;
+  account_login?: number | string;
+  accountLogin?: number | string;
+  account_name?: string;
+  accountName?: string;
+  username?: string;
+  broker_id?: string;
+  brokerId?: string;
+  server?: string;
+  broker_server?: string;
+  brokerServer?: string;
+  account_type?: TradingAccountType | "demo account" | "contest account" | "real account" | string;
+  accountType?: TradingAccountType | "demo account" | "contest account" | "real account" | string;
+  is_demo?: boolean;
+  isDemo?: boolean;
+  is_contest?: boolean;
+  isContest?: boolean;
+  group?: string;
+  user?: {
+    account_login?: number | string;
+    id?: number | string;
+    account_type?: string;
+    accountType?: string;
+    group?: string;
+  };
+  account?: {
+    account_type?: string;
+    accountType?: string;
+    group?: string;
+  };
+};
+
 export type AccountSnapshot = {
   accountId: string;
   balance: number;
@@ -164,6 +204,7 @@ export type OrrnnDemoAccount = {
 | Endpoint | Method | Response DTO | Domain Type |
 |---|---|---|---|
 | `/v1/session` | POST | SessionDTO | `AuthSession` |
+| `/api/v2/auth/login` | POST | AuthTokenResponseDTO | `AuthTokenResponse`; frontend uses one login screen and maps backend account metadata to `demo`, `contest`, or `real` |
 | `/v1/account/snapshot` | GET | AccountSnapshotDTO | `AccountSnapshot` |
 | `/v1/quotes` | GET | QuoteListDTO | `QuoteTick[]` |
 | `/v1/candles` | GET | CandleListDTO | `Candle[]` |
@@ -200,7 +241,8 @@ export type OrrnnDemoAccount = {
 - The V2 authenticated account stream is opened via `/ws/v2?token={JWT}` and subscribed by channel, not by REST-style event name.
 - Live backend account metrics currently arrive on `metrics.{LOGIN}`. Older docs and some fallback payloads still refer to `account.{LOGIN}` or `account.snapshot`, so the frontend must accept both while treating the payload as the same authoritative account-metrics contract.
 - `positions.{LOGIN}` may send either full open-position snapshots or partial per-ticket updates. The frontend must merge partial updates into existing local positions instead of zeroing omitted fields.
-- The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote `tick` payloads with `bid`/`ask`/`timestamp` and candle `update` payloads shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`. Quote ticks are price-feed data only and are ignored by the candle stream; chart candles come from backend REST history plus backend live OHLC candle updates, and the frontend must not synthesize timeframe candles from quote ticks.
+- The live candle `/ws/v2` channel contract uses backend interval tokens, not canonical app timeframe labels: subscribe to `candles.{SYMBOL}.1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, `1w`, or `1M`. Probing showed `candles.EURUSD.M1` is acknowledged but only returns `candle_history`, while `candles.EURUSD.1m` streams live `{ data: { type: "candle", symbol, tf, open, high, low, close, time, volume, closed } }` updates. Frontend code must map app timeframes (`M1`, `H1`, `MN`) to these WS tokens when subscribing and normalize incoming `tf` values back to canonical app timeframes.
+- The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote payloads with `bid`/`ask`/`time` plus session metrics such as `session.high_bid` and `session.low_bid`; when candle envelopes are available they are shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`. Quote ticks are not standalone candle data: the frontend may use the current `bid` only to extend a safe active REST/backend candle bucket, while session high/low metrics must never become candle OHLC wick values. Backend REST history plus backend live OHLC remains authoritative, and the frontend must not fabricate missing backend gap candles.
 - The live market feed may acknowledge broker-suffixed subscriptions such as `GBPUSDm` or `GBPUSD.c`, but verified runtime payloads still arrive under the canonical base symbol (for example `GBPUSD`). Frontend consumers must normalize both requested symbols and incoming payload symbols before matching, otherwise history can load while live candle updates are silently dropped.
 
 ## Error Shapes
