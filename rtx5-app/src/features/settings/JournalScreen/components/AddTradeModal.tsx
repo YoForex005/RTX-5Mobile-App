@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark: boolean }) {

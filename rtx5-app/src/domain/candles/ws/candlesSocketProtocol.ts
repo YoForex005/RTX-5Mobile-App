@@ -1,4 +1,15 @@
 import { normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
+import {
+  asRecord,
+  CANDLE_CLOSE_KEYS,
+  CANDLE_HIGH_KEYS,
+  CANDLE_LOW_KEYS,
+  CANDLE_OPEN_KEYS,
+  CANDLE_SYMBOL_KEYS,
+  CANDLE_TIMEFRAME_KEYS,
+  pickFirst,
+  pickString,
+} from '../core/candleUtils';
 
 export const DEFAULT_CANDLES_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 
@@ -46,12 +57,10 @@ export const appendCandleWsToken = (baseUrl: string, token: string | null): stri
 
 const CANDLE_WS_TIMEFRAME_BY_CANONICAL = {
   M1: '1m',
-  M3: '3m',
   M5: '5m',
   M15: '15m',
   M30: '30m',
   H1: '1h',
-  H2: '2h',
   H4: '4h',
   D1: '1d',
   W1: '1w',
@@ -75,38 +84,12 @@ export const createCandleChannel = (symbol: string, tf: string): string | null =
     : null;
 };
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-
-const pickString = (record: Record<string, unknown> | null, keys: readonly string[]): string | null => {
-  if (!record) {
-    return null;
-  }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value;
-    }
-  }
-  return null;
-};
-
 const pickTimeframeValue = (record: Record<string, unknown> | null, keys: readonly string[]): unknown => {
-  if (!record) {
-    return null;
+  const value = pickFirst(record, keys);
+  if (typeof value === 'string' && value.trim()) {
+    return value;
   }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value;
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-  }
-  return null;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 };
 
 const getNestedRecord = (record: Record<string, unknown> | null): Record<string, unknown> | null =>
@@ -129,10 +112,10 @@ export const hasBackendCandleShape = (payload: unknown): boolean => {
   const nested = getNestedRecord(record);
   const candidate = nested ?? record;
   return (
-    hasAnyKey(candidate, ['open', 'Open', 'OPEN', 'o', 'O']) &&
-    hasAnyKey(candidate, ['high', 'High', 'HIGH', 'h', 'H']) &&
-    hasAnyKey(candidate, ['low', 'Low', 'LOW', 'l', 'L']) &&
-    hasAnyKey(candidate, ['close', 'Close', 'CLOSE', 'c', 'C'])
+    hasAnyKey(candidate, CANDLE_OPEN_KEYS) &&
+    hasAnyKey(candidate, CANDLE_HIGH_KEYS) &&
+    hasAnyKey(candidate, CANDLE_LOW_KEYS) &&
+    hasAnyKey(candidate, CANDLE_CLOSE_KEYS)
   );
 };
 
@@ -165,12 +148,12 @@ export const extractCandlePayloadContext = (payload: unknown): { symbol: string 
   const channelContext = extractChannelContext(record?.channel);
   const symbol =
     channelContext.symbol ??
-    pickString(record, ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol']) ??
-    pickString(nested, ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol']);
+    pickString(record, CANDLE_SYMBOL_KEYS) ??
+    pickString(nested, CANDLE_SYMBOL_KEYS);
   const timeframe =
     channelContext.tf ??
-    pickTimeframeValue(record, ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval']) ??
-    pickTimeframeValue(nested, ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval']);
+    pickTimeframeValue(record, CANDLE_TIMEFRAME_KEYS) ??
+    pickTimeframeValue(nested, CANDLE_TIMEFRAME_KEYS);
 
   return {
     symbol: symbol ? normalizeSymbol(symbol) : null,

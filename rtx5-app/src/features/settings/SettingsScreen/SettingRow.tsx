@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { traceUiInteraction } from '../../../dev/uiInteractionDiagnostics';
+import { FastPressable } from '../../../ui/components/FastPressable';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { SettingsStyles } from './styles';
 
@@ -27,10 +27,10 @@ export function SettingRow({
   styles: SettingsStyles;
 }) {
   return (
-    <Pressable
+    <FastPressable
       style={styles.row}
-      onPress={onPress ? () => traceUiInteraction(`settings.row.${title}`, onPress) : undefined}
-      unstable_pressDelay={0}
+      latencyLabel={`settings.row.${title}`}
+      onPress={onPress}
     >
       <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
         <Ionicons name={icon} size={20} color={color} />
@@ -51,6 +51,6 @@ export function SettingRow({
           </>
         )}
       </View>
-    </Pressable>
+    </FastPressable>
   );
 }

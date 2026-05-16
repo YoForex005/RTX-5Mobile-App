@@ -9,7 +9,6 @@ import { router } from 'expo-router';
 import {
   Alert,
   Keyboard,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -22,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
+import { FastPressable } from '../../../ui/components/FastPressable';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
@@ -34,7 +34,6 @@ import { useBrokerConfig } from '../../../query/broker';
 import { useAccountDetails, useAccounts } from '../../../query/accounts';
 import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
-import { traceUiInteraction } from '../../../dev/uiInteractionDiagnostics';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 
@@ -114,20 +113,16 @@ export function SettingsScreen() {
   }, [setSearchActive]);
 
   const enableSearch = () => {
-    traceUiInteraction('settings.search.open', () => {
-      setIsSearching(true);
-      setSearchActive(true);
-      setTimeout(() => searchInputRef.current?.focus(), 0);
-    });
+    setIsSearching(true);
+    setSearchActive(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const disableSearch = () => {
-    traceUiInteraction('settings.search.close', () => {
-      setIsSearching(false);
-      setSearchActive(false);
-      setSearchQuery('');
-      Keyboard.dismiss();
-    });
+    setIsSearching(false);
+    setSearchActive(false);
+    setSearchQuery('');
+    Keyboard.dismiss();
   };
 
   const SEARCHABLE_ITEMS = useMemo(() => [
@@ -183,9 +178,9 @@ export function SettingsScreen() {
           paddingBottom={isSearching ? 8 : 12}
           rightActions={
             !isSearching ? (
-              <Pressable onPress={enableSearch} hitSlop={12} unstable_pressDelay={0}>
+              <FastPressable onPress={enableSearch} latencyLabel="settings.search.open" hitSlop={12}>
                 <Ionicons name="search" size={22} color={T.textMuted} />
-              </Pressable>
+              </FastPressable>
             ) : null
           }
         />
@@ -203,9 +198,9 @@ export function SettingsScreen() {
                 autoCapitalize="none"
                 returnKeyType="search"
               />
-              <Pressable onPress={disableSearch} hitSlop={10} unstable_pressDelay={0}>
+              <FastPressable onPress={disableSearch} latencyLabel="settings.search.close" hitSlop={10}>
                 <Ionicons name="close-circle" size={18} color={T.textMuted} />
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         )}
@@ -230,9 +225,9 @@ export function SettingsScreen() {
           </View>
         ) : (
           <View>
-            <Pressable
-              onPress={() => traceUiInteraction('settings.accounts.open', () => router.push('/settings/accounts'))}
-              unstable_pressDelay={0}
+            <FastPressable
+              onPress={() => router.push('/settings/accounts')}
+              latencyLabel="settings.accounts.open"
             >
               <View style={[styles.accountCard, styles.cardShadow]}>
                 <View style={[styles.ribbonContainer, isDemoAccount ? styles.ribbonDemo : styles.ribbonLive]}>
@@ -288,7 +283,7 @@ export function SettingsScreen() {
                   </View>
                 </View>
               </View>
-            </Pressable>
+            </FastPressable>
 
             <View style={styles.metricsRow}>
               <View style={styles.metricBlock}>
@@ -333,17 +328,17 @@ export function SettingsScreen() {
             </View>
 
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
-            <Pressable
+            <FastPressable
               style={[styles.singleRowCard, styles.cardShadow]}
-              onPress={() => traceUiInteraction('settings.register.open', () => router.push('/register'))}
-              unstable_pressDelay={0}
+              onPress={() => router.push('/register')}
+              latencyLabel="settings.register.open"
             >
               <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
                 <Ionicons name="person-outline" size={20} color="#1D4ED8" />
               </View>
               <Text style={styles.rowTitleSingle}>{t('New Account')}</Text>
               <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
-            </Pressable>
+            </FastPressable>
 
             <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
@@ -395,16 +390,16 @@ export function SettingsScreen() {
             </View>
 
             <View style={styles.logoutContainer}>
-              <Pressable
+              <FastPressable
                 style={styles.singleRowCardLogout}
-                onPress={() => traceUiInteraction('settings.logout.prompt', handleLogout)}
-                unstable_pressDelay={0}
+                onPress={handleLogout}
+                latencyLabel="settings.logout.prompt"
               >
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                   <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                 </View>
                 <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         )}

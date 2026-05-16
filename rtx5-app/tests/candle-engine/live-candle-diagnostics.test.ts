@@ -4,12 +4,9 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 const readCanonicalLiveStreamSource = (): string => {
-  // Prefer the split folder structure introduced after the 500-line refactor.
   const folderCandidates = [
     resolve(process.cwd(), 'src/domain/candles/stream/liveCandleStream'),
     resolve(process.cwd(), 'rtx5-app/src/domain/candles/stream/liveCandleStream'),
-    resolve(process.cwd(), 'src/candles/stream/liveCandleStream'),
-    resolve(process.cwd(), 'rtx5-app/src/candles/stream/liveCandleStream'),
   ];
   for (const folder of folderCandidates) {
     if (existsSync(folder) && statSync(folder).isDirectory()) {
@@ -19,14 +16,9 @@ const readCanonicalLiveStreamSource = (): string => {
         .join('\n');
     }
   }
-  // Legacy single-file fallback.
   const candidates = [
     resolve(process.cwd(), 'src/domain/candles/stream/liveCandleStream.ts'),
     resolve(process.cwd(), 'rtx5-app/src/domain/candles/stream/liveCandleStream.ts'),
-    resolve(process.cwd(), 'src/candles/stream/liveCandleStream.ts'),
-    resolve(process.cwd(), 'rtx5-app/src/candles/stream/liveCandleStream.ts'),
-    resolve(process.cwd(), 'src/candles/liveCandleStream.ts'),
-    resolve(process.cwd(), 'rtx5-app/src/candles/liveCandleStream.ts'),
   ];
   const filePath = candidates.find((candidate) => existsSync(candidate));
   assert.ok(filePath, 'stream/liveCandleStream not found from the test working directory');
@@ -51,6 +43,23 @@ test('canonical live stream exposes safe REST history prefetch for fast timefram
   assert.match(source, /getCandleHistory\(normalizedSymbol, normalizedTimeframe, DEFAULT_HISTORY_LIMIT\)/);
   assert.match(source, /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/);
   assert.match(source, /syncMergedCandleCache\(normalizedSymbol, normalizedTimeframe, history\.closedCandles, \{ canonical: true \}\)/);
+});
+
+test('canonical live stream keeps pagination windows bounded to the selected timeframe', () => {
+  assert.match(source, /getTimeframeSeconds\(entry\.timeframe\)/);
+  assert.match(source, /getHistoryPageLookbackMultiplier = \(timeframe: Timeframe\): number =>/);
+  assert.match(source, /lookbackSeconds =[\s\S]*PAGINATED_HISTORY_LIMIT \* timeframeSeconds \* getHistoryPageLookbackMultiplier\(entry\.timeframe\)/);
+  assert.match(source, /pageToTime - lookbackSeconds/);
+  assert.match(source, /runLoadHistory\(this, entry, PAGINATED_HISTORY_LIMIT, \{ to: pageToTime, from: fromTime \}\)/);
+  assert.match(source, /renderHistoryLimit: number/);
+  assert.match(source, /historyPaginationCursorTime: number \| null/);
+  assert.match(source, /historyPageLoading: boolean/);
+  assert.match(source, /entry\.historyPageLoading = true/);
+  assert.match(source, /entry\.loading = entry\.historyLoading \|\| entry\.historyPageLoading/);
+  assert.match(source, /MAX_RENDERED_HISTORY_CANDLES/);
+  assert.match(source, /live\.renderHistoryLimit = Math\.min\(/);
+  assert.match(source, /live\.historyPaginationCursorTime = Math\.max\(1, Math\.floor\(options\.from\)\)/);
+  assert.doesNotMatch(source, /DEFAULT_HISTORY_LIMIT \* 86400/);
 });
 
 test('canonical live stream seeds REST history plus backend current candle before websocket merge', () => {
@@ -107,11 +116,21 @@ test('backend candle cache bootstrap does not reject valid intraday gaps', () =>
   assert.match(historyQuerySource, /return normalizedTimeframe \? \[normalizedTimeframe\] : \[\]/);
 });
 
+test('data analyzer is opt-in and avoids engine-only REST history probes', () => {
+  const analyzerSource = readRepoSource('src/features/chart/DataAnalyzer.ts');
+
+  assert.match(analyzerSource, /EXPO_PUBLIC_ENABLE_DATA_ANALYZER/);
+  assert.match(analyzerSource, /CANDLE_HISTORY_TIMEFRAMES/);
+  assert.doesNotMatch(analyzerSource, /SUPPORTED_TIMEFRAMES/);
+});
+
 test('canonical live stream commits one fresh history plus backend live candle series', () => {
   assert.match(source, /historyCandles: Candle\[]/);
   assert.match(source, /liveCandleMap: Map<number, MutableCandle>/);
   assert.match(source, /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime\)/);
+  assert.match(source, /renderHistoryLimit = Math\.min\(/);
   assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
+  assert.match(source, /closedHistoryLastTime: entry\.historyLastTime/);
   assert.match(source, /candleMemoryCache\.set\(entry\.symbol, entry\.timeframe, safeNextCandles\)/);
   assert.match(source, /syncMergedCandleCache\(symbol, timeframe, history\.closedCandles, \{ canonical: true \}\)/);
   assert.doesNotMatch(source, /syncMergedCandleCache\(entry\.symbol, entry\.timeframe, nextCandles, \{ canonical: true \}\)/);

@@ -4,6 +4,7 @@ import {
   normalizeTimeframe,
   sortAndDedupeCandles,
 } from './candles';
+import { coerceClosedFlag, toPublicCandle } from './candleUtils';
 import type { Candle } from '../../../state/tradingState';
 
 /** Represents the exact price line used to build a candle (e.g. tracking the bid vs ask price). */
@@ -38,29 +39,6 @@ export const normalizeCandlePriceBasis = (value: unknown): CandlePriceBasis | nu
 
 export const getConfiguredCandlePriceBasis = (): CandlePriceBasis =>
   normalizeCandlePriceBasis(process.env.EXPO_PUBLIC_CANDLE_PRICE_BASIS) ?? 'bid';
-
-const coerceClosedFlag = (value: unknown): boolean | null => {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'closed', 'complete', 'completed', 'final'].includes(normalized)) {
-      return true;
-    }
-    if (['false', '0', 'open', 'forming', 'current', 'partial', 'incomplete'].includes(normalized)) {
-      return false;
-    }
-  }
-
-  return null;
-};
 
 /** 
  * Safely extracts a boolean "closed" flag from various possible backend/JSON representations
@@ -131,14 +109,7 @@ export const markTrustedHistorySeries = (
     .filter((candle): candle is TrustedHistoryCandle => candle !== null);
 
 /** Removes all internal tracking metadata from a candle, leaving only pure OHLCV data. */
-export const stripCandleProvenance = (candle: Candle): Candle => ({
-  time: candle.time,
-  open: candle.open,
-  high: candle.high,
-  low: candle.low,
-  close: candle.close,
-  volume: candle.volume,
-});
+export const stripCandleProvenance = (candle: Candle): Candle => toPublicCandle(candle);
 
 /** Represents the initial batch of historical data used to boot up a chart. */
 export type RestHistorySeedCandles = {

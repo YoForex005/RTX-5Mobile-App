@@ -42,6 +42,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [x] Unit: active-language dictionary coverage includes account login, demo registration, and broker directory labels.
 - [x] Unit: account API numeric normalization and live metric readiness guard.
 - [x] Unit: login auth payload account type aliases map demo, contest, and real accounts without route-specific hardcoding.
+- [x] Unit: About action links, store targets, contact categories, and developer email intent stay deterministic.
 - [x] Typecheck: Accounts screen other-account cards expand into the same balance/metric detail layout as the current account.
 - [ ] Integration: navigation from settings to all sub-screens.
 - [ ] E2E: open broker list, open account details, read mailbox list.
@@ -109,6 +110,15 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - 2026-05-13: Fixed Watchlist News text visibility by moving the cards to theme-aware gradients and dedicated light/dark contrast styles for the title, match label, timestamp, and open action.
 - 2026-05-13: Upgraded Latest Market News cards into professional trading-intelligence cards with source/category/time hierarchy, market-exposure grouping, affected symbols, impact/risk labels, compact save/read/share actions, and more realistic preview news copy.
 - 2026-05-13: Simplified Market News card density by removing nested exposure panels, duplicate freshness rows, extra risk chips, decorative source icons, and watchlist match filler so cards keep only high-signal trading context.
+- 2026-05-16: Upgraded the User Guide detail screen with a dedicated premium settings layout layer, theme-aware command styling, compact gradient overview metrics, a stronger guided-workflow brief, denser workflow rows, and focused test coverage to keep the screen from falling back to the generic enterprise styling.
+- 2026-05-16: Rebuilt the About detail screen as a dedicated app identity surface instead of the generic enterprise dossier. The screen now shows the RTX5 icon/name, version/runtime/channel/platform metadata, actual product surfaces, frontend-only and device-local boundaries, EAS release guardrails, no-logo chart policy, and the locked technology foundation with focused view-model tests.
+- 2026-05-16: Added About help actions for rating the app through Google Play/App Store targets, opening the in-app RTX5 User Guide, and contacting the developer from an RTX5-branded bottom sheet with selectable feedback categories and generated email context.
+- 2026-05-16: Replaced the detailed About dossier with the supplied reference-style white About screen: clean About header, centered RTX5 icon/name/build label, five-star rating row, User guide row, Contact Developer row, and visible bottom navigation while preserving store, in-app guide, and contact/category behavior.
+- 2026-05-16: Reworked About Contact Developer from a bottom sheet into the supplied full-screen form with name, email, title, description, consent checkbox, privacy-policy link, disabled/enabled SEND footer, RTX5 disclaimer copy, and an inline category dropdown for Bug Report, Feature Request, Trading Account Problem, and Other.
+- 2026-05-16: Replaced the User Guide enterprise console with an RTX5 mobile-app manual opened from the About User guide row. The guide now shows RTX5 app identity, summary cards, a left-side numbered section rail, and app-specific text for Quotes, Charts, Trade, History, Messages, Accounts, Settings, and safety with no rendered MetaTrader wording.
+- 2026-05-16: Restored the About screen hamburger/sidebar entry before the About heading and upgraded Contact Developer into a polished RTX5 support request screen with an app support card, grouped inputs, richer category picker, clearer consent/privacy treatment, and professional SEND footer styling.
+- 2026-05-16: Matched the User Guide heading to the About heading by adding the same hamburger/sidebar entry before the User Guide title.
+- 2026-05-16: Made the About and Contact Developer surfaces theme-aware for dark mode. The About identity screen, action rows, bottom navigation, contact form cards, fields, dropdown, consent area, and footer now switch to dark backgrounds, readable text, borders, and icon colors while keeping the same RTX5 layout and store/user-guide/contact behavior.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.

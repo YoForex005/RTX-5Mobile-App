@@ -13,12 +13,16 @@ import {
 } from '../series/candleSeriesMerger';
 import { validateCandle } from './candleValidator';
 import {
+  CANDLE_HISTORY_TIMEFRAMES,
   createCandleStreamKey,
   getBucketGapCount,
   getBucketStart,
   getExpectedNextCandleTime,
   getTimeframeSeconds,
+  isCandleHistoryTimeframe,
   isSupportedTimeframe,
+  normalizeCandleHistoryTimeframe,
+  normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
   normalizeTimeframe,
   normalizeTimeframeStrict,
@@ -29,11 +33,15 @@ import type { Candle } from './candleTypes';
 
 export type { Candle } from './candleTypes';
 export {
+  CANDLE_HISTORY_TIMEFRAMES,
   createCandleStreamKey,
   getBucketGapCount,
   getExpectedNextCandleTime,
   getTimeframeSeconds,
+  isCandleHistoryTimeframe,
   isSupportedTimeframe,
+  normalizeCandleHistoryTimeframe,
+  normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
   normalizeTimeframe,
   normalizeTimeframeStrict,
@@ -41,7 +49,7 @@ export {
   SUPPORTED_TIMEFRAMES,
 };
 
-export const MAX_CANDLE_SERIES_LENGTH = 60_000;
+export const MAX_CANDLE_SERIES_LENGTH = 2_500;
 export const DEFAULT_CANDLE_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
 export const MIN_TRUSTED_BOOTSTRAP_CANDLE_COUNT = 8;
 export const MAX_CANDLE_CACHE_ENTRIES = 8;
@@ -75,7 +83,7 @@ export type NormalizedIncomingCandle = {
 export const alignTimeToBucket = (timeInSeconds: number, timeframe: string): number =>
   getBucketStart(timeInSeconds, timeframe) ?? Math.floor(timeInSeconds);
 
-/** Alias for alignTimeToBucket (reference bucket time is currently unused but kept for interface compatibility). */
+/** Alias for alignTimeToBucket. The reference bucket argument is accepted by the public candle API. */
 export const alignTimeToBucketWithReference = (
   timeInSeconds: number,
   timeframe: string,

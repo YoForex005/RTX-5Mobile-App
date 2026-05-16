@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: Mql5AlgoTradingScreen
  *
@@ -10,12 +11,13 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Keyboard, Modal, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
+import { safeRouterBack } from '../../utils/navigation';
 import { makeMql5AlgoTradingStyles, type Mql5AlgoTradingStyles } from './Mql5AlgoTradingScreen.styles';
 import {
   DEFAULT_ALGO_STRATEGY_FILTERS,
@@ -105,8 +107,7 @@ export function Mql5AlgoTradingScreen() {
   };
 
   const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   const closeSearch = () => {

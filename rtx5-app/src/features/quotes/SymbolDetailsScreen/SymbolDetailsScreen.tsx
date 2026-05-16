@@ -1,10 +1,11 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
@@ -17,6 +18,8 @@ import { fmt } from '../../../utils/format';
 import { calculateMarketSentiment } from '../../../domain/marketSentiment';
 import { normalizeSymbol } from '../../../domain/symbols';
 import { classifyTradingError, createFrontendTradingError } from '../../../api/tradingErrors';
+import { safeRouterBack } from '../../../utils/navigation';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../../utils/actionLatency';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { dCol, getMeta, normalizeTradingSessions, sgn } from './instrumentMeta';
 import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents';
@@ -194,7 +197,7 @@ export function SymbolDetailsScreen() {
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
             <Ionicons name="arrow-back" size={26} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
@@ -259,7 +262,13 @@ export function SymbolDetailsScreen() {
             </View>
 
             <View style={[s.ticker.inner]}>
-              <Pressable style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 }]} disabled={isPending} onPress={() => handleTrade('sell')}>
+              <Pressable
+                style={[s.ticker.side, (activeSide === 'sell' || (isPending && !activeSide)) && { opacity: 0.5 }]}
+                disabled={isPending}
+                onPress={() => handleTrade('sell')}
+                latencyLabel="symbolDetails.trade.sell"
+                latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+              >
                 <LinearGradient colors={[isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.down }]}>SELL</Text>
@@ -281,7 +290,13 @@ export function SymbolDetailsScreen() {
                 </View>
               </View>
 
-              <Pressable style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 }]} disabled={isPending} onPress={() => handleTrade('buy')}>
+              <Pressable
+                style={[s.ticker.side, (activeSide === 'buy' || (isPending && !activeSide)) && { opacity: 0.5 }]}
+                disabled={isPending}
+                onPress={() => handleTrade('buy')}
+                latencyLabel="symbolDetails.trade.buy"
+                latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
+              >
                 <LinearGradient colors={[isDark ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.02)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
                 <View style={s.ticker.sideHeader}>
                   <Text style={[s.ticker.sideLabel, { color: T.up }]}>BUY</Text>

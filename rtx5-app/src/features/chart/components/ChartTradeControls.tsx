@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, {  } from 'react';
-import { Dimensions, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Modal, PanResponder, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../../ui/overlayModalProps';
 import {

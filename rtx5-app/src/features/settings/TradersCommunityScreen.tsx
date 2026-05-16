@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: TradersCommunityScreen
  *
@@ -10,12 +11,13 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
+import { safeRouterBack } from '../../utils/navigation';
 import { makeTradersCommunityStyles, type TradersCommunityStyles } from './TradersCommunityScreen.styles';
 import {
   COMMUNITY_FILTERS,
@@ -73,8 +75,7 @@ export function TradersCommunityScreen() {
   };
 
   const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   return (

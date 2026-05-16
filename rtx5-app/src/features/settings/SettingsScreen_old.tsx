@@ -1,6 +1,7 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 ﻿import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';

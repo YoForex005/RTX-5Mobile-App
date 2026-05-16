@@ -148,13 +148,13 @@ test('resolveFooterLotChevronState keeps both lot chevrons enabled between min a
   );
 });
 
-test('resolveFooterLotChevronPressBehavior prefers direct step actions over the lot picker', () => {
+test('resolveFooterLotChevronPressBehavior restores picker ranges when a lot picker exists', () => {
   assert.equal(
     resolveFooterLotChevronPressBehavior({
       hasStepAction: true,
       hasLotPickerAction: true,
     }),
-    'step',
+    'picker',
   );
 });
 
@@ -165,6 +165,16 @@ test('resolveFooterLotChevronPressBehavior falls back to the lot picker when no 
       hasLotPickerAction: true,
     }),
     'picker',
+  );
+});
+
+test('resolveFooterLotChevronPressBehavior falls back to direct step when no lot picker exists', () => {
+  assert.equal(
+    resolveFooterLotChevronPressBehavior({
+      hasStepAction: true,
+      hasLotPickerAction: false,
+    }),
+    'step',
   );
 });
 
@@ -208,6 +218,20 @@ test('buildFooterLotPickerValues mirrors the small range for lot decrease', () =
     activeLotRangeLabels(1, 'decrease'),
     ['-0.01', '-0.02', '-0.03', '-0.04', '-0.05', '-0.06', '-0.07', '-0.08', '-0.09', '-0.1'],
   );
+});
+
+test('buildFooterLotPickerValues commits decrease selections as current lot minus selected amount', () => {
+  const smallRange = buildFooterLotPickerValues(0.1, 'decrease', wideLotBounds, 1);
+  const minusThreeSteps = smallRange.find((option: any) => option.label === '-0.03');
+
+  assert.ok(minusThreeSteps, 'expected -0.03 decrease option');
+  assert.equal(minusThreeSteps.value, 0.07);
+
+  const tenthRange = buildFooterLotPickerValues(1, 'decrease', wideLotBounds, 10);
+  const minusFourTenths = tenthRange.find((option: any) => option.label === '-0.4');
+
+  assert.ok(minusFourTenths, 'expected -0.4 decrease option');
+  assert.equal(minusFourTenths.value, 0.6);
 });
 
 test('buildFooterLotPickerValues shows the negative ladder even when the current lot is already at minimum', () => {

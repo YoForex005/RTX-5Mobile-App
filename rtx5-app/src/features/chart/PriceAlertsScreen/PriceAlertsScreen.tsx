@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Chart Feature UI: PriceAlertsScreen
  *
@@ -16,16 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUserPreferences } from '../../../state/userPreferences';
@@ -35,6 +27,7 @@ import {
   useDeleteAlertMutation,
 } from '../../../query/alerts';
 import type { AlertCondition } from '../../../api/alerts';
+import { safeRouterBack } from '../../../utils/navigation';
 import { AlertRow } from './AlertRow';
 import { makePriceAlertsStyles } from './styles';
 
@@ -107,7 +100,7 @@ export function PriceAlertsScreen() {
 
       {/* ── Header ── */}
       <View style={[styles.header, { backgroundColor: screenBg }]}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={22} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]} numberOfLines={1}>

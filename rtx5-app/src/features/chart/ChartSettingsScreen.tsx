@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +9,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { FastPressable } from '../../ui/components/FastPressable';
+import { safeRouterBack } from '../../utils/navigation';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -30,9 +30,9 @@ export function ChartSettingsScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => traceUiInteraction('chartSettings.back', () => router.back())} hitSlop={16} style={styles.headerBackBtn} unstable_pressDelay={0}>
+          <FastPressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} latencyLabel="chartSettings.back" hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
-          </Pressable>
+          </FastPressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle} numberOfLines={1}>Chart Preferences</Text>
           </View>
@@ -125,17 +125,17 @@ function NavRow({
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <Pressable
+    <FastPressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-      onPress={() => traceUiInteraction(`chartSettings.nav.${label}`, onPress)}
-      unstable_pressDelay={0}
+      onPress={onPress}
+      latencyLabel={`chartSettings.nav.${label}`}
     >
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.navRight}>
         {value !== '' && <Text style={styles.navValue}>{value}</Text>}
         <Ionicons name="chevron-forward" size={16} color="#64748B" />
       </View>
-    </Pressable>
+    </FastPressable>
   );
 }
 

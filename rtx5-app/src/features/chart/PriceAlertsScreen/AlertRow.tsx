@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PriceAlert } from '../../../api/alerts';
 import { formatBrokerTime } from '../../../utils/brokerTime';

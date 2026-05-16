@@ -5,7 +5,7 @@ import {
   CANDLE_HISTORY_QUERY_GC_MS,
   DEFAULT_CANDLE_HISTORY_LIMIT,
   LATEST_DAILY_CANDLE_HISTORY_LIMIT,
-  normalizeTimeframeStrict,
+  normalizeCandleHistoryTimeframeStrict,
 } from '../domain/candles/core/candles';
 import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../state/providers/AppProviders';
@@ -39,7 +39,7 @@ export function prefetchInstrument(symbol: string) {
 
 export function prefetchChartCandles(symbol: string, timeframe: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
 
   if (!normalizedSymbol || !normalizedTimeframe) {
     return Promise.resolve();

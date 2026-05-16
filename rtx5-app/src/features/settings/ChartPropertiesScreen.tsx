@@ -1,21 +1,13 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+  KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-color-picker';
 import { Screen } from '../../ui/components/Screen';
+import { safeRouterBack } from '../../utils/navigation';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { useMarketData } from '../../query/websocket';
 import {
@@ -253,7 +245,7 @@ export function ChartPropertiesScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

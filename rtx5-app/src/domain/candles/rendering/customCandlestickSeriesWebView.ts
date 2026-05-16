@@ -1,7 +1,7 @@
 /**
  * WebView injection script for custom candlestick rendering.
  * 
- * IMPORTANT: This file contains a stringified, ES5-compatible version of the 
+ * IMPORTANT: This file contains a stringified, ES5-safe version of the 
  * custom rendering logic from `candleGeometry.ts` and `customCandlestickSeries.ts`.
  * 
  * Why? The TradingView Lightweight Charts library runs inside a React Native WebView.

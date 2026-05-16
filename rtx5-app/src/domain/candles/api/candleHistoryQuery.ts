@@ -1,4 +1,5 @@
-import { normalizeTimeframeStrict } from '../core/candles';
+import { normalizeCandleHistoryTimeframeStrict } from '../core/candles';
+import { asRecord } from '../core/candleUtils';
 
 /** Options for paginating historical candle requests. */
 export type CandleHistoryRequestOptions = {
@@ -15,15 +16,6 @@ export type ExtractedCandleHistoryPayload = {
   symbol?: string;
   timeframe?: string;
   priceBasis?: string;
-};
-
-/** Safely casts an unknown value to a Record if it is an object and not an array. */
-const asObjectRecord = (value: unknown): Record<string, unknown> | null => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as Record<string, unknown>;
 };
 
 const pickFirstArray = (...candidates: unknown[]): unknown[] => {
@@ -46,14 +38,14 @@ export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHi
     return { candles: payload };
   }
 
-  const record = asObjectRecord(payload);
+  const record = asRecord(payload);
   if (!record) {
     return { candles: [] };
   }
 
-  const nestedData = asObjectRecord(record.data);
-  const nestedResult = asObjectRecord(record.result);
-  const nestedPayload = asObjectRecord(record.payload);
+  const nestedData = asRecord(record.data);
+  const nestedResult = asRecord(record.result);
+  const nestedPayload = asRecord(record.payload);
 
   return {
     candles: pickFirstArray(
@@ -127,6 +119,6 @@ export const buildCandleHistorySearchParams = (
 };
 
 export const getCandleHistoryRequestTimeframes = (timeframe: string): string[] => {
-  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
   return normalizedTimeframe ? [normalizedTimeframe] : [];
 };

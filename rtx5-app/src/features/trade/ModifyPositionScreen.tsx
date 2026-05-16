@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: ModifyPositionScreen
  * 
@@ -9,15 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Dimensions,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -37,6 +30,7 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { findPositionById } from './tradeFlow';
 import { fmt } from '../../utils/format';
+import { safeRouterBack } from '../../utils/navigation';
 import {
   classifyTradingError,
   createFrontendTradingError,
@@ -155,11 +149,7 @@ export function ModifyPositionScreen() {
   const isClosingRef = useRef(false);
 
   const handleSheetClosed = useCallback(() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/trade');
-    }
+    safeRouterBack(router, '/(tabs)/trade');
   }, []);
 
   const dismissSheet = useCallback(() => {

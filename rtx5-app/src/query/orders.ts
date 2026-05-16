@@ -74,6 +74,15 @@ export function useAccountOrdersQuery(options: PollingQueryOptions = {}) {
 import { usePositionsState } from '../state/positionsState';
 import { resolveTradingLoginString } from '../state/tradingLogin';
 
+const ORDER_DIAGNOSTICS_ENABLED =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+
+const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (ORDER_DIAGNOSTICS_ENABLED) {
+    console.log(...args);
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TanStack Query mutation hook for placing market orders.
 // On success, invalidates positions and account caches so the UI reflects
@@ -90,7 +99,7 @@ export const usePlaceOrderMutation = () => {
 
   return useMutation({
     mutationFn: (payload: PlaceOrderPayload) => {
-      console.log('[TRADE-PAYLOAD]', {
+      logOrderDiagnostic('[TRADE-PAYLOAD]', {
         symbol: payload.symbol,
         side: payload.side,
         action: payload.side,
@@ -104,7 +113,7 @@ export const usePlaceOrderMutation = () => {
       return ordersApi.placeMarketOrder(payload);
     },
     onSuccess: (data, variables) => {
-      console.log('[TRADE-RESPONSE]', {
+      logOrderDiagnostic('[TRADE-RESPONSE]', {
         requestSide: variables.side,
         result: data?.status ?? 'success',
         backendSide: data?.side ?? null,

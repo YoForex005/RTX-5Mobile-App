@@ -274,13 +274,13 @@ test('SL and TP drag throttles label redraw separately from the local line movem
   );
 });
 
-test('SL and TP drag updates the right-side value label with the dragged price', () => {
+test('SL and TP drag moves the line while keeping right-axis badges hidden', () => {
   const updatePreviewBody = extractFunctionBody(source, 'updateDraggedOverlayLinePreview');
 
   assertSourceContains(
     updatePreviewBody,
-    /entry\.api\.applyOptions\(\{\s*price: price,\s*axisLabelVisible: entry\.line\.axisLabelVisible !== false,\s*title: '',\s*\}\)/,
-    'local SL/TP drag preview must update the right-axis value label from the dragged price',
+    /entry\.api\.applyOptions\(\{\s*price: price,\s*axisLabelVisible: false,\s*title: '',\s*\}\)/,
+    'local SL/TP drag preview must move the price line without painting a right-axis badge',
   );
 });
 
@@ -308,7 +308,7 @@ test('SL and TP drag preserves the active WebView price while native overlays re
 test('pending chart CTA does not open the blocking preview-only Alert', () => {
   assertSourceContains(
     source,
-    /traceUiInteraction\('chart\.tradeSheet\.pending\.editOnChart'[\s\S]*snapTradeSheet\('collapsed'\)/,
+    /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'[\s\S]*snapTradeSheet\('collapsed'\)/,
     'pending CTA must expose the chart-side draggable levels',
   );
   if (/Pending Order Preview|Chart-side pending submission is still preview-only in this build|Alert\.alert/.test(source)) {
@@ -356,8 +356,8 @@ test('compact footer lot editing does not add an Android pre-keyboard lift gap',
   );
   assertSourceContains(
     source,
-    /floatingFooterTradeReserveHeight\.value = withTiming\(isFloatingFooterTradeRowVisible \? 58 : 0/,
-    'footer reserve must not animate upward until the floating dock is actually visible',
+    /floatingFooterTradeReserveHeight\.value = withTiming\([\s\S]*isFloatingFooterTradeRowVisible \? CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT : 0/,
+    'footer reserve must use the shared compact footer height and only animate upward when the floating dock is actually visible',
   );
   assertSourceContains(
     source,
@@ -371,7 +371,7 @@ test('compact footer lot editing does not add an Android pre-keyboard lift gap',
   );
   assertSourceContains(
     chartTradeFeatureSource,
-    /isAndroidFloatingFooterLotEditor \? 0 : footer\.footerTradeRowKeyboardOffset \+ tradeFooterDockEditGap/,
+    /isAndroidFloatingFooterLotEditor[\s\S]*\? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP[\s\S]*: footer\.footerTradeRowKeyboardOffset \+ tradeFooterDockEditGap/,
     'Android compact lot editing must not apply the first keyboard offset as an extra dock lift',
   );
 });
@@ -411,11 +411,25 @@ test('trade footer dock keeps a stable keyboard clearance via static paddingBott
   })();
   assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
   const stylesSource = readFileSync(stylesPath, 'utf8');
+  const constantsPath = (() => {
+    const candidates = [
+      resolve(process.cwd(), 'src/features/chart/ChartScreen.constants.ts'),
+      resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.constants.ts'),
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
+  })();
+  assert.ok(constantsPath, 'ChartScreen.constants.ts was not found from the test working directory');
+  const constantsSource = readFileSync(constantsPath, 'utf8');
 
   assertSourceContains(
     stylesSource,
-    /footerTradeDock: \{[\s\S]*paddingBottom: 1[0-9]/,
-    'footerTradeDock must keep a static paddingBottom (>=10) so the trade row clears the keyboard',
+    /footerTradeDock: \{[\s\S]*paddingBottom: 2[0-9]/,
+    'footerTradeDock must keep a static paddingBottom (>=20) so the trade row clears the keyboard',
+  );
+  assertSourceContains(
+    constantsSource,
+    /CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 72/,
+    'footer fallback/reserve height must cover the fixed 40px trade row plus dock top/bottom clearance',
   );
   // Negative pin: the dock must not regress to flush-against-keyboard.
   if (/footerTradeDock: \{[\s\S]*paddingBottom: 0[\s,]/.test(stylesSource)) {

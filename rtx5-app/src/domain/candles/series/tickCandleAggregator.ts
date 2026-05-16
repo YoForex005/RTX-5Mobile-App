@@ -1,6 +1,18 @@
 import type { Candle, MutableCandle, Timeframe } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
 import {
+  areCandleValuesEqual,
+  CANDLE_SYMBOL_KEYS,
+  CANDLE_TIMEFRAME_KEYS,
+  CANDLE_TIME_KEYS,
+  CANDLE_VOLUME_KEYS,
+  getNestedRecord,
+  pickFirst,
+  toFiniteNumber,
+  toPositiveFiniteNumber,
+  toPublicCandle,
+} from '../core/candleUtils';
+import {
   getBucketStart,
   normalizeSymbol,
   normalizeTimeframeStrict,
@@ -58,61 +70,15 @@ export type ApplyTickResult = {
   reason?: string;
 };
 
-// --- Field Mapping Constants ---
-// These arrays define the possible keys that might contain relevant data in an unstructured tick payload.
-
-/** Possible keys for extracting the timestamp of a tick. */
-const TIME_KEYS = ['time', 'timestamp', 'ts', 't', 'date', 'datetime', 'serverTime', 'server_time'] as const;
-/** Possible keys for extracting the symbol/instrument name. */
-const SYMBOL_KEYS = ['symbol', 'Symbol', 'SYMBOL', 's', 'S', 'instrument', 'instrumentSymbol'] as const;
-/** Possible keys for extracting the timeframe/interval. */
-const TIMEFRAME_KEYS = ['timeframe', 'Timeframe', 'TIMEFRAME', 'tf', 'TF', 'period', 'interval'] as const;
-/** Possible keys for extracting the tick volume. */
-const VOLUME_KEYS = ['volume', 'Volume', 'VOLUME', 'vol', 'tickVolume', 'tick_volume', 'v', 'V'] as const;
 /** Order of precedence for extracting the price from a tick. */
 const PRICE_KEYS: readonly LiveTickPriceField[] = ['price', 'bid', 'ask', 'mid', 'last'];
-
-// --- Type Guards and Extractors ---
-
-/**
- * Safely casts an unknown value to a Record if it is an object and not an array.
- * Useful for validating raw JSON payloads.
- */
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
 /**
  * Traverses common nested payload structures (e.g., { tick: { ... } } or { data: { ... } })
  * to find the actual record containing tick data.
  */
 const getNestedTickRecord = (raw: unknown): Record<string, unknown> | null => {
-  const record = asRecord(raw);
-  if (!record) {
-    return null;
-  }
-
-  return asRecord(record.tick) ?? asRecord(record.quote) ?? asRecord(record.data) ?? record;
-};
-
-/**
- * Iterates through a list of possible keys and returns the value of the first key that exists and is not empty.
- */
-const pickFirst = (record: Record<string, unknown>, keys: readonly string[]): unknown => {
-  for (const key of keys) {
-    const value = record[key];
-    if (value !== undefined && value !== null && value !== '') {
-      return value;
-    }
-  }
-  return undefined;
-};
-
-/**
- * Attempts to parse a value into a finite number. Returns null if invalid or NaN.
- */
-const toFiniteNumber = (value: unknown): number | null => {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return getNestedRecord(raw, ['tick', 'quote', 'data']);
 };
 
 /**
@@ -121,39 +87,13 @@ const toFiniteNumber = (value: unknown): number | null => {
  */
 const pickPrice = (record: Record<string, unknown>): { price: number; field: LiveTickPriceField } | null => {
   for (const key of PRICE_KEYS) {
-    const price = toFiniteNumber(record[key]);
-    if (price !== null && price > 0) {
+    const price = toPositiveFiniteNumber(record[key]);
+    if (price !== null) {
       return { price, field: key };
     }
   }
   return null;
 };
-
-// --- Candle State Management Helpers ---
-
-/**
- * Converts a mutable internal candle representation into a read-only public Candle format.
- * Strips out internal metadata like 'source', 'firstUpdateTime', etc.
- */
-const toPublicCandle = (candle: MutableCandle): Candle => ({
-  time: candle.time,
-  open: candle.open,
-  high: candle.high,
-  low: candle.low,
-  close: candle.close,
-  volume: candle.volume ?? 0,
-});
-
-/**
- * Deep equality check for two candles to determine if a UI update is necessary.
- */
-const areCandlesEqual = (left: Candle, right: Candle): boolean =>
-  left.time === right.time &&
-  left.open === right.open &&
-  left.high === right.high &&
-  left.low === right.low &&
-  left.close === right.close &&
-  (left.volume ?? 0) === (right.volume ?? 0);
 
 /**
  * Finds the most recent bucket time (the "tail") in the current candle map.
@@ -219,7 +159,7 @@ export const normalizeLiveTick = (
   }
 
   // Step 2: Extract mandatory time and price
-  const time = normalizeTimestampToSeconds(pickFirst(record, TIME_KEYS));
+  const time = normalizeTimestampToSeconds(pickFirst(record, CANDLE_TIME_KEYS));
   const price = pickPrice(record);
   if (time === null || price === null) {
     return null;
@@ -232,21 +172,21 @@ export const normalizeLiveTick = (
   }
 
   // Step 4: Validate Symbol if an expectation is set
-  const symbolValue = pickFirst(record, SYMBOL_KEYS);
+  const symbolValue = pickFirst(record, CANDLE_SYMBOL_KEYS);
   const tickSymbol = typeof symbolValue === 'string' ? normalizeSymbol(symbolValue) : undefined;
   if (!expectedSymbolMatches(tickSymbol, options.expectedSymbol)) {
     return null;
   }
 
   // Step 5: Validate Timeframe if an expectation is set
-  const timeframeValue = pickFirst(record, TIMEFRAME_KEYS);
+  const timeframeValue = pickFirst(record, CANDLE_TIMEFRAME_KEYS);
   const tickTimeframe = normalizeTimeframeStrict(timeframeValue);
   if (!expectedTimeframeMatches(tickTimeframe ?? undefined, options.expectedTimeframe ?? timeframe)) {
     return null;
   }
 
   // Step 6: Extract volume, defaulting to 0 if absent
-  const rawVolume = toFiniteNumber(pickFirst(record, VOLUME_KEYS));
+  const rawVolume = toFiniteNumber(pickFirst(record, CANDLE_VOLUME_KEYS));
   const volume = rawVolume !== null && rawVolume > 0 ? rawVolume : 0;
 
   // Step 7: Construct finalized payload
@@ -286,7 +226,7 @@ export const aggregateTickToCandleMap = (
 
   // Step 2: History boundary check (prevent applying ticks to regions handled by history queries)
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && tick.bucketTime < historyCutoff) {
+  if (typeof historyCutoff === 'number' && tick.bucketTime <= historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
@@ -344,7 +284,7 @@ export const aggregateTickToCandleMap = (
 
   // Step 7: Apply to map and determine if the UI needs to redraw
   const publicCandle = toPublicCandle(next);
-  const changed = !existing || !areCandlesEqual(toPublicCandle(existing), publicCandle);
+  const changed = !existing || !areCandleValuesEqual(toPublicCandle(existing), publicCandle);
   candleMap.set(tick.bucketTime, next);
   return { candle: publicCandle, changed, ignored: false };
 };

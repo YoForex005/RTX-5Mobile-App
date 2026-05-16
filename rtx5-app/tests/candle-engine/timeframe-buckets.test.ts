@@ -30,12 +30,10 @@ test('all supported intraday timeframes produce deterministic buckets', () => {
   const sample = secondsUtc(2024, 3, 22, 10, 37, 45);
   const expectedByTimeframe: Record<string, number> = {
     M1: secondsUtc(2024, 3, 22, 10, 37, 0),
-    M3: secondsUtc(2024, 3, 22, 10, 36, 0),
     M5: secondsUtc(2024, 3, 22, 10, 35, 0),
     M15: secondsUtc(2024, 3, 22, 10, 30, 0),
     M30: secondsUtc(2024, 3, 22, 10, 30, 0),
     H1: secondsUtc(2024, 3, 22, 10, 0, 0),
-    H2: secondsUtc(2024, 3, 22, 10, 0, 0),
     H4: secondsUtc(2024, 3, 22, 8, 0, 0),
   };
 
@@ -84,7 +82,7 @@ test('live bucket alignment uses UTC month starts across uneven months', () => {
 test('backend live candle snapshots map to exactly one bucket per timeframe', () => {
   const eventTime = secondsUtc(2024, 3, 22, 12, 5, 1);
 
-  for (const timeframe of ['M1', 'M3', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1', 'W1', 'MN']) {
+  for (const timeframe of ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN']) {
     const map = createCandleMap();
     const result = applyLiveCandleToCandleMap(
       map,

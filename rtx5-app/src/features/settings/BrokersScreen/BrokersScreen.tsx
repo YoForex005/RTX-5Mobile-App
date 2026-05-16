@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Settings Feature UI: BrokersScreen
  *
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, Linking, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, Linking, Modal, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../../ui/components/Screen';
 import { brokers } from '../../../dev/mock/tradingData';
 import { useTheme } from '../../../ui/theme/useTheme';

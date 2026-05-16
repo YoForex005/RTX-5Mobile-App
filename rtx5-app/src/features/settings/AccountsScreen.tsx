@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: AccountsScreen
  * 
@@ -9,8 +10,9 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
+import { FastPressable } from '../../ui/components/FastPressable';
 import { useQueryClient } from '@tanstack/react-query';
 
 
@@ -45,9 +47,9 @@ import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
+import { safeRouterBack } from '../../utils/navigation';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountType,
@@ -388,35 +390,35 @@ export function AccountsScreen() {
     <Screen>
       <View style={styles.page}>
         <View style={styles.header}>
-          <Pressable style={styles.iconBtn} hitSlop={15} onPress={() => router.back()} unstable_pressDelay={0}>
+          <FastPressable style={styles.iconBtn} hitSlop={15} onPress={() => safeRouterBack(router, '/(tabs)/settings')} latencyLabel="accounts.back">
             <Ionicons name="arrow-back" size={28} color={T.text} />
-          </Pressable>
+          </FastPressable>
           <Text style={styles.headerTitle}>{t('Accounts')}</Text>
           <View style={styles.headerRight}>
-            <Pressable
+            <FastPressable
               style={styles.iconBtn}
               hitSlop={10}
-              onPress={() => traceUiInteraction('accounts.certification.open', () => Alert.alert(t('Certification'), t('Certification info will be displayed here.')))}
-              unstable_pressDelay={0}
+              onPress={() => Alert.alert(t('Certification'), t('Certification info will be displayed here.'))}
+              latencyLabel="accounts.certification.open"
             >
               <Ionicons name="ribbon-outline" size={24} color={T.text} />
-            </Pressable>
-            <Pressable
+            </FastPressable>
+            <FastPressable
               style={styles.iconBtn}
               hitSlop={10}
-              onPress={() => traceUiInteraction('accounts.connect.open', handleConnectAccount)}
-              unstable_pressDelay={0}
+              onPress={handleConnectAccount}
+              latencyLabel="accounts.connect.open"
             >
               <Ionicons name="add" size={30} color={T.text} />
-            </Pressable>
-            <Pressable
+            </FastPressable>
+            <FastPressable
               style={styles.iconBtn}
               hitSlop={10}
-              onPress={() => traceUiInteraction('accounts.options.open', openOptions)}
-              unstable_pressDelay={0}
+              onPress={openOptions}
+              latencyLabel="accounts.options.open"
             >
               <Ionicons name="ellipsis-vertical" size={24} color={T.text} />
-            </Pressable>
+            </FastPressable>
           </View>
         </View>
 
@@ -534,13 +536,14 @@ export function AccountsScreen() {
               <Text style={styles.emptyOtherText}>
                 {t('Sign in to another real, demo or contest account to switch between them with one tap.')}
               </Text>
-              <Pressable
+              <FastPressable
                 style={styles.emptyOtherButton}
-                onPress={() => traceUiInteraction('accounts.connect.open', handleConnectAccount)}
+                onPress={handleConnectAccount}
+                latencyLabel="accounts.empty.connect.open"
               >
                 <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
                 <Text style={styles.emptyOtherButtonText}>{t('Add account')}</Text>
-              </Pressable>
+              </FastPressable>
             </View>
           )}
 

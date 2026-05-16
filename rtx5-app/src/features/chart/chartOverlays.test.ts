@@ -424,7 +424,7 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
   );
 });
 
-test('buildChartOverlayPayload hides duplicate right-axis labels for stacked lines at the same price', () => {
+test('buildChartOverlayPayload hides right-axis labels for overlay price lines', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'GBPUSD',
     candles,
@@ -468,5 +468,5 @@ test('buildChartOverlayPayload hides duplicate right-axis labels for stacked lin
 
   const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);
   assert.equal(stackedLines.length, 2);
-  assert.equal(stackedLines.filter((line: any) => line.axisLabelVisible !== false).length, 1);
+  assert.equal(stackedLines.filter((line: any) => line.axisLabelVisible !== false).length, 0);
 });

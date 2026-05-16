@@ -5,10 +5,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/apiClient';
 import { extractMarketSymbols } from '../domain/marketSymbols';
+import { useUserPreferences } from '../state/userPreferences';
 
 export function useMarketSymbols() {
+  const brokerId = useUserPreferences((state) => state.brokerId);
+  const accountId = useUserPreferences((state) => state.accountDetails?.id ?? '');
+
   return useQuery({
-    queryKey: ['market', 'symbols'],
+    queryKey: ['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId],
     queryFn: async () => {
       // Use the broker's full instrument catalog instead of the WS feed
       // status. The feed-status endpoint only reports currently subscribed
@@ -19,6 +23,6 @@ export function useMarketSymbols() {
       const data = await res.json();
       return extractMarketSymbols(data);
     },
-    staleTime: 1000 * 60 * 60 * 24, // 24 hours
+    staleTime: 1000 * 60 * 5,
   });
 }

@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: QRCodeSheet
  * 
@@ -7,7 +8,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';

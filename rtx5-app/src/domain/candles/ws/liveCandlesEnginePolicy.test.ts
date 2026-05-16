@@ -12,7 +12,7 @@ import {
 
 const makeCandle = (time: number) => ({ time });
 
-test('shouldRenderBootstrapPreview remains disabled for the compatibility policy', () => {
+test('shouldRenderBootstrapPreview remains disabled for the production policy', () => {
   assert.equal(shouldRenderBootstrapPreview(0, 0), false);
   assert.equal(shouldRenderBootstrapPreview(0, 1), false);
   assert.equal(shouldRenderBootstrapPreview(2, 0), false);
@@ -52,7 +52,7 @@ test('resolveVisibleSeriesMode always merges history and live without splitting 
   assert.equal(resolveVisibleSeriesMode([makeCandle(100), makeCandle(160)], [makeCandle(220)], [makeCandle(160)], 'M1'), 'merged');
 });
 
-test('resolveCurrentVisibleSeries keeps the freshest live segment for legacy callers', () => {
+test('resolveCurrentVisibleSeries keeps the freshest live segment for API callers', () => {
   const liveOnly = [makeCandle(340), makeCandle(400)];
   const current = [makeCandle(100), makeCandle(160), makeCandle(220)];
 

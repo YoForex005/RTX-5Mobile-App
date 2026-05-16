@@ -15,6 +15,7 @@
 
 import { getSecureItemAsync } from '../utils/secureStorage';
 import { useUserPreferences } from '../state/userPreferences';
+import { timedFetch } from '../utils/apiLatency';
 
 // V2 API base URL — resolved from environment variable, falls back to direct IP
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://backend.orrnn.com/api/v2';
@@ -124,10 +125,15 @@ async function silentReLogin(
     const { broker, login: savedLogin, pass } = JSON.parse(saved);
     if (!broker || !savedLogin || !pass) return null;
 
-    const resp = await fetch(`${API_BASE_URL}/auth/login`, {
+    const resp = await timedFetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ username: savedLogin, password: pass, broker_id: broker }),
+    }, {
+      label: 'apiClient.silentReLogin',
+      method: 'POST',
+      endpoint: '/auth/login',
+      source: 'auth',
     });
     if (!resp.ok) return null;
 
@@ -211,6 +217,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
   }
 
   const config: RequestInit = { ...options, headers };
+  const method = (config.method ?? 'GET').toUpperCase();
 
   // Cache-bust all GET requests so React Native's aggressive caching doesn't
   // serve stale market data
@@ -219,7 +226,12 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
     url += url.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
   }
 
-  let response = await fetch(url, config);
+  let response = await timedFetch(url, config, {
+    label: `apiClient.${method}`,
+    method,
+    endpoint,
+    source: 'apiClient',
+  });
 
   // ── 401: Token expired → refresh and replay ───────────────────────────────
   if (response.status === 401 && !options._retry) {
@@ -230,7 +242,12 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
         .then((newToken) => {
           headers.set('Authorization', `Bearer ${newToken}`);
           headers.set('X-API-Key', String(newToken));
-          return fetch(url, { ...config, headers, _retry: true } as ApiClientRequestInit);
+          return timedFetch(url, { ...config, headers, _retry: true } as ApiClientRequestInit, {
+            label: `apiClient.retryQueued.${method}`,
+            method,
+            endpoint,
+            source: 'apiClient',
+          });
         })
         .catch((err) => Promise.reject(err));
     }
@@ -246,7 +263,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       // new JWT claim when provided — without this the refreshed JWT loses the
       // broker_id and all trading requests fail with 403 permanently.
       const knownBrokerId = state.brokerId || decodeBrokerIdFromToken(token);
-      const rs = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const rs = await timedFetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,6 +274,11 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
           refresh_token: refreshToken,
           ...(knownBrokerId ? { broker_id: knownBrokerId } : {}),
         }),
+      }, {
+        label: 'apiClient.refresh',
+        method: 'POST',
+        endpoint: '/auth/refresh',
+        source: 'auth',
       });
 
       if (!rs.ok) throw new Error('Refresh token invalid or expired');
@@ -298,7 +320,12 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       originalRequest.headers = retryHeaders;
 
       processQueue(null, activeToken);
-      response = await fetch(url, originalRequest);
+      response = await timedFetch(url, originalRequest, {
+        label: `apiClient.retryAfterRefresh.${method}`,
+        method,
+        endpoint,
+        source: 'apiClient',
+      });
     } catch (_error) {
       processQueue(_error, null);
       state.logout();
@@ -327,11 +354,16 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
         retryHeaders.set('Authorization', `Bearer ${freshToken}`);
         retryHeaders.set('X-API-Key', freshToken);
         // One retry only — _brokerRetry prevents any further loops
-        return fetch(url, {
+        return timedFetch(url, {
           ...config,
           headers: retryHeaders,
           _brokerRetry: true,
-        } as ApiClientRequestInit);
+        } as ApiClientRequestInit, {
+          label: `apiClient.retryAfterBrokerRecovery.${method}`,
+          method,
+          endpoint,
+          source: 'apiClient',
+        });
       }
       // Silent re-login failed (no saved credentials / network) — fall through
       // and return the original 403 so the UI shows a proper error.

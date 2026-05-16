@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Core Charting Interface for Web
  * 
@@ -14,10 +15,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ActivityIndicator, Alert, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
 import {
   TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
   TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode, TvRadialObjects
@@ -32,7 +33,7 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useLiveCandles, useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
-import { liveCandlesEngine } from '../../domain/candles/ws/liveCandlesEngine';
+import { liveCandleStream as liveCandlesEngine } from '../../domain/candles/stream/liveCandleStream';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery, usePlaceOrderMutation } from '../../query/orders';
 import { useLatestDailyCandle } from '../../domain/candles/query/candles';
@@ -233,18 +234,22 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
   const tradeTapLockRef = React.useRef(false);
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
+  const shouldLogTradeDiagnostics =
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
 
   const handleTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
     if (tradeTapLockRef.current || isPending) {
-      console.log('[TRADE-BUTTON-PRESS]', {
-        symbol,
-        buttonPressed: action.buttonPressed,
-        sidePassedToHandler: action.side,
-        ignored: true,
-        reason: tradeTapLockRef.current ? 'tap-lock' : 'mutation-pending',
-        timestamp: new Date().toISOString(),
-      });
+      if (shouldLogTradeDiagnostics) {
+        console.log('[TRADE-BUTTON-PRESS]', {
+          symbol,
+          buttonPressed: action.buttonPressed,
+          sidePassedToHandler: action.side,
+          ignored: true,
+          reason: tradeTapLockRef.current ? 'tap-lock' : 'mutation-pending',
+          timestamp: new Date().toISOString(),
+        });
+      }
       return;
     }
     tradeTapLockRef.current = true;
@@ -312,7 +317,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
       <Pressable
         style={[styles.actionBtn, styles.actionBtnSell, isPending && { opacity: 0.5 }]}
         disabled={isPending}
-        onPress={() => handleTrade('sell')}
+        onPressIn={() => runCriticalTradeAction('chart.web.trade.sell', () => handleTrade('sell'))}
+        unstable_pressDelay={0}
         accessibilityRole="button"
         accessibilityLabel={sellAction.accessibilityLabel}
         testID={sellAction.testID}
@@ -329,7 +335,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
       <Pressable
         style={[styles.actionBtn, styles.actionBtnBuy, isPending && { opacity: 0.5 }]}
         disabled={isPending}
-        onPress={() => handleTrade('buy')}
+        onPressIn={() => runCriticalTradeAction('chart.web.trade.buy', () => handleTrade('buy'))}
+        unstable_pressDelay={0}
         accessibilityRole="button"
         accessibilityLabel={buyAction.accessibilityLabel}
         testID={buyAction.testID}
@@ -1088,7 +1095,7 @@ export function ChartScreen() {
   }, []);
 
   const handleOpenSymbolPicker = useCallback(() => {
-    traceUiInteraction('chart.web.symbolPicker.open', () => {
+    runImmediateAction('chart.web.symbolPicker.open', () => {
       setTfOpen(false);
       setShowChartTypeMenu(false);
       setShowMoreMenu(false);
@@ -1365,14 +1372,14 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 3: Timeframe */}
-                <Pressable style={styles.toolbarTimeframeButton} onPressIn={() => traceUiInteraction('chart.web.timeframePicker.open', () => setTfOpen(true))} hitSlop={8} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarTimeframeButton} onPressIn={() => runImmediateAction('chart.web.timeframePicker.open', () => setTfOpen(true))} hitSlop={8} unstable_pressDelay={0}>
                   <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{chartTimeframe.toUpperCase()}</Text>
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 4: Candles Type */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.chartType.open', () => setShowChartTypeMenu(true))} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.chartType.open', () => setShowChartTypeMenu(true))} unstable_pressDelay={0}>
                   <TvCandles color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
@@ -1381,7 +1388,7 @@ export function ChartScreen() {
                 {/* 5: FX / Indicators */}
                 <Pressable
                   style={styles.toolbarIconButton}
-                  onPressIn={() => traceUiInteraction('chart.web.objects.open', () => router.push('/chart/objects'))}
+                  onPressIn={() => runImmediateAction('chart.web.objects.open', () => router.push('/chart/objects'))}
                   unstable_pressDelay={0}
                 >
                   <TvLayers color={isDark ? '#D1D4DC' : '#131722'} />
@@ -1389,28 +1396,28 @@ export function ChartScreen() {
                 <View style={styles.toolbarSeparator} />
 
                 {/* 6: Grid/Templates */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.templates.open', () => setShowTemplatesMenu(true))} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.templates.open', () => setShowTemplatesMenu(true))} unstable_pressDelay={0}>
                   <TvGrid4 color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 7: Chart Preferences */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.settings.open', () => router.push('/chart/settings'))} hitSlop={8} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.settings.open', () => router.push('/chart/settings'))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name="options-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 8: Expand */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.expand.toggle', () => setIsChartExpanded(!isChartExpanded))} hitSlop={8} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.expand.toggle', () => setIsChartExpanded(!isChartExpanded))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 9: More */}
-                <Pressable style={styles.toolbarIconButton} onPressIn={() => traceUiInteraction('chart.web.moreMenu.open', () => setShowMoreMenu(true))} hitSlop={8} unstable_pressDelay={0}>
+                <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.moreMenu.open', () => setShowMoreMenu(true))} hitSlop={8} unstable_pressDelay={0}>
                   <Ionicons name="ellipsis-vertical" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
                 </Pressable>
               </View>

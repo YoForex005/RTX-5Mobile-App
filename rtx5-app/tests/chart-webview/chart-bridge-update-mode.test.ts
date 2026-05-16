@@ -88,9 +88,33 @@ test('WebView full data reload restores overlays and market price lines after se
 
   assertSourceContains(body, /sanitizeSeriesData\(data\)/, 'full reload must sanitize and dedupe candle data before setData');
   assertSourceContains(body, /series\.setData\(mapped\)/, 'updateChartData must call setData');
+  assertSourceContains(body, /previousRawSeriesData = lastRawSeriesData[\s\S]*getVisibleLogicalRangeSnapshot\(\)/, 'full reload must capture the current viewport before replacing data');
+  assertSourceContains(body, /restorePrependedHistoryViewport\([\s\S]*previousRawSeriesData[\s\S]*lastRawSeriesData[\s\S]*previousVisibleLogicalRange[\s\S]*\)/, 'older-history prepends must restore the prior visible viewport after setData');
+  assertSourceContains(body, /previousRawSeriesData\.length === 0[\s\S]*applyRecentViewport\(mapped\.length\)/, 'first data load after an empty chart shell must show only the recent viewport');
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'stale overlay refs must be cleared');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'overlays must be reapplied after setData');
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'market lines must be restored after setData');
+});
+
+test('WebView preserves scroll position when older history is prepended', () => {
+  assertSourceContains(
+    source,
+    /function restorePrependedHistoryViewport\(previousData, nextData, previousRange\)[\s\S]*nextFirst < previousFirst[\s\S]*previousVisibleFromIndex = clampSeriesIndex\(Math\.floor\(previousRange\.from\), previousData\.length\)[\s\S]*shiftedBy = nextVisibleFromIndex - previousVisibleFromIndex[\s\S]*setVisibleLogicalRange\(\{[\s\S]*from: previousRange\.from \+ shiftedBy[\s\S]*to: previousRange\.to \+ shiftedBy/,
+    'older-history setData reloads must shift the logical range by the number of prepended candles',
+  );
+});
+
+test('WebView prefetches older history before the hard left edge', () => {
+  assertSourceContains(
+    source,
+    /function shouldPaginateForVisibleLogicalRange\(range\)[\s\S]*HISTORY_PAGINATION_VIEWPORT_MULTIPLIER[\s\S]*return range\.from <= leftPrefetchBars/,
+    'left-scroll pagination must be based on visible viewport span instead of waiting for a hard-coded edge',
+  );
+  assertSourceContains(
+    source,
+    /shouldPaginateForVisibleLogicalRange\(range\)[\s\S]*now - lastPaginateTime > HISTORY_PAGINATION_DEBOUNCE_MS[\s\S]*ON_PAGINATE_HISTORY/,
+    'visible-range subscription must request pagination through the debounced early-prefetch helper',
+  );
 });
 
 test('WebView incremental candle updates keep the raw visible series in sync', () => {
@@ -144,13 +168,78 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*scaleSpan > dataSpan \* 30[\s\S]*enableRightPriceAutoScale\(\)/,
+    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*scaleSpan > dataSpan \* PRICE_SCALE_HEALTH_SPAN_MULTIPLE[\s\S]*enableRightPriceAutoScale\(\)/,
     'stale price-scale ranges must self-heal when normal candles collapse into a line',
+  );
+  assertSourceContains(
+    source,
+    /function getPriceRangeOverlapRatio\(currentRange, dataRange\)[\s\S]*overlapSpan \/ dataSpan/,
+    'price-scale health checks must measure whether the visible candle range still overlaps the right scale',
+  );
+  assertSourceContains(
+    source,
+    /dataOverlapRatio < PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO[\s\S]*enableRightPriceAutoScale\(\)/,
+    'horizontal navigation must heal stale shifted ranges even when their span is similar to the visible data',
+  );
+  assertSourceContains(
+    source,
+    /function setRecoveredRightPriceRange\(range\)[\s\S]*priceScaleApi\.setVisibleRange\(\{ from: recoveredRange\.from, to: recoveredRange\.to \}\)/,
+    'price-scale recovery must directly apply the current visible candle range when autoscale stays stale',
+  );
+  assertSourceContains(
+    source,
+    /function resolveRobustVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*PRICE_SCALE_ROBUST_CLUSTER_KEEP_RATIO[\s\S]*rawSpan > clusterSpan \* PRICE_SCALE_ROBUST_CLUSTER_SPAN_MULTIPLE/,
+    'left-scroll autoscale must ignore tiny extreme clusters that would compress normal visible candles into a line',
+  );
+  assertSourceContains(
+    source,
+    /PRICE_SCALE_ROBUST_CLUSTER_MIN_BARS = 4[\s\S]*PRICE_SCALE_ROBUST_CLUSTER_KEEP_RATIO = 0\.55[\s\S]*PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE = 0\.006[\s\S]*PRICE_SCALE_ROBUST_CLUSTER_SPAN_MULTIPLE = 5/,
+    'visible price-range clustering must be tight enough to split isolated BTC M1 live/history price regimes instead of autoscaling across both',
+  );
+  assertSourceContains(
+    source,
+    /function resolveTrimmedPriceRangeFromBars\(bars\)[\s\S]*PRICE_SCALE_ROBUST_TRIM_RATIO[\s\S]*makePaddedPriceRange\(minPrice, maxPrice\)/,
+    'visible price-range recovery must trim isolated high/low outlier values before autoscale recovery',
+  );
+  assertSourceContains(
+    source,
+    /trimmedRange[\s\S]*rawSpan > trimmedSpan \* PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE[\s\S]*return trimmedRange/,
+    'left-scroll recovery must prefer the trimmed visible range when isolated outlier values flatten normal candles',
+  );
+  assertSourceContains(
+    source,
+    /function resolvePriceRangePixelCompression\(range\)[\s\S]*series\.priceToCoordinate\(normalized\.from\)[\s\S]*PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_RATIO[\s\S]*collapsed: pixelSpan < minPixelSpan/,
+    'price-scale health checks must detect the actual on-screen pixel collapse of the visible candle range',
+  );
+  assertSourceContains(
+    source,
+    /dataVisuallyCollapsed[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/,
+    'left-scroll navigation must recover the right price scale when visible candles are compressed into a tiny pixel band',
+  );
+  assertSourceContains(
+    source,
+    /var rawRange = resolvePriceRangeFromBars\(visibleBars\)[\s\S]*return resolveRobustVisiblePriceRange\(visibleBars, rawRange\)/,
+    'visible price-range recovery must use the robust viewport range',
+  );
+  assertSourceContains(
+    source,
+    /rightPriceScale: \{[\s\S]*autoScale: true/,
+    'host chart options must start the right price scale in autoscale mode',
   );
   assertSourceContains(
     source,
     /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)/,
     'horizontal navigation must be allowed to clear a stale manual price range',
+  );
+  assertSourceContains(
+    source,
+    /didPrependHistory[\s\S]*schedulePriceScaleHealthCheck\([\s\S]*'update_data_prepend_history'[\s\S]*didPrependHistory \? 5 : 1/,
+    'older-history full reloads must run repeated price-scale recovery passes and clear stale manual ranges',
+  );
+  assertSourceContains(
+    source,
+    /function schedulePriceScaleHealthCheck\(reason, allowManualReset, attempts\)[\s\S]*remainingAttempts[\s\S]*schedulePriceScaleHealthCheck\(reason, allowManualReset, remainingAttempts - 1\)/,
+    'price-scale health checks must be able to re-run after chart autoscale settles',
   );
   assertSourceContains(
     source,

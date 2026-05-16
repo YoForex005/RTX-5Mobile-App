@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,12 +21,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { traceUiInteraction } from '../../../dev/uiInteractionDiagnostics';
 import { useTheme } from '../../theme/useTheme';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { FastPressable } from '../FastPressable';
 import { OVERLAY_MODAL_PROPS } from '../../overlayModalProps';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { scheduleDismissSettledAction } from './dismissTimer';
+import {
+  resolveActionSheetInitialMeasuredHeight,
+  resolveActionSheetMeasuredHeight,
+} from './layout';
 import { makeActionSheetStyles } from './styles';
 
 type ActionSheetProps = {
@@ -70,13 +73,24 @@ export function ActionSheet({
   const styles = makeActionSheetStyles(T, isDark);
   const { t } = useTranslation();
   const screenHeight = Dimensions.get('screen').height;
+  const windowHeight = Dimensions.get('window').height;
+  const getInitialMeasuredHeight = useCallback(
+    () =>
+      resolveActionSheetInitialMeasuredHeight({
+        instantOpen,
+        screenHeight: Dimensions.get('screen').height,
+        windowHeight: Dimensions.get('window').height,
+      }),
+    [instantOpen],
+  );
   const [query, setQuery] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  // Measured height from the Modal's actual onLayout – the real usable space.
-  // Initialized to screenHeight (the full physical display height, never
-  // affected by adjustResize). The first onLayout will correct this to
-  // the precise Modal interior height.
-  const [measuredHeight, setMeasuredHeight] = useState(screenHeight);
+  // Measured height from the Modal's actual onLayout. Instant sheets start
+  // from visible window height; animated sheets start from screen height so
+  // Android keyboard-dismiss frames cannot make them too small.
+  const [measuredHeight, setMeasuredHeight] = useState(() =>
+    resolveActionSheetInitialMeasuredHeight({ instantOpen, screenHeight, windowHeight }),
+  );
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(28)).current;
   const pendingActionRef = useRef<(() => void) | null>(null);
@@ -84,6 +98,7 @@ export function ActionSheet({
   // On Android, the entry animation is deferred until onLayout fires so the
   // sheet is never shown at the wrong (pre-layout) size.
   const layoutReadyRef = useRef(false);
+  const hasMeasuredOverlayRef = useRef(false);
 
   const filteredActions = searchable && query.trim()
     ? actions.filter((action) => {
@@ -162,11 +177,18 @@ export function ActionSheet({
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
     if (h > 0) {
-      // Always ratchet upward — never let a keyboard-shrunken onLayout
-      // reduce the sheet's available space. The first onLayout after
-      // Keyboard.dismiss() may still report the compressed height;
-      // subsequent layouts will report the correct full height.
-      setMeasuredHeight((prev) => Math.max(prev, h));
+      // Instant sheets trust the first real Modal layout, then all sheets
+      // ratchet upward so later keyboard-shrunken layouts cannot clip them.
+      const hasMeasuredLayout = hasMeasuredOverlayRef.current;
+      setMeasuredHeight((prev) =>
+        resolveActionSheetMeasuredHeight({
+          previousHeight: prev,
+          layoutHeight: h,
+          instantOpen,
+          hasMeasuredLayout,
+        }),
+      );
+      hasMeasuredOverlayRef.current = true;
     }
     // On Android, defer the animation start. Keyboard.dismiss() is async —
     // the window restores its full height ~100-200ms after the call. By
@@ -200,14 +222,13 @@ export function ActionSheet({
         Keyboard.dismiss();
       }
       setQuery('');
-      // Reset measuredHeight to screenHeight (the full physical display,
-      // unaffected by adjustResize). This avoids initializing to a
-      // keyboard-shrunken windowHeight when the sheet opens while the
-      // keyboard is still dismissing. The first onLayout will set the
-      // precise real value.
-      setMeasuredHeight(Dimensions.get('screen').height);
+      // Non-instant sheets still use screen height to avoid keyboard shrink;
+      // instant sheets use window height so their first frame is capped.
+      if (!instantOpen || !hasMeasuredOverlayRef.current) {
+        setMeasuredHeight(getInitialMeasuredHeight());
+      }
     }
-  }, [instantOpen, visible]);
+  }, [getInitialMeasuredHeight, instantOpen, visible]);
 
   useEffect(() => {
     return () => {
@@ -245,6 +266,7 @@ export function ActionSheet({
       overlayOpacity.setValue(0);
       sheetTranslateY.setValue(28);
       layoutReadyRef.current = false;
+      hasMeasuredOverlayRef.current = false;
       // Cancel any pending deferred animation from a previous open cycle.
       if (deferredAnimTimerRef.current) {
         clearTimeout(deferredAnimTimerRef.current);
@@ -258,7 +280,9 @@ export function ActionSheet({
         clearTimeout(deferredAnimTimerRef.current);
         deferredAnimTimerRef.current = null;
       }
-      layoutReadyRef.current = true;
+      layoutReadyRef.current = false;
+      overlayOpacity.stopAnimation();
+      sheetTranslateY.stopAnimation();
       overlayOpacity.setValue(1);
       sheetTranslateY.setValue(0);
       return;
@@ -378,12 +402,10 @@ export function ActionSheet({
           {filteredActions.map((action, index) => {
             const localizedLabel = t(action.label);
             return (
-              <Pressable
+              <FastPressable
                 key={`${action.label}-${index}`}
-                onPress={action.disabled ? undefined : () =>
-                  traceUiInteraction(`actionSheet.${action.label}`, () => handleActionPress(action.onPress))
-                }
-                unstable_pressDelay={0}
+                latencyLabel={`actionSheet.${action.label}`}
+                onPress={action.disabled ? undefined : () => handleActionPress(action.onPress)}
                 disabled={action.disabled}
                 style={({ pressed }) => [
                   styles.action,
@@ -421,18 +443,18 @@ export function ActionSheet({
                   </View>
                 </View>
                 {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
-              </Pressable>
+              </FastPressable>
             );
           })}
         </ScrollView>
 
-        <Pressable
+        <FastPressable
           style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
+          latencyLabel="actionSheet.cancel"
           onPress={onClose}
-          unstable_pressDelay={0}
         >
           <Text style={styles.cancelText}>{t('Cancel')}</Text>
-        </Pressable>
+        </FastPressable>
       </View>
     </Animated.View>
   );
@@ -452,10 +474,10 @@ export function ActionSheet({
         ]}
         onLayout={handleOverlayLayout}
       >
-        <Pressable
+        <FastPressable
           style={StyleSheet.absoluteFillObject}
+          latencyLabel="actionSheet.dismissOverlay"
           onPress={onClose}
-          unstable_pressDelay={0}
         />
 
         {Platform.OS === 'ios' ? (

@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ChartAnalyticsScreen
  * 
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -21,6 +22,7 @@ import { spacing } from '../../ui/theme/index';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle } from 'react-native-svg';
 import { useMarketData } from '../../query/websocket';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
+import { safeRouterBack } from '../../utils/navigation';
 
 // Performance periods — labels only; values computed dynamically from candle data
 const PERF_LABELS = ['Hour', 'Today', 'Week', 'Month', 'Year'] as const;
@@ -180,7 +182,7 @@ export function ChartAnalyticsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

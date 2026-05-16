@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +17,7 @@ import { AnalyticsTab } from './components/AnalyticsTab';
 import { ReviewTab } from './components/ReviewTab';
 import { TradeDetailDrawer } from './components/TradeDetailDrawer';
 import { AddTradeModal } from './components/AddTradeModal';
+import { safeRouterBack } from '../../../utils/navigation';
 
 export function JournalScreen() {
   const T = useTheme();
@@ -54,7 +56,7 @@ export function JournalScreen() {
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/settings')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
             <Ionicons name="arrow-back" size={26} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>

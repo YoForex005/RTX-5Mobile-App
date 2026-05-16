@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fmt } from '../../../../utils/format';
 import type { TradeJournalEntry } from '../types';

@@ -220,6 +220,17 @@ test('quote tick for a closed history bucket is rejected (closed history is immu
   assert.equal(closedFirst!.close, 1.105);
   assert.equal(closedFirst!.high, 1.11);
   assert.equal(closedFirst!.low, 1.09);
+
+  const cutoffBucket = applyQuoteTickExtensionToCandleMap(
+    map,
+    { price: 2.111, time: t1001 + 30 },
+    'M1',
+    { historyCutoffTime: t1001 },
+  );
+
+  assert.equal(cutoffBucket.ignored, true);
+  assert.equal(cutoffBucket.reason, 'older_than_history_cutoff');
+  assert.equal(materializeCandleMap(map).find((c) => c.time === t1001)?.close, 1.106);
 });
 
 test('quote tick with invalid price is dropped without mutating the map', () => {
@@ -297,6 +308,52 @@ test('repeated identical quote ticks do not flip changed=true', () => {
     );
     assert.equal(result.changed, false);
   }
+});
+
+test('delayed quote tick cannot rewind close or create a false wick', () => {
+  const map = createCandleMap();
+  applyLiveCandleToCandleMap(
+    map,
+    makeBackendLiveCandle(t1001, { open: 1.105, high: 1.106, low: 1.104, close: 1.106 }),
+    'M1',
+  );
+
+  const fresh = applyQuoteTickExtensionToCandleMap(map, { price: 1.112, time: t1001 + 40 }, 'M1');
+  const delayed = applyQuoteTickExtensionToCandleMap(map, { price: 1.2, time: t1001 + 20 }, 'M1');
+
+  assert.equal(fresh.ignored, false);
+  assert.equal(delayed.ignored, true);
+  assert.equal(delayed.reason, 'stale_quote_tick');
+
+  const candles = materializeCandleMap(map);
+  const active = candles[candles.length - 1];
+  assert.equal(active.close, 1.112);
+  assert.equal(active.high, 1.112);
+  assert.equal(active.low, 1.104);
+});
+
+test('quote tick cannot reopen a backend-closed live candle', () => {
+  const map = createCandleMap();
+  applyLiveCandleToCandleMap(
+    map,
+    { time: t1001, open: 1.105, high: 1.108, low: 1.103, close: 1.107, volume: 0, closed: true },
+    'M1',
+  );
+
+  const result = applyQuoteTickExtensionToCandleMap(map, { price: 1.2, time: t1001 + 50 }, 'M1');
+
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, 'closed_live_candle');
+  assert.deepEqual(materializeCandleMap(map), [
+    {
+      time: t1001,
+      open: 1.105,
+      high: 1.108,
+      low: 1.103,
+      close: 1.107,
+      volume: 0,
+    },
+  ]);
 });
 
 test('quote tick preserves wick high once widened — subsequent lower ticks do not shrink it', () => {

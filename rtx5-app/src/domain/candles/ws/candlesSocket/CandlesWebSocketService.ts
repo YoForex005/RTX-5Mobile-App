@@ -1,9 +1,8 @@
 /**
- * Backend live-candle WebSocket compatibility service.
+ * Backend live-candle WebSocket service.
  *
- * This service no longer generates gap fillers, timer candles, or local OHLC.
- * It only subscribes to backend candle messages and forwards valid payloads
- * into the canonical `liveCandlesEngine` stream.
+ * This service subscribes to backend candle messages and forwards valid
+ * payloads into the canonical `liveCandlesEngine` stream.
  *
  * Authentication: the current `/ws/v2` public candle channels can stream
  * anonymously, while logged-in sessions may still use the JWT for account or
@@ -12,7 +11,7 @@
  * active token changes (login/logout/account switch).
  */
 
-import { liveCandlesEngine } from '../liveCandlesEngine';
+import { liveCandleStream as liveCandlesEngine } from '../../stream/liveCandleStream';
 import {
   appendCandleWsToken,
   createCandleChannel,

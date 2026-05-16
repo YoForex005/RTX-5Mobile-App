@@ -8,6 +8,7 @@ import { classifyTradingError } from '../../../../api/tradingErrors';
 import { usePlaceOrderMutation } from '../../../../query/orders';
 import { resolveTradingLogin } from '../../../../state/tradingLogin';
 import { useUserPreferences } from '../../../../state/userPreferences';
+import { runCriticalTradeAction } from '../../../../utils/actionLatency';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from '../../chartTradeActions';
 import {
@@ -16,6 +17,21 @@ import {
   getChartTradeButtonSharedLockSide,
   releaseChartTradeButtonSharedLock,
 } from './sharedLock';
+
+const CHART_TRADE_DIAGNOSTICS_ENABLED =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+
+const logChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
+    console.log(...args);
+  }
+};
+
+const warnChartTradeDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
+    console.warn(...args);
+  }
+};
 
 type TradeFeedback = {
   visible: boolean;
@@ -110,11 +126,11 @@ export function useTradeHandler({
     setActiveSide(side);
   };
 
-  const handleTrade = (side: TradeSide) => {
+  const executeTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
     const stateChartSymbol = useUserPreferences.getState().chartSymbol;
     if (stateChartSymbol !== symbol) {
-      console.log('[TRADE-BUTTON-PRESS]', {
+      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
         symbol,
@@ -129,7 +145,7 @@ export function useTradeHandler({
     }
     const sharedLockSide = getChartTradeButtonSharedLockSide();
     if (tradeTapLockRef.current || sharedLockSide !== null || isPending) {
-      console.log('[TRADE-BUTTON-PRESS]', {
+      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
         symbol,
@@ -143,7 +159,7 @@ export function useTradeHandler({
       return;
     }
     if (!acquireChartTradeButtonSharedLock(action.side)) {
-      console.log('[TRADE-BUTTON-PRESS]', {
+      logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
         symbol,
@@ -174,7 +190,7 @@ export function useTradeHandler({
     const authToken = authState.accountDetails?.credentials?.accessToken;
     const tradingLogin = resolveTradingLogin();
 
-    console.log('[TRADE-BUTTON-PRESS]', {
+    logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
       side,
       buttonPressed: action.buttonPressed,
       symbol,
@@ -217,7 +233,7 @@ export function useTradeHandler({
     }
 
     if (oneClickAccepted) {
-      console.log('[Trade] one-click path, login=', tradingLogin);
+      logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
       const payload = buildChartMarketOrderPayload({
         accountLogin: tradingLogin,
         symbol,
@@ -225,7 +241,7 @@ export function useTradeHandler({
         volume,
         comment: trimmedComment,
       });
-      console.log('[TRADE-PAYLOAD]', {
+      logChartTradeDiagnostic('[TRADE-PAYLOAD]', {
         symbol: payload.symbol,
         side: payload.side,
         action: payload.side,
@@ -239,7 +255,7 @@ export function useTradeHandler({
 
       placeOrder(payload, {
         onSuccess: (data: any) => {
-          console.log('[TRADE-RESPONSE]', {
+          logChartTradeDiagnostic('[TRADE-RESPONSE]', {
             requestSide: action.side,
             result: data?.status ?? 'success',
             backendSide: data?.side ?? null,
@@ -258,13 +274,13 @@ export function useTradeHandler({
         },
         onError: (err: any) => {
           const feedback = classifyTradingError(err, { action: 'place-order' });
-          console.warn('[TRADE-RESPONSE]', {
+          warnChartTradeDiagnostic('[TRADE-RESPONSE]', {
             requestSide: action.side,
             result: 'error',
             backendSide: err?.response?.data?.side ?? err?.data?.side ?? null,
             rawResponse: err?.response?.data ?? err?.data ?? err,
           });
-          console.warn('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
+          warnChartTradeDiagnostic('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
           onTradeResult?.({
             visible: true, type: 'error',
             title: feedback.title,
@@ -275,7 +291,7 @@ export function useTradeHandler({
         },
       });
     } else {
-      console.log('[Trade] navigate path → /trade/order-ticket');
+      logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
       try {
         router.push({
           pathname: '/trade/order-ticket',
@@ -287,7 +303,7 @@ export function useTradeHandler({
         });
         releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
       } catch (navErr: any) {
-        console.warn('[Trade] navigation failed', navErr);
+        warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
         onTradeResult?.({
           visible: true, type: 'error',
           title: 'Navigation Error',
@@ -299,7 +315,10 @@ export function useTradeHandler({
     }
   };
 
-  const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && isPending;
+  const handleTrade = (side: TradeSide) =>
+    runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
+
+  const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && (isPending || tradeTapLockRef.current);
   const isChartTradeActionVisuallyLocked = (side: TradeSide) =>
     !isCurrentChartSymbol || activeSide === side;
   const chartTradeActionDisabled = isPending || !isCurrentChartSymbol;

@@ -433,7 +433,7 @@ export default function LiveChartPreviewNative({
         color: priceSource === 'bid' ? '#2962FF' : '#EF5350',
         lineWidth: 1,
         lineStyle: 0,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: priceSource === 'bid' ? 'Bid' : 'Ask',
       });
     }

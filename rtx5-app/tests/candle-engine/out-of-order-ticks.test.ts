@@ -27,6 +27,48 @@ test('older backend live candle snapshots merge safely without rewinding close',
   ]);
 });
 
+test('non-closing backend snapshot cannot reopen a closed live candle', () => {
+  const bucket = secondsUtc(2024, 3, 22, 12, 1, 0);
+  const map = createCandleMap();
+
+  applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: bucket + 55,
+      open: 1.1,
+      high: 1.15,
+      low: 1.09,
+      close: 1.14,
+      volume: 10,
+      closed: true,
+    },
+    'M1',
+  );
+  const reopen = applyLiveCandleToCandleMap(
+    map,
+    {
+      symbol: 'EURUSD',
+      timeframe: 'M1',
+      time: bucket + 58,
+      open: 1.1,
+      high: 1.4,
+      low: 0.8,
+      close: 1.2,
+      volume: 12,
+      closed: false,
+    },
+    'M1',
+  );
+
+  assert.equal(reopen.ignored, true);
+  assert.equal(reopen.reason, 'closed_live_candle');
+  assert.deepEqual(materializeCandleMap(map), [
+    { time: bucket, open: 1.1, high: 1.15, low: 1.09, close: 1.14, volume: 10 },
+  ]);
+});
+
 test('backend live candle backfilling a missing bucket above history cutoff fills the gap', () => {
   // Backend is the source of truth for live candles. If the live tail is at T,
   // and backend later emits a candle for a missing bucket between historyCutoff

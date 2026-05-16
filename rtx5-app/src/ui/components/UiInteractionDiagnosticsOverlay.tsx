@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from './FastPressable';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUiInteractionDiagnostics } from '../../dev/uiInteractionDiagnostics';
 import {

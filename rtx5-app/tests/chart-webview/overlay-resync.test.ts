@@ -27,23 +27,55 @@ test('applyOverlayPayload always starts from a clean slate before creating lines
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
 });
 
-test('overlay right-axis labels are deduped at the displayed price precision', () => {
+test('overlay price lines do not paint filled right-axis price labels', () => {
   const body = extractFunctionBody(source, 'applyOverlayPayload');
 
-  assertSourceContains(source, /function getOverlayAxisLabelPriceKey\(price\)/, 'WebView must key labels by displayed precision');
-  assertSourceContains(body, /var visibleOverlayAxisLabelKeys = Object\.create\(null\)/, 'overlay apply must track visible price labels');
-  assertSourceContains(body, /var axisLabelKey = getOverlayAxisLabelPriceKey\(ln\.price\)/, 'overlay labels must use formatted price keys');
-  assertSourceContains(body, /axisLabelVisible = false/, 'duplicate formatted labels must be hidden');
+  assertSourceContains(body, /axisLabelVisible: false/, 'overlay price lines must keep the right price scale clean');
+  assert.doesNotMatch(body, /axisLabelVisible: axisLabelVisible/, 'overlay price lines must not opt back into native axis badges');
 });
 
-test('market price lines keep right-axis highlight badges disabled', () => {
+test('market price lines do not render native right-axis price badges', () => {
+  const optionsBody = extractFunctionBody(source, 'makeMarketPriceLineOptions');
   const setBidBody = extractFunctionBody(source, 'setBidPriceLine');
   const setAskBody = extractFunctionBody(source, 'setAskPriceLine');
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
 
-  assertSourceContains(setBidBody, /axisLabelVisible: false/, 'bid price line must not use native stacked axis labels');
-  assertSourceContains(setAskBody, /axisLabelVisible: false/, 'ask price line must not use native stacked axis labels');
+  assertSourceContains(optionsBody, /axisLabelVisible: false/, 'bid/ask price lines must hide native right-axis price badges');
+  assertSourceContains(setBidBody, /makeMarketPriceLineOptions\(price, marketBidColor\)/, 'bid price line updates must keep the clean axis option');
+  assertSourceContains(setAskBody, /makeMarketPriceLineOptions\(price, marketAskColor\)/, 'ask price line updates must keep the clean axis option');
   assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'DOM refresh must not render filled bid/ask price badges');
+});
+
+test('market price lines extend over the right price scale without filled badges', () => {
+  const extensionBody = extractFunctionBody(source, 'renderMarketPriceScaleExtension');
+  const extensionsBody = extractFunctionBody(source, 'renderMarketPriceScaleExtensions');
+  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+
+  assertSourceContains(
+    extensionBody,
+    /axisLeft = Math\.round\(\(metrics\.leftAxisWidth \|\| 0\) \+ \(metrics\.paneWidth \|\| 0\)\)/,
+    'bid/ask extension must start exactly where the main plot hands off to the right price scale',
+  );
+  assertSourceContains(
+    extensionBody,
+    /extension\.style\.width = Math\.min\(axisWidth, Math\.max\(0, chartWidth - axisLeft\)\) \+ 'px'/,
+    'bid/ask extension must cover only the right price-scale width',
+  );
+  assertSourceContains(
+    extensionBody,
+    /extension\.style\.height = MARKET_PRICE_SCALE_EXTENSION_HEIGHT \+ 'px'/,
+    'bid/ask extension must be a thin line, not a filled price badge',
+  );
+  assertSourceContains(
+    extensionsBody,
+    /renderMarketPriceScaleExtension\(layer, lastBidPrice, marketBidColor\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastAskPrice, marketAskColor\)/,
+    'both bid and ask lines must be extended over the right price scale',
+  );
+  assertSourceContains(
+    refreshBody,
+    /renderMarketPriceScaleExtensions\(layer\)/,
+    'DOM refresh must redraw the right price-scale extensions with current market prices',
+  );
 });
 
 test('empty overlay payload clears old price lines and markers immediately', () => {

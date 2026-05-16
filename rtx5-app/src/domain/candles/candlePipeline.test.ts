@@ -149,8 +149,10 @@ test('bucket utilities are deterministic and UTC aligned', () => {
 });
 
 test('strict timeframe normalization rejects unknown backend tokens', () => {
-  assert.equal(normalizeTimeframeStrict('M3'), 'M3');
-  assert.equal(normalizeTimeframeStrict(120), 'H2');
+  assert.equal(normalizeTimeframeStrict('M3'), null);
+  assert.equal(normalizeTimeframeStrict('3m'), null);
+  assert.equal(normalizeTimeframeStrict('H2'), null);
+  assert.equal(normalizeTimeframeStrict(120), null);
   assert.equal(normalizeTimeframeStrict('bad-period'), null);
   assert.equal(normalizeTimeframe('bad-period'), 'M1');
 
@@ -357,16 +359,15 @@ test('M1 REST history seeds the backend current candle so first websocket candle
   }
 });
 
-test('backend live candles at the closed history cutoff boundary update the transition candle', () => {
+test('backend live candles at the closed history cutoff boundary cannot rewrite trusted history', () => {
   const history = [
     { time: 1_713_744_000, open: 1, high: 1.1, low: 0.9, close: 1.05, volume: 10 },
     { time: 1_713_744_060, open: 1.05, high: 1.2, low: 1.01, close: 1.15, volume: 12 },
   ];
   const map = createCandleMap(history);
 
-  // A live candle whose bucket equals historyCutoffTime is the transition
-  // bucket — backend is authoritative and should be allowed to update it.
-  // Only buckets strictly BEFORE the cutoff are rejected.
+  // Buckets at or before historyCutoffTime are already closed REST history.
+  // Replayed live snapshots must not rewrite that trusted baseline.
   const result = applyLiveCandleToCandleMap(
     map,
     { symbol: 'EURUSD', time: 1_713_744_062, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 1 },
@@ -374,10 +375,12 @@ test('backend live candles at the closed history cutoff boundary update the tran
     { historyCutoffTime: history[history.length - 1].time },
   );
 
-  assert.equal(result.ignored, false);
-  assert.equal(result.changed, true);
+  assert.equal(result.ignored, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'older_than_history_cutoff');
+  assert.deepEqual(materializeCandleMap(map), history);
 
-  // A live candle that maps to a bucket BEFORE the cutoff IS rejected.
+  // A live candle that maps to a bucket before the cutoff is rejected too.
   const olderResult = applyLiveCandleToCandleMap(
     map,
     { symbol: 'EURUSD', time: 1_713_744_001, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 1 },

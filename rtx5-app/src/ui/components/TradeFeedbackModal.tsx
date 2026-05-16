@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from './FastPressable';
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Pressable, Animated, StyleSheet, Vibration } from 'react-native';
+import { View, Text, Animated, StyleSheet, Vibration } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';

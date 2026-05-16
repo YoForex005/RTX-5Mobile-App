@@ -11,11 +11,26 @@ import { apiClient, decodeBrokerIdFromToken } from '../apiClient';
 import { assertTradeSide } from '../../domain/tradeSide';
 import { createTradingApiError } from '../tradingErrors';
 import { useUserPreferences } from '../../state/userPreferences';
+import { getApiLatencyNow, recordApiLatency } from '../../utils/apiLatency';
 import { resolveBrokerSymbol, resolveBrokerSymbolFromCache } from './symbolResolver';
 import { buildMarketOrderSymbolCandidates, getAcceptedSymbolCacheKey } from './placeMarketOrderCandidates';
 import type { PlaceOrderPayload, PlaceOrderResponse } from './types';
 
 const acceptedOrderSymbolCache = new Map<string, string>();
+const ORDER_DIAGNOSTICS_ENABLED =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+
+const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (ORDER_DIAGNOSTICS_ENABLED) {
+    console.log(...args);
+  }
+};
+
+const warnOrderDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (ORDER_DIAGNOSTICS_ENABLED) {
+    console.warn(...args);
+  }
+};
 
 export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<PlaceOrderResponse> => {
   // V2 contract requires `login` (integer), not `account_login`.
@@ -64,11 +79,11 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
   const state = useUserPreferences.getState();
   const currentToken = state.accountDetails?.credentials?.accessToken;
   const jwtBrokerId = decodeBrokerIdFromToken(currentToken);
-  console.log('[RTX5 Order] JWT broker_id:', jwtBrokerId, '| stored brokerId:', state.brokerId);
+  logOrderDiagnostic('[RTX5 Order] JWT broker_id:', jwtBrokerId, '| stored brokerId:', state.brokerId);
   if (!jwtBrokerId) {
-    console.warn('[RTX5 Order] JWT missing broker_id; apiClient will recover on 401/403 if saved credentials are available');
+    warnOrderDiagnostic('[RTX5 Order] JWT missing broker_id; apiClient will recover on 401/403 if saved credentials are available');
   }
-  console.log('[TRADE-PAYLOAD]', {
+  logOrderDiagnostic('[TRADE-PAYLOAD]', {
     symbol: callerSymbol,
     side: requestedSide,
     action: requestedSide,
@@ -100,23 +115,50 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
 
   const sendOrder = async (symbolToSend: string): Promise<Attempt> => {
     const body = { ...orderBody, symbol: symbolToSend };
-    console.log('[RTX5 Order] POST /orders body:', JSON.stringify(body));
-    const response = await apiClient('/orders', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-    const raw = await response.json().catch(() => ({}));
-    const inner = unwrap(raw);
-    const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
-    const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
-    return {
-      symbol: symbolToSend,
-      status: response.status,
-      body: raw,
-      response,
-      ok: response.ok && !graceful,
-      graceful,
-    };
+    logOrderDiagnostic('[RTX5 Order] POST /orders body:', JSON.stringify(body));
+    const startedAtMs = getApiLatencyNow();
+    let response: Response | null = null;
+
+    try {
+      response = await apiClient('/orders', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const raw = await response.json().catch(() => ({}));
+      const inner = unwrap(raw);
+      const bodyStatus = typeof inner?.status === 'string' ? inner.status.toLowerCase() : '';
+      const graceful = response.ok && ['rejected', 'failed', 'error'].includes(bodyStatus);
+      const ok = response.ok && !graceful;
+      recordApiLatency({
+        label: `trade.placeMarketOrder.${requestedSide}`,
+        method: 'POST',
+        endpoint: '/orders',
+        source: 'trade',
+        status: response.status,
+        ok,
+        durationMs: getApiLatencyNow() - startedAtMs,
+      });
+      return {
+        symbol: symbolToSend,
+        status: response.status,
+        body: raw,
+        response,
+        ok,
+        graceful,
+      };
+    } catch (error) {
+      recordApiLatency({
+        label: `trade.placeMarketOrder.${requestedSide}`,
+        method: 'POST',
+        endpoint: '/orders',
+        source: 'trade',
+        status: response?.status ?? null,
+        ok: false,
+        durationMs: getApiLatencyNow() - startedAtMs,
+        error,
+      });
+      throw error;
+    }
   };
 
   const isMarketDataMiss = (attempt: Attempt): boolean => {
@@ -152,12 +194,12 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     if (attempt.ok) {
       accepted = attempt;
       if (candidate !== callerSymbol) {
-        console.log('[RTX5 Order] symbol accepted after fallback:', candidate);
+        logOrderDiagnostic('[RTX5 Order] symbol accepted after fallback:', candidate);
       }
       break;
     }
 
-    console.log(
+    logOrderDiagnostic(
       '[RTX5 Order] attempt failed',
       JSON.stringify({
         symbol: candidate,
@@ -179,9 +221,9 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
       const attempt = await sendOrder(catalogSymbol);
       if (attempt.ok) {
         accepted = attempt;
-        console.log('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
+        logOrderDiagnostic('[RTX5 Order] symbol accepted after /instruments fallback:', catalogSymbol);
       } else {
-        console.log(
+        logOrderDiagnostic(
           '[RTX5 Order] /instruments fallback failed',
           JSON.stringify({
             symbol: catalogSymbol,
@@ -228,14 +270,14 @@ export const placeMarketOrder = async (payload: PlaceOrderPayload): Promise<Plac
     }
   }
 
-  console.log('[TRADE-RESPONSE]', {
+  logOrderDiagnostic('[TRADE-RESPONSE]', {
     requestSide: requestedSide,
     result: finalData?.status ?? accepted.status,
     backendSide: finalData?.side ?? null,
     rawResponse: finalData,
   });
   if (finalData?.side && finalData.side !== requestedSide) {
-    console.warn('[TRADE-RESPONSE] backend side differs from request', {
+    warnOrderDiagnostic('[TRADE-RESPONSE] backend side differs from request', {
       requestSide: requestedSide,
       backendSide: finalData.side,
       symbol: finalData.symbol ?? accepted.symbol ?? callerSymbol,

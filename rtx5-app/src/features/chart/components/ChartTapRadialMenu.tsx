@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import {
   TvRadialIndicators,
   TvFx,

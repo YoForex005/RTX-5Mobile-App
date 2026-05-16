@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ChartSpecificationScreen
  * 
@@ -8,13 +9,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketStatus } from '../../query/marketStatus';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
+import { safeRouterBack } from '../../utils/navigation';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
 
 // Format helpers — show "—" when the broker hasn't returned a value yet so the
@@ -104,7 +106,7 @@ export function ChartSpecificationScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

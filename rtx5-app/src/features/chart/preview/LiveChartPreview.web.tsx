@@ -255,7 +255,7 @@ export default function LiveChartPreviewWeb({
           color: priceSource === 'bid' ? '#2962FF' : '#EF5350',
           lineWidth: 1,
           lineStyle: LineStyle.Solid,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: priceSource === 'bid' ? 'Bid' : 'Ask',
         });
         priceLinesRef.current.push(selectedLine);

@@ -7,12 +7,25 @@ import type { CandleStreamKey, Timeframe } from './candleTypes';
  */
 export const SUPPORTED_TIMEFRAMES: readonly Timeframe[] = [
   'M1',
-  'M3',
   'M5',
   'M15',
   'M30',
   'H1',
-  'H2',
+  'H4',
+  'D1',
+  'W1',
+  'MN',
+];
+
+/**
+ * Timeframes currently supported by the backend candle-history REST contract.
+ */
+export const CANDLE_HISTORY_TIMEFRAMES: readonly Timeframe[] = [
+  'M1',
+  'M5',
+  'M15',
+  'M30',
+  'H1',
   'H4',
   'D1',
   'W1',
@@ -21,12 +34,10 @@ export const SUPPORTED_TIMEFRAMES: readonly Timeframe[] = [
 
 const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   M1: 60,
-  M3: 3 * 60,
   M5: 5 * 60,
   M15: 15 * 60,
   M30: 30 * 60,
   H1: 60 * 60,
-  H2: 2 * 60 * 60,
   H4: 4 * 60 * 60,
   D1: 24 * 60 * 60,
   W1: 7 * 24 * 60 * 60,
@@ -35,12 +46,10 @@ const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
 
 const CASE_SENSITIVE_ALIASES: Record<string, Timeframe> = {
   '1m': 'M1',
-  '3m': 'M3',
   '5m': 'M5',
   '15m': 'M15',
   '30m': 'M30',
   '1h': 'H1',
-  '2h': 'H2',
   '4h': 'H4',
   '1d': 'D1',
   '1w': 'W1',
@@ -49,20 +58,16 @@ const CASE_SENSITIVE_ALIASES: Record<string, Timeframe> = {
 
 const NORMALIZED_ALIASES: Record<string, Timeframe> = {
   '1': 'M1',
-  '3': 'M3',
   '5': 'M5',
   '15': 'M15',
   '30': 'M30',
   '60': 'H1',
-  '120': 'H2',
   '240': 'H4',
   M1: 'M1',
-  M3: 'M3',
   M5: 'M5',
   M15: 'M15',
   M30: 'M30',
   H1: 'H1',
-  H2: 'H2',
   H4: 'H4',
   D1: 'D1',
   W1: 'W1',
@@ -71,12 +76,10 @@ const NORMALIZED_ALIASES: Record<string, Timeframe> = {
   MONTH: 'MN',
   MONTHLY: 'MN',
   '1MIN': 'M1',
-  '3MIN': 'M3',
   '5MIN': 'M5',
   '15MIN': 'M15',
   '30MIN': 'M30',
   '1H': 'H1',
-  '2H': 'H2',
   '4H': 'H4',
   '1D': 'D1',
   '1W': 'W1',
@@ -109,6 +112,24 @@ export const normalizeTimeframeStrict = (timeframe: unknown): Timeframe | null =
   const normalized = raw.toUpperCase();
   return NORMALIZED_ALIASES[normalized] ?? null;
 };
+
+/** Strictly normalizes a timeframe against the backend candle-history REST contract. */
+export const normalizeCandleHistoryTimeframeStrict = (timeframe: unknown): Timeframe | null => {
+  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  return normalizedTimeframe && CANDLE_HISTORY_TIMEFRAMES.includes(normalizedTimeframe)
+    ? normalizedTimeframe
+    : null;
+};
+
+/** Returns true if the provided timeframe can be requested from REST candle history. */
+export const isCandleHistoryTimeframe = (timeframe: unknown): boolean =>
+  normalizeCandleHistoryTimeframeStrict(timeframe) !== null;
+
+/** Returns a REST-history-safe timeframe, defaulting to M1 when invalid or unsupported. */
+export const normalizeCandleHistoryTimeframe = (
+  timeframe: unknown,
+  fallback: Timeframe = 'M1',
+): Timeframe => normalizeCandleHistoryTimeframeStrict(timeframe) ?? fallback;
 
 /** Returns true if the provided timeframe resolves to a recognized bucket size. */
 export const isSupportedTimeframe = (timeframe: unknown): boolean =>

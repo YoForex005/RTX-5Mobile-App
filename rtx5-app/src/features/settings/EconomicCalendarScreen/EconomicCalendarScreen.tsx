@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Settings Feature UI: EconomicCalendarScreen
  *
@@ -8,12 +9,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
+import { safeRouterBack } from '../../../utils/navigation';
 import { fetchEconomicCalendarData, type EconomicEvent, type ImpactLevel } from '../../../dev/mock/calendarData';
 import {
   CURRENCY_FILTERS,
@@ -230,7 +232,7 @@ export function EconomicCalendarScreen() {
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
         <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => router.back()} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/settings')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
             <Ionicons name="arrow-back" size={26} color={T.text} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>

@@ -25,6 +25,27 @@ const baseRestTail = {
 
 const buildEmptyMap = (): Map<number, MutableCandle> => new Map();
 
+test('rejects backend live snapshots for the closed history cutoff bucket', () => {
+  const candleMap = buildEmptyMap();
+  const live: LiveCandle = {
+    time: BUCKET + 5,
+    open: 9,
+    high: 9,
+    low: 9,
+    close: 9,
+    volume: 1,
+  };
+
+  const result = applyLiveCandleToCandleMap(candleMap, live, TIMEFRAME, {
+    historyCutoffTime: BUCKET,
+  });
+
+  assert.equal(result.ignored, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'older_than_history_cutoff');
+  assert.equal(candleMap.size, 0);
+});
+
 test('opens forming candle from REST seed when first quote tick arrives in active bucket', () => {
   const candleMap = buildEmptyMap();
   const result = applyQuoteTickExtensionToCandleMap(
@@ -392,7 +413,7 @@ test('backend snapshot keeps geometric invariants after a quote dip', () => {
   assert.equal(result.candle!.high, 1.0815);
 });
 
-test('rejects ticks for a bucket strictly older than closed history', () => {
+test('rejects ticks for buckets at or before closed history', () => {
   const candleMap = buildEmptyMap();
   const result = applyQuoteTickExtensionToCandleMap(
     candleMap,
@@ -403,5 +424,16 @@ test('rejects ticks for a bucket strictly older than closed history', () => {
 
   assert.equal(result.ignored, true, 'older-than-history ticks must not mutate the map');
   assert.equal(result.changed, false);
+  assert.equal(candleMap.size, 0);
+
+  const cutoffBucket = applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.0812, time: BUCKET - 45 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60, latestHistoryCandle: baseRestTail },
+  );
+
+  assert.equal(cutoffBucket.ignored, true);
+  assert.equal(cutoffBucket.reason, 'older_than_history_cutoff');
   assert.equal(candleMap.size, 0);
 });

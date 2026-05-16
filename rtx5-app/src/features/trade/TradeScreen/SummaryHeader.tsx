@@ -5,7 +5,7 @@
  * launcher. Memoized so it does not re-render on every position-row tick.
  */
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, Pressable, Text, View } from 'react-native';
+import { Animated, Text, View } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { PositionItem } from '../../../dev/mock/tradingData';
@@ -14,7 +14,7 @@ import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useTradingState } from '../../../state/tradingState';
 import { fmt } from '../../../utils/format';
 import { useMarketData } from '../../../query/websocket';
-import { traceUiInteraction } from '../../../dev/uiInteractionDiagnostics';
+import { FastPressable } from '../../../ui/components/FastPressable';
 import {
   buildTradeAccountSummary,
   resolveRenderableTradeAccountSummary,
@@ -52,9 +52,9 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   return (
     <>
       <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-        <Pressable
-          onPress={() => traceUiInteraction('trade.summary.toggle', toggleTradeSummaryDetails)}
-          unstable_pressDelay={0}
+        <FastPressable
+          onPress={toggleTradeSummaryDetails}
+          latencyLabel="trade.summary.toggle"
           accessibilityRole="button"
           accessibilityLabel="Toggle trade summary details"
           accessibilityState={{ expanded: tradeSummaryDetailsVisible }}
@@ -85,7 +85,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
               {fmt.pnlPrecise(safeFloating)} {account.currency || 'USD'}
             </Animated.Text>
           </View>
-        </Pressable>
+        </FastPressable>
         {tradeSummaryDetailsVisible ? (
           <View style={s.summaryMetrics}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -189,12 +189,13 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
             </Text>
           </View>
         </View>
-        <Pressable
+        <FastPressable
+          latencyLabel="trade.bulk.open"
           onPress={onBulkPress}
           style={({ pressed }) => [s.bulkButton, { borderColor: T.border, backgroundColor: T.glass1 }, pressed && { backgroundColor: T.glass3 }]}
         >
           <Text style={[s.bulkButtonText, { color: T.textMuted }]}>{t('Bulk')}</Text>
-        </Pressable>
+        </FastPressable>
       </View>
     </>
   );

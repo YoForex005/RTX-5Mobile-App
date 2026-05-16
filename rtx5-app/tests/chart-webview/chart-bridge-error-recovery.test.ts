@@ -51,3 +51,11 @@ test('native WebView ERROR messages are warning-only so watchdog can continue re
     'native handler must log WebView errors without alerting or throwing',
   );
 });
+
+test('native WebView render errors invalidate stale readiness and retry init', () => {
+  assertSourceContains(
+    source,
+    /msg\.type === 'ERROR'[\s\S]*bridgeErrorMessage[\s\S]*updateChartData[\s\S]*chartInitializedRef\.current = false[\s\S]*renderedSeriesSnapshotRef\.current = EMPTY_CHART_SERIES_SNAPSHOT[\s\S]*requestChartViewportRecovery\(2\)[\s\S]*sendInit\(true\)/,
+    'render-path WebView errors must force a fresh init instead of leaving a blank initialized surface',
+  );
+});

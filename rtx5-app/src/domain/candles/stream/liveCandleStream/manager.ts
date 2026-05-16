@@ -11,6 +11,7 @@ import { hydratePersistedCandleCache } from '../../state/persistedCandleCache';
 import { MAX_CANDLE_SERIES_LENGTH } from '../../core/candles';
 import {
   createCandleStreamKey,
+  getTimeframeSeconds,
   normalizeSymbol,
   normalizeTimeframeStrict,
   normalizeTimestampToSeconds,
@@ -23,6 +24,8 @@ import {
   FLUSH_INTERVAL_MS,
   MAX_BUFFERED_LIVE_EVENTS,
   DEFAULT_HISTORY_LIMIT,
+  MAX_RENDERED_HISTORY_CANDLES,
+  PAGINATED_HISTORY_LIMIT,
   type BufferedLiveEvent,
   type CandleParams,
   type StreamEntry,
@@ -43,6 +46,16 @@ import {
 } from './historyFetching';
 import { splitRestHistoryCandles, getConfiguredCandlePriceBasis } from '../../core/candleProvenance';
 import { computeClosedHistoryLastTime } from './helpers';
+
+const getHistoryPageLookbackMultiplier = (timeframe: Timeframe): number => {
+  if (timeframe === 'W1' || timeframe === 'MN') {
+    return 1;
+  }
+  if (timeframe === 'D1') {
+    return 3;
+  }
+  return 6;
+};
 
 /**
  * The central orchestrator for charting data in the RTX5 application.
@@ -120,6 +133,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return;
     }
 
+    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
+    entry.historyPaginationCursorTime = null;
     runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
   }
 
@@ -129,15 +144,28 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
    */
   public paginateHistory(symbol: string, timeframe: string): void {
     const entry = this.entries.get(this.getKey(symbol, timeframe));
-    if (!entry || entry.loading || entry.historyCandles.length === 0) {
+    if (!entry || entry.loading || entry.historyPageLoading || entry.historyCandles.length === 0) {
       return;
     }
-    const oldestTime = entry.historyCandles[0].time;
-    // Assuming worst case timeframe is M1 (60s). If we fetch DEFAULT_HISTORY_LIMIT,
-    // that's limit * 60s max. To be safe, use limit * 86400 (limit in days) so we 
-    // fetch a large enough window to satisfy any timeframe from M1 to MN.
-    const fromTime = oldestTime - DEFAULT_HISTORY_LIMIT * 86400; 
-    runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT, { to: oldestTime, from: fromTime });
+    const activeRenderLimit = Math.min(
+      MAX_RENDERED_HISTORY_CANDLES,
+      Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
+    );
+    if (activeRenderLimit >= MAX_RENDERED_HISTORY_CANDLES && entry.candles.length >= MAX_RENDERED_HISTORY_CANDLES) {
+      return;
+    }
+    const pageToTime = entry.historyPaginationCursorTime ?? entry.historyCandles[0].time;
+    if (!(pageToTime > 1)) {
+      return;
+    }
+    const timeframeSeconds = getTimeframeSeconds(entry.timeframe);
+    const lookbackSeconds =
+      PAGINATED_HISTORY_LIMIT * timeframeSeconds * getHistoryPageLookbackMultiplier(entry.timeframe);
+    const fromTime = Math.max(1, pageToTime - lookbackSeconds);
+    if (fromTime >= pageToTime) {
+      return;
+    }
+    runLoadHistory(this, entry, PAGINATED_HISTORY_LIMIT, { to: pageToTime, from: fromTime });
   }
 
   /** Proactively fetches and caches REST history in the background before a user explicitly opens the chart. */
@@ -162,6 +190,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     entry.historyCandles = safeCandles;
     entry.liveCandleMap = new Map();
+    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
+    entry.historyPaginationCursorTime = null;
 
     const { closedHistory } = splitRestHistoryCandles(
       safeCandles,
@@ -314,15 +344,20 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
   /** @internal Used by historyFetching helpers; not part of the public API. */
   public commit(entry: StreamEntry): void {
     const liveCandles = materializeLiveCandleMap(entry.liveCandleMap, entry.historyLastTime);
+    const renderHistoryLimit = Math.min(
+      MAX_RENDERED_HISTORY_CANDLES,
+      Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
+    );
     const nextCandles = buildFreshHistoryLiveCandleSeries(
       entry.historyCandles,
       liveCandles,
       entry.timeframe,
-      MAX_CANDLE_SERIES_LENGTH,
+      renderHistoryLimit,
+      { closedHistoryLastTime: entry.historyLastTime },
     );
     const safeNextCandles = sanitizeCandlesForChart(nextCandles, { timeframe: entry.timeframe });
     const nextParams = toCandleParams(safeNextCandles);
-    entry.loading = entry.historyLoading;
+    entry.loading = entry.historyLoading || entry.historyPageLoading;
     entry.isLiveConnected = true;
     entry.lastUpdateTime = Date.now();
 
@@ -357,11 +392,14 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       historyCandles: safeCache,
       liveCandleMap: new Map(),
       historyLastTime: computeClosedHistoryLastTime(safeCache, timeframe),
+      historyPaginationCursorTime: null,
+      renderHistoryLimit: DEFAULT_HISTORY_LIMIT,
       candles: toCandleParams(safeCache),
       listeners: new Set(),
       consumers: 0,
       loading: true,
       historyLoading: false,
+      historyPageLoading: false,
       error: null,
       isLiveConnected: false,
       lastUpdateTime: safeCache.length > 0 ? Date.now() : null,

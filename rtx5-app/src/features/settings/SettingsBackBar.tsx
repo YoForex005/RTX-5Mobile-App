@@ -5,9 +5,11 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../ui/theme/useTheme';
+import { FastPressable } from '../../ui/components/FastPressable';
+import { safeRouterBack } from '../../utils/navigation';
 import { spacing } from '../../ui/theme/index';
 
 export function SettingsBackBar({ title }: { title?: string }) {
@@ -18,15 +20,16 @@ export function SettingsBackBar({ title }: { title?: string }) {
 
   return (
     <View style={[styles.row, { height: insets.top + barHeight, paddingTop: insets.top }]}>
-      <Pressable
-        onPress={() => router.back()}
+      <FastPressable
+        onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+        latencyLabel="settings.back"
         hitSlop={15}
         style={styles.button}
         accessibilityRole="button"
         accessibilityLabel="Go back"
       >
         <Ionicons name="arrow-back" size={24} color={T.text} />
-      </Pressable>
+      </FastPressable>
       <View
         style={[styles.titleWrap, { top: insets.top, height: barHeight }]}
         pointerEvents="none"

@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ChartMenuOrderScreen
  * 
@@ -8,9 +9,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
+import { safeRouterBack } from '../../utils/navigation';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -53,7 +55,7 @@ export function ChartMenuOrderScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

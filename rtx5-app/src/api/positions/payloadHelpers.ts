@@ -4,6 +4,7 @@
  */
 import { API_BASE_URL, isApiKeyCredential } from '../apiClient';
 import { useUserPreferences } from '../../state/userPreferences';
+import { timedFetch } from '../../utils/apiLatency';
 import type { JsonRecord } from './types';
 
 export async function rawPositionsFetch(endpoint: string): Promise<Response> {
@@ -19,9 +20,14 @@ export async function rawPositionsFetch(endpoint: string): Promise<Response> {
     headers['X-API-Key'] = token;
   }
 
-  return fetch(`${API_BASE_URL}${endpoint}`, {
+  return timedFetch(`${API_BASE_URL}${endpoint}`, {
     method: 'GET',
     headers,
+  }, {
+    label: 'positions.rawFetch',
+    method: 'GET',
+    endpoint,
+    source: 'positions',
   });
 }
 

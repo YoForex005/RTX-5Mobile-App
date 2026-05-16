@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { convertCandlesForChart, convertCandlesToLinePoints } from '../../src/domain/candles/chartAdapter';
+import { convertCandlesForChart, convertCandlesToLinePoints } from '../../src/domain/candles/normalization/chartAdapter';
 import { normalizeHistoryCandle } from '../../src/domain/candles/normalization/candleNormalizer';
 import { getBucketStart } from '../../src/domain/candles/core/timeframeUtils';
 import { applyLiveCandleToCandleMap } from '../../src/domain/candles/series/liveCandleAggregator';

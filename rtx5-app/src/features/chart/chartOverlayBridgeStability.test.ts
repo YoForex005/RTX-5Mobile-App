@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -11,7 +13,12 @@ import {
   readChartScreenSource,
 } from './testing/chartStabilityTestUtils';
 
-const source = readChartScreenSource();
+const nativeSource = readChartScreenSource();
+const webViewHtmlSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/rendering/ChartWebViewHtml.ts'),
+  'utf8',
+);
+const source = `${nativeSource}\n${webViewHtmlSource}`;
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -77,7 +84,7 @@ test('overlay bridge: draggable trade labels keep touch ownership through the fu
   assertSourceContains(source, /var getClampedRelativePoint = function\(clientX, clientY\)/, 'drag movement must clamp to the chart bounds instead of dropping updates');
   assertSourceContains(source, /beginTradeLineDrag[\s\S]*setPointerCapture\(event\.pointerId\)/, 'drag start must capture the active pointer');
   assertSourceContains(source, /beginTradeLineDrag[\s\S]*el\.style\.touchAction = 'none'/, 'drag start must disable competing touch panning');
-  assertSourceContains(source, /continueTradeLineDrag[\s\S]*getClampedRelativePoint\(pointFromEvent\.x, pointFromEvent\.y\)/, 'drag move must keep updating after the finger reaches chart edges');
+  assertSourceContains(source, /continueTradeLineDrag[\s\S]*getTradeLineDragPoint\(pointFromEvent\.x, pointFromEvent\.y\)/, 'drag move must keep updating after the finger reaches chart edges');
   assertSourceContains(source, /finishTradeLineDrag[\s\S]*releasePointerCapture\(drag\.pointerId\)/, 'drag end must release the captured pointer');
   assertSourceContains(source, /var listenerOptions = \{ capture: true, passive: false \}/, 'chart touch listeners must be non-passive so preventDefault works on mobile');
 });
@@ -86,7 +93,7 @@ test('chart pending CTA does not open the blocking preview-only alert', () => {
   assert.doesNotMatch(source, /Pending Order Preview/);
   assert.doesNotMatch(source, /Chart-side pending submission is still preview-only in this build/);
   assert.doesNotMatch(source, /Alert\.alert/);
-  assertSourceContains(source, /traceUiInteraction\('chart\.tradeSheet\.pending\.editOnChart'/, 'pending CTA must return the user to chart-side editing');
+  assertSourceContains(source, /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'/, 'pending CTA must return the user to chart-side editing');
   assertSourceContains(source, /snapTradeSheet\('collapsed'\)/, 'pending CTA must expose draggable chart lines instead of blocking them');
 });
 

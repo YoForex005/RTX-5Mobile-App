@@ -6,6 +6,7 @@
  */
 
 import { apiClient } from '../../../api/apiClient';
+import { timedFetch } from '../../../utils/apiLatency';
 import {
   buildCandleHistorySearchParams,
   extractCandleHistoryPayload,
@@ -161,10 +162,15 @@ const fetchPublicCandleHistory = async (
 
   for (const url of urls) {
     try {
-      const response = await fetch(appendCacheBust(url), {
+      const response = await timedFetch(appendCacheBust(url), {
         method: 'GET',
         headers: { accept: 'application/json' },
         signal: requestOptions?.signal,
+      }, {
+        label: 'candles.publicHistory',
+        method: 'GET',
+        endpoint: url,
+        source: 'candles',
       });
       const attempt = await readCandleHistoryResponse(response, requestTimeframe, count, currentPriceBasis);
       if (attempt.normalizedCandles.length > 0) {

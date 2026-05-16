@@ -14,26 +14,9 @@ import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useMemo,
-  useState,
-} from 'react';
+  useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, } from 'react';
 import {
-  Animated,
-  Easing,
-  FlatList,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  Modal,
-  Platform,
-} from 'react-native';
+  Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
@@ -50,12 +33,13 @@ import {
 } from '../../query/watchlist';
 import { fmt } from '../../utils/format';
 import { AppHeader } from '../../ui/components/AppHeader';
+import { FastPressable, FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { useTranslation } from '../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { runImmediateAction } from '../../utils/actionLatency';
 import { normalizeSymbol } from '../../domain/symbols';
 import { hasFreshLiveQuote } from './liveQuoteSnapshot';
 import {
@@ -247,15 +231,17 @@ const QuoteCard = React.memo(function QuoteCard({
   onPress,
   onPressIn,
   onLongPress,
+  suppressPressFeedback = false,
 }: {
   symbol: string;
   T: ThemeColors;
   isDark: boolean;
   cardBackground: AnimatedColorValue | string;
   viewMode: 'list' | 'table' | 'edit';
-  onPress: () => void;
+  onPress?: () => void;
   onPressIn?: () => void;
   onLongPress: () => void;
+  suppressPressFeedback?: boolean;
 }) {
   const { t } = useTranslation();
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
@@ -280,7 +266,7 @@ const QuoteCard = React.memo(function QuoteCard({
             justifyContent: 'center',
             borderColor: cardBorder,
           },
-          pressed && sc.cardPressed,
+          pressed && !suppressPressFeedback && sc.cardPressed,
         ]}
         unstable_pressDelay={0}
         onPressIn={onPressIn}
@@ -407,7 +393,7 @@ const QuoteCard = React.memo(function QuoteCard({
         { borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
         isDark && sc.cardShadowDark,
-        pressed && sc.cardPressed,
+        pressed && !suppressPressFeedback && sc.cardPressed,
       ]}
       unstable_pressDelay={0}
       onPressIn={onPressIn}
@@ -688,16 +674,16 @@ function LegacyAddSymbolModal({
           }}
         >
           <Text style={{ fontSize: 18, fontWeight: '700', color: T.text }}>{t('Add Asset')}</Text>
-          <Pressable
-            onPress={() => traceUiInteraction('quotes.addAsset.close', onClose)}
-            unstable_pressDelay={0}
+          <FastPressable
+            onPress={onClose}
+            latencyLabel="quotes.addAsset.close"
             style={[
               s.headerActionButton,
               { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
             ]}
           >
             <Ionicons name="close" size={18} color={T.text} />
-          </Pressable>
+          </FastPressable>
         </View>
 
         <View
@@ -1240,10 +1226,10 @@ function AddSymbolModal({
       ]}
     >
       <View style={[addSymbolStyles.header, { borderBottomColor: addPalette.headerBorder }]}>
-        <Pressable
-          onPress={() => traceUiInteraction('quotes.addSymbol.back', handleHeaderBack)}
+        <FastPressable
+          onPress={handleHeaderBack}
+          latencyLabel="quotes.addSymbol.back"
           hitSlop={12}
-          unstable_pressDelay={0}
           style={({ pressed }) => [
             addSymbolStyles.backButton,
             { backgroundColor: addPalette.iconBg, borderColor: addPalette.rowBorder },
@@ -1251,7 +1237,7 @@ function AddSymbolModal({
           ]}
         >
           <Ionicons name="arrow-back" size={22} color={T.text} />
-        </Pressable>
+        </FastPressable>
         <View style={addSymbolStyles.titleBlock}>
           <Text style={[addSymbolStyles.title, { color: T.text }]}>{t('Add symbol')}</Text>
           <Text style={[addSymbolStyles.subtitle, { color: addPalette.mutedText }]} numberOfLines={1}>
@@ -1688,53 +1674,101 @@ export function QuotesScreen() {
     router.push({ pathname: '/quotes/details', params: { symbol: sym } });
   }, [router, setChartSymbol]);
 
-  const handleSymbolTap = useCallback((sym: string) => {
-    const displayName = fmt.symbol(sym);
-    const sheetTitle = `${displayName}: ${describeMarketSymbol(sym)}`;
+  const quoteTapActionSheetConfigs = useMemo(() => {
+    const configs = new Map<string, Parameters<typeof showActionSheet>[0]>();
 
-    showActionSheet({
-      title: sheetTitle,
-      detent: 'auto',
-      actions: [
-        {
-          label: t('New Order'),
-          onPress: () => {
-            prefetchOrderTicketData(resolveTradingLoginString(), sym);
-            router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+    quoteSymbols.forEach((sym) => {
+      const displayName = fmt.symbol(sym);
+      configs.set(sym, {
+        title: `${displayName}: ${describeMarketSymbol(sym)}`,
+        detent: 'auto',
+        instantOpen: true,
+        actions: [
+          {
+            label: t('New Order'),
+            onPress: () => {
+              prefetchOrderTicketData(resolveTradingLoginString(), sym);
+              router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+            },
           },
-        },
-        {
-          label: t('Chart'),
-          onPress: () => {
-            setChartSymbol(sym);
-            router.push('/(tabs)/chart');
+          {
+            label: t('Chart'),
+            onPress: () => {
+              setChartSymbol(sym);
+              router.push('/(tabs)/chart');
+            },
           },
-        },
-        {
-          label: t('Symbol Details'),
-          onPress: () => goDetail(sym),
-        },
-        {
-          label: t('Depth Of Market'),
-          disabled: true,
-          // Disabled – no DOM backend available yet
-          onPress: undefined,
-        },
-        {
-          label: t('Market Statistics'),
-          onPress: () => {
-            router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+          {
+            label: t('Symbol Details'),
+            onPress: () => goDetail(sym),
           },
-        },
-        {
-          label: quoteViewMode === 'list' ? t('Simple view mode') : t('Advanced view mode'),
-          onPress: () => {
-            setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
+          {
+            label: t('Depth Of Market'),
+            disabled: true,
+            // Disabled - no DOM backend available yet
+            onPress: undefined,
           },
-        },
-      ],
+          {
+            label: t('Market Statistics'),
+            onPress: () => {
+              router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+            },
+          },
+          {
+            label: quoteViewMode === 'list' ? t('Simple view mode') : t('Advanced view mode'),
+            onPress: () => {
+              setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
+            },
+          },
+        ],
+      });
     });
-  }, [goDetail, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showActionSheet, t]);
+
+    return configs;
+  }, [goDetail, quoteSymbols, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showActionSheet, t]);
+
+  const quoteLongPressActionSheetConfigs = useMemo(() => {
+    const configs = new Map<string, Parameters<typeof showActionSheet>[0]>();
+
+    quoteSymbols.forEach((sym) => {
+      configs.set(sym, {
+        title: fmt.symbol(sym),
+        detent: 'auto',
+        instantOpen: true,
+        actions: [
+          {
+            label: t('Chart'),
+            onPress: () => {
+              setChartSymbol(sym);
+              router.push('/(tabs)/chart');
+            },
+          },
+          { label: t('Details'), onPress: () => goDetail(sym) },
+          {
+            label: t('Hide'),
+            danger: true,
+            onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
+          },
+        ],
+      });
+    });
+
+    return configs;
+  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showActionSheet, t]);
+
+  const handleSymbolTap = useCallback((sym: string) => {
+    const config = quoteTapActionSheetConfigs.get(sym);
+    if (config) {
+      runImmediateAction('quotes.symbolSheet.tap.open', () => showActionSheet(config));
+    }
+  }, [quoteTapActionSheetConfigs, showActionSheet]);
+
+  const handleSymbolLongPress = useCallback((sym: string) => {
+    const config = quoteLongPressActionSheetConfigs.get(sym);
+    if (config) {
+      runImmediateAction('quotes.symbolSheet.longPress.open', () => showActionSheet(config));
+    }
+  }, [quoteLongPressActionSheetConfigs, showActionSheet]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
@@ -1765,34 +1799,15 @@ export function QuotesScreen() {
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
-        onPress={() => handleSymbolTap(sym)}
-        onLongPress={() =>
-          showActionSheet({
-            title: fmt.symbol(sym),
-            detent: 'auto',
-            actions: [
-              {
-                label: t('Chart'),
-                onPress: () => {
-                  setChartSymbol(sym);
-                  router.push('/(tabs)/chart');
-                },
-              },
-              { label: t('Details'), onPress: () => goDetail(sym) },
-              {
-                label: t('Hide'),
-                danger: true,
-                onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
-              },
-            ],
-          })
-        }
+        onPressIn={() => handleSymbolTap(sym)}
+        suppressPressFeedback
+        onLongPress={() => handleSymbolLongPress(sym)}
       />
     );
   }, [
     T,
     animatedCardBackground,
-    goDetail,
+    handleSymbolLongPress,
     handleSymbolTap,
     isDark,
     isEditing,
@@ -1800,11 +1815,7 @@ export function QuotesScreen() {
     quoteSymbols,
     quoteViewMode,
     removeQuoteSymbol,
-    router,
     serverRemove,
-    setChartSymbol,
-    showActionSheet,
-    t,
   ]);
 
   return (
@@ -1824,22 +1835,22 @@ export function QuotesScreen() {
             noBorder
             rightActions={
               <View style={s.headerActions}>
-                <Pressable
-                  onPress={() => traceUiInteraction('quotes.addAsset.open', () => setShowAddModal(true))}
+                <FastPressable
+                  onPress={() => setShowAddModal(true)}
+                  latencyLabel="quotes.addAsset.open"
                   hitSlop={12}
-                  unstable_pressDelay={0}
                   style={[
                     s.headerActionButton,
                     { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
                   ]}
                 >
                   <Ionicons name="add-outline" size={20} color={T.text} />
-                </Pressable>
+                </FastPressable>
 
-                <Pressable
-                  onPress={() => traceUiInteraction('quotes.editMode.toggle', toggleEditMode)}
+                <FastPressable
+                  onPress={toggleEditMode}
+                  latencyLabel="quotes.editMode.toggle"
                   hitSlop={12}
-                  unstable_pressDelay={0}
                   style={[
                     s.headerActionButton,
                     { backgroundColor: palette.actionBg, borderColor: palette.actionBorder },
@@ -1850,7 +1861,7 @@ export function QuotesScreen() {
                     size={18}
                     color={T.text}
                   />
-                </Pressable>
+                </FastPressable>
               </View>
             }
           />
@@ -1878,14 +1889,14 @@ export function QuotesScreen() {
               autoCapitalize="characters"
               autoCorrect={false}
             />
-            <Pressable
-              onPress={() => traceUiInteraction('quotes.search.clear', () => setSearch(''))}
-              unstable_pressDelay={0}
+            <FastPressable
+              onPress={() => setSearch('')}
+              latencyLabel="quotes.search.clear"
               disabled={search.length === 0}
               style={[s.searchClearButton, search.length === 0 && s.searchClearButtonHidden]}
             >
               <Ionicons name="close-circle" size={16} color={T.textMuted} />
-            </Pressable>
+            </FastPressable>
           </View>
 
           <FlatList

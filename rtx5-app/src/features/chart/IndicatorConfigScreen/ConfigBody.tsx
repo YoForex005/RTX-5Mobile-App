@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Inner body of IndicatorConfigScreen — renders parameter rows, style lines,
  * levels, and visualization controls. Extracted from the screen wrapper so
@@ -7,16 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  KeyboardAvoidingView, Modal, Platform, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import type { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
 import { Screen } from '../../../ui/components/Screen';

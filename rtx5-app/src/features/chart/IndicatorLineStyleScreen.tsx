@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: IndicatorLineStyleScreen
  *
@@ -7,11 +8,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../ui/theme/useTheme';
+import { safeRouterBack } from '../../utils/navigation';
 import {
   Card,
   LinePreview,
@@ -43,7 +45,7 @@ export function IndicatorLineStyleScreen() {
     return (
       <Screen style={styles.screen}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/chart/indicators')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -58,7 +60,7 @@ export function IndicatorLineStyleScreen() {
   return (
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+        <Pressable onPress={() => safeRouterBack(router, '/chart/indicators')} hitSlop={16} style={styles.headerBackBtn}>
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <View style={styles.headerTitleWrap} pointerEvents="none">

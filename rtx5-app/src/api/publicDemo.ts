@@ -1,3 +1,5 @@
+import { timedFetch } from '../utils/apiLatency';
+
 const DEFAULT_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
 const CONFIGURED_API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 
@@ -52,11 +54,16 @@ export async function getOrrnnDemoStatus(): Promise<OrrnnDemoStatusResponse> {
   let response: Response;
 
   try {
-    response = await fetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-status`, {
+    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-status`, {
       method: 'GET',
       headers: {
         accept: 'application/json',
       },
+    }, {
+      label: 'publicDemo.status',
+      method: 'GET',
+      endpoint: '/public/demo-status',
+      source: 'publicDemo',
     });
   } catch (_error) {
     throw new OrrnnDemoApiError(
@@ -142,11 +149,16 @@ export async function getOrrnnDemoGroups(): Promise<OrrnnDemoGroupsResponse> {
   let response: Response;
 
   try {
-    response = await fetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-groups`, {
+    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-groups`, {
       method: 'GET',
       headers: {
         accept: 'application/json',
       },
+    }, {
+      label: 'publicDemo.groups',
+      method: 'GET',
+      endpoint: '/public/demo-groups',
+      source: 'publicDemo',
     });
   } catch (_error) {
     throw new OrrnnDemoApiError(
@@ -227,13 +239,18 @@ export async function createOrrnnDemoAccount(
   let response: Response;
 
   try {
-    response = await fetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-account`, {
+    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-account`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         accept: 'application/json',
       },
       body: JSON.stringify(compactDemoAccountRequest(data)),
+    }, {
+      label: 'publicDemo.createAccount',
+      method: 'POST',
+      endpoint: '/public/demo-account',
+      source: 'register',
     });
   } catch (_error) {
     throw new OrrnnDemoApiError(

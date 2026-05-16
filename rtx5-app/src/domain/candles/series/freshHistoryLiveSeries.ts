@@ -1,30 +1,7 @@
 import type { Candle, MutableCandle } from '../core/candleTypes';
-import { validateCandle } from '../core/candleValidator';
-import { getBucketStart } from '../core/timeframeUtils';
+import { bucketCandle } from '../core/candleUtils';
 import { materializeCandleMap, sortAndDedupeCandles } from './candleSeriesMerger';
 import { areCandlePricesCoherent } from './priceCoherence';
-
-const bucketCandle = (candle: Candle, timeframe: string): Candle | null => {
-  if (!validateCandle(candle)) {
-    return null;
-  }
-
-  const bucketStart = getBucketStart(candle.time, timeframe);
-  if (bucketStart === null) {
-    return null;
-  }
-
-  const next: Candle = {
-    time: bucketStart,
-    open: candle.open,
-    high: Math.max(candle.high, candle.open, candle.close),
-    low: Math.min(candle.low, candle.open, candle.close),
-    close: candle.close,
-    volume: Number.isFinite(candle.volume) ? candle.volume : 0,
-  };
-
-  return validateCandle(next) ? next : null;
-};
 
 const putHistoryCandle = (
   map: Map<number, MutableCandle>,
@@ -57,9 +34,17 @@ const putLiveCandle = (
   map: Map<number, MutableCandle>,
   candle: Candle,
   timeframe: string,
+  closedHistoryLastTime?: number | null,
 ) => {
   const bucketed = bucketCandle(candle, timeframe);
   if (!bucketed) {
+    return;
+  }
+  if (
+    typeof closedHistoryLastTime === 'number' &&
+    Number.isFinite(closedHistoryLastTime) &&
+    bucketed.time <= closedHistoryLastTime
+  ) {
     return;
   }
 
@@ -86,6 +71,7 @@ export const buildFreshHistoryLiveCandleSeries = (
   liveCandles: readonly Candle[],
   timeframe: string,
   limit?: number,
+  options: { closedHistoryLastTime?: number | null } = {},
 ): Candle[] => {
   const map = new Map<number, MutableCandle>();
 
@@ -94,7 +80,7 @@ export const buildFreshHistoryLiveCandleSeries = (
   }
 
   for (const candle of sortAndDedupeCandles(liveCandles)) {
-    putLiveCandle(map, candle, timeframe);
+    putLiveCandle(map, candle, timeframe, options.closedHistoryLastTime);
   }
 
   return materializeCandleMap(map, limit);
@@ -109,7 +95,7 @@ export const materializeLiveCandleMap = (
     return liveCandles;
   }
 
-  return liveCandles.filter((candle) => candle.time >= closedHistoryLastTime);
+  return liveCandles.filter((candle) => candle.time > closedHistoryLastTime);
 };
 
 export const pruneLiveCandleMapCoveredByHistory = (
@@ -122,7 +108,7 @@ export const pruneLiveCandleMapCoveredByHistory = (
 
   const next = new Map<number, MutableCandle>();
   for (const [time, candle] of liveCandleMap.entries()) {
-    if (time >= closedHistoryLastTime) {
+    if (time > closedHistoryLastTime) {
       next.set(time, { ...candle });
     }
   }

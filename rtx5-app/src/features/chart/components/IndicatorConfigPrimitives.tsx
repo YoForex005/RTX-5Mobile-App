@@ -1,10 +1,11 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Shared primitives for MT5-style indicator configuration screens.
  * Line preview, row chrome, section headers, and MT5 color palette.
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
 import { ThemeColors } from '../../../ui/theme/glass';
 import { LineStyle } from '../indicatorRegistry';

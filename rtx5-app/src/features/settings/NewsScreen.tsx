@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: NewsScreen
  *
@@ -12,17 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import type { ComponentProps, ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  FlatList,
-  Keyboard,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-  type ListRenderItemInfo,
-} from 'react-native';
+  FlatList, Keyboard, Modal, RefreshControl, ScrollView, Text, TextInput, View, type ListRenderItemInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { ActionSheet } from '../../ui/components/ActionSheet';
@@ -31,6 +22,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { useMarketSymbols } from '../../query/market';
 import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
+import { safeRouterBack } from '../../utils/navigation';
 import { resolveQuoteFeedSymbols } from '../quotes/quoteWatchlistDefaults';
 import { BreakingNewsCard, type BreakingNewsCardData } from './BreakingNewsCard';
 import { getNewsThemeColors, makeNewsScreenStyles, type NewsScreenStyles, type NewsThemeColors } from './NewsScreen.styles';
@@ -94,8 +86,7 @@ export function NewsScreen() {
   }, []);
 
   const goBack = useCallback(() => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   }, []);
 
   const openBreakingSymbolChart = useCallback((symbol: string) => {

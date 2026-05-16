@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 interface JournalTabsProps {

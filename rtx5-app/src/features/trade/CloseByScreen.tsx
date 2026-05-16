@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: CloseByScreen
  * 
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -20,6 +21,7 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
+import { safeRouterBack } from '../../utils/navigation';
 import { findPositionById, positionPairCandidates } from './tradeFlow';
 import { resolveLivePositionPrice } from './livePositionMetrics';
 import {
@@ -144,7 +146,7 @@ export function CloseByScreen() {
       appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
       appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-      router.back();
+      safeRouterBack(router, '/(tabs)/trade');
 
       if (resolvedLogin) {
         state.refreshPositions(resolvedLogin);
@@ -165,7 +167,7 @@ export function CloseByScreen() {
     <View style={{ flex: 1, backgroundColor: screenBg }}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
@@ -181,7 +183,7 @@ export function CloseByScreen() {
     <View style={{ flex: 1, backgroundColor: screenBg }}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBtn}>
+        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
           <Ionicons name="chevron-back" size={28} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>

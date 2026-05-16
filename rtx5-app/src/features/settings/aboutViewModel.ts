@@ -1,151 +1,196 @@
 import type { Ionicons } from '@expo/vector-icons';
 
-export type AboutFilter = 'All' | 'Platform' | 'Trading' | 'Personalization' | 'Release';
-export type AboutCapabilityCategory = Exclude<AboutFilter, 'All'>;
-export type AboutCapabilityStatus = 'Active' | 'Guarded' | 'Local';
+export type AboutActionId = 'rate-experience' | 'user-guide' | 'contact-developer';
 
-export type AboutMetric = {
-  label: string;
-  value: string;
-};
-
-export type AboutCapability = {
-  id: string;
+export type AboutAction = {
+  id: AboutActionId;
   title: string;
-  summary: string;
-  body: string;
-  category: AboutCapabilityCategory;
-  status: AboutCapabilityStatus;
-  owner: string;
-  proof: string;
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-export type AboutSummary = {
-  capabilityCount: number;
-  guardedCount: number;
-  localCount: number;
-  releaseLabel: string;
-};
-
-export type ReleaseGuardrail = {
+export type AboutContactCategory = {
+  id: string;
   label: string;
-  value: string;
+  subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-export const ABOUT_FILTERS: AboutFilter[] = ['All', 'Platform', 'Trading', 'Personalization', 'Release'];
+export type AboutExternalLinks = {
+  androidPackageName: string;
+  iosAppStoreId?: string | null;
+  iosSearchTerm: string;
+  userGuideUrl: string;
+  privacyPolicyUrl: string;
+  developerEmail: string;
+};
 
-export function buildAboutMetrics(appVersion: string): AboutMetric[] {
-  return [
-    { label: 'Version', value: appVersion },
-    { label: 'Runtime', value: 'Gated' },
-    { label: 'Updates', value: 'EAS' },
-    { label: 'Scope', value: 'Frontend' },
-  ];
+export type AboutStoreTarget = {
+  primaryUrl: string;
+  fallbackUrl: string;
+  storeLabel: string;
+};
+
+export type AboutDeveloperMailOptions = {
+  appName: string;
+  appVersion: string;
+  platform: string;
+  category: AboutContactCategory | null;
+  requesterName?: string;
+  requesterEmail?: string;
+  title?: string;
+  message?: string;
+  developerEmail?: string;
+};
+
+export const ABOUT_EXTERNAL_LINKS: AboutExternalLinks = {
+  androidPackageName: 'com.rtx5.app',
+  iosSearchTerm: 'RTX5',
+  userGuideUrl: 'https://rtx5.app/user-guide',
+  privacyPolicyUrl: 'https://rtx5.app/privacy-policy',
+  developerEmail: 'support@rtx5.app',
+};
+
+export const ABOUT_ACTIONS: AboutAction[] = [
+  {
+    id: 'rate-experience',
+    title: 'Rate your experience',
+    icon: 'star',
+  },
+  {
+    id: 'user-guide',
+    title: 'User guide',
+    icon: 'book-outline',
+  },
+  {
+    id: 'contact-developer',
+    title: 'Contact Developer',
+    icon: 'mail-outline',
+  },
+];
+
+export const ABOUT_CONTACT_CATEGORIES: AboutContactCategory[] = [
+  {
+    id: 'bug-report',
+    label: 'Bug Report',
+    subtitle: 'Report broken UI, crashes, or unexpected behavior.',
+    icon: 'bug-outline',
+  },
+  {
+    id: 'feature-request',
+    label: 'Feature Request',
+    subtitle: 'Suggest a product improvement for a future release.',
+    icon: 'bulb-outline',
+  },
+  {
+    id: 'trading-account-problem',
+    label: 'Trading Account Problem',
+    subtitle: 'Login, account, order ticket, position, or access issue.',
+    icon: 'flash-outline',
+  },
+  {
+    id: 'other',
+    label: 'Other',
+    subtitle: 'Send another developer support request.',
+    icon: 'ellipsis-horizontal-outline',
+  },
+];
+
+export function formatAboutPlatform(platform: string): string {
+  switch (platform) {
+    case 'ios':
+      return 'iOS';
+    case 'android':
+      return 'Android';
+    case 'web':
+      return 'Web preview';
+    default:
+      return platform ? platform.toUpperCase() : 'Native';
+  }
 }
 
-export const ABOUT_CAPABILITIES: AboutCapability[] = [
-  {
-    id: 'expo-client',
-    title: 'Expo Dev Client Experience',
-    summary: 'Native iOS and Android trading terminal built through Expo Dev Client.',
-    body: 'RTX5 ships as a React Native trading terminal through Expo with native iOS and Android targets.',
-    category: 'Platform',
-    status: 'Active',
-    owner: 'Mobile platform',
-    proof: 'Expo Dev Client',
-    icon: 'phone-portrait-outline',
-  },
-  {
-    id: 'frontend-only',
-    title: 'Frontend-only Trading App',
-    summary: 'Typed API and WebSocket contracts are consumed without implementing backend trading services.',
-    body: 'The app consumes typed API and WebSocket contracts without implementing backend trading services.',
-    category: 'Trading',
-    status: 'Guarded',
-    owner: 'Trading shell',
-    proof: 'No backend service changes',
-    icon: 'swap-horizontal-outline',
-  },
-  {
-    id: 'local-preferences',
-    title: 'Device-local Personalization',
-    summary: 'Watchlists, chart state, drawings, terms acceptance, and filters stay on this device.',
-    body: 'Watchlists, chart preferences, drawings, terms acceptance, and filters remain stored on this device.',
-    category: 'Personalization',
-    status: 'Local',
-    owner: 'User preferences',
-    proof: 'Versioned local state',
-    icon: 'save-outline',
-  },
-  {
-    id: 'ota-release',
-    title: 'Staged OTA Release Model',
-    summary: 'Preview, staging, and production channels remain separated by runtime compatibility gates.',
-    body: 'Preview, staging, and production update channels are protected by runtime compatibility gates.',
-    category: 'Release',
-    status: 'Guarded',
-    owner: 'Release operations',
-    proof: 'EAS channel gating',
-    icon: 'git-branch-outline',
-  },
-];
+export function resolveAboutBuildLabel({
+  platform,
+  appVersion,
+  androidVersionCode,
+  iosBuildNumber,
+}: {
+  platform: string;
+  appVersion: string;
+  androidVersionCode?: number | string | null;
+  iosBuildNumber?: number | string | null;
+}): string {
+  const nativeBuild = platform === 'android'
+    ? androidVersionCode
+    : platform === 'ios'
+      ? iosBuildNumber
+      : null;
+  const normalizedBuild = String(nativeBuild ?? '').trim() || appVersion.trim() || 'Local';
 
-export const RELEASE_GUARDRAILS: ReleaseGuardrail[] = [
-  {
-    label: 'No backend service changes',
-    value: 'Mobile releases do not add or replace server-side trading systems.',
-    icon: 'server-outline',
-  },
-  {
-    label: 'No-logo chart policy',
-    value: 'Chart UI must remain free of third-party logo presentation.',
-    icon: 'eye-off-outline',
-  },
-  {
-    label: 'Runtime channel safety',
-    value: 'OTA updates remain separated by preview, staging, and production channels.',
-    icon: 'shield-checkmark-outline',
-  },
-];
+  return `Build ${normalizedBuild}`;
+}
 
-export function buildAboutSummary(capabilities: AboutCapability[] = ABOUT_CAPABILITIES): AboutSummary {
+export function getAboutStoreTarget(
+  platform: string,
+  links: AboutExternalLinks = ABOUT_EXTERNAL_LINKS,
+): AboutStoreTarget {
+  if (platform === 'android') {
+    return {
+      primaryUrl: `market://details?id=${encodeURIComponent(links.androidPackageName)}`,
+      fallbackUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(links.androidPackageName)}`,
+      storeLabel: 'Google Play',
+    };
+  }
+
+  const encodedSearchTerm = encodeURIComponent(links.iosSearchTerm);
+  const iosAppStoreId = links.iosAppStoreId?.trim();
+  if (platform === 'ios') {
+    if (iosAppStoreId) {
+      return {
+        primaryUrl: `itms-apps://itunes.apple.com/app/id${encodeURIComponent(iosAppStoreId)}`,
+        fallbackUrl: `https://apps.apple.com/app/id${encodeURIComponent(iosAppStoreId)}`,
+        storeLabel: 'App Store',
+      };
+    }
+
+    return {
+      primaryUrl: `itms-apps://itunes.apple.com/search?term=${encodedSearchTerm}&entity=software`,
+      fallbackUrl: `https://apps.apple.com/us/search?term=${encodedSearchTerm}`,
+      storeLabel: 'App Store',
+    };
+  }
+
   return {
-    capabilityCount: capabilities.length,
-    guardedCount: capabilities.filter((capability) => capability.status === 'Guarded').length,
-    localCount: capabilities.filter((capability) => capability.status === 'Local').length,
-    releaseLabel: 'EAS',
+    primaryUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(links.androidPackageName)}`,
+    fallbackUrl: `https://apps.apple.com/us/search?term=${encodedSearchTerm}`,
+    storeLabel: 'App store',
   };
 }
 
-export function filterAboutCapabilities(
-  capabilities: AboutCapability[],
-  filter: AboutFilter,
-  query: string,
-): AboutCapability[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredCapabilities = filter === 'All'
-    ? capabilities
-    : capabilities.filter((capability) => capability.category === filter);
+export function buildDeveloperMailto({
+  appName,
+  appVersion,
+  platform,
+  category,
+  requesterName,
+  requesterEmail,
+  title,
+  message,
+  developerEmail = ABOUT_EXTERNAL_LINKS.developerEmail,
+}: AboutDeveloperMailOptions): string {
+  const categoryLabel = category?.label ?? 'Unselected category';
+  const trimmedTitle = title?.trim();
+  const subject = trimmedTitle || `[${appName}] ${categoryLabel}`;
+  const bodyLines = [
+    `App: ${appName}`,
+    `Version: ${appVersion}`,
+    `Platform: ${platform}`,
+    `Category: ${categoryLabel}`,
+    `Name: ${requesterName?.trim() || 'Not provided'}`,
+    `Email: ${requesterEmail?.trim() || 'Not provided'}`,
+    `Title: ${trimmedTitle || 'Not provided'}`,
+    '',
+    message?.trim() || 'Describe the issue or feedback here.',
+  ];
 
-  if (!normalizedQuery) return filteredCapabilities;
-
-  return filteredCapabilities.filter((capability) => {
-    const searchableText = [
-      capability.title,
-      capability.summary,
-      capability.body,
-      capability.category,
-      capability.status,
-      capability.owner,
-      capability.proof,
-    ].join(' ').toLowerCase();
-
-    return searchableText.includes(normalizedQuery);
-  });
-}
-
-export function getAboutCapabilityCountByCategory(category: AboutCapabilityCategory): number {
-  return ABOUT_CAPABILITIES.filter((capability) => capability.category === category).length;
+  return `mailto:${developerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines.join('\n'))}`;
 }

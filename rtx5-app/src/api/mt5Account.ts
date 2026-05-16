@@ -5,7 +5,8 @@
  * on the broker server, returning the Master and Investor passwords.
  */
 
-import { apiClient, API_BASE_URL } from './apiClient';
+import { API_BASE_URL } from './apiClient';
+import { timedFetch } from '../utils/apiLatency';
 
 /** Request body for POST /api/mt5/account/create */
 export interface CreateMT5AccountRequest {
@@ -45,14 +46,19 @@ export interface CreateMT5AccountResponse {
 export async function createMT5Account(
   payload: CreateMT5AccountRequest,
 ): Promise<CreateMT5AccountResponse> {
-  // Use raw fetch (no auth token needed for registration)
-  const response = await fetch(`${API_BASE_URL}/api/mt5/account/create`, {
+  // Registration is unauthenticated; timing is still recorded.
+  const response = await timedFetch(`${API_BASE_URL}/api/mt5/account/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'accept': 'application/json',
     },
     body: JSON.stringify(payload),
+  }, {
+    label: 'mt5Account.create',
+    method: 'POST',
+    endpoint: '/api/mt5/account/create',
+    source: 'register',
   });
 
   if (!response.ok) {

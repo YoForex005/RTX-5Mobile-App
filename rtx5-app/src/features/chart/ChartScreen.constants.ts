@@ -1,5 +1,6 @@
 import { TradeVolumeBounds, resolveTradeVolumeBounds } from '../../utils/tradeVolume';
 import { normalizeSymbol } from '../../domain/symbols';
+import { CANDLE_HISTORY_TIMEFRAMES } from '../../domain/candles/core/timeframeUtils';
 import { ChartOverlayPriceLine } from './chartOverlays';
 
 // Basic constants
@@ -46,14 +47,14 @@ export const CHART_GRID_LINE_STYLE = 1;
 export const CHART_GRID_HORIZONTAL_LINE_COUNT = 11;
 export const CHART_TAP_MENU_PADDING = 10;
 export const CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS = 450;
-export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 58;
+export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 72;
 export const CHART_TRADE_SHEET_TOP_GAP = 10;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT = 44;
 export const FOOTER_LOT_PICKER_VALUE_ITEM_WIDTH = 56;
 export const CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS = 100;
 export const CHART_VIEWPORT_TOUCH_FAILSAFE_MS = 8000;
 
-export const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+export const timeframes = [...CANDLE_HISTORY_TIMEFRAMES];
 
 export type ChartTapMenuViewport = {
   x: number;

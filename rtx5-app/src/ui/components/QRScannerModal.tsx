@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from './FastPressable';
 import React, { useState, useEffect } from 'react';
-import { Modal, StyleSheet, Text, View, Pressable, Platform, Alert } from 'react-native';
+import { Modal, StyleSheet, Text, View, Platform, Alert } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';

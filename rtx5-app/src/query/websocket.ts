@@ -11,7 +11,6 @@ import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
-import { normalizeTimeframeStrict } from '../domain/candles/core/candles';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 
 const LIVE_QUOTE_STALE_MS = 45_000;
@@ -327,27 +326,5 @@ export function useLiveAccount(accountId: string) {
   }, [accountId]);
 
   return account;
-}
-
-/**
- * Deprecated compatibility hook.
- *
- * Chart screens must use `useLiveCandles`, which loads REST history and
- * subscribes to the dedicated backend candle WebSocket. This wrapper only
- * reads the canonical cache populated by that path; it does not request
- * legacy WS history or subscribe to quote-derived candle channels.
- */
-export function useCandleStream(symbol: string, timeframe: string) {
-  const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
-  const key = normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : '';
-  const candles = useTradingState(state => state.candles[key]);
-
-  return {
-    candles: candles || [],
-    isLoading: !candles || candles.length === 0,
-    isError: false,
-    isFallback: false,
-  };
 }
 

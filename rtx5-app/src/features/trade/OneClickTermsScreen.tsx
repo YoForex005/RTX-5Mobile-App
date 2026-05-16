@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: OneClickTermsScreen
  * 
@@ -5,7 +6,7 @@
  * which bypasses the standard confirmation prompts for faster execution.
  */
 
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { spacing } from '../../ui/theme/index';

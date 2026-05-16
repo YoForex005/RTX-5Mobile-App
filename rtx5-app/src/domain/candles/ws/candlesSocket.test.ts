@@ -73,6 +73,8 @@ test('resolveCandleWsTimeframe maps app timeframes to backend live-channel token
   assert.equal(resolveCandleWsTimeframe('M5'), '5m');
   assert.equal(resolveCandleWsTimeframe('H1'), '1h');
   assert.equal(resolveCandleWsTimeframe('MN'), '1M');
+  assert.equal(resolveCandleWsTimeframe('M3'), null);
+  assert.equal(resolveCandleWsTimeframe('H2'), null);
   assert.equal(resolveCandleWsTimeframe('bad'), null);
 });
 

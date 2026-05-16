@@ -8,7 +8,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
-import { liveCandlesEngine, CandleParams, EMPTY_CANDLES } from '../ws/liveCandlesEngine';
+import {
+  EMPTY_CANDLES,
+  liveCandleStream as liveCandlesEngine,
+  type CandleParams,
+} from '../stream/liveCandleStream';
 import { candlesWsService } from '../ws/candlesSocket';
 import {
   isTrustworthyCandleBootstrapSeed,
@@ -73,7 +77,7 @@ const getQuoteTimestampMs = (quote: Record<string, any> | undefined): number | n
   return null;
 };
 
-export type { CandleParams } from '../ws/liveCandlesEngine';
+export type { CandleParams } from '../stream/liveCandleStream';
 
 /**
  * React hook that binds a specific market symbol and timeframe to the `LiveCandleStreamManager`.

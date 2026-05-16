@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: TradingSignalDetailsModal
  * 
@@ -7,7 +8,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';

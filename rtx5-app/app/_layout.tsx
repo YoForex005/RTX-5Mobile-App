@@ -3,15 +3,16 @@ import 'react-native-reanimated';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
-import { Platform, StyleSheet, View, useWindowDimensions, Pressable } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
-import { traceUiInteraction } from '../src/dev/uiInteractionDiagnostics';
+import { FastPressable } from '../src/ui/components/FastPressable';
 import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons } from '@expo/vector-icons';
+import { safeRouterBack } from '../src/utils/navigation';
 
 
 const IPHONE_14_PRO_MAX = {
@@ -64,18 +65,18 @@ function InnerLayout() {
             contentStyle: { backgroundColor: T.bg },
             headerTitleStyle: { fontSize: 17, fontWeight: '600' },
             headerTitleAlign: 'center',
-            headerLeft: (props) => {
-              const action = props.canGoBack ? () => router.back() : () => router.replace('/');
+            headerLeft: () => {
+              const action = () => safeRouterBack(router, '/');
               return (
                 <View style={{ width: 46, height: 40, alignItems: 'flex-start', justifyContent: 'center' }}>
-                  <Pressable
-                    onPress={() => traceUiInteraction('stack.back', action)}
+                  <FastPressable
+                    onPress={action}
+                    latencyLabel="stack.back"
                     hitSlop={15}
                     style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}
-                    unstable_pressDelay={0}
                   >
                     <Ionicons name="arrow-back" size={24} color={T.text} />
-                  </Pressable>
+                  </FastPressable>
                 </View>
               );
             }
@@ -145,6 +146,7 @@ import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
+import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
 
 export default function RootLayout() {
   useOtaUpdateOnLaunch();
@@ -158,12 +160,34 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!hasHydrated) return;
-    void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
-    prefetchChartCandles(chartSymbol, chartTimeframe);
+    let cancelled = false;
+
+    const cancelCacheHydration = scheduleAfterFirstFrame(() => {
+      if (!cancelled) {
+        void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
+      }
+    });
+    const cancelChartPrefetch = scheduleIdleWork(() => {
+      if (!cancelled) {
+        prefetchChartCandles(chartSymbol, chartTimeframe);
+      }
+    }, { delayMs: 120, timeoutMs: 1500 });
+
+    return () => {
+      cancelled = true;
+      cancelCacheHydration();
+      cancelChartPrefetch();
+    };
   }, [hasHydrated, chartSymbol, chartTimeframe]);
 
   useEffect(() => {
     if (isLoggedIn) {
+      let cancelled = false;
+      const cancelScheduledBootWork: Array<() => void> = [];
+      const scheduleBootWork = (cancel: () => void) => {
+        cancelScheduledBootWork.push(cancel);
+      };
+
       const bootAccountData = async () => {
         if (!accountDetails?.id) return;
 
@@ -177,6 +201,7 @@ export default function RootLayout() {
             const accounts = await getAccounts();
             if (accounts.length > 0) {
               mt5LoginNumber = accounts[0].login;
+              if (cancelled) return;
               // Silently update the persisted Zustand session so it doesn't happen again
               useUserPreferences.getState().login(
                 String(mt5LoginNumber),
@@ -190,42 +215,63 @@ export default function RootLayout() {
               );
             }
           } catch (e) {
+            if (cancelled) return;
             console.warn('[Session Migration] Failed to auto-migrate old session:', e);
           }
         }
 
+        if (cancelled) return;
         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
+          const mt5Login = String(mt5LoginNumber);
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
-          void usePositionsState.getState().refreshPositions(String(mt5LoginNumber));
-          prefetchAccountSummary(String(mt5LoginNumber));
           accountWsService.connect();
-        }
 
-        try {
-          const acct = await getAccountById(mt5LoginNumber);
-          useUserPreferences.getState().updateAccountDetails({
-            id: String(acct.login),
-            name: acct.name || `Account ${acct.login}`,
-          });
-          useLiveAccountState.getState().updateMetrics({
-            login: acct.login,
-            balance: acct.balance,
-            equity: acct.equity,
-            margin: acct.usedMargin,
-            margin_free: acct.freeMargin,
-            margin_level: acct.marginLevel,
-            floating: acct.floatingPnl
-          });
+          scheduleBootWork(scheduleAfterFirstFrame(() => {
+            if (!cancelled) {
+              void usePositionsState.getState().refreshPositions(mt5Login);
+            }
+          }));
+          scheduleBootWork(scheduleIdleWork(() => {
+            if (!cancelled) {
+              prefetchAccountSummary(mt5Login);
+            }
+          }, { delayMs: 80, timeoutMs: 1500 }));
 
-          // Automatically determine if it's a demo or real account based on the backend group name
-          const isDemo = isDemoTradingAccount(acct.group);
-          useUserPreferences.getState().setIsDemoAccount(isDemo);
-        } catch (e) {
-          console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
+          scheduleBootWork(scheduleIdleWork(async () => {
+            if (cancelled) return;
+            try {
+              const acct = await getAccountById(mt5LoginNumber);
+              if (cancelled) return;
+              useUserPreferences.getState().updateAccountDetails({
+                id: String(acct.login),
+                name: acct.name || `Account ${acct.login}`,
+              });
+              useLiveAccountState.getState().updateMetrics({
+                login: acct.login,
+                balance: acct.balance,
+                equity: acct.equity,
+                margin: acct.usedMargin,
+                margin_free: acct.freeMargin,
+                margin_level: acct.marginLevel,
+                floating: acct.floatingPnl
+              });
+
+              // Automatically determine if it's a demo or real account based on the backend group name
+              const isDemo = isDemoTradingAccount(acct.group);
+              useUserPreferences.getState().setIsDemoAccount(isDemo);
+            } catch (e) {
+              if (cancelled) return;
+              console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
+            }
+          }, { delayMs: 120, timeoutMs: 2000 }));
         }
       };
 
       void bootAccountData();
+      return () => {
+        cancelled = true;
+        cancelScheduledBootWork.forEach((cancel) => cancel());
+      };
     } else {
       accountWsService.disconnect();
     }

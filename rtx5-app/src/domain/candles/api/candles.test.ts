@@ -9,6 +9,7 @@ import {
   getCandleHistoryRequestTimeframes,
 } from './candleHistoryQuery';
 import {
+  CANDLE_HISTORY_TIMEFRAMES,
   DEFAULT_CANDLE_HISTORY_LIMIT,
   MAX_CANDLE_SERIES_LENGTH,
   getTimeframeSeconds,
@@ -76,16 +77,22 @@ test('buildCandleHistorySearchParams leaves explicit backend timeframe token cas
 });
 
 test('getCandleHistoryRequestTimeframes requests only the selected backend timeframe', () => {
+  assert.deepEqual(CANDLE_HISTORY_TIMEFRAMES, ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('M1'), ['M1']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('1m'), ['M1']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('H1'), ['H1']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('W1'), ['W1']);
   assert.deepEqual(getCandleHistoryRequestTimeframes('MN'), ['MN']);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('M3'), []);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('3m'), []);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('H2'), []);
+  assert.deepEqual(getCandleHistoryRequestTimeframes('2h'), []);
   assert.deepEqual(getCandleHistoryRequestTimeframes('bad-period'), []);
 });
 
 test('default candle history request fills the chart buffer so M1 includes previous dates', () => {
   assert.equal(DEFAULT_CANDLE_HISTORY_LIMIT, MAX_CANDLE_SERIES_LENGTH);
+  assert.equal(MAX_CANDLE_SERIES_LENGTH, 2_500);
   assert.ok(DEFAULT_CANDLE_HISTORY_LIMIT * getTimeframeSeconds('M1') > 24 * 60 * 60);
 });
 

@@ -1,11 +1,9 @@
 export type Timeframe =
   | 'M1'
-  | 'M3'
   | 'M5'
   | 'M15'
   | 'M30'
   | 'H1'
-  | 'H2'
   | 'H4'
   | 'D1'
   | 'W1'
@@ -30,6 +28,8 @@ export type Candle = {
 export type MutableCandle = Candle & {
   firstUpdateTime?: number;
   lastUpdateTime?: number;
+  lastBackendUpdateTime?: number;
+  lastQuoteTime?: number;
   source?: 'history' | 'live_candle';
   closed?: boolean;
 };

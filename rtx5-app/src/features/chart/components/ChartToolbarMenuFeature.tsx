@@ -1,10 +1,7 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
 import { TvLayers } from './ChartToolbarIcons';
 
@@ -68,7 +65,7 @@ export function ChartToolbarObjectsButton({
     <View style={[baseStyles.toolbarSlot, themeStyles.toolbarSlot]}>
       <Pressable
         style={baseStyles.toolbarIconButton}
-        onPress={onPress}
+        onPressIn={onPress}
         hitSlop={8}
         unstable_pressDelay={0}
       >
@@ -89,7 +86,7 @@ export function ChartToolbarMoreButton({
     <View style={[baseStyles.toolbarSlot, themeStyles.toolbarSlot]}>
       <Pressable
         style={baseStyles.toolbarIconButton}
-        onPress={onPress}
+        onPressIn={onPress}
         hitSlop={8}
         unstable_pressDelay={0}
       >

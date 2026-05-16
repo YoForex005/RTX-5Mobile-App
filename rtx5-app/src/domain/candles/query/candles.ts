@@ -9,8 +9,8 @@ import {
   CANDLE_HISTORY_QUERY_GC_MS,
   DEFAULT_CANDLE_HISTORY_LIMIT,
   LATEST_DAILY_CANDLE_HISTORY_LIMIT,
+  normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
-  normalizeTimeframeStrict,
 } from '../core/candles';
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ export const candleKeys = {
  */
 export function useCandleHistory(symbol: string, timeframe: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
 
   return useQuery({
     queryKey: candleKeys.history(normalizedSymbol, normalizedTimeframe ?? ''),

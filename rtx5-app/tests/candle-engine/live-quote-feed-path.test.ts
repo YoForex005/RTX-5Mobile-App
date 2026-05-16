@@ -4,8 +4,8 @@ import test from 'node:test';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Reads either a single .ts file (legacy) or concatenates every .ts file in a
-// folder of the same name (post 500-line refactor).
+// Reads either a single .ts module file or concatenates every .ts file in a
+// module folder of the same name.
 const readModuleSource = (relativePath: string): string => {
   const filePath = join(process.cwd(), `${relativePath}.ts`);
   const folderPath = join(process.cwd(), relativePath);
@@ -216,7 +216,7 @@ test('useLiveCandles subscribes backend candle socket instead of quote-tick cand
   assert.doesNotMatch(source, /pushPrice\(/);
 });
 
-test('legacy prices websocket also forwards quote ticks into active candle stream', () => {
+test('API prices websocket also forwards quote ticks into active candle stream', () => {
   const socketSource = readModuleSource('src/api/ws/socket');
 
   assert.match(socketSource, /import \{ liveCandleStream \} from '..\/..\/domain\/candles\/stream\/liveCandleStream'/);

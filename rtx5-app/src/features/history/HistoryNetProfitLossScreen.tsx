@@ -1,8 +1,9 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { ClosedPosition } from '../../api/positions';
@@ -16,6 +17,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
+import { safeRouterBack } from '../../utils/navigation';
 
 type SnapshotRowProps = {
   label: string;
@@ -387,13 +389,7 @@ export function HistoryNetProfitLossScreen() {
         ]}
       >
         <Pressable
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/history');
-            }
-          }}
+          onPress={() => safeRouterBack(router, '/(tabs)/history')}
           hitSlop={16}
           style={styles.headerBtn}
         >

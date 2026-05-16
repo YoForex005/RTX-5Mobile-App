@@ -18,7 +18,10 @@ import type {
   HistorySeedSnapshot,
 } from './types';
 
-export const shouldLog = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
+export const shouldLog = (): boolean =>
+  typeof __DEV__ !== 'undefined' &&
+  __DEV__ &&
+  process.env.EXPO_PUBLIC_DEBUG_CANDLE_STREAM === 'true';
 
 export const logDebug = (event: string, details?: Record<string, unknown>): void => {
   if (shouldLog()) {

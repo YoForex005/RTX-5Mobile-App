@@ -1,14 +1,8 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  type LayoutChangeEvent,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  type LayoutChangeEvent, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
@@ -23,6 +17,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
 const FOOTER_TRADE_DOCK_EDIT_GAP = 45;
+const FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP = 4;
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -1277,7 +1272,11 @@ export function ChartTradeOverlayLayer({
       : 0;
   const tradeFooterDockBottom =
     footer.showFloatingFooterTradeRow && !showInlineFooterDock
-      ? (isAndroidFloatingFooterLotEditor ? 0 : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap)
+      ? (
+        isAndroidFloatingFooterLotEditor
+          ? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP
+          : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap
+      )
       : 0;
   const tradeSheetBottomInset =
     Number.isFinite(sheet.chartTradeSheetBottomInset) && sheet.chartTradeSheetBottomInset > 0

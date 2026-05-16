@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from './FastPressable';
 /**
  * AppHeader — Shared header component for all tab screens.
  *
@@ -12,18 +13,10 @@
  * - `noBorder` prop: use on screens where content scrolls under the header.
  */
 
-import React, { ReactNode } from 'react';
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  ViewStyle,
-} from 'react-native';
+import React, { ReactNode, useCallback } from 'react';
+import { Platform, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useTheme } from '../theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -62,6 +55,9 @@ export function AppHeader({
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const handleOpenSidebar = useCallback(() => {
+    setSidebarOpen(true);
+  }, [setSidebarOpen]);
 
   // The global hamburger ☰ button in _layout.tsx is positioned at:
   //   top: insets.top + 16,  height: 40px  →  center = insets.top + 36px
@@ -94,7 +90,8 @@ export function AppHeader({
       {/* Hamburger menu button — in the same flex row as title */}
       <Pressable
         style={styles.leftGutter}
-        onPress={() => traceUiInteraction('header.openSidebar', () => setSidebarOpen(true))}
+        onPress={handleOpenSidebar}
+        latencyLabel="appHeader.menu"
         unstable_pressDelay={0}
       >
         <Ionicons name="menu" size={28} color={T.text} />

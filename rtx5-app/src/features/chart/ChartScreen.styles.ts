@@ -2,6 +2,18 @@ import { FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from './ChartScreen.constants';
 import { ThemeColors } from "../../ui/theme/glass";
 import { spacing } from "../../ui/theme/index";
 import { StyleSheet, Platform, Dimensions } from "react-native";
+import { MENU_BTN_GUTTER } from "../../ui/components/AppHeader";
+
+const APP_HEADER_HORIZONTAL_PADDING = 16;
+const APP_HEADER_MENU_ICON_SIZE = 28;
+const APP_HEADER_MENU_VISUAL_LEFT =
+  APP_HEADER_HORIZONTAL_PADDING +
+  (MENU_BTN_GUTTER - APP_HEADER_HORIZONTAL_PADDING - APP_HEADER_MENU_ICON_SIZE) / 2;
+const COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26;
+const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(
+  0,
+  APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT,
+);
 
 export function makeStyles(T: ThemeColors, isDark: boolean) {
     const APP_BG = isDark ? '#030508' : T.bg;
@@ -75,7 +87,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingLeft: 8,
+      paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET,
       paddingRight: 16,
       paddingTop: 0,
       paddingBottom: 18,
@@ -1460,7 +1472,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? '#080B11' : T.glass2,
       paddingHorizontal: 0,
       paddingTop: 0,
-      paddingBottom: 0,
+      paddingBottom: 2,
       overflow: 'visible',
       borderTopWidth: 0,
       borderTopColor: T.border,
@@ -1527,15 +1539,11 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 0,
       right: 0,
       paddingTop: 10,
-      // Stable keyboard clearance. The dock is positioned at `bottom: 0` while
-      // the lot editor is focused on Android (Android `adjustResize` shrinks
-      // the viewport so the dock lifts above the keyboard). Without this
-      // padding the Sell/Lot/Buy row sits flush against the keyboard top and
-      // looks cramped. Keeping the gap inside the dock as static padding
-      // (instead of bumping the `bottom` value when the editor focuses)
-      // guarantees there is never a vertical jump when the user taps the lot
-      // input — the gap is the same whether the keyboard is open or closed.
-      paddingBottom: 16,
+      // Stable keyboard clearance. The dock sits on the resized Android
+      // viewport with only a tiny bottom safety gap, so the reliable space
+      // belongs inside the dock. This keeps the Sell/Lot/Buy row away from
+      // the keyboard edge without adding a large keyboard-height jump.
+      paddingBottom: 20,
       backgroundColor: isDark ? '#080B11' : T.glass2,
       borderTopWidth: 1,
       borderTopColor: T.border,

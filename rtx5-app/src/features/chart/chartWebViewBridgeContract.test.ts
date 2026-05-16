@@ -103,13 +103,15 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
 
 test('webview bridge: setMarketPriceLines updates market lines without mutating candle geometry', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
+  const marketLineOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMarketPriceLineOptions');
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
   assertSourceContains(body, /lastBidPrice = hasBid \? bid : null/, 'market line state must be cached for recovery');
   assertSourceContains(body, /setBidPriceLine\(bid, false\)/, 'bid line must update through price-line API');
   assertSourceContains(body, /setAskPriceLine\(ask, false\)/, 'ask line must update through price-line API');
-  assertSourceContains(chartWebViewHtmlSource, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(chartWebViewHtmlSource, /axisLabelVisible: false/, 'market price line labels must stay disabled on the price scale');
+  assertSourceContains(marketLineOptionsBody, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
+  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: false/, 'market bid/ask lines must not paint right-axis highlight badges');
+  assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
   assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask lines must not render filled price-scale badges');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
 });

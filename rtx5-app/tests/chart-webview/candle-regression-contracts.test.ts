@@ -9,8 +9,8 @@ import {
   readChartScreenSource,
 } from '../support/chartSourceTestUtils';
 
-// Reads either a single .ts file (legacy) or concatenates every .ts file in a
-// folder of the same name (post 500-line refactor). Tests grep across the
+// Reads either a single .ts module file or concatenates every .ts file in a
+// module folder of the same name. Tests grep across the
 // concatenation so contract assertions survive future internal splits.
 const readModuleSource = (relativePath: string): string => {
   const filePath = join(process.cwd(), `${relativePath}.ts`);
@@ -59,6 +59,11 @@ test('does not permanently blank chart after rapid switching', () => {
 });
 
 test('empty history and empty live data surfaces a no-market-data state', () => {
+  assertSourceContains(
+    chartSource,
+    /const isLoading = \(!chartCanvasReady \|\| !candlesAvailable\) && loadingDelayPassed && !loadingFallback/,
+    'native chart must keep loading visible when the WebView initializes before candles arrive',
+  );
   assertSourceContains(
     chartSource,
     /const isNoMarketData = sanitizedCandles\.length === 0 && !isLoading && loadingFallback/,
@@ -128,9 +133,8 @@ test('candle websocket appends stored JWT when available and reconnects on token
   );
   assertSourceContains(
     socketSource,
-    // Path may be `./candlesSocketProtocol` (legacy single-file layout) or
-    // `../candlesSocketProtocol` (post 500-line refactor where the service
-    // lives in its own folder).
+    // Path may be `./candlesSocketProtocol` or `../candlesSocketProtocol`,
+    // depending on whether the service lives in a sibling file or folder.
     /import \{[\s\S]*appendCandleWsToken[\s\S]*\} from '\.\.?\/candlesSocketProtocol'/,
     'candle WS must use the shared appendCandleWsToken helper from the protocol module',
   );

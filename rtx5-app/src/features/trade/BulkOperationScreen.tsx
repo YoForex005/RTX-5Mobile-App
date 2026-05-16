@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Trade Feature UI: BulkOperationScreen
  *
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -16,6 +17,7 @@ import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
+import { safeRouterBack } from '../../utils/navigation';
 import { bulkModeLabel, filterPositionsForBulk } from './tradeFlow';
 
 export function BulkOperationScreen() {
@@ -50,13 +52,7 @@ export function BulkOperationScreen() {
         ]}
       >
         <Pressable
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/trade');
-            }
-          }}
+          onPress={() => safeRouterBack(router, '/(tabs)/trade')}
           hitSlop={16}
           style={styles.headerBtn}
         >

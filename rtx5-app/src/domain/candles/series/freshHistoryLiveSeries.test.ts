@@ -60,3 +60,54 @@ test('backend live OHLC generates candles in the requested timeframe bucket befo
   ]);
   assert.deepEqual(merged.map((candle) => candle.time), [1_713_744_000, 1_713_744_600]);
 });
+
+test('closed history cutoff removes same-time live candles before visible merge', () => {
+  const cutoff = 1_713_744_060;
+  const liveMap = new Map<number, MutableCandle>([
+    [
+      cutoff,
+      {
+        time: cutoff,
+        open: 9,
+        high: 9,
+        low: 9,
+        close: 9,
+        volume: 1,
+        source: 'live_candle',
+      },
+    ],
+    [
+      cutoff + 60,
+      {
+        time: cutoff + 60,
+        open: 1.16,
+        high: 1.2,
+        low: 1.15,
+        close: 1.18,
+        volume: 2,
+        source: 'live_candle',
+      },
+    ],
+  ]);
+
+  const live = materializeLiveCandleMap(liveMap, cutoff);
+  assert.deepEqual(live.map((candle) => candle.time), [cutoff + 60]);
+
+  const merged = buildFreshHistoryLiveCandleSeries(
+    [
+      { time: 1_713_744_000, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 10 },
+      { time: cutoff, open: 1.15, high: 1.18, low: 1.12, close: 1.16, volume: 12 },
+    ],
+    [
+      { time: cutoff, open: 9, high: 9, low: 9, close: 9, volume: 1 },
+      { time: cutoff + 60, open: 1.16, high: 1.2, low: 1.15, close: 1.18, volume: 2 },
+    ],
+    'M1',
+    undefined,
+    { closedHistoryLastTime: cutoff },
+  );
+
+  assert.deepEqual(merged.map((candle) => candle.time), [1_713_744_000, cutoff, cutoff + 60]);
+  assert.equal(merged[1].close, 1.16);
+  assert.equal(merged[1].high, 1.18);
+});

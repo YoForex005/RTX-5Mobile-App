@@ -10,13 +10,15 @@ import { getCandleHistory } from '../../api/candles';
 import { syncMergedCandleCache } from '../../state/candleCache';
 import { pruneLiveCandleMapCoveredByHistory } from '../../series/freshHistoryLiveSeries';
 import {
+  normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
-  normalizeTimeframeStrict,
 } from '../../core/timeframeUtils';
 import { candleMemoryCache } from '../candleMemoryCache';
 import { getEventTime, getHistorySeedSnapshot, logDebug } from './helpers';
 import {
   DEFAULT_HISTORY_LIMIT,
+  MAX_RENDERED_HISTORY_CANDLES,
+  MAX_RETAINED_HISTORY_CANDLES,
   type BufferedLiveEvent,
   type StreamEntry,
 } from './types';
@@ -58,6 +60,7 @@ export const runLoadHistory = (
     return;
   }
 
+  const isPaginationRequest = Boolean(options?.to);
   entry.requestId += 1;
   const requestId = entry.requestId;
   entry.abortController?.abort();
@@ -65,8 +68,13 @@ export const runLoadHistory = (
   entry.abortController = controller;
   entry.loading = true;
   entry.error = null;
-  if (!options?.to) {
+  if (isPaginationRequest) {
+    entry.historyPageLoading = true;
+  } else {
+    entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
+    entry.historyPaginationCursorTime = null;
     entry.historyLoading = true;
+    entry.historyPageLoading = false;
     entry.bufferedEvents = [];
   }
   manager.notify(entry);
@@ -85,8 +93,25 @@ export const runLoadHistory = (
       const historySeed = getHistorySeedSnapshot(history);
       let historyCandles = historySeed.candles;
 
-      if (options?.to) {
+      if (isPaginationRequest) {
+        const previousOldestHistoryTime = live.historyCandles[0]?.time ?? null;
         historyCandles = sanitizeCandlesForChart([...historyCandles, ...live.historyCandles], { timeframe });
+        if (historyCandles.length > MAX_RETAINED_HISTORY_CANDLES) {
+          historyCandles = historyCandles.slice(-MAX_RETAINED_HISTORY_CANDLES);
+        }
+        const newOlderHistoryCount =
+          typeof previousOldestHistoryTime === 'number'
+            ? historyCandles.filter((candle) => candle.time < previousOldestHistoryTime).length
+            : 0;
+        if (newOlderHistoryCount > 0) {
+          live.historyPaginationCursorTime = null;
+          live.renderHistoryLimit = Math.min(
+            MAX_RENDERED_HISTORY_CANDLES,
+            Math.max(DEFAULT_HISTORY_LIMIT, live.renderHistoryLimit + newOlderHistoryCount),
+          );
+        } else if (typeof options?.from === 'number' && Number.isFinite(options.from)) {
+          live.historyPaginationCursorTime = Math.max(1, Math.floor(options.from));
+        }
       }
 
       // Keep REST history and backend live candles separate. The visible
@@ -103,6 +128,7 @@ export const runLoadHistory = (
       
       live.loading = false;
       live.historyLoading = false;
+      live.historyPageLoading = false;
       live.error = null;
       syncMergedCandleCache(symbol, timeframe, history.closedCandles, { canonical: true });
 
@@ -130,6 +156,7 @@ export const runLoadHistory = (
 
       live.loading = false;
       live.historyLoading = false;
+      live.historyPageLoading = false;
       live.error = error instanceof Error ? error.message : String(error);
       const replayEvents = live.bufferedEvents
         .splice(0)
@@ -168,7 +195,7 @@ export const runPrefetchHistory = (
   resolveKey: (symbol: string, timeframe: string) => string,
 ): Promise<number> => {
   const normalizedSymbol = normalizeSymbol(symbol);
-  const normalizedTimeframe = normalizeTimeframeStrict(timeframe);
+  const normalizedTimeframe = normalizeCandleHistoryTimeframeStrict(timeframe);
   if (!normalizedSymbol || !normalizedTimeframe) {
     return Promise.resolve(0);
   }

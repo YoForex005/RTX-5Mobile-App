@@ -1,8 +1,12 @@
 import type { Candle, MutableCandle } from '../core/candleTypes';
 import { validateCandle } from '../core/candleValidator';
+import {
+  areCandleValuesEqual as areCandleValuesEqualBase,
+  cloneCandle as cloneCandleBase,
+} from '../core/candleUtils';
 import { areCandlePricesCoherent, isCandleInternallyCoherent } from './priceCoherence';
 
-export const cloneCandle = <TCandle extends Candle>(candle: TCandle): TCandle => ({ ...candle });
+export const cloneCandle = cloneCandleBase;
 
 export type CandleVolumeMergeStrategy = 'sum' | 'incoming' | 'existing' | 'max';
 
@@ -35,13 +39,7 @@ const resolveMergedVolume = (
   }
 };
 
-export const areCandleValuesEqual = (left: Candle, right: Candle): boolean =>
-  left.time === right.time &&
-  left.open === right.open &&
-  left.high === right.high &&
-  left.low === right.low &&
-  left.close === right.close &&
-  (left.volume ?? 0) === (right.volume ?? 0);
+export const areCandleValuesEqual = areCandleValuesEqualBase;
 
 export const mergeCandleByTimestamp = <TCandle extends Candle>(
   existing: TCandle,
@@ -91,6 +89,8 @@ export const mergeCandleIntoMap = (
   next.closed = options.closed ?? existing?.closed;
   next.firstUpdateTime = options.firstUpdateTime ?? existing?.firstUpdateTime;
   next.lastUpdateTime = options.lastUpdateTime ?? existing?.lastUpdateTime;
+  next.lastBackendUpdateTime = existing?.lastBackendUpdateTime;
+  next.lastQuoteTime = existing?.lastQuoteTime;
 
   if (!validateCandle(next) || !isCandleInternallyCoherent(next)) {
     return null;

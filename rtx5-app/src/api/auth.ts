@@ -1,4 +1,5 @@
 import { apiClient, API_BASE_URL } from './apiClient';
+import { timedFetch } from '../utils/apiLatency';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Auth API — https://backend.orrnn.com/api/v2/auth
@@ -87,13 +88,18 @@ export interface AuthResponse {
  * @throws Error with server message on 401 (invalid credentials) or other failures
  */
 export const loginAPI = async (credentials: LoginRequest): Promise<AuthResponse> => {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  const response = await timedFetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       accept: 'application/json',
     },
     body: JSON.stringify(credentials),
+  }, {
+    label: 'auth.login',
+    method: 'POST',
+    endpoint: '/auth/login',
+    source: 'auth',
   });
 
   if (!response.ok) {
@@ -115,13 +121,18 @@ export const loginAPI = async (credentials: LoginRequest): Promise<AuthResponse>
  * @throws Error on 400 (validation) or 409 (email already registered)
  */
 export const registerAPI = async (data: RegisterRequest): Promise<AuthResponse> => {
-  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+  const response = await timedFetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       accept: 'application/json',
     },
     body: JSON.stringify(data),
+  }, {
+    label: 'auth.register',
+    method: 'POST',
+    endpoint: '/auth/register',
+    source: 'register',
   });
 
   if (!response.ok) {

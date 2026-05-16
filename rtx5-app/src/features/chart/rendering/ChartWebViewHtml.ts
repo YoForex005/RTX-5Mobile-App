@@ -112,6 +112,22 @@ export const CH_HTML = `
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var CHART_DEBUG_LOGS = false;
+      var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
+      var PRICE_SCALE_HEALTH_SPAN_MULTIPLE = 30;
+      var PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO = 0.2;
+      var PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_SPAN = 28;
+      var PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_RATIO = 0.16;
+      var PRICE_SCALE_ROBUST_CLUSTER_MIN_BARS = 4;
+      var PRICE_SCALE_ROBUST_CLUSTER_KEEP_RATIO = 0.55;
+      var PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE = 0.006;
+      var PRICE_SCALE_ROBUST_CLUSTER_SPAN_MULTIPLE = 5;
+      var PRICE_SCALE_ROBUST_TRIM_MIN_VALUES = 12;
+      var PRICE_SCALE_ROBUST_TRIM_RATIO = 0.08;
+      var PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE = 5;
+      var HISTORY_PAGINATION_MIN_LEFT_BARS = 50;
+      var HISTORY_PAGINATION_MAX_LEFT_BARS = 500;
+      var HISTORY_PAGINATION_VIEWPORT_MULTIPLIER = 3;
+      var HISTORY_PAGINATION_DEBOUNCE_MS = 800;
 
       function chartDebugLog() {
         if (!CHART_DEBUG_LOGS || typeof console === 'undefined' || typeof console.log !== 'function') {
@@ -203,6 +219,253 @@ export const CH_HTML = `
         );
       }
 
+      function normalizePriceRange(range) {
+        if (!isValidPriceRange(range)) {
+          return null;
+        }
+        return {
+          from: Math.min(range.from, range.to),
+          to: Math.max(range.from, range.to),
+        };
+      }
+
+      function getPriceRangeSpan(range) {
+        var normalized = normalizePriceRange(range);
+        return normalized ? normalized.to - normalized.from : 0;
+      }
+
+      function getPriceRangeOverlapRatio(currentRange, dataRange) {
+        var current = normalizePriceRange(currentRange);
+        var data = normalizePriceRange(dataRange);
+        if (!current || !data) {
+          return 0;
+        }
+        var dataSpan = getPriceRangeSpan(data);
+        if (!(dataSpan > 0)) {
+          return 0;
+        }
+        var overlapFrom = Math.max(current.from, data.from);
+        var overlapTo = Math.min(current.to, data.to);
+        var overlapSpan = Math.max(0, overlapTo - overlapFrom);
+        return overlapSpan / dataSpan;
+      }
+
+      function resolvePriceRangePixelCompression(range) {
+        var normalized = normalizePriceRange(range);
+        if (!normalized || !series || typeof series.priceToCoordinate !== 'function') {
+          return null;
+        }
+        var fromCoordinate = series.priceToCoordinate(normalized.from);
+        var toCoordinate = series.priceToCoordinate(normalized.to);
+        if (
+          typeof fromCoordinate !== 'number' ||
+          typeof toCoordinate !== 'number' ||
+          !isFinite(fromCoordinate) ||
+          !isFinite(toCoordinate)
+        ) {
+          return null;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        var plotHeight =
+          metrics && typeof metrics.plotHeight === 'number' && isFinite(metrics.plotHeight) && metrics.plotHeight > 0
+            ? metrics.plotHeight
+            : 0;
+        if (!(plotHeight > 0)) {
+          return null;
+        }
+        var pixelSpan = Math.abs(toCoordinate - fromCoordinate);
+        var minPixelSpan = Math.max(
+          PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_SPAN,
+          plotHeight * PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_RATIO
+        );
+        return {
+          pixelSpan: pixelSpan,
+          minPixelSpan: minPixelSpan,
+          collapsed: pixelSpan < minPixelSpan,
+        };
+      }
+
+      function getBarPriceCenter(bar) {
+        if (!bar) return NaN;
+        if (typeof bar.close === 'number' && isFinite(bar.close)) return bar.close;
+        if (typeof bar.value === 'number' && isFinite(bar.value)) return bar.value;
+        if (typeof bar.open === 'number' && isFinite(bar.open)) return bar.open;
+        return NaN;
+      }
+
+      function makePaddedPriceRange(minPrice, maxPrice) {
+        if (!isFinite(minPrice) || !isFinite(maxPrice)) {
+          return null;
+        }
+        var span = maxPrice - minPrice;
+        var padding = Math.max(span * 0.08, Math.abs(maxPrice || 1) * 0.0002);
+        if (!(padding > 0)) padding = 1;
+        return {
+          from: minPrice - padding,
+          to: maxPrice + padding,
+        };
+      }
+
+      function collectFiniteBarPrices(bars) {
+        var prices = [];
+        if (!bars || bars.length === 0) {
+          return prices;
+        }
+        for (var i = 0; i < bars.length; i += 1) {
+          var bar = bars[i];
+          if (!bar) continue;
+          var candidates = [
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+            bar.value,
+          ];
+          for (var p = 0; p < candidates.length; p += 1) {
+            var price = candidates[p];
+            if (typeof price === 'number' && isFinite(price)) {
+              prices.push(price);
+            }
+          }
+        }
+        return prices;
+      }
+
+      function resolveTrimmedPriceRangeFromBars(bars) {
+        var prices = collectFiniteBarPrices(bars);
+        if (prices.length < PRICE_SCALE_ROBUST_TRIM_MIN_VALUES) {
+          return null;
+        }
+        prices.sort(function(left, right) { return left - right; });
+        var trimCount = Math.max(1, Math.floor(prices.length * PRICE_SCALE_ROBUST_TRIM_RATIO));
+        if (prices.length - trimCount * 2 < Math.floor(PRICE_SCALE_ROBUST_TRIM_MIN_VALUES / 2)) {
+          return null;
+        }
+        var minPrice = prices[trimCount];
+        var maxPrice = prices[prices.length - 1 - trimCount];
+        if (!(maxPrice > minPrice)) {
+          return null;
+        }
+        return makePaddedPriceRange(minPrice, maxPrice);
+      }
+
+      function resolvePriceRangeFromBars(bars) {
+        if (!bars || bars.length === 0) {
+          return null;
+        }
+
+        var minPrice = Infinity;
+        var maxPrice = -Infinity;
+        for (var i = 0; i < bars.length; i += 1) {
+          var bar = bars[i];
+          if (!bar) continue;
+          var high = typeof bar.high === 'number' ? bar.high : (typeof bar.value === 'number' ? bar.value : NaN);
+          var low = typeof bar.low === 'number' ? bar.low : (typeof bar.value === 'number' ? bar.value : NaN);
+          var open = typeof bar.open === 'number' ? bar.open : high;
+          var close = typeof bar.close === 'number' ? bar.close : high;
+          if (isFinite(high)) maxPrice = Math.max(maxPrice, high);
+          if (isFinite(low)) minPrice = Math.min(minPrice, low);
+          if (isFinite(open)) {
+            minPrice = Math.min(minPrice, open);
+            maxPrice = Math.max(maxPrice, open);
+          }
+          if (isFinite(close)) {
+            minPrice = Math.min(minPrice, close);
+            maxPrice = Math.max(maxPrice, close);
+          }
+        }
+
+        if (!isFinite(minPrice) || !isFinite(maxPrice)) {
+          return null;
+        }
+
+        return makePaddedPriceRange(minPrice, maxPrice);
+      }
+
+      function resolveRobustVisiblePriceRange(visibleBars, rawRange) {
+        if (!visibleBars || visibleBars.length === 0 || !isValidPriceRange(rawRange)) {
+          return rawRange;
+        }
+        var rawSpan = getPriceRangeSpan(rawRange);
+
+        var trimmedRange = resolveTrimmedPriceRangeFromBars(visibleBars);
+        var trimmedSpan = getPriceRangeSpan(trimmedRange);
+        if (trimmedRange && trimmedSpan > 0 && rawSpan > trimmedSpan * PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE) {
+          return trimmedRange;
+        }
+
+        if (visibleBars.length < PRICE_SCALE_ROBUST_CLUSTER_MIN_BARS) {
+          return rawRange;
+        }
+
+        var centers = [];
+        for (var i = 0; i < visibleBars.length; i += 1) {
+          var center = getBarPriceCenter(visibleBars[i]);
+          if (isFinite(center) && center > 0) {
+            centers.push(center);
+          }
+        }
+        if (centers.length < PRICE_SCALE_ROBUST_CLUSTER_MIN_BARS) {
+          return rawRange;
+        }
+
+        centers.sort(function(left, right) { return left - right; });
+        var bestStart = 0;
+        var bestEnd = 0;
+        var start = 0;
+        for (var end = 0; end < centers.length; end += 1) {
+          while (
+            start < end &&
+            centers[end] - centers[start] >
+              Math.max(Math.abs(centers[start]) * PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE, 1e-9)
+          ) {
+            start += 1;
+          }
+          if (end - start > bestEnd - bestStart) {
+            bestStart = start;
+            bestEnd = end;
+          }
+        }
+
+        var keepCount = bestEnd - bestStart + 1;
+        if (keepCount < PRICE_SCALE_ROBUST_CLUSTER_MIN_BARS) {
+          return rawRange;
+        }
+        if (keepCount / centers.length < PRICE_SCALE_ROBUST_CLUSTER_KEEP_RATIO) {
+          return rawRange;
+        }
+
+        var clusterMin = centers[bestStart];
+        var clusterMax = centers[bestEnd];
+        var clusterBars = [];
+        for (var barIndex = 0; barIndex < visibleBars.length; barIndex += 1) {
+          var barCenter = getBarPriceCenter(visibleBars[barIndex]);
+          if (isFinite(barCenter) && barCenter >= clusterMin && barCenter <= clusterMax) {
+            clusterBars.push(visibleBars[barIndex]);
+          }
+        }
+
+        var clusterRange = resolvePriceRangeFromBars(clusterBars);
+        if (!isValidPriceRange(clusterRange)) {
+          return rawRange;
+        }
+
+        var clusterTrimmedRange = resolveTrimmedPriceRangeFromBars(clusterBars);
+        var clusterTrimmedSpan = getPriceRangeSpan(clusterTrimmedRange);
+        if (
+          clusterTrimmedRange &&
+          clusterTrimmedSpan > 0 &&
+          rawSpan > clusterTrimmedSpan * PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE
+        ) {
+          return clusterTrimmedRange;
+        }
+
+        var clusterSpan = getPriceRangeSpan(clusterRange);
+        return rawSpan > clusterSpan * PRICE_SCALE_ROBUST_CLUSTER_SPAN_MULTIPLE
+          ? clusterRange
+          : rawRange;
+      }
+
       function resolvePriceRangeFromVisibleData() {
         if (!lastRawSeriesData || lastRawSeriesData.length === 0) {
           return null;
@@ -234,38 +497,16 @@ export const CH_HTML = `
           toIndex = lastRawSeriesData.length - 1;
         }
 
-        var minPrice = Infinity;
-        var maxPrice = -Infinity;
+        var visibleBars = [];
         for (var i = fromIndex; i <= toIndex; i += 1) {
           var bar = lastRawSeriesData[i];
-          if (!bar) continue;
-          var high = typeof bar.high === 'number' ? bar.high : (typeof bar.value === 'number' ? bar.value : NaN);
-          var low = typeof bar.low === 'number' ? bar.low : (typeof bar.value === 'number' ? bar.value : NaN);
-          var open = typeof bar.open === 'number' ? bar.open : high;
-          var close = typeof bar.close === 'number' ? bar.close : high;
-          if (isFinite(high)) maxPrice = Math.max(maxPrice, high);
-          if (isFinite(low)) minPrice = Math.min(minPrice, low);
-          if (isFinite(open)) {
-            minPrice = Math.min(minPrice, open);
-            maxPrice = Math.max(maxPrice, open);
-          }
-          if (isFinite(close)) {
-            minPrice = Math.min(minPrice, close);
-            maxPrice = Math.max(maxPrice, close);
+          if (bar) {
+            visibleBars.push(bar);
           }
         }
 
-        if (!isFinite(minPrice) || !isFinite(maxPrice)) {
-          return null;
-        }
-
-        var span = maxPrice - minPrice;
-        var padding = Math.max(span * 0.08, Math.abs(maxPrice || 1) * 0.0002);
-        if (!(padding > 0)) padding = 1;
-        return {
-          from: minPrice - padding,
-          to: maxPrice + padding,
-        };
+        var rawRange = resolvePriceRangeFromBars(visibleBars);
+        return resolveRobustVisiblePriceRange(visibleBars, rawRange);
       }
 
       function resolveVerticalPanStartPriceRange() {
@@ -299,6 +540,23 @@ export const CH_HTML = `
         } catch (_e2) {}
       }
 
+      function setRecoveredRightPriceRange(range) {
+        var recoveredRange = normalizePriceRange(range);
+        if (!recoveredRange) {
+          return;
+        }
+        var priceScaleApi = getRightPriceScaleApi();
+        if (!priceScaleApi) {
+          return;
+        }
+        manualPriceScaleRangeActive = false;
+        try {
+          if (typeof priceScaleApi.setVisibleRange === 'function') {
+            priceScaleApi.setVisibleRange({ from: recoveredRange.from, to: recoveredRange.to });
+          }
+        } catch (_e) {}
+      }
+
       function healCollapsedPriceScaleRange(reason, allowManualReset) {
         try {
           if (verticalPricePanGestureActive || activeTradeLineDrag) {
@@ -316,41 +574,65 @@ export const CH_HTML = `
             enableRightPriceAutoScale();
             return;
           }
+          currentRange = normalizePriceRange(currentRange);
 
           var dataRange = resolvePriceRangeFromVisibleData();
           if (!isValidPriceRange(dataRange)) {
             return;
           }
+          dataRange = normalizePriceRange(dataRange);
 
-          var scaleSpan = Math.abs(currentRange.to - currentRange.from);
-          var dataSpan = Math.abs(dataRange.to - dataRange.from);
+          var scaleSpan = getPriceRangeSpan(currentRange);
+          var dataSpan = getPriceRangeSpan(dataRange);
           if (!(scaleSpan > 0) || !(dataSpan > 0)) {
             return;
           }
+          var dataOverlapRatio = getPriceRangeOverlapRatio(currentRange, dataRange);
+          var pixelCompression = resolvePriceRangePixelCompression(dataRange);
+          var dataVisuallyCollapsed = Boolean(pixelCompression && pixelCompression.collapsed);
 
           // A stale manual price range can be many times wider than the
-          // visible OHLC range, which makes normal candles look like a flat
-          // horizontal line. Heal only the axis; never rewrite candle data.
-          if (scaleSpan > dataSpan * 30 || dataSpan > scaleSpan * 30) {
+          // visible OHLC range, or shifted away from it after horizontal
+          // navigation. A smaller stale span can still flatten candles on
+          // mobile, so also heal when the visible candle range occupies only
+          // a tiny vertical pixel band.
+          // Heal only the axis; never rewrite candle data.
+          if (
+            scaleSpan > dataSpan * PRICE_SCALE_HEALTH_SPAN_MULTIPLE ||
+            dataSpan > scaleSpan * PRICE_SCALE_HEALTH_SPAN_MULTIPLE ||
+            dataOverlapRatio < PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO ||
+            dataVisuallyCollapsed
+          ) {
             chartDebugLog('[WEBVIEW-CANDLE] heal_price_scale', {
               reason: reason || 'unknown',
               scaleSpan: scaleSpan,
               dataSpan: dataSpan,
+              dataOverlapRatio: dataOverlapRatio,
+              dataPixelSpan: pixelCompression ? pixelCompression.pixelSpan : null,
+              minDataPixelSpan: pixelCompression ? pixelCompression.minPixelSpan : null,
             });
             enableRightPriceAutoScale();
+            setRecoveredRightPriceRange(dataRange);
             scheduleOverlayDomRefresh();
             postChartGeometry();
           }
         } catch (_e) {}
       }
 
-      function schedulePriceScaleHealthCheck(reason, allowManualReset) {
+      function schedulePriceScaleHealthCheck(reason, allowManualReset, attempts) {
         if (priceScaleHealthRaf) {
           cancelAnimationFrame(priceScaleHealthRaf);
         }
+        var remainingAttempts =
+          typeof attempts === 'number' && isFinite(attempts)
+            ? Math.max(1, Math.round(attempts))
+            : 1;
         priceScaleHealthRaf = requestAnimationFrame(function() {
           priceScaleHealthRaf = 0;
           healCollapsedPriceScaleRange(reason, allowManualReset);
+          if (remainingAttempts > 1) {
+            schedulePriceScaleHealthCheck(reason, allowManualReset, remainingAttempts - 1);
+          }
         });
       }
 
@@ -377,10 +659,7 @@ export const CH_HTML = `
           if (forceAutoScale === true) {
             enableRightPriceAutoScale();
           } else {
-            var priceScaleApi = getRightPriceScaleApi();
-            if (priceScaleApi && typeof priceScaleApi.setAutoScale === 'function') {
-              priceScaleApi.setAutoScale(true);
-            }
+            enableRightPriceAutoScale();
           }
           scheduleOverlayDomRefresh();
           postChartGeometry();
@@ -1026,12 +1305,7 @@ export const CH_HTML = `
               // different prices squashed at the edge of the viewport
               // when the user scrolls left to view older data.
               try {
-                manualPriceScaleRangeActive = false;
-                verticalPricePanGestureActive = false;
-                var psApi = getRightPriceScaleApi();
-                if (psApi && typeof psApi.setAutoScale === 'function') {
-                  psApi.setAutoScale(true);
-                }
+                enableRightPriceAutoScale();
               } catch (_e) {}
               pendingPointerTap = null;
               vertPanPending = null;
@@ -1347,6 +1621,107 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
+      function getVisibleLogicalRangeSnapshot() {
+        try {
+          if (
+            chart &&
+            chart.timeScale &&
+            typeof chart.timeScale === 'function' &&
+            typeof chart.timeScale().getVisibleLogicalRange === 'function'
+          ) {
+            var range = chart.timeScale().getVisibleLogicalRange();
+            if (
+              range &&
+              typeof range.from === 'number' &&
+              isFinite(range.from) &&
+              typeof range.to === 'number' &&
+              isFinite(range.to)
+            ) {
+              return { from: range.from, to: range.to };
+            }
+          }
+        } catch (_e) {}
+        return null;
+      }
+
+      function findRawSeriesTimeIndex(data, time) {
+        if (!data || typeof time !== 'number' || !isFinite(time)) return -1;
+        for (var i = 0; i < data.length; i += 1) {
+          if (data[i] && data[i].time === time) return i;
+        }
+        return -1;
+      }
+
+      function clampSeriesIndex(index, length) {
+        if (!(length > 0)) return 0;
+        return Math.max(0, Math.min(length - 1, index));
+      }
+
+      function restorePrependedHistoryViewport(previousData, nextData, previousRange) {
+        try {
+          if (!chart || !chart.timeScale || !previousRange) return false;
+          if (!previousData || !nextData || previousData.length === 0 || nextData.length === 0) return false;
+
+          var previousFirst = previousData[0] && previousData[0].time;
+          var nextFirst = nextData[0] && nextData[0].time;
+          if (
+            typeof previousFirst !== 'number' ||
+            typeof nextFirst !== 'number' ||
+            !(nextFirst < previousFirst)
+          ) {
+            return false;
+          }
+
+          var previousVisibleFromIndex = clampSeriesIndex(Math.floor(previousRange.from), previousData.length);
+          var previousVisibleToIndex = clampSeriesIndex(Math.ceil(previousRange.to), previousData.length);
+          var previousVisibleFromTime = previousData[previousVisibleFromIndex] && previousData[previousVisibleFromIndex].time;
+          var previousVisibleToTime = previousData[previousVisibleToIndex] && previousData[previousVisibleToIndex].time;
+          var nextVisibleFromIndex = findRawSeriesTimeIndex(nextData, previousVisibleFromTime);
+          var nextVisibleToIndex = findRawSeriesTimeIndex(nextData, previousVisibleToTime);
+          var shiftedBy = nextVisibleFromIndex - previousVisibleFromIndex;
+          if (
+            typeof previousVisibleFromTime !== 'number' ||
+            typeof previousVisibleToTime !== 'number' ||
+            !(shiftedBy > 0) ||
+            nextVisibleToIndex < nextVisibleFromIndex
+          ) {
+            return false;
+          }
+
+          if (typeof chart.timeScale().setVisibleLogicalRange === 'function') {
+            chart.timeScale().setVisibleLogicalRange({
+              from: previousRange.from + shiftedBy,
+              to: previousRange.to + shiftedBy,
+            });
+            return true;
+          }
+
+          if (typeof chart.timeScale().setVisibleRange === 'function') {
+            if (previousVisibleFromTime <= previousVisibleToTime) {
+              chart.timeScale().setVisibleRange({ from: previousVisibleFromTime, to: previousVisibleToTime });
+              return true;
+            }
+          }
+        } catch (_e) {}
+        return false;
+      }
+
+      function shouldPaginateForVisibleLogicalRange(range) {
+        if (!range || typeof range.from !== 'number' || !isFinite(range.from)) return false;
+        var visibleSpan =
+          typeof range.to === 'number' && isFinite(range.to)
+            ? Math.max(1, range.to - range.from)
+            : getRecentVisibleBars(currentSeriesLength);
+        var leftPrefetchBars = Math.max(
+          HISTORY_PAGINATION_MIN_LEFT_BARS,
+          Math.min(
+            HISTORY_PAGINATION_MAX_LEFT_BARS,
+            Math.ceil(visibleSpan * HISTORY_PAGINATION_VIEWPORT_MULTIPLIER),
+          ),
+        );
+        return range.from <= leftPrefetchBars;
+      }
+
       window.__rtx5ApplyRecentViewport = applyRecentViewport;
       window.__rtx5ResetTimeScale = resetTimeScaleDefaults;
       window.__rtx5ResetPriceScale = function() {
@@ -1570,6 +1945,10 @@ export const CH_HTML = `
           try { cancelAnimationFrame(overlayPriceScaleLockRaf); } catch (_) {}
           overlayPriceScaleLockRaf = 0;
         }
+        if (priceScaleHealthRaf) {
+          try { cancelAnimationFrame(priceScaleHealthRaf); } catch (_) {}
+          priceScaleHealthRaf = 0;
+        }
         pendingTick = null;
         lastBarTime = 0;
         _liveBar = null;
@@ -1626,9 +2005,9 @@ export const CH_HTML = `
               scheduleOverlayPriceScaleLock(false);
               schedulePriceScaleHealthCheck('visible_range_change', true);
               refreshOverlayDomLabels(_overlayPayload);
-              if (range && typeof range.from === 'number' && range.from < 50) {
+              if (shouldPaginateForVisibleLogicalRange(range)) {
                 var now = Date.now();
-                if (now - lastPaginateTime > 2000) {
+                if (now - lastPaginateTime > HISTORY_PAGINATION_DEBOUNCE_MS) {
                   lastPaginateTime = now;
                   try {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ON_PAGINATE_HISTORY' }));
@@ -2390,6 +2769,10 @@ export const CH_HTML = `
             tickFlushHandle = 0;
           }
           pendingTick = null;
+          var previousRawSeriesData = lastRawSeriesData && lastRawSeriesData.length > 0
+            ? lastRawSeriesData.slice()
+            : [];
+          var previousVisibleLogicalRange = getVisibleLogicalRangeSnapshot();
           lastRawSeriesData = sanitizeSeriesData(data);
           try {
             chartDebugLog('[WEBVIEW-CANDLE] updateChartData', {
@@ -2402,7 +2785,27 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           series.setData(mapped);
           detachMarketPriceLineRefsAfterSeriesReset();
-          schedulePriceScaleHealthCheck('update_data', false);
+          var didPrependHistory =
+            previousRawSeriesData.length > 0 &&
+            lastRawSeriesData.length > 0 &&
+            lastRawSeriesData[0] &&
+            previousRawSeriesData[0] &&
+            typeof lastRawSeriesData[0].time === 'number' &&
+            typeof previousRawSeriesData[0].time === 'number' &&
+            lastRawSeriesData[0].time < previousRawSeriesData[0].time;
+          var restoredPrependedViewport = restorePrependedHistoryViewport(
+            previousRawSeriesData,
+            lastRawSeriesData,
+            previousVisibleLogicalRange
+          );
+          if (!restoredPrependedViewport && previousRawSeriesData.length === 0 && mapped.length > 0) {
+            applyRecentViewport(mapped.length);
+          }
+          schedulePriceScaleHealthCheck(
+            didPrependHistory ? 'update_data_prepend_history' : 'update_data',
+            didPrependHistory,
+            didPrependHistory ? 5 : 1
+          );
           ensureMoveBarsSeries(lastDisplayDecimals);
           if (moveBarsSeries) {
             try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
@@ -2613,7 +3016,7 @@ export const CH_HTML = `
             color: pickLivePriceColor(),
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-            axisLabelVisible: true,
+            axisLabelVisible: false,
           });
         } catch (_e) {
           moveDirectionPriceLine = null;
@@ -2684,9 +3087,8 @@ export const CH_HTML = `
         askPriceLine = null;
       }
 
-      function createMarketPriceLine(price, color) {
-        if (!series) return null;
-        return trackMarketPriceLine(series.createPriceLine({
+      function makeMarketPriceLineOptions(price, color) {
+        return {
           price: price,
           color: color,
           lineWidth: 1,
@@ -2694,7 +3096,12 @@ export const CH_HTML = `
           lineVisible: true,
           axisLabelVisible: false,
           title: '',
-        }));
+        };
+      }
+
+      function createMarketPriceLine(price, color) {
+        if (!series) return null;
+        return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color)));
       }
 
       function setBidPriceLine(price, shouldScheduleRefresh) {
@@ -2713,15 +3120,7 @@ export const CH_HTML = `
           }
           if (bidPriceLine) {
             try {
-              bidPriceLine.applyOptions({
-                price: price,
-                color: marketBidColor,
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-                lineVisible: true,
-                axisLabelVisible: false,
-                title: '',
-              });
+              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -2752,15 +3151,7 @@ export const CH_HTML = `
           }
           if (askPriceLine) {
             try {
-              askPriceLine.applyOptions({
-                price: price,
-                color: marketAskColor,
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-                lineVisible: true,
-                axisLabelVisible: false,
-                title: '',
-              });
+              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -2811,13 +3202,6 @@ export const CH_HTML = `
         try { bidPriceLine.applyOptions({ color: marketBidColor }); } catch (_e) {}
       }
 
-      // Backwards-compat no-ops so any stale call sites from earlier
-      // builds (drawing tools / overlays) silently do nothing instead of
-      // throwing and aborting the script.
-      function setLiveCandleLine() {}
-      function updateChartAppearance() {}
-      // Legacy no-op kept so stale call-sites from earlier builds don't throw.
-      function setVolumeSeriesData(_data) {}
       function setDrawingTool(tool) {
         if (window._drawingManager && typeof window._drawingManager.setActiveTool === 'function') {
           window._drawingManager.setActiveTool(tool);
@@ -3099,7 +3483,7 @@ export const CH_HTML = `
         try {
           entry.api.applyOptions({
             price: price,
-            axisLabelVisible: entry.line.axisLabelVisible !== false,
+            axisLabelVisible: false,
             title: '',
           });
         } catch (_e) {}
@@ -3140,12 +3524,64 @@ export const CH_HTML = `
         };
       }
 
+      function renderMarketPriceScaleExtension(layer, price, color) {
+        if (
+          !layer ||
+          !series ||
+          typeof series.priceToCoordinate !== 'function' ||
+          typeof price !== 'number' ||
+          !isFinite(price) ||
+          price <= 0
+        ) {
+          return;
+        }
+        var y = series.priceToCoordinate(price);
+        if (typeof y !== 'number' || !isFinite(y)) {
+          return;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        var chartWidth = layer && layer.clientWidth ? layer.clientWidth : 0;
+        var axisLeft = Math.round((metrics.leftAxisWidth || 0) + (metrics.paneWidth || 0));
+        var axisWidth = Math.max(
+          0,
+          Math.round((metrics.rightAxisWidth || 0) || (chartWidth > axisLeft ? chartWidth - axisLeft : 0))
+        );
+        if (!(axisWidth > 0) || axisLeft >= chartWidth) {
+          return;
+        }
+        var plotTop = metrics.plotTop || 0;
+        var plotBottom = plotTop + (metrics.plotHeight || 0);
+        if (y < plotTop || y > plotBottom) {
+          return;
+        }
+        var extension = document.createElement('div');
+        extension.style.position = 'absolute';
+        extension.style.left = axisLeft + 'px';
+        extension.style.top = Math.round(y - MARKET_PRICE_SCALE_EXTENSION_HEIGHT / 2) + 'px';
+        extension.style.width = Math.min(axisWidth, Math.max(0, chartWidth - axisLeft)) + 'px';
+        extension.style.height = MARKET_PRICE_SCALE_EXTENSION_HEIGHT + 'px';
+        extension.style.backgroundColor = color;
+        extension.style.pointerEvents = 'none';
+        extension.style.opacity = '1';
+        extension.style.zIndex = '8';
+        layer.appendChild(extension);
+      }
+
+      function renderMarketPriceScaleExtensions(layer) {
+        if (!marketPriceLinesVisible) {
+          return;
+        }
+        renderMarketPriceScaleExtension(layer, lastBidPrice, marketBidColor);
+        renderMarketPriceScaleExtension(layer, lastAskPrice, marketAskColor);
+      }
+
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
           if (!series) return;
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
+          renderMarketPriceScaleExtensions(layer);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
@@ -3252,27 +3688,17 @@ export const CH_HTML = `
 
           // Step 2: Create ALL price lines from scratch
           var lines = Array.isArray(payload.priceLines) ? payload.priceLines : [];
-          var visibleOverlayAxisLabelKeys = Object.create(null);
           var created = 0;
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln || typeof ln.price !== 'number' || !isFinite(ln.price) || ln.price <= 0 || !ln.id) continue;
             try {
-              var axisLabelVisible = ln.axisLabelVisible !== false;
-              if (axisLabelVisible) {
-                var axisLabelKey = getOverlayAxisLabelPriceKey(ln.price);
-                if (visibleOverlayAxisLabelKeys[axisLabelKey]) {
-                  axisLabelVisible = false;
-                } else {
-                  visibleOverlayAxisLabelKeys[axisLabelKey] = true;
-                }
-              }
               var priceLine = series.createPriceLine({
                 price: ln.price,
                 color: ln.color || '#2962FF',
                 lineWidth: ln.lineWidth || 1,
                 lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0),
-                axisLabelVisible: axisLabelVisible,
+                axisLabelVisible: false,
                 title: '',
               });
               _positionLinesArr.push(priceLine);
@@ -3375,9 +3801,6 @@ export const CH_HTML = `
       window.setBidPriceLine = setBidPriceLine;
       window.setAskPriceLine = setAskPriceLine;
       window.setMarketPriceLines = setMarketPriceLines;
-      window.setLiveCandleLine = setLiveCandleLine;
-      window.updateChartAppearance = updateChartAppearance;
-      window.setVolumeSeriesData = setVolumeSeriesData;
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;
       window.setSerializedDrawings = setSerializedDrawings;

@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: IndicatorLevelScreen
  *
@@ -8,20 +9,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../ui/theme/useTheme';
+import { safeRouterBack } from '../../utils/navigation';
 import { OVERLAY_MODAL_PROPS } from '../../ui/overlayModalProps';
 import {
   Card,
@@ -55,7 +48,7 @@ export function IndicatorLevelScreen() {
     return (
       <Screen style={styles.screen}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/chart/indicators')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -85,7 +78,7 @@ export function IndicatorLevelScreen() {
         style={{ flex: 1 }}
       >
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/chart/indicators')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -94,7 +87,7 @@ export function IndicatorLevelScreen() {
           <Pressable
             onPress={() => {
               removeLevel(levelId);
-              router.back();
+              safeRouterBack(router, '/chart/indicators');
             }}
             hitSlop={16}
             style={styles.headerBackBtn}

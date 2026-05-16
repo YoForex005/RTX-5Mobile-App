@@ -26,6 +26,18 @@ test('chart symbol pickers keep the saved chart symbol first and include fallbac
   }
 });
 
+test('market symbol API cache is broker scoped and parses full instrument payloads', () => {
+  const querySource = readSource('src/query/market.ts');
+  const extractorSource = readSource('src/domain/marketSymbols.ts');
+
+  assert.match(querySource, /useUserPreferences\(\(state\) => state\.brokerId\)/);
+  assert.match(querySource, /useUserPreferences\(\(state\) => state\.accountDetails\?\.id \?\? ''\)/);
+  assert.match(querySource, /queryKey:\s*\['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId\]/);
+  assert.match(querySource, /staleTime:\s*1000 \* 60 \* 5/);
+  assert.match(extractorSource, /'instruments'[\s\S]*'symbols'[\s\S]*'data'[\s\S]*'items'[\s\S]*'results'[\s\S]*'records'/);
+  assert.match(extractorSource, /'symbol'[\s\S]*'Symbol'[\s\S]*'instrumentSymbol'[\s\S]*'code'[\s\S]*'ticker'/);
+});
+
 test('native compact symbol header opens immediately from the full header tap target', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const styles = readSource('src/features/chart/ChartScreen.styles.ts');
@@ -40,4 +52,48 @@ test('native compact symbol header opens immediately from the full header tap ta
   );
   assert.match(styles, /symbolSectionTapTarget:/);
   assert.match(styles, /symbolSectionContent:/);
+  assert.match(styles, /APP_HEADER_MENU_VISUAL_LEFT/);
+  assert.match(styles, /COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26/);
+  assert.match(styles, /COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math\.max\(/);
+  assert.match(styles, /paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET/);
+});
+
+test('native chart toolbar opens frequent actions on touch down', () => {
+  const source = readSource('src/features/chart/ChartScreen.native.tsx');
+  const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
+  const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+
+  assert.match(source, /const timeframePickerActions = useMemo\([\s\S]*timeframes\.map/);
+  assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
+  assert.match(source, /const chartViewportActions = useMemo\(/);
+  assert.match(source, /const drawingToolsActions = useMemo\(/);
+  assert.match(source, /const chartMoreActions = useMemo\(/);
+  assert.match(
+    source,
+    /title: t\('Timeframes'\)[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: timeframePickerActions/,
+  );
+  assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
+  assert.match(source, /title: t\('Chart'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartViewportActions/);
+  assert.match(source, /title: t\('Expiration'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTradeExpirationActions/);
+  assert.match(
+    source,
+    /showActionSheet\(\{[\s\S]*title: t\('Timeframes'\)[\s\S]*\}\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/,
+  );
+  assert.doesNotMatch(
+    source.slice(source.indexOf('const handleOpenObjectsScreen'), source.indexOf('const handleOpenSignalDetails')),
+    /requestAnimationFrame/,
+  );
+  assert.doesNotMatch(
+    source.slice(source.indexOf('const handleOpenSettingsScreen'), source.indexOf('const handleToggleChartExpanded')),
+    /requestAnimationFrame/,
+  );
+  assert.match(source, /onPressIn=\{handleOpenTimeframePicker\}/);
+  assert.match(source, /onPressIn=\{handleOpenChartTradeSheet\}/);
+  assert.match(source, /onPressIn=\{handleOpenChartTypePicker\}/);
+  assert.match(source, /onPressIn=\{handleOpenSettingsScreen\}/);
+  assert.match(source, /onPressIn=\{handleOpenChartViewportMenu\}/);
+  assert.match(source, /onPressIn=\{handleOpenChartExpirationMenu\}/);
+  assert.match(menuSource, /onPressIn=\{onPress\}/);
+  assert.match(drawingSource, /onPressIn=\{onPress\}/);
 });

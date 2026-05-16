@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { TradeJournalEntry } from '../types';
 

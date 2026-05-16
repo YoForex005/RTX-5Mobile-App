@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { convertCandlesForChart } from '../../src/domain/candles/chartAdapter';
+import { convertCandlesForChart } from '../../src/domain/candles/normalization/chartAdapter';
 import { createCandleMap, materializeCandleMap } from '../../src/domain/candles/series/candleSeriesMerger';
 import {
   aggregateTickToCandleMap,
@@ -196,6 +196,24 @@ test('older tick in a missing historical bucket is ignored instead of creating a
   assert.equal(result.ignored, true);
   assert.equal(result.reason, 'late_missing_bucket');
   assert.deepEqual(materializeCandleMap(map).map((candle) => candle.time), [base, base + 120]);
+});
+
+test('tick at the closed history cutoff is ignored', () => {
+  const map = createCandleMap([
+    makeCandle(base, { open: 100, high: 110, low: 95, close: 105 }),
+  ]);
+
+  const result = aggregateTickToCandleMap(
+    map,
+    normalizeRequiredTick({ symbol: 'EURUSD', timestamp: base + 30, price: 120 }),
+    { expectedSymbol: 'EURUSD', expectedTimeframe: 'M1', historyCutoffTime: base },
+  );
+
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, 'older_than_history_cutoff');
+  assert.deepEqual(materializeCandleMap(map), [
+    makeCandle(base, { open: 100, high: 110, low: 95, close: 105 }),
+  ]);
 });
 
 test('wick high and low are preserved through tick aggregation and chart adapter conversion', () => {

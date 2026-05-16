@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ChartColorsScreen
  * 
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Modal } from 'react-native';
-import { ScrollView, StyleSheet, Text, View, Pressable, Platform } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';

@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: IndicatorsScreen
  *
@@ -8,12 +9,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
+import { safeRouterBack } from '../../utils/navigation';
 import { INDICATOR_ID_BY_NAME } from './indicatorRegistry';
 
 type IndicatorSection = {
@@ -91,7 +93,7 @@ export function IndicatorsScreen() {
   return (
     <Screen style={s.screen}>
       <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={s.headerBackBtn}>
+        <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={s.headerBackBtn}>
           <Ionicons name="arrow-back" size={24} color={T.text} />
         </Pressable>
         <Text style={s.headerTitle} numberOfLines={1}>Indicators</Text>

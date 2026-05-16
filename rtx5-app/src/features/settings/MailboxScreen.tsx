@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings Feature UI: MailboxScreen
  *
@@ -10,13 +11,14 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { Keyboard, Modal, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { Screen } from '../../ui/components/Screen';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import { safeRouterBack } from '../../utils/navigation';
 import { makeMailboxScreenStyles, type MailboxScreenStyles } from './MailboxScreen.styles';
 import {
   MAILBOX_PREVIEW_DATA,
@@ -192,8 +194,7 @@ export function MailboxScreen() {
   };
 
   const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   const openAnnouncementMessage = () => {

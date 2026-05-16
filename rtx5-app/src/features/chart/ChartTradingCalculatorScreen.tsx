@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ChartTradingCalculatorScreen
  * 
@@ -8,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -18,6 +19,7 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { useTranslation } from '../../i18n/useTranslation';
+import { safeRouterBack } from '../../utils/navigation';
 
 // Format helpers — return "—" when an input is missing so the UI never shows
 // a misleading hardcoded number.
@@ -111,7 +113,7 @@ export function ChartTradingCalculatorScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerBackBtn}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerBackBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <View style={styles.headerTitleWrap} pointerEvents="none">

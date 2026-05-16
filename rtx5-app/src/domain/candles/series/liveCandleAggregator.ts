@@ -5,7 +5,11 @@ import {
   normalizeTimestampToSeconds,
 } from '../core/timeframeUtils';
 import { validateCandle } from '../core/candleValidator';
-import { areCandleValuesEqual } from './candleSeriesMerger';
+import {
+  areCandleValuesEqual,
+  bucketCandle,
+  toPublicCandle,
+} from '../core/candleUtils';
 import { isPriceCoherentWithCandle } from './priceCoherence';
 
 export type ApplyCandleOptions = {
@@ -31,40 +35,6 @@ export type ApplyQuoteTickExtensionResult = {
   reason?: string;
 };
 
-const toPublicCandle = (candle: MutableCandle): Candle => ({
-  time: candle.time,
-  open: candle.open,
-  high: candle.high,
-  low: candle.low,
-  close: candle.close,
-  volume: candle.volume ?? 0,
-});
-
-const toBucketedCandle = (
-  candle: Candle,
-  timeframe?: string,
-): Candle | null => {
-  if (!validateCandle(candle)) {
-    return null;
-  }
-
-  const bucketStart = timeframe ? getBucketStart(candle.time, timeframe) : candle.time;
-  if (bucketStart === null) {
-    return null;
-  }
-
-  const next: Candle = {
-    time: bucketStart,
-    open: candle.open,
-    high: Math.max(candle.high, candle.open, candle.close),
-    low: Math.min(candle.low, candle.open, candle.close),
-    close: candle.close,
-    volume: Number.isFinite(candle.volume) ? candle.volume : 0,
-  };
-
-  return validateCandle(next) ? next : null;
-};
-
 const getMapTailTime = (candleMap: Map<number, MutableCandle>): number | null => {
   let tail: number | null = null;
   for (const time of candleMap.keys()) {
@@ -79,6 +49,33 @@ const getLatestKnownBucket = (...times: Array<number | null>): number | null =>
   times
     .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
     .reduce<number | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
+
+const finiteOrNull = (value: number | undefined): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const getLastBackendUpdateTime = (candle: MutableCandle | undefined): number | null => {
+  if (!candle) {
+    return null;
+  }
+  return finiteOrNull(candle.lastBackendUpdateTime) ?? (
+    candle.lastQuoteTime === undefined ? finiteOrNull(candle.lastUpdateTime) : null
+  );
+};
+
+const getLastRealtimeUpdateTime = (candle: MutableCandle | undefined): number | null => {
+  if (!candle) {
+    return null;
+  }
+  const backendTime = getLastBackendUpdateTime(candle);
+  const quoteTime = finiteOrNull(candle.lastQuoteTime);
+  if (backendTime === null) {
+    return quoteTime;
+  }
+  if (quoteTime === null) {
+    return backendTime;
+  }
+  return Math.max(backendTime, quoteTime);
+};
 
 const seedFromCandleClose = (
   bucketStart: number,
@@ -127,27 +124,32 @@ export const applyLiveCandleToCandleMap = (
   timeframe?: string,
   options: ApplyCandleOptions = {},
 ): ApplyCandleResult => {
-  const incoming = toBucketedCandle(liveCandle, timeframe);
+  const incoming = bucketCandle(liveCandle, timeframe);
   if (!incoming) {
     return { candle: null, changed: false, ignored: true, reason: 'invalid_live_candle' };
   }
 
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && incoming.time < historyCutoff) {
+  if (typeof historyCutoff === 'number' && incoming.time <= historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
   const existing = candleMap.get(incoming.time);
+  const isClosingSnapshot = liveCandle.closed === true;
+  if (existing?.source === 'live_candle' && existing.closed === true && !isClosingSnapshot) {
+    return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'closed_live_candle' };
+  }
+
   if (existing && areCandleValuesEqual(toPublicCandle(existing), incoming)) {
     return { candle: toPublicCandle(existing), changed: false, ignored: false };
   }
 
   const eventTime = normalizeTimestampToSeconds(liveCandle.time) ?? incoming.time;
+  const lastBackendUpdateTime = getLastBackendUpdateTime(existing);
   const outOfOrderSameBucket =
     existing?.source === 'live_candle' &&
-    typeof existing.lastUpdateTime === 'number' &&
-    eventTime < existing.lastUpdateTime;
-  const isClosingSnapshot = liveCandle.closed === true;
+    lastBackendUpdateTime !== null &&
+    eventTime < lastBackendUpdateTime;
 
   let next: MutableCandle;
   if (!existing || existing.source === 'history' || isClosingSnapshot) {
@@ -157,6 +159,8 @@ export const applyLiveCandleToCandleMap = (
       closed: liveCandle.closed ?? false,
       firstUpdateTime: existing?.firstUpdateTime ?? eventTime,
       lastUpdateTime: eventTime,
+      lastBackendUpdateTime: eventTime,
+      lastQuoteTime: existing?.lastQuoteTime,
     };
   } else if (outOfOrderSameBucket) {
     next = {
@@ -170,6 +174,8 @@ export const applyLiveCandleToCandleMap = (
       closed: existing.closed ?? false,
       firstUpdateTime: Math.min(existing.firstUpdateTime ?? eventTime, eventTime),
       lastUpdateTime: existing.lastUpdateTime,
+      lastBackendUpdateTime: existing.lastBackendUpdateTime,
+      lastQuoteTime: existing.lastQuoteTime,
     };
   } else {
     next = {
@@ -178,6 +184,8 @@ export const applyLiveCandleToCandleMap = (
       closed: false,
       firstUpdateTime: Math.min(existing.firstUpdateTime ?? eventTime, eventTime),
       lastUpdateTime: eventTime,
+      lastBackendUpdateTime: eventTime,
+      lastQuoteTime: existing.lastQuoteTime,
     };
   }
 
@@ -218,12 +226,23 @@ export const applyQuoteTickExtensionToCandleMap = (
   }
 
   const historyCutoff = options.historyCutoffTime;
-  if (typeof historyCutoff === 'number' && bucketStart < historyCutoff) {
+  if (typeof historyCutoff === 'number' && bucketStart <= historyCutoff) {
     return { candle: null, changed: false, ignored: true, reason: 'older_than_history_cutoff' };
   }
 
   const hadExistingBucket = candleMap.has(bucketStart);
   let existing = candleMap.get(bucketStart);
+  if (existing?.closed === true) {
+    return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'closed_live_candle' };
+  }
+  const lastRealtimeUpdateTime = getLastRealtimeUpdateTime(existing);
+  if (
+    existing?.source === 'live_candle' &&
+    lastRealtimeUpdateTime !== null &&
+    tickTime < lastRealtimeUpdateTime
+  ) {
+    return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'stale_quote_tick' };
+  }
 
   if (!existing) {
     const restTail = options.latestHistoryCandle ?? null;
@@ -271,6 +290,12 @@ export const applyQuoteTickExtensionToCandleMap = (
     close: tick.price,
     source: 'live_candle',
     closed: false,
+    firstUpdateTime:
+      existing.firstUpdateTime === undefined
+        ? tickTime
+        : Math.min(existing.firstUpdateTime, tickTime),
+    lastUpdateTime: Math.max(existing.lastUpdateTime ?? tickTime, tickTime),
+    lastQuoteTime: Math.max(existing.lastQuoteTime ?? tickTime, tickTime),
   };
 
   if (!validateCandle(next)) {

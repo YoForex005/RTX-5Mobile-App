@@ -18,6 +18,7 @@ import {
   getChartDrawingLabels,
   sanitizePersistedChartDrawings,
 } from '../../features/chart/drawingPersistence';
+import { normalizeCandleHistoryTimeframe } from '../../domain/candles/core/candles';
 import { DEFAULT_TRADE_VOLUME, normalizeTradeVolume } from '../../utils/tradeVolume';
 import { normalizeLanguageCode } from '../../i18n/translations';
 import {
@@ -133,7 +134,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             chartDrawings: getChartDrawingLabels(nextDrawings),
           };
         }),
-      setChartTimeframe: (timeframe) => set({ chartTimeframe: timeframe }),
+      setChartTimeframe: (timeframe) => set({ chartTimeframe: normalizeCandleHistoryTimeframe(timeframe) }),
       setTradeVolume: (volume) => {
         // The caller (ChartScreen) already normalizes against the active
         // instrument's bounds (min/max/stepVolume). Re-normalizing here
@@ -338,10 +339,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
           chartVisualType: state.chartVisualType ?? 'candles',
           chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
           chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar ?? false,
-          chartTimeframe:
-            typeof state.chartTimeframe === 'string' && state.chartTimeframe.trim().length > 0
-              ? state.chartTimeframe
-              : 'M1',
+          chartTimeframe: normalizeCandleHistoryTimeframe(state.chartTimeframe),
           tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
           chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode === 'margin' ? 'margin' : 'lots',
           chartColorScheme: state.chartColorScheme ?? 'custom',

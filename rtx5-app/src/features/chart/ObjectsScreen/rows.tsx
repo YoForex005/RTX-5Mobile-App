@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React from 'react';
-import { Pressable, Switch, Text, View } from 'react-native';
+import { Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { DrawingIconComponent } from './drawingMeta';
 import type { ObjectsScreenStyles } from './styles';

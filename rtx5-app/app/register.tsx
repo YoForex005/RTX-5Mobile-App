@@ -1,17 +1,8 @@
+import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  ActivityIndicator,
-  Alert
-} from 'react-native';
+  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -34,6 +25,7 @@ import {
   useOrrnnDemoGroups,
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
+import { safeRouterBack } from '../src/utils/navigation';
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
@@ -250,11 +242,7 @@ export default function RegisterScreen() {
       queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
       queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
 
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace('/');
-      }
+      safeRouterBack(router, '/');
     } catch (error: any) {
       Alert.alert(t('Registration Failed'), error.message || t('Unable to register account.'));
     } finally {
@@ -284,13 +272,7 @@ export default function RegisterScreen() {
         <View style={styles.headerRow}>
           <Pressable
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-            onPress={() => {
-              if (router.canGoBack()) {
-                router.back();
-              } else {
-                router.replace('/login');
-              }
-            }}
+            onPress={() => safeRouterBack(router, '/login')}
             style={styles.backBtn}
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />

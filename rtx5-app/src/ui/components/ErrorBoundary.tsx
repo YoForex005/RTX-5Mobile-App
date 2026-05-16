@@ -1,5 +1,6 @@
+import { FastPressable as Pressable } from './FastPressable';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {

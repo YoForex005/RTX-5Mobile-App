@@ -36,7 +36,7 @@ export const buildPendingOrderLines = (
         color: entryColor,
         lineWidth: 2,
         lineStyle: CHART_LINE_STYLE.Solid,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: buildPendingOrderLabel(order),
       });
     }
@@ -48,7 +48,7 @@ export const buildPendingOrderLines = (
         color: colors.tradeTpSl || '#089981',
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Solid,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: formatTpSlOverlayLabel('tp', order.symbol, entryPrice, tpValue, Number(order.volume)),
       });
     }
@@ -60,7 +60,7 @@ export const buildPendingOrderLines = (
         color: colors.tradeStopOut || '#F23645',
         lineWidth: 1,
         lineStyle: CHART_LINE_STYLE.Solid,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: formatTpSlOverlayLabel('sl', order.symbol, entryPrice, slValue, Number(order.volume)),
       });
     }
@@ -84,7 +84,7 @@ export const buildPriceAlertLines = (
       color: alert.condition === 'above' ? '#10B981' : '#F59E0B',
       lineWidth: 1,
       lineStyle: CHART_LINE_STYLE.SparseDotted,
-      axisLabelVisible: true,
+      axisLabelVisible: false,
       title: alert.condition === 'above' ? 'ALERT ABOVE' : 'ALERT BELOW',
     }));
 };
@@ -133,7 +133,7 @@ export const buildPotentialStopOutLine = (
     color: colors.tradeStopOut || '#DC2626',
     lineWidth: 1,
     lineStyle: CHART_LINE_STYLE.LargeDashed,
-    axisLabelVisible: true,
+    axisLabelVisible: false,
     title: 'STOP OUT',
   };
 };

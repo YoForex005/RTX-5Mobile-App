@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   assertSourceContains,
@@ -8,6 +10,15 @@ import {
 } from '../support/chartSourceTestUtils';
 
 const source = readChartScreenSource();
+const stylesSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+  ];
+  const stylesPath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
+  return readFileSync(stylesPath, 'utf8');
+})();
 
 test('native viewport layout schedules resize and frame sync', () => {
   assertSourceContains(
@@ -35,11 +46,21 @@ test('fullscreen enter and exit cancel stale resize frames and use the fast pres
   );
 });
 
-test('chart viewport no longer renders the bottom horizontal dots button', () => {
-  assert.doesNotMatch(
+test('chart viewport renders the bottom horizontal dots menu with bottom-label clearance', () => {
+  assertSourceContains(
     source,
-    /chartViewportMenuButton|ellipsis-horizontal/,
-    'chart viewport must not render the old bottom horizontal dots button over the price scale',
+    /const handleOpenChartViewportMenu = useCallback\(\(\) => \{[\s\S]*title: t\('Chart'\)[\s\S]*label: t\(showChartVolumePane \? 'Hide Volume Bar' : 'Show Volume Bar'\)[\s\S]*label: t\('Reset'\)/,
+    'bottom-right chart dots must open the chart viewport menu actions',
+  );
+  assertSourceContains(
+    source,
+    /style=\{styles\.chartViewportMenuButton\}[\s\S]*onPressIn=\{handleOpenChartViewportMenu\}[\s\S]*<Ionicons name="ellipsis-horizontal"/,
+    'chart viewport must render the horizontal three-dots button',
+  );
+  assertSourceContains(
+    stylesSource,
+    /chartViewportMenuButton:\s*\{[\s\S]*right:\s*8[\s\S]*bottom:\s*2[\s\S]*minHeight:\s*22/,
+    'chart viewport dots must sit in the bottom gutter below the lowest price label',
   );
   assertSourceContains(
     source,

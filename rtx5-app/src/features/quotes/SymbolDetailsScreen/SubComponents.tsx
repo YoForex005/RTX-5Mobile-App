@@ -1,9 +1,10 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Shared sub-components for SymbolDetailsScreen — flag pair, section card,
  * key/value row, metric pill, range bar, and momentum (sentiment) bar.
  */
 import React, { useMemo, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useUserPreferences } from '../../../state/userPreferences';

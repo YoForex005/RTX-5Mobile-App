@@ -61,7 +61,7 @@ test('backend reconnect resumes with authoritative live candle snapshots', () =>
   assertNoDuplicateCandleTimes(visible);
 });
 
-test('reconnect snapshot at the history cutoff updates the transition bucket', () => {
+test('reconnect snapshot at the history cutoff cannot rewrite closed REST history', () => {
   const history = buildContiguousHistory(secondsUtc(2024, 3, 22, 12, 0, 0), 2, 'M1');
   const map = createCandleMap(history);
 
@@ -81,10 +81,11 @@ test('reconnect snapshot at the history cutoff updates the transition bucket', (
     { historyCutoffTime: history[history.length - 1].time },
   );
 
-  assert.equal(result.ignored, false);
-  assert.equal(result.changed, true);
+  assert.equal(result.ignored, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'older_than_history_cutoff');
   assert.deepEqual(materializeCandleMap(map).map((candle) => candle.time), history.map((candle) => candle.time));
-  assert.equal(materializeCandleMap(map)[materializeCandleMap(map).length - 1].close, 1.55);
+  assert.equal(materializeCandleMap(map)[materializeCandleMap(map).length - 1].close, history[history.length - 1].close);
 });
 
 test('missed buckets during disconnect remain a visible backend gap in one merged series', () => {

@@ -1,165 +1,133 @@
 import type { Ionicons } from '@expo/vector-icons';
 
-export type GuideFilter = 'All' | 'Protected' | 'Trading' | 'Charting' | 'Account' | 'Safety';
-export type GuideWorkflowCategory = Exclude<GuideFilter, 'All' | 'Protected'>;
-export type GuideWorkflowStatus = 'Ready' | 'Protected' | 'Review';
-export type GuideWorkflowPriority = 'Core' | 'Safety' | 'Reference';
-
-export type GuideWorkflow = {
+export type GuideManualSection = {
   id: string;
+  index: string;
   title: string;
   summary: string;
-  body: string;
-  category: GuideWorkflowCategory;
-  status: GuideWorkflowStatus;
-  priority: GuideWorkflowPriority;
-  audience: string;
-  duration: string;
   icon: keyof typeof Ionicons.glyphMap;
-  steps: string[];
+  bullets: string[];
 };
 
 export type GuideSummary = {
-  workflowCount: number;
-  protectedCount: number;
-  stepCount: number;
+  sectionCount: number;
+  bulletCount: number;
   localStateLabel: string;
 };
 
-export type GuideChecklistItem = {
-  label: string;
-  value: string;
-  icon: keyof typeof Ionicons.glyphMap;
-};
+export const GUIDE_MANUAL_INTRO = {
+  title: 'RTX5 Mobile App',
+  subtitle: 'User Guide',
+  body:
+    'This guide explains the main RTX5 mobile screens and the everyday actions available in the app. It is written for the RTX5 app experience and its own mobile workflows.',
+} as const;
 
-export const GUIDE_FILTERS: GuideFilter[] = ['All', 'Protected', 'Trading', 'Charting', 'Account', 'Safety'];
-
-export const GUIDE_WORKFLOWS: GuideWorkflow[] = [
+export const GUIDE_MANUAL_SECTIONS: GuideManualSection[] = [
   {
-    id: 'quotes-watchlist',
-    title: 'Build a focused watchlist',
-    summary: 'Create a focused symbol surface for bid/ask scanning and fast chart handoff.',
-    body: 'Use Quotes as the starting point for symbol selection, bid/ask scanning, and quick chart access.',
-    category: 'Trading',
-    status: 'Ready',
-    priority: 'Core',
-    audience: 'Active traders',
-    duration: '2 min',
-    icon: 'list-outline',
-    steps: ['Open Quotes', 'Search or add symbols', 'Long-press for chart, details, or statistics'],
+    id: 'quotes',
+    index: '01',
+    title: 'Quotes',
+    summary: 'Review market symbols, bid and ask prices, symbol details, and watchlist membership.',
+    icon: 'swap-vertical-outline',
+    bullets: [
+      'Use list mode for quick scanning and table mode for denser quote comparison.',
+      'Search or add symbols, then open chart, details, statistics, or delete actions from the quote row.',
+      'Your selected watchlist membership and view mode remain stored on this device.',
+    ],
   },
   {
-    id: 'chart-analysis',
-    title: 'Analyze a chart setup',
-    summary: 'Keep symbol, timeframe, drawings, and visibility preferences aligned on this device.',
-    body: 'Keep symbol, timeframe, drawings, and visibility preferences aligned with your device-local chart state.',
-    category: 'Charting',
-    status: 'Ready',
-    priority: 'Core',
-    audience: 'Technical analysts',
-    duration: '4 min',
-    icon: 'analytics-outline',
-    steps: ['Choose symbol and timeframe', 'Use drawing tools for levels', 'Review live price and order context'],
+    id: 'charts',
+    index: '02',
+    title: 'Charts',
+    summary: 'Analyze symbols with the RTX5 chart workspace and saved chart preferences.',
+    icon: 'stats-chart-outline',
+    bullets: [
+      'Choose the active symbol and timeframe from the chart header and toolbar.',
+      'Use objects, indicators, colors, price-source settings, alerts, and chart preferences from chart menus.',
+      'Chart drawings, visibility, lock settings, current symbol, and timeframe persist locally until you change them.',
+    ],
   },
   {
-    id: 'order-management',
-    title: 'Manage open positions',
-    summary: 'Review active exposure, modify risk, and keep one-click actions behind local acceptance.',
-    body: 'Review active positions, modify risk, and use one-click trading only after accepting the local terms gate.',
-    category: 'Trading',
-    status: 'Protected',
-    priority: 'Safety',
-    audience: 'Live account users',
-    duration: '3 min',
-    icon: 'flash-outline',
-    steps: ['Open Trade', 'Inspect position rows', 'Use context actions for modify or close flows'],
+    id: 'trade',
+    index: '03',
+    title: 'Trade',
+    summary: 'Review open positions and use protected trade workflows.',
+    icon: 'trending-up-outline',
+    bullets: [
+      'Open Trade to review positions, floating profit/loss, account context, and position actions.',
+      'Use order tickets for market, pending, modify, close, close-by, and bulk operation flows.',
+      'One-click trading remains blocked until the local terms acceptance state is enabled by the user.',
+    ],
   },
   {
-    id: 'account-setup',
-    title: 'Connect account details',
-    summary: 'Review account, broker, and demo surfaces while preserving frontend-only boundaries.',
-    body: 'Account, broker, and demo registration surfaces stay frontend-only while consuming typed API contracts.',
-    category: 'Account',
-    status: 'Review',
-    priority: 'Reference',
-    audience: 'Account operators',
-    duration: '5 min',
+    id: 'history',
+    index: '04',
+    title: 'History',
+    summary: 'Inspect closed positions, orders, deals, totals, and saved filters.',
+    icon: 'time-outline',
+    bullets: [
+      'Switch between positions, orders, and deals to review completed account activity.',
+      'Use date range, symbol, and related filters to narrow history results.',
+      'The selected history filter range and related user filters are restored from local device state.',
+    ],
+  },
+  {
+    id: 'messages',
+    index: '05',
+    title: 'Messages and News',
+    summary: 'Read mailbox updates, market news, economic calendar items, and journal surfaces.',
+    icon: 'chatbubbles-outline',
+    bullets: [
+      'Mailbox shows account communication, message details, filters, and safe destructive confirmations.',
+      'Market News and Economic Calendar provide market review context inside the app.',
+      'These screens are informational app surfaces and do not provide financial or investment advice.',
+    ],
+  },
+  {
+    id: 'accounts',
+    index: '06',
+    title: 'Accounts and Brokers',
+    summary: 'Manage account context, saved accounts, broker directory entry points, and login flows.',
     icon: 'person-circle-outline',
-    steps: ['Open Settings', 'Review account card', 'Use account or broker entry points as needed'],
+    bullets: [
+      'The active account card shows the connected account context and live metric readiness.',
+      'Saved accounts can be reviewed or switched while preserving their latest known display details.',
+      'Demo, contest, and real account classification comes from backend account/auth metadata.',
+    ],
   },
   {
-    id: 'release-safety',
-    title: 'Understand release safety',
-    summary: 'Track preview, staging, and production updates through runtime compatibility gates.',
-    body: 'Preview, staging, and production update channels are gated by runtime compatibility checks.',
-    category: 'Safety',
-    status: 'Protected',
-    priority: 'Safety',
-    audience: 'All users',
-    duration: '2 min',
+    id: 'settings',
+    index: '07',
+    title: 'Settings and Personalization',
+    summary: 'Adjust app preferences without resetting user-specific choices.',
+    icon: 'settings-outline',
+    bullets: [
+      'Theme, language, chart display, watchlists, chart drawings, filters, and trade preferences are user-controlled.',
+      'Personalization is stored on the device and remains unchanged until the user changes it.',
+      'Settings routes are frontend-only and consume typed app configuration or API data where required.',
+    ],
+  },
+  {
+    id: 'safety',
+    index: '08',
+    title: 'Safety Notes',
+    summary: 'Understand app boundaries before using market and trading screens.',
     icon: 'shield-checkmark-outline',
-    steps: ['Confirm app channel', 'Keep runtime compatible', 'Avoid bypassing security gates'],
+    bullets: [
+      'RTX5 is a frontend mobile trading app and does not replace broker, execution, or backend trading systems.',
+      'The chart UI must remain free of visible third-party logos.',
+      'Preview, staging, and production updates are separated through EAS Update channels and runtime compatibility gates.',
+    ],
   },
 ];
 
-export const GUIDE_CHECKLIST: GuideChecklistItem[] = [
-  {
-    label: 'Use live account context',
-    value: 'Confirm the active account before placing or modifying trades.',
-    icon: 'person-outline',
-  },
-  {
-    label: 'Review event risk',
-    value: 'Check News and Economic Calendar before trading volatile sessions.',
-    icon: 'calendar-outline',
-  },
-  {
-    label: 'Preserve personalization',
-    value: 'Theme, watchlist, chart, and history filters remain stored on this device.',
-    icon: 'save-outline',
-  },
-];
+export const GUIDE_FOOTER_NOTE =
+  'RTX5 guide content explains app navigation and expected behavior. It is not trading advice, investment advice, or a recommendation to buy or sell any financial instrument.';
 
-export function buildGuideSummary(workflows: GuideWorkflow[] = GUIDE_WORKFLOWS): GuideSummary {
+export function buildGuideSummary(sections: GuideManualSection[] = GUIDE_MANUAL_SECTIONS): GuideSummary {
   return {
-    workflowCount: workflows.length,
-    protectedCount: workflows.filter((workflow) => workflow.status === 'Protected').length,
-    stepCount: workflows.reduce((total, workflow) => total + workflow.steps.length, 0),
-    localStateLabel: 'Device',
+    sectionCount: sections.length,
+    bulletCount: sections.reduce((total, section) => total + section.bullets.length, 0),
+    localStateLabel: 'Device local',
   };
-}
-
-export function filterGuideWorkflows(
-  workflows: GuideWorkflow[],
-  filter: GuideFilter,
-  query: string,
-): GuideWorkflow[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredWorkflows = workflows.filter((workflow) => {
-    if (filter === 'All') return true;
-    if (filter === 'Protected') return workflow.status === 'Protected';
-    return workflow.category === filter;
-  });
-
-  if (!normalizedQuery) return filteredWorkflows;
-
-  return filteredWorkflows.filter((workflow) => {
-    const searchableText = [
-      workflow.title,
-      workflow.summary,
-      workflow.body,
-      workflow.category,
-      workflow.status,
-      workflow.priority,
-      workflow.audience,
-      workflow.duration,
-      ...workflow.steps,
-    ].join(' ').toLowerCase();
-
-    return searchableText.includes(normalizedQuery);
-  });
-}
-
-export function getGuideWorkflowCountByCategory(category: GuideWorkflowCategory): number {
-  return GUIDE_WORKFLOWS.filter((workflow) => workflow.category === category).length;
 }

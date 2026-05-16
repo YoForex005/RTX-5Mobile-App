@@ -60,25 +60,8 @@ const hasEnabledOverlayFeatures = (showOnChart: ChartShowOnChartSettings): boole
   showOnChart.priceAlerts ||
   showOnChart.potentialStopOut;
 
-const getAxisLabelPriceKey = (price: number): string => Number(price).toFixed(8);
-
-const hideDuplicateAxisLabels = (lines: ChartOverlayPriceLine[]): ChartOverlayPriceLine[] => {
-  const visiblePrices = new Set<string>();
-
-  return lines.map((line) => {
-    if (line.axisLabelVisible === false) {
-      return line;
-    }
-
-    const key = getAxisLabelPriceKey(line.price);
-    if (visiblePrices.has(key)) {
-      return { ...line, axisLabelVisible: false };
-    }
-
-    visiblePrices.add(key);
-    return line;
-  });
-};
+const hideRightAxisLabels = (lines: ChartOverlayPriceLine[]): ChartOverlayPriceLine[] =>
+  lines.map((line) => ({ ...line, axisLabelVisible: false }));
 
 export const buildChartOverlayPayload = ({
   chartSymbol,
@@ -149,7 +132,7 @@ export const buildChartOverlayPayload = ({
           color: position.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor,
           lineWidth: 2,
           lineStyle: CHART_LINE_STYLE.Solid,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: '',
         });
       }
@@ -163,7 +146,7 @@ export const buildChartOverlayPayload = ({
             color: colors.tradeTpSl || '#089981',
             lineWidth: 1,
             lineStyle: CHART_LINE_STYLE.Solid,
-            axisLabelVisible: true,
+            axisLabelVisible: false,
             title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
           });
         }
@@ -176,7 +159,7 @@ export const buildChartOverlayPayload = ({
             color: colors.tradeStopOut || '#F23645',
             lineWidth: 1,
             lineStyle: CHART_LINE_STYLE.Solid,
-            axisLabelVisible: true,
+            axisLabelVisible: false,
             title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
           });
         }
@@ -216,7 +199,7 @@ export const buildChartOverlayPayload = ({
   }
 
   const result = {
-    priceLines: hideDuplicateAxisLabels(
+    priceLines: hideRightAxisLabels(
       Array.from(priceLines.values()).sort((left, right) => left.price - right.price),
     ),
     markers: Array.from(markers.values()).sort((left, right) => left.time - right.time),

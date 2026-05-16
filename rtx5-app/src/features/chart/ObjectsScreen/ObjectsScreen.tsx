@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Chart Feature UI: ObjectsScreen
  *
@@ -6,7 +7,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/shallow';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
@@ -14,6 +15,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
+import { safeRouterBack } from '../../../utils/navigation';
 import { TvText, TvTrendLine } from '../components/ChartToolbarIcons';
 import {
   type ChartDrawingKind,
@@ -119,7 +121,7 @@ export function ObjectsScreen() {
     }
 
     queueChartDrawingTool(tool);
-    router.back();
+    safeRouterBack(router, '/(tabs)/chart');
   }, [
     addChartDrawing,
     chartHideAll,
@@ -200,7 +202,7 @@ export function ObjectsScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) + 10 }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={16} style={styles.headerButton}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/chart')} hitSlop={16} style={styles.headerButton}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>Objects</Text>

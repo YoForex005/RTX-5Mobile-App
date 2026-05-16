@@ -9,7 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Animated, Platform, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -20,12 +20,14 @@ import { useAccountSummary } from '../../query/account';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { fmt } from '../../utils/format';
+import { safeRouterBack } from '../../utils/navigation';
 import { useLiveTick } from '../../domain/candles/hooks/useLiveCandles';
 import { normalizeSymbol } from '../../domain/symbols';
 import { assertTradeSide, normalizeTradeSide, TRADE_SIDE, type TradeSide } from '../../domain/tradeSide';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
+import { FastPressable } from '../../ui/components/FastPressable';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
   formatTradeVolume,
@@ -164,8 +166,7 @@ export function OrderTicketScreen() {
     ]).start(() => {
       setModalState(prev => ({ ...prev, visible: false }));
       if (wasSuccess) {
-        if (router.canGoBack()) router.back();
-        else router.replace('/');
+        safeRouterBack(router, '/(tabs)/trade');
       }
     });
   }, [modalState.type]);
@@ -767,14 +768,14 @@ export function OrderTicketScreen() {
 
       {/* Compact header: back button, current symbol, and live status. */}
       <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
-        <Pressable
-          onPress={() => traceUiInteraction('orderTicket.back', () => router.canGoBack() ? router.back() : router.replace('/'))}
+        <FastPressable
+          onPress={() => safeRouterBack(router, '/(tabs)/trade')}
+          latencyLabel="orderTicket.back"
           hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }}
           style={styles.backBtn}
-          unstable_pressDelay={0}
         >
           <Ionicons name="arrow-back" size={24} color={T.text} />
-        </Pressable>
+        </FastPressable>
         <View style={styles.hCenter}>
           <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
         </View>
@@ -786,20 +787,21 @@ export function OrderTicketScreen() {
 
       {/* Price panel: large BID/ASK tap targets for one-click market execution. */}
       <View style={styles.pricePanel}>
-        <Pressable
+        <FastPressable
           style={[styles.priceHalf, { backgroundColor: sellTradeAction.backgroundColor, opacity: getPricePanelActionOpacity(sellTradeAction.side) }]}
           disabled={isPricePanelActionDisabled(sellTradeAction.side)}
           accessibilityState={{ disabled: isPricePanelActionDisabled(sellTradeAction.side), busy: isTradeActionPending(sellTradeAction.side) }}
           onPress={() => { void handlePlaceOrder(sellTradeAction.side); }}
+          latencyLabel={`orderTicket.pricePanel.${sellTradeAction.side}`}
+          latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
           accessibilityRole="button"
           accessibilityLabel={sellTradeAction.displayLabel}
           testID={sellTradeAction.priceTestID}
-          unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: sellTradeAction.color }]}>{sellTradeAction.displayLabel}</Text>
           <Text style={styles.priceMain}>{fmt.price(sellTradeAction.price)}</Text>
           <Text style={styles.priceLabel}>{sellTradeAction.priceLabel}</Text>
-        </Pressable>
+        </FastPressable>
 
         {/* Spread pillar: shows the current difference between ASK and BID. */}
         <View style={styles.spreadCenter}>
@@ -808,20 +810,21 @@ export function OrderTicketScreen() {
           <Text style={styles.spreadUnit}>pts</Text>
         </View>
 
-        <Pressable
+        <FastPressable
           style={[styles.priceHalf, { backgroundColor: buyTradeAction.backgroundColor, opacity: getPricePanelActionOpacity(buyTradeAction.side) }]}
           disabled={isPricePanelActionDisabled(buyTradeAction.side)}
           accessibilityState={{ disabled: isPricePanelActionDisabled(buyTradeAction.side), busy: isTradeActionPending(buyTradeAction.side) }}
           onPress={() => { void handlePlaceOrder(buyTradeAction.side); }}
+          latencyLabel={`orderTicket.pricePanel.${buyTradeAction.side}`}
+          latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
           accessibilityRole="button"
           accessibilityLabel={buyTradeAction.displayLabel}
           testID={buyTradeAction.priceTestID}
-          unstable_pressDelay={0}
         >
           <Text style={[styles.priceTag, { color: buyTradeAction.color }]}>{buyTradeAction.displayLabel}</Text>
           <Text style={styles.priceMain}>{fmt.price(buyTradeAction.price)}</Text>
           <Text style={styles.priceLabel}>{buyTradeAction.priceLabel}</Text>
-        </Pressable>
+        </FastPressable>
       </View>
 
       {/* Scrollable form: order type, volume, risk controls, market data, and submit controls. */}
@@ -851,7 +854,7 @@ export function OrderTicketScreen() {
             const active = option === orderType;
             const isSell = option.toLowerCase().startsWith('sell');
             return (
-              <Pressable
+              <FastPressable
                 key={option}
                 onLayout={(event) => {
                   orderTypeTabLayoutsRef.current[option] = {
@@ -864,16 +867,14 @@ export function OrderTicketScreen() {
                   active && styles.orderTypeTabActive,
                   active && { borderColor: isSell ? SELL_C : BUY_C },
                 ]}
-                onPress={() =>
-                  traceUiInteraction(`orderTicket.orderType.${option}`, () => {
-                    setOrderType(option);
-                    scrollOrderTypeTabsToSelection(option, true);
-                  })
-                }
-                unstable_pressDelay={0}
+                onPress={() => {
+                  setOrderType(option);
+                  scrollOrderTypeTabsToSelection(option, true);
+                }}
+                latencyLabel={`orderTicket.orderType.${option}`}
               >
                 <Text style={[styles.orderTypeTabText, active && styles.orderTypeTabTextActive]}>{option}</Text>
-              </Pressable>
+              </FastPressable>
             );
           })}
         </ScrollView>
@@ -882,9 +883,9 @@ export function OrderTicketScreen() {
         <View style={styles.volSection}>
           <Text style={styles.rowLabel}>Volume</Text>
           <View style={styles.volStepper}>
-            <Pressable style={styles.volBtn} onPress={() => traceUiInteraction('orderTicket.volume.decrement', () => adj(-1))} hitSlop={8} unstable_pressDelay={0}>
+            <FastPressable style={styles.volBtn} onPress={() => adj(-1)} latencyLabel="orderTicket.volume.decrement" hitSlop={8}>
               <Ionicons name="remove" size={18} color={T.textSub} />
-            </Pressable>
+            </FastPressable>
             <View style={styles.volCenter}>
               <TextInput
                 style={styles.volInput}
@@ -898,23 +899,23 @@ export function OrderTicketScreen() {
                 placeholderTextColor={T.textMuted}
               />
             </View>
-            <Pressable style={styles.volBtn} onPress={() => traceUiInteraction('orderTicket.volume.increment', () => adj(1))} hitSlop={8} unstable_pressDelay={0}>
+            <FastPressable style={styles.volBtn} onPress={() => adj(1)} latencyLabel="orderTicket.volume.increment" hitSlop={8}>
               <Ionicons name="add" size={18} color={T.textSub} />
-            </Pressable>
+            </FastPressable>
           </View>
         </View>
         <View style={styles.quickRow}>
           {[0.01, 0.05, 0.10, 0.50, 1.00].map(v => (
-            <Pressable
+            <FastPressable
               key={v}
               style={[styles.quickPill, Math.abs(volume - v) < 0.000001 && styles.quickPillActive]}
-              onPress={() => traceUiInteraction(`orderTicket.volume.quick.${v.toFixed(2)}`, () => updateVolume(v))}
-              unstable_pressDelay={0}
+              onPress={() => updateVolume(v)}
+              latencyLabel={`orderTicket.volume.quick.${v.toFixed(2)}`}
             >
               <Text style={[styles.quickTxt, Math.abs(volume - v) < 0.000001 && styles.quickTxtActive]}>
                 {(v || 0).toFixed(2)}
               </Text>
-            </Pressable>
+            </FastPressable>
           ))}
         </View>
         <View style={styles.hairline} />
@@ -928,15 +929,15 @@ export function OrderTicketScreen() {
         {slEnabled && (
           <View style={styles.riskInputRow}>
             <View style={styles.volStepper}>
-              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
+              <FastPressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} latencyLabel="orderTicket.sl.decrement" hitSlop={8}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
-              </Pressable>
+              </FastPressable>
               <View style={[styles.volCenter, { width: 120 }]}>
                 <Text style={styles.volNum}>{fmt.price(slPrice)}</Text>
               </View>
-              <Pressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
+              <FastPressable style={styles.volBtn} onPress={() => setSlPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} latencyLabel="orderTicket.sl.increment" hitSlop={8}>
                 <Ionicons name="add" size={18} color={T.textSub} />
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         )}
@@ -948,15 +949,15 @@ export function OrderTicketScreen() {
         {tpEnabled && (
           <View style={styles.riskInputRow}>
             <View style={styles.volStepper}>
-              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
+              <FastPressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p - pipSize * 10).toFixed(displayDecimals)))} latencyLabel="orderTicket.tp.decrement" hitSlop={8}>
                 <Ionicons name="remove" size={18} color={T.textSub} />
-              </Pressable>
+              </FastPressable>
               <View style={[styles.volCenter, { width: 120 }]}>
                 <Text style={styles.volNum}>{fmt.price(tpPrice)}</Text>
               </View>
-              <Pressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} hitSlop={8} unstable_pressDelay={0}>
+              <FastPressable style={styles.volBtn} onPress={() => setTpPrice(p => parseFloat((p + pipSize * 10).toFixed(displayDecimals)))} latencyLabel="orderTicket.tp.increment" hitSlop={8}>
                 <Ionicons name="add" size={18} color={T.textSub} />
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         )}
@@ -1002,7 +1003,7 @@ export function OrderTicketScreen() {
         {isMarketExecution ? (
           <View style={styles.execRow}>
             {tradeButtonActions.map((action) => (
-              <Pressable
+              <FastPressable
                 key={action.side}
                 style={({ pressed }) => [
                   styles.execBtn,
@@ -1011,12 +1012,13 @@ export function OrderTicketScreen() {
                   pressed && { opacity: 0.88 }
                 ]}
                 onPress={() => { void handlePlaceOrder(action.side); }}
+                latencyLabel={`orderTicket.exec.${action.side}`}
+                latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
                 disabled={tradeActionDisabled}
                 accessibilityState={{ disabled: tradeActionDisabled, busy: isTradeActionPending(action.side) }}
                 accessibilityRole="button"
                 accessibilityLabel={action.marketLabel}
                 testID={action.execTestID}
-                unstable_pressDelay={0}
               >
                 {isTradeActionPending(action.side) ? (
                   <ActivityIndicator color={T.text} />
@@ -1026,7 +1028,7 @@ export function OrderTicketScreen() {
                     <Text style={styles.execLots}>{(volume || 0).toFixed(2)} Lots</Text>
                   </>
                 )}
-              </Pressable>
+              </FastPressable>
             ))}
           </View>
         ) : (
@@ -1046,42 +1048,42 @@ export function OrderTicketScreen() {
             <View style={[styles.volSection, { marginTop: 10 }]}>
               <Text style={styles.rowLabel}>{t('Price')}</Text>
               <View style={styles.volStepper}>
-                <Pressable
+                <FastPressable
                   style={styles.volBtn}
                   onPress={() => handlePendingEntryPriceChange(pendingEntryPrice - pricePointSize * 10)}
+                  latencyLabel="orderTicket.pending.price.decrement"
                   hitSlop={8}
-                  unstable_pressDelay={0}
                 >
                   <Ionicons name="remove" size={18} color={T.textSub} />
-                </Pressable>
+                </FastPressable>
                 <View style={[styles.volCenter, { width: 140 }]}>
                   <Text style={styles.volNum}>{pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--'}</Text>
                 </View>
-                <Pressable
+                <FastPressable
                   style={styles.volBtn}
                   onPress={() => handlePendingEntryPriceChange(pendingEntryPrice + pricePointSize * 10)}
+                  latencyLabel="orderTicket.pending.price.increment"
                   hitSlop={8}
-                  unstable_pressDelay={0}
                 >
                   <Ionicons name="add" size={18} color={T.textSub} />
-                </Pressable>
+                </FastPressable>
               </View>
             </View>
 
             {/* Submit button sends the configured pending order. */}
             <View style={[styles.execRow, { marginTop: 8 }]}>
-              <Pressable
+              <FastPressable
                 style={({ pressed }) => [
                   styles.execBtn,
                   orderType.toLowerCase().startsWith('sell') ? styles.execSell : styles.execBuy,
                   pressed && { opacity: 0.88 },
                 ]}
                 onPress={() => { void handlePlacePendingOrder(); }}
+                latencyLabel="orderTicket.pending.submit"
                 disabled={tradeActionDisabled || pendingEntryPrice <= 0}
                 accessibilityRole="button"
                 accessibilityLabel={`Place ${orderType}`}
                 testID="order-ticket-pending-submit"
-                unstable_pressDelay={0}
               >
                 {pendingSide !== null ? (
                   <ActivityIndicator color={T.text} />
@@ -1091,7 +1093,7 @@ export function OrderTicketScreen() {
                     <Text style={styles.execLots}>{volume.toFixed(2)} Lots @ {pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : '--'}</Text>
                   </>
                 )}
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         )}
@@ -1144,9 +1146,13 @@ function ToggleRow({ label, icon, enabled, onToggle, T, isDark, styles }: {
         <Text style={styles.rowLabel}>{label}</Text>
       </View>
       <View style={styles.rowRight}>
-        <Pressable onPress={() => traceUiInteraction(`orderTicket.toggle.${label}`, onToggle)} style={[styles.track, enabled && styles.trackOn]} unstable_pressDelay={0}>
+        <FastPressable
+          onPress={onToggle}
+          latencyLabel={`orderTicket.toggle.${label}`}
+          style={[styles.track, enabled && styles.trackOn]}
+        >
           <View style={[styles.thumb, enabled && styles.thumbOn]} />
-        </Pressable>
+        </FastPressable>
         <Text style={[styles.statusTxt, enabled && { color: T.accent }]}>
           {enabled ? 'ON' : 'OFF'}
         </Text>

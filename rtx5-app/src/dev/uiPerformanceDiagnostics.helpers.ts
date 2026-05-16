@@ -27,6 +27,12 @@ type UiPerformanceSeverityInput = Pick<
   'kind' | 'handlerMs' | 'nextFrameMs' | 'settledMs' | 'blockedMs' | 'gapMs'
 >;
 
+const UI_INTERACTION_FIRST_FRAME_BUDGET_MS = 20;
+const UI_INTERACTION_HANDLER_WARNING_MS = 12;
+const UI_INTERACTION_HANDLER_SLOW_MS = 20;
+const UI_INTERACTION_SETTLED_WARNING_MS = 80;
+const UI_INTERACTION_SETTLED_SLOW_MS = 140;
+
 export function resolveUiPerformanceSeverity(input: UiPerformanceSeverityInput): UiPerformanceSeverity {
   if (input.kind === 'stall') {
     const blockedMs = input.blockedMs ?? input.settledMs;
@@ -42,11 +48,18 @@ export function resolveUiPerformanceSeverity(input: UiPerformanceSeverityInput):
     return 'ok';
   }
 
-  if (input.nextFrameMs >= 120 || input.settledMs >= 260 || input.handlerMs >= 48) {
+  if (
+    input.nextFrameMs > UI_INTERACTION_FIRST_FRAME_BUDGET_MS ||
+    input.settledMs >= UI_INTERACTION_SETTLED_SLOW_MS ||
+    input.handlerMs >= UI_INTERACTION_HANDLER_SLOW_MS
+  ) {
     return 'slow';
   }
 
-  if (input.nextFrameMs >= 60 || input.settledMs >= 140 || input.handlerMs >= 20) {
+  if (
+    input.settledMs >= UI_INTERACTION_SETTLED_WARNING_MS ||
+    input.handlerMs >= UI_INTERACTION_HANDLER_WARNING_MS
+  ) {
     return 'warning';
   }
 

@@ -9,9 +9,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
+import { FastPressable } from '../../ui/components/FastPressable';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { useResolvedTradingLogin } from '../../state/tradingLogin';
@@ -31,7 +32,6 @@ import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useShallow } from 'zustand/shallow';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
@@ -486,9 +486,9 @@ export function HistoryScreen() {
       {/* ── Account Summary (fixed) ── */}
       <Text style={styles.accountSummaryHeading}>{t('Account Summary')}</Text>
       <View style={styles.summaryBlock}>
-        <Pressable
-          onPress={() => traceUiInteraction('history.summary.toggle', toggleHistorySummaryDetails)}
-          unstable_pressDelay={0}
+        <FastPressable
+          onPress={toggleHistorySummaryDetails}
+          latencyLabel="history.summary.toggle"
           accessibilityRole="button"
           accessibilityLabel="Toggle account summary details"
           accessibilityState={{ expanded: historySummaryDetailsVisible }}
@@ -505,7 +505,7 @@ export function HistoryScreen() {
             </Text>
             <Text style={[styles.balanceQuickCurrency, { color: T.textSub }]}>{currency}</Text>
           </View>
-        </Pressable>
+        </FastPressable>
         {historySummaryDetailsVisible ? (
           <View style={[styles.metricsCard, { borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle, backgroundColor: 'transparent' }]}>
             <View style={[styles.gridRow, { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle }]}>
@@ -551,16 +551,16 @@ export function HistoryScreen() {
               </View>
             </View>
             <View style={styles.gridRow}>
-              <Pressable
+              <FastPressable
                 style={styles.gridCol}
-                onPress={() => traceUiInteraction('history.filter.open', () => router.push('/history/filter'))}
-                unstable_pressDelay={0}
+                onPress={() => router.push('/history/filter')}
+                latencyLabel="history.filter.open"
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[styles.gridLabel, { color: isDark ? 'rgba(148,163,184,0.5)' : T.textMuted }]}>{t('Range')}:</Text>
                 </View>
                 <Text style={[styles.gridValue, { color: T.accent, opacity: 1 }]}>{historyRangeLabel}</Text>
-              </Pressable>
+              </FastPressable>
             </View>
           </View>
         ) : null}
@@ -590,10 +590,9 @@ export function HistoryScreen() {
             {/* ── Controls Card ── */}
             <View style={styles.topBlock}>
               <View style={styles.topControlsRow}>
-                <Pressable
+                <FastPressable
                   style={styles.iconButton}
                   onPress={() =>
-                    traceUiInteraction('history.sort.open', () =>
                       showActionSheet({
                         title: t('Sort By'),
                         actions: SORT_OPTIONS.map((option) => ({
@@ -601,35 +600,32 @@ export function HistoryScreen() {
                           onPress: () => startTransition(() => setSortBy(option)),
                         })),
                       })
-                    )
                   }
-                  unstable_pressDelay={0}
+                  latencyLabel="history.sort.open"
                 >
                   <Ionicons name='swap-vertical-outline' size={20} color={T.text} />
-                </Pressable>
+                </FastPressable>
 
                 <View style={styles.segment}>
                   {TABS.map((item) => (
-                    <Pressable
+                    <FastPressable
                       key={item}
                       style={[styles.segmentButton, tab === item && styles.segmentButtonActive]}
-                      onPress={() =>
-                        traceUiInteraction(`history.tab.${item}`, () => startTransition(() => setTab(item)))
-                      }
-                      unstable_pressDelay={0}
+                      onPress={() => startTransition(() => setTab(item))}
+                      latencyLabel={`history.tab.${item}`}
                     >
                       <Text style={[styles.segmentText, { color: tab === item ? T.text : T.textMuted }]}>{t(item)}</Text>
-                    </Pressable>
+                    </FastPressable>
                   ))}
                 </View>
 
-                <Pressable
+                <FastPressable
                   style={styles.iconButton}
-                  onPress={() => traceUiInteraction('history.range.open', () => router.push('/history/filter'))}
-                  unstable_pressDelay={0}
+                  onPress={() => router.push('/history/filter')}
+                  latencyLabel="history.range.open"
                 >
                   <Ionicons name='time-outline' size={20} color={T.text} />
-                </Pressable>
+                </FastPressable>
               </View>
 
               <View style={styles.metricsRow}>
@@ -880,10 +876,10 @@ function MetricPill({
   const cardBg = T.glass1;
   if (onPress) {
     return (
-      <Pressable
+      <FastPressable
         style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]}
-        onPress={() => traceUiInteraction(`history.metric.${label}`, onPress)}
-        unstable_pressDelay={0}
+        onPress={onPress}
+        latencyLabel={`history.metric.${label}`}
       >
         <View style={mpS.metricTop}>
           <Ionicons name={icon} size={12} color={T.textSub} />
@@ -907,7 +903,7 @@ function MetricPill({
         >
           {value}
         </Text>
-      </Pressable>
+      </FastPressable>
     );
   }
 

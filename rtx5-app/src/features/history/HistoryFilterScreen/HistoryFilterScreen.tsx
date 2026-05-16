@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * History Feature UI: HistoryFilterScreen
  *
@@ -5,7 +6,7 @@
  * defining the time window of historical trades to pull from the backend.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +14,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
+import { safeRouterBack } from '../../../utils/navigation';
 import {
   PRESETS,
   type SelectionMode,
@@ -161,11 +163,7 @@ export function HistoryFilterScreen() {
   };
 
   const handleBack = useCallback(() => {
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-    router.replace('/history');
+    safeRouterBack(router, '/(tabs)/history');
   }, []);
 
   const calendarGrid = useMemo(() => {

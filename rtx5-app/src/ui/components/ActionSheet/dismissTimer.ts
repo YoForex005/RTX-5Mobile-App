@@ -4,7 +4,7 @@
  * runs after RN has rendered enough frames for the visible drawer to be
  * gone — falling back to setTimeout in environments without rAF.
  */
-const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 2;
+const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 1;
 const ACTION_SHEET_FRAME_FALLBACK_MS = 16;
 
 export function scheduleDismissSettledAction(callback: () => void): () => void {

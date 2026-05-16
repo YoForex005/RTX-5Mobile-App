@@ -1,7 +1,8 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import type { ThemeColors } from '../../ui/theme/glass';
 import {
   getHeaderGradient,

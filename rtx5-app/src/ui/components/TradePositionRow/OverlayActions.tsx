@@ -1,4 +1,5 @@
-import { Pressable, View } from 'react-native';
+import { FastPressable as Pressable } from '../FastPressable';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import type { ThemeColors } from '../../theme/useTheme';

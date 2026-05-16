@@ -43,6 +43,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - [x] Unit: quote subscription state normalizes broker suffixes before counting and sending live feed subscriptions.
 - [x] Unit: quote live snapshots refresh receive-time state on duplicate backend feed payloads while preserving previous bid/ask only for real price movement.
 - [x] Unit: quote default watchlist fallback starts the public feed when the instrument catalog is temporarily unavailable and no device-local watchlist exists.
+- [x] Unit: quote symbol action sheets use prebuilt instant configs, open from touch-down through the immediate action guard, and avoid leaving the tapped row in a held/pressed visual state.
 - [ ] Integration: search + filter + mode switching.
 - [ ] E2E: swipe action and context menu flow.
 
@@ -50,6 +51,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - Quotes module reaches parity checklist with no P1 defects.
 
 ## Progress Notes
+- 2026-05-16: Made Quotes symbol menus faster without sacrificing scroll safety. Tap and long-press ActionSheet configs are prebuilt per watchlist symbol, quote cards suppress held/pressed feedback when opening sheets, the tap path now opens from touch-down through the immediate action guard, and instant ActionSheets paint on the first modal frame instead of waiting for an Android layout opacity pass.
 - 2026-04-08: Quotes tab dark theme refreshed with a desk-style shell, stronger quote card hierarchy, and retained live/search/edit flows for `IMG_3044.PNG` scope.
 - 2026-04-08: Restored the previous quote symbol card treatment while keeping the refreshed quotes screen shell/background in place.
 - 2026-04-08: Removed the large market-desk hero panel from the quotes screen while preserving the updated dark background treatment.

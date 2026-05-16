@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 /**
  * Market Statistics Screen
  *
@@ -10,7 +11,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
@@ -18,6 +19,7 @@ import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
+import { safeRouterBack } from '../../../utils/navigation';
 import { normalizeSymbol } from '../../../domain/symbols';
 import { useInstrumentMeta } from '../../../query/instruments';
 import { useLatestDailyCandle } from '../../../domain/candles/query/candles';
@@ -213,7 +215,7 @@ export function MarketStatisticsScreen() {
     <View style={styles.root}>
       <View style={[styles.headerContainer, { paddingTop: insets.top }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={15} style={styles.backButton}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
           <View style={styles.headerCenter}>

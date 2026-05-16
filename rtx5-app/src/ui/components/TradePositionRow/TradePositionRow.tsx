@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../FastPressable';
 /**
  * Optimized list item rendering an individual Open Position.
  *
@@ -7,7 +8,7 @@
  * trade list to re-render on every market tick.
  */
 import { memo, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';

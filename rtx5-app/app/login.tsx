@@ -1,18 +1,9 @@
+import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  ActivityIndicator,
-  Alert
-} from 'react-native';
+  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -26,6 +17,7 @@ import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
+import { safeRouterBack } from '../src/utils/navigation';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -262,13 +254,7 @@ export function AccountLoginScreen() {
         <View style={styles.headerRow}>
           <Pressable
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-            onPress={() => {
-              if (router.canGoBack()) {
-                router.back();
-              } else {
-                router.replace('/');
-              }
-            }}
+            onPress={() => safeRouterBack(router, '/')}
             style={styles.backBtn}
           >
             <Ionicons name="arrow-back" size={24} color={T.text} />

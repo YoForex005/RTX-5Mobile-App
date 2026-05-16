@@ -1,20 +1,14 @@
+import { FastPressable as Pressable } from './FastPressable';
 /**
  * Reusable React Native UI component: SidebarDrawer.
  */
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import {
-  Animated,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+  Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ThemeColors } from '../theme/glass';
-import { traceUiInteraction } from '../../dev/uiInteractionDiagnostics';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { useTheme } from '../theme/useTheme';
@@ -45,6 +39,25 @@ const MENU_ITEMS: MenuItem[] = [
 // ─── Props ───────────────────────────────────────────────────────────────────
 // DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
+const DRAWER_OPEN_ANIMATION_MS = 0;
+const DRAWER_CLOSE_ANIMATION_MS = 65;
+const PREFETCH_ROUTES = [
+  ...MENU_ITEMS.map((item) => item.route),
+  '/settings/accounts',
+  '/login',
+] as const;
+
+type PrefetchRouter = {
+  prefetch?: (href: string) => void;
+};
+
+function scheduleNextFrame(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(action);
+    return;
+  }
+  setTimeout(action, 0);
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SidebarDrawer() {
@@ -69,24 +82,53 @@ export function SidebarDrawer() {
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const isClosingRef = useRef(false);
 
-  /* Animate the drawer open when `visible` becomes true */
+  const prefetchSidebarRoutes = useCallback(() => {
+    const prefetch = (router as PrefetchRouter).prefetch;
+    if (typeof prefetch !== 'function') {
+      return;
+    }
+    for (const route of PREFETCH_ROUTES) {
+      prefetch(route);
+    }
+  }, [router]);
+
   useEffect(() => {
+    scheduleNextFrame(prefetchSidebarRoutes);
+  }, [prefetchSidebarRoutes]);
+
+  /* Open immediately when `visible` becomes true so hamburger taps feel instant. */
+  useLayoutEffect(() => {
     if (visible) {
       isClosingRef.current = false;
+      slideAnim.stopAnimation();
+      overlayAnim.stopAnimation();
+      if (DRAWER_OPEN_ANIMATION_MS === 0) {
+        slideAnim.setValue(0);
+        overlayAnim.setValue(1);
+        return;
+      }
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 85,
+          duration: DRAWER_OPEN_ANIMATION_MS,
           useNativeDriver: true,
         }),
         Animated.timing(overlayAnim, {
           toValue: 1,
-          duration: 85,
+          duration: DRAWER_OPEN_ANIMATION_MS,
           useNativeDriver: true,
         }),
       ]).start();
+      return;
     }
-  }, [visible]);
+
+    if (!isClosingRef.current) {
+      slideAnim.stopAnimation();
+      overlayAnim.stopAnimation();
+      slideAnim.setValue(-DRAWER_WIDTH);
+      overlayAnim.setValue(0);
+    }
+  }, [overlayAnim, slideAnim, visible]);
 
   const closeImmediately = (afterClose?: () => void) => {
     slideAnim.stopAnimation();
@@ -96,7 +138,7 @@ export function SidebarDrawer() {
     onClose();
     isClosingRef.current = false;
     if (afterClose) {
-      requestAnimationFrame(afterClose);
+      afterClose();
     }
   };
 
@@ -117,12 +159,12 @@ export function SidebarDrawer() {
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 85,
+        duration: DRAWER_CLOSE_ANIMATION_MS,
         useNativeDriver: true,
       }),
       Animated.timing(overlayAnim, {
         toValue: 0,
-        duration: 85,
+        duration: DRAWER_CLOSE_ANIMATION_MS,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -134,12 +176,11 @@ export function SidebarDrawer() {
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  if (!visible) {
-    return null;
-  }
-
   return (
-    <View style={ds.container}>
+    <View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[ds.container, !visible && ds.containerHidden]}
+    >
         {/* Overlay */}
         <Animated.View
           style={[
@@ -149,7 +190,8 @@ export function SidebarDrawer() {
         >
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={() => traceUiInteraction('sidebar.closeOverlay', () => handleClose())}
+            onPress={() => handleClose()}
+            latencyLabel="sidebar.closeOverlay"
             unstable_pressDelay={0}
           />
         </Animated.View>
@@ -176,9 +218,8 @@ export function SidebarDrawer() {
                   ) : null}
                   <Pressable
                     style={ds.manageBtn}
-                    onPress={() =>
-                      traceUiInteraction('sidebar.manageAccounts', () => handleClose(() => router.push('/settings/accounts')))
-                    }
+                    onPress={() => handleClose(() => router.push('/settings/accounts'))}
+                    latencyLabel="sidebar.manageAccounts"
                     unstable_pressDelay={0}
                   >
                     <Text style={ds.manageText}>Manage accounts</Text>
@@ -189,9 +230,8 @@ export function SidebarDrawer() {
                   <Text style={ds.loginText}>Login to an existing account</Text>
                   <Pressable
                     style={ds.getStartedBtn}
-                    onPress={() =>
-                      traceUiInteraction('sidebar.getStarted', () => handleClose(() => router.push('/login')))
-                    }
+                    onPress={() => handleClose(() => router.push('/login'))}
+                    latencyLabel="sidebar.getStarted"
                     unstable_pressDelay={0}
                   >
                     <Text style={ds.getStartedText}>Get started</Text>
@@ -200,7 +240,8 @@ export function SidebarDrawer() {
               )}
               <Pressable
                 style={ds.closeBtn}
-                onPress={() => traceUiInteraction('sidebar.closeButton', () => handleClose())}
+                onPress={() => handleClose()}
+                latencyLabel="sidebar.closeButton"
                 unstable_pressDelay={0}
               >
                 <Ionicons name="close" size={20} color={T.text} />
@@ -214,7 +255,8 @@ export function SidebarDrawer() {
             <View style={ds.themePill}>
               <Pressable
                 style={!isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => traceUiInteraction('sidebar.themeLight', () => setThemeMode('light'))}
+                onPress={() => setThemeMode('light')}
+                latencyLabel="sidebar.themeLight"
                 unstable_pressDelay={0}
               >
                 <Ionicons name="sunny-outline" size={13} color={!isDark ? T.text : T.textMuted} />
@@ -222,7 +264,8 @@ export function SidebarDrawer() {
               </Pressable>
               <Pressable
                 style={isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => traceUiInteraction('sidebar.themeDark', () => setThemeMode('dark'))}
+                onPress={() => setThemeMode('dark')}
+                latencyLabel="sidebar.themeDark"
                 unstable_pressDelay={0}
               >
                 <Ionicons name="moon-outline" size={13} color={isDark ? T.text : T.textMuted} />
@@ -247,9 +290,8 @@ export function SidebarDrawer() {
                   ds.menuItem,
                   pressed && ds.menuItemPressed,
                 ]}
-                onPress={() =>
-                  traceUiInteraction(`sidebar.menu.${item.label}`, () => handleMenuItemPress(item))
-                }
+                onPress={() => handleMenuItemPress(item)}
+                latencyLabel={`sidebar.menu.${item.label}`}
                 unstable_pressDelay={0}
               >
                 <Ionicons
@@ -275,6 +317,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       ...StyleSheet.absoluteFillObject,
       zIndex: 9999,
       elevation: 9999,
+    },
+    containerHidden: {
+      opacity: 0,
     },
     overlay: {
       ...StyleSheet.absoluteFillObject,

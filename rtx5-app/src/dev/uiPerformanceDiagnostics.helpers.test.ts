@@ -23,6 +23,30 @@ test('resolveUiPerformanceSeverity marks slow interactions from long next-frame 
   );
 });
 
+test('resolveUiPerformanceSeverity treats over-20ms first-frame latency as slow', () => {
+  assert.equal(
+    resolveUiPerformanceSeverity({
+      kind: 'navigation',
+      handlerMs: 4,
+      nextFrameMs: 21,
+      settledMs: 40,
+    }),
+    'slow',
+  );
+});
+
+test('resolveUiPerformanceSeverity allows a clean 20ms first frame when handler work is tiny', () => {
+  assert.equal(
+    resolveUiPerformanceSeverity({
+      kind: 'interaction',
+      handlerMs: 4,
+      nextFrameMs: 20,
+      settledMs: 40,
+    }),
+    'ok',
+  );
+});
+
 test('buildUiThreadStallSample marks long JS thread blocks as slow', () => {
   const sample = buildUiThreadStallSample({
     id: 'stall-1',

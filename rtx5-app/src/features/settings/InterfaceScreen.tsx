@@ -1,3 +1,4 @@
+import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 /**
  * Settings -> Language Preference (Language picker)
  *
@@ -8,7 +9,7 @@
 import React, { useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -16,6 +17,7 @@ import { ThemeColors } from '../../ui/theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
+import { safeRouterBack } from '../../utils/navigation';
 
 export function InterfaceScreen() {
   const T = useTheme();
@@ -28,7 +30,7 @@ export function InterfaceScreen() {
     <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/settings'))}
+          onPress={() => safeRouterBack(router, '/(tabs)/settings')}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           style={styles.backBtn}
         >
