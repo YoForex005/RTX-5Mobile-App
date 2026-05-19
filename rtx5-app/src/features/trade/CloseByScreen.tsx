@@ -190,13 +190,14 @@ export function CloseByScreen() {
         <View style={styles.headerBtn} />
       </View>
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
         ]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
       <View style={styles.header}>
         <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>

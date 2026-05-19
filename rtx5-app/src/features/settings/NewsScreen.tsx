@@ -8,6 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import type { ComponentProps, ReactNode } from 'react';
@@ -52,7 +53,8 @@ export function NewsScreen() {
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const { data: marketSymbols = [] } = useMarketSymbols();
+  const isScreenFocused = useIsFocused();
+  const { data: marketSymbols = [] } = useMarketSymbols(isScreenFocused);
   const styles = useMemo(() => makeNewsScreenStyles(T, isDark), [T, isDark]);
   const newsColors = useMemo(() => getNewsThemeColors(isDark), [isDark]);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,7 +221,7 @@ export function NewsScreen() {
         keyExtractor={(item) => item.newsId}
         renderItem={renderNewsCard}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         onScrollBeginDrag={dismissSearchFromContent}
         onTouchStart={dismissSearchFromContent}
         contentContainerStyle={[
@@ -748,7 +750,8 @@ function CategoryTabs({
   styles: NewsScreenStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRail}>
       {categories.map((category) => {
         const selected = category.categoryId === selectedCategory || category.isSelected;
 
@@ -787,7 +790,8 @@ function ImpactFilterChips({
   styles: NewsScreenStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRail}>
       {filters.map((filter) => {
         const selected = filter.filterId === selectedFilter || filter.isSelected;
 
@@ -1215,7 +1219,8 @@ function WatchlistNewsSection({
   return (
     <View>
       <SectionHeader title="Watchlist News" action={`${items.length} matched`} styles={styles} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.watchlistRail}>
+      <ScrollView
+        keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.watchlistRail}>
         {items.map((item) => (
           <WatchlistNewsCard
             key={`${item.userSymbol}-${item.publishedAt}`}

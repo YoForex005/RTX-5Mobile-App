@@ -212,7 +212,9 @@ export function HistoryFilterScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={s.symbolRow}>
             <Text style={s.label}>{t('Symbol')}:</Text>
             <Text style={s.value}>{t('All symbols')}</Text>

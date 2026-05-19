@@ -69,7 +69,9 @@ export function IndicatorLineStyleScreen() {
         <View style={styles.headerBackBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <SectionHeader title="Preview" isDark={isDark} />
         <Card isDark={isDark}>
           <View style={styles.previewRow}>

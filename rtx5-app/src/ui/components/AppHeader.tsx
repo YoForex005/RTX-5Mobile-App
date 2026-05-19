@@ -23,6 +23,9 @@ import { useUIState } from '../../state/uiState';
 
 // The global menu button is 40px wide + 16px left margin = 56dp reserved zone.
 export const MENU_BTN_GUTTER = 56;
+const HEADER_SIDE_SLOT_WIDTH = 144;
+const MENU_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 16, right: 8 } as const;
+const ANDROID_EDGE_GESTURE_SAFE_PAD = 36;
 
 interface AppHeaderProps {
   /** Main title string shown centered in the header */
@@ -55,9 +58,11 @@ export function AppHeader({
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const handleOpenSidebar = useCallback(() => {
+    hideActionSheet();
     setSidebarOpen(true);
-  }, [setSidebarOpen]);
+  }, [hideActionSheet, setSidebarOpen]);
 
   // The global hamburger ☰ button in _layout.tsx is positioned at:
   //   top: insets.top + 16,  height: 40px  →  center = insets.top + 36px
@@ -91,6 +96,8 @@ export function AppHeader({
       <Pressable
         style={styles.leftGutter}
         onPress={handleOpenSidebar}
+        activateOnPressIn
+        hitSlop={MENU_BUTTON_HIT_SLOP}
         latencyLabel="appHeader.menu"
         unstable_pressDelay={0}
       >
@@ -123,23 +130,26 @@ const styles = StyleSheet.create({
     // No background — inherits from Screen/parent so theme transitions work
   },
   leftGutter: {
-    width: MENU_BTN_GUTTER - 16, // 16 already accounted for by paddingHorizontal
+    width: HEADER_SIDE_SLOT_WIDTH,
+    minHeight: 44,
     flexShrink: 0,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
+    paddingLeft: ANDROID_EDGE_GESTURE_SAFE_PAD,
   },
   title: {
     flex: 1,
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
   rightSlot: {
-    width: MENU_BTN_GUTTER - 16,
+    width: HEADER_SIDE_SLOT_WIDTH,
     flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    paddingRight: 12,
   },
 });

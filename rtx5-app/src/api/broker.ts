@@ -75,6 +75,25 @@ export interface BrokerConfigResponse {
 }
 
 /**
+ * GET /broker/servers — single entry in the broker server directory.
+ * Each row describes one reachable broker endpoint that an account can be
+ * created on / signed into. Multiple rows can share `broker_id` when the
+ * broker exposes more than one server (region, demo/live, fallback IPs).
+ */
+export interface BrokerServer {
+  id: number;
+  broker_id: string;
+  broker_name: string;
+  protocol: string;     // 'http' | 'https' | 'mt5' | ...
+  region: string;
+  server: string;       // host:port — used as the human-readable Server name
+  server_ip: string;
+  server_port: number;
+  enabled: boolean;
+  created_at: number;   // epoch seconds
+}
+
+/**
  * Fallback response when broker_id is not found or not provided.
  * The API returns 200 with platform defaults that have a different shape
  * (some fields are string-typed numbers, different field names).
@@ -114,6 +133,10 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
  * Checks if the response is a full broker config (has broker_id field)
  * versus a platform default fallback.
  */
+// Keep broker directory lookups bounded so login/account navigation never
+// waits on a long network stall before the next touch can be handled.
+const BROKER_SERVERS_TIMEOUT_MS = 3500;
+
 export function isBrokerConfigFull(
   data: BrokerConfigResponse | BrokerConfigFallbackResponse
 ): data is BrokerConfigResponse {
@@ -179,5 +202,51 @@ export async function getBrokerConfig(brokerId?: string): Promise<BrokerConfigRe
   }
 
   return response.json();
+}
+
+/**
+ * GET /broker/servers
+ *
+ * Returns every enabled broker server known to the platform. Used by the
+ * Brokers screen so users can search for a broker by name (e.g. "Flexy",
+ * "MetaQuotes") and pick which server to log in / register against.
+ */
+export async function getBrokerServers(): Promise<BrokerServer[]> {
+  let response: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BROKER_SERVERS_TIMEOUT_MS);
+  try {
+    response = await apiClient('/broker/servers', { signal: controller.signal });
+  } catch (networkError) {
+    if (networkError instanceof Error && networkError.name === 'AbortError') {
+      throw new BrokerConfigError(
+        0,
+        'Broker list request timed out. Please check your connection and try again.',
+      );
+    }
+    throw new BrokerConfigError(
+      0,
+      'Network error — unable to load broker list. Please check your connection.',
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    let serverMessage = '';
+    try {
+      const errorData = await response.json();
+      serverMessage = errorData.detail || errorData.message || errorData.error || '';
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    const statusMessage = HTTP_ERROR_MESSAGES[response.status]
+      || `Unexpected error (HTTP ${response.status})`;
+    const fullMessage = serverMessage ? `${statusMessage}: ${serverMessage}` : statusMessage;
+    throw new BrokerConfigError(response.status, fullMessage);
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? (data as BrokerServer[]) : [];
 }
 

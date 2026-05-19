@@ -11,10 +11,17 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
       justifyContent: 'flex-end',
     },
+    backdrop: {
+      zIndex: 0,
+      elevation: 0,
+    },
     sheetHost: {
       flex: 1,
       width: '100%',
       justifyContent: 'flex-end',
+      position: 'relative',
+      zIndex: 1,
+      elevation: 1,
     },
     sheetContainer: {
       width: '100%',

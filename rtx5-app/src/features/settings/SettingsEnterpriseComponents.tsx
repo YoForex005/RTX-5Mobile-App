@@ -157,7 +157,8 @@ export function EnterpriseFilterRail<TFilter extends string>({
   styles: SettingsEnterpriseScreenStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRail}>
       {filters.map((filter) => {
         const selected = filter === selectedFilter;
 

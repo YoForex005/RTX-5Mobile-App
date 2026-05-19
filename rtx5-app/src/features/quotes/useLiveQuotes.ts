@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
-import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useTradingState } from '../../state/tradingState';
 import {
   applyLiveQuoteTickToSnapshot,
@@ -17,10 +17,13 @@ const pendingNotifySymbols = new Set<string>();
 let updateSeq = 0;
 let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
-const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 50;
+const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 100;
 
-const uniqueNormalizedSymbols = (symbols: string[]): string[] =>
-  Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean)));
+const uniqueQuoteSymbolKeys = (symbols: string[]): string[] =>
+  Array.from(new Set(symbols.map((symbol) => normalizeQuoteSymbolKey(symbol)).filter(Boolean)));
+
+const getTickSymbolKey = (tick: QuoteTickEvent): string =>
+  normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
 
 const notifySymbol = (symbol: string): void => {
   const listeners = listenersBySymbol.get(symbol);
@@ -62,11 +65,16 @@ const scheduleSymbolNotification = (symbol: string): void => {
 
 const getStateQuote = (symbol: string): LiveQuoteSnapshot | undefined => {
   const state = useTradingState.getState();
-  return buildInitialLiveQuoteSnapshot(symbol, state.quotes[symbol]);
+  const symbolKey = normalizeQuoteSymbolKey(symbol);
+  const baseSymbol = normalizeSymbol(symbol);
+  return buildInitialLiveQuoteSnapshot(
+    symbol,
+    state.quotes[symbolKey] ?? state.quotes[baseSymbol],
+  );
 };
 
 const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
-  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedSymbol = normalizeQuoteSymbolKey(symbol);
   if (!normalizedSymbol) return undefined;
 
   if (!snapshotsBySymbol.has(normalizedSymbol)) {
@@ -77,7 +85,7 @@ const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
 };
 
 const subscribeSnapshot = (symbol: string, listener: SnapshotListener): (() => void) => {
-  const normalizedSymbol = normalizeSymbol(symbol);
+  const normalizedSymbol = normalizeQuoteSymbolKey(symbol);
   if (!normalizedSymbol) return () => {};
 
   let listeners = listenersBySymbol.get(normalizedSymbol);
@@ -98,7 +106,7 @@ const subscribeSnapshot = (symbol: string, listener: SnapshotListener): (() => v
 };
 
 export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
-  const symbol = normalizeSymbol(tick.symbol);
+  const symbol = getTickSymbolKey(tick);
   if (!symbol) return;
 
   const previous = ensureSnapshot(symbol);
@@ -116,7 +124,7 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
   );
 
   const normalizedSymbols = useMemo(
-    () => uniqueNormalizedSymbols(symbols),
+    () => uniqueQuoteSymbolKeys(symbols),
     [symbolsKey],
   );
   
@@ -127,26 +135,18 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
       return;
     }
 
-    const symbolSet = new Set(normalizedSymbols);
     normalizedSymbols.forEach(ensureSnapshot);
 
-    const listener = (tick: QuoteTickEvent) => {
-      if (!symbolSet.has(normalizeSymbol(tick.symbol))) {
-        return;
-      }
-      ingestLiveQuoteTick(tick);
-    };
-
-    quotesWsService.addTickListener(listener);
-    // Send the broker's raw feed symbols (for example BTCUSDm or GBPUSD.c).
-    // Incoming ticks are normalized only after they arrive so UI rows can
-    // match suffix variants without changing the backend subscription key.
-    quotesWsService.subscribe(rawUniqueSymbols);
-    quotesWsService.connect();
+    // Send the broker's raw feed symbols (for example BTCUSDm or GBPUSD.c)
+    // through the per-symbol listener path. Quotes rows then receive live
+    // snapshots without also forcing the global Zustand quote store to update
+    // underneath every tap target on this screen.
+    const unsubscribers = rawUniqueSymbols.map((symbol) =>
+      quotesWsService.subscribeToSymbol(symbol, ingestLiveQuoteTick),
+    );
 
     return () => {
-      quotesWsService.removeTickListener(listener);
-      quotesWsService.unsubscribe(rawUniqueSymbols);
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [active, symbolsKey, normalizedSymbolsKey]);
 
@@ -154,7 +154,7 @@ export function useWatchlistLiveQuotes(symbols: string[], active: boolean): stri
 }
 
 export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefined {
-  const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+  const normalizedSymbol = useMemo(() => normalizeQuoteSymbolKey(symbol), [symbol]);
 
   const subscribe = useCallback(
     (listener: SnapshotListener) => subscribeSnapshot(normalizedSymbol, listener),

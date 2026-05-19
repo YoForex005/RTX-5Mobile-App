@@ -9,6 +9,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { alertsApi, CreateAlertPayload } from '../api/alerts';
+import { useUserPreferences } from '../state/userPreferences';
 
 const ALERTS_KEY = ['alerts'] as const;
 
@@ -32,7 +33,8 @@ const resolvePollingRefetchInterval = (
  * Polls every 30 seconds to pick up newly triggered alerts.
  */
 export function useAlertsQuery(options: PollingQueryOptions = {}) {
-  const enabled = options.enabled ?? true;
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const enabled = (options.enabled ?? true) && isLoggedIn;
   return useQuery({
     queryKey: ALERTS_KEY,
     queryFn: () => alertsApi.getAlerts(),

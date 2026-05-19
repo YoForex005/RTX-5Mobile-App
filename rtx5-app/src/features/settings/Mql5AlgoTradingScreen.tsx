@@ -148,6 +148,8 @@ export function Mql5AlgoTradingScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
@@ -608,7 +610,8 @@ function AlgoCategoryTabs({
   styles: Mql5AlgoTradingStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRail}>
       {categories.map((category) => (
         <Pressable key={category.category_id} onPress={() => onSelect(category.category_id)} hitSlop={6}>
           {category.is_selected ? (
@@ -639,7 +642,8 @@ function FeaturedStrategiesSection({
     <View style={styles.sectionBlock}>
       <SectionHeader title="Featured Strategies" styles={styles} />
       {strategies.length ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strategyRail}>
+        <ScrollView
+          keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strategyRail}>
           {strategies.map((strategy) => (
             <StrategyCard key={strategy.strategy_id} strategy={strategy} T={T} styles={styles} />
           ))}
@@ -1128,7 +1132,9 @@ function AlgoFilterSheet({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetBody}>
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetBody}>
             <FilterSection title="Library" styles={styles}>
               <View style={styles.filterChipRow}>
                 {LIBRARY_OPTIONS.map((option) => (

@@ -247,6 +247,8 @@ export function ChartDrawingToolsSidebar({
 
   return (
     <ScrollView
+      keyboardShouldPersistTaps="always"
+      canCancelContentTouches={false}
       style={[
         baseStyles.leftToolbar,
         themeStyles.leftToolbar,

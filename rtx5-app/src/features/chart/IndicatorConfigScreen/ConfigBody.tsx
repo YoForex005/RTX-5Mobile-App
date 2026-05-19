@@ -193,8 +193,9 @@ export function ConfigBody({
         </View>
 
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           {fallbackMeta.parameters.length > 0 && (

@@ -8,6 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -58,6 +59,7 @@ export function ModifyPositionScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -76,18 +78,18 @@ export function ModifyPositionScreen() {
 
   // Fetch position if not natively loaded in cache (e.g. direct deep link or cold start)
   useEffect(() => {
-    if (!position && resolvedLogin) {
+    if (isScreenFocused && !position && resolvedLogin) {
       void usePositionsState.getState().refreshPositions(resolvedLogin);
     }
-  }, [position, resolvedLogin]);
+  }, [isScreenFocused, position, resolvedLogin]);
 
   // Tick History State for Chart
-  const latestTick = useLiveTick(position?.symbol || 'EURUSD');
+  const latestTick = useLiveTick(position?.symbol || 'EURUSD', undefined, isScreenFocused);
   const latestClose = latestTick?.close || position?.currentPrice || 0;
   
   const isJpy = position?.symbol.includes('JPY') ?? false;
   // Fallbacks if bid/ask not provided directly
-  const { candles } = useLiveCandles(position?.symbol || '', '1'); // Fetch REAL 1M histories!
+  const { candles } = useLiveCandles(position?.symbol || '', '1', isScreenFocused); // Fetch REAL 1M histories!
   const syntheticAsk = latestClose + (isJpy ? 0.015 : 0.00015);
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
@@ -451,13 +453,14 @@ export function ModifyPositionScreen() {
           </GestureDetector>
 
           <ScrollView
+            canCancelContentTouches={false}
             style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,
               { paddingBottom: Math.max(insets.bottom, 20) + 8 },
             ]}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             bounces={false}
             alwaysBounceVertical={false}
             overScrollMode="never"

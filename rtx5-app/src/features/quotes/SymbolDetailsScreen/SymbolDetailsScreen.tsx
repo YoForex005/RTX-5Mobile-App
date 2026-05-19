@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
 import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
@@ -33,15 +34,16 @@ export function SymbolDetailsScreen() {
   const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
   const [activeSide, setActiveSide] = useState<'buy' | 'sell' | null>(null);
   const [alertOn, setAlertOn] = useState(false);
+  const isScreenFocused = useIsFocused();
 
-  const liveQuotes = useMarketData([symbol]);
+  const liveQuotes = useMarketData([symbol], isScreenFocused);
 
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
 
-  const { data: remoteMeta } = useInstrumentMeta(symbol);
+  const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
@@ -78,7 +80,7 @@ export function SymbolDetailsScreen() {
     };
   }, [symbol, remoteMeta]);
 
-  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol);
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, isScreenFocused);
 
   const d = q.digits ?? 2;
   const col = dCol(q.changePct, T);
@@ -214,7 +216,9 @@ export function SymbolDetailsScreen() {
         </>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
 
         <View style={s.glassHero.container}>
           {isDark && <BlurView intensity={50} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}

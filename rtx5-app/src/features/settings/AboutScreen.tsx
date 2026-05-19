@@ -8,7 +8,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -67,6 +67,7 @@ export function AboutScreen() {
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const bottomIconColor = isDark ? '#CBD5E1' : '#5C5552';
   const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
@@ -90,6 +91,11 @@ export function AboutScreen() {
   const [contactTitle, setContactTitle] = useState('');
   const [contactMessage, setContactMessage] = useState('');
   const [contactConsent, setContactConsent] = useState(false);
+
+  const handleOpenMenu = useCallback(() => {
+    hideActionSheet();
+    setSidebarOpen(true);
+  }, [hideActionSheet, setSidebarOpen]);
 
   const openExternalUrl = async (url: string, failureTitle: string) => {
     try {
@@ -193,7 +199,7 @@ export function AboutScreen() {
     <Screen noBottomInset style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 6 }]}>
         <FastPressable
-          onPress={() => setSidebarOpen(true)}
+          onPress={handleOpenMenu}
           latencyLabel="about.menu"
           hitSlop={12}
           style={styles.menuButton}
@@ -382,9 +388,10 @@ function ContactDeveloperScreen({
 
       <View style={styles.contactPageBody}>
         <ScrollView
+          canCancelContentTouches={false}
           style={styles.contactFormScroll}
           contentContainerStyle={styles.contactFormContent}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.contactHeroCard}>

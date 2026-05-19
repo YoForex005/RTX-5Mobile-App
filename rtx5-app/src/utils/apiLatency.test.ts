@@ -101,3 +101,52 @@ test('timedFetch records rejected network calls before rethrowing', async (t) =>
   assert.equal(sample.ok, false);
   assert.equal(sample.error, 'network down');
 });
+
+test('timedFetch aborts requests that exceed the frontend timeout', async (t) => {
+  clearApiLatencySamples();
+  mockFetch(t, (((_input: RequestInfo | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    })) as typeof fetch));
+
+  await assert.rejects(
+    () => timedFetch('https://backend.orrnn.com/api/v2/account/200082', {
+      method: 'GET',
+    }, {
+      label: 'apiClient.GET',
+      method: 'GET',
+      endpoint: '/account/200082',
+      source: 'apiClient',
+      timeoutMs: 10,
+    }),
+    /Request timed out after 10ms/,
+  );
+
+  const [sample] = getApiLatencySamples();
+  assert.equal(sample.label, 'apiClient.GET');
+  assert.equal(sample.status, null);
+  assert.equal(sample.ok, false);
+  assert.equal(sample.error, 'Request timed out after 10ms');
+});
+
+test('timedFetch rejects on timeout even when native fetch ignores abort', async (t) => {
+  clearApiLatencySamples();
+  mockFetch(t, (() => new Promise<Response>(() => undefined)) as typeof fetch);
+
+  await assert.rejects(
+    () => timedFetch('https://backend.orrnn.com/api/v2/watchlist', undefined, {
+      label: 'apiClient.GET',
+      method: 'GET',
+      endpoint: '/watchlist',
+      source: 'apiClient',
+      timeoutMs: 10,
+    }),
+    /Request timed out after 10ms/,
+  );
+
+  const [sample] = getApiLatencySamples();
+  assert.equal(sample.label, 'apiClient.GET');
+  assert.equal(sample.status, null);
+  assert.equal(sample.ok, false);
+  assert.equal(sample.error, 'Request timed out after 10ms');
+});

@@ -1,5 +1,6 @@
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, Alert } from 'react-native';
@@ -33,13 +34,14 @@ export default function RegisterScreen() {
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const isScreenFocused = useIsFocused();
   const {
     data: demoStatus,
     isLoading: isDemoStatusLoading,
     isFetching: isDemoStatusFetching,
     error: demoStatusError,
     refetch: refetchDemoStatus,
-  } = useOrrnnDemoStatus();
+  } = useOrrnnDemoStatus(isScreenFocused);
   const isDemoServiceReady = isOrrnnDemoHealthy(demoStatus);
   const {
     data: demoGroups,
@@ -47,7 +49,7 @@ export default function RegisterScreen() {
     isFetching: isDemoGroupsFetching,
     error: demoGroupsError,
     refetch: refetchDemoGroups,
-  } = useOrrnnDemoGroups();
+  } = useOrrnnDemoGroups(isScreenFocused && isDemoServiceReady);
   const createDemoAccount = useCreateOrrnnDemoAccount();
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const demoGroupOptions = demoGroups?.groups ?? [];
@@ -284,7 +286,8 @@ export default function RegisterScreen() {
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="always">
 
             <View style={styles.formContainer}>
 

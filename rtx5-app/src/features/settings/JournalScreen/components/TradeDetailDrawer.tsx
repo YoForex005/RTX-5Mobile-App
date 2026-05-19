@@ -23,7 +23,9 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false} contentContainerStyle={styles.scrollContent}>
           {/* Top Info */}
           <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.rowBetween}>

@@ -23,7 +23,9 @@ export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false} contentContainerStyle={styles.scrollContent}>
           {step === 1 && (
             <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
               <Text style={[styles.sectionTitle, { color: textColor }]}>Step 1: Trade Execution</Text>

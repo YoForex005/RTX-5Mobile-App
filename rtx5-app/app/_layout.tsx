@@ -68,12 +68,13 @@ function InnerLayout() {
             headerLeft: () => {
               const action = () => safeRouterBack(router, '/');
               return (
-                <View style={{ width: 46, height: 40, alignItems: 'flex-start', justifyContent: 'center' }}>
+                <View style={{ width: 58, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: 12 }}>
                   <FastPressable
                     onPress={action}
+                    activateOnPressIn
                     latencyLabel="stack.back"
                     hitSlop={15}
-                    style={{ marginLeft: Platform.OS === 'web' ? 12 : 4, padding: 4 }}
+                    style={{ padding: 4 }}
                   >
                     <Ionicons name="arrow-back" size={24} color={T.text} />
                   </FastPressable>
@@ -121,7 +122,8 @@ function InnerLayout() {
           <Stack.Screen name='settings/accounts' options={{ title: t('Accounts') }} />
           <Stack.Screen name='settings/mailbox' options={{ headerShown: false }} />
           <Stack.Screen name='settings/news' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/brokers' options={{ title: t('Brokers') }} />
+          <Stack.Screen name='settings/brokers' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/broker-detail' options={{ headerShown: false }} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
           <Stack.Screen name='settings/economic-calendar' options={{ headerShown: false }} />
           <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
@@ -141,7 +143,7 @@ import { accountWsService } from '../src/api/ws/accountSocket';
 import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
-import { prefetchAccountSummary, prefetchChartCandles } from '../src/utils/navigationPrefetch';
+import { prefetchAccountSummary } from '../src/utils/navigationPrefetch';
 import { useOtaUpdateOnLaunch } from '../src/utils/otaUpdates';
 import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
@@ -162,21 +164,14 @@ export default function RootLayout() {
     if (!hasHydrated) return;
     let cancelled = false;
 
-    const cancelCacheHydration = scheduleAfterFirstFrame(() => {
+    const cancelCacheHydration = scheduleIdleWork(() => {
       if (!cancelled) {
         void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
       }
-    });
-    const cancelChartPrefetch = scheduleIdleWork(() => {
-      if (!cancelled) {
-        prefetchChartCandles(chartSymbol, chartTimeframe);
-      }
-    }, { delayMs: 120, timeoutMs: 1500 });
-
+    }, { delayMs: 1500, timeoutMs: 3000 });
     return () => {
       cancelled = true;
       cancelCacheHydration();
-      cancelChartPrefetch();
     };
   }, [hasHydrated, chartSymbol, chartTimeframe]);
 
@@ -226,16 +221,16 @@ export default function RootLayout() {
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
           accountWsService.connect();
 
-          scheduleBootWork(scheduleAfterFirstFrame(() => {
+          scheduleBootWork(scheduleIdleWork(() => {
             if (!cancelled) {
               void usePositionsState.getState().refreshPositions(mt5Login);
             }
-          }));
+          }, { delayMs: 3500, timeoutMs: 5000 }));
           scheduleBootWork(scheduleIdleWork(() => {
             if (!cancelled) {
               prefetchAccountSummary(mt5Login);
             }
-          }, { delayMs: 80, timeoutMs: 1500 }));
+          }, { delayMs: 4000, timeoutMs: 5000 }));
 
           scheduleBootWork(scheduleIdleWork(async () => {
             if (cancelled) return;
@@ -263,7 +258,7 @@ export default function RootLayout() {
               if (cancelled) return;
               console.warn('[Hydration Error] Failed to fetch initial account metrics:', e);
             }
-          }, { delayMs: 120, timeoutMs: 2000 }));
+          }, { delayMs: 5000, timeoutMs: 6000 }));
         }
       };
 

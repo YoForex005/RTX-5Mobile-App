@@ -8,12 +8,17 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { fetchMarketStatus } from '../api/marketStatus';
+import { useUserPreferences } from '../state/userPreferences';
 
-export function useMarketStatus(symbol: string) {
+export function useMarketStatus(symbol: string, enabled = true) {
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isEnabled = enabled && isLoggedIn && !!symbol;
+
   return useQuery({
     queryKey: ['market-status', symbol],
     queryFn: () => fetchMarketStatus(symbol),
-    refetchInterval: 30_000,
+    enabled: isEnabled,
+    refetchInterval: isEnabled ? 30_000 : false,
     retry: 1,
   });
 }

@@ -23,7 +23,7 @@ import {
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { TradeScreenStyles } from './styles';
 
-const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
+const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress, active }: any) => {
   const { t } = useTranslation();
   const safeBalance = Number.isFinite(account.balance) ? account.balance : 0;
   const safeFloating = Number.isFinite(account.floating) ? account.floating : 0;
@@ -36,6 +36,11 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (!active) {
+      pulseAnim.setValue(1);
+      return;
+    }
+
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 0.82, duration: 1200, useNativeDriver: true }),
@@ -44,7 +49,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
     );
     loop.start();
     return () => loop.stop();
-  }, [pulseAnim]);
+  }, [active, pulseAnim]);
   const toggleTradeSummaryDetails = useCallback(() => {
     setTradeSummaryDetailsVisible(!tradeSummaryDetailsVisible);
   }, [setTradeSummaryDetailsVisible, tradeSummaryDetailsVisible]);
@@ -210,6 +215,7 @@ export const TradeSummaryHeader = React.memo(({
   isDark,
   totalVolume,
   onBulkPress,
+  active,
 }: {
   positions: PositionItem[];
   hydratedLogin: string | null;
@@ -219,6 +225,7 @@ export const TradeSummaryHeader = React.memo(({
   isDark: boolean;
   totalVolume: number;
   onBulkPress: () => void;
+  active: boolean;
 }) => {
   const tradingAccount = useTradingState((state: any) => state.account);
   const liveAcc = useLiveAccountState(
@@ -235,7 +242,7 @@ export const TradeSummaryHeader = React.memo(({
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],
   );
-  const liveQuotes = useMarketData(liveQuoteSymbols);
+  const liveQuotes = useMarketData(liveQuoteSymbols, active);
   const account = useMemo(() => {
     const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
     const floating = resolveTradeFloatingPnl(summary.floating, positions, hydratedLogin, resolvedLogin, liveQuotes);
@@ -251,6 +258,7 @@ export const TradeSummaryHeader = React.memo(({
       isDark={isDark}
       totalVolume={totalVolume}
       onBulkPress={onBulkPress}
+      active={active}
     />
   );
 });

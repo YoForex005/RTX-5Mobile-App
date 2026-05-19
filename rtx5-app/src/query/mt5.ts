@@ -12,12 +12,13 @@ export const MT5_GROUPS_KEY = 'mt5Groups';
  * TanStack Query hook for checking MT5 backend connection status.
  * Polls periodically to monitor connectivity to the broker.
  */
-export function useMt5Status() {
+export function useMt5Status(enabled = true) {
   return useQuery<MT5StatusResponse, Error>({
     queryKey: [MT5_STATUS_KEY],
     queryFn: getMt5Status,
+    enabled,
     staleTime: 15000,       // 15s before stale
-    refetchInterval: 30000, // Poll every 30s
+    refetchInterval: enabled ? 30000 : false, // Poll every 30s
     retry: 1,               // Only 1 retry for status checks
   });
 }

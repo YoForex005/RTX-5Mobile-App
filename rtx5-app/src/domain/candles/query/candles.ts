@@ -61,7 +61,7 @@ export function useCandleHistory(symbol: string, timeframe: string) {
  * Useful for calculating simple 24h price changes or daily highs/lows in UI components
  * (e.g., watchlists or account summaries) without subscribing to a full streaming chart.
  */
-export function useLatestDailyCandle(symbol: string) {
+export function useLatestDailyCandle(symbol: string, enabled = true) {
   const normalizedSymbol = normalizeSymbol(symbol);
 
   return useQuery({
@@ -74,7 +74,7 @@ export function useLatestDailyCandle(symbol: string) {
       );
       return res.currentCandle ?? res.candles[res.candles.length - 1] ?? null;
     },
-    enabled: !!normalizedSymbol,
+    enabled: enabled && !!normalizedSymbol,
     staleTime: 30_000,
     gcTime: CANDLE_HISTORY_QUERY_GC_MS,
     retry: 2,

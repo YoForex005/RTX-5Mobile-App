@@ -43,7 +43,8 @@ export function Screen({ children, scroll = false, style, noBottomInset = false 
         <ScrollView
           style={[styles.base, { backgroundColor: T.bg }]}
           contentContainerStyle={[{ paddingBottom: bottomPad + 24 }, style]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false}
           showsVerticalScrollIndicator={false}
         >
           {children}

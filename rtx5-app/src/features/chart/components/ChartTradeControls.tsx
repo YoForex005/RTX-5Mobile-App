@@ -226,11 +226,12 @@ export function ChartFooterLotPicker({
             })}
           </View>
           <ScrollView
+            canCancelContentTouches={false}
             ref={valueScrollRef}
             showsVerticalScrollIndicator={valueOptions.length > 5}
             style={styles.footerLotPickerValuesScrollVertical}
             contentContainerStyle={styles.footerLotPickerValuesContentVertical}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
           >
             {valueOptions.map((option) => {
               const active = mode === 'absolute' && Math.abs(option.value - normalizedValue) <= selectionEpsilon;

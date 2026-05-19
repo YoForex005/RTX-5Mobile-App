@@ -1,4 +1,4 @@
-import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 
 export const DEFAULT_QUOTE_WATCHLIST = [
   'EURUSD',
@@ -8,17 +8,45 @@ export const DEFAULT_QUOTE_WATCHLIST = [
   'BTCUSD',
 ] as const;
 
+// Some brokers expose duplicate instruments under both canonical and stale
+// casings (e.g. "BTCUSD" alongside a leftover lowercase "btcusd" that delivers
+// no ticks). When that happens, prefer the canonical form — the entry whose
+// raw symbol already matches its normalized key — so subscriptions land on
+// the instrument that actually streams prices.
+const preferCanonical = (
+  existing: string | undefined,
+  candidate: string,
+  key: string,
+): string => {
+  if (!existing) return candidate;
+  if (existing === key) return existing;
+  if (candidate === key) return candidate;
+  // Both are non-canonical; keep the first-seen entry.
+  return existing;
+};
+
 const buildAvailableSymbolLookup = (availableSymbols: readonly string[]): Map<string, string> => {
   const byNormalized = new Map<string, string>();
 
   for (const symbol of availableSymbols) {
     const normalized = normalizeSymbol(symbol);
-    if (normalized && !byNormalized.has(normalized)) {
-      byNormalized.set(normalized, symbol);
-    }
+    if (!normalized) continue;
+    byNormalized.set(normalized, preferCanonical(byNormalized.get(normalized), symbol, normalized));
   }
 
   return byNormalized;
+};
+
+const buildAvailableSymbolKeyLookup = (availableSymbols: readonly string[]): Map<string, string> => {
+  const byKey = new Map<string, string>();
+
+  for (const symbol of availableSymbols) {
+    const key = normalizeQuoteSymbolKey(symbol);
+    if (!key) continue;
+    byKey.set(key, preferCanonical(byKey.get(key), symbol, key));
+  }
+
+  return byKey;
 };
 
 export const resolveQuoteFeedSymbols = (
@@ -29,8 +57,13 @@ export const resolveQuoteFeedSymbols = (
     return [...requestedSymbols];
   }
 
+  const availableByKey = buildAvailableSymbolKeyLookup(availableSymbols);
   const availableByNormalized = buildAvailableSymbolLookup(availableSymbols);
   return requestedSymbols.map((symbol) => {
+    const exact = availableByKey.get(normalizeQuoteSymbolKey(symbol));
+    if (exact) {
+      return exact;
+    }
     const normalized = normalizeSymbol(symbol);
     return (normalized && availableByNormalized.get(normalized)) || symbol;
   });

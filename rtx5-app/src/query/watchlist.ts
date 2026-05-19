@@ -27,10 +27,11 @@ const WATCHLIST_KEY = ['watchlist'] as const;
  * Used on app start to hydrate local quoteSymbols state.
  * Stale after 60s; re-fetches on window focus.
  */
-export function useWatchlistQuery() {
+export function useWatchlistQuery(enabled = true) {
   return useQuery({
     queryKey: WATCHLIST_KEY,
     queryFn: () => watchlistApi.getWatchlist(),
+    enabled,
     staleTime: 60_000,
     retry: 2,
   });

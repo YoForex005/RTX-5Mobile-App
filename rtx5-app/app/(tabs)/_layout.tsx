@@ -22,7 +22,8 @@ const icons = {
 } as const;
 
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
-const TAB_PRESS_GUARD_RESET_MS = 120;
+type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
+type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
 
 const getNow = () =>
   typeof globalThis.performance?.now === 'function'
@@ -57,45 +58,40 @@ const FastTabBarButton = memo(function FastTabBarButton({
   onPressOut,
   ...props
 }: BottomTabBarButtonProps) {
+  const pressStartedAtRef = useRef<number | null>(null);
   const handledOnPressInRef = useRef(false);
-  const clearHandledTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (clearHandledTimeoutRef.current) {
-      clearTimeout(clearHandledTimeoutRef.current);
-      clearHandledTimeoutRef.current = null;
-    }
-  }, []);
-
-  const handlePressIn: NonNullable<BottomTabBarButtonProps['onPressIn']> = useCallback((event) => {
-    const startedAtMs = getNow();
-    if (clearHandledTimeoutRef.current) {
-      clearTimeout(clearHandledTimeoutRef.current);
-      clearHandledTimeoutRef.current = null;
-    }
-    handledOnPressInRef.current = true;
-    onPressIn?.(event);
-    onPress?.(event);
+  const runTabPress = useCallback((event: TabPressEvent) => {
+    const startedAtMs = pressStartedAtRef.current ?? getNow();
+    pressStartedAtRef.current = null;
+    useUIState.getState().hideActionSheet();
+    onPress?.(event as TabPressEvent);
     scheduleTabSwitchBudgetCheck(startedAtMs);
-  }, [onPress, onPressIn]);
+  }, [onPress]);
+
+  const handlePressIn = useCallback((event: TabPressInEvent) => {
+    pressStartedAtRef.current = getNow();
+    onPressIn?.(event);
+    if (!handledOnPressInRef.current) {
+      handledOnPressInRef.current = true;
+      runTabPress(event as unknown as TabPressEvent);
+    }
+  }, [onPressIn, runTabPress]);
 
   const handlePress: NonNullable<BottomTabBarButtonProps['onPress']> = useCallback((event) => {
     if (handledOnPressInRef.current) {
       handledOnPressInRef.current = false;
       return;
     }
-
-    onPress?.(event);
-  }, [onPress]);
+    runTabPress(event);
+  }, [runTabPress]);
 
   const handlePressOut: NonNullable<BottomTabBarButtonProps['onPressOut']> = useCallback((event) => {
     onPressOut?.(event);
-    const clearHandledFlag = () => {
+    pressStartedAtRef.current = null;
+    setTimeout(() => {
       handledOnPressInRef.current = false;
-      clearHandledTimeoutRef.current = null;
-    };
-
-    clearHandledTimeoutRef.current = setTimeout(clearHandledFlag, TAB_PRESS_GUARD_RESET_MS);
+    }, 0);
   }, [onPressOut]);
 
   return (
@@ -121,6 +117,7 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const router = useRouter();
+  const previousPathRef = useRef(pathname);
 
   const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
   const shouldHideMenu =
@@ -146,11 +143,19 @@ export default function TabsLayout() {
 
   useEffect(() => warmActionRoutes(router), [router]);
 
+  useEffect(() => {
+    if (previousPathRef.current !== pathname && actionSheet !== null) {
+      hideActionSheet();
+    }
+    previousPathRef.current = pathname;
+  }, [actionSheet, hideActionSheet, pathname]);
+
   return (
     <View style={styles.root}>
       <Tabs
-        // Keep every primary tab hot after startup so switching never waits for
-        // mount, detach, animation, or react-native-screens thaw work.
+        // Keep visited tabs alive, but do not eagerly mount every heavy tab
+        // during the first post-login navigation. Login should land on Quotes
+        // as soon as auth succeeds; route modules warm separately in idle work.
         detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
@@ -171,7 +176,7 @@ export default function TabsLayout() {
           tabBarHideOnKeyboard: !isChartTab,
           tabBarButton: (props) => <FastTabBarButton {...props} />,
           freezeOnBlur: false,
-          lazy: false,
+          lazy: true,
           animation: 'none',
         })}
       >
@@ -180,7 +185,7 @@ export default function TabsLayout() {
           name='chart'
           options={{
             title: t('Chart'),
-            lazy: false,
+            lazy: true,
           }}
         />
         <Tabs.Screen name='trade' options={{ title: t('Trade') }} />

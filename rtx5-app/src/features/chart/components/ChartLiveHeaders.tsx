@@ -15,10 +15,10 @@ import { useTranslation } from '../../../i18n/useTranslation';
 
 
 
-export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource }: any) => {
+export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource, active = true }: any) => {
   const { t } = useTranslation();
-  const latestTick = useLiveTick(symbol);
-  const liveQuotes = useMarketData([symbol]);
+  const latestTick = useLiveTick(symbol, undefined, active);
+  const liveQuotes = useMarketData([symbol], active);
   const q = liveQuotes[symbol] || {};
   const hasLiveQuote = hasLiveQuoteFeedData(q);
   const priceLabel = t('Price');
@@ -88,10 +88,14 @@ export const LiveQuotePairHeader = React.memo(({ bid, ask, changePct, styles, di
   );
 });
 
-export const LiveClock = React.memo(({ styles }: any) => {
+export const LiveClock = React.memo(({ styles, active = true }: any) => {
   const [timeStr, setTimeStr] = useState('');
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     const updateClock = () => {
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
@@ -111,7 +115,7 @@ export const LiveClock = React.memo(({ styles }: any) => {
     updateClock();
     const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [active]);
 
   return (
     <Text style={[styles.tvRangeAutoText, { transform: [{ translateX: -20 }] }]} numberOfLines={1} adjustsFontSizeToFit>

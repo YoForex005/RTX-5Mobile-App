@@ -16,7 +16,7 @@ import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
-const QUOTE_STORE_FLUSH_INTERVAL_MS = 50;
+const QUOTE_STORE_FLUSH_INTERVAL_MS = 100;
 
 export interface FlushPipelineState {
   flushScheduled: boolean;

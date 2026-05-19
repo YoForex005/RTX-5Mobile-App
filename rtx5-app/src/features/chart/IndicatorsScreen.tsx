@@ -100,6 +100,8 @@ export function IndicatorsScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >

@@ -33,8 +33,16 @@ export const BROKER_OVERRIDES: Record<string, Partial<BrokerRecord>> = {
 };
 
 export function formatServerFromName(name: string) {
-  const compact = name.replace(/[^a-zA-Z0-9]/g, '');
-  return `${compact.slice(0, 16)}-Live`;
+  // Strip company-suffix noise ("Ltd", "Inc", "Admin", etc.) so server names
+  // stay readable. We keep up to 32 chars of compact identifier — long enough
+  // for "ManagerPositionsCheck" without truncating mid-word like the old 16
+  // cap did ("AdminTestBrokerA-Live").
+  const cleaned = name
+    .replace(/\b(Admin|Ltd\.?|LLC|Inc\.?|S\.?A\.?|Limited|Co\.?|Pty.*)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const compact = (cleaned || name).replace(/[^a-zA-Z0-9]/g, '');
+  return `${compact.slice(0, 32)}-Live`;
 }
 
 export function translateBrokerRegion(region: string, t: (key: string) => string) {

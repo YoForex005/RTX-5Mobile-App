@@ -189,9 +189,9 @@ const buildVolumeDatum = (
 };
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource }: any) => {
-  const latestTick = useLiveTick(symbol);
-  const liveQuotes = useMarketData([symbol]);
+const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource, active = true }: any) => {
+  const latestTick = useLiveTick(symbol, undefined, active);
+  const liveQuotes = useMarketData([symbol], active);
   const q = liveQuotes[symbol] || {};
   const selectedQuote =
     priceSource === 'ask'
@@ -222,8 +222,8 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize }: any) => {
-  const latestTick = useLiveTick(symbol);
+const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, active = true }: any) => {
+  const latestTick = useLiveTick(symbol, undefined, active);
   const latestClose = latestTick?.close ?? 0;
   const latestBid = latestClose;
   const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
@@ -352,8 +352,8 @@ const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize 
 });
 
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
-const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles }: any) => {
-  const latestTick = useLiveTick(symbol);
+const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles, active = true }: any) => {
+  const latestTick = useLiveTick(symbol, undefined, active);
   if (!latestTick || candles.length < 2) return null;
 
   const latestBid = latestTick.close;
@@ -604,7 +604,7 @@ export function ChartScreen() {
   );
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
-  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
+  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : [], isScreenFocused);
   const chartLiveQuote = chartLiveQuotes[chartSymbol];
   const displayDecimals = useMemo(() => {
     const liveDigits =
@@ -660,12 +660,12 @@ export function ChartScreen() {
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
   const [overlayRevision, setOverlayRevision] = useState(0);
 
-  const { data: apiSymbols = [] } = useMarketSymbols();
+  const { data: apiSymbols = [] } = useMarketSymbols(isScreenFocused);
   const availableSymbols = useMemo(
     () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
     [apiSymbols, chartSymbol],
   );
-  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const tradeVolumeBounds = useMemo(
     () => ({
       minVolume: chartInstrumentMeta?.minVolume,
@@ -704,12 +704,12 @@ export function ChartScreen() {
 
   const [activeDateRange, setActiveDateRange] = useState<ChartTimeRange>('auto');
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, isScreenFocused);
   const sanitizedCandles = useMemo(
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
     [candles, chartTimeframe],
   );
-  const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol);
+  const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol, isScreenFocused);
   const hasCandles = sanitizedCandles.length > 0;
   const timeRangeCandlesRef = useRef(sanitizedCandles);
   const chartCandles = useMemo(
@@ -1346,7 +1346,7 @@ export function ChartScreen() {
 
             {/* Right: Balance + Price + P/L */}
             <View style={styles.rightSection}>
-              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={sanitizedCandles} />
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={sanitizedCandles} active={isScreenFocused} />
             </View>
           </View>
         </View>
@@ -1357,7 +1357,8 @@ export function ChartScreen() {
         <View style={styles.chartContainer}>
           {/* Top Integrated Toolbar (TradingView Exact Style) */}
           <View style={styles.chartTopToolbar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            <ScrollView
+              keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               <View style={styles.toolbarButtonRow}>
                 {/* 1: Symbol & Add */}
                 <View style={styles.toolbarLeadingGroup}>
@@ -1426,6 +1427,8 @@ export function ChartScreen() {
           <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
+                keyboardShouldPersistTaps="always"
+                canCancelContentTouches={false}
                 style={[styles.leftToolbar, !isChartExpanded && styles.leftToolbarOverlay]}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.leftToolbarContent}
@@ -1540,7 +1543,7 @@ export function ChartScreen() {
 
 
 
-              <LiveTvLegend symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={sanitizedCandles} />
+              <LiveTvLegend symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} candles={sanitizedCandles} active={isScreenFocused} />
 
             </View>
           </View>
@@ -1613,7 +1616,7 @@ export function ChartScreen() {
               <View style={[styles.sentimentHalf, styles.sentimentBuy, { flex: sentiment.buyPct }]} />
             </View>
 
-            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} seriesRef={seriesRef} />
+            <LiveTradeButtons symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} lotSize={tradeVolume} seriesRef={seriesRef} active={isScreenFocused} />
 
             <View style={styles.lotSelectorBar}>
               <Pressable style={styles.lotStepperBtn} onPress={() => updateTradeVolume(incrementTradeVolume(tradeVolume, -1, tradeVolumeBounds))}>

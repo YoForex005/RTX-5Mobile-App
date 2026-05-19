@@ -11,7 +11,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, } from 'react';
@@ -40,7 +40,7 @@ import { prefetchQuoteDetails } from '../../utils/navigationPrefetch';
 import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { runImmediateAction } from '../../utils/actionLatency';
-import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { hasFreshLiveQuote } from './liveQuoteSnapshot';
 import {
   buildDefaultQuoteWatchlist,
@@ -224,6 +224,7 @@ function useQuotesThemeRotation(isDark: boolean, enabled: boolean) {
 
 const QuoteCard = React.memo(function QuoteCard({
   symbol,
+  feedSymbol,
   T,
   isDark,
   cardBackground,
@@ -234,6 +235,7 @@ const QuoteCard = React.memo(function QuoteCard({
   suppressPressFeedback = false,
 }: {
   symbol: string;
+  feedSymbol?: string;
   T: ThemeColors;
   isDark: boolean;
   cardBackground: AnimatedColorValue | string;
@@ -248,7 +250,7 @@ const QuoteCard = React.memo(function QuoteCard({
   const isSimpleMode = viewMode === 'table';
   // Read from the Quotes external store. The watchlist-level hook owns the
   // socket subscription and each row subscribes only to its own symbol snapshot.
-  const liveItem = useLiveQuoteSnapshot(symbol);
+  const liveItem = useLiveQuoteSnapshot(feedSymbol ?? symbol);
   const noData = !hasFreshLiveQuote(liveItem);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
@@ -613,7 +615,7 @@ function LegacyAddSymbolModal({
   existingSymbols,
   cardBackground,
 }: any) {
-  const { data: apiSymbols, isLoading } = useMarketSymbols();
+  const { data: apiSymbols, isLoading } = useMarketSymbols(visible);
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
@@ -704,6 +706,7 @@ function LegacyAddSymbolModal({
         </View>
 
         <FlatList
+          keyboardShouldPersistTaps="always"
           data={available}
           keyExtractor={(sym) => sym}
           renderItem={({ item: sym }) => {
@@ -783,7 +786,7 @@ function LegacyAddSymbolModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       {...OVERLAY_MODAL_PROPS}
       onRequestClose={onClose}
     >
@@ -1092,11 +1095,11 @@ function AddSymbolModal({
   existingSymbols: string[];
   cardBackground?: AnimatedColorValue;
 }) {
-  const { data: apiSymbols, isLoading } = useMarketSymbols();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState<AddSymbolFolderKey>('quotes');
+  const { data: apiSymbols, isLoading } = useMarketSymbols(visible);
   const addPalette = useMemo(() => getAddSymbolPalette(T, isDark), [T, isDark]);
 
   useEffect(() => {
@@ -1228,6 +1231,7 @@ function AddSymbolModal({
       <View style={[addSymbolStyles.header, { borderBottomColor: addPalette.headerBorder }]}>
         <FastPressable
           onPress={handleHeaderBack}
+          activateOnPressIn
           latencyLabel="quotes.addSymbol.back"
           hitSlop={12}
           style={({ pressed }) => [
@@ -1276,6 +1280,8 @@ function AddSymbolModal({
           onPress={() => setQuery('')}
           disabled={query.length === 0}
           hitSlop={8}
+          activateOnPressIn
+          latencyLabel="quotes.addSymbol.search.clear"
           unstable_pressDelay={0}
           style={[addSymbolStyles.searchClearButton, query.length === 0 && addSymbolStyles.searchClearButtonHidden]}
         >
@@ -1284,6 +1290,7 @@ function AddSymbolModal({
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
         horizontal
         showsHorizontalScrollIndicator={false}
         style={addSymbolStyles.breadcrumbScroll}
@@ -1295,6 +1302,8 @@ function AddSymbolModal({
             setQuery('');
           }}
           hitSlop={10}
+          activateOnPressIn
+          latencyLabel="quotes.addSymbol.breadcrumb.root"
           unstable_pressDelay={0}
           style={[
             addSymbolStyles.breadcrumbChip,
@@ -1314,6 +1323,8 @@ function AddSymbolModal({
                 setFolder(item);
                 setQuery('');
               }}
+              activateOnPressIn
+              latencyLabel={`quotes.addSymbol.breadcrumb.${item}`}
               unstable_pressDelay={0}
               style={[
                 addSymbolStyles.breadcrumbChip,
@@ -1337,135 +1348,140 @@ function AddSymbolModal({
       </ScrollView>
 
       <FlatList
-        data={listData}
-        keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          addSymbolStyles.listContent,
-          { paddingBottom: Math.max(insets.bottom + 28, 40) },
-        ]}
-        renderItem={({ item }) => {
-          if (typeof item !== 'string') {
-            const added = countAdded(item.symbols);
-            const disabled = item.symbols.length === 0;
+          data={listData}
+          keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            addSymbolStyles.listContent,
+            { paddingBottom: Math.max(insets.bottom + 28, 40) },
+          ]}
+          renderItem={({ item }) => {
+            if (typeof item !== 'string') {
+              const added = countAdded(item.symbols);
+              const disabled = item.symbols.length === 0;
+              return (
+                <Pressable
+                  onPress={() => {
+                    if (disabled) return;
+                    setFolder(item.key);
+                    setQuery('');
+                  }}
+                  activateOnPressIn
+                  latencyLabel={`quotes.addSymbol.folder.${item.key}`}
+                  unstable_pressDelay={0}
+                  disabled={disabled}
+                  style={({ pressed }) => [
+                    addSymbolStyles.folderRow,
+                    {
+                      backgroundColor: addPalette.rowBg,
+                      borderColor: addPalette.rowBorder,
+                      opacity: disabled ? 0.52 : 1,
+                    },
+                    pressed && !disabled && { backgroundColor: addPalette.rowPressed },
+                  ]}
+                >
+                  <View style={addSymbolStyles.folderLeft}>
+                    <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
+                      <Ionicons name="folder-open" size={22} color="#FBBF24" />
+                    </View>
+                    <View style={addSymbolStyles.folderTextCol}>
+                      <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
+                      <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
+                        {item.symbols.length} {t('symbols')}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={addSymbolStyles.folderRight}>
+                    <View
+                      style={[
+                        addSymbolStyles.folderCountPill,
+                        { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
+                      ]}
+                    >
+                      <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
+                        {added}/{item.symbols.length}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={addPalette.mutedText} />
+                  </View>
+                </Pressable>
+              );
+            }
+
+            const alreadyAdded = isSymbolAdded(item);
+            const kind = classifyMarketSymbol(item);
+            const kindMeta = SYMBOL_KIND_META[kind];
             return (
               <Pressable
                 onPress={() => {
-                  if (disabled) return;
-                  setFolder(item.key);
-                  setQuery('');
+                  if (!alreadyAdded) onAdd(item);
                 }}
+                activateOnPressIn
+                latencyLabel={`quotes.addSymbol.asset.${item}`}
                 unstable_pressDelay={0}
-                disabled={disabled}
+                disabled={alreadyAdded}
                 style={({ pressed }) => [
-                  addSymbolStyles.folderRow,
+                  addSymbolStyles.symbolRow,
                   {
                     backgroundColor: addPalette.rowBg,
                     borderColor: addPalette.rowBorder,
-                    opacity: disabled ? 0.52 : 1,
+                    opacity: alreadyAdded ? 0.72 : 1,
                   },
-                  pressed && !disabled && { backgroundColor: addPalette.rowPressed },
+                  pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
                 ]}
               >
-                <View style={addSymbolStyles.folderLeft}>
-                  <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
-                    <Ionicons name="folder-open" size={22} color="#FBBF24" />
+                <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
+                <View style={addSymbolStyles.symbolTextCol}>
+                  <View style={addSymbolStyles.symbolNameRow}>
+                    <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
+                    <View
+                      style={[
+                        addSymbolStyles.symbolKindPill,
+                        {
+                          backgroundColor: isDark ? kindMeta.tintDark : kindMeta.tintLight,
+                          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
+                        },
+                      ]}
+                    >
+                      <Text style={[addSymbolStyles.symbolKindText, { color: kindMeta.accent }]}>
+                        {kindMeta.label}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={addSymbolStyles.folderTextCol}>
-                    <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
-                    <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
-                      {item.symbols.length} {t('symbols')}
-                    </Text>
-                  </View>
+                  <Text style={[addSymbolStyles.symbolDescription, { color: T.textMuted }]} numberOfLines={1}>
+                    {describeMarketSymbol(item)}
+                  </Text>
                 </View>
-                <View style={addSymbolStyles.folderRight}>
-                  <View
-                    style={[
-                      addSymbolStyles.folderCountPill,
-                      { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
-                    ]}
-                  >
-                    <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
-                      {added}/{item.symbols.length}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={addPalette.mutedText} />
+                <View
+                  style={[
+                    addSymbolStyles.symbolActionButton,
+                    { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
+                  ]}
+                >
+                  <Ionicons
+                    name={alreadyAdded ? 'checkmark' : 'add'}
+                    size={20}
+                    color={alreadyAdded ? T.trading.profit : T.accent}
+                  />
                 </View>
               </Pressable>
             );
-          }
-
-          const alreadyAdded = isSymbolAdded(item);
-          const kind = classifyMarketSymbol(item);
-          const kindMeta = SYMBOL_KIND_META[kind];
-          return (
-            <Pressable
-              onPress={() => {
-                if (!alreadyAdded) onAdd(item);
-              }}
-              unstable_pressDelay={0}
-              disabled={alreadyAdded}
-              style={({ pressed }) => [
-                addSymbolStyles.symbolRow,
-                {
-                  backgroundColor: addPalette.rowBg,
-                  borderColor: addPalette.rowBorder,
-                  opacity: alreadyAdded ? 0.72 : 1,
-                },
-                pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
+          }}
+          ListEmptyComponent={
+            <View
+              style={[
+                addSymbolStyles.emptyCard,
+                { backgroundColor: addPalette.rowBg, borderColor: addPalette.rowBorder },
               ]}
             >
-              <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
-              <View style={addSymbolStyles.symbolTextCol}>
-                <View style={addSymbolStyles.symbolNameRow}>
-                  <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
-                  <View
-                    style={[
-                      addSymbolStyles.symbolKindPill,
-                      {
-                        backgroundColor: isDark ? kindMeta.tintDark : kindMeta.tintLight,
-                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
-                      },
-                    ]}
-                  >
-                    <Text style={[addSymbolStyles.symbolKindText, { color: kindMeta.accent }]}>
-                      {kindMeta.label}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[addSymbolStyles.symbolDescription, { color: T.textMuted }]} numberOfLines={1}>
-                  {describeMarketSymbol(item)}
-                </Text>
-              </View>
-              <View
-                style={[
-                  addSymbolStyles.symbolActionButton,
-                  { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
-                ]}
-              >
-                <Ionicons
-                  name={alreadyAdded ? 'checkmark' : 'add'}
-                  size={20}
-                  color={alreadyAdded ? T.trading.profit : T.accent}
-                />
-              </View>
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={
-          <View
-            style={[
-              addSymbolStyles.emptyCard,
-              { backgroundColor: addPalette.rowBg, borderColor: addPalette.rowBorder },
-            ]}
-          >
-            <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
-            <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
-              {isLoading ? t('Fetching markets...') : t('No matching assets available.')}
-            </Text>
-          </View>
-        }
+              <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
+              <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
+                {isLoading ? t('Fetching markets...') : t('No matching assets available.')}
+              </Text>
+            </View>
+          }
       />
     </View>
   );
@@ -1477,7 +1493,7 @@ function AddSymbolModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="none"
       {...OVERLAY_MODAL_PROPS}
       onRequestClose={handleHeaderBack}
     >
@@ -1488,10 +1504,12 @@ function AddSymbolModal({
 
 export function QuotesScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
 
   const {
@@ -1506,13 +1524,17 @@ export function QuotesScreen() {
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const showActionSheet = useUIState((s) => s.showActionSheet);
-  const { data: apiSymbols = [] } = useMarketSymbols();
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const sidebarOpen = useUIState((s) => s.sidebarOpen);
+  const actionSheetOpen = useUIState((s) => s.actionSheet !== null);
+  const quoteServerDataActive = isScreenFocused && isLoggedIn;
+  const { data: apiSymbols = [] } = useMarketSymbols(quoteServerDataActive);
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
   // as the primary UI source of truth (instant updates); the server is kept
   // in sync fire-and-forget so the watchlist persists across devices/sessions.
-  const { data: serverWatchlist } = useWatchlistQuery();
+  const { data: serverWatchlist } = useWatchlistQuery(quoteServerDataActive);
   const { mutate: serverAdd } = useAddToWatchlistMutation();
   const { mutate: serverRemove } = useRemoveWatchlistMutation();
   const { mutate: serverReplace } = useReplaceWatchlistMutation();
@@ -1629,12 +1651,52 @@ export function QuotesScreen() {
     () => resolveQuoteFeedSymbols(quoteSymbols, apiSymbols),
     [quoteSymbols, apiSymbols],
   );
-  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteFeedSymbols, true);
+  const quoteFeedSymbolByDisplay = useMemo(() => {
+    const entries = quoteSymbols.map((symbol, index) => [
+      symbol,
+      quoteFeedSymbols[index] ?? symbol,
+    ] as const);
+    return new Map(entries);
+  }, [quoteSymbols, quoteFeedSymbols]);
+  const quoteRouteActive = isScreenFocused || pathname === '/quotes' || pathname.startsWith('/quotes/');
+  const quoteStickyFeedActive = isLoggedIn && quoteRouteActive;
+  const blockingQuoteOverlayOpen = showAddModal || sidebarOpen || actionSheetOpen;
+  const quoteFeedActive = quoteStickyFeedActive && !blockingQuoteOverlayOpen;
+  const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
+
+  useEffect(() => {
+    if (!quoteStickyFeedActive || quoteFeedSymbols.length === 0) {
+      quotesWsService.setSubscriptions([]);
+      return;
+    }
+
+    quotesWsService.setSubscriptions(quoteFeedSymbols);
+    return () => {
+      quotesWsService.setSubscriptions([]);
+    };
+  }, [quoteFeedSymbols, quoteFeedSymbolsKey, quoteStickyFeedActive]);
+
+  const liveTrackedSymbols = useWatchlistLiveQuotes(quoteFeedSymbols, quoteFeedActive);
 
   const toggleEditMode = () => {
     if (!isEditing) setSearch('');
     setIsEditing(!isEditing);
   };
+
+  const closeAddSymbolModal = useCallback(() => {
+    setShowAddModal(false);
+  }, []);
+
+  const openAddSymbolModal = useCallback(() => {
+    hideActionSheet();
+    setShowAddModal(true);
+  }, [hideActionSheet]);
+
+  useEffect(() => {
+    if (showAddModal) {
+      hideActionSheet();
+    }
+  }, [hideActionSheet, showAddModal]);
 
   const moveQuote = useCallback((fromIndex: number, toIndex: number) => {
     const newQueue = [...quoteSymbols];
@@ -1757,18 +1819,20 @@ export function QuotesScreen() {
   }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showActionSheet, t]);
 
   const handleSymbolTap = useCallback((sym: string) => {
+    if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
     if (config) {
       runImmediateAction('quotes.symbolSheet.tap.open', () => showActionSheet(config));
     }
-  }, [quoteTapActionSheetConfigs, showActionSheet]);
+  }, [quoteTapActionSheetConfigs, showActionSheet, showAddModal]);
 
   const handleSymbolLongPress = useCallback((sym: string) => {
+    if (showAddModal) return;
     const config = quoteLongPressActionSheetConfigs.get(sym);
     if (config) {
       runImmediateAction('quotes.symbolSheet.longPress.open', () => showActionSheet(config));
     }
-  }, [quoteLongPressActionSheetConfigs, showActionSheet]);
+  }, [quoteLongPressActionSheetConfigs, showActionSheet, showAddModal]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
@@ -1795,11 +1859,12 @@ export function QuotesScreen() {
     return (
       <QuoteCard
         symbol={sym}
+        feedSymbol={quoteFeedSymbolByDisplay.get(sym) ?? sym}
         T={T}
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
-        onPressIn={() => handleSymbolTap(sym)}
+        onPress={() => handleSymbolTap(sym)}
         suppressPressFeedback
         onLongPress={() => handleSymbolLongPress(sym)}
       />
@@ -1813,6 +1878,7 @@ export function QuotesScreen() {
     isEditing,
     moveQuote,
     quoteSymbols,
+    quoteFeedSymbolByDisplay,
     quoteViewMode,
     removeQuoteSymbol,
     serverRemove,
@@ -1836,7 +1902,8 @@ export function QuotesScreen() {
             rightActions={
               <View style={s.headerActions}>
                 <FastPressable
-                  onPress={() => setShowAddModal(true)}
+                  onPress={openAddSymbolModal}
+                  activateOnPressIn
                   latencyLabel="quotes.addAsset.open"
                   hitSlop={12}
                   style={[
@@ -1849,6 +1916,7 @@ export function QuotesScreen() {
 
                 <FastPressable
                   onPress={toggleEditMode}
+                  activateOnPressIn
                   latencyLabel="quotes.editMode.toggle"
                   hitSlop={12}
                   style={[
@@ -1870,7 +1938,7 @@ export function QuotesScreen() {
             <GmtClock style={[s.subLeft, { color: palette.secondaryText }]} active />
 
             <View style={{ alignItems: 'flex-end' }}>
-              <TickCounter T={T} palette={palette} active symbols={liveTrackedSymbols} />
+              <TickCounter T={T} palette={palette} active={quoteFeedActive} symbols={liveTrackedSymbols} />
             </View>
           </View>
           <View
@@ -1910,7 +1978,7 @@ export function QuotesScreen() {
             // Quotes are websocket-driven, so pull-to-refresh is intentionally
             // removed. These FlatList limits keep row mounting work bounded so
             // Android's touch responder is not starved during heavy tick flow.
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             removeClippedSubviews
             initialNumToRender={8}
             maxToRenderPerBatch={6}
@@ -1945,7 +2013,7 @@ export function QuotesScreen() {
 
       <AddSymbolModal
         visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={closeAddSymbolModal}
         onAdd={(sym: string) => {
           addQuoteSymbol(sym);
           serverAdd(sym);
@@ -2477,11 +2545,11 @@ function TickCounter({
       return;
     }
     const symbolSet = new Set(
-      symbols.map((entry) => normalizeSymbol(entry)).filter(Boolean),
+      symbols.map((entry) => normalizeQuoteSymbolKey(entry)).filter(Boolean),
     );
 
     const listener = (tick: QuoteTickEvent) => {
-      const tickSymbol = normalizeSymbol(tick.symbol);
+      const tickSymbol = normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
       if (!symbolSet.has(tickSymbol)) {
         return;
       }

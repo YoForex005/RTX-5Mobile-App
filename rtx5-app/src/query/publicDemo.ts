@@ -23,22 +23,24 @@ function shouldRetryDemoStatus(failureCount: number, error: Error): boolean {
   return true;
 }
 
-export function useOrrnnDemoStatus() {
+export function useOrrnnDemoStatus(enabled = true) {
   return useQuery<OrrnnDemoStatusResponse, Error>({
     queryKey: [ORRNN_DEMO_STATUS_KEY],
     queryFn: getOrrnnDemoStatus,
+    enabled,
     staleTime: 15 * 1000,
-    refetchInterval: 30 * 1000,
+    refetchInterval: enabled ? 30 * 1000 : false,
     retry: shouldRetryDemoStatus,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
 }
 
 export function useOrrnnDemoGroups(enabled?: boolean) {
+  const isEnabled = enabled ?? true;
   return useQuery<OrrnnDemoGroupsResponse, Error>({
     queryKey: [ORRNN_DEMO_GROUPS_KEY],
     queryFn: getOrrnnDemoGroups,
-    enabled: enabled ?? true,
+    enabled: isEnabled,
     staleTime: 5 * 60 * 1000,
     retry: shouldRetryDemoStatus,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),

@@ -6,7 +6,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../state/uiState';
@@ -25,15 +25,20 @@ import {
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(), []);
   const summary = useMemo(() => buildGuideSummary(), []);
   const appName = Constants.expoConfig?.name ?? 'RTX5';
+  const handleOpenMenu = useCallback(() => {
+    hideActionSheet();
+    setSidebarOpen(true);
+  }, [hideActionSheet, setSidebarOpen]);
 
   return (
     <Screen noBottomInset style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 14 }]}>
         <FastPressable
-          onPress={() => setSidebarOpen(true)}
+          onPress={handleOpenMenu}
           latencyLabel="userGuide.menu"
           hitSlop={12}
           style={styles.menuButton}
@@ -46,6 +51,8 @@ export function UserGuideScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

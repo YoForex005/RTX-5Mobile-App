@@ -38,7 +38,9 @@ export function TradingSignalDetailsModal({ visible, onClose, symbol }: Props) {
               <Ionicons name="close" size={24} color={T.text} />
             </Pressable>
           </View>
-          <ScrollView 
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false}
             style={styles.container} 
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}

@@ -4,10 +4,10 @@ import { FastPressable as Pressable } from './FastPressable';
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import {
-  Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
+  Animated, BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
@@ -41,11 +41,17 @@ const MENU_ITEMS: MenuItem[] = [
 const DRAWER_WIDTH = 310;
 const DRAWER_OPEN_ANIMATION_MS = 0;
 const DRAWER_CLOSE_ANIMATION_MS = 65;
+const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
+const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
+const SIDEBAR_NAVIGATION_LOCK_MS = 350;
+const SIDEBAR_PREFETCH_DELAY_MS = 1500;
 const PREFETCH_ROUTES = [
   ...MENU_ITEMS.map((item) => item.route),
   '/settings/accounts',
   '/login',
 ] as const;
+const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
+const AUTH_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -59,20 +65,26 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
+function normalizeSidebarPath(path: string) {
+  return path.replace(/\/\([^)]*\)/g, '') || '/';
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SidebarDrawer() {
   const visible = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
-  const onClose = () => setSidebarOpen(false);
+  const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
   const router = useRouter();
+  const pathname = usePathname();
   const T = useTheme();
   const themeMode = useUserPreferences((s) => s.themeMode);
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
-  const { data: brokerConfig } = useBrokerConfig(brokerId);
-  const { data: accounts } = useAccounts(isLoggedIn);
+  const sidebarProfileDataActive = visible && isLoggedIn;
+  const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
+  const { data: accounts } = useAccounts(sidebarProfileDataActive);
   const isDark = themeMode === 'dark';
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((account) => account.login === currentLogin) ?? accounts?.[0];
@@ -81,6 +93,9 @@ export function SidebarDrawer() {
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const isClosingRef = useRef(false);
+  const navigationLockedRef = useRef(false);
+  const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const prefetchSidebarRoutes = useCallback(() => {
     const prefetch = (router as PrefetchRouter).prefetch;
@@ -88,40 +103,81 @@ export function SidebarDrawer() {
       return;
     }
     for (const route of PREFETCH_ROUTES) {
-      prefetch(route);
+      try {
+        prefetch(route);
+      } catch {
+        // Route warm-up must never block the visible sidebar interaction path.
+      }
     }
   }, [router]);
 
   useEffect(() => {
-    scheduleNextFrame(prefetchSidebarRoutes);
-  }, [prefetchSidebarRoutes]);
+    if (isLoggedIn) {
+      return;
+    }
+
+    scheduleNextFrame(() => {
+      const prefetch = (router as PrefetchRouter).prefetch;
+      if (typeof prefetch !== 'function') {
+        return;
+      }
+      for (const route of LOGGED_OUT_PREFETCH_ROUTES) {
+        try {
+          prefetch(route);
+        } catch {
+          // Login warm-up must never affect first paint or drawer taps.
+        }
+      }
+    });
+  }, [isLoggedIn, router]);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    sidebarPrefetchTimerRef.current = setTimeout(() => {
+      scheduleNextFrame(prefetchSidebarRoutes);
+      sidebarPrefetchTimerRef.current = null;
+    }, SIDEBAR_PREFETCH_DELAY_MS);
+
+    return () => {
+      if (sidebarPrefetchTimerRef.current) {
+        clearTimeout(sidebarPrefetchTimerRef.current);
+        sidebarPrefetchTimerRef.current = null;
+      }
+    };
+  }, [prefetchSidebarRoutes, visible]);
+
+  useEffect(() => () => {
+    if (navigationUnlockTimerRef.current) {
+      clearTimeout(navigationUnlockTimerRef.current);
+      navigationUnlockTimerRef.current = null;
+    }
+    if (sidebarPrefetchTimerRef.current) {
+      clearTimeout(sidebarPrefetchTimerRef.current);
+      sidebarPrefetchTimerRef.current = null;
+    }
+  }, []);
 
   /* Open immediately when `visible` becomes true so hamburger taps feel instant. */
   useLayoutEffect(() => {
     if (visible) {
+      // Cancel any in-progress close animation so re-open is instant.
+      // This handles the rapid-tap case: user closes sidebar (65ms anim)
+      // then immediately re-taps hamburger before animation completes.
       isClosingRef.current = false;
       slideAnim.stopAnimation();
       overlayAnim.stopAnimation();
       if (DRAWER_OPEN_ANIMATION_MS === 0) {
         slideAnim.setValue(0);
         overlayAnim.setValue(1);
-        return;
       }
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: DRAWER_OPEN_ANIMATION_MS,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayAnim, {
-          toValue: 1,
-          duration: DRAWER_OPEN_ANIMATION_MS,
-          useNativeDriver: true,
-        }),
-      ]).start();
       return;
     }
 
+    // When visible switches to false while NOT closing (e.g. external state
+    // change), snap to hidden immediately while keeping the touch tree warm.
     if (!isClosingRef.current) {
       slideAnim.stopAnimation();
       overlayAnim.stopAnimation();
@@ -130,7 +186,7 @@ export function SidebarDrawer() {
     }
   }, [overlayAnim, slideAnim, visible]);
 
-  const closeImmediately = (afterClose?: () => void) => {
+  const closeImmediately = useCallback((afterClose?: () => void) => {
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
     slideAnim.setValue(-DRAWER_WIDTH);
@@ -140,39 +196,67 @@ export function SidebarDrawer() {
     if (afterClose) {
       afterClose();
     }
-  };
+  }, [onClose, overlayAnim, slideAnim]);
 
-  const handleMenuItemPress = (item: MenuItem) => {
-    // Every sidebar row owns a concrete route so taps never become no-ops.
-    handleClose(() => router.push(item.route as any));
-  };
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
 
-  /* Close handler: run actions immediately instead of waiting on drawer animation */
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeImmediately();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [closeImmediately, visible]);
+
+  /* Close handler: run actions immediately so the hidden drawer cannot trap touches. */
   const handleClose = (afterClose?: () => void) => {
     if (isClosingRef.current) return; // prevent double-close
     isClosingRef.current = true;
+    closeImmediately(afterClose);
+  };
 
-    if (afterClose) {
-      closeImmediately(afterClose);
+  const unlockSidebarNavigation = useCallback(() => {
+    if (navigationUnlockTimerRef.current) {
+      clearTimeout(navigationUnlockTimerRef.current);
+    }
+    navigationUnlockTimerRef.current = setTimeout(() => {
+      navigationLockedRef.current = false;
+      navigationUnlockTimerRef.current = null;
+    }, SIDEBAR_NAVIGATION_LOCK_MS);
+  }, []);
+
+  const navigateSidebarRoute = useCallback((route: string) => {
+    if (navigationLockedRef.current) {
       return;
     }
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: -DRAWER_WIDTH,
-        duration: DRAWER_CLOSE_ANIMATION_MS,
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayAnim, {
-        toValue: 0,
-        duration: DRAWER_CLOSE_ANIMATION_MS,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      // Animation finished → now tell parent to set sidebarOpen = false
-      onClose();
-      isClosingRef.current = false;
-    });
-  };
+
+    navigationLockedRef.current = true;
+
+    const targetPath = normalizeSidebarPath(route);
+    const currentPath = normalizeSidebarPath(pathname);
+    const shouldNavigate = currentPath !== targetPath;
+
+    closeImmediately();
+
+    if (shouldNavigate) {
+      scheduleNextFrame(() => {
+        if (AUTH_STACK_ROUTES.has(route)) {
+          router.push(route as any);
+        } else {
+          router.navigate(route as any);
+        }
+      });
+    }
+
+    unlockSidebarNavigation();
+  }, [closeImmediately, pathname, router, unlockSidebarNavigation]);
+
+  const handleMenuItemPress = useCallback((item: MenuItem) => {
+    navigateSidebarRoute(item.route);
+  }, [navigateSidebarRoute]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
@@ -183,6 +267,7 @@ export function SidebarDrawer() {
     >
         {/* Overlay */}
         <Animated.View
+          pointerEvents="box-none"
           style={[
             ds.overlay,
             { opacity: overlayAnim },
@@ -191,6 +276,7 @@ export function SidebarDrawer() {
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => handleClose()}
+            activateOnPressIn
             latencyLabel="sidebar.closeOverlay"
             unstable_pressDelay={0}
           />
@@ -200,7 +286,7 @@ export function SidebarDrawer() {
         <Animated.View
           style={[
             ds.drawer,
-            { transform: [{ translateX: slideAnim }] },
+            !visible && { transform: [{ translateX: -DRAWER_WIDTH }] },
           ]}
         >
           {/* ── Profile Header ── */}
@@ -218,7 +304,9 @@ export function SidebarDrawer() {
                   ) : null}
                   <Pressable
                     style={ds.manageBtn}
-                    onPress={() => handleClose(() => router.push('/settings/accounts'))}
+                    onPress={() => navigateSidebarRoute('/settings/accounts')}
+                    activateOnPressIn
+                    hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
                     latencyLabel="sidebar.manageAccounts"
                     unstable_pressDelay={0}
                   >
@@ -226,21 +314,25 @@ export function SidebarDrawer() {
                   </Pressable>
                 </View>
               ) : (
-                <View style={ds.profileText}>
+                <Pressable
+                  style={ds.profileText}
+                  onPress={() => navigateSidebarRoute('/login')}
+                  activateOnPressIn
+                  hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
+                  latencyLabel="sidebar.getStarted"
+                  unstable_pressDelay={0}
+                  accessibilityRole="button"
+                >
                   <Text style={ds.loginText}>Login to an existing account</Text>
-                  <Pressable
-                    style={ds.getStartedBtn}
-                    onPress={() => handleClose(() => router.push('/login'))}
-                    latencyLabel="sidebar.getStarted"
-                    unstable_pressDelay={0}
-                  >
+                  <View style={ds.getStartedBtn}>
                     <Text style={ds.getStartedText}>Get started</Text>
-                  </Pressable>
-                </View>
+                  </View>
+                </Pressable>
               )}
               <Pressable
                 style={ds.closeBtn}
                 onPress={() => handleClose()}
+                activateOnPressIn
                 latencyLabel="sidebar.closeButton"
                 unstable_pressDelay={0}
               >
@@ -256,6 +348,7 @@ export function SidebarDrawer() {
               <Pressable
                 style={!isDark ? ds.themeOptActive : ds.themeOptInactive}
                 onPress={() => setThemeMode('light')}
+                activateOnPressIn
                 latencyLabel="sidebar.themeLight"
                 unstable_pressDelay={0}
               >
@@ -265,6 +358,7 @@ export function SidebarDrawer() {
               <Pressable
                 style={isDark ? ds.themeOptActive : ds.themeOptInactive}
                 onPress={() => setThemeMode('dark')}
+                activateOnPressIn
                 latencyLabel="sidebar.themeDark"
                 unstable_pressDelay={0}
               >
@@ -281,6 +375,8 @@ export function SidebarDrawer() {
           <ScrollView
             style={ds.menuScroll}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false}
             contentContainerStyle={ds.menuContent}
           >
             {MENU_ITEMS.map((item) => (
@@ -291,6 +387,8 @@ export function SidebarDrawer() {
                   pressed && ds.menuItemPressed,
                 ]}
                 onPress={() => handleMenuItemPress(item)}
+                activateOnPressIn
+                hitSlop={SIDEBAR_MENU_ITEM_HIT_SLOP}
                 latencyLabel={`sidebar.menu.${item.label}`}
                 unstable_pressDelay={0}
               >
@@ -322,14 +420,22 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       opacity: 0,
     },
     overlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: DRAWER_WIDTH,
       backgroundColor: isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.3)',
+      zIndex: 0,
+      elevation: 0,
     },
     drawer: {
       position: 'absolute',
       top: 0,
       left: 0,
       bottom: 0,
+      zIndex: 1,
+      elevation: 1,
       width: DRAWER_WIDTH,
       backgroundColor: isDark ? '#0a0a0a' : T.glass1,
       borderRightWidth: 1,
@@ -388,10 +494,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     getStartedBtn: {
       backgroundColor: T.accent,
       paddingHorizontal: 16,
-      paddingVertical: 6,
-      borderRadius: 16,
+      minHeight: 44,
+      borderRadius: 22,
       alignSelf: 'flex-start',
       marginTop: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     getStartedText: {
       color: '#ffffff',
@@ -475,6 +583,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     menuItem: {
       flexDirection: 'row',
       alignItems: 'center',
+      minHeight: 48,
       paddingVertical: 12,
       paddingHorizontal: 18,
       borderRadius: 10,

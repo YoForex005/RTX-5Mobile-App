@@ -5,22 +5,37 @@ import test from 'node:test';
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-test('bottom tab navigation keeps tabs hot and switches on press-in', () => {
+test('bottom tab navigation keeps visited tabs hot without blocking login startup', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
 
   assert.match(source, /const TAB_SWITCH_MAX_LATENCY_MS = 20/);
-  assert.match(source, /const TAB_PRESS_GUARD_RESET_MS = 120/);
   assert.match(source, /function scheduleTabSwitchBudgetCheck\(startedAtMs: number\)/);
   assert.match(source, /const FastTabBarButton = memo/);
+  assert.match(source, /const pressStartedAtRef = useRef<number \| null>\(null\)/);
+  assert.match(source, /const handledOnPressInRef = useRef\(false\)/);
+  assert.match(source, /const handlePressIn = useCallback/);
+  assert.match(source, /pressStartedAtRef\.current = getNow\(\)/);
+  assert.match(source, /handledOnPressInRef\.current = true/);
+  assert.match(source, /runTabPress\(event as unknown as TabPressEvent\)/);
+  assert.match(source, /const startedAtMs = pressStartedAtRef\.current \?\? getNow\(\)/);
+  assert.match(source, /useUIState\.getState\(\)\.hideActionSheet\(\)/);
   assert.match(source, /onPressIn=\{handlePressIn\}/);
+  assert.match(source, /onPress=\{handlePress\}/);
+  assert.match(source, /onPressOut=\{handlePressOut\}/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
+  assert.match(source, /if \(handledOnPressInRef\.current\) \{/);
+  assert.doesNotMatch(source, /runTabPress\(event\);\s*\}, \[onPress, onPressIn, runTabPress\]\)/);
   assert.match(source, /detachInactiveScreens=\{false\}/);
   assert.match(source, /freezeOnBlur: false/);
-  assert.match(source, /lazy: false/);
+  assert.match(source, /lazy: true/);
   assert.match(source, /animation: 'none'/);
+  assert.match(source, /previousPathRef/);
+  assert.match(source, /previousPathRef\.current !== pathname && actionSheet !== null/);
+  assert.match(source, /do not eagerly mount every heavy tab/);
   assert.doesNotMatch(source, /screenListeners=/);
   assert.doesNotMatch(source, /traceUiInteraction/);
   assert.doesNotMatch(source, /freezeOnBlur: true/);
+  assert.doesNotMatch(source, /lazy: false/);
 });
 
 test('bottom tab navigation has a strict one-frame latency budget', () => {
@@ -31,7 +46,6 @@ test('bottom tab navigation has a strict one-frame latency budget', () => {
   assert.ok(Number(budgetMatch[1]) <= 20, 'tab switch budget must stay at or below 20ms');
   assert.match(source, /scheduleTabSwitchBudgetCheck\(startedAtMs\)/);
   assert.match(source, /requestAnimationFrame/);
-  assert.match(source, /setTimeout\(clearHandledFlag, TAB_PRESS_GUARD_RESET_MS\)/);
   assert.doesNotMatch(source, /InteractionManager/);
   assert.doesNotMatch(source, /transitionSpec/);
 });

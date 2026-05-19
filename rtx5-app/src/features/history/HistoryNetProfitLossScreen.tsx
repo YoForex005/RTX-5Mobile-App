@@ -411,12 +411,13 @@ export function HistoryNetProfitLossScreen() {
       </View>
 
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
         ]}
-        keyboardShouldPersistTaps='handled'
+        keyboardShouldPersistTaps='always'
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroWrap}>

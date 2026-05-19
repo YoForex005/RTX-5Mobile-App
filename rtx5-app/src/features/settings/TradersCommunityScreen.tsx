@@ -108,6 +108,8 @@ export function TradersCommunityScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
@@ -127,6 +129,7 @@ export function TradersCommunityScreen() {
 
         <SectionHeader title="Featured Traders" styles={styles} />
         <ScrollView
+          keyboardShouldPersistTaps="always"
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalRail}
@@ -138,6 +141,7 @@ export function TradersCommunityScreen() {
 
         <SectionHeader title="Live Trading Rooms" styles={styles} />
         <ScrollView
+          keyboardShouldPersistTaps="always"
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalRail}
@@ -328,7 +332,8 @@ function CategoryTabs({
   styles: TradersCommunityStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRail}>
       {filters.map((filter) => {
         const selected = filter === selectedFilter;
 

@@ -10,15 +10,17 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  resetKey: number;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
+    resetKey: 0,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
@@ -27,8 +29,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleRestart = () => {
-    // Attempt to clear the error state and remount the children
-    this.setState({ hasError: false, error: null });
+    this.setState((state) => ({
+      hasError: false,
+      error: null,
+      resetKey: state.resetKey + 1,
+    }));
   };
 
   public render() {
@@ -40,7 +45,13 @@ export class ErrorBoundary extends Component<Props, State> {
           <Text style={styles.subtitle}>
             An unexpected error occurred in the trading UI. Your positions are safe on the server.
           </Text>
-          <Pressable style={styles.button} onPress={this.handleRestart}>
+          <Pressable
+            style={styles.button}
+            onPress={this.handleRestart}
+            hitSlop={12}
+            latencyLabel="errorBoundary.restart"
+            accessibilityRole="button"
+          >
             <Ionicons name="refresh" size={18} color="#FFF" />
             <Text style={styles.buttonText}>Tap to Reload</Text>
           </Pressable>
@@ -48,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return <React.Fragment key={this.state.resetKey}>{this.props.children}</React.Fragment>;
   }
 }
 

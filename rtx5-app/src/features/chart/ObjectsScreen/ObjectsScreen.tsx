@@ -216,6 +216,8 @@ export function ObjectsScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 24 }}
         showsVerticalScrollIndicator={false}
       >

@@ -1,9 +1,12 @@
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
-  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, Alert } from 'react-native';
+  ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  type NativeSyntheticEvent,
+  type TextInputEndEditingEventData,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -18,11 +21,44 @@ import { BROKER_CONFIG_KEY } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
+import { runImmediateAction } from '../src/utils/actionLatency';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
   sectionTitle: 'Login to an existing account',
   savedLoginKey: 'rtx5_saved_login',
+};
+const LOGIN_TOUCH_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
+const LOGIN_BUTTON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
+const LOGIN_BUTTON_PRESS_RETENTION_OFFSET = { top: 24, bottom: 24, left: 24, right: 24 } as const;
+const LOGIN_SUBMIT_PRESS_GUARD_MS = 350;
+
+const schedulePostLoginWork = (task: () => void) => {
+  const runAfterFrame = () => {
+    setTimeout(task, 0);
+  };
+
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+
+  setTimeout(task, 0);
+};
+
+const scheduleLoginSubmitAfterInputCommit = (task: () => void) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(task);
+    return;
+  }
+
+  setTimeout(task, 0);
+};
+
+type LoginCredentialsSnapshot = {
+  brokerId: string;
+  accountId: string;
+  password: string;
 };
 
 export function AccountLoginScreen() {
@@ -48,6 +84,12 @@ export function AccountLoginScreen() {
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = makeStyles(T, isDark, insets.top);
+  const loginRequestInFlightRef = useRef(false);
+  const loginSubmitPressGuardRef = useRef(false);
+  const loginSubmitPressGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const brokerIdValueRef = useRef<string | null>(null);
+  const accountIdValueRef = useRef<string | null>(null);
+  const passwordValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Auto-populate saved credentials if they exist
@@ -55,9 +97,18 @@ export function AccountLoginScreen() {
       if (val) {
         try {
           const { broker, login: savedAccountId, pass } = JSON.parse(val);
-          if (broker) setBrokerId(broker);
-          if (savedAccountId) setAccountId(savedAccountId);
-          if (pass) setPassword(pass);
+          if (broker) {
+            brokerIdValueRef.current = broker;
+            setBrokerId(broker);
+          }
+          if (savedAccountId) {
+            accountIdValueRef.current = savedAccountId;
+            setAccountId(savedAccountId);
+          }
+          if (pass) {
+            passwordValueRef.current = pass;
+            setPassword(pass);
+          }
           setSavePassword(true);
         } catch (e) {
           // ignore parsing error
@@ -66,6 +117,52 @@ export function AccountLoginScreen() {
     });
   }, [screenCopy.savedLoginKey]);
 
+  useEffect(() => () => {
+    if (loginSubmitPressGuardTimerRef.current) {
+      clearTimeout(loginSubmitPressGuardTimerRef.current);
+      loginSubmitPressGuardTimerRef.current = null;
+    }
+  }, []);
+
+  const updateBrokerId = (value: string) => {
+    brokerIdValueRef.current = value;
+    setBrokerId(value);
+  };
+
+  const updateAccountId = (value: string) => {
+    accountIdValueRef.current = value;
+    setAccountId(value);
+  };
+
+  const updatePassword = (value: string) => {
+    passwordValueRef.current = value;
+    setPassword(value);
+  };
+
+  const updateBrokerIdFromEndEditing = (
+    event: NativeSyntheticEvent<TextInputEndEditingEventData>,
+  ) => {
+    updateBrokerId(event.nativeEvent.text);
+  };
+
+  const updateAccountIdFromEndEditing = (
+    event: NativeSyntheticEvent<TextInputEndEditingEventData>,
+  ) => {
+    updateAccountId(event.nativeEvent.text);
+  };
+
+  const updatePasswordFromEndEditing = (
+    event: NativeSyntheticEvent<TextInputEndEditingEventData>,
+  ) => {
+    updatePassword(event.nativeEvent.text);
+  };
+
+  const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => ({
+    brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
+    accountId: (accountIdValueRef.current ?? accountId).trim(),
+    password: passwordValueRef.current ?? password,
+  });
+
   const handleModalClose = () => {
     if (modalState.type === 'success') {
       router.replace('/(tabs)/quotes');
@@ -73,32 +170,30 @@ export function AccountLoginScreen() {
     setModalState(prev => ({ ...prev, visible: false }));
   };
 
-  const handleLogin = async () => {
-    if (!brokerId.trim()) {
+  const handleLogin = async (snapshot: LoginCredentialsSnapshot = getLoginCredentialsSnapshot()) => {
+    if (loginRequestInFlightRef.current) {
+      return;
+    }
+    const normalizedBrokerId = snapshot.brokerId;
+    const normalizedAccountId = snapshot.accountId;
+    const currentPassword = snapshot.password;
+
+    if (!normalizedBrokerId) {
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
       return;
     }
-    if (!accountId || !password) {
+    if (!normalizedAccountId || !currentPassword) {
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter both Login ID and Password') });
       return;
     }
 
+    loginRequestInFlightRef.current = true;
     setIsLoading(true);
     try {
-      // We fetch brokerConfig strictly to get the server_name for the UI.
-      // We do NOT block login if it returns the fallback shape (without broker_id),
-      // because the backend /auth/login will ultimately validate the broker_id.
-      let brokerConfig: any = null;
-      try {
-        brokerConfig = await getBrokerConfig(brokerId.trim());
-      } catch (e) {
-        // Ignore errors, we'll fall back to brokerId if it fails
-      }
-
       const response: any = await loginAPI({
-        username: accountId.trim(),
-        password,
-        broker_id: brokerId.trim(),
+        username: normalizedAccountId,
+        password: currentPassword,
+        broker_id: normalizedBrokerId,
       });
 
       // ── Defensive response parsing ──
@@ -153,23 +248,17 @@ export function AccountLoginScreen() {
       // Use the broker_id from the API response as canonical — the server
       // validates and returns it, so it's always correct. Falls back to
       // the user-typed value if the response doesn't include it.
-      const canonicalBrokerId = response.broker_id || response.brokerId || brokerId.trim();
+      const canonicalBrokerId = response.broker_id || response.brokerId || normalizedBrokerId;
       const accountType = getTradingAccountTypeFromBackend(response);
-
-      console.log('[Login] success', {
-        accountLogin,
-        brokerId: canonicalBrokerId,
-        accountType,
-        hasToken: !!accessToken,
-        hasRefresh: !!refreshToken,
-      });
+      const immediateServerName = serverName || canonicalBrokerId;
+      const savedLogin = String(accountLogin);
 
       // brokerId is persisted atomically inside login() to prevent race
       // conditions with the async Zustand persist middleware.
       login(
-        String(accountLogin),
+        savedLogin,
         accountName,
-        serverName || brokerConfig?.server_name || canonicalBrokerId,
+        immediateServerName,
         {
           access_token: accessToken,
           refresh_token: refreshToken ?? '',
@@ -181,45 +270,61 @@ export function AccountLoginScreen() {
       // The backend owns account classification. One login screen can connect
       // demo, contest, and real accounts without route-specific hardcoding.
       setIsDemoAccountFlag(accountType === 'demo');
+      router.replace('/(tabs)/quotes');
+      schedulePostLoginWork(() => {
+        // Record this account in the persistent directory and stash the master
+        // password securely so the user can one-tap switch back to it later
+        // from the Accounts screen.
+        upsertSavedAccount({
+          login: savedLogin,
+          name: accountName,
+          brokerId: canonicalBrokerId,
+          server: immediateServerName,
+          accountType,
+          lastUsedAt: Date.now(),
+          hasCredentials: true,
+        });
+        setSavedAccountPassword(canonicalBrokerId, savedLogin, currentPassword).catch((err) => {
+          console.warn('[Login] Failed to persist saved-account credential', err);
+        });
 
-      // Record this account in the persistent directory and stash the master
-      // password securely so the user can one-tap switch back to it later
-      // from the Accounts screen.
-      const savedLogin = String(accountLogin);
-      upsertSavedAccount({
-        login: savedLogin,
-        name: accountName,
-        brokerId: canonicalBrokerId,
-        server: serverName || brokerConfig?.server_name || canonicalBrokerId,
-        accountType,
-        lastUsedAt: Date.now(),
-        hasCredentials: true,
+        // Refresh session-scoped caches after navigation has started.
+        queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
+        queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
+        queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+
+        // Keep remembered-login storage off the critical route change.
+        if (savePassword) {
+          setSecureItemAsync(
+            screenCopy.savedLoginKey,
+            JSON.stringify({ broker: normalizedBrokerId, login: normalizedAccountId, pass: currentPassword })
+          );
+        } else {
+          removeSecureItemAsync(screenCopy.savedLoginKey);
+        }
+
+        void getBrokerConfig(canonicalBrokerId)
+          .then((brokerConfig) => {
+            queryClient.setQueryData([BROKER_CONFIG_KEY, canonicalBrokerId], brokerConfig);
+            if (canonicalBrokerId !== normalizedBrokerId) {
+              queryClient.setQueryData([BROKER_CONFIG_KEY, normalizedBrokerId], brokerConfig);
+            }
+            if (brokerConfig.server_name && brokerConfig.server_name !== immediateServerName) {
+              upsertSavedAccount({
+                login: savedLogin,
+                name: accountName,
+                brokerId: canonicalBrokerId,
+                server: brokerConfig.server_name,
+                accountType,
+                lastUsedAt: Date.now(),
+                hasCredentials: true,
+              });
+            }
+          })
+          .catch((err) => {
+            console.warn('[Login] Broker config refresh failed after login', err);
+          });
       });
-      setSavedAccountPassword(canonicalBrokerId, savedLogin, password).catch((err) => {
-        console.warn('[Login] Failed to persist saved-account credential', err);
-      });
-
-      // ── Invalidate cached queries so fresh data loads for the new session ──
-      // Without this, stale accounts/broker data from a previous login persists
-      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
-
-      // ── Handle Save Password Option ──────────────────────────────────────
-      if (savePassword) {
-        setSecureItemAsync(
-          screenCopy.savedLoginKey,
-          JSON.stringify({ broker: brokerId.trim(), login: accountId.trim(), pass: password })
-        );
-      } else {
-        removeSecureItemAsync(screenCopy.savedLoginKey);
-      }
-
-      setModalState({ visible: true, type: 'success', title: t('Success'), message: t('Login successful') });
-      setTimeout(() => {
-        setModalState(prev => ({ ...prev, visible: false }));
-        router.replace('/(tabs)/quotes');
-      }, 1200);
       
     } catch (error: any) {
       setModalState({ visible: true, type: 'error', title: t('Login Failed'), message: error.message || t('Invalid credentials') });
@@ -227,8 +332,35 @@ export function AccountLoginScreen() {
         setModalState(prev => ({ ...prev, visible: false }));
       }, 2000);
     } finally {
+      loginRequestInFlightRef.current = false;
       setIsLoading(false);
     }
+  };
+
+  const releaseLoginSubmitPressGuard = () => {
+    if (loginSubmitPressGuardTimerRef.current) {
+      clearTimeout(loginSubmitPressGuardTimerRef.current);
+    }
+    loginSubmitPressGuardTimerRef.current = setTimeout(() => {
+      loginSubmitPressGuardRef.current = false;
+      loginSubmitPressGuardTimerRef.current = null;
+    }, LOGIN_SUBMIT_PRESS_GUARD_MS);
+  };
+
+  const handleLoginPress = () => {
+    if (loginRequestInFlightRef.current || loginSubmitPressGuardRef.current) {
+      return;
+    }
+
+    loginSubmitPressGuardRef.current = true;
+    runImmediateAction('login.submit.touch', () => {
+      Keyboard.dismiss();
+      scheduleLoginSubmitAfterInputCommit(() => {
+        const snapshot = getLoginCredentialsSnapshot();
+        void handleLogin(snapshot);
+      });
+      releaseLoginSubmitPressGuard();
+    });
   };
 
   return (
@@ -266,7 +398,11 @@ export function AccountLoginScreen() {
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false}
+          >
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
@@ -282,7 +418,8 @@ export function AccountLoginScreen() {
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={brokerId}
-                  onChangeText={setBrokerId}
+                  onChangeText={updateBrokerId}
+                  onEndEditing={updateBrokerIdFromEndEditing}
                   autoCapitalize="none"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -303,7 +440,8 @@ export function AccountLoginScreen() {
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={accountId}
-                  onChangeText={setAccountId}
+                  onChangeText={updateAccountId}
+                  onEndEditing={updateAccountIdFromEndEditing}
                   autoCapitalize="none"
                   keyboardType="numeric"
                   selectionColor={T.accent}
@@ -325,7 +463,8 @@ export function AccountLoginScreen() {
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={updatePassword}
+                  onEndEditing={updatePasswordFromEndEditing}
                   autoCapitalize="none"
                   secureTextEntry={!showPassword}
                   selectionColor={T.accent}
@@ -348,6 +487,8 @@ export function AccountLoginScreen() {
               <Pressable
                 style={styles.checkboxRow}
                 onPress={() => setSavePassword(!savePassword)}
+                hitSlop={LOGIN_TOUCH_HIT_SLOP}
+                latencyLabel="login.savePassword.toggle"
               >
                 <Ionicons
                   name={savePassword ? "checkbox" : "square-outline"}
@@ -362,8 +503,16 @@ export function AccountLoginScreen() {
                   styles.loginBtn,
                   (pressed || isLoading) && styles.loginBtnPressed
                 ]}
-                onPress={handleLogin}
+                onPress={handleLoginPress}
+                activateOnPressIn
                 disabled={isLoading}
+                hitSlop={LOGIN_BUTTON_HIT_SLOP}
+                pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
+                latencyLabel="login.submit"
+                unstable_pressDelay={0}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isLoading, busy: isLoading }}
+                testID="login-submit-button"
               >
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
@@ -378,7 +527,7 @@ export function AccountLoginScreen() {
 
         {/* Success/Error Modal Overlay */}
         {modalState.visible && (
-          <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+          <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
             <Pressable style={StyleSheet.absoluteFillObject} onPress={handleModalClose} />
             <View style={styles.successModal}>
               <View style={[styles.successIconBox, modalState.type === 'error' && { backgroundColor: T.trading.sell.primary }]}>
@@ -523,7 +672,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     /* Solid Login Button */
     loginBtn: {
       backgroundColor: T.accent,
-      height: 54,
+      minHeight: 56,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
@@ -536,7 +685,6 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     loginBtnPressed: {
       opacity: 0.85,
-      transform: [{ scale: 0.98 }],
     },
     loginBtnText: {
       color: '#ffffff',

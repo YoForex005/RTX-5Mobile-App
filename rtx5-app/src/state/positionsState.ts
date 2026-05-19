@@ -9,6 +9,7 @@ import { appQueryClient } from './providers/AppProviders';
 import {
   classifyTradingError,
   createFrontendTradingError,
+  type TradingApiError,
   type TradingErrorFeedback,
 } from '../api/tradingErrors';
 import { UNKNOWN_POSITION_SYMBOL, mapPositionToItem } from './positionsMapper';
@@ -40,7 +41,35 @@ type PositionsState = {
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
 
-export const usePositionsState = create<PositionsState>((set) => ({
+const DEBUG_POSITIONS_STATE =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_STATE === 'true';
+const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
+const positionsRateLimitUntilByLogin = new Map<string, number>();
+
+const logPositionsStateDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (DEBUG_POSITIONS_STATE) {
+    console.log(...args);
+  }
+};
+
+const warnPositionsStateDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (DEBUG_POSITIONS_STATE) {
+    console.warn(...args);
+  }
+};
+
+const getRetryAfterSeconds = (error: unknown): number | null => {
+  const headers = (error as TradingApiError | undefined)?.headers;
+  const retryAfter = headers?.['retry-after'];
+  if (!retryAfter) {
+    return null;
+  }
+
+  const seconds = Number.parseInt(retryAfter, 10);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+};
+
+export const usePositionsState = create<PositionsState>((set, get) => ({
   positions: [],
   positionSnapshots: {},
   isLoading: false,
@@ -135,6 +164,16 @@ export const usePositionsState = create<PositionsState>((set) => ({
   },
 
   refreshPositions: async (accountLogin: string) => {
+    const state = get();
+    if (state.isLoading && state.lastFetchLogin === accountLogin) {
+      return;
+    }
+
+    const rateLimitUntilMs = positionsRateLimitUntilByLogin.get(accountLogin) ?? 0;
+    if (rateLimitUntilMs > Date.now()) {
+      return;
+    }
+
       set((state) => ({
         isLoading: true,
         lastFetchLogin: accountLogin,
@@ -155,7 +194,7 @@ export const usePositionsState = create<PositionsState>((set) => ({
     try {
       const login = parseInt(accountLogin, 10);
       if (Number.isNaN(login)) {
-        console.warn('[PositionsState] Invalid account login:', accountLogin);
+        warnPositionsStateDiagnostic('[PositionsState] Invalid account login:', accountLogin);
         set({
           isLoading: false,
           lastError: createFrontendTradingError(
@@ -196,12 +235,12 @@ export const usePositionsState = create<PositionsState>((set) => ({
             }
           }
         }
-      } else {
-        positionsArray = [];
-        console.warn('[PositionsState] Unexpected response shape:', typeof data);
+        } else {
+          positionsArray = [];
+        warnPositionsStateDiagnostic('[PositionsState] Unexpected response shape:', typeof data);
       }
 
-      console.log('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
+      logPositionsStateDiagnostic('[PositionsState] Fetched', positionsArray.length, 'open positions for login', login);
 
       set((state) => {
         return {
@@ -212,10 +251,16 @@ export const usePositionsState = create<PositionsState>((set) => ({
         };
       });
     } catch (e) {
-      console.warn('[PositionsState] Failed to fetch positions', e);
+      const feedback = classifyTradingError(e, { action: 'load-positions' });
+      if (feedback.kind === 'rate-limit') {
+        const retryAfterSeconds = feedback.retryAfterSeconds ?? getRetryAfterSeconds(e) ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS;
+        positionsRateLimitUntilByLogin.set(accountLogin, Date.now() + retryAfterSeconds * 1000);
+      } else {
+        warnPositionsStateDiagnostic('[PositionsState] Failed to fetch positions', e);
+      }
       set({
         isLoading: false,
-        lastError: classifyTradingError(e, { action: 'load-positions' }),
+        lastError: feedback,
       });
     }
   },

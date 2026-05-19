@@ -8,6 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,12 +36,13 @@ export function ChartTradingCalculatorScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
 
   const currentSymbol = symbol || 'XAU/USD';
 
   // Real broker meta + live market quote
-  const { data: meta } = useInstrumentMeta(currentSymbol);
-  const liveQuotes = useMarketData([currentSymbol]);
+  const { data: meta } = useInstrumentMeta(currentSymbol, isScreenFocused);
+  const liveQuotes = useMarketData([currentSymbol], isScreenFocused);
   const liveQuote = liveQuotes[currentSymbol];
 
   const liveBid = typeof liveQuote?.bid === 'number' ? liveQuote.bid : undefined;
@@ -124,7 +126,9 @@ export function ChartTradingCalculatorScreen() {
           <View style={styles.headerBackBtn} />
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Segmented Control */}
         <View style={styles.segmentContainer}>

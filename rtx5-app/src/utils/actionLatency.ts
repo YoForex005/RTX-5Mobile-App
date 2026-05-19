@@ -4,6 +4,7 @@
 export const APP_ACTION_MAX_LATENCY_MS = 20;
 export const CRITICAL_TRADE_ACTION_MAX_LATENCY_MS = 10;
 export const FAST_PRESS_GUARD_RESET_MS = 120;
+const STALE_ACTION_LATENCY_SAMPLE_MS = 5000;
 
 export function getInteractionNow() {
   return typeof globalThis.performance?.now === 'function'
@@ -30,6 +31,9 @@ export function scheduleActionLatencyCheck(
 
   runAfterFirstFrame(() => {
     const elapsedMs = getInteractionNow() - startedAtMs;
+    if (elapsedMs > STALE_ACTION_LATENCY_SAMPLE_MS) {
+      return;
+    }
     if (elapsedMs > budgetMs) {
       console.warn(
         `[Action] ${label} first frame took ${Math.round(elapsedMs)}ms; budget is ${budgetMs}ms.`,

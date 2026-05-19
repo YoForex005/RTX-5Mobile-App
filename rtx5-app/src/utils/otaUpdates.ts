@@ -9,6 +9,7 @@ const getActiveUpdateChannel = () => Updates.channel ?? process.env.EXPO_PUBLIC_
 
 const canUseOtaUpdates = () =>
   Platform.OS !== 'web' &&
+  (typeof __DEV__ === 'undefined' || !__DEV__) &&
   Updates.isEnabled &&
   Boolean(Updates.runtimeVersion) &&
   EAS_UPDATE_CHANNELS.has(getActiveUpdateChannel() ?? '');

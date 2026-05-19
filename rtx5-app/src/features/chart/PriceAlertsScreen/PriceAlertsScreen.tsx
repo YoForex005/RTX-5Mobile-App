@@ -15,6 +15,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
@@ -37,12 +38,15 @@ export function PriceAlertsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makePriceAlertsStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
 
   // Current chart symbol pre-fills the symbol field
   const chartSymbol = useUserPreferences((s) => s.chartSymbol);
 
   // ── Alert list ───────────────────────────────────────────────────────────
-  const { data: alerts = [], isLoading, refetch, isRefetching } = useAlertsQuery();
+  const { data: alerts = [], isLoading, refetch, isRefetching } = useAlertsQuery({
+    enabled: isScreenFocused,
+  });
   const { mutate: deleteAlert, isPending: isDeleting } = useDeleteAlertMutation();
 
   // ── Create form state ────────────────────────────────────────────────────
@@ -114,10 +118,11 @@ export function PriceAlertsScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
+          canCancelContentTouches={false}
           style={styles.flex1}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}

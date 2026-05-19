@@ -13,7 +13,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, usePathname } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Dimensions, Keyboard, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
@@ -224,6 +224,13 @@ export function ChartScreen() {
   const T = useTheme();
   const { t } = useTranslation();
   const isScreenFocused = useIsFocused();
+  const pathname = usePathname();
+  const isChartRouteActive =
+    pathname === '/chart' ||
+    pathname.startsWith('/chart/') ||
+    pathname === '/(tabs)/chart' ||
+    pathname.startsWith('/(tabs)/chart/');
+  const chartRuntimeActive = isScreenFocused && isChartRouteActive;
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
   const liveLogin = useLiveAccountState((s) => s.login);
@@ -240,13 +247,13 @@ export function ChartScreen() {
   // Fetch positions on mount AND poll every 10s so new trades always appear
   // on the chart even if the account WebSocket misses an event.
   useEffect(() => {
-    if (!isScreenFocused || !accountLogin) return;
+    if (!chartRuntimeActive || !accountLogin) return;
     refreshPositions(String(accountLogin));
     const interval = setInterval(() => {
       refreshPositions(String(accountLogin));
     }, 10000);
     return () => clearInterval(interval);
-  }, [accountLogin, isScreenFocused, refreshPositions]);
+  }, [accountLogin, chartRuntimeActive, refreshPositions]);
 
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -322,12 +329,12 @@ export function ChartScreen() {
   );
   const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
 
-  const { data: apiSymbols = [] } = useMarketSymbols();
+  const { data: apiSymbols = [] } = useMarketSymbols(chartRuntimeActive);
   const availableSymbols = useMemo(
     () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
     [apiSymbols, chartSymbol],
   );
-  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol);
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, chartRuntimeActive);
   const tradeVolumeBounds = useMemo(
     () => ({
       minVolume: chartInstrumentMeta?.minVolume,
@@ -357,7 +364,7 @@ export function ChartScreen() {
 
   // Safely strip MT4/MT5 suffixes like 'm', '.c', '_std' to resolve flags properly
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
-  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : []);
+  const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : [], chartRuntimeActive);
   const chartLiveQuote = chartLiveQuotes[chartSymbol];
   const displayDecimals = useMemo(() => {
     const liveDigits =
@@ -370,17 +377,17 @@ export function ChartScreen() {
     return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
   }, [baseSymbol, chartLiveQuote?.digits]);
   const { data: closedPositions = [], refetch: refetchClosedPositions } = usePositionHistoryQuery(accountLogin, {
-    enabled: isScreenFocused,
+    enabled: chartRuntimeActive,
   });
   const { data: orders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
-    enabled: isScreenFocused,
+    enabled: chartRuntimeActive,
   });
   const { data: alerts = [], refetch: refetchAlerts } = useAlertsQuery({
-    enabled: isScreenFocused,
+    enabled: chartRuntimeActive,
   });
   const { data: accountSummary, refetch: refetchAccountSummary } = useAccountSummary(
     accountLogin ? String(accountLogin) : undefined,
-    { enabled: isScreenFocused },
+    { enabled: chartRuntimeActive },
   );
   const liveAccountEquity = useLiveAccountState((s) => s.equity);
   const liveAccountMargin = useLiveAccountState((s) => s.margin);
@@ -984,7 +991,7 @@ export function ChartScreen() {
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartRuntimeActive);
   const sanitizedCandles = useMemo(
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
     [candles, chartTimeframe],
@@ -2836,6 +2843,9 @@ export function ChartScreen() {
     setOverlaySyncRevision((revision) => revision + 1);
   }, []);
   const refreshShowOnChartSources = useCallback(() => {
+    if (!chartRuntimeActive) {
+      return;
+    }
     requestOverlaySync();
     if (accountLogin) {
       refreshPositions(String(accountLogin));
@@ -2852,24 +2862,28 @@ export function ChartScreen() {
     refetchAlerts,
     refetchAccountSummary,
     requestOverlaySync,
+    chartRuntimeActive,
   ]);
   useFocusEffect(
     useCallback(() => {
+      if (!chartRuntimeActive) {
+        return cancelChartViewportRecovery;
+      }
       refreshShowOnChartSources();
       requestChartViewportRecovery(3);
       return cancelChartViewportRecovery;
-    }, [cancelChartViewportRecovery, refreshShowOnChartSources, requestChartViewportRecovery]),
+    }, [cancelChartViewportRecovery, chartRuntimeActive, refreshShowOnChartSources, requestChartViewportRecovery]),
   );
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && isScreenFocused) {
+      if (state === 'active' && chartRuntimeActive) {
         refreshShowOnChartSources();
         requestChartViewportRecovery(3);
       }
     });
 
     return () => subscription.remove();
-  }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
+  }, [chartRuntimeActive, refreshShowOnChartSources, requestChartViewportRecovery]);
   const isLoading = (!chartCanvasReady || !candlesAvailable) && loadingDelayPassed && !loadingFallback;
   const isError = false;
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
@@ -3290,7 +3304,7 @@ export function ChartScreen() {
   // Also acts as a self-heal: if the WebView silently loses the chart
   // (process killed, JS error, etc.), this brings it back.
   useEffect(() => {
-    if (!isScreenFocused) {
+    if (!chartRuntimeActive) {
       if (watchdogRef.current) clearInterval(watchdogRef.current);
       return;
     }
@@ -3309,7 +3323,7 @@ export function ChartScreen() {
     return () => {
       if (watchdogRef.current) clearInterval(watchdogRef.current);
     };
-  }, [isScreenFocused, webViewReady, sendInit]);
+  }, [chartRuntimeActive, webViewReady, sendInit]);
 
   const overlayPayload = useMemo(
     () => {
@@ -3412,7 +3426,7 @@ export function ChartScreen() {
   // appear. This was the root cause of "sometimes shows, sometimes doesn't".
   // Push overlay to WebView whenever payload changes or chart (re-)initializes.
   useEffect(() => {
-    if (!isScreenFocused || !webViewReady || !chartCanvasReady || !webViewRef.current) {
+    if (!chartRuntimeActive || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
     }
 
@@ -3442,7 +3456,7 @@ export function ChartScreen() {
 
     return () => clearInterval(resyncInterval);
   }, [
-    isScreenFocused,
+    chartRuntimeActive,
     overlayPayloadSignature,
     webViewReady,
     chartCanvasReady,
@@ -3736,7 +3750,7 @@ export function ChartScreen() {
 
             {/* Right: Live Price */}
             <View style={styles.rightSection}>
-              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={sanitizedCandles} />
+              <LivePriceHeader symbol={chartSymbol} styles={styles} displayDecimals={displayDecimals} priceSource={priceSource} candles={sanitizedCandles} active={chartRuntimeActive} />
             </View>
           </View>
         </View>
@@ -3777,6 +3791,7 @@ export function ChartScreen() {
         }}
       >
         <ScrollView
+          canCancelContentTouches={false}
           ref={chartScrollRef}
           style={styles.card}
           contentContainerStyle={[
@@ -3787,7 +3802,7 @@ export function ChartScreen() {
           scrollEnabled={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
           bounces={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
           alwaysBounceVertical={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
         >
@@ -4292,7 +4307,7 @@ export function ChartScreen() {
                     horizontal
                     nestedScrollEnabled
                     directionalLockEnabled
-                    keyboardShouldPersistTaps="handled"
+                    keyboardShouldPersistTaps="always"
                     showsHorizontalScrollIndicator={false}
                     style={[
                       styles.chartTradeTypeTabsScroll,
@@ -4343,6 +4358,7 @@ export function ChartScreen() {
                     })}
                   </ScrollView>
                   <ScrollView
+                    canCancelContentTouches={false}
                     ref={undefined}
                     style={styles.chartTradeSheetContentScroll}
                     contentContainerStyle={[
@@ -4351,7 +4367,7 @@ export function ChartScreen() {
                     ]}
                     nestedScrollEnabled
                     bounces={false}
-                    keyboardShouldPersistTaps={chartTradeCommentFocused ? 'always' : 'handled'}
+                    keyboardShouldPersistTaps="always"
                     keyboardDismissMode={chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                     scrollEventThrottle={16}
                     onScroll={(event) => {
@@ -4729,6 +4745,7 @@ export function ChartScreen() {
                           volumeBounds={tradeVolumeBounds}
                           comment={chartTradeComment}
                           variant='mt5-market'
+                          active={chartRuntimeActive}
                           onTradeResult={setTradeFeedback}
                           isDark={isDark}
                           buyColor={BLUE}
@@ -4803,6 +4820,7 @@ export function ChartScreen() {
               onLotDraftSubmit={handleSubmitFooterLotEditor}
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
+              active={chartRuntimeActive}
               onLayout={(event) => {
                 const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
                 if (nextHeight > 0) {
@@ -4838,6 +4856,7 @@ export function ChartScreen() {
             onLotDraftSubmit={handleSubmitFooterLotEditor}
             onDecreaseLot={() => handleStepFooterLotEditor(-1)}
             onIncreaseLot={() => handleStepFooterLotEditor(1)}
+            active={chartRuntimeActive}
             onLayout={(event) => {
               const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
               if (nextHeight > 0) {

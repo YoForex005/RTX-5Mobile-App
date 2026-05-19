@@ -10,6 +10,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -87,11 +88,12 @@ export function MarketStatisticsScreen() {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
+  const isScreenFocused = useIsFocused();
 
   // Subscribe to live tick data
-  const liveQuotes = useMarketData([symbol]);
-  const { data: remoteMeta } = useInstrumentMeta(symbol);
-  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol);
+  const liveQuotes = useMarketData([symbol], isScreenFocused);
+  const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
+  const { data: dailyRangeCandle = null } = useLatestDailyCandle(symbol, isScreenFocused);
 
   const q = useMemo<QuoteItem>(() => {
     const live = liveQuotes[symbol] as Partial<QuoteItem> | undefined;
@@ -230,6 +232,8 @@ export function MarketStatisticsScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false}
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
         showsVerticalScrollIndicator={false}

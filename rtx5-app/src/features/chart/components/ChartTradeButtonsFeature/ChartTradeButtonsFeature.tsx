@@ -37,6 +37,7 @@ type ChartTradeButtonsProps = {
   onDecreaseLot?: () => void;
   onIncreaseLot?: () => void;
   variant?: 'compact' | 'mt5-market';
+  active?: boolean;
   isDark: boolean;
   buyColor: string;
   sellColor: string;
@@ -61,11 +62,12 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onDecreaseLot,
   onIncreaseLot,
   variant = 'compact',
+  active = true,
   isDark,
   buyColor,
   sellColor,
 }: ChartTradeButtonsProps) {
-  const latestTick = useLiveTick(symbol);
+  const latestTick = useLiveTick(symbol, undefined, active);
   const latestBid = typeof latestTick?.bid === 'number' && Number.isFinite(latestTick.bid) ? latestTick.bid : 0;
   const latestAsk = typeof latestTick?.ask === 'number' && Number.isFinite(latestTick.ask) ? latestTick.ask : 0;
   const hasLiveBid = latestBid > 0;

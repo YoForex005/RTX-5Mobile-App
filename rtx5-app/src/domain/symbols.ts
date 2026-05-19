@@ -21,8 +21,11 @@ const KNOWN_BASE_SYMBOLS = new Set([
 
 const BROKER_SUFFIXES_RE = /(?:PRO|ECN|STD|STP|RAW|ZERO|CENT|MICRO|MINI|NANO|FIX|VAR|SWAP|NDD|PRIME|CLASSIC|STANDARD|M|C|E|X|S|R|B|F|K)$/;
 
+export const normalizeQuoteSymbolKey = (symbol: string): string =>
+  symbol.trim().toUpperCase().replace(/[\/\s]+/g, '');
+
 export const normalizeSymbol = (symbol: string): string => {
-  const normalized = symbol.trim().toUpperCase().replace(/[\/\s]+/g, '');
+  const normalized = normalizeQuoteSymbolKey(symbol);
   if (!normalized) return '';
 
   const strippedTransportSuffix = normalized.replace(/[._-].*$/, '');

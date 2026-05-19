@@ -1,8 +1,9 @@
-import { normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { resolveQuoteTickTimestamp } from './quoteTimestamp';
 
 export type QuoteTickEvent = {
   symbol: string;
+  rawSymbol?: string;
   bid: number;
   ask: number;
   last?: number;
@@ -22,6 +23,7 @@ export type QuoteTickEvent = {
 
 export type NormalizedQuoteFeedUpdate = {
   symbol: string;
+  rawSymbol: string;
   bid: number;
   ask: number;
   last?: number;
@@ -163,7 +165,8 @@ export const normalizeQuoteTickPayload = (
 
   const records = getCandidateRecords(input);
   const rawKeys = Object.keys(input);
-  const symbol = normalizeSymbol(String(pickFirstValue(records, SYMBOL_KEYS) ?? ''));
+  const rawSymbol = normalizeQuoteSymbolKey(String(pickFirstValue(records, SYMBOL_KEYS) ?? ''));
+  const symbol = normalizeSymbol(rawSymbol);
   if (!symbol) {
     return { ok: false, reason: 'missing_symbol', rawKeys };
   }
@@ -189,6 +192,7 @@ export const normalizeQuoteTickPayload = (
     ok: true,
     update: {
       symbol,
+      rawSymbol,
       bid,
       ask,
       last,

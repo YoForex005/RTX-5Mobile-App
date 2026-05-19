@@ -51,11 +51,19 @@ test('trade and registration paths record backend response latency', () => {
   const publicDemoSource = readSource('src/api/publicDemo.ts');
   const mt5AccountSource = readSource('src/api/mt5Account.ts');
   const apiClientSource = readSource('src/api/apiClient.ts');
+  const apiLatencySource = readSource('src/utils/apiLatency.ts');
   const candlesSource = readSource('src/domain/candles/api/candles.ts');
+  const brokerSource = readSource('src/api/broker.ts');
 
   assert.match(apiClientSource, /import \{ timedFetch \} from '..\/utils\/apiLatency'/);
   assert.match(apiClientSource, /label: `apiClient\.\$\{method\}`/);
   assert.match(apiClientSource, /label: 'apiClient\.refresh'/);
+  assert.match(apiLatencySource, /export const API_FETCH_TIMEOUT_MS = Math\.max/);
+  assert.match(apiLatencySource, /Number\(process\.env\.EXPO_PUBLIC_API_FETCH_TIMEOUT_MS\) \|\| 7000/);
+  assert.match(apiLatencySource, /const controller = new AbortController\(\)/);
+  assert.match(apiLatencySource, /signal: controller\.signal/);
+  assert.match(apiLatencySource, /Promise\.race\(\[fetchPromise, timedRequest\.timeoutPromise\]\)/);
+  assert.match(apiLatencySource, /Request timed out after \$\{timeoutMs\}ms/);
   assert.match(authSource, /label: 'auth\.login'/);
   assert.match(authSource, /label: 'auth\.register'/);
   assert.match(publicDemoSource, /label: 'publicDemo\.status'/);
@@ -63,6 +71,11 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(publicDemoSource, /label: 'publicDemo\.createAccount'/);
   assert.match(mt5AccountSource, /label: 'mt5Account\.create'/);
   assert.match(candlesSource, /label: 'candles\.publicHistory'/);
+  assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 3500/);
+  assert.match(brokerSource, /const controller = new AbortController\(\)/);
+  assert.match(brokerSource, /apiClient\('\/broker\/servers', \{ signal: controller\.signal \}\)/);
+  assert.match(brokerSource, /Broker list request timed out\. Please check your connection and try again\./);
+  assert.match(brokerSource, /clearTimeout\(timeout\)/);
   assert.match(orderSource, /recordApiLatency\(\{/);
   assert.match(orderSource, /label: `trade\.placeMarketOrder\.\$\{requestedSide\}`/);
   assert.match(orderSource, /endpoint: '\/orders'/);

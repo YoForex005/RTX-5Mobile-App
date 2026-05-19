@@ -43,6 +43,7 @@ export function InterfaceScreen() {
       <Text style={styles.sectionLabel}>{t('Select language')}</Text>
 
       <FlatList
+        keyboardShouldPersistTaps="always"
         data={SUPPORTED_LANGUAGES}
         extraData={language}
         keyExtractor={(item) => item.code}

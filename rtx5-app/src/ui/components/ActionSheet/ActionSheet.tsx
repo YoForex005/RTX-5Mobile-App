@@ -396,7 +396,8 @@ export function ActionSheet({
           ]}
           showsVerticalScrollIndicator={false}
           bounces={false}
-          keyboardShouldPersistTaps={searchable ? 'always' : 'handled'}
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         >
           {filteredActions.map((action, index) => {
@@ -406,6 +407,7 @@ export function ActionSheet({
                 key={`${action.label}-${index}`}
                 latencyLabel={`actionSheet.${action.label}`}
                 onPress={action.disabled ? undefined : () => handleActionPress(action.onPress)}
+                activateOnPressIn
                 disabled={action.disabled}
                 style={({ pressed }) => [
                   styles.action,
@@ -452,6 +454,7 @@ export function ActionSheet({
           style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
           latencyLabel="actionSheet.cancel"
           onPress={onClose}
+          activateOnPressIn
         >
           <Text style={styles.cancelText}>{t('Cancel')}</Text>
         </FastPressable>
@@ -475,20 +478,22 @@ export function ActionSheet({
         onLayout={handleOverlayLayout}
       >
         <FastPressable
-          style={StyleSheet.absoluteFillObject}
+          style={[StyleSheet.absoluteFillObject, styles.backdrop]}
           latencyLabel="actionSheet.dismissOverlay"
           onPress={onClose}
+          activateOnPressIn
         />
 
         {Platform.OS === 'ios' ? (
           <KeyboardAvoidingView
             behavior='padding'
             style={styles.sheetHost}
+            pointerEvents="box-none"
           >
             {sheetBody}
           </KeyboardAvoidingView>
         ) : (
-          <View style={styles.sheetHost}>
+          <View style={styles.sheetHost} pointerEvents="box-none">
             {sheetBody}
           </View>
         )}

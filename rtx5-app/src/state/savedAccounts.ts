@@ -109,27 +109,32 @@ export const useSavedAccounts = create<SavedAccountsState>()(
   ),
 );
 
-const credentialKey = (brokerId: string, login: string) =>
-  `rtx5_saved_account_pass:${brokerId}:${login}`;
+const encodeCredentialKeyPart = (value: string) =>
+  Array.from(value)
+    .map((char) => char.codePointAt(0)?.toString(16).padStart(4, '0') ?? '0000')
+    .join('_') || 'empty';
+
+export const makeSavedAccountCredentialKey = (brokerId: string, login: string) =>
+  `rtx5_saved_account_pass.${encodeCredentialKeyPart(brokerId)}.${encodeCredentialKeyPart(login)}`;
 
 export async function setSavedAccountPassword(
   brokerId: string,
   login: string,
   password: string,
 ): Promise<void> {
-  await setSecureItemAsync(credentialKey(brokerId, login), password);
+  await setSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login), password);
 }
 
 export async function getSavedAccountPassword(
   brokerId: string,
   login: string,
 ): Promise<string | null> {
-  return getSecureItemAsync(credentialKey(brokerId, login));
+  return getSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login));
 }
 
 export async function removeSavedAccountPassword(
   brokerId: string,
   login: string,
 ): Promise<void> {
-  await removeSecureItemAsync(credentialKey(brokerId, login));
+  await removeSecureItemAsync(makeSavedAccountCredentialKey(brokerId, login));
 }

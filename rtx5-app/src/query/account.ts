@@ -26,8 +26,8 @@ export function useAccountSummary(
       return getAccountSummary(login);
     },
     enabled,
-    refetchInterval: enabled ? (options.refetchInterval ?? 5000) : false, // Live poll every 5 seconds for real-time MT5 stats
-    staleTime: 2000,
+    refetchInterval: enabled ? (options.refetchInterval ?? 30_000) : false,
+    staleTime: 10_000,
   });
 }
 

@@ -57,12 +57,13 @@ function shouldRetryAccounts(failureCount: number, error: Error): boolean {
  *                  Defaults to true (assumes caller checks auth state).
  */
 export function useAccounts(enabled?: boolean) {
+  const isEnabled = enabled ?? true;
   return useQuery<TradingAccount[], Error>({
     queryKey: [ACCOUNTS_LIST_KEY],
     queryFn: getAccounts,
-    enabled: enabled ?? true,
+    enabled: isEnabled,
     staleTime: 5 * 1000,          // 5 seconds — keep data fresh for account screens
-    refetchInterval: 10 * 1000,  // Refresh every 10 seconds for near-real-time data
+    refetchInterval: isEnabled ? 10 * 1000 : false,  // Refresh every 10 seconds for near-real-time data
     retry: shouldRetryAccounts,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
@@ -79,12 +80,13 @@ export function useAccounts(enabled?: boolean) {
  * @param enabled - Optional override to control when the query fires.
  */
 export function useAccountDetails(login?: number, enabled?: boolean) {
+  const isEnabled = (enabled ?? true) && !!login;
   return useQuery<TradingAccount, Error>({
     queryKey: [ACCOUNT_DETAIL_KEY, login],
     queryFn: () => getAccountById(login!),
-    enabled: (enabled ?? true) && !!login,
+    enabled: isEnabled,
     staleTime: 15 * 1000,        // 15 seconds — tighter for active account view
-    refetchInterval: 30 * 1000,  // Poll every 30 seconds for near-real-time data
+    refetchInterval: isEnabled ? 30 * 1000 : false,  // Poll every 30 seconds for near-real-time data
     retry: shouldRetryAccounts,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });

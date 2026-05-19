@@ -24,6 +24,21 @@ import type {
   Position,
 } from './types';
 
+const DEBUG_POSITIONS_API =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_POSITIONS_API === 'true';
+
+const logPositionsApiDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (DEBUG_POSITIONS_API) {
+    console.log(...args);
+  }
+};
+
+const warnPositionsApiDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (DEBUG_POSITIONS_API) {
+    console.warn(...args);
+  }
+};
+
 export type {
   Position,
   ClosedPosition,
@@ -44,7 +59,7 @@ export const positionsApi = {
    */
   getPositions: async (login: number, limit = 50, offset = 0): Promise<Position[]> => {
     const url = `/positions/${login}?limit=${limit}&offset=${offset}`;
-    console.log('[PositionsAPI] GET', url);
+    logPositionsApiDiagnostic('[PositionsAPI] GET', url);
 
     let response: Response;
     try {
@@ -52,35 +67,35 @@ export const positionsApi = {
     } catch (error) {
       const message = (error as Error)?.message || '';
       if (message === 'Failed to fetch') {
-        console.warn('[PositionsAPI] apiClient fetch failed, retrying raw fetch');
+        warnPositionsApiDiagnostic('[PositionsAPI] apiClient fetch failed, retrying raw fetch');
         response = await rawPositionsFetch(url);
       } else {
         throw error;
       }
     }
-    console.log('[PositionsAPI] Response status:', response.status);
+    logPositionsApiDiagnostic('[PositionsAPI] Response status:', response.status);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.warn('[PositionsAPI] Error response:', JSON.stringify(errorData));
+      warnPositionsApiDiagnostic('[PositionsAPI] Error response:', JSON.stringify(errorData));
       const headers: Record<string, string> = {};
       if (response.status === 429) headers['retry-after'] = response.headers.get('retry-after') || '';
       throw createTradingApiError(response.status, errorData, headers);
     }
 
     const json = await response.json();
-    console.log('[PositionsAPI] Response type:', typeof json, Array.isArray(json) ? `array[${json.length}]` : 'not-array');
+    logPositionsApiDiagnostic('[PositionsAPI] Response type:', typeof json, Array.isArray(json) ? `array[${json.length}]` : 'not-array');
 
     // Handle both array and wrapped responses
     if (Array.isArray(json)) return json;
     if (json && typeof json === 'object') {
       const arr = json.data || json.positions || json.items || json.result;
       if (Array.isArray(arr)) {
-        console.log('[PositionsAPI] Unwrapped from object, found', arr.length, 'positions');
+        logPositionsApiDiagnostic('[PositionsAPI] Unwrapped from object, found', arr.length, 'positions');
         return arr;
       }
     }
-    console.warn('[PositionsAPI] Unexpected response shape:', JSON.stringify(json).slice(0, 200));
+    warnPositionsApiDiagnostic('[PositionsAPI] Unexpected response shape:', JSON.stringify(json).slice(0, 200));
     return [];
   },
 

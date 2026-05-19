@@ -249,13 +249,14 @@ export function MailboxScreen() {
       </View>
 
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
           { paddingTop: 14, paddingBottom: insets.bottom + 28 },
         ]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         onScrollBeginDrag={dismissSearchInput}
         onTouchStart={dismissSearchInput}
         refreshControl={
@@ -544,7 +545,8 @@ function MailboxCategoryTabs({
   styles: MailboxScreenStyles;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRail}>
+    <ScrollView
+      keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRail}>
       {categories.map((category) => (
         <Pressable key={category.category_id} onPress={() => onSelect(category.category_id)} hitSlop={6}>
           <View style={[styles.categoryPill, category.is_selected && styles.categoryPillActive]}>
@@ -926,7 +928,9 @@ function MailboxDetailScreen({
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
               {detailContext ? <DetailContextPanel config={detailContext} styles={styles} /> : null}
               {!detailContext ? <MessageDetailMetaPanel message={message} T={T} styles={styles} /> : null}
 

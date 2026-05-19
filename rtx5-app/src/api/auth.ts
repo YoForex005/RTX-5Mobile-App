@@ -1,6 +1,14 @@
 import { apiClient, API_BASE_URL } from './apiClient';
 import { timedFetch } from '../utils/apiLatency';
 
+const AUTH_LOGIN_TIMEOUT_MS = 8000;
+
+const isAbortError = (error: unknown) =>
+  error instanceof Error && (
+    error.name === 'AbortError' ||
+    error.message.toLowerCase().includes('aborted')
+  );
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Auth API — https://backend.orrnn.com/api/v2/auth
 //
@@ -88,19 +96,35 @@ export interface AuthResponse {
  * @throws Error with server message on 401 (invalid credentials) or other failures
  */
 export const loginAPI = async (credentials: LoginRequest): Promise<AuthResponse> => {
-  const response = await timedFetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify(credentials),
-  }, {
-    label: 'auth.login',
-    method: 'POST',
-    endpoint: '/auth/login',
-    source: 'auth',
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, AUTH_LOGIN_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await timedFetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(credentials),
+      signal: controller.signal,
+    }, {
+      label: 'auth.login',
+      method: 'POST',
+      endpoint: '/auth/login',
+      source: 'auth',
+    });
+  } catch (error) {
+    if (controller.signal.aborted || isAbortError(error)) {
+      throw new Error('Login request timed out. Please check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));

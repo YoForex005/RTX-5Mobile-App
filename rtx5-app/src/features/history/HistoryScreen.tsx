@@ -567,6 +567,7 @@ export function HistoryScreen() {
       </View>
 
       <FlatList
+        keyboardShouldPersistTaps="always"
         style={styles.list}
         data={data}
         keyExtractor={(item, index) => `${item.id}-${index}`}

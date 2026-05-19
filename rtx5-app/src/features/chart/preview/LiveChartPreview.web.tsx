@@ -41,6 +41,7 @@ export default function LiveChartPreviewWeb({
   priceSource,
   isDark,
   chartType = 'candles',
+  active = true,
 }: {
   symbol: string;
   timeframe: string;
@@ -49,6 +50,7 @@ export default function LiveChartPreviewWeb({
   priceSource: 'bid' | 'ask';
   isDark: boolean;
   chartType?: PreviewChartType;
+  active?: boolean;
 }) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -60,8 +62,8 @@ export default function LiveChartPreviewWeb({
   const lastCandleLengthRef = useRef(0);
   const lastRenderedCandleSignatureRef = useRef('');
 
-  const { candles } = useLiveCandles(symbol, timeframe);
-  const liveQuotes = useMarketData([symbol]);
+  const { candles } = useLiveCandles(symbol, timeframe, active);
+  const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol];
 
   const displayDecimals = getPreviewDisplayDecimals(symbol);

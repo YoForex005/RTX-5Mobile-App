@@ -234,13 +234,14 @@ export function ClosePositionScreen() {
         <View style={styles.headerBtn} />
       </View>
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.contentWrap}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.lg },
         ]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
         <View style={styles.header}>
           <Text style={styles.subTitle}>Review and confirm closing order</Text>

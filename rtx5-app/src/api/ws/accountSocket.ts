@@ -23,6 +23,20 @@ import {
 } from './accountSocket.helpers';
 
 const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'wss://backend.orrnn.com/ws/v2';
+const DEBUG_ACCOUNT_WS =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true';
+
+const logAccountWsDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (DEBUG_ACCOUNT_WS) {
+    console.log(...args);
+  }
+};
+
+const warnAccountWsDiagnostic = (...args: Parameters<typeof console.warn>) => {
+  if (DEBUG_ACCOUNT_WS) {
+    console.warn(...args);
+  }
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -242,7 +256,7 @@ class AccountWebSocketService {
 
     const session = this.resolveSession();
     if (!session) {
-      console.warn('[Account WS] No authenticated MT5 session available. Will retry in 5s.');
+      warnAccountWsDiagnostic('[Account WS] No authenticated MT5 session available. Will retry in 5s.');
       this.scheduleRetry(5000);
       return;
     }
@@ -254,7 +268,7 @@ class AccountWebSocketService {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('[Account WS] Connected');
+        logAccountWsDiagnostic('[Account WS] Connected');
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
@@ -270,12 +284,12 @@ class AccountWebSocketService {
           const payload = JSON.parse(event.data as string);
           this.handlePayload(payload);
         } catch (error) {
-          console.warn('[Account WS] Parse error', error);
+          warnAccountWsDiagnostic('[Account WS] Parse error', error);
         }
       };
 
       this.ws.onclose = () => {
-        console.log('[Account WS] Closed');
+        logAccountWsDiagnostic('[Account WS] Closed');
         this.stopHeartbeat();
         this.isConnected = false;
         this.ws = null;
@@ -284,7 +298,7 @@ class AccountWebSocketService {
 
       this.ws.onerror = () => {
         const state = this.ws?.readyState ?? -1;
-        console.warn(`[Account WS] Connection error - readyState: ${state}`);
+        warnAccountWsDiagnostic(`[Account WS] Connection error - readyState: ${state}`);
       };
     } catch (error) {
       console.error('[Account WS] Connection initialization failed', error);
@@ -365,20 +379,20 @@ class AccountWebSocketService {
     }
 
     if (!this.resolveSession()) {
-      console.warn('[Account WS] No valid auth session during reconnect. Retrying in 5s.');
+      warnAccountWsDiagnostic('[Account WS] No valid auth session during reconnect. Retrying in 5s.');
       this.scheduleRetry(5000);
       return;
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.warn('[Account WS] Max reconnect attempts reached. Giving up until next login.');
+      warnAccountWsDiagnostic('[Account WS] Max reconnect attempts reached. Giving up until next login.');
       this.shouldReconnect = false;
       return;
     }
 
     this.reconnectAttempts += 1;
     const timeout = Math.min(1000 * 2 ** this.reconnectAttempts, 10000);
-    console.log(
+    logAccountWsDiagnostic(
       `[Account WS] Reconnecting in ${timeout}ms... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
     );
     this.scheduleRetry(timeout);

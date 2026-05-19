@@ -47,7 +47,9 @@ export function ChartPriceSourceScreen() {
         <View style={styles.headerBtn} />
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Pressable style={styles.row} onPress={() => handleSelect('bid')}>
             <Text style={styles.rowLabel}>Bid price</Text>

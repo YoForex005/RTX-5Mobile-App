@@ -159,7 +159,9 @@ export function ChartTradingHoursModal({ visible, onClose, sessions, isLoading }
               <ActivityIndicator size="small" color={T.accent} />
             </View>
           ) : (
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scheduleList}>
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scheduleList}>
               {schedule.map((item) => (
                 <View key={item.day} style={styles.scheduleRow}>
                   <Text style={styles.dayText}>{item.day}</Text>

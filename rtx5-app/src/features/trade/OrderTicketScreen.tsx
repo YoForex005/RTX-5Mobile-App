@@ -8,6 +8,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { ActivityIndicator, Animated, Platform, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -76,6 +77,7 @@ export function OrderTicketScreen() {
   const routeSide = normalizeTradeSide(routeSideParam);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const tradeVolume = useUserPreferences((s) => s.tradeVolume);
   const setTradeVolume = useUserPreferences((s) => s.setTradeVolume);
@@ -100,7 +102,7 @@ export function OrderTicketScreen() {
   const orderTypeTabsRef = useRef<ScrollView | null>(null);
   const orderTypeTabsViewportWidthRef = useRef(0);
   const orderTypeTabLayoutsRef = useRef<Partial<Record<ChartOrderType, { x: number; width: number }>>>({});
-  const { data: instrumentMeta } = useInstrumentMeta(symbol);
+  const { data: instrumentMeta } = useInstrumentMeta(symbol, isScreenFocused);
   // Broker metadata defines the valid lot range and step size for the symbol.
   const volumeBounds = useMemo(
     () => ({
@@ -187,7 +189,7 @@ export function OrderTicketScreen() {
   }, [tradeVolume, volumeBounds]);
 
   // Live WebSocket pricing drives the BID/ASK buttons and every price preview.
-  const latestTick = useLiveTick(symbol);
+  const latestTick = useLiveTick(symbol, undefined, isScreenFocused);
   const latestClose = latestTick?.close || 0;
   // Some tick payloads only include close price, so create a conservative ASK
   // fallback until true bid/ask data arrives.
@@ -829,10 +831,11 @@ export function OrderTicketScreen() {
 
       {/* Scrollable form: order type, volume, risk controls, market data, and submit controls. */}
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.root}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
         {/* Order type tabs: market execution or one of the pending order types. */}
         <Text style={styles.sectionTitle}>ORDER TYPE</Text>
@@ -841,7 +844,7 @@ export function OrderTicketScreen() {
           horizontal
           directionalLockEnabled
           nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsHorizontalScrollIndicator={false}
           style={styles.orderTypeTabsScroll}
           contentContainerStyle={styles.orderTypeTabs}

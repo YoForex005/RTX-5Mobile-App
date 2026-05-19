@@ -7,6 +7,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * multi-dimension filtering, and live countdown timers.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Animated, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -30,6 +31,7 @@ import { makeEconomicCalendarStyles } from './styles';
 
 export function EconomicCalendarScreen() {
   const T = useTheme();
+  const isScreenFocused = useIsFocused();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const styles = useMemo(() => makeEconomicCalendarStyles(T, isDark), [T, isDark]);
   const insets = useSafeAreaInsets();
@@ -62,10 +64,14 @@ export function EconomicCalendarScreen() {
   }, []);
 
   useEffect(() => {
+    if (!isScreenFocused) {
+      return;
+    }
+
     loadData();
     const interval = setInterval(loadData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [isScreenFocused, loadData]);
 
   const toggleImpact = useCallback((impact: ImpactLevel) => {
     setSelectedImpacts((prev) => {
@@ -284,6 +290,7 @@ export function EconomicCalendarScreen() {
               `}</style>
             )}
             <ScrollView
+              keyboardShouldPersistTaps="always"
               horizontal
               showsHorizontalScrollIndicator={true}
               indicatorStyle={isDark ? 'white' : 'black'}
@@ -306,7 +313,9 @@ export function EconomicCalendarScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
         {isLoading ? (
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>

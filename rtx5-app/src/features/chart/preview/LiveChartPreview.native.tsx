@@ -298,6 +298,7 @@ export default function LiveChartPreviewNative({
   priceSource,
   isDark,
   chartType = 'candles',
+  active = true,
 }: {
   symbol: string;
   timeframe: string;
@@ -306,11 +307,12 @@ export default function LiveChartPreviewNative({
   priceSource: 'bid' | 'ask';
   isDark: boolean;
   chartType?: PreviewChartType;
+  active?: boolean;
 }) {
   const webViewRef = useRef<WebView>(null);
   const [webViewReady, setWebViewReady] = useState(false);
-  const { candles } = useLiveCandles(symbol, timeframe);
-  const liveQuotes = useMarketData([symbol]);
+  const { candles } = useLiveCandles(symbol, timeframe, active);
+  const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol];
 
   const chartSignatureRef = useRef('');

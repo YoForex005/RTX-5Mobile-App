@@ -300,7 +300,7 @@ function ChartTradeSheetContent({
         horizontal
         nestedScrollEnabled
         directionalLockEnabled
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         showsHorizontalScrollIndicator={false}
         style={[
           styles.chartTradeTypeTabsScroll,
@@ -755,7 +755,7 @@ function ChartTradeSheetPinnedHeader({
         horizontal
         nestedScrollEnabled
         directionalLockEnabled
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         showsHorizontalScrollIndicator={false}
         style={[
           styles.chartTradeTypeTabsScroll,
@@ -1342,6 +1342,7 @@ export function ChartTradeOverlayLayer({
 
               {showSheetBody ? (
                 <ScrollView
+                  canCancelContentTouches={false}
                   ref={sheet.chartTradeSheetScrollRef}
                   style={styles.chartTradeSheetContentScroll}
                   contentContainerStyle={[
@@ -1351,7 +1352,7 @@ export function ChartTradeOverlayLayer({
                   nestedScrollEnabled
                   bounces={false}
                   showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
+                  keyboardShouldPersistTaps="always"
                   keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                   scrollEventThrottle={16}
                   onScroll={(event) => {
@@ -1407,6 +1408,7 @@ export function ChartTradeOverlayLayer({
             ) : null}
 
             <ScrollView
+              canCancelContentTouches={false}
               style={styles.chartTradeSheetContentScroll}
               contentContainerStyle={[
                 styles.chartTradeSheetContent,
@@ -1414,7 +1416,7 @@ export function ChartTradeOverlayLayer({
               ]}
               nestedScrollEnabled
               bounces={false}
-              keyboardShouldPersistTaps={sheet.chartTradeCommentFocused ? 'always' : 'handled'}
+              keyboardShouldPersistTaps="always"
               keyboardDismissMode={sheet.chartTradeCommentFocused ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               scrollEventThrottle={16}
               onScroll={(event) => {
@@ -1529,6 +1531,7 @@ type ChartTradeInlineFooterProps = {
   onLotDraftSubmit: (event?: any) => void;
   onDecreaseLot: () => void;
   onIncreaseLot: () => void;
+  active?: boolean;
   onLayout?: (event: LayoutChangeEvent) => void;
 };
 
@@ -1558,6 +1561,7 @@ export function ChartTradeInlineFooter({
   onLotDraftSubmit,
   onDecreaseLot,
   onIncreaseLot,
+  active = true,
   onLayout,
 }: ChartTradeInlineFooterProps) {
   const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;
@@ -1588,6 +1592,7 @@ export function ChartTradeInlineFooter({
           onLotDraftSubmit={onLotDraftSubmit}
           onDecreaseLot={onDecreaseLot}
           onIncreaseLot={onIncreaseLot}
+          active={active}
           isDark={isDark}
           buyColor={buyColor}
           sellColor={sellColor}

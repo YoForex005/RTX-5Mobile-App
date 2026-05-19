@@ -87,7 +87,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET,
+      paddingLeft: 0,
       paddingRight: 16,
       paddingTop: 0,
       paddingBottom: 18,

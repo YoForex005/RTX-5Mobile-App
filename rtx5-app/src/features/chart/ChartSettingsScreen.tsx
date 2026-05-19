@@ -39,7 +39,9 @@ export function ChartSettingsScreen() {
           <View style={styles.headerBackBtn} />
         </View>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
 
 

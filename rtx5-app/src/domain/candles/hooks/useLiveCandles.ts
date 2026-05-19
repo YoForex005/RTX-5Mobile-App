@@ -90,7 +90,7 @@ export type { CandleParams } from '../stream/liveCandleStream';
  * @param timeframe The requested bucket size (e.g. 'M1').
  * @returns An object containing the active candle series and pagination/refresh controllers.
  */
-export function useLiveCandles(symbol: string, timeframe: string) {
+export function useLiveCandles(symbol: string, timeframe: string, active = true) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
   const candleKey = useMemo(
@@ -116,7 +116,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
 
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!normalizedSymbol || !normalizedTimeframe) {
+      if (!active || !normalizedSymbol || !normalizedTimeframe) {
         return () => {};
       }
 
@@ -127,7 +127,7 @@ export function useLiveCandles(symbol: string, timeframe: string) {
         candlesWsService.unsubscribe(normalizedSymbol, normalizedTimeframe);
       };
     },
-    [normalizedSymbol, normalizedTimeframe],
+    [active, normalizedSymbol, normalizedTimeframe],
   );
 
   const getSnapshot = useCallback(() => {
@@ -143,15 +143,15 @@ export function useLiveCandles(symbol: string, timeframe: string) {
   // Eagerly prefetch history on symbol/timeframe change so the engine
   // starts fetching before the full subscribe lifecycle completes.
   useEffect(() => {
-    if (!normalizedSymbol || !normalizedTimeframe) {
+    if (!active || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
     void liveCandlesEngine.prefetchHistory(normalizedSymbol, normalizedTimeframe);
-  }, [normalizedSymbol, normalizedTimeframe]);
+  }, [active, normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
-    if (!normalizedSymbol || !normalizedTimeframe) {
+    if (!active || !normalizedSymbol || !normalizedTimeframe) {
       return;
     }
 
@@ -169,15 +169,15 @@ export function useLiveCandles(symbol: string, timeframe: string) {
     return () => {
       cancelled = true;
     };
-  }, [normalizedSymbol, normalizedTimeframe]);
+  }, [active, normalizedSymbol, normalizedTimeframe]);
 
   useEffect(() => {
-    if (!normalizedSymbol || !normalizedTimeframe || safeCachedCandles.length === 0) {
+    if (!active || !normalizedSymbol || !normalizedTimeframe || safeCachedCandles.length === 0) {
       return;
     }
 
     liveCandlesEngine.hydrateFromCache(normalizedSymbol, normalizedTimeframe, safeCachedCandles);
-  }, [normalizedSymbol, normalizedTimeframe, safeCachedCandles]);
+  }, [active, normalizedSymbol, normalizedTimeframe, safeCachedCandles]);
 
   const candles = useMemo(
     () => (engineCandles.length > 0 ? engineCandles : safeCachedCandles),
@@ -210,9 +210,9 @@ export function useLiveCandles(symbol: string, timeframe: string) {
  * 
  * Includes staleness checks to discard quotes older than `LIVE_TICK_STALE_MS`.
  */
-export function useLiveTick(symbol: string, _timeframe?: string): LivePriceTick | null {
+export function useLiveTick(symbol: string, _timeframe?: string, active = true): LivePriceTick | null {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
-  const liveQuotes = useMarketData(symbol ? [symbol] : []);
+  const liveQuotes = useMarketData(symbol ? [symbol] : [], active);
   const liveQuote = liveQuotes[symbol] || liveQuotes[normalizedSymbol];
 
   return useMemo(() => {

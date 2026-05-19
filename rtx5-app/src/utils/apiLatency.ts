@@ -37,11 +37,18 @@ type TimedFetchMeta = {
   method?: string;
   endpoint?: string;
   source?: ApiLatencySource;
+  timeoutMs?: number;
 };
 
 const API_LATENCY_SAMPLE_LIMIT = 120;
 const API_LATENCY_WARN_MS = 1000;
 const API_LATENCY_SLOW_MS = 3000;
+export const API_FETCH_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.EXPO_PUBLIC_API_FETCH_TIMEOUT_MS) || 7000,
+);
+const API_LATENCY_LOG_OK_RESPONSES =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_API_LATENCY === 'true';
 const SENSITIVE_QUERY_KEYS = new Set([
   'access_token',
   'api_key',
@@ -62,8 +69,10 @@ export const getApiLatencyNow = () =>
 
 const createSampleId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const shouldLogApiLatency = () =>
-  typeof __DEV__ !== 'undefined' && __DEV__;
+const shouldLogApiLatency = (severity: 'ok' | 'warn' | 'slow') =>
+  typeof __DEV__ !== 'undefined' &&
+  __DEV__ &&
+  (severity !== 'ok' || API_LATENCY_LOG_OK_RESPONSES);
 
 function normalizeError(error: unknown): string | undefined {
   if (!error) return undefined;
@@ -111,12 +120,13 @@ export function recordApiLatency(input: ApiLatencyInput): ApiLatencySample {
 
   samples = [sample, ...samples].slice(0, API_LATENCY_SAMPLE_LIMIT);
 
-  if (shouldLogApiLatency()) {
-    const severity = sample.durationMs >= API_LATENCY_SLOW_MS
-      ? 'slow'
-      : sample.durationMs >= API_LATENCY_WARN_MS
-        ? 'warn'
-        : 'ok';
+  const severity = sample.durationMs >= API_LATENCY_SLOW_MS
+    ? 'slow'
+    : sample.durationMs >= API_LATENCY_WARN_MS
+      ? 'warn'
+      : 'ok';
+
+  if (shouldLogApiLatency(severity)) {
     const message =
       `[API ${severity}] ${sample.method} ${sample.endpoint} ${sample.status ?? 'ERR'} ` +
       `${sample.durationMs}ms (${sample.label})`;
@@ -138,6 +148,59 @@ export function clearApiLatencySamples() {
   samples = [];
 }
 
+const createTimeoutError = (timeoutMs: number) => {
+  const error = new Error(`Request timed out after ${timeoutMs}ms`);
+  error.name = 'AbortError';
+  return error;
+};
+
+function createTimedFetchInit(init: RequestInit | undefined, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const state = { didTimeout: false };
+  const createTimeoutPromise = (abort: () => void) =>
+    new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        state.didTimeout = true;
+        abort();
+        reject(createTimeoutError(timeoutMs));
+      }, timeoutMs);
+    });
+
+  if (typeof AbortController === 'undefined') {
+    return {
+      init,
+      state,
+      timeoutPromise: createTimeoutPromise(() => undefined),
+      cleanup: () => {
+        if (timeout) clearTimeout(timeout);
+      },
+    };
+  }
+
+  const existingSignal = init?.signal;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+
+  if (existingSignal?.aborted) {
+    controller.abort();
+  } else {
+    existingSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  return {
+    init: {
+      ...init,
+      signal: controller.signal,
+    },
+    state,
+    timeoutPromise: createTimeoutPromise(() => controller.abort()),
+    cleanup: () => {
+      if (timeout) clearTimeout(timeout);
+      existingSignal?.removeEventListener('abort', abortFromCaller);
+    },
+  };
+}
+
 export async function timedFetch(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
@@ -146,9 +209,13 @@ export async function timedFetch(
   const startedAtMs = getApiLatencyNow();
   const method = (meta.method ?? init?.method ?? 'GET').toUpperCase();
   const endpoint = meta.endpoint ?? String(input);
+  const timeoutMs = meta.timeoutMs ?? API_FETCH_TIMEOUT_MS;
+  const timedRequest = createTimedFetchInit(init, timeoutMs);
 
   try {
-    const response = await fetch(input, init);
+    const fetchPromise = fetch(input, timedRequest.init);
+    fetchPromise.catch(() => undefined);
+    const response = await Promise.race([fetchPromise, timedRequest.timeoutPromise]);
     recordApiLatency({
       label: meta.label,
       method,
@@ -160,6 +227,7 @@ export async function timedFetch(
     });
     return response;
   } catch (error) {
+    const resolvedError = timedRequest.state.didTimeout ? createTimeoutError(timeoutMs) : error;
     recordApiLatency({
       label: meta.label,
       method,
@@ -168,8 +236,10 @@ export async function timedFetch(
       status: null,
       ok: false,
       durationMs: getApiLatencyNow() - startedAtMs,
-      error,
+      error: resolvedError,
     });
-    throw error;
+    throw resolvedError;
+  } finally {
+    timedRequest.cleanup();
   }
 }

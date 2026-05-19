@@ -22,6 +22,7 @@ export function SettingsBackBar({ title }: { title?: string }) {
     <View style={[styles.row, { height: insets.top + barHeight, paddingTop: insets.top }]}>
       <FastPressable
         onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+        activateOnPressIn
         latencyLabel="settings.back"
         hitSlop={15}
         style={styles.button}
@@ -49,14 +50,14 @@ const styles = StyleSheet.create({
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingLeft: 52,
+    paddingRight: spacing.sm,
   },
   button: {
     width: 52,
     height: 48,
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 4,
   },
   titleWrap: {
     position: 'absolute',

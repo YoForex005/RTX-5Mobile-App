@@ -10,6 +10,7 @@
  * lightning-fast feedback when order states change locally without waiting for server-side replica sync.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useMemo, useEffect, useCallback } from 'react';
 import { Text, View, FlatList } from 'react-native';
@@ -32,6 +33,7 @@ import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
 export function TradeScreen() {
+  const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -66,10 +68,10 @@ export function TradeScreen() {
   // Initial fetch when the account login is first available. After that,
   // live position updates flow through the websocket/store pipeline.
   useEffect(() => {
-    if (resolvedLogin) {
+    if (isScreenFocused && resolvedLogin) {
       fetchPositions();
     }
-  }, [resolvedLogin, fetchPositions]);
+  }, [isScreenFocused, resolvedLogin, fetchPositions]);
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -127,8 +129,10 @@ export function TradeScreen() {
         isDark={isDark}
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
+        active={isScreenFocused}
       />
       <FlatList
+        keyboardShouldPersistTaps="always"
         style={s.list}
         data={renderablePositions}
         keyExtractor={(item) => item.id}

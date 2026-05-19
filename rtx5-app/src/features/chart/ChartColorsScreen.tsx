@@ -75,7 +75,9 @@ export function ChartColorsScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {SECTIONS.map((section, sIdx) => (
           <View key={section.title} style={{ marginTop: sIdx === 0 ? 8 : 24 }}>
             <View style={styles.sectionHeaderRow}>

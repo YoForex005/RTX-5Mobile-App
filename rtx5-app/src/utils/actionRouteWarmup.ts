@@ -1,10 +1,15 @@
 import { scheduleIdleWork } from './startupScheduler';
 
-const ACTION_ROUTE_WARMUP_BATCH_SIZE = 4;
-const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 80;
-const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 300;
+const ACTION_ROUTE_WARMUP_BATCH_SIZE = 1;
+const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 750;
+const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 30000;
 
 export const ACTION_ROUTE_WARMUP_PATHS = [
+  '/(tabs)/quotes',
+  '/(tabs)/chart',
+  '/(tabs)/trade',
+  '/(tabs)/history',
+  '/(tabs)/settings',
   '/settings/news',
   '/settings/user-guide',
   '/settings/about',

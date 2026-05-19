@@ -66,7 +66,9 @@ export function ChartMenuOrderScreen() {
           <View style={styles.headerBackBtn} />
         </View>
       </View>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         <Text style={styles.sectionHeader}>QUICK ACCESS</Text>
         <View style={styles.sectionCard}>

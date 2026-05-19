@@ -325,6 +325,7 @@ function AffectedSymbolsRow({
         Affected Symbols
       </Text>
       <ScrollView
+        keyboardShouldPersistTaps="always"
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.symbolRail}
@@ -417,6 +418,8 @@ function AllSymbolsModal({
           </View>
 
           <ScrollView
+            keyboardShouldPersistTaps="always"
+            canCancelContentTouches={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.allSymbolsGrid}
           >

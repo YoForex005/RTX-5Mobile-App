@@ -8,6 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,12 +64,13 @@ export function ChartSpecificationScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
 
   const [showTradingHoursModal, setShowTradingHoursModal] = useState(false);
 
   const currentSymbol = symbol || 'XAU/USD';
-  const { data: meta, isLoading: isMetaLoading } = useInstrumentMeta(currentSymbol);
-  const { data: mktStatus } = useMarketStatus(currentSymbol);
+  const { data: meta, isLoading: isMetaLoading } = useInstrumentMeta(currentSymbol, isScreenFocused);
+  const { data: mktStatus } = useMarketStatus(currentSymbol, isScreenFocused);
 
   const activeSessions = meta?.sessions ?? DEFAULT_SESSIONS;
 
@@ -118,7 +120,9 @@ export function ChartSpecificationScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Trading Hours Section */}
         <Text style={styles.sectionHeader}>TRADING HOURS</Text>

@@ -12,7 +12,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
 import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from '../quoteSubscriptionState';
-import { normalizeSymbol } from '../../../domain/symbols';
+import { normalizeQuoteSymbolKey } from '../../../domain/symbols';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
 import {
   cancelFlush,
@@ -27,7 +27,7 @@ import {
 import type { GlobalTickListener, SymbolTickListener } from './types';
 
 const shouldLogCandleDiagnostics = (): boolean =>
-  typeof __DEV__ === 'undefined' || __DEV__;
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true';
 
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
@@ -43,6 +43,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private activeSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();
   private symbolConsumerCounts: Map<string, number> = new Map();
+  private storeConsumerCounts: Map<string, number> = new Map();
   /** @internal Used by the flush pipeline. */
   public pendingUpdates: Map<string, any> = new Map();
   /** @internal Used by the flush pipeline. */
@@ -119,7 +120,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
    * is opened/closed automatically when the first/last consumer arrives/leaves.
    */
   public subscribeToSymbol(symbol: string, listener: SymbolTickListener): () => void {
-    const normalized = normalizeSymbol(symbol);
+    const normalized = normalizeQuoteSymbolKey(symbol);
     if (!normalized) {
       return () => {};
     }
@@ -152,7 +153,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   /** @internal Used by `processTick`. */
   public emitSymbolTick(symbol: string, tick: QuoteTickEvent): void {
-    const bucket = this.symbolListeners.get(symbol);
+    const bucket = this.symbolListeners.get(normalizeQuoteSymbolKey(symbol));
     if (!bucket || bucket.size === 0) {
       return;
     }
@@ -163,6 +164,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         console.warn('[Quotes WS] Symbol listener error', error);
       }
     });
+  }
+
+  /** @internal Used by `processTick` to skip global store churn when only row snapshots are listening. */
+  public shouldStageQuoteUpdate(): boolean {
+    return this.storeConsumerCounts.size > 0;
   }
 
   /** Dispatches the initial connection sequence and applies auto-reconnect logic. */
@@ -204,7 +210,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           this.lastMessageAt = now;
           this.recordFeedGapIfNeeded(feedGapMs);
           const payload = JSON.parse(event.data as string);
-          if (processIncomingPayload(this, payload)) {
+          if (processIncomingPayload(this, payload) && this.pendingUpdates.size > 0) {
             scheduleFlush(this);
           }
         } catch (e) {
@@ -236,6 +242,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     this.activeSymbols.clear();
     this.stickySymbols.clear();
     this.symbolConsumerCounts.clear();
+    this.storeConsumerCounts.clear();
     this.teardownSocket();
   }
 
@@ -299,13 +306,13 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
    * Does not overwrite existing active symbols.
    */
   public subscribe(symbols: string[]): void {
-    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, 1);
+    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, symbols, 1);
     this.logCandleFeed('subscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
 
   public unsubscribe(symbols: string[]): void {
-    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, symbols, -1);
+    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, symbols, -1);
     this.logCandleFeed('unsubscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
@@ -322,7 +329,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private syncActiveSymbols(): void {
-    const nextActiveSymbols = new Set(buildActiveQuoteSymbols(this.stickySymbols, this.symbolConsumerCounts));
+    const nextActiveSymbols = new Set(buildActiveQuoteSymbols(this.stickySymbols, this.getMergedConsumerCounts()));
     const changed =
       nextActiveSymbols.size !== this.activeSymbols.size ||
       Array.from(nextActiveSymbols).some((symbol) => !this.activeSymbols.has(symbol));
@@ -413,6 +420,14 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     return this.activeSymbols.size > 0;
   }
 
+  private getMergedConsumerCounts(): Map<string, number> {
+    const merged = new Map(this.symbolConsumerCounts);
+    this.storeConsumerCounts.forEach((count, symbol) => {
+      merged.set(symbol, (merged.get(symbol) ?? 0) + count);
+    });
+    return merged;
+  }
+
   /** @internal Used by the tick processor for rate-limited debug logs. */
   public logCandleFeed(event: string, details?: Record<string, unknown>, limit = 12): void {
     if (!shouldLogCandleDiagnostics()) {
@@ -476,6 +491,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       this.activeSymbols.clear();
       this.stickySymbols.clear();
       this.symbolConsumerCounts.clear();
+      this.storeConsumerCounts.clear();
     }
   }
 

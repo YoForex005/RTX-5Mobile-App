@@ -5,6 +5,7 @@
  * and handles secure authentication workflows (Login/Logout/Disconnect).
  */
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import {
   Alert,
@@ -38,6 +39,7 @@ import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 
 export function SettingsScreen() {
+  const isScreenFocused = useIsFocused();
   const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       quoteSymbols: state.quoteSymbols,
@@ -55,12 +57,13 @@ export function SettingsScreen() {
   const liveLogin = useLiveAccountState((s) => s.login);
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveHasBalance = useLiveAccountState((s) => s.metricFlags.balance);
-  const { data: brokerConfig } = useBrokerConfig(brokerId);
-  const { data: accounts } = useAccounts(isLoggedIn);
+  const settingsDataActive = isLoggedIn && isScreenFocused;
+  const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
+  const { data: accounts } = useAccounts(settingsDataActive);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
   const activeLogin = listedAccount?.login ?? currentLogin;
-  const { data: activeAccountDetails } = useAccountDetails(activeLogin, isLoggedIn && !!activeLogin);
+  const { data: activeAccountDetails } = useAccountDetails(activeLogin, settingsDataActive && !!activeLogin);
   const activeAccount = activeAccountDetails ?? listedAccount;
   const rawAccountName = activeAccount?.name ?? 'Account';
   const displayEmail = accountDetails?.name ?? '---';
@@ -206,7 +209,9 @@ export function SettingsScreen() {
         )}
       </View>
 
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }}>
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>

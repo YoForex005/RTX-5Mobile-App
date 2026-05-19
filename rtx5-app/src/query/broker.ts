@@ -3,7 +3,13 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getBrokerConfig, BrokerConfigResponse, BrokerConfigError } from '../api/broker';
+import {
+  getBrokerConfig,
+  getBrokerServers,
+  BrokerConfigResponse,
+  BrokerConfigError,
+  type BrokerServer,
+} from '../api/broker';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TanStack Query hook for GET /broker/config
@@ -19,6 +25,7 @@ import { getBrokerConfig, BrokerConfigResponse, BrokerConfigError } from '../api
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const BROKER_CONFIG_KEY = 'brokerConfig';
+export const BROKER_SERVERS_KEY = 'brokerServers';
 
 /**
  * Determines whether a failed broker config request should be retried.
@@ -65,6 +72,26 @@ export function useBrokerConfig(brokerId?: string, enabled?: boolean) {
     staleTime: 5 * 60 * 1000,  // 5 minutes — broker config changes rarely
     retry: shouldRetryBrokerConfig,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000), // Exponential backoff: 1s, 2s, 4s... capped at 10s
+  });
+}
+
+/**
+ * TanStack Query hook for the broker server directory.
+ *
+ * Powers the Brokers screen search field: the user types a broker name and
+ * we filter this list client-side. The directory rarely changes, so we cache
+ * it for 5 minutes and re-use the same response across mounts.
+ */
+export function useBrokerServers(enabled: boolean = true) {
+  return useQuery<BrokerServer[], Error>({
+    queryKey: [BROKER_SERVERS_KEY],
+    queryFn: () => getBrokerServers(),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    // Retry transient network blips so a single bad packet doesn't strand the
+    // user on the "Failed to load brokers" screen.
+    retry: shouldRetryBrokerConfig,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
 }
 

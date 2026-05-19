@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeSymbol } from './symbols';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from './symbols';
+
+test('normalizeQuoteSymbolKey preserves broker feed suffixes for live quote matching', () => {
+  assert.equal(normalizeQuoteSymbolKey('eurusd.x1782'), 'EURUSD.X1782');
+  assert.equal(normalizeQuoteSymbolKey(' GBP/USD_pro '), 'GBPUSD_PRO');
+  assert.equal(normalizeQuoteSymbolKey('BTCUSD.P'), 'BTCUSD.P');
+});
 
 test('normalizeSymbol keeps live backend symbols unchanged', () => {
   assert.equal(normalizeSymbol('GBPUSD'), 'GBPUSD');

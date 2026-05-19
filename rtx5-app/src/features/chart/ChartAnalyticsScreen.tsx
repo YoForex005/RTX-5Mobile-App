@@ -8,6 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -119,18 +120,19 @@ export function ChartAnalyticsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const isScreenFocused = useIsFocused();
 
   const currentSymbol = symbol || 'EUR/USD';
   const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
   const decimals = getDecimals(currentSymbol);
 
   // ── Live WebSocket Price ──────────────────────────────────────────
-  const liveQuotes = useMarketData([currentSymbol]);
+  const liveQuotes = useMarketData([currentSymbol], isScreenFocused);
   const liveQuote = liveQuotes[currentSymbol];
   const livePrice = liveQuote?.bid ?? 0;
 
   // ── Live Candles (OHLC) from WebSocket ────────────────────────────
-  const { candles } = useLiveCandles(currentSymbol, chartTimeframe);
+  const { candles } = useLiveCandles(currentSymbol, chartTimeframe, isScreenFocused);
 
   // ── Daily Range data from candles ─────────────────────────────────
   const rangeData = useMemo(() => {
@@ -193,7 +195,9 @@ export function ChartAnalyticsScreen() {
           <View style={styles.headerBackBtn} />
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Performance Block — Dynamic from candle data */}
         <View style={styles.card}>

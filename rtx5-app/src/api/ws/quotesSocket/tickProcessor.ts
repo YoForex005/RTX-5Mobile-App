@@ -23,6 +23,7 @@ export interface TickProcessorBridge {
   readonly pendingUpdates: Map<string, any>;
   emitTick(tick: QuoteTickEvent): void;
   emitSymbolTick(symbol: string, tick: QuoteTickEvent): void;
+  shouldStageQuoteUpdate(): boolean;
   logCandleFeed(event: string, details?: Record<string, unknown>, limit?: number): void;
 }
 
@@ -173,6 +174,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   let data: any = {
     ...(raw && typeof raw === 'object' ? raw : {}),
     symbol: normalizedUpdate.symbol,
+    rawSymbol: normalizedUpdate.rawSymbol,
     bid: normalizedUpdate.bid,
     ask: normalizedUpdate.ask,
     ...(normalizedUpdate.last === undefined ? {} : { last: normalizedUpdate.last }),
@@ -198,6 +200,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
 
   const tickEvent: QuoteTickEvent = {
     symbol: normalizedUpdate.symbol,
+    rawSymbol: normalizedUpdate.rawSymbol,
     bid: normalizedUpdate.bid,
     ask: normalizedUpdate.ask,
     last: normalizedUpdate.last,
@@ -218,7 +221,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Fan out to per-symbol listeners synchronously. This is the path the
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
-  bridge.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
+  bridge.emitSymbolTick(normalizedUpdate.rawSymbol, tickEvent);
+  if (normalizedUpdate.rawSymbol !== normalizedUpdate.symbol) {
+    bridge.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
+  }
   // Extend the chart's already-open active candle so its close (and wick
   // high/low) keep ticking in real time between authoritative snapshots. This
   // does not create a new candle from quote-only data; backend OHLC `update`
@@ -251,6 +257,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     receivedAt,
     rawKeys: normalizedUpdate.rawKeys,
   }, 8);
+
+  if (!bridge.shouldStageQuoteUpdate()) {
+    return false;
+  }
 
   // Preserve intra-flush quote extremes. When several ticks arrive within
   // the same event-loop turn, naively overwriting the pending entry would

@@ -9,6 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, Image, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
@@ -57,6 +58,15 @@ import {
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
 
+const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
+  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
+
+const logAccountsScreenDiagnostic = (...args: Parameters<typeof console.log>) => {
+  if (ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED) {
+    console.log(...args);
+  }
+};
+
 type OtherAccountRow = {
   key: string;
   login: string;
@@ -97,6 +107,7 @@ const areSavedAccountSnapshotsEqual = (
 
 export function AccountsScreen() {
   const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const showActionSheet = useUIState((s) => s.showActionSheet);
@@ -116,17 +127,18 @@ export function AccountsScreen() {
 
   // ── GET /accounts — live trading accounts for the authenticated user ──
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
-  const { data: accounts } = useAccounts(isLoggedIn);
+  const screenDataActive = isLoggedIn && isScreenFocused;
+  const { data: accounts } = useAccounts(screenDataActive);
 
   // ── GET /broker/config — broker name and server name ──
   const brokerId = useUserPreferences((s) => s.brokerId);
-  const { data: brokerConfig } = useBrokerConfig(brokerId);
+  const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
 
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
   const activeLogin = listedAccount?.login ?? currentLogin;
-  const { data: activeAccountDetails } = useAccountDetails(activeLogin, isLoggedIn && !!activeLogin);
+  const { data: activeAccountDetails } = useAccountDetails(activeLogin, screenDataActive && !!activeLogin);
   const activeAccount = activeAccountDetails ?? listedAccount;
   const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
   const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
@@ -195,7 +207,7 @@ export function AccountsScreen() {
   // open) show up once the user signs into another account. The entry has
   // hasCredentials=false until the user signs in via the form again.
   React.useEffect(() => {
-    if (!isLoggedIn || !activeAccount) return;
+    if (!isScreenFocused || !isLoggedIn || !activeAccount) return;
     if (!activeBrokerId || !activeLoginStr) return;
     const existing = savedAccounts.find(
       (sa) => sa.brokerId === activeBrokerId && sa.login === activeLoginStr,
@@ -228,6 +240,7 @@ export function AccountsScreen() {
     activeBrokerId,
     activeLoginStr,
     brokerConfig?.server_name,
+    isScreenFocused,
     isLoggedIn,
     savedAccounts,
     upsertSavedAccount,
@@ -256,20 +269,15 @@ export function AccountsScreen() {
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
 
-  console.log('[AccountsScreen] activeAccount:', activeAccount ? { login: activeAccount.login, balance: activeAccount.balance, equity: activeAccount.equity, freeMargin: activeAccount.freeMargin, floatingPnl: activeAccount.floatingPnl, currency: activeAccount.currency } : 'none');
-  console.log('[AccountsScreen] live WS metrics:', { liveBalance, liveEquity, liveMarginFree, liveFloating });
-  console.log('[AccountsScreen] display values:', { displayBalance, displayEquity, displayFreeMargin, displayFloatingPnl, displayCurrency });
+  logAccountsScreenDiagnostic('[AccountsScreen] activeAccount:', activeAccount ? { login: activeAccount.login, balance: activeAccount.balance, equity: activeAccount.equity, freeMargin: activeAccount.freeMargin, floatingPnl: activeAccount.floatingPnl, currency: activeAccount.currency } : 'none');
+  logAccountsScreenDiagnostic('[AccountsScreen] live WS metrics:', { liveBalance, liveEquity, liveMarginFree, liveFloating });
+  logAccountsScreenDiagnostic('[AccountsScreen] display values:', { displayBalance, displayEquity, displayFreeMargin, displayFloatingPnl, displayCurrency });
 
-  const { data: health } = useHealth();
-  const { data: mt5Status } = useMt5Status();
+  const { data: health } = useHealth(isScreenFocused);
+  const { data: mt5Status } = useMt5Status(isScreenFocused);
 
   const handleConnectAccount = () => {
-    showActionSheet({
-      title: t('Connect account'),
-      actions: [
-        { label: t('Login Account'), onPress: () => router.push('/login') },
-      ],
-    });
+    router.push('/settings/brokers');
   };
 
   const [connectingKey, setConnectingKey] = React.useState<string | null>(null);
@@ -390,7 +398,14 @@ export function AccountsScreen() {
     <Screen>
       <View style={styles.page}>
         <View style={styles.header}>
-          <FastPressable style={styles.iconBtn} hitSlop={15} onPress={() => safeRouterBack(router, '/(tabs)/settings')} latencyLabel="accounts.back">
+          <FastPressable
+            style={styles.iconBtn}
+            hitSlop={15}
+            onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+            activateOnPressIn
+            latencyLabel="accounts.back"
+            unstable_pressDelay={0}
+          >
             <Ionicons name="arrow-back" size={28} color={T.text} />
           </FastPressable>
           <Text style={styles.headerTitle}>{t('Accounts')}</Text>
@@ -399,7 +414,9 @@ export function AccountsScreen() {
               style={styles.iconBtn}
               hitSlop={10}
               onPress={() => Alert.alert(t('Certification'), t('Certification info will be displayed here.'))}
+              activateOnPressIn
               latencyLabel="accounts.certification.open"
+              unstable_pressDelay={0}
             >
               <Ionicons name="ribbon-outline" size={24} color={T.text} />
             </FastPressable>
@@ -407,7 +424,9 @@ export function AccountsScreen() {
               style={styles.iconBtn}
               hitSlop={10}
               onPress={handleConnectAccount}
+              activateOnPressIn
               latencyLabel="accounts.connect.open"
+              unstable_pressDelay={0}
             >
               <Ionicons name="add" size={30} color={T.text} />
             </FastPressable>
@@ -415,14 +434,18 @@ export function AccountsScreen() {
               style={styles.iconBtn}
               hitSlop={10}
               onPress={openOptions}
+              activateOnPressIn
               latencyLabel="accounts.options.open"
+              unstable_pressDelay={0}
             >
               <Ionicons name="ellipsis-vertical" size={24} color={T.text} />
             </FastPressable>
           </View>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          canCancelContentTouches={false} style={styles.content} showsVerticalScrollIndicator={false}>
           {/* ── Active Account Card ── */}
           <View style={styles.activeCard}>
             {/* Corner ribbons */}
@@ -828,7 +851,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingLeft: 52,
+    paddingRight: 16,
     paddingTop: safeTop + 8,
     paddingBottom: 16,
     backgroundColor: T.bgRoot,
@@ -846,6 +870,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     gap: 16,
   },
   iconBtn: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },

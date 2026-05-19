@@ -1,6 +1,7 @@
 import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
@@ -109,6 +110,7 @@ export function ChartPropertiesScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const { width } = useWindowDimensions();
   const isCompact = width < 390;
+  const isScreenFocused = useIsFocused();
 
 
 
@@ -128,9 +130,9 @@ export function ChartPropertiesScreen() {
     [chartColors, chartColorScheme, isDark],
   );
 
-  const liveQuotes = useMarketData([chartSymbol]);
+  const liveQuotes = useMarketData([chartSymbol], isScreenFocused);
   const liveQuote = liveQuotes[chartSymbol];
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe);
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, isScreenFocused);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('show');
   const [schemeModalOpen, setSchemeModalOpen] = useState(false);
@@ -254,7 +256,9 @@ export function ChartPropertiesScreen() {
           <View style={styles.headerBackBtn} />
         </View>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         <View style={styles.previewCard}>
           <View style={styles.previewHeader}>
@@ -308,6 +312,7 @@ export function ChartPropertiesScreen() {
               colors={resolvedChartColors}
               display={previewDisplay}
               isDark={isDark}
+              active={isScreenFocused}
             />
           </View>
 
@@ -480,7 +485,9 @@ export function ChartPropertiesScreen() {
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <Pressable style={styles.modalBackdropBottom} onPress={() => applyDraftColor(draftColor)}>
             <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView
+                keyboardShouldPersistTaps="always"
+                canCancelContentTouches={false} showsVerticalScrollIndicator={false}>
                 <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
 
                 <ColorPicker

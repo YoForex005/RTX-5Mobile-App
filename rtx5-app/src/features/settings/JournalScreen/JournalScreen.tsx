@@ -65,7 +65,9 @@ export function JournalScreen() {
           <View style={{ width: 46 }} />
         </View>
       </View>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={false} style={styles.container} contentContainerStyle={styles.content}>
 
         {/* TOP TABS */}
         <JournalTabs activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} />

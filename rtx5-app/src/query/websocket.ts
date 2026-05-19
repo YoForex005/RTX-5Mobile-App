@@ -9,6 +9,7 @@ import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
+import { useUserPreferences } from '../state/userPreferences';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
@@ -66,7 +67,9 @@ export function useWebSocketConnection() {
  * We return the `useTradingState` selector so the component only re-renders
  * when the specific symbols it cares about update.
  */
-export function useMarketData(symbols: string[] = []) {
+export function useMarketData(symbols: string[] = [], active = true) {
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
+  const isActive = active && isLoggedIn;
   const symbolsKey = JSON.stringify(symbols);
   const transportSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))),
@@ -85,7 +88,7 @@ export function useMarketData(symbols: string[] = []) {
   const stableKey = JSON.stringify(normalizedSymbols);
   const selector = useCallback(
     (state: any) => {
-      if (normalizedSymbols.length === 0) return EMPTY_LIVE_QUOTES;
+      if (!isActive || normalizedSymbols.length === 0) return EMPTY_LIVE_QUOTES;
       const result: Record<string, any> = {};
       for (const sym of normalizedSymbols) {
         if (state.quotes[sym]) result[sym] = state.quotes[sym];
@@ -93,21 +96,21 @@ export function useMarketData(symbols: string[] = []) {
       return result;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stableKey],
+    [isActive, stableKey],
   );
   const liveQuotes = useTradingState(useShallow(selector));
 
   useEffect(() => {
-    if (transportSymbols.length === 0) return;
+    if (!isActive || transportSymbols.length === 0) return;
     quotesWsService.connect();
     quotesWsService.subscribe(transportSymbols);
 
     return () => {
       quotesWsService.unsubscribe(transportSymbols);
     };
-  }, [transportSymbols]);
+  }, [isActive, transportSymbols]);
 
-  if (symbols.length === 0) return liveQuotes;
+  if (!isActive || symbols.length === 0) return liveQuotes;
   return symbols.reduce((acc, sym) => {
     const normalizedSymbol = normalizeSymbol(sym);
     const mock = mockQuotes.find((m) => normalizeSymbol(m.symbol) === normalizedSymbol);

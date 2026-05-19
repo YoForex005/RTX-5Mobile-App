@@ -15,6 +15,7 @@ test('normalizeQuoteTickPayload maps bid ask aliases and broker symbol suffixes'
   if (!result.ok) return;
 
   assert.equal(result.update.symbol, 'XAUUSD');
+  assert.equal(result.update.rawSymbol, 'XAUUSDM');
   assert.equal(result.update.bid, 2300.1);
   assert.equal(result.update.ask, 2300.4);
   assert.equal(result.update.timestamp, 1713705000);
@@ -35,6 +36,7 @@ test('normalizeQuoteTickPayload accepts nested quote objects from transport payl
   if (!result.ok) return;
 
   assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.rawSymbol, 'EURUSD.C');
   assert.equal(result.update.bid, 1.085);
   assert.equal(result.update.ask, 1.0852);
   assert.equal(result.update.last, 1.0851);
@@ -58,6 +60,7 @@ test('normalizeQuoteTickPayload accepts nested payload tick objects and createdA
   if (!result.ok) return;
 
   assert.equal(result.update.symbol, 'XAUUSD');
+  assert.equal(result.update.rawSymbol, 'XAUUSD.C');
   assert.equal(result.update.bid, 2320.1);
   assert.equal(result.update.ask, 2320.45);
   assert.equal(result.update.timestamp, 1711101965000);
@@ -118,6 +121,7 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
   if (!result.ok) return;
 
   assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.rawSymbol, 'EURUSD');
   assert.equal(result.update.bid, 1.17121);
   assert.equal(result.update.ask, 1.17141);
   assert.equal(result.update.dailyOpen, 1.17223);
@@ -125,6 +129,21 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
   assert.equal(result.update.high, 1.17269);
   assert.equal(result.update.low, 1.16773);
   assert.equal(result.update.timestamp, 1777409940);
+});
+
+test('normalizeQuoteTickPayload keeps raw broker variants distinct from the base symbol', () => {
+  const result = normalizeQuoteTickPayload({
+    symbol: 'EURUSD.X1782',
+    bid: 1.17121,
+    ask: 1.17141,
+    time: 1777409940,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.symbol, 'EURUSD');
+  assert.equal(result.update.rawSymbol, 'EURUSD.X1782');
 });
 
 test('normalizeQuoteTickPayload rejects non-finite bid ask before it reaches candles', () => {

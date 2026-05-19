@@ -1,10 +1,9 @@
 /**
- * Schedule a callback to fire once the action-sheet dismiss animation has
- * settled. Uses requestAnimationFrame when available so the callback only
- * runs after RN has rendered enough frames for the visible drawer to be
- * gone — falling back to setTimeout in environments without rAF.
+ * Schedule a callback after the action sheet has moved through the closed
+ * render path. The sheet returns null when closed, so the selected action can
+ * run immediately without carrying an artificial post-dismiss frame delay.
  */
-const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 1;
+const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 0;
 const ACTION_SHEET_FRAME_FALLBACK_MS = 16;
 
 export function scheduleDismissSettledAction(callback: () => void): () => void {

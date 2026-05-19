@@ -7,9 +7,11 @@ import { apiClient } from '../api/apiClient';
 import { extractMarketSymbols } from '../domain/marketSymbols';
 import { useUserPreferences } from '../state/userPreferences';
 
-export function useMarketSymbols() {
+export function useMarketSymbols(enabled = true) {
+  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const brokerId = useUserPreferences((state) => state.brokerId);
   const accountId = useUserPreferences((state) => state.accountDetails?.id ?? '');
+  const isEnabled = enabled && isLoggedIn;
 
   return useQuery({
     queryKey: ['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId],
@@ -23,6 +25,7 @@ export function useMarketSymbols() {
       const data = await res.json();
       return extractMarketSymbols(data);
     },
+    enabled: isEnabled,
     staleTime: 1000 * 60 * 5,
   });
 }
