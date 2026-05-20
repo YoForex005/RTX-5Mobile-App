@@ -11,8 +11,13 @@ import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
-import { applyQuoteSubscriptionDelta, buildActiveQuoteSymbols } from '../quoteSubscriptionState';
-import { normalizeQuoteSymbolKey } from '../../../domain/symbols';
+import {
+  applyQuoteSubscriptionDelta,
+  buildActiveQuoteSymbols,
+  expandQuoteTransportSymbols,
+  resolveQuoteTransportSymbols,
+} from '../quoteSubscriptionState';
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../../domain/symbols';
 import type { QuoteTickEvent } from '../quoteTickNormalizer';
 import {
   cancelFlush,
@@ -28,6 +33,12 @@ import type { GlobalTickListener, SymbolTickListener } from './types';
 
 const shouldLogCandleDiagnostics = (): boolean =>
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true';
+
+const resolveQuoteListenerKeys = (symbol: string): string[] => {
+  const rawKey = normalizeQuoteSymbolKey(symbol);
+  const baseKey = normalizeSymbol(symbol);
+  return Array.from(new Set([rawKey, baseKey].filter(Boolean)));
+};
 
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
@@ -120,33 +131,38 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
    * is opened/closed automatically when the first/last consumer arrives/leaves.
    */
   public subscribeToSymbol(symbol: string, listener: SymbolTickListener): () => void {
-    const normalized = normalizeQuoteSymbolKey(symbol);
-    if (!normalized) {
+    const listenerKeys = resolveQuoteListenerKeys(symbol);
+    const transportSymbols = resolveQuoteTransportSymbols(symbol);
+    if (listenerKeys.length === 0 || transportSymbols.length === 0) {
       return () => {};
     }
 
-    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [symbol], 1);
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, transportSymbols, 1);
     this.syncActiveSymbols();
 
-    let bucket = this.symbolListeners.get(normalized);
-    if (!bucket) {
-      bucket = new Set();
-      this.symbolListeners.set(normalized, bucket);
+    for (const key of listenerKeys) {
+      let bucket = this.symbolListeners.get(key);
+      if (!bucket) {
+        bucket = new Set();
+        this.symbolListeners.set(key, bucket);
+      }
+      bucket.add(listener);
     }
-    bucket.add(listener);
 
     let unsubscribed = false;
     return () => {
       if (unsubscribed) return;
       unsubscribed = true;
-      const set = this.symbolListeners.get(normalized);
-      if (set) {
-        set.delete(listener);
-        if (set.size === 0) {
-          this.symbolListeners.delete(normalized);
+      for (const key of listenerKeys) {
+        const set = this.symbolListeners.get(key);
+        if (set) {
+          set.delete(listener);
+          if (set.size === 0) {
+            this.symbolListeners.delete(key);
+          }
         }
       }
-      this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, [symbol], -1);
+      this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, transportSymbols, -1);
       this.syncActiveSymbols();
     };
   }
@@ -306,20 +322,20 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
    * Does not overwrite existing active symbols.
    */
   public subscribe(symbols: string[]): void {
-    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, symbols, 1);
+    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, expandQuoteTransportSymbols(symbols), 1);
     this.logCandleFeed('subscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
 
   public unsubscribe(symbols: string[]): void {
-    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, symbols, -1);
+    this.storeConsumerCounts = applyQuoteSubscriptionDelta(this.storeConsumerCounts, expandQuoteTransportSymbols(symbols), -1);
     this.logCandleFeed('unsubscribe_requested', { symbols }, 20);
     this.syncActiveSymbols();
   }
 
   /** Exact override for the active symbol subscription list. */
   public setSubscriptions(symbols: string[]): void {
-    this.stickySymbols = new Set(symbols);
+    this.stickySymbols = new Set(expandQuoteTransportSymbols(symbols));
     this.syncActiveSymbols();
   }
 

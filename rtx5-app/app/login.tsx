@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
   ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
@@ -13,15 +13,16 @@ import { useUserPreferences } from '../src/state/userPreferences';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
-import { getBrokerConfig } from '../src/api/broker';
+import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
-import { BROKER_CONFIG_KEY } from '../src/query/broker';
+import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
 import { runImmediateAction } from '../src/utils/actionLatency';
+import { ActionSheet } from '../src/ui/components/ActionSheet';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -32,6 +33,25 @@ const LOGIN_TOUCH_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
 const LOGIN_BUTTON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
 const LOGIN_BUTTON_PRESS_RETENTION_OFFSET = { top: 24, bottom: 24, left: 24, right: 24 } as const;
 const LOGIN_SUBMIT_PRESS_GUARD_MS = 350;
+const PINNED_LOGIN_BROKER_NAMES = ['MetaQuotes Ltd.'];
+
+type LoginBrokerOption = {
+  key: string;
+  brokerId: string;
+  brokerName: string;
+  region: string;
+  protocol: string;
+};
+
+const normalizeBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
+
+const formatBrokerOptionSubtitle = (option: LoginBrokerOption) => (
+  [option.brokerId, option.region, option.protocol.toUpperCase()].filter(Boolean).join(' / ')
+);
+
+const formatSelectedBrokerHint = (option: LoginBrokerOption) => (
+  [option.brokerName, option.region].filter(Boolean).join(' / ')
+);
 
 const schedulePostLoginWork = (task: () => void) => {
   const runAfterFrame = () => {
@@ -78,6 +98,7 @@ export function AccountLoginScreen() {
   const [savePassword, setSavePassword] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [brokerId, setBrokerId] = useState('');
+  const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
   const themeMode = useUserPreferences((s) => s.themeMode);
   const T = useTheme();
@@ -90,6 +111,13 @@ export function AccountLoginScreen() {
   const brokerIdValueRef = useRef<string | null>(null);
   const accountIdValueRef = useRef<string | null>(null);
   const passwordValueRef = useRef<string | null>(null);
+  const {
+    data: brokerServers = [],
+    isLoading: isBrokerServersLoading,
+    isFetching: isBrokerServersFetching,
+    isError: isBrokerServersError,
+    refetch: refetchBrokerServers,
+  } = useBrokerServers(true);
 
   useEffect(() => {
     // Auto-populate saved credentials if they exist
@@ -156,6 +184,73 @@ export function AccountLoginScreen() {
   ) => {
     updatePassword(event.nativeEvent.text);
   };
+
+  const brokerOptions = useMemo<LoginBrokerOption[]>(() => {
+    const pinnedBrokerNames = new Set(PINNED_LOGIN_BROKER_NAMES.map((name) => name.toLowerCase()));
+    const rows = [...brokerServers]
+      .filter((broker: BrokerServer) => broker.enabled !== false && !!broker.broker_id?.trim())
+      .sort((a, b) => {
+        const aName = a.broker_name?.trim() || a.broker_id;
+        const bName = b.broker_name?.trim() || b.broker_id;
+        const aPinned = pinnedBrokerNames.has(aName.toLowerCase()) ? 0 : 1;
+        const bPinned = pinnedBrokerNames.has(bName.toLowerCase()) ? 0 : 1;
+        if (aPinned !== bPinned) return aPinned - bPinned;
+        const byName = aName.localeCompare(bName);
+        if (byName !== 0) return byName;
+        return a.id - b.id;
+      });
+    const seen = new Set<string>();
+    const options: LoginBrokerOption[] = [];
+    for (const broker of rows) {
+      const brokerIdValue = broker.broker_id.trim();
+      const key = normalizeBrokerKey(brokerIdValue);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({
+        key,
+        brokerId: brokerIdValue,
+        brokerName: broker.broker_name?.trim() || brokerIdValue,
+        region: broker.region?.trim() || '',
+        protocol: broker.protocol?.trim() || '',
+      });
+    }
+    return options;
+  }, [brokerServers]);
+
+  const selectedBrokerOption = useMemo(() => {
+    const selectedKey = normalizeBrokerKey(brokerId);
+    if (!selectedKey) return undefined;
+    return brokerOptions.find((option) => option.key === selectedKey);
+  }, [brokerId, brokerOptions]);
+
+  const brokerPickerActions = useMemo(() => {
+    if (brokerOptions.length === 0) {
+      const isBusy = isBrokerServersLoading || isBrokerServersFetching;
+      return [{
+        label: isBusy ? 'Loading brokers...' : 'Retry broker list',
+        subtitle: isBusy
+          ? t('Please wait while the broker list loads.')
+          : t('You can still type the Broker ID manually.'),
+        disabled: isBusy,
+        onPress: () => {
+          void refetchBrokerServers();
+        },
+      }];
+    }
+
+    return brokerOptions.map((option) => ({
+      label: option.brokerName,
+      subtitle: formatBrokerOptionSubtitle(option),
+      onPress: () => updateBrokerId(option.brokerId),
+    }));
+  }, [
+    brokerOptions,
+    isBrokerServersFetching,
+    isBrokerServersLoading,
+    refetchBrokerServers,
+    t,
+    updateBrokerId,
+  ]);
 
   const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => ({
     brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
@@ -363,6 +458,23 @@ export function AccountLoginScreen() {
     });
   };
 
+  const handleBrokerPickerPress = () => {
+    runImmediateAction('login.brokerPicker.open', () => {
+      Keyboard.dismiss();
+      if (brokerOptions.length === 0 && !isBrokerServersLoading && !isBrokerServersFetching) {
+        void refetchBrokerServers();
+      }
+      setBrokerPickerOpen(true);
+    });
+  };
+
+  const handleRegisterAccountPress = () => {
+    runImmediateAction('login.register.open', () => {
+      Keyboard.dismiss();
+      router.push('/register');
+    });
+  };
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -431,7 +543,38 @@ export function AccountLoginScreen() {
                   autoCorrect={false}
                   disableFullscreenUI={true}
                 />
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.brokerPickerBtn,
+                    pressed && styles.brokerPickerBtnPressed,
+                  ]}
+                  onPress={handleBrokerPickerPress}
+                  hitSlop={LOGIN_TOUCH_HIT_SLOP}
+                  latencyLabel="login.brokerPicker.open"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Select broker')}
+                  accessibilityState={{
+                    expanded: brokerPickerOpen,
+                    busy: isBrokerServersLoading || isBrokerServersFetching,
+                  }}
+                  testID="login-broker-picker-button"
+                >
+                  {isBrokerServersLoading || isBrokerServersFetching ? (
+                    <ActivityIndicator size="small" color={T.accent} />
+                  ) : (
+                    <Ionicons name="chevron-down" size={20} color={T.accent} />
+                  )}
+                </Pressable>
               </View>
+              {selectedBrokerOption ? (
+                <Text style={styles.brokerSelectedHint} numberOfLines={1}>
+                  {formatSelectedBrokerHint(selectedBrokerOption)}
+                </Text>
+              ) : isBrokerServersError ? (
+                <Text style={[styles.brokerSelectedHint, styles.brokerSelectedHintError]} numberOfLines={2}>
+                  {t('Broker list unavailable. You can type the Broker ID manually.')}
+                </Text>
+              ) : null}
               <View style={styles.fieldDivider} />
 
               {/* Login ID Field */}
@@ -520,10 +663,40 @@ export function AccountLoginScreen() {
                   <Text style={styles.loginBtnText}>{t('LOGIN')}</Text>
                 )}
               </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.registerAccountBtn,
+                  pressed && styles.registerAccountBtnPressed,
+                ]}
+                onPress={handleRegisterAccountPress}
+                hitSlop={LOGIN_BUTTON_HIT_SLOP}
+                pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
+                latencyLabel="login.register.open"
+                unstable_pressDelay={0}
+                accessibilityRole="button"
+                accessibilityLabel={t('Register account')}
+                testID="login-register-account-button"
+              >
+                <Ionicons name="person-add-outline" size={18} color={T.accent} />
+                <Text style={styles.registerAccountText}>{t('Register account')}</Text>
+              </Pressable>
             </View>
 
           </ScrollView>
         </KeyboardAvoidingView>
+
+        <ActionSheet
+          visible={brokerPickerOpen}
+          title="Select Broker"
+          actions={brokerPickerActions}
+          onClose={() => setBrokerPickerOpen(false)}
+          searchable={brokerOptions.length > 0}
+          searchPlaceholder="Search brokers..."
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
 
         {/* Success/Error Modal Overlay */}
         {modalState.visible && (
@@ -640,6 +813,32 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       shadowOpacity: 0,
       elevation: 0,
     },
+    brokerPickerBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
+      borderWidth: 1,
+      borderColor: isDark ? T.border : T.borderMedium,
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.10)' : 'rgba(59, 130, 246, 0.07)',
+    },
+    brokerPickerBtnPressed: {
+      opacity: 0.78,
+    },
+    brokerSelectedHint: {
+      color: T.textSub,
+      fontSize: 12,
+      fontWeight: '500',
+      lineHeight: 16,
+      marginLeft: 125,
+      marginTop: -6,
+      marginBottom: 8,
+    },
+    brokerSelectedHintError: {
+      color: T.trading.sell.primary,
+    },
 
     /* Divider between fields */
     fieldDivider: {
@@ -693,19 +892,24 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       letterSpacing: 0.5,
     },
 
-    /* Register Link */
-    registerPromptContainer: {
+    registerAccountBtn: {
       flexDirection: 'row',
+      alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 24,
+      gap: 8,
+      minHeight: 50,
+      marginTop: 16,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: T.accent,
+      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.06)',
     },
-    registerPromptText: {
-      color: T.textSub,
-      fontSize: 14,
+    registerAccountBtnPressed: {
+      opacity: 0.82,
     },
-    registerLinkText: {
-      color: '#007ACC',
-      fontSize: 14,
+    registerAccountText: {
+      color: T.accent,
+      fontSize: 15,
       fontWeight: '600',
     },
 

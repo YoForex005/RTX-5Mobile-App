@@ -152,8 +152,8 @@ export const TvTrash = ({ color }: { color: string }) => (
   </Svg>
 );
 
-export const TvLayers = ({ color }: { color: string }) => (
-  <Svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+export const TvLayers = ({ color, size = 26 }: { color: string; size?: number }) => (
+  <Svg width={size} height={size} viewBox="0 0 28 28" fill="none">
     <Path d="M14 6l-8 4 8 4 8-4-8-4z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
     <Path d="M6 14l8 4 8-4M6 19l8 4 8-4" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
   </Svg>

@@ -4,18 +4,13 @@ import { spacing } from "../../ui/theme/index";
 import { StyleSheet, Platform, Dimensions } from "react-native";
 import { MENU_BTN_GUTTER } from "../../ui/components/AppHeader";
 
-const APP_HEADER_HORIZONTAL_PADDING = 16;
-const APP_HEADER_MENU_ICON_SIZE = 28;
-const APP_HEADER_MENU_VISUAL_LEFT =
-  APP_HEADER_HORIZONTAL_PADDING +
-  (MENU_BTN_GUTTER - APP_HEADER_HORIZONTAL_PADDING - APP_HEADER_MENU_ICON_SIZE) / 2;
-const COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26;
-const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(
-  0,
-  APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT,
-);
+
 
 export function makeStyles(T: ThemeColors, isDark: boolean) {
+    const APP_HEADER_MENU_VISUAL_LEFT = 16;
+    const COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26;
+    const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(0, APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT);
+
     const APP_BG = isDark ? '#030508' : T.bg;
     const CHART_CANVAS_BG = isDark ? '#080B11' : '#FFFFFF';
     const BOTTOM_AREA_BG = isDark ? '#0A0C0F' : '#F8FAFC';
@@ -88,46 +83,49 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingLeft: 0,
-      paddingRight: 16,
+      paddingRight: 6,
       paddingTop: 0,
-      paddingBottom: 18,
-      minHeight: 48,
-      marginTop: -6,
+      paddingBottom: 7,
+      minHeight: 58,
       backgroundColor: isDark ? '#080B11' : T.glass2,
-      borderBottomWidth: 0,
-      borderBottomColor: 'transparent',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+    },
+    chartHeaderMenuButton: {
+      width: 48,
+      height: 48,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 4,
     },
     symbolSection: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      flex: 1,
-      minHeight: 36,
-      marginTop: 4,
+      flexBasis: 'auto',
+      minWidth: 0,
+      maxWidth: 110,
+      flexShrink: 1,
+      minHeight: 48,
     },
     symbolSectionTapTarget: {
       alignSelf: 'stretch',
       justifyContent: 'center',
       minHeight: 54,
-      marginTop: 0,
+      marginTop: 6,
       marginLeft: 0,
-      paddingLeft: 0,
-      paddingRight: 18,
+      paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET,
+      paddingRight: 0,
     },
     symbolSectionContent: {
       minWidth: 0,
       flexShrink: 1,
     },
-    flagStack: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
     flagCircle: {
       width: 30,
       height: 30,
       borderRadius: 15,
-      borderWidth: 2,
-      borderColor: isDark ? '#0B101E' : '#FFFFFF',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0',
+      backgroundColor: isDark ? '#0F172A' : '#F1F5F9',
     },
     flagOverlap: {
       marginLeft: -10,
@@ -135,31 +133,83 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     symbolNameRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
+      gap: 2,
+      minWidth: 0,
     },
     symbolText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
-      fontSize: 17,
-      fontWeight: '600',
-      letterSpacing: 0.3,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0,
+      flexShrink: 1,
     },
     fxBadge: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-      paddingHorizontal: 5,
+      backgroundColor: 'transparent',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? '#334155' : '#CBD5E1',
+      paddingHorizontal: 4,
       paddingVertical: 1,
-      borderRadius: 3,
+      borderRadius: 10,
+      flexShrink: 0,
     },
     fxBadgeText: {
       color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 9,
+      fontSize: 8,
       fontWeight: '700',
-      letterSpacing: 0.5,
+      letterSpacing: 0,
+    },
+    symbolMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      minWidth: 0,
+      marginTop: 1,
     },
     symbolSubText: {
-      color: isDark ? '#64748B' : '#94A3B8',
-      fontSize: 10,
+      color: isDark ? '#94A3B8' : '#64748B',
+      fontSize: 11,
       fontWeight: '500',
-      marginTop: 1,
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    compactHeaderActionsViewport: {
+      flex: 1,
+      minWidth: 0,
+      alignSelf: 'stretch',
+      maxHeight: 48,
+    },
+    compactHeaderActionsContent: {
+      flexGrow: 1,
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      justifyContent: 'space-between',
+      minHeight: 48,
+      paddingRight: 0,
+    },
+    compactHeaderToolbarSlot: {
+      width: 32,
+      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderLeftWidth: 0,
+    },
+    compactHeaderToolbarTextSlot: {
+      width: 'auto',
+      alignItems: 'flex-start',
+      paddingLeft: 0,
+      paddingRight: 4,
+    },
+    compactHeaderToolbarTradeSlot: {
+      width: 48,
+    },
+    compactHeaderToolbarLastSlot: {
+      width: 28,
+    },
+    compactHeaderTimeframeText: {
+      color: BLUE,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0,
     },
 
     /* â”€â”€ Center: Live Price â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -380,6 +430,13 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       zIndex: 30,
       elevation: 24,
     },
+    chartOverlaySymbolSection: {
+      position: 'absolute' as any,
+      top: 8,
+      left: 8,
+      zIndex: 20,
+      elevation: 10,
+    },
     chartMetaOhlc: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -453,22 +510,22 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'center',
     },
     toolbarIconButton: {
-      width: 26,
-      height: 26,
+      width: 30,
+      height: 30,
       alignItems: 'center',
       justifyContent: 'center',
     },
     toolbarTradeButton: {
-      minWidth: 40,
-      height: 26,
+      minWidth: 48,
+      height: 30,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 2,
     },
     toolbarTradeText: {
       color: BLUE,
-      fontSize: 11,
-      fontWeight: '800',
+      fontSize: 13,
+      fontWeight: '700',
       letterSpacing: 0.1,
     },
     toolbarTrailingGroup: {

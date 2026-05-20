@@ -65,6 +65,28 @@ type BuildMergedPositionsOptions = {
   preserveMissingExisting?: boolean;
 };
 
+export function dedupePositionsById<T extends Pick<PositionItem, 'id'>>(positions: T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+
+  for (const position of positions) {
+    const key = String(position.id ?? '').trim();
+    if (!key) {
+      unique.push(position);
+      continue;
+    }
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(position);
+  }
+
+  return unique;
+}
+
 function isRenderablePosition(position: PositionItem): boolean {
   return (
     String(position.id ?? '').trim().length > 0 &&
@@ -123,7 +145,7 @@ export function buildMergedPositions(
     };
   });
 
-  return [...preservedMissingPositions, ...mergedMapped].sort(
+  return dedupePositionsById([...preservedMissingPositions, ...mergedMapped]).sort(
     (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
   );
 }

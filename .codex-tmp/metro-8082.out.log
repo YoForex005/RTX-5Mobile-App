@@ -89,3 +89,43 @@ Android Bundled 233ms node_modules\expo-router\entry.js (1 module)
  WARN  [Action] quotes.addAsset.open first frame took 514ms; budget is 20ms.
  LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
 Android node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 429ms node_modules\expo-router\entry.js (1 module)
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ LOG  [API warn] GET /watchlist 200 1422ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /instruments 200 1638ms (apiClient.GET)
+ WARN  [Action] appHeader.menu first frame took 163ms; budget is 20ms.
+ WARN  [Action] sidebar.manageAccounts first frame took 716ms; budget is 20ms.
+ WARN  [Action] accounts.connect.open first frame took 365ms; budget is 20ms.
+ WARN  [Action] brokers.back first frame took 353ms; budget is 20ms.
+ WARN  [Action] accounts.back first frame took 294ms; budget is 20ms.
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Action] quotes.addAsset.open first frame took 244ms; budget is 20ms.
+ WARN  [Action] quotes.addSymbol.back first frame took 155ms; budget is 20ms.
+ WARN  [Action] quotes.editMode.toggle first frame took 179ms; budget is 20ms.
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Action] quotes.editMode.toggle first frame took 227ms; budget is 20ms.
+ WARN  [Action] quotes.symbolSheet.tap.open first frame took 343ms; budget is 20ms.
+ WARN  [Action] fastPress first frame took 345ms; budget is 20ms.
+ WARN  [Action] quotes.symbolSheet.tap.open first frame took 640ms; budget is 20ms.
+ WARN  [Action] fastPress first frame took 640ms; budget is 20ms.
+ WARN  [Action] actionSheet.dismissOverlay first frame took 195ms; budget is 20ms.
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Action] appHeader.menu first frame took 2477ms; budget is 20ms.
+ WARN  [API slow] GET /accounts 403 7281ms (apiClient.GET)
+ WARN  [Action] sidebar.closeButton first frame took 4523ms; budget is 20ms.
+ WARN  [Action] sidebar.closeButton first frame took 4733ms; budget is 20ms.
+Android node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 460ms node_modules\expo-router\entry.js (1 module)
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /instruments 200 2793ms (apiClient.GET)
+ LOG  [API warn] GET /watchlist 200 2775ms (apiClient.GET)
+ WARN  [Action] quotes.addAsset.open first frame took 259ms; budget is 20ms.
+ WARN  [Action] quotes.addSymbol.back first frame took 158ms; budget is 20ms.
+ WARN  [Action] quotes.editMode.toggle first frame took 161ms; budget is 20ms.
+ WARN  [Action] quotes.editMode.toggle first frame took 205ms; budget is 20ms.
+ WARN  [Action] appHeader.menu first frame took 159ms; budget is 20ms.
+ WARN  [API slow] GET /accounts ERR 19506ms (apiClient.GET)

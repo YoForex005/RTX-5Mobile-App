@@ -25,6 +25,7 @@ import { usePositionsState } from '../../../state/positionsState';
 import { useTradingState } from '../../../state/tradingState';
 import { resolveTradingLogin } from '../../../state/tradingLogin';
 import { isRenderablePositionSymbol } from '../../../state/positionsMapper';
+import { dedupePositionsById } from '../../../state/positionsState.helpers';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { useUIState } from '../../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../../api/tradingErrors';
@@ -75,7 +76,7 @@ export function TradeScreen() {
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
-    () => positions.filter((position) => isRenderablePositionSymbol(position.symbol)),
+    () => dedupePositionsById(positions.filter((position) => isRenderablePositionSymbol(position.symbol))),
     [positions],
   );
   const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);

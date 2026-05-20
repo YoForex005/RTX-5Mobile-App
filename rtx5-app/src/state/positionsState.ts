@@ -15,6 +15,7 @@ import {
 import { UNKNOWN_POSITION_SYMBOL, mapPositionToItem } from './positionsMapper';
 import {
   buildMergedPositions,
+  dedupePositionsById,
   findExistingPosition,
   isTerminalPositionUpdate,
   shouldClearPositionsForLoginSwitch,
@@ -76,7 +77,7 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
   lastFetchLogin: null,
   hydratedLogin: null,
   lastError: null,
-  setPositions: (positions) => set({ positions }),
+  setPositions: (positions) => set({ positions: dedupePositionsById(positions) }),
   clearPositions: () =>
     set({
       positions: [],
@@ -158,8 +159,11 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
         nextPositions.unshift(newItem);
       }
 
-      nextPositions.sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
-      return { positions: nextPositions };
+      return {
+        positions: dedupePositionsById(nextPositions).sort(
+          (a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime(),
+        ),
+      };
     });
   },
 

@@ -69,7 +69,7 @@ export function ChartToolbarObjectsButton({
         hitSlop={8}
         unstable_pressDelay={0}
       >
-        <TvLayers color={textMutedColor} />
+        <TvLayers color={textMutedColor} size={16} />
       </Pressable>
     </View>
   );
@@ -90,7 +90,7 @@ export function ChartToolbarMoreButton({
         hitSlop={8}
         unstable_pressDelay={0}
       >
-        <Ionicons name="ellipsis-vertical" size={18} color={textMutedColor} />
+        <Ionicons name="ellipsis-vertical" size={16} color={textMutedColor} />
       </Pressable>
     </View>
   );

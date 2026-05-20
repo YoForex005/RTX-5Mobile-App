@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { useLiveTick } from '../../../domain/candles/hooks/useLiveCandles';
-import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import {
   type TradeVolumeBounds,
 } from '../../../utils/tradeVolume';
@@ -15,20 +13,15 @@ import { useTranslation } from '../../../i18n/useTranslation';
 
 
 
-export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSource, active = true }: any) => {
+export const LivePriceHeader = React.memo(({ styles, displayDecimals, priceSource, bid, ask, changePct = 0 }: any) => {
   const { t } = useTranslation();
-  const latestTick = useLiveTick(symbol, undefined, active);
-  const liveQuotes = useMarketData([symbol], active);
-  const q = liveQuotes[symbol] || {};
-  const hasLiveQuote = hasLiveQuoteFeedData(q);
   const priceLabel = t('Price');
 
   const selectedQuote =
     priceSource === 'ask'
-      ? (hasLiveQuote && typeof q.ask === 'number' && q.ask > 0 ? q.ask : null)
-      : (hasLiveQuote && typeof q.bid === 'number' && q.bid > 0 ? q.bid : null);
-  const candleClose = latestTick && typeof latestTick.close === 'number' && latestTick.close > 0 ? latestTick.close : null;
-  const currentPrice = selectedQuote ?? candleClose;
+      ? (typeof ask === 'number' && Number.isFinite(ask) && ask > 0 ? ask : null)
+      : (typeof bid === 'number' && Number.isFinite(bid) && bid > 0 ? bid : null);
+  const currentPrice = selectedQuote;
 
   if (currentPrice === null) {
     return (
@@ -38,9 +31,9 @@ export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, pr
     );
   }
 
-  const changePct = typeof q.changePct === 'number' ? q.changePct : 0;
-  const change = currentPrice * (changePct / 100);
-  const isUp = changePct >= 0;
+  const numericChangePct = typeof changePct === 'number' && Number.isFinite(changePct) ? changePct : 0;
+  const change = currentPrice * (numericChangePct / 100);
+  const isUp = numericChangePct >= 0;
 
   return (
     <View style={styles.priceSection}>
@@ -56,8 +49,8 @@ export const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, pr
         adjustsFontSizeToFit
       >
         {change > 0 ? '+' : ''}
-        {(change || 0).toFixed(displayDecimals)} ({changePct > 0 ? '+' : ''}
-        {(changePct || 0).toFixed(2)}%)
+        {(change || 0).toFixed(displayDecimals)} ({numericChangePct > 0 ? '+' : ''}
+        {(numericChangePct || 0).toFixed(2)}%)
       </Text>
     </View>
   );

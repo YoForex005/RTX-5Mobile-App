@@ -225,10 +225,10 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   if (normalizedUpdate.rawSymbol !== normalizedUpdate.symbol) {
     bridge.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
   }
-  // Extend the chart's already-open active candle so its close (and wick
-  // high/low) keep ticking in real time between authoritative snapshots. This
-  // does not create a new candle from quote-only data; backend OHLC `update`
-  // messages routed above must open the bucket first.
+  // Extend the chart's active candle so its close (and wick high/low) keep
+  // ticking in real time between authoritative snapshots. The candle stream
+  // may also open the current quote bucket when the candle backend is late,
+  // while preserving backend OHLC as authoritative when snapshots arrive.
   // We pick `bid` as the price source (matches the configured candle price
   // basis); falling back to `ask` if `bid` is somehow missing.
   const tickPriceForCandle = Number.isFinite(normalizedUpdate.bid)

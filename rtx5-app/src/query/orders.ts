@@ -139,7 +139,7 @@ export const usePlaceOrderMutation = () => {
           tp: 0,
           clientCreatedAt: Date.now(),
         };
-        state.setPositions([newPos, ...state.positions]);
+        state.upsertPosition(newPos);
 
         // Fire a background sync loop to eventually replace the optimistic record
         // with the fully-hydrated backend record.

@@ -601,8 +601,7 @@ export function OrderTicketScreen() {
         clientCreatedAt: Date.now(),
       };
 
-      // Prepend so the newest position appears first in position lists.
-      state.setPositions([newPos, ...state.positions]);
+      state.upsertPosition(newPos);
 
       // Refresh positions state from the server in the background.
       const mt5Login = resolveTradingLoginString();

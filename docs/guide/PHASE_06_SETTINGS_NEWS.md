@@ -49,6 +49,8 @@ Implement settings and account ecosystem screens required for full screenshot pa
 
 ## Progress Notes
 - Settings hub layout was redesigned with a responsive premium card structure, a live market preview section tied to the active chart/watchlist context, and direct navigation affordances for accounts, mailbox, news, brokers, and chart settings on mobile widths.
+- 2026-05-20: Restored the login-screen `Register account` entry as a visible secondary action below the login CTA. The action dismisses the keyboard and routes to the existing `Register a demo account` screen without changing the frontend-only Orrnn public demo registration contract.
+- 2026-05-20: Added the broker directory picker to the login `Broker ID` row. The dropdown reuses `GET /broker/servers`, deduplicates enabled brokers by `broker_id`, keeps manual Broker ID typing as the offline fallback, and writes selected brokers back through the same login snapshot path.
 - The settings hub live chart card now renders through the shared chart preview component so chart palette changes from chart properties appear in the settings preview with the same persisted colors and display options as the main chart screen.
 - Accounts classify `contest` as its own backend account type while presenting it as `Real` in the account ribbon, and keep `Demo` only for backend demo groups.
 - 2026-05-15: Consolidated account connection into one `Login Account` entry. Demo, contest, and real classification now comes from the backend auth response (`account_type`, `is_demo`, `is_contest`, or group aliases) instead of separate login routes, and saved-account switching refreshes the stored type from the latest login response.

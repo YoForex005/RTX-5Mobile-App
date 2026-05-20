@@ -9,7 +9,6 @@ import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
-import { useUserPreferences } from '../state/userPreferences';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
@@ -68,8 +67,7 @@ export function useWebSocketConnection() {
  * when the specific symbols it cares about update.
  */
 export function useMarketData(symbols: string[] = [], active = true) {
-  const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
-  const isActive = active && isLoggedIn;
+  const isActive = active;
   const symbolsKey = JSON.stringify(symbols);
   const transportSymbols = React.useMemo(
     () => Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))),
@@ -221,15 +219,23 @@ const mergeQuoteTickIntoSnapshot = (
   });
 };
 
-export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefined {
+export function useLiveSymbolQuote(
+  symbol: string,
+  active = true,
+  commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS,
+): Partial<QuoteItem> | undefined {
+  const isActive = active;
+  const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
   const normalizedSymbol = React.useMemo(() => normalizeSymbol(symbol), [symbol]);
   const seedQuote = React.useMemo(
     () =>
-      resolveMergedQuoteSnapshot(
-        symbol,
-        normalizedSymbol ? useTradingState.getState().quotes[normalizedSymbol] : undefined,
-      ),
-    [normalizedSymbol, symbol],
+      isActive
+        ? resolveMergedQuoteSnapshot(
+            symbol,
+            normalizedSymbol ? useTradingState.getState().quotes[normalizedSymbol] : undefined,
+          )
+        : undefined,
+    [isActive, normalizedSymbol, symbol],
   );
   const [liveQuote, setLiveQuote] = React.useState<Partial<QuoteItem> | undefined>(seedQuote);
   const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
@@ -268,8 +274,8 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       });
     };
 
-    quoteCommitTimerRef.current = setTimeout(commit, LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS);
-  }, []);
+    quoteCommitTimerRef.current = setTimeout(commit, safeCommitIntervalMs);
+  }, [safeCommitIntervalMs]);
 
   useEffect(() => {
     liveQuoteRef.current = seedQuote;
@@ -277,7 +283,7 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
   }, [seedQuote]);
 
   useEffect(() => {
-    if (!normalizedSymbol) {
+    if (!isActive || !normalizedSymbol) {
       cancelScheduledCommit();
       liveQuoteRef.current = undefined;
       setLiveQuote(undefined);
@@ -306,7 +312,7 @@ export function useLiveSymbolQuote(symbol: string): Partial<QuoteItem> | undefin
       unsubscribe();
       cancelScheduledCommit();
     };
-  }, [cancelScheduledCommit, normalizedSymbol, scheduleQuoteCommit, symbol]);
+  }, [cancelScheduledCommit, isActive, normalizedSymbol, scheduleQuoteCommit, symbol]);
 
   return liveQuote;
 }

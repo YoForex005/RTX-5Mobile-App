@@ -6,6 +6,7 @@ import { useTradingState } from '../../state/tradingState';
 import {
   applyLiveQuoteTickToSnapshot,
   buildInitialLiveQuoteSnapshot,
+  getQuoteFreshnessAnchor,
   type LiveQuoteSnapshot,
 } from './liveQuoteSnapshot';
 
@@ -24,6 +25,12 @@ const uniqueQuoteSymbolKeys = (symbols: string[]): string[] =>
 
 const getTickSymbolKey = (tick: QuoteTickEvent): string =>
   normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
+
+const getSnapshotKeys = (symbol: string): string[] => {
+  const rawKey = normalizeQuoteSymbolKey(symbol);
+  const baseKey = normalizeSymbol(symbol);
+  return Array.from(new Set([rawKey, baseKey].filter(Boolean)));
+};
 
 const notifySymbol = (symbol: string): void => {
   const listeners = listenersBySymbol.get(symbol);
@@ -85,24 +92,37 @@ const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
 };
 
 const subscribeSnapshot = (symbol: string, listener: SnapshotListener): (() => void) => {
-  const normalizedSymbol = normalizeQuoteSymbolKey(symbol);
-  if (!normalizedSymbol) return () => {};
+  const keys = getSnapshotKeys(symbol);
+  if (keys.length === 0) return () => {};
 
-  let listeners = listenersBySymbol.get(normalizedSymbol);
-  if (!listeners) {
-    listeners = new Set();
-    listenersBySymbol.set(normalizedSymbol, listeners);
+  for (const key of keys) {
+    let listeners = listenersBySymbol.get(key);
+    if (!listeners) {
+      listeners = new Set();
+      listenersBySymbol.set(key, listeners);
+    }
+    listeners.add(listener);
   }
 
-  listeners.add(listener);
   return () => {
-    const current = listenersBySymbol.get(normalizedSymbol);
-    if (!current) return;
-    current.delete(listener);
-    if (current.size === 0) {
-      listenersBySymbol.delete(normalizedSymbol);
+    for (const key of keys) {
+      const current = listenersBySymbol.get(key);
+      if (!current) continue;
+      current.delete(listener);
+      if (current.size === 0) {
+        listenersBySymbol.delete(key);
+      }
     }
   };
+};
+
+const resolveSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
+  const keys = getSnapshotKeys(symbol);
+  const snapshots = keys
+    .map((key) => ensureSnapshot(key))
+    .filter((snapshot): snapshot is LiveQuoteSnapshot => snapshot !== undefined);
+
+  return snapshots.find((snapshot) => getQuoteFreshnessAnchor(snapshot) !== undefined) ?? snapshots[0];
 };
 
 export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
@@ -162,7 +182,7 @@ export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefi
   );
 
   const getSnapshot = useCallback(
-    () => (normalizedSymbol ? ensureSnapshot(normalizedSymbol) : undefined),
+    () => (normalizedSymbol ? resolveSnapshot(normalizedSymbol) : undefined),
     [normalizedSymbol],
   );
 

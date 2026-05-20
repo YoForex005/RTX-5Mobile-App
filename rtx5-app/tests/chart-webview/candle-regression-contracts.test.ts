@@ -155,6 +155,34 @@ test('candle websocket appends stored JWT when available and reconnects on token
   );
 });
 
+test('candle websocket falls back to public channels when stored JWT handshake fails', () => {
+  assertSourceContains(
+    socketSource,
+    /private anonymousFallbackToken: string \| null = null/,
+    'candle WS must remember a rejected token so public channel fallback is stable',
+  );
+  assertSourceContains(
+    socketSource,
+    /private resolveConnectionToken\(\): string \| null \{[\s\S]*return this\.anonymousFallbackToken === token \? null : token/,
+    'candle WS must omit a token that already failed the public candle handshake',
+  );
+  assertSourceContains(
+    socketSource,
+    /this\.ws\.onerror = \(\) => \{[\s\S]*this\.retryPublicChannelWithoutToken\(\)/,
+    'candle WS errors must trigger an anonymous retry path',
+  );
+  assertSourceContains(
+    socketSource,
+    /private retryPublicChannelWithoutToken\(\): void \{[\s\S]*this\.anonymousFallbackToken = this\.activeToken[\s\S]*this\.tearDownSocketSafe\(\)[\s\S]*this\.scheduleReconnect\(\)/,
+    'candle WS must reconnect active subscriptions without a rejected token',
+  );
+  assertSourceContains(
+    socketSource,
+    /this\.anonymousFallbackToken = null[\s\S]*if \(this\.subscriptions\.size === 0\)/,
+    'token rotation must clear anonymous fallback so the new token can be tried',
+  );
+});
+
 test('candle websocket call sites guard against stale-prototype singletons (HMR safety)', () => {
   // Under hot-module-reload the singleton instance can pre-date a method that
   // was added to the class. Crashing the chart with "this.X is not a function"

@@ -29,7 +29,10 @@ test('webview bridge: ChartScreen initializes chart only after WebView READY ena
 });
 
 test('webview bridge: candles arriving before READY are retained and sent after readiness', () => {
-  assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/, 'native host must sanitize candles once per render');
+  assertSourceContains(source, /const sanitizedBackendCandles = useMemo\([\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)/, 'native host must sanitize backend candles only when the backend stream changes');
+  assertSourceContains(source, /const sanitizedCandles = useMemo\([\s\S]*resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe/, 'native host must merge live price after backend sanitization');
+  assertSourceContains(source, /const overlayCandles = sanitizedBackendCandles\.length > 0 \? sanitizedBackendCandles : sanitizedCandles/, 'overlay rebuilds must stay tied to backend candles when backend history exists');
+  assertSourceContains(source, /buildChartOverlayPayload\(\{[\s\S]*candles: overlayCandles/, 'chart overlays must not rebuild from every live quote tick');
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
@@ -67,6 +70,20 @@ test('webview bridge: updateChartData full reload reapplies overlays and market 
   assertSourceContains(body, /_positionLinesArr = \[\]/, 'full reload must clear stale overlay line refs');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'full reload must reapply overlays after setData');
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'full reload must restore market lines after setData');
+});
+
+test('webview bridge: updateChartData recenters when a full reload replaces the visible series', () => {
+  const body = extractFunctionBody(chartWebViewHtmlSource, 'updateChartData');
+
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function shouldResetViewportForSeriesReplacement\(previousData, nextData\)[\s\S]*return nextData\.length < previousData\.length \|\| nextFirst !== previousFirst \|\| nextLast < previousLast/,
+    'series replacement detection must catch shrinks and non-prepend range changes',
+  );
+  assertSourceContains(body, /var didReplaceVisibleSeries =[\s\S]*shouldResetViewportForSeriesReplacement\(previousRawSeriesData, lastRawSeriesData\)/, 'full reload must detect visible series replacement');
+  assertSourceContains(body, /previousRawSeriesData\.length === 0 \|\| didReplaceVisibleSeries[\s\S]*applyRecentViewport\(mapped\.length\)/, 'replacement reloads must move the viewport to the latest data');
+  assertSourceContains(body, /didReplaceVisibleSeries \? 'update_data_replace_series' : 'update_data'/, 'replacement reloads must use a distinct price-scale recovery reason');
+  assertSourceContains(body, /didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/, 'replacement reloads must retry price-scale recovery like history prepends');
 });
 
 test('webview bridge: updateTick uses an incremental requestAnimationFrame path', () => {

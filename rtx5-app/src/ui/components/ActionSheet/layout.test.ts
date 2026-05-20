@@ -66,12 +66,24 @@ test('after first layout action sheets only ratchet upward', () => {
   );
 });
 
-test('instant action sheets paint on the first modal frame', () => {
+test('android instant action sheets wait for settled modal layout before painting the sheet', () => {
   const source = readActionSheetSource();
 
+  assert.match(source, /const ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS = 120/);
   assert.match(
     source,
-    /if \(instantOpen\) \{[\s\S]*overlayOpacity\.stopAnimation\(\);[\s\S]*sheetTranslateY\.stopAnimation\(\);[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);[\s\S]*return;/,
+    /const shouldDelayInstantSheetPaint = Platform\.OS === 'android' && instantOpen/,
   );
-  assert.doesNotMatch(source, /overlayOpacity\.setValue\(Platform\.OS === 'android' \? 0 : 1\)/);
+  assert.match(
+    source,
+    /const shouldHideSheetForInitialLayout = shouldDelayInstantSheetPaint && !instantLayoutReady/,
+  );
+  assert.match(
+    source,
+    /opacity: shouldHideSheetForInitialLayout \? 0 : 1/,
+  );
+  assert.match(
+    source,
+    /h > 0 && Platform\.OS === 'android' && instantOpen[\s\S]*scheduleInstantSheetPaintReady\(\)/,
+  );
 });

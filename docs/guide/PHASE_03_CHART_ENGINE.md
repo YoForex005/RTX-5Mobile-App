@@ -39,6 +39,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Compact chart footer supports right-aligned Sell/Buy prices with increase-left/decrease-right lot controls.
 - [x] Compact chart footer Sell/Buy backgrounds cover the full button slots.
 - [x] Compact chart footer keeps the Sell/Lot/Buy row fully visible above the keyboard.
+- [x] Native chart top header matches the 2026-05-20 MT-style reference by collapsing the title, symbol, and toolbar actions into one safe-area row while preserving fullscreen toolbar access.
 - [x] Bottom navbar switches primary tabs within a strict 20ms local first-frame frontend budget.
 - [x] Shared app actions use a strict 20ms local first-frame frontend budget.
 - [x] Buy/Sell trade actions use a stricter 10ms local first-frame frontend budget.
@@ -46,6 +47,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Action destination routes are warmed non-blockingly so option screens do not cold-load after tap.
 
 ## Progress Notes
+- 2026-05-20: Reworked the non-fullscreen native chart top area to match the user-supplied MT-style reference. The generic centered `Chart` AppHeader and right-side `PRICE` live-price widget are removed from the chart top, while a single safe-area row now contains the hamburger menu, persisted symbol/timeframe controls, symbol name/category badge, `SL/TP`, chart type, objects, drawing, settings, and more actions; fullscreen still mounts the standalone toolbar for access while the normal header is hidden.
 - 2026-05-16: Added shared backend API latency instrumentation for the app's REST path. The central `apiClient`, login/register, public demo registration/status/group endpoints, MT5 registration, candle public fallback, positions raw helper, and `POST /orders` market-order attempts now record sanitized method/endpoint/status/duration samples; Buy/Sell order latency is recorded under `trade.placeMarketOrder.buy/sell` without changing order payload behavior.
 - 2026-05-16: Added a separate critical trade-action budget for Buy/Sell paths. Chart native/footer and MT5 market buttons, web chart Buy/Sell, quote details Buy/Sell, and order-ticket market execution buttons now use a 10ms local first-frame guard, while general app actions keep the 20ms budget.
 - 2026-05-16: Tightened the shared fast-action and bottom-tab dev performance budgets from 1000ms to a 20ms local first-frame target. This budget applies to frontend touch acknowledgement and lightweight UI opening only; network completion, backend order placement, and cold native screen mounting remain separate timings.
@@ -379,6 +381,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 ## Test Checklist
 - [x] Unit: candle transforms and viewport math.
 - [x] Unit/typecheck: app-wide fast actions stay on the immediate action path without the old tracing wrapper across Settings, Accounts, Quotes, History, Trade summary, Chart Settings, Order Ticket, and native/web ChartScreen, with light/dark theme wiring guarded.
+- [x] Typecheck: native chart 2026-05-20 compact MT-style header layout compiles with `npm run typecheck`.
 - [x] Unit/typecheck: compact chart symbol dropdown uses a 26px left shift from the hamburger visual-left reference while preserving the instant-open tap target.
 - [x] Unit/typecheck: compact footer uses a fixed shared row height plus a matching keyboard reserve so the Sell/Lot/Buy row cannot be clipped below during lot editing.
 - [x] Unit/typecheck: compact footer Sell/Buy action backgrounds stretch through the full button slots while preserving dynamic red/blue action colors.

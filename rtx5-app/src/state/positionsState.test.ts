@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildMergedPositions,
+  dedupePositionsById,
   isTerminalPositionUpdate,
   shouldClearPositionsForLoginSwitch,
 } from './positionsState.helpers.ts';
@@ -81,6 +82,69 @@ test('buildMergedPositions preserves recent optimistic positions that are still 
   );
 
   assert.deepEqual(merged.map((position) => position.id), ['401']);
+});
+
+test('dedupePositionsById keeps the newest optimistic row when a ticket collides', () => {
+  const firstCreatedAt = Date.now();
+  const deduped = dedupePositionsById([
+    {
+      id: '1774502954924',
+      symbol: 'GBPUSD',
+      side: 'buy',
+      volume: 0.1,
+      openPrice: 1.342,
+      currentPrice: 1.342,
+      pnl: 0,
+      swap: 0,
+      openTime: '2026-05-20T14:27:53.000Z',
+      clientCreatedAt: firstCreatedAt,
+    },
+    {
+      id: '1774502954924',
+      symbol: 'GBPUSD',
+      side: 'buy',
+      volume: 0.1,
+      openPrice: 1.341,
+      currentPrice: 1.341,
+      pnl: 0,
+      swap: 0,
+      openTime: '2026-05-20T14:27:52.000Z',
+    },
+  ]);
+
+  assert.equal(deduped.length, 1);
+  assert.equal(deduped[0]?.id, '1774502954924');
+  assert.equal(deduped[0]?.clientCreatedAt, firstCreatedAt);
+});
+
+test('buildMergedPositions deduplicates duplicate ticket records from websocket snapshots', () => {
+  const merged = buildMergedPositions(
+    [],
+    [
+      {
+        order_ticket: 1774502954924,
+        symbol: 'GBPUSD',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 1.3419,
+        price_current: 1.3421,
+        profit: 0,
+        time_create: 1_779_285_473,
+      },
+      {
+        position_ticket: 1774502954924,
+        symbol: 'GBPUSD',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 1.3419,
+        price_current: 1.3421,
+        profit: 0,
+        time_create: 1_779_285_473,
+      },
+    ],
+  );
+
+  assert.deepEqual(merged.map((position) => position.id), ['1774502954924']);
 });
 
 test('buildMergedPositions can merge scoped websocket batches without dropping other symbols', () => {

@@ -1525,8 +1525,6 @@ export function QuotesScreen() {
 
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const sidebarOpen = useUIState((s) => s.sidebarOpen);
-  const actionSheetOpen = useUIState((s) => s.actionSheet !== null);
   const quoteServerDataActive = isScreenFocused && isLoggedIn;
   const { data: apiSymbols = [] } = useMarketSymbols(quoteServerDataActive);
 
@@ -1658,10 +1656,14 @@ export function QuotesScreen() {
     ] as const);
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
-  const quoteRouteActive = isScreenFocused || pathname === '/quotes' || pathname.startsWith('/quotes/');
-  const quoteStickyFeedActive = isLoggedIn && quoteRouteActive;
-  const blockingQuoteOverlayOpen = showAddModal || sidebarOpen || actionSheetOpen;
-  const quoteFeedActive = quoteStickyFeedActive && !blockingQuoteOverlayOpen;
+  const quoteRouteActive =
+    isScreenFocused ||
+    pathname === '/quotes' ||
+    pathname.startsWith('/quotes/') ||
+    pathname === '/(tabs)/quotes' ||
+    pathname.startsWith('/(tabs)/quotes/');
+  const quoteStickyFeedActive = quoteRouteActive;
+  const quoteFeedActive = quoteStickyFeedActive;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {

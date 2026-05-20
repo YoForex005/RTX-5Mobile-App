@@ -51,6 +51,8 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - Quotes module reaches parity checklist with no P1 defects.
 
 ## Progress Notes
+- 2026-05-20: Restored public `/ws/feed` quote subscriptions across Quotes, Chart, trade quote buttons, market statistics, and chart preview consumers by removing the accidental `isLoggedIn` gate from the quote WebSocket hooks. Private REST/watchlist/account data remains login-gated, while the public quote stream now paints whenever the owning screen is active.
+- 2026-05-20: Verified the live feed on Android with screenshots and direct `/ws/feed` samples. The quote socket now subscribes to both broker-suffixed symbols and their normalized base symbols, and quote rows listen to both keys, so rows such as `GBPUSD.c`/`XAUUSDm` can still paint when the backend streams `GBPUSD`/`XAUUSD`.
 - 2026-05-16: Made Quotes symbol menus faster without sacrificing scroll safety. Tap and long-press ActionSheet configs are prebuilt per watchlist symbol, quote cards suppress held/pressed feedback when opening sheets, the tap path now opens from touch-down through the immediate action guard, and instant ActionSheets paint on the first modal frame instead of waiting for an Android layout opacity pass.
 - 2026-04-08: Quotes tab dark theme refreshed with a desk-style shell, stronger quote card hierarchy, and retained live/search/edit flows for `IMG_3044.PNG` scope.
 - 2026-04-08: Restored the previous quote symbol card treatment while keeping the refreshed quotes screen shell/background in place.

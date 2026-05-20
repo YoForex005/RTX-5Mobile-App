@@ -47,5 +47,9 @@ export function resolveActionSheetMeasuredHeight({
     return Math.max(previousHeight, normalizedLayoutHeight);
   }
 
+  if (!instantOpen && !hasMeasuredLayout) {
+    return normalizedLayoutHeight;
+  }
+
   return Math.max(previousHeight, normalizedLayoutHeight);
 }

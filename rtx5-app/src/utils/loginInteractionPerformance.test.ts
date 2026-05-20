@@ -37,6 +37,40 @@ test('login submit uses the shared stable fast press path', () => {
   assert.doesNotMatch(source, /loginBtnPressed: \{[\s\S]*transform:/);
 });
 
+test('login screen exposes register account navigation to the demo registration screen', () => {
+  const source = readSource('app/login.tsx');
+
+  assert.match(source, /const handleRegisterAccountPress = \(\) => \{/);
+  assert.match(source, /runImmediateAction\('login\.register\.open'/);
+  assert.match(source, /Keyboard\.dismiss\(\)/);
+  assert.match(source, /router\.push\('\/register'\)/);
+  assert.match(source, /onPress=\{handleRegisterAccountPress\}/);
+  assert.match(source, /accessibilityLabel=\{t\('Register account'\)\}/);
+  assert.match(source, /testID="login-register-account-button"/);
+});
+
+test('login broker id can be selected from the broker directory dropdown', () => {
+  const source = readSource('app/login.tsx');
+
+  assert.match(source, /import \{ ActionSheet \} from '\.\.\/src\/ui\/components\/ActionSheet'/);
+  assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerServers \} from '\.\.\/src\/query\/broker'/);
+  assert.match(source, /const \[brokerPickerOpen, setBrokerPickerOpen\] = useState\(false\)/);
+  assert.match(source, /useBrokerServers\(true\)/);
+  assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
+  assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
+  assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
+  assert.match(source, /onPress: \(\) => updateBrokerId\(option\.brokerId\)/);
+  assert.match(source, /const handleBrokerPickerPress = \(\) => \{/);
+  assert.match(source, /runImmediateAction\('login\.brokerPicker\.open'/);
+  assert.match(source, /Keyboard\.dismiss\(\)/);
+  assert.match(source, /testID="login-broker-picker-button"/);
+  assert.match(source, /searchPlaceholder="Search brokers\.\.\."/);
+  assert.match(
+    source,
+    /<ActionSheet[\s\S]*visible=\{brokerPickerOpen\}[\s\S]*actions=\{brokerPickerActions\}[\s\S]*searchable=\{brokerOptions\.length > 0\}[\s\S]*detent="large"[\s\S]*runActionAfterClose=\{false\}/,
+  );
+});
+
 test('login validation snapshots the latest committed native field values', () => {
   const source = readSource('app/login.tsx');
 

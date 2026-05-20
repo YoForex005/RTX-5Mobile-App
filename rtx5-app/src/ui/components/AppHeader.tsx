@@ -25,7 +25,7 @@ import { useUIState } from '../../state/uiState';
 export const MENU_BTN_GUTTER = 56;
 const HEADER_SIDE_SLOT_WIDTH = 144;
 const MENU_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 16, right: 8 } as const;
-const ANDROID_EDGE_GESTURE_SAFE_PAD = 36;
+const ANDROID_EDGE_GESTURE_SAFE_PAD = 0;
 
 interface AppHeaderProps {
   /** Main title string shown centered in the header */

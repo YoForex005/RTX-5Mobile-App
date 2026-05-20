@@ -54,7 +54,7 @@ import {
 } from 'lightweight-charts';
 import { usePositionsState } from '../../state/positionsState';
 import { TradingSignalDetailsModal } from './TradingSignalDetailsModal';
-import { useMarketData } from '../../query/websocket';
+import { hasLiveQuoteFeedData, useMarketData } from '../../query/websocket';
 import { LiveClock } from '../../ui/components/LiveClock';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 import { usePositionHistoryQuery } from '../../query/positions';
@@ -96,6 +96,7 @@ import {
   resolveChartSymbolFullName,
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
+import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
@@ -616,6 +617,48 @@ export function ChartScreen() {
     }
     return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
   }, [baseSymbol, chartLiveQuote?.digits]);
+  const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
+  const liveChartPrice = useMemo(() => {
+    if (!hasLiveChartQuote) {
+      return null;
+    }
+
+    const bid =
+      typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null;
+    const ask =
+      typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null;
+
+    return priceSource === 'ask'
+      ? ask ?? bid
+      : bid ?? ask;
+  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
+  const liveChartTimestamp = useMemo(() => {
+    const candidates = [
+      chartLiveQuote?.lastReceivedAt,
+      chartLiveQuote?.time,
+      chartLiveQuote?.timestamp,
+      chartLiveQuote?.t,
+      chartLiveQuote?.lastTickAt,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }, [
+    chartLiveQuote?.lastReceivedAt,
+    chartLiveQuote?.lastTickAt,
+    chartLiveQuote?.t,
+    chartLiveQuote?.time,
+    chartLiveQuote?.timestamp,
+  ]);
 
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const [tfOpen, setTfOpen] = useState(false);
@@ -706,8 +749,16 @@ export function ChartScreen() {
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const { candles } = useLiveCandles(chartSymbol, chartTimeframe, isScreenFocused);
   const sanitizedCandles = useMemo(
-    () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
-    [candles, chartTimeframe],
+    () =>
+      resolveLivePriceCoherentCandles(
+        sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
+        chartTimeframe,
+        {
+          price: liveChartPrice,
+          time: liveChartTimestamp,
+        },
+      ),
+    [candles, chartTimeframe, liveChartPrice, liveChartTimestamp],
   );
   const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol, isScreenFocused);
   const hasCandles = sanitizedCandles.length > 0;

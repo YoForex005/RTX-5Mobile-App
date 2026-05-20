@@ -2,7 +2,7 @@ import { FastPressable as Pressable } from '../../../../ui/components/FastPressa
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
-import { useLiveTick } from '../../../../domain/candles/hooks/useLiveCandles';
+import { useLiveSymbolQuote } from '../../../../query/websocket';
 import { formatTradeVolume, type TradeVolumeBounds } from '../../../../utils/tradeVolume';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { getChartTradeAction } from '../../chartTradeActions';
@@ -17,6 +17,7 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
+const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 80;
 
 type ChartTradeButtonsProps = {
   symbol: string;
@@ -67,9 +68,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   buyColor,
   sellColor,
 }: ChartTradeButtonsProps) {
-  const latestTick = useLiveTick(symbol, undefined, active);
-  const latestBid = typeof latestTick?.bid === 'number' && Number.isFinite(latestTick.bid) ? latestTick.bid : 0;
-  const latestAsk = typeof latestTick?.ask === 'number' && Number.isFinite(latestTick.ask) ? latestTick.ask : 0;
+  const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
+  const latestBid = typeof latestQuote?.bid === 'number' && Number.isFinite(latestQuote.bid) ? latestQuote.bid : 0;
+  const latestAsk = typeof latestQuote?.ask === 'number' && Number.isFinite(latestQuote.ask) ? latestQuote.ask : 0;
   const hasLiveBid = latestBid > 0;
   const hasLiveAsk = latestAsk > 0;
   const formattedBid = hasLiveBid ? latestBid.toFixed(displayDecimals) : '---';

@@ -39,6 +39,7 @@ type ActionSheetProps = {
   actions: Array<{ label: string; subtitle?: string; danger?: boolean; disabled?: boolean; onPress?: () => void; icon?: React.ReactNode }>;
   onClose: () => void;
   searchable?: boolean;
+  searchPlaceholder?: string;
   detent?: 'auto' | 'adaptive' | 'large';
   minimumTopInset?: number;
   instantOpen?: boolean;
@@ -46,6 +47,7 @@ type ActionSheetProps = {
 };
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
+const ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS = 120;
 
 // Comfortable tap-to-dismiss zone above the sheet, beyond the safe-area inset.
 // Without this, a tall sheet can extend to within a few pixels of the status
@@ -61,6 +63,7 @@ export function ActionSheet({
   actions,
   onClose,
   searchable,
+  searchPlaceholder,
   detent = 'adaptive',
   minimumTopInset,
   instantOpen = false,
@@ -91,14 +94,36 @@ export function ActionSheet({
   const [measuredHeight, setMeasuredHeight] = useState(() =>
     resolveActionSheetInitialMeasuredHeight({ instantOpen, screenHeight, windowHeight }),
   );
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const sheetTranslateY = useRef(new Animated.Value(28)).current;
+  const overlayOpacity = useRef(new Animated.Value(visible && instantOpen ? 1 : 0)).current;
+  const sheetTranslateY = useRef(new Animated.Value(visible && instantOpen ? 0 : 28)).current;
+  const shouldDelayInstantSheetPaint = Platform.OS === 'android' && instantOpen;
+  const [instantLayoutReady, setInstantLayoutReady] = useState(
+    () => !visible || !shouldDelayInstantSheetPaint,
+  );
+
+  const prevVisibleRef = useRef(visible);
+  if (visible !== prevVisibleRef.current) {
+    if (visible) {
+      if (instantOpen) {
+        overlayOpacity.setValue(1);
+        sheetTranslateY.setValue(0);
+      } else {
+        overlayOpacity.setValue(0);
+        sheetTranslateY.setValue(28);
+      }
+    } else {
+      overlayOpacity.setValue(0);
+      sheetTranslateY.setValue(28);
+    }
+    prevVisibleRef.current = visible;
+  }
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingActionCancelRef = useRef<(() => void) | null>(null);
   // On Android, the entry animation is deferred until onLayout fires so the
   // sheet is never shown at the wrong (pre-layout) size.
   const layoutReadyRef = useRef(false);
   const hasMeasuredOverlayRef = useRef(false);
+  const instantLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredActions = searchable && query.trim()
     ? actions.filter((action) => {
@@ -173,6 +198,24 @@ export function ActionSheet({
   }, [overlayOpacity, sheetTranslateY]);
 
   const deferredAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearInstantLayoutTimer = useCallback(() => {
+    if (instantLayoutTimerRef.current) {
+      clearTimeout(instantLayoutTimerRef.current);
+      instantLayoutTimerRef.current = null;
+    }
+  }, []);
+  const scheduleInstantSheetPaintReady = useCallback(() => {
+    if (!shouldDelayInstantSheetPaint) {
+      setInstantLayoutReady(true);
+      return;
+    }
+
+    clearInstantLayoutTimer();
+    instantLayoutTimerRef.current = setTimeout(() => {
+      instantLayoutTimerRef.current = null;
+      requestAnimationFrame(() => setInstantLayoutReady(true));
+    }, ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS);
+  }, [clearInstantLayoutTimer, shouldDelayInstantSheetPaint]);
 
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
@@ -189,6 +232,9 @@ export function ActionSheet({
         }),
       );
       hasMeasuredOverlayRef.current = true;
+    }
+    if (h > 0 && Platform.OS === 'android' && instantOpen) {
+      scheduleInstantSheetPaintReady();
     }
     // On Android, defer the animation start. Keyboard.dismiss() is async —
     // the window restores its full height ~100-200ms after the call. By
@@ -212,7 +258,7 @@ export function ActionSheet({
         requestAnimationFrame(() => runEntryAnimation());
       }, 30);
     }
-  }, [instantOpen, overlayOpacity, runEntryAnimation, sheetTranslateY]);
+  }, [instantOpen, overlayOpacity, runEntryAnimation, scheduleInstantSheetPaintReady, sheetTranslateY]);
 
   // Dismiss keyboard when the ActionSheet opens and reset measured height
   // so the first onLayout of this open cycle sets it to the actual value.
@@ -232,13 +278,14 @@ export function ActionSheet({
 
   useEffect(() => {
     return () => {
+      clearInstantLayoutTimer();
       if (pendingActionCancelRef.current) {
         pendingActionCancelRef.current();
         pendingActionCancelRef.current = null;
       }
       pendingActionRef.current = null;
     };
-  }, []);
+  }, [clearInstantLayoutTimer]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -262,6 +309,8 @@ export function ActionSheet({
 
   useEffect(() => {
     if (!visible) {
+      clearInstantLayoutTimer();
+      setInstantLayoutReady(!shouldDelayInstantSheetPaint);
       setKeyboardHeight(0);
       overlayOpacity.setValue(0);
       sheetTranslateY.setValue(28);
@@ -273,6 +322,12 @@ export function ActionSheet({
         deferredAnimTimerRef.current = null;
       }
       return;
+    }
+
+    if (shouldDelayInstantSheetPaint) {
+      setInstantLayoutReady(false);
+    } else {
+      setInstantLayoutReady(true);
     }
 
     if (instantOpen) {
@@ -293,7 +348,15 @@ export function ActionSheet({
     if (Platform.OS !== 'android') {
       runEntryAnimation();
     }
-  }, [instantOpen, overlayOpacity, runEntryAnimation, sheetTranslateY, visible]);
+  }, [
+    clearInstantLayoutTimer,
+    instantOpen,
+    overlayOpacity,
+    runEntryAnimation,
+    sheetTranslateY,
+    shouldDelayInstantSheetPaint,
+    visible,
+  ]);
 
   useEffect(() => {
     if (visible || !pendingActionRef.current) {
@@ -335,12 +398,14 @@ export function ActionSheet({
 
   // No fixed height on Android: the overlay uses flex:1 to fill the Modal
   // after the keyboard has been dismissed and layout has settled.
+  const shouldHideSheetForInitialLayout = shouldDelayInstantSheetPaint && !instantLayoutReady;
   const sheetBody = (
     <Animated.View
+      pointerEvents={shouldHideSheetForInitialLayout ? 'none' : 'auto'}
       style={[
         styles.sheetContainer,
         {
-          paddingBottom: bottomInset + keyboardLift,
+          opacity: shouldHideSheetForInitialLayout ? 0 : 1,
           transform: [{ translateY: sheetTranslateY }],
         },
       ]}
@@ -374,7 +439,7 @@ export function ActionSheet({
             <Ionicons name="search" size={16} color={T.textSub} style={{ marginRight: 8 }} />
             <TextInput
               style={[styles.searchInput, { outlineStyle: 'none' } as any]}
-              placeholder={t('Search symbol...')}
+              placeholder={t(searchPlaceholder ?? 'Search symbol...')}
               placeholderTextColor={T.textMuted}
               value={query}
               onChangeText={setQuery}
@@ -459,6 +524,14 @@ export function ActionSheet({
           <Text style={styles.cancelText}>{t('Cancel')}</Text>
         </FastPressable>
       </View>
+      {/* Fill the bottom safe area with a solid background so tab bar doesn't peek through */}
+      <View
+        style={{
+          width: '100%',
+          height: bottomInset + keyboardLift,
+          backgroundColor: isDark ? '#0E141F' : T.glass2,
+        }}
+      />
     </Animated.View>
   );
 

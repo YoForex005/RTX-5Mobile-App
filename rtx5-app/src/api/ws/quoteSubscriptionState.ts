@@ -1,5 +1,25 @@
+import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
+
 export const normalizeQuoteTransportSymbol = (symbol: string): string =>
   symbol.trim().replace(/[\/\s]+/g, '');
+
+export const resolveQuoteTransportSymbols = (symbol: string): string[] => {
+  const transportSymbol = normalizeQuoteTransportSymbol(symbol);
+  if (!transportSymbol) {
+    return [];
+  }
+
+  const normalizedKey = normalizeQuoteSymbolKey(transportSymbol);
+  const baseSymbol = normalizeSymbol(transportSymbol);
+  const symbols = [transportSymbol];
+  if (baseSymbol && baseSymbol !== normalizedKey) {
+    symbols.push(baseSymbol);
+  }
+  return Array.from(new Set(symbols));
+};
+
+export const expandQuoteTransportSymbols = (symbols: string[]): string[] =>
+  Array.from(new Set(symbols.flatMap(resolveQuoteTransportSymbols)));
 
 export const applyQuoteSubscriptionDelta = (
   currentCounts: ReadonlyMap<string, number>,

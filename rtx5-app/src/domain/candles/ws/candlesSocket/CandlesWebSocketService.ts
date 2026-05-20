@@ -36,6 +36,7 @@ export class CandlesWebSocketService {
   // changes (login, logout, account switch), we tear the socket down and
   // reconnect so the backend re-authenticates the candle channels.
   private activeToken: string | null = null;
+  private anonymousFallbackToken: string | null = null;
   private tokenWatcherUnsubscribe: (() => void) | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -65,7 +66,7 @@ export class CandlesWebSocketService {
       return;
     }
 
-    const token = getStoredAccessToken();
+    const token = this.resolveConnectionToken();
     // If the socket is already up but the token has rotated, tear it down so
     // the new connection can use the fresh JWT for any account/broker-scoped
     // routing while public candle channels continue to work anonymously.
@@ -101,6 +102,9 @@ export class CandlesWebSocketService {
       this.ws.onopen = () => {
         this.isConnected = true;
         this.reconnectAttempts = 0;
+        if (token) {
+          this.anonymousFallbackToken = null;
+        }
         this.sendSubscriptions();
       };
       this.ws.onmessage = (event) => {
@@ -119,6 +123,7 @@ export class CandlesWebSocketService {
       };
       this.ws.onerror = () => {
         console.warn('[Candles WS] connection error');
+        this.retryPublicChannelWithoutToken();
       };
     } catch (error) {
       console.warn('[Candles WS] connection failed', error);
@@ -144,6 +149,7 @@ export class CandlesWebSocketService {
     this.subscriptions.clear();
     this.candleCache = [];
     this.activeToken = null;
+    this.anonymousFallbackToken = null;
 
     this.tearDownSocketSafe();
   }
@@ -449,6 +455,27 @@ export class CandlesWebSocketService {
     }
   }
 
+  private resolveConnectionToken(): string | null {
+    const token = getStoredAccessToken();
+    if (!token) {
+      return null;
+    }
+    return this.anonymousFallbackToken === token ? null : token;
+  }
+
+  private retryPublicChannelWithoutToken(): void {
+    if (!this.activeToken || this.anonymousFallbackToken === this.activeToken) {
+      return;
+    }
+
+    // Public candle channels can stream anonymously. If a persisted JWT is
+    // stale or rejected during the websocket handshake, keep chart candles live
+    // by retrying the same subscriptions without the token until auth rotates.
+    this.anonymousFallbackToken = this.activeToken;
+    this.tearDownSocketSafe();
+    this.scheduleReconnect();
+  }
+
   private teardownSocket(): void {
     if (!this.ws) {
       this.isConnected = false;
@@ -480,6 +507,7 @@ export class CandlesWebSocketService {
         if (next === prev) {
           return;
         }
+        this.anonymousFallbackToken = null;
         if (this.subscriptions.size === 0) {
           return;
         }

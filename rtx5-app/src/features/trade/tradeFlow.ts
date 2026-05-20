@@ -8,6 +8,7 @@
 
 import { PositionItem } from '../../dev/mock/tradingData';
 import { normalizeSymbol } from '../../domain/symbols';
+import { dedupePositionsById } from '../../state/positionsState.helpers';
 
 export function findPositionById(positions: PositionItem[], positionId?: string | string[]) {
   if (!positionId) return undefined;
@@ -48,27 +49,29 @@ export function filterPositionsForBulk(positions: PositionItem[], mode?: string 
   const normalized = Array.isArray(mode) ? mode[0] : mode;
 
   if (normalized === 'profitable') {
-    return positions.filter((position) => position.pnl > 0);
+    return dedupePositionsById(positions.filter((position) => position.pnl > 0));
   }
   if (normalized === 'losing') {
-    return positions.filter((position) => position.pnl < 0);
+    return dedupePositionsById(positions.filter((position) => position.pnl < 0));
   }
   if (normalized === 'buy') {
-    return positions.filter((position) => position.side === 'buy');
+    return dedupePositionsById(positions.filter((position) => position.side === 'buy'));
   }
   if (normalized?.startsWith('symbol:')) {
     const symbol = normalized.replace('symbol:', '');
-    return positions.filter((position) => position.symbol === symbol);
+    return dedupePositionsById(positions.filter((position) => position.symbol === symbol));
   }
-  return positions;
+  return dedupePositionsById(positions);
 }
 
 export function positionPairCandidates(positions: PositionItem[], position?: PositionItem) {
   if (!position) return [];
-  return positions.filter(
-    (candidate) =>
-      candidate.id !== position.id &&
-      candidate.symbol === position.symbol &&
-      candidate.side !== position.side
+  return dedupePositionsById(
+    positions.filter(
+      (candidate) =>
+        candidate.id !== position.id &&
+        candidate.symbol === position.symbol &&
+        candidate.side !== position.side,
+    ),
   );
 }

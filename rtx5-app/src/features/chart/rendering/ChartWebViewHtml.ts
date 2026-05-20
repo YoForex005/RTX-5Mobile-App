@@ -1706,6 +1706,25 @@ export const CH_HTML = `
         return false;
       }
 
+      function shouldResetViewportForSeriesReplacement(previousData, nextData) {
+        if (!previousData || !nextData || previousData.length === 0 || nextData.length === 0) {
+          return false;
+        }
+        var previousFirst = previousData[0] && previousData[0].time;
+        var previousLast = previousData[previousData.length - 1] && previousData[previousData.length - 1].time;
+        var nextFirst = nextData[0] && nextData[0].time;
+        var nextLast = nextData[nextData.length - 1] && nextData[nextData.length - 1].time;
+        if (
+          typeof previousFirst !== 'number' ||
+          typeof previousLast !== 'number' ||
+          typeof nextFirst !== 'number' ||
+          typeof nextLast !== 'number'
+        ) {
+          return false;
+        }
+        return nextData.length < previousData.length || nextFirst !== previousFirst || nextLast < previousLast;
+      }
+
       function shouldPaginateForVisibleLogicalRange(range) {
         if (!range || typeof range.from !== 'number' || !isFinite(range.from)) return false;
         var visibleSpan =
@@ -2793,18 +2812,28 @@ export const CH_HTML = `
             typeof lastRawSeriesData[0].time === 'number' &&
             typeof previousRawSeriesData[0].time === 'number' &&
             lastRawSeriesData[0].time < previousRawSeriesData[0].time;
+          var didReplaceVisibleSeries =
+            !didPrependHistory &&
+            shouldResetViewportForSeriesReplacement(previousRawSeriesData, lastRawSeriesData);
           var restoredPrependedViewport = restorePrependedHistoryViewport(
             previousRawSeriesData,
             lastRawSeriesData,
             previousVisibleLogicalRange
           );
-          if (!restoredPrependedViewport && previousRawSeriesData.length === 0 && mapped.length > 0) {
+          if (
+            !restoredPrependedViewport &&
+            mapped.length > 0 &&
+            (previousRawSeriesData.length === 0 || didReplaceVisibleSeries)
+          ) {
             applyRecentViewport(mapped.length);
           }
+          var priceScaleReason = didPrependHistory
+            ? 'update_data_prepend_history'
+            : (didReplaceVisibleSeries ? 'update_data_replace_series' : 'update_data');
           schedulePriceScaleHealthCheck(
-            didPrependHistory ? 'update_data_prepend_history' : 'update_data',
-            didPrependHistory,
-            didPrependHistory ? 5 : 1
+            priceScaleReason,
+            didPrependHistory || didReplaceVisibleSeries,
+            didPrependHistory || didReplaceVisibleSeries ? 5 : 1
           );
           ensureMoveBarsSeries(lastDisplayDecimals);
           if (moveBarsSeries) {
