@@ -93,7 +93,35 @@ export const FastPressable = memo(function FastPressable({
   // Guard ref: prevents the same tap from firing onPress twice when
   // activateOnPressIn already ran it during onPressIn.
   const handledOnPressInRef = React.useRef(false);
+  const deliveredExplicitPressInRef = React.useRef(false);
   const resetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Callbacks change on every parent render whenever the parent passes an
+  // inline arrow function (e.g. `onPressIn={() => doX(sym)}`). If the
+  // underlying Pressable's `onPressIn` prop is re-bound on the same frame as a
+  // touchdown, the touch event can land between the unbind and the rebind and
+  // get dropped — that's the "tap sometimes does nothing" failure mode. We
+  // hold every callback in a ref so the handlers passed to Pressable can stay
+  // stable across renders.
+  const onPressRef = React.useRef(onPress);
+  const onPressInRef = React.useRef(onPressIn);
+  const onPressOutRef = React.useRef(onPressOut);
+  const onResponderGrantRef = React.useRef(onResponderGrant);
+  const onStartShouldSetResponderRef = React.useRef(onStartShouldSetResponder);
+  const onTouchStartRef = React.useRef(onTouchStart);
+  const activateOnPressInRef = React.useRef(activateOnPressIn);
+  const latencyLabelRef = React.useRef(latencyLabel);
+  const latencyBudgetMsRef = React.useRef(latencyBudgetMs);
+
+  onPressRef.current = onPress;
+  onPressInRef.current = onPressIn;
+  onPressOutRef.current = onPressOut;
+  onResponderGrantRef.current = onResponderGrant;
+  onStartShouldSetResponderRef.current = onStartShouldSetResponder;
+  onTouchStartRef.current = onTouchStart;
+  activateOnPressInRef.current = activateOnPressIn;
+  latencyLabelRef.current = latencyLabel;
+  latencyBudgetMsRef.current = latencyBudgetMs;
 
   const clearPressGuardTimer = useCallback(() => {
     if (resetTimerRef.current) {
@@ -107,37 +135,45 @@ export const FastPressable = memo(function FastPressable({
   const runPressAction = useCallback((action: null | FastPressCallback | undefined, event: FastPressEvent) => {
     if (!action) return;
     const startedAtMs = getInteractionNow();
+    const latencyLabel = latencyLabelRef.current;
+    const latencyBudgetMs = latencyBudgetMsRef.current;
     action(normalizePressEvent(event));
     scheduleActionLatencyCheck(latencyLabel, startedAtMs, latencyBudgetMs);
-  }, [latencyBudgetMs, latencyLabel]);
+  }, []);
 
   const resetPressGuard = useCallback(() => {
     clearPressGuardTimer();
     resetTimerRef.current = setTimeout(() => {
       handledOnPressInRef.current = false;
+      deliveredExplicitPressInRef.current = false;
       resetTimerRef.current = null;
     }, FAST_PRESS_GUARD_RESET_MS);
   }, [clearPressGuardTimer]);
 
   const handleStartShouldSetResponder = useCallback((event: FastPressEvent) => {
+    const onStartShouldSetResponder = onStartShouldSetResponderRef.current;
     return Boolean(onStartShouldSetResponder?.(event));
-  }, [onStartShouldSetResponder]);
+  }, []);
 
   const handleResponderGrant = useCallback((event: FastPressEvent) => {
-    if (onResponderGrant) {
-      runPressAction(onResponderGrant, event);
+    if (onResponderGrantRef.current) {
+      runPressAction(onResponderGrantRef.current, event);
     }
-  }, [onResponderGrant, runPressAction]);
+  }, [runPressAction]);
 
   const handleTouchStart = useCallback((event: FastPressEvent) => {
-    if (onTouchStart) {
-      runPressAction(onTouchStart, event);
+    if (onTouchStartRef.current) {
+      runPressAction(onTouchStartRef.current, event);
     }
-  }, [onTouchStart, runPressAction]);
+  }, [runPressAction]);
 
   const handlePressIn = useCallback((event: FastPressEvent) => {
+    const onPressIn = onPressInRef.current;
+    const onPress = onPressRef.current;
+    const activateOnPressIn = activateOnPressInRef.current;
     const pressAlreadyHandled = handledOnPressInRef.current;
     if (onPressIn && (!pressAlreadyHandled || onPressIn !== onPress)) {
+      deliveredExplicitPressInRef.current = true;
       runPressAction(onPressIn, event);
     }
     if (activateOnPressIn && onPress && !pressAlreadyHandled) {
@@ -147,30 +183,49 @@ export const FastPressable = memo(function FastPressable({
         runPressAction(onPress, event);
       }
     }
-  }, [activateOnPressIn, clearPressGuardTimer, onPress, onPressIn, runPressAction]);
+  }, [clearPressGuardTimer, runPressAction]);
 
   const handlePress = useCallback((event: FastPressEvent) => {
     // Skip if already fired during onPressIn
     if (handledOnPressInRef.current) {
       handledOnPressInRef.current = false;
+      deliveredExplicitPressInRef.current = false;
       clearPressGuardTimer();
       return;
     }
-    runPressAction(onPress, event);
-  }, [clearPressGuardTimer, onPress, runPressAction]);
+    clearPressGuardTimer();
+    const onPress = onPressRef.current;
+    const onPressIn = onPressInRef.current;
+    if (onPress) {
+      runPressAction(onPress, event);
+      deliveredExplicitPressInRef.current = false;
+      return;
+    }
+    if (onPressIn && !deliveredExplicitPressInRef.current) {
+      runPressAction(onPressIn, event);
+    }
+    deliveredExplicitPressInRef.current = false;
+  }, [clearPressGuardTimer, runPressAction]);
 
   const handlePressOut = useCallback((event: FastPressEvent) => {
-    if (onPressOut) {
-      onPressOut(event);
+    if (onPressOutRef.current) {
+      onPressOutRef.current(event);
     }
-    if (!activateOnPressIn || !handledOnPressInRef.current) return;
+    if (activateOnPressInRef.current && handledOnPressInRef.current) {
+      // Keep the guard briefly for successful taps where onPressOut precedes
+      // onPress, then clear it for cancelled gestures that never emit onPress.
+      resetPressGuard();
+      return;
+    }
 
-    // Keep the guard briefly for successful taps where onPressOut precedes
-    // onPress, then clear it for cancelled gestures that never emit onPress.
-    resetPressGuard();
-  }, [activateOnPressIn, onPressOut, resetPressGuard]);
+    if (onPressInRef.current && !onPressRef.current) {
+      resetPressGuard();
+    }
+  }, [resetPressGuard]);
 
   const needsPressInHandler = activateOnPressIn || Boolean(onPressIn);
+  const needsPressHandler = Boolean(onPress) || Boolean(onPressIn);
+  const needsPressOutHandler = Boolean(onPressOut) || activateOnPressIn || Boolean(onPressIn);
 
   return (
     <Pressable
@@ -181,8 +236,8 @@ export const FastPressable = memo(function FastPressable({
       onResponderGrant={onResponderGrant ? handleResponderGrant : undefined}
       onTouchStart={onTouchStart ? handleTouchStart : undefined}
       onPressIn={needsPressInHandler ? handlePressIn : undefined}
-      onPress={onPress ? handlePress : undefined}
-      onPressOut={onPressOut || activateOnPressIn ? handlePressOut : undefined}
+      onPress={needsPressHandler ? handlePress : undefined}
+      onPressOut={needsPressOutHandler ? handlePressOut : undefined}
       hitSlop={hitSlop ?? DEFAULT_HIT_SLOP}
       pressRetentionOffset={pressRetentionOffset ?? DEFAULT_PRESS_RETENTION_OFFSET}
       unstable_pressDelay={unstable_pressDelay ?? 0}

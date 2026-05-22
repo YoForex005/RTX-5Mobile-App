@@ -13,6 +13,20 @@ type FooterTradeRowStateInput = {
   keyboardResizesHost?: boolean;
 };
 
+type FooterTradeDockBottomInput = {
+  platform: string;
+  footerLotEditorFocused: boolean;
+  showFloatingFooterTradeRow: boolean;
+  showInlineFooterDock: boolean;
+  footerTradeRowKeyboardOffset: number;
+  keyboardVisibleHeight?: number;
+  keyboardResizesHost?: boolean;
+  footerKeyboardAvoidanceOffset?: number;
+  androidFocusedLotEditorBottomGap?: number;
+  androidKeyboardOverlayDockGap?: number;
+  iosFocusedLotEditorEditGap?: number;
+};
+
 type ChartTradeInlineInputVisibilityInput = {
   showChartTradeSheet: boolean;
   chartTradeCommentFocused: boolean;
@@ -75,6 +89,10 @@ type ChartTradeSheetFrameHeightInput = {
   maxHeight: number;
 };
 
+export const ANDROID_FOCUSED_LOT_EDITOR_BOTTOM_GAP = 12;
+export const ANDROID_KEYBOARD_OVERLAY_DOCK_GAP = 0;
+export const IOS_FOCUSED_LOT_EDITOR_EDIT_GAP = 45;
+
 export function resolveFooterTradeRowState({
   platform,
   footerLotEditorFocused,
@@ -84,9 +102,11 @@ export function resolveFooterTradeRowState({
   keyboardDockOffset,
   keyboardResizesHost = false,
 }: FooterTradeRowStateInput) {
+  const shouldUseInlineFooterForAndroidLotEditor = platform === 'android';
   const shouldMountFloatingFooterTradeRow =
     footerLotEditorFocused &&
-    !showChartTradeSheet;
+    !showChartTradeSheet &&
+    !shouldUseInlineFooterForAndroidLotEditor;
   const resolvedKeyboardDockOffset =
     keyboardDockOffset > 0 ? Math.max(0, keyboardDockOffset) : 0;
   const resolvedKeyboardVisibleHeight =
@@ -109,12 +129,67 @@ export function resolveFooterTradeRowState({
 
   // Reference unused inputs for parameter destructuring without lint warnings.
   void footerLotEditorOpening;
+  void keyboardResizesHost;
 
   return {
     shouldMountFloatingFooterTradeRow,
     isFloatingFooterTradeRowVisible,
     footerTradeRowKeyboardOffset,
   };
+}
+
+export function resolveFooterTradeDockBottom({
+  platform,
+  footerLotEditorFocused,
+  showFloatingFooterTradeRow,
+  showInlineFooterDock,
+  footerTradeRowKeyboardOffset,
+  keyboardVisibleHeight = 0,
+  keyboardResizesHost = false,
+  footerKeyboardAvoidanceOffset = 0,
+  androidFocusedLotEditorBottomGap = ANDROID_FOCUSED_LOT_EDITOR_BOTTOM_GAP,
+  androidKeyboardOverlayDockGap = ANDROID_KEYBOARD_OVERLAY_DOCK_GAP,
+  iosFocusedLotEditorEditGap = IOS_FOCUSED_LOT_EDITOR_EDIT_GAP,
+}: FooterTradeDockBottomInput) {
+  if (!showFloatingFooterTradeRow || showInlineFooterDock) {
+    return 0;
+  }
+
+  const normalizedKeyboardOffset =
+    Number.isFinite(footerTradeRowKeyboardOffset) && footerTradeRowKeyboardOffset > 0
+      ? footerTradeRowKeyboardOffset
+      : 0;
+  const normalizedKeyboardHeight =
+    Number.isFinite(keyboardVisibleHeight) && keyboardVisibleHeight > 0
+      ? keyboardVisibleHeight
+      : 0;
+  const normalizedFooterKeyboardAvoidanceOffset =
+    Number.isFinite(footerKeyboardAvoidanceOffset) && footerKeyboardAvoidanceOffset > 0
+      ? footerKeyboardAvoidanceOffset
+      : 0;
+
+  if (platform === 'android' && footerLotEditorFocused) {
+    if (!keyboardResizesHost) {
+      const overlayKeyboardLift = Math.max(
+        normalizedKeyboardOffset,
+        normalizedKeyboardHeight,
+        normalizedFooterKeyboardAvoidanceOffset,
+      );
+      if (overlayKeyboardLift > 0) {
+        return Math.max(0, overlayKeyboardLift - Math.max(0, androidKeyboardOverlayDockGap));
+      }
+    }
+    return Math.max(0, androidFocusedLotEditorBottomGap);
+  }
+
+  const editGap =
+    platform === 'ios' &&
+    footerLotEditorFocused &&
+    normalizedKeyboardOffset > 0
+      ? Math.max(0, iosFocusedLotEditorEditGap)
+      : 0;
+
+  return normalizedKeyboardOffset + editGap;
 }
 
 export function shouldHideChartTabBarForTradeInput({

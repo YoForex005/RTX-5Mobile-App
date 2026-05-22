@@ -11,9 +11,10 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Image, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
+import { AppLogo } from '../../ui/components/AppLogo';
 import { useQueryClient } from '@tanstack/react-query';
 
 
@@ -458,7 +459,7 @@ export function AccountsScreen() {
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
               <View style={styles.avatarWrap}>
-                <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.avatarImage} />
+                <AppLogo style={styles.avatarImage} />
               </View>
               <View style={styles.activeInfoCol}>
                 <View style={styles.nameAndBadges}>
@@ -629,7 +630,7 @@ export function AccountsScreen() {
                 <View style={styles.secondaryTopRow}>
                   <View style={styles.secondaryLeft}>
                     <View style={styles.secondaryAvatar}>
-                      <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.secondaryAvatarImage} />
+                      <AppLogo style={styles.secondaryAvatarImage} />
                     </View>
                     <View style={styles.secondaryInfo}>
                       <View style={styles.nameAndBadges}>

@@ -17,6 +17,10 @@ export {
 } from './footerLotPicker';
 export {
   resolveFooterTradeRowState,
+  resolveFooterTradeDockBottom,
+  ANDROID_FOCUSED_LOT_EDITOR_BOTTOM_GAP,
+  ANDROID_KEYBOARD_OVERLAY_DOCK_GAP,
+  IOS_FOCUSED_LOT_EDITOR_EDIT_GAP,
   shouldHideChartTabBarForTradeInput,
   shouldShowChartTradePreviewOnChart,
   shouldSuppressChartTapMenu,

@@ -30,6 +30,13 @@ test('resolveQuoteFeedSymbols matches broker variants by feed key when casing di
   );
 });
 
+test('resolveQuoteFeedSymbols normalizes persisted lowercase symbols before market catalog loads', () => {
+  assert.deepEqual(
+    resolveQuoteFeedSymbols(['xauusd', 'btcusd', 'gbpusd'], []),
+    ['XAUUSD', 'BTCUSD', 'GBPUSD'],
+  );
+});
+
 test('buildDefaultQuoteWatchlist keeps curated defaults using available raw feed symbols', () => {
   assert.deepEqual(
     buildDefaultQuoteWatchlist(['BTCUSDm', 'XAUUSDm', 'GBPUSD.c', 'EURUSD', 'USDJPY']),

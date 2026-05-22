@@ -1,0 +1,15 @@
+env: load .env
+env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_QUOTES_WS_URL EXPO_PUBLIC_CANDLES_WS_URL EXPO_PUBLIC_ACCOUNT_WS_URL EXPO_PUBLIC_WS_URL
+Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+TypeError: Body is unusable: Body has already been read
+TypeError: Body is unusable: Body has already been read
+    at consumeBody (node:internal/deps/undici/undici:6961:31)
+    at _Response.json (node:internal/deps/undici/undici:6912:18)
+    at getNativeModuleVersionsAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\api\getNativeModuleVersions.ts:47:31)
+    at getVersionedNativeModulesAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\doctor\dependencies\bundledNativeModules.ts:33:14)
+    at getCombinedKnownVersionsAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\doctor\dependencies\getVersionedPackages.ts:58:7)
+    at getVersionedDependenciesAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\doctor\dependencies\validateDependenciesVersions.ts:100:33)
+    at validateDependenciesVersionsAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\doctor\dependencies\validateDependenciesVersions.ts:49:25)
+    at startAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\startAsync.ts:110:5)

@@ -116,10 +116,6 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     return undefined;
   }, [canUseIncreaseLotControl, increaseLotPressBehavior, lotPickerAction, onIncreaseLot]);
 
-  const themeStyles = isDark ? darkStyles : lightStyles;
-  const sellAction = getChartTradeAction('sell');
-  const buyAction = getChartTradeAction('buy');
-
   const {
     handleTrade,
     isChartTradeActionBusy,
@@ -136,6 +132,110 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     latestAsk,
     onTradeResult,
   });
+
+  const themeStyles = isDark ? darkStyles : lightStyles;
+  const sellAction = getChartTradeAction('sell');
+  const buyAction = getChartTradeAction('buy');
+  const lotDisplayValue = (
+    <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue]} numberOfLines={1}>
+      {formattedLotSize}
+    </Text>
+  );
+  const lotControl = (
+    <View
+      style={[
+        baseStyles.actionLotControl,
+        themeStyles.actionLotControl,
+        isLotEditing && baseStyles.actionLotControlEditing,
+        typeof lotPickerAction === 'function' && themeStyles.actionLotControlPicker,
+      ]}
+    >
+      <Pressable
+        style={[
+          baseStyles.actionLotAdjustButton,
+          (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+        ]}
+        onPress={handleIncreaseLotPress}
+        disabled={!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol}
+        accessibilityState={{ disabled: !canUseIncreaseLotControl || isPending || !isCurrentChartSymbol }}
+        accessibilityLabel="Increase lot"
+        testID="chart-trade-lot-increase-button"
+        hitSlop={LOT_ADJUST_HIT_SLOP}
+      >
+        <Ionicons
+          name="chevron-up"
+          size={12}
+          style={[
+            themeStyles.actionLotAdjustIcon,
+            { marginLeft: 4 },
+            (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+          ]}
+        />
+      </Pressable>
+      {isLotEditing ? (
+        <View style={baseStyles.actionLotInputWrap}>
+          <TextInput
+            ref={lotInputRef}
+            style={[textBaseStyles.actionLotInput, themeStyles.actionLotInput]}
+            value={lotDraft}
+            onChangeText={onLotDraftChange}
+            onBlur={onLotDraftBlur}
+            onEndEditing={onLotDraftEndEditing}
+            keyboardType="decimal-pad"
+            returnKeyType="done"
+            selectTextOnFocus
+            autoFocus
+            showSoftInputOnFocus
+            caretHidden={false}
+            onSubmitEditing={onLotDraftSubmit}
+            placeholder={formattedLotSize}
+            placeholderTextColor="#94A3B8"
+          />
+        </View>
+      ) : hasLotValueEditor ? (
+        <Pressable
+          style={baseStyles.actionLotPill}
+          onPress={handleLotCenterPress}
+          onLongPress={handleLotCenterLongPress}
+          delayLongPress={220}
+          disabled={isPending || !isCurrentChartSymbol || typeof handleLotCenterPress !== 'function'}
+          hitSlop={LOT_VALUE_HIT_SLOP}
+          unstable_pressDelay={0}
+          accessibilityLabel="Edit lot"
+          accessibilityValue={{ text: formattedLotSize }}
+          testID="chart-trade-lot-edit-button"
+        >
+          {lotDisplayValue}
+        </Pressable>
+      ) : (
+        <View style={baseStyles.actionLotPill}>
+          {lotDisplayValue}
+        </View>
+      )}
+      <Pressable
+        style={[
+          baseStyles.actionLotAdjustButton,
+          (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+        ]}
+        onPress={handleDecreaseLotPress}
+        disabled={!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol}
+        accessibilityState={{ disabled: !canUseDecreaseLotControl || isPending || !isCurrentChartSymbol }}
+        accessibilityLabel="Decrease lot"
+        testID="chart-trade-lot-decrease-button"
+        hitSlop={LOT_ADJUST_HIT_SLOP}
+      >
+        <Ionicons
+          name="chevron-down"
+          size={12}
+          style={[
+            themeStyles.actionLotAdjustIcon,
+            { marginRight: 4 },
+            (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+          ]}
+        />
+      </Pressable>
+    </View>
+  );
 
   if (variant === 'mt5-market') {
     return (
@@ -220,98 +320,42 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       </View>
 
       <View style={[baseStyles.actionLotSlot, themeStyles.actionLotSlot]}>
-        <View
-          style={[
-            baseStyles.actionLotControl,
-            themeStyles.actionLotControl,
-            isLotEditing && baseStyles.actionLotControlEditing,
-            typeof lotPickerAction === 'function' && themeStyles.actionLotControlPicker,
-          ]}
-        >
-          <Pressable
-            style={[
-              baseStyles.actionLotAdjustButton,
-              (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
-            ]}
-            onPress={handleIncreaseLotPress}
-            disabled={!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol}
-            accessibilityState={{ disabled: !canUseIncreaseLotControl || isPending || !isCurrentChartSymbol }}
-            accessibilityLabel="Increase lot"
-            testID="chart-trade-lot-increase-button"
-            hitSlop={LOT_ADJUST_HIT_SLOP}
+        {lotControl}
+        {!isLotEditing ? (
+          <View
+            pointerEvents="none"
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            style={baseStyles.actionLotCommittedOverlay}
           >
-            <Ionicons
-              name="chevron-up"
-              size={12}
-              style={[
-                themeStyles.actionLotAdjustIcon,
-                { marginLeft: 4 },
-                (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
-              ]}
-            />
-          </Pressable>
-          {isLotEditing ? (
-            <View style={baseStyles.actionLotInputWrap}>
-              <TextInput
-                ref={lotInputRef}
-                style={[textBaseStyles.actionLotInput, themeStyles.actionLotInput]}
-                value={lotDraft}
-                onChangeText={onLotDraftChange}
-                onBlur={onLotDraftBlur}
-                onEndEditing={onLotDraftEndEditing}
-                keyboardType="decimal-pad"
-                returnKeyType="done"
-                selectTextOnFocus
-                autoFocus
-                showSoftInputOnFocus
-                caretHidden={false}
-                onSubmitEditing={onLotDraftSubmit}
-                placeholder={formattedLotSize}
-                placeholderTextColor="#94A3B8"
+            <View style={baseStyles.actionLotCommittedIconBox}>
+              <Ionicons
+                name="chevron-up"
+                size={12}
+                style={[
+                  themeStyles.actionLotAdjustIcon,
+                  (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                ]}
               />
             </View>
-          ) : hasLotValueEditor ? (
-            <Pressable
-              style={baseStyles.actionLotPill}
-              onPress={handleLotCenterPress}
-              onLongPress={handleLotCenterLongPress}
-              delayLongPress={220}
-              disabled={isPending || !isCurrentChartSymbol || typeof handleLotCenterPress !== 'function'}
-              hitSlop={LOT_VALUE_HIT_SLOP}
-              unstable_pressDelay={0}
-              accessibilityLabel="Edit lot"
-              testID="chart-trade-lot-edit-button"
+            <Text
+              style={[textBaseStyles.actionLotValue, baseStyles.actionLotCommittedValue, themeStyles.actionLotValue]}
+              numberOfLines={1}
             >
-              <Text style={[textBaseStyles.actionLotValue, themeStyles.actionLotValue]}>{formattedLotSize}</Text>
-            </Pressable>
-          ) : (
-            <View style={baseStyles.actionLotPill}>
-              <Text style={[textBaseStyles.actionLotValue, themeStyles.actionLotValue]}>{formattedLotSize}</Text>
+              {formattedLotSize}
+            </Text>
+            <View style={baseStyles.actionLotCommittedIconBox}>
+              <Ionicons
+                name="chevron-down"
+                size={12}
+                style={[
+                  themeStyles.actionLotAdjustIcon,
+                  (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                ]}
+              />
             </View>
-          )}
-          <Pressable
-            style={[
-              baseStyles.actionLotAdjustButton,
-              (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
-            ]}
-            onPress={handleDecreaseLotPress}
-            disabled={!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol}
-            accessibilityState={{ disabled: !canUseDecreaseLotControl || isPending || !isCurrentChartSymbol }}
-            accessibilityLabel="Decrease lot"
-            testID="chart-trade-lot-decrease-button"
-            hitSlop={LOT_ADJUST_HIT_SLOP}
-          >
-            <Ionicons
-              name="chevron-down"
-              size={12}
-              style={[
-                themeStyles.actionLotAdjustIcon,
-                { marginRight: 4 },
-                (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
-              ]}
-            />
-          </Pressable>
-        </View>
+          </View>
+        ) : null}
       </View>
 
       <View style={[baseStyles.actionButtonSlot, { backgroundColor: buyColor }]}>

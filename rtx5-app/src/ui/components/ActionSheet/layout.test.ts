@@ -66,24 +66,29 @@ test('after first layout action sheets only ratchet upward', () => {
   );
 });
 
-test('android instant action sheets wait for settled modal layout before painting the sheet', () => {
+test('android instant action sheets paint the sheet body immediately', () => {
   const source = readActionSheetSource();
 
-  assert.match(source, /const ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS = 120/);
   assert.match(
     source,
-    /const shouldDelayInstantSheetPaint = Platform\.OS === 'android' && instantOpen/,
+    /instant sheets start from the visible window/,
   );
   assert.match(
     source,
-    /const shouldHideSheetForInitialLayout = shouldDelayInstantSheetPaint && !instantLayoutReady/,
+    /pointerEvents="auto"/,
   );
-  assert.match(
-    source,
-    /opacity: shouldHideSheetForInitialLayout \? 0 : 1/,
-  );
-  assert.match(
-    source,
-    /h > 0 && Platform\.OS === 'android' && instantOpen[\s\S]*scheduleInstantSheetPaintReady\(\)/,
-  );
+  assert.doesNotMatch(source, /shouldHideSheetForInitialLayout/);
+  assert.doesNotMatch(source, /instantLayoutReady/);
+  assert.doesNotMatch(source, /ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS/);
+});
+
+test('backdrop ignores the opening tap that created the action sheet', () => {
+  const source = readActionSheetSource();
+
+  assert.match(source, /const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 220/);
+  assert.match(source, /const openedAtRef = useRef\(visible \? Date\.now\(\) : 0\)/);
+  assert.match(source, /openedAtRef\.current = Date\.now\(\)/);
+  assert.match(source, /const handleBackdropPress = useCallback/);
+  assert.match(source, /Date\.now\(\) - openedAtRef\.current < ACTION_SHEET_BACKDROP_OPEN_GUARD_MS/);
+  assert.match(source, /onPress=\{handleBackdropPress\}/);
 });

@@ -119,9 +119,11 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(fastPressSource, /const DEFAULT_HIT_SLOP = \{ top: 6, bottom: 6, left: 6, right: 6 \} as const/);
   assert.match(fastPressSource, /const DEFAULT_PRESS_RETENTION_OFFSET = \{ top: 20, bottom: 20, left: 20, right: 20 \} as const/);
   assert.match(fastPressSource, /const needsPressInHandler = activateOnPressIn \|\| Boolean\(onPressIn\)/);
+  assert.match(fastPressSource, /const needsPressHandler = Boolean\(onPress\) \|\| Boolean\(onPressIn\)/);
+  assert.match(fastPressSource, /const needsPressOutHandler = Boolean\(onPressOut\) \|\| activateOnPressIn \|\| Boolean\(onPressIn\)/);
   assert.match(fastPressSource, /onPressIn=\{needsPressInHandler \? handlePressIn : undefined\}/);
-  assert.match(fastPressSource, /onPress=\{onPress \? handlePress : undefined\}/);
-  assert.match(fastPressSource, /onPressOut=\{onPressOut \|\| activateOnPressIn \? handlePressOut : undefined\}/);
+  assert.match(fastPressSource, /onPress=\{needsPressHandler \? handlePress : undefined\}/);
+  assert.match(fastPressSource, /onPressOut=\{needsPressOutHandler \? handlePressOut : undefined\}/);
   assert.match(fastPressSource, /onStartShouldSetResponder=\{onStartShouldSetResponder \? handleStartShouldSetResponder : undefined\}/);
   assert.match(fastPressSource, /onResponderGrant=\{onResponderGrant \? handleResponderGrant : undefined\}/);
   assert.match(fastPressSource, /onTouchStart=\{onTouchStart \? handleTouchStart : undefined\}/);
@@ -131,9 +133,11 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(fastPressSource, /handledOnPressInRef\.current = true;\s*if \(onPress !== onPressIn\) \{\s*runPressAction\(onPress, event\);\s*\}/);
   assert.match(fastPressSource, /const handleStartShouldSetResponder = useCallback/);
   assert.match(fastPressSource, /return Boolean\(onStartShouldSetResponder\?\.\(event\)\)/);
-  assert.match(fastPressSource, /if \(onPressIn && \(!pressAlreadyHandled \|\| onPressIn !== onPress\)\) \{\s*runPressAction\(onPressIn, event\);\s*\}/);
+  assert.match(fastPressSource, /const deliveredExplicitPressInRef = React\.useRef\(false\)/);
+  assert.match(fastPressSource, /if \(onPressIn && \(!pressAlreadyHandled \|\| onPressIn !== onPress\)\) \{\s*deliveredExplicitPressInRef\.current = true;\s*runPressAction\(onPressIn, event\);\s*\}/);
   assert.match(fastPressSource, /if \(activateOnPressIn && onPress && !pressAlreadyHandled\) \{/);
   assert.match(fastPressSource, /if \(onPress !== onPressIn\) \{/);
+  assert.match(fastPressSource, /if \(onPressIn && !deliveredExplicitPressInRef\.current\) \{\s*runPressAction\(onPressIn, event\);\s*\}/);
   assert.match(fastPressSource, /cancelled gestures that never emit onPress/);
   assert.match(fastPressSource, /scheduleActionLatencyCheck\(latencyLabel, startedAtMs, latencyBudgetMs\)/);
   assert.doesNotMatch(fastPressSource, /const pressAction = onPress \?\? onPressIn/);
@@ -260,6 +264,7 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   assert.match(settingsSource, /latencyLabel="settings\.search\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.register\.open"/);
+  assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => router\.push\('\/settings\/mailbox'\)\}/);
   assert.match(settingsSource, /latencyLabel="settings\.logout\.prompt"/);
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 52/);

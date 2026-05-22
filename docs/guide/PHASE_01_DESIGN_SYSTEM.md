@@ -29,12 +29,18 @@ Implement the dark themed design system and responsive shell to support near par
 - [ ] Shared components are used by all feature modules.
 - [ ] Tablet and phone render without layout breakage.
 - [ ] Modal/action sheet style parity achieved.
+- [x] App identity assets use the RTX5 white mark with the green center `5` across Expo icon, dark splash/startup surface, adaptive icon, favicon, and in-app logo consumers.
 
 ## Test Checklist
 - [ ] Snapshot tests for primitives.
 - [ ] Visual regression checks for shell screens.
 - [ ] Manual orientation test on tablet.
+- [x] Manual asset reference and dimension verification for app identity assets.
 
 ## Exit Criteria
 - UI foundation is complete and feature teams only consume shared components.
+
+## Progress Notes
+- 2026-05-21: Replaced the referenced app identity assets with the dark-square RTX5 mark, white symbol, and green center `5` across the active Expo app assets and root Expo scaffold assets. Verified current logo consumers continue to reference the updated asset paths.
+- 2026-05-21: Centralized in-app logo rendering through a shared `AppLogo` component, added a branded first-render startup surface, and aligned the native splash background with the supplied dark RTX5 logo.
 

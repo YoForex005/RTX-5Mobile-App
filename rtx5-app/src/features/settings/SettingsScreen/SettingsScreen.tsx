@@ -212,24 +212,31 @@ export function SettingsScreen() {
       <ScrollView
         keyboardShouldPersistTaps="always"
         canCancelContentTouches={false} style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {isSearching ? (
-          <View style={{ paddingHorizontal: 16 }}>
-            <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
-              {searchResults.length > 0 ? searchResults.map((item, index) => (
-                <View key={item.title}>
-                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
-                  {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
-                </View>
-              )) : (
-                <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
-                  <Ionicons name="search-outline" size={48} color={T.borderMedium} />
-                  <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
-                </View>
-              )}
-            </View>
+        {/* Search results overlay — kept mounted alongside the main settings
+            tree so the Pressables in the main tree don't lose their refs (and
+            their guard state) every time the user opens/closes search. */}
+        <View
+          style={[{ paddingHorizontal: 16, display: isSearching ? 'flex' : 'none' }]}
+          pointerEvents={isSearching ? 'auto' : 'none'}
+        >
+          <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
+            {searchResults.length > 0 ? searchResults.map((item, index) => (
+              <View key={item.title}>
+                <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
+                {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
+              </View>
+            )) : (
+              <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
+                <Ionicons name="search-outline" size={48} color={T.borderMedium} />
+                <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
+              </View>
+            )}
           </View>
-        ) : (
-          <View>
+        </View>
+        <View
+          style={{ display: isSearching ? 'none' : 'flex' }}
+          pointerEvents={isSearching ? 'none' : 'auto'}
+        >
             <FastPressable
               onPress={() => router.push('/settings/accounts')}
               latencyLabel="settings.accounts.open"
@@ -347,7 +354,7 @@ export function SettingsScreen() {
 
             <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
             <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} />
+              <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} onPress={() => router.push('/settings/mailbox')} />
               <View style={styles.dividerInner} />
               <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" onPress={() => router.push('/settings/news')} />
               <View style={styles.dividerInner} />
@@ -406,8 +413,7 @@ export function SettingsScreen() {
                 <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
               </FastPressable>
             </View>
-          </View>
-        )}
+        </View>
       </ScrollView>
 
       <QRScannerModal

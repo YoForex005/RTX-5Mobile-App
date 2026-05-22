@@ -1,7 +1,18 @@
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 
-export const normalizeQuoteTransportSymbol = (symbol: string): string =>
-  symbol.trim().replace(/[\/\s]+/g, '');
+export const normalizeQuoteTransportSymbol = (symbol: string): string => {
+  const compact = symbol.trim().replace(/[\/\s]+/g, '');
+  if (!compact) {
+    return '';
+  }
+
+  const baseSymbol = normalizeSymbol(compact);
+  if (baseSymbol && compact.toUpperCase().startsWith(baseSymbol)) {
+    return `${baseSymbol}${compact.slice(baseSymbol.length)}`;
+  }
+
+  return normalizeQuoteSymbolKey(compact);
+};
 
 export const resolveQuoteTransportSymbols = (symbol: string): string[] => {
   const transportSymbol = normalizeQuoteTransportSymbol(symbol);

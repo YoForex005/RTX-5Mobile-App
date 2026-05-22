@@ -31,10 +31,10 @@ test('quote symbol action sheets do not leave the tapped symbol visually held', 
 
   assert.match(tapConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(tapConfigSource, /describeMarketSymbol\(sym\)/);
-  assert.match(tapConfigSource, /instantOpen: true/);
+  assert.doesNotMatch(tapConfigSource, /instantOpen: true/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
-  assert.match(longPressConfigSource, /instantOpen: true/);
+  assert.doesNotMatch(longPressConfigSource, /instantOpen: true/);
   assert.match(
     source,
     /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showActionSheet\(config\)/,

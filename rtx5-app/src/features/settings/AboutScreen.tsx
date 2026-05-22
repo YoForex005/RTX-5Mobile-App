@@ -11,7 +11,6 @@ import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
-  Image,
   Linking,
   Platform,
   ScrollView,
@@ -22,6 +21,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
+import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
@@ -213,7 +213,7 @@ export function AboutScreen() {
 
       <View style={styles.content}>
         <View style={styles.identity}>
-          <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.logo} />
+          <AppLogo style={styles.logo} />
           <AppNameMark appName={appName} styles={styles} />
           <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
         </View>
@@ -395,7 +395,7 @@ function ContactDeveloperScreen({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.contactHeroCard}>
-            <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.contactHeroLogo} />
+            <AppLogo style={styles.contactHeroLogo} />
             <View style={styles.contactHeroCopy}>
               <Text style={styles.contactHeroTitle} numberOfLines={1}>{appName} support</Text>
               <Text style={styles.contactHeroText}>

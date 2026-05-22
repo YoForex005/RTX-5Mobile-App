@@ -112,7 +112,6 @@ export const CH_HTML = `
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var CHART_DEBUG_LOGS = false;
-      var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var PRICE_SCALE_HEALTH_SPAN_MULTIPLE = 30;
       var PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO = 0.2;
       var PRICE_SCALE_HEALTH_MIN_VISIBLE_PIXEL_SPAN = 28;
@@ -3123,7 +3122,9 @@ export const CH_HTML = `
           lineWidth: 1,
           lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
           lineVisible: true,
-          axisLabelVisible: false,
+          axisLabelVisible: true,
+          axisLabelColor: color,
+          axisLabelTextColor: '#FFFFFF',
           title: '',
         };
       }
@@ -3553,64 +3554,12 @@ export const CH_HTML = `
         };
       }
 
-      function renderMarketPriceScaleExtension(layer, price, color) {
-        if (
-          !layer ||
-          !series ||
-          typeof series.priceToCoordinate !== 'function' ||
-          typeof price !== 'number' ||
-          !isFinite(price) ||
-          price <= 0
-        ) {
-          return;
-        }
-        var y = series.priceToCoordinate(price);
-        if (typeof y !== 'number' || !isFinite(y)) {
-          return;
-        }
-        var metrics = resolvePrimaryPaneMetrics();
-        var chartWidth = layer && layer.clientWidth ? layer.clientWidth : 0;
-        var axisLeft = Math.round((metrics.leftAxisWidth || 0) + (metrics.paneWidth || 0));
-        var axisWidth = Math.max(
-          0,
-          Math.round((metrics.rightAxisWidth || 0) || (chartWidth > axisLeft ? chartWidth - axisLeft : 0))
-        );
-        if (!(axisWidth > 0) || axisLeft >= chartWidth) {
-          return;
-        }
-        var plotTop = metrics.plotTop || 0;
-        var plotBottom = plotTop + (metrics.plotHeight || 0);
-        if (y < plotTop || y > plotBottom) {
-          return;
-        }
-        var extension = document.createElement('div');
-        extension.style.position = 'absolute';
-        extension.style.left = axisLeft + 'px';
-        extension.style.top = Math.round(y - MARKET_PRICE_SCALE_EXTENSION_HEIGHT / 2) + 'px';
-        extension.style.width = Math.min(axisWidth, Math.max(0, chartWidth - axisLeft)) + 'px';
-        extension.style.height = MARKET_PRICE_SCALE_EXTENSION_HEIGHT + 'px';
-        extension.style.backgroundColor = color;
-        extension.style.pointerEvents = 'none';
-        extension.style.opacity = '1';
-        extension.style.zIndex = '8';
-        layer.appendChild(extension);
-      }
-
-      function renderMarketPriceScaleExtensions(layer) {
-        if (!marketPriceLinesVisible) {
-          return;
-        }
-        renderMarketPriceScaleExtension(layer, lastBidPrice, marketBidColor);
-        renderMarketPriceScaleExtension(layer, lastAskPrice, marketAskColor);
-      }
-
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
           if (!series) return;
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
-          renderMarketPriceScaleExtensions(layer);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];

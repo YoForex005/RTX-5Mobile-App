@@ -20,9 +20,6 @@ let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 100;
 
-const uniqueQuoteSymbolKeys = (symbols: string[]): string[] =>
-  Array.from(new Set(symbols.map((symbol) => normalizeQuoteSymbolKey(symbol)).filter(Boolean)));
-
 const getTickSymbolKey = (tick: QuoteTickEvent): string =>
   normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
 
@@ -31,6 +28,9 @@ const getSnapshotKeys = (symbol: string): string[] => {
   const baseKey = normalizeSymbol(symbol);
   return Array.from(new Set([rawKey, baseKey].filter(Boolean)));
 };
+
+const uniqueQuoteSymbolKeys = (symbols: string[]): string[] =>
+  Array.from(new Set(symbols.flatMap(getSnapshotKeys)));
 
 const notifySymbol = (symbol: string): void => {
   const listeners = listenersBySymbol.get(symbol);
@@ -135,42 +135,55 @@ export const ingestLiveQuoteTick = (tick: QuoteTickEvent): void => {
   scheduleSymbolNotification(symbol);
 };
 
+export function useLiveQuoteSubscription(symbol: string, active: boolean): void {
+  const symbolKeys = useMemo(
+    () => getSnapshotKeys(symbol),
+    [symbol],
+  );
+  const symbolKeysKey = symbolKeys.join('|');
+
+  useEffect(() => {
+    if (!active || !symbol || symbolKeys.length === 0) {
+      return;
+    }
+
+    symbolKeys.forEach(ensureSnapshot);
+    return quotesWsService.subscribeToSymbol(symbol, ingestLiveQuoteTick);
+  }, [active, symbol, symbolKeysKey]);
+}
+
 export function useWatchlistLiveQuotes(symbols: string[], active: boolean): string[] {
   const symbolsKey = JSON.stringify(symbols);
-  
-  const rawUniqueSymbols = useMemo(
-    () => Array.from(new Set(symbols.filter(Boolean))),
-    [symbolsKey],
-  );
 
   const normalizedSymbols = useMemo(
     () => uniqueQuoteSymbolKeys(symbols),
     [symbolsKey],
   );
-  
   const normalizedSymbolsKey = normalizedSymbols.join('|');
 
   useEffect(() => {
-    if (!active || rawUniqueSymbols.length === 0) {
+    if (!active || normalizedSymbols.length === 0) {
       return;
     }
 
     normalizedSymbols.forEach(ensureSnapshot);
+    const symbolSet = new Set(normalizedSymbols);
+    const listener = (tick: QuoteTickEvent) => {
+      const tickKeys = getSnapshotKeys(tick.rawSymbol ?? tick.symbol);
+      if (!tickKeys.some((key) => symbolSet.has(key))) {
+        return;
+      }
 
-    // Send the broker's raw feed symbols (for example BTCUSDm or GBPUSD.c)
-    // through the per-symbol listener path. Quotes rows then receive live
-    // snapshots without also forcing the global Zustand quote store to update
-    // underneath every tap target on this screen.
-    const unsubscribers = rawUniqueSymbols.map((symbol) =>
-      quotesWsService.subscribeToSymbol(symbol, ingestLiveQuoteTick),
-    );
-
-    return () => {
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      ingestLiveQuoteTick(tick);
     };
-  }, [active, symbolsKey, normalizedSymbolsKey]);
 
-  return normalizedSymbols;
+    quotesWsService.addTickListener(listener);
+    return () => {
+      quotesWsService.removeTickListener(listener);
+    };
+  }, [active, normalizedSymbolsKey]);
+
+  return active ? normalizedSymbols : [];
 }
 
 export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefined {

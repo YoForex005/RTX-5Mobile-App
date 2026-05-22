@@ -127,9 +127,12 @@ test('webview bridge: setMarketPriceLines updates market lines without mutating 
   assertSourceContains(body, /setBidPriceLine\(bid, false\)/, 'bid line must update through price-line API');
   assertSourceContains(body, /setAskPriceLine\(ask, false\)/, 'ask line must update through price-line API');
   assertSourceContains(marketLineOptionsBody, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: false/, 'market bid/ask lines must not paint right-axis highlight badges');
+  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: true/, 'market bid/ask lines must paint right-axis price badges');
+  assertSourceContains(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask price badges must match their line color');
+  assertSourceContains(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask price badges must keep readable text');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
-  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask lines must not render filled price-scale badges');
+  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask labels must come from the chart price-scale renderer');
+  assert.doesNotMatch(chartWebViewHtmlSource, /renderMarketPriceScaleExtensions|MARKET_PRICE_SCALE_EXTENSION/, 'market bid/ask price badges must not have a second DOM line over the price scale');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
 });
 

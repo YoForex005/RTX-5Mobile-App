@@ -248,9 +248,8 @@ const QuoteCard = React.memo(function QuoteCard({
   const { t } = useTranslation();
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const isSimpleMode = viewMode === 'table';
-  // Read from the Quotes external store. The watchlist-level hook owns the
-  // socket subscription and each row subscribes only to its own symbol snapshot.
-  const liveItem = useLiveQuoteSnapshot(feedSymbol ?? symbol);
+  const liveSymbol = feedSymbol ?? symbol;
+  const liveItem = useLiveQuoteSnapshot(liveSymbol);
   const noData = !hasFreshLiveQuote(liveItem);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
@@ -1563,6 +1562,12 @@ export function QuotesScreen() {
 
   useEffect(() => {
     const currentSymbols = quoteSymbolsRef.current;
+    const availableSymbolsSet = new Set(apiSymbols);
+    const resolveAvailableSymbols = (symbols: readonly string[]) => (
+      resolveQuoteFeedSymbols(symbols, apiSymbols)
+        .filter((symbol) => availableSymbolsSet.has(symbol))
+    );
+
     if (apiSymbols.length === 0) {
       if (!hasSetInitialSymbols && currentSymbols.length === 0) {
         setQuoteSymbols([...DEFAULT_QUOTE_WATCHLIST]);
@@ -1592,9 +1597,15 @@ export function QuotesScreen() {
         setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
         return;
       }
-      // Strip any symbols the broker has since delisted
-      const valid = currentSymbols.filter((sym) => apiSymbols.includes(sym));
-      if (valid.length < currentSymbols.length) setQuoteSymbols(valid);
+      // Strip any symbols the broker has since delisted and migrate legacy
+      // lowercase/local display symbols to the broker's live feed casing.
+      const valid = [...new Set(resolveAvailableSymbols(currentSymbols))];
+      if (
+        valid.length < currentSymbols.length ||
+        valid.some((sym, index) => sym !== currentSymbols[index])
+      ) {
+        setQuoteSymbols(valid);
+      }
       return; // ← critical: no server override after first init
     }
 
@@ -1603,9 +1614,7 @@ export function QuotesScreen() {
     // mount cycle if both apiSymbols and serverWatchlist resolve simultaneously.
     if (!serverSeedDoneRef.current && serverWatchlist && serverWatchlist.length > 0) {
       const sorted = [...serverWatchlist].sort((a, b) => a.sort_order - b.sort_order);
-      const validFromServer = sorted
-        .map((item) => item.symbol)
-        .filter((sym) => apiSymbols.includes(sym));
+      const validFromServer = resolveAvailableSymbols(sorted.map((item) => item.symbol));
       const uniqueFromServer = [...new Set(validFromServer)];
       if (uniqueFromServer.length > 0) {
         // If server has too few symbols (e.g. leftover from a previous bug),
@@ -1613,8 +1622,8 @@ export function QuotesScreen() {
         // useful set of at least 5 instruments.
         let finalList = uniqueFromServer;
         if (finalList.length < 5) {
-          const extras = DEFAULT_QUOTE_WATCHLIST.filter(
-            (sym) => apiSymbols.includes(sym) && !finalList.includes(sym),
+          const extras = resolveAvailableSymbols([...DEFAULT_QUOTE_WATCHLIST]).filter(
+            (sym) => !finalList.includes(sym),
           );
           finalList = [...finalList, ...extras].slice(0, 5);
         }
@@ -1676,7 +1685,7 @@ export function QuotesScreen() {
     return () => {
       quotesWsService.setSubscriptions([]);
     };
-  }, [quoteFeedSymbols, quoteFeedSymbolsKey, quoteStickyFeedActive]);
+  }, [quoteStickyFeedActive, quoteFeedSymbols, quoteFeedSymbolsKey]);
 
   const liveTrackedSymbols = useWatchlistLiveQuotes(quoteFeedSymbols, quoteFeedActive);
 
@@ -1746,7 +1755,6 @@ export function QuotesScreen() {
       configs.set(sym, {
         title: `${displayName}: ${describeMarketSymbol(sym)}`,
         detent: 'auto',
-        instantOpen: true,
         actions: [
           {
             label: t('New Order'),
@@ -1798,7 +1806,6 @@ export function QuotesScreen() {
       configs.set(sym, {
         title: fmt.symbol(sym),
         detent: 'auto',
-        instantOpen: true,
         actions: [
           {
             label: t('Chart'),
@@ -1866,7 +1873,7 @@ export function QuotesScreen() {
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
-        onPress={() => handleSymbolTap(sym)}
+        onPressIn={() => handleSymbolTap(sym)}
         suppressPressFeedback
         onLongPress={() => handleSymbolLongPress(sym)}
       />

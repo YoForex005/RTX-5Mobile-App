@@ -371,18 +371,17 @@ export function HistoryScreen() {
   // GET /api/v2/account/deals             — deal history (JWT-resolved, date-range aware)
   // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
   const accountLogin = useResolvedTradingLogin();
+  // Cached data shows instantly on tab focus; the focus-refetch effect below
+  // refreshes in the background without blocking the transition.
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
     enabled: isScreenFocused,
-    refetchOnMount: 'always',
   });
   const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
     login: accountLogin,
     enabled: isScreenFocused,
-    refetchOnMount: 'always',
   });
   const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
     enabled: isScreenFocused,
-    refetchOnMount: 'always',
   });
 
   // ── Refetch on tab focus ─────────────────────────────────────────────

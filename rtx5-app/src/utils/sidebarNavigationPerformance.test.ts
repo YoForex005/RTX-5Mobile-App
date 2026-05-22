@@ -12,10 +12,13 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.match(source, /const hideActionSheet = useUIState\(\(s\) => s\.hideActionSheet\)/);
   assert.match(source, /hideActionSheet\(\);\s*setSidebarOpen\(true\)/);
   assert.doesNotMatch(source, /scheduleAfterTapFrame/);
+  assert.match(source, /export const MENU_BUTTON_VISUAL_LEFT = 28/);
+  assert.match(source, /const HEADER_HORIZONTAL_PADDING = 16/);
   assert.match(source, /const HEADER_SIDE_SLOT_WIDTH = 144/);
-  assert.match(source, /const ANDROID_EDGE_GESTURE_SAFE_PAD = 36/);
+  assert.match(source, /const MENU_BUTTON_LEFT_INSET = MENU_BUTTON_VISUAL_LEFT - HEADER_HORIZONTAL_PADDING/);
   assert.match(source, /width: HEADER_SIDE_SLOT_WIDTH/);
-  assert.match(source, /paddingLeft: ANDROID_EDGE_GESTURE_SAFE_PAD/);
+  assert.match(source, /paddingHorizontal: HEADER_HORIZONTAL_PADDING/);
+  assert.match(source, /paddingLeft: MENU_BUTTON_LEFT_INSET/);
   assert.match(source, /paddingRight: 12/);
   assert.match(source, /onPress=\{handleOpenSidebar\}/);
   assert.match(source, /activateOnPressIn/);
@@ -25,6 +28,7 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.doesNotMatch(source, /onPressIn=\{handleOpenSidebar\}/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(source, /traceUiInteraction/);
+  assert.doesNotMatch(source, /ANDROID_EDGE_GESTURE_SAFE_PAD/);
 });
 
 test('sidebar drawer uses immediate non-blocking navigation for menu rows', () => {
@@ -32,8 +36,8 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
 
   assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 0/);
   assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 65/);
-  assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 350/);
-  assert.match(source, /const SIDEBAR_PREFETCH_DELAY_MS = 1500/);
+  assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 120/);
+  assert.match(source, /const SIDEBAR_PREFETCH_DELAY_MS = 100/);
   assert.match(source, /const LOGGED_OUT_PREFETCH_ROUTES = \['\/login'\] as const/);
   assert.match(source, /const AUTH_STACK_ROUTES = new Set<string>\(LOGGED_OUT_PREFETCH_ROUTES\)/);
   assert.match(source, /useLayoutEffect\(\(\) => \{/);
@@ -52,6 +56,9 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.match(source, /if \(!visible\) \{\s*return;\s*\}/);
   assert.match(source, /}, SIDEBAR_PREFETCH_DELAY_MS\)/);
   assert.match(source, /scheduleNextFrame\(prefetchSidebarRoutes\)/);
+  assert.match(source, /const prefetchSidebarRoute = useCallback/);
+  assert.match(source, /const prefetchNextRoute = \(\) => \{/);
+  assert.match(source, /scheduleNextFrame\(prefetchNextRoute\)/);
   assert.match(source, /try \{\s*prefetch\(route\);/);
   assert.match(source, /if \(isLoggedIn\) \{\s*return;\s*\}/);
   assert.match(source, /for \(const route of LOGGED_OUT_PREFETCH_ROUTES\)/);
@@ -60,8 +67,9 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.match(source, /canCancelContentTouches=\{false\}/);
   assert.match(source, /const navigateSidebarRoute = useCallback/);
   assert.match(source, /navigationLockedRef\.current = true/);
+  assert.match(source, /clearSidebarPrefetchTimer\(\)/);
   assert.match(source, /closeImmediately\(\)/);
-  assert.match(source, /scheduleNextFrame\(\(\) => \{/);
+  assert.match(source, /prefetchSidebarRoute\(route\)/);
   assert.match(source, /normalizeSidebarPath\(route\)/);
   assert.match(source, /AUTH_STACK_ROUTES\.has\(route\)/);
   assert.match(source, /router\.push\(route as any\)/);
@@ -78,6 +86,16 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.doesNotMatch(source, /handleSidebarPressOut/);
   assert.doesNotMatch(source, /SIDEBAR_PRESS_GUARD_MS/);
   assert.doesNotMatch(source, /traceUiInteraction/);
+});
+
+test('chart header menu avoids Android edge gesture interception', () => {
+  const source = readSource('src/features/chart/ChartScreen.styles.ts');
+
+  assert.match(source, /MENU_BUTTON_VISUAL_LEFT/);
+  assert.match(source, /width: MENU_BTN_GUTTER/);
+  assert.match(source, /alignItems: 'flex-start'/);
+  assert.match(source, /paddingLeft: MENU_BUTTON_VISUAL_LEFT/);
+  assert.doesNotMatch(source, /CHART_HEADER_EDGE_GESTURE_SAFE_PAD/);
 });
 
 test('sidebar login prompt opens login from a large first-touch target', () => {

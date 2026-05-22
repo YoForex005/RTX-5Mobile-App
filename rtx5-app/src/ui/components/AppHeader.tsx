@@ -5,8 +5,8 @@ import { FastPressable as Pressable } from './FastPressable';
  * Design goals:
  * - Auto-sizes for every phone: uses useSafeAreaInsets() so status bar height
  *   is handled correctly on both Android (no notch) and iOS (notch/dynamic island).
- * - Reserves a 52dp left gutter for the global hamburger menu button that lives
- *   in `(tabs)/_layout.tsx`. This prevents the title ever overlapping the ☰ icon.
+ * - Reserves a left gutter for the global hamburger menu button.
+ *   This prevents the title ever overlapping the menu icon.
  * - Title is always visually centered between the left gutter and the optional
  *   right actions zone.
  * - Right actions slot accepts any ReactNode (icon buttons, badges, etc).
@@ -21,11 +21,14 @@ import { useTheme } from '../theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 
-// The global menu button is 40px wide + 16px left margin = 56dp reserved zone.
+// Keep the visible menu icon close to the app edge while preserving a large
+// press target for reliable Android taps.
 export const MENU_BTN_GUTTER = 56;
+export const MENU_BUTTON_VISUAL_LEFT = 28;
+const HEADER_HORIZONTAL_PADDING = 16;
 const HEADER_SIDE_SLOT_WIDTH = 144;
+const MENU_BUTTON_LEFT_INSET = MENU_BUTTON_VISUAL_LEFT - HEADER_HORIZONTAL_PADDING;
 const MENU_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 16, right: 8 } as const;
-const ANDROID_EDGE_GESTURE_SAFE_PAD = 0;
 
 interface AppHeaderProps {
   /** Main title string shown centered in the header */
@@ -64,16 +67,6 @@ export function AppHeader({
     setSidebarOpen(true);
   }, [hideActionSheet, setSidebarOpen]);
 
-  // The global hamburger ☰ button in _layout.tsx is positioned at:
-  //   top: insets.top + 16,  height: 40px  →  center = insets.top + 36px
-  //
-  // We match that exactly:
-  //   paddingTop = insets.top + 16  (puts the row start at the same Y as the ☰ button)
-  //   minHeight  = 40               (same height as the ☰ button's tap zone)
-  //   paddingBottom = 8             (small breathing room below the row)
-  //
-  // This guarantees the title text and ☰ icon sit on the exact same horizontal
-  // line on EVERY Android phone regardless of status bar / notch height.
   const safeTop = Platform.OS === 'web' ? 0 : Math.max(insets.top, 0);
   const topPad = safeTop + 6 + extraTopPad;
 
@@ -126,7 +119,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 40,
-    paddingHorizontal: 16,
+    paddingHorizontal: HEADER_HORIZONTAL_PADDING,
     // No background — inherits from Screen/parent so theme transitions work
   },
   leftGutter: {
@@ -135,7 +128,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: 'flex-start',
     justifyContent: 'center',
-    paddingLeft: ANDROID_EDGE_GESTURE_SAFE_PAD,
+    paddingLeft: MENU_BUTTON_LEFT_INSET,
   },
   title: {
     flex: 1,

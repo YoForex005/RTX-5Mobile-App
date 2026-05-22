@@ -137,9 +137,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       return () => {};
     }
 
-    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, transportSymbols, 1);
-    this.syncActiveSymbols();
-
     for (const key of listenerKeys) {
       let bucket = this.symbolListeners.get(key);
       if (!bucket) {
@@ -148,6 +145,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       }
       bucket.add(listener);
     }
+
+    this.symbolConsumerCounts = applyQuoteSubscriptionDelta(this.symbolConsumerCounts, transportSymbols, 1);
+    this.syncActiveSymbols();
 
     let unsubscribed = false;
     return () => {

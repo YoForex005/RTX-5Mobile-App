@@ -51,6 +51,18 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "production-apk": {
+      "channel": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

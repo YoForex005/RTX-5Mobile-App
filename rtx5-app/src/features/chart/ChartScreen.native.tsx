@@ -59,6 +59,7 @@ import {
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
+import { resolveBottomTabBarHeight } from '../../ui/layout/bottomTabBar';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
 import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
@@ -603,6 +604,7 @@ export function ChartScreen() {
   const isChartExpanded = useUIState((s) => s.isChartFullscreen);
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
+  const setChartTabBarKeyboardLift = useUIState((s) => s.setChartTabBarKeyboardLift);
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
@@ -631,6 +633,38 @@ export function ChartScreen() {
     keyboardVisibleHeight,
     showChartTradeSheet,
   ]);
+  const chartTabBarKeyboardLift = useMemo(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !footerLotEditorFocused ||
+      showChartTradeSheet ||
+      androidFooterHostResizedForKeyboard ||
+      keyboardVisibleHeight <= 0
+    ) {
+      return 0;
+    }
+
+    return keyboardVisibleHeight;
+  }, [
+    androidFooterHostResizedForKeyboard,
+    footerLotEditorFocused,
+    keyboardVisibleHeight,
+    showChartTradeSheet,
+  ]);
+  const chartBottomTabBarHeight = useMemo(
+    () => resolveBottomTabBarHeight({
+      safeAreaBottom: safeInsets.bottom,
+      isChartTab: true,
+    }),
+    [safeInsets.bottom],
+  );
+  const footerKeyboardAvoidanceOffset = useMemo(() => {
+    if (chartTabBarKeyboardLift <= 0) {
+      return 0;
+    }
+
+    return chartTabBarKeyboardLift + chartBottomTabBarHeight;
+  }, [chartBottomTabBarHeight, chartTabBarKeyboardLift]);
   const resolveKeyboardDockOffsetForFrame = useCallback((coords?: { height?: number; screenY?: number | null }) => {
     const liveWindowHeight = Dimensions.get('window').height;
     return resolveKeyboardDockOffset({
@@ -711,6 +745,51 @@ export function ChartScreen() {
   const fullscreenToolbarTouchBuffer = 18;
   const fullscreenToolbarTopPadding = safeInsets.top + fullscreenToolbarTouchBuffer;
   const chartHeaderTopPadding = (Platform.OS === 'web' ? 0 : Math.max(safeInsets.top, 0)) + 6;
+  const focusedLotChartViewportHeight = useMemo(() => {
+    if (
+      Platform.OS !== 'android' ||
+      !footerLotEditorFocused ||
+      showChartTradeSheet
+    ) {
+      return 0;
+    }
+
+    const headerHeight =
+      chartTradeCompactHeaderHeight > 0
+        ? chartTradeCompactHeaderHeight
+        : chartHeaderTopPadding + 84;
+    const hostViewportHeight =
+      chartTradeSheetHostHeight > 0
+        ? chartTradeSheetHostHeight
+        : Math.max(0, screenHeight - headerHeight);
+    const keyboardReserve =
+      chartTabBarKeyboardLift > 0
+        ? chartTabBarKeyboardLift + Math.max(safeInsets.bottom, 0)
+        : 0;
+    const inlineFooterHeight =
+      chartTradeInlineFooterHeight > 0
+        ? chartTradeInlineFooterHeight
+        : CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT;
+    const bottomNavigationReserve =
+      chartTabBarKeyboardLift > 0 ? chartBottomTabBarHeight : 0;
+    const reservedBottomStack =
+      keyboardReserve +
+      bottomNavigationReserve +
+      inlineFooterHeight;
+
+    return Math.max(320, Math.round(hostViewportHeight - reservedBottomStack));
+  }, [
+    chartBottomTabBarHeight,
+    chartHeaderTopPadding,
+    chartTabBarKeyboardLift,
+    chartTradeCompactHeaderHeight,
+    chartTradeInlineFooterHeight,
+    chartTradeSheetHostHeight,
+    footerLotEditorFocused,
+    safeInsets.bottom,
+    screenHeight,
+    showChartTradeSheet,
+  ]);
   const chartTradeSheetFallbackTopInset = isChartExpanded ? fullscreenToolbarTopPadding + 36 : 48;
   const chartTradeSheetToolbarBottomInset =
     chartTradeTopToolbarBottomOffset > 0
@@ -1473,7 +1552,6 @@ export function ChartScreen() {
       Keyboard.dismiss();
       showActionSheet({
         title: t('Expiration'),
-        instantOpen: true,
         actions: chartTradeExpirationActions,
       });
     });
@@ -1793,6 +1871,17 @@ export function ChartScreen() {
     keyboardVisibleHeight,
     showChartTradeSheet,
   ]);
+  useEffect(() => {
+    if (!footerLotEditorFocused || showChartTradeSheet) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      chartScrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [footerLotEditorFocused, keyboardVisibleHeight, showChartTradeSheet]);
 
   useEffect(() => {
     if (showChartTradeSheet) {
@@ -2076,12 +2165,7 @@ export function ChartScreen() {
     Platform.OS === 'android' &&
     showChartTradeSheet &&
     (chartTradeCommentFocused || footerLotEditorFocused || keyboardVisibleHeight > 0);
-  const shouldFreezeFooterLotChartViewport =
-    Platform.OS === 'android' &&
-    !showChartTradeSheet &&
-    (footerLotEditorFocused || footerLotEditorOpening || keyboardVisibleHeight > 0);
-  const shouldFreezeChartViewportResize =
-    shouldFreezeChartTradeSheetHostHeight || shouldFreezeFooterLotChartViewport;
+  const shouldFreezeChartViewportResize = shouldFreezeChartTradeSheetHostHeight;
   // When the keyboard is visible and the freeze is active, give the overlay
   // layer an explicit fixed height equal to the frozen host height. This
   // makes the layer independent of parent bounds (which shrink due to
@@ -2118,14 +2202,7 @@ export function ChartScreen() {
   const floatingFooterTradeReserveAnimatedStyle = useAnimatedStyle(() => ({
     minHeight: floatingFooterTradeReserveHeight.value,
   }));
-  const frozenFooterLotChartViewportStyle = useMemo(
-    () => (
-      shouldFreezeFooterLotChartViewport && chartTapMenuBounds.height > 0
-        ? { minHeight: chartTapMenuBounds.height }
-        : null
-    ),
-    [chartTapMenuBounds.height, shouldFreezeFooterLotChartViewport],
-  );
+  const frozenFooterLotChartViewportStyle = null;
   const accountCurrency = accountSummary?.currency || 'USD';
   const isChartTradeMarginMode = chartTradeVolumeDisplayMode === 'margin';
   const chartTradeVolumePrimaryDisplay = isChartTradeMarginMode
@@ -2174,6 +2251,12 @@ export function ChartScreen() {
       setChartInlineInputActive(false);
     };
   }, [setChartInlineInputActive, shouldHideChartTabBarForInlineInput]);
+  useEffect(() => {
+    setChartTabBarKeyboardLift(chartTabBarKeyboardLift);
+    return () => {
+      setChartTabBarKeyboardLift(0);
+    };
+  }, [chartTabBarKeyboardLift, setChartTabBarKeyboardLift]);
   useEffect(() => {
     floatingFooterTradeReserveHeight.value = withTiming(
       isFloatingFooterTradeRowVisible ? CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT : 0,
@@ -2444,51 +2527,10 @@ export function ChartScreen() {
     setFooterLotPickerMode(null);
     setFooterLotEditorFocused(false);
     setChartTradeCommentFocused(false);
-    Keyboard.dismiss();
+    // Keyboard.dismiss() is a native bridge call that can take 10-50ms on
+    // Android. Defer it so it never blocks showActionSheet on the same frame.
+    setTimeout(() => Keyboard.dismiss(), 0);
   }, [closeChartTapMenu]);
-
-  const chartViewportActions = useMemo(
-    () => [
-      {
-        label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
-        icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
-        onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
-      },
-      ...(isChartExpanded
-        ? [{
-          label: t(chartViewportShowDrawingToolbar ? 'Hide Drawing Tools' : 'Show Drawing Tools'),
-          icon: <Ionicons name={chartViewportShowDrawingToolbar ? 'eye-off-outline' : 'pencil-outline'} size={20} color={TEXT_MUTED} />,
-          onPress: () => setChartViewportShowDrawingToolbar(!chartViewportShowDrawingToolbar),
-        }]
-        : []),
-      {
-        label: t('Reset'),
-        icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
-        onPress: handleResetChartViewport,
-      },
-    ],
-    [
-      TEXT_MUTED,
-      chartViewportShowDrawingToolbar,
-      handleResetChartViewport,
-      isChartExpanded,
-      setChartViewportShowDrawingToolbar,
-      setChartViewportShowVolumePane,
-      showChartVolumePane,
-      t,
-    ],
-  );
-
-  const handleOpenChartViewportMenu = useCallback(() => {
-    runImmediateAction('chart.viewport.menu.open', () => {
-      resetChartActionSheetContext();
-      showActionSheet({
-        title: t('Chart'),
-        instantOpen: true,
-        actions: chartViewportActions,
-      });
-    });
-  }, [chartViewportActions, resetChartActionSheetContext, showActionSheet, t]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
@@ -2580,8 +2622,6 @@ export function ChartScreen() {
         title: t('Select Symbol'),
         searchable: true,
         detent: 'large',
-        instantOpen: true,
-        runActionAfterClose: false,
         actions: symbolPickerActions,
       });
     });
@@ -2589,14 +2629,10 @@ export function ChartScreen() {
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
-      requestAnimationFrame(() => {
-        resetChartActionSheetContext();
-        showActionSheet({
-          title: t('Timeframes'),
-          instantOpen: true,
-          runActionAfterClose: false,
-          actions: timeframePickerActions,
-        });
+      resetChartActionSheetContext();
+      showActionSheet({
+        title: t('Timeframes'),
+        actions: timeframePickerActions,
       });
     });
   }, [resetChartActionSheetContext, showActionSheet, t, timeframePickerActions]);
@@ -2662,14 +2698,11 @@ export function ChartScreen() {
 
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
-      requestAnimationFrame(() => {
-        resetChartActionSheetContext();
-        showActionSheet({
-          title: t('Drawing Tools'),
-          instantOpen: true,
-          minimumTopInset: drawingToolsSheetTopInset,
-          actions: drawingToolsActions,
-        });
+      resetChartActionSheetContext();
+      showActionSheet({
+        title: t('Drawing Tools'),
+        minimumTopInset: drawingToolsSheetTopInset,
+        actions: drawingToolsActions,
       });
     });
   }, [drawingToolsActions, drawingToolsSheetTopInset, resetChartActionSheetContext, showActionSheet, t]);
@@ -2677,9 +2710,7 @@ export function ChartScreen() {
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
       closeChartTapMenu();
-      requestAnimationFrame(() => {
-        router.push('/chart/settings');
-      });
+      router.push('/chart/settings');
     });
   }, [closeChartTapMenu]);
 
@@ -2795,13 +2826,10 @@ export function ChartScreen() {
 
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
-      requestAnimationFrame(() => {
-        resetChartActionSheetContext();
-        showActionSheet({
-          title: t('Options'),
-          instantOpen: true,
-          actions: chartMoreActions,
-        });
+      resetChartActionSheetContext();
+      showActionSheet({
+        title: t('Options'),
+        actions: chartMoreActions,
       });
     });
   }, [chartMoreActions, resetChartActionSheetContext, showActionSheet, t]);
@@ -3552,7 +3580,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('Select Timeframe')}
           style={styles.toolbarTimeframeButton}
-          onPressIn={handleOpenTimeframePicker}
+          onPress={handleOpenTimeframePicker}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3568,7 +3597,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="SL/TP"
           style={styles.toolbarTradeButton}
-          onPressIn={handleOpenChartTradeSheet}
+          onPress={handleOpenChartTradeSheet}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3583,7 +3613,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="Drawing tools"
           style={styles.toolbarIconButton}
-          onPressIn={handleOpenDrawingTools}
+          onPress={handleOpenDrawingTools}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3595,7 +3626,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="Chart settings"
           style={styles.toolbarIconButton}
-          onPressIn={handleOpenSettingsScreen}
+          onPress={handleOpenSettingsScreen}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3607,7 +3639,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="Toggle Fullscreen"
           style={styles.toolbarIconButton}
-          onPressIn={handleToggleChartExpanded}
+          onPress={handleToggleChartExpanded}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3619,7 +3652,8 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="More chart actions"
           style={styles.toolbarIconButton}
-          onPressIn={handleOpenMoreMenu}
+          onPress={handleOpenMoreMenu}
+          activateOnPressIn
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3638,6 +3672,7 @@ export function ChartScreen() {
       <Pressable
         style={styles.chartTradeSheetSymbolBlock}
         onPress={handleOpenSymbolPicker}
+        activateOnPressIn
         unstable_pressDelay={0}
       >
         <View style={styles.chartTradeSheetSymbolRow}>
@@ -3818,6 +3853,9 @@ export function ChartScreen() {
         showFloatingFooterTradeRow: shouldMountFloatingFooterTradeRow,
         floatingFooterTradeRowVisible: isFloatingFooterTradeRowVisible,
         footerTradeRowKeyboardOffset,
+        keyboardVisibleHeight,
+        keyboardResizesHost: androidFooterHostResizedForKeyboard,
+        footerKeyboardAvoidanceOffset,
         showFooterLotPicker,
         footerLotPickerMode,
         footerLotEditorFocused,
@@ -3944,14 +3982,23 @@ export function ChartScreen() {
             isChartExpanded && { minHeight: fullscreenChartMinHeight },
           ]}
           nestedScrollEnabled
-          scrollEnabled={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
-          bounces={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
-          alwaysBounceVertical={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive}
+          scrollEnabled={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
+          bounces={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
+          alwaysBounceVertical={!shouldCaptureChartGestures && !showChartTradeSheet && !chartViewportTouchActive && !footerLotEditorFocused}
           keyboardShouldPersistTaps="always"
           scrollEventThrottle={16}
           onScroll={() => syncChartViewportFrame()}
         >
-          <View style={[styles.chartContainer, isChartExpanded && { minHeight: fullscreenChartMinHeight }]}>
+          <View
+            style={[
+              styles.chartContainer,
+              isChartExpanded && { minHeight: fullscreenChartMinHeight },
+              focusedLotChartViewportHeight > 0 && {
+                flex: 0,
+                height: focusedLotChartViewportHeight,
+              },
+            ]}
+          >
             {showChartTypeMenu ? (
               <View pointerEvents="box-none" style={styles.chartTypeMenuLayer}>
                 <Pressable
@@ -4053,7 +4100,8 @@ export function ChartScreen() {
                           accessibilityRole="button"
                           accessibilityLabel={t('Select Symbol')}
                           style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
-                          onPressIn={handleOpenSymbolPicker}
+                          onPress={handleOpenSymbolPicker}
+                          activateOnPressIn
                           hitSlop={8}
                           unstable_pressDelay={0}
                         >
@@ -4067,7 +4115,11 @@ export function ChartScreen() {
                         </Pressable>
                       </View>
 
-                      <Pressable onPressIn={handleOpenSymbolPicker} unstable_pressDelay={0}>
+                      <Pressable
+                        onPress={handleOpenSymbolPicker}
+                        activateOnPressIn
+                        unstable_pressDelay={0}
+                      >
                         <View style={styles.symbolMetaRow}>
                           <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
                         </View>
@@ -4346,16 +4398,6 @@ export function ChartScreen() {
                       handleOpenSymbolPicker();
                     }}
                   />
-                ) : null}
-                {!showChartTradeSheet ? (
-                  <Pressable
-                    style={styles.chartViewportMenuButton}
-                    hitSlop={8}
-                    onPressIn={handleOpenChartViewportMenu}
-                    unstable_pressDelay={0}
-                  >
-                    <Ionicons name="ellipsis-horizontal" size={24} color={isDark ? '#E2E8F0' : '#111827'} />
-                  </Pressable>
                 ) : null}
               </View>
             </View>
@@ -4742,7 +4784,8 @@ export function ChartScreen() {
                       {showChartTradeExpiration ? (
                         <Pressable
                           style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
-                          onPressIn={handleOpenChartExpirationMenu}
+                          onPress={handleOpenChartExpirationMenu}
+                          activateOnPressIn
                           unstable_pressDelay={0}
                         >
                           <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>

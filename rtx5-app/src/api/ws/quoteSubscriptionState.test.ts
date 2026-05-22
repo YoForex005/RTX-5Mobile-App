@@ -5,6 +5,7 @@ import {
   applyQuoteSubscriptionDelta,
   buildActiveQuoteSymbols,
   expandQuoteTransportSymbols,
+  normalizeQuoteTransportSymbol,
   resolveQuoteTransportSymbols,
 } from './quoteSubscriptionState';
 
@@ -46,6 +47,16 @@ test('quote transport expansion subscribes normalized base symbols for broker al
   assert.deepEqual(
     expandQuoteTransportSymbols(['GBPUSD.c', 'GBPUSD', 'XAUUSDm']),
     ['GBPUSD.c', 'GBPUSD', 'XAUUSDm', 'XAUUSD'],
+  );
+});
+
+test('quote transport symbols are normalized to the uppercase backend contract', () => {
+  assert.equal(normalizeQuoteTransportSymbol('xauusd'), 'XAUUSD');
+  assert.equal(normalizeQuoteTransportSymbol('btcusd'), 'BTCUSD');
+  assert.deepEqual(resolveQuoteTransportSymbols('gbpusd'), ['GBPUSD']);
+  assert.deepEqual(
+    expandQuoteTransportSymbols(['xauusd', 'btcusd', 'gbpusd']),
+    ['XAUUSD', 'BTCUSD', 'GBPUSD'],
   );
 });
 

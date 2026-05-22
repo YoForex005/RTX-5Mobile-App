@@ -11,6 +11,7 @@ import {
   resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
   resolveFooterLotCommitDraft,
+  resolveFooterTradeDockBottom,
   resolveFooterTradeRowState,
   resolveKeyboardDockOffset,
   resolveKeyboardResizesHost,
@@ -269,7 +270,7 @@ test('buildFooterLotPickerValues lets selected positive values become the next a
   );
 });
 
-test('resolveFooterTradeRowState keeps the Android floating editor mounted while keyboard height is still unknown', () => {
+test('resolveFooterTradeRowState keeps Android lot editing in the inline footer before keyboard metrics arrive', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
       platform: 'android',
@@ -280,7 +281,7 @@ test('resolveFooterTradeRowState keeps the Android floating editor mounted while
       keyboardDockOffset: 0,
     }),
     {
-      shouldMountFloatingFooterTradeRow: true,
+      shouldMountFloatingFooterTradeRow: false,
       isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
@@ -298,14 +299,14 @@ test('resolveFooterTradeRowState keeps Android inline editor in place while keyb
       keyboardDockOffset: 0,
     }),
     {
-      shouldMountFloatingFooterTradeRow: true,
+      shouldMountFloatingFooterTradeRow: false,
       isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
   );
 });
 
-test('resolveFooterTradeRowState shows the Android floating editor while the keyboard is opening', () => {
+test('resolveFooterTradeRowState keeps Android lot editing inline while the keyboard is opening', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
       platform: 'android',
@@ -316,14 +317,14 @@ test('resolveFooterTradeRowState shows the Android floating editor while the key
       keyboardDockOffset: 288,
     }),
     {
-      shouldMountFloatingFooterTradeRow: true,
-      isFloatingFooterTradeRowVisible: true,
-      footerTradeRowKeyboardOffset: 288,
+      shouldMountFloatingFooterTradeRow: false,
+      isFloatingFooterTradeRowVisible: false,
+      footerTradeRowKeyboardOffset: 0,
     },
   );
 });
 
-test('resolveFooterTradeRowState docks the Android floating editor to a resized host without a stale keyboard gap', () => {
+test('resolveFooterTradeRowState keeps Android resized-host lot editing in the inline footer', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
       platform: 'android',
@@ -335,14 +336,14 @@ test('resolveFooterTradeRowState docks the Android floating editor to a resized 
       keyboardResizesHost: true,
     }),
     {
-      shouldMountFloatingFooterTradeRow: true,
-      isFloatingFooterTradeRowVisible: true,
+      shouldMountFloatingFooterTradeRow: false,
+      isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
   );
 });
 
-test('resolveFooterTradeRowState keeps the Android floating editor visible at bottom 0 when the resized window is already docked to the keyboard', () => {
+test('resolveFooterTradeRowState keeps Android lot editing inline when the resized window is already docked to the keyboard', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
       platform: 'android',
@@ -353,8 +354,8 @@ test('resolveFooterTradeRowState keeps the Android floating editor visible at bo
       keyboardDockOffset: 0,
     }),
     {
-      shouldMountFloatingFooterTradeRow: true,
-      isFloatingFooterTradeRowVisible: true,
+      shouldMountFloatingFooterTradeRow: false,
+      isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
   );
@@ -393,6 +394,101 @@ test('resolveFooterTradeRowState disables the floating row when the editor is cl
       isFloatingFooterTradeRowVisible: false,
       footerTradeRowKeyboardOffset: 0,
     },
+  );
+});
+
+test('resolveFooterTradeDockBottom keeps Android focused lot editor lifted when the keyboard resizes the host', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 0,
+      keyboardVisibleHeight: 312,
+      keyboardResizesHost: true,
+    }),
+    12,
+  );
+});
+
+test('resolveFooterTradeDockBottom lifts Android focused lot editor above overlay keyboards', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 0,
+      keyboardVisibleHeight: 588,
+      keyboardResizesHost: false,
+    }),
+    588,
+  );
+});
+
+test('resolveFooterTradeDockBottom can reserve the lifted tab bar above overlay keyboards', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 0,
+      keyboardVisibleHeight: 546,
+      keyboardResizesHost: false,
+      footerKeyboardAvoidanceOffset: 646,
+    }),
+    646,
+  );
+});
+
+test('resolveFooterTradeDockBottom keeps normal floating rows on the reported keyboard offset', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: false,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 288,
+    }),
+    288,
+  );
+});
+
+test('resolveFooterTradeDockBottom adds the focused edit gap on iOS only after keyboard offset is known', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'ios',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 288,
+    }),
+    333,
+  );
+});
+
+test('resolveFooterTradeDockBottom returns zero for inline or hidden floating footer states', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: true,
+      footerTradeRowKeyboardOffset: 288,
+    }),
+    0,
+  );
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'android',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: false,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 288,
+    }),
+    0,
   );
 });
 

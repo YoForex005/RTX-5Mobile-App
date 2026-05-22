@@ -47,7 +47,7 @@ type ActionSheetProps = {
 };
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
-const ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS = 120;
+const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 220;
 
 // Comfortable tap-to-dismiss zone above the sheet, beyond the safe-area inset.
 // Without this, a tall sheet can extend to within a few pixels of the status
@@ -96,14 +96,12 @@ export function ActionSheet({
   );
   const overlayOpacity = useRef(new Animated.Value(visible && instantOpen ? 1 : 0)).current;
   const sheetTranslateY = useRef(new Animated.Value(visible && instantOpen ? 0 : 28)).current;
-  const shouldDelayInstantSheetPaint = Platform.OS === 'android' && instantOpen;
-  const [instantLayoutReady, setInstantLayoutReady] = useState(
-    () => !visible || !shouldDelayInstantSheetPaint,
-  );
+  const openedAtRef = useRef(visible ? Date.now() : 0);
 
   const prevVisibleRef = useRef(visible);
   if (visible !== prevVisibleRef.current) {
     if (visible) {
+      openedAtRef.current = Date.now();
       if (instantOpen) {
         overlayOpacity.setValue(1);
         sheetTranslateY.setValue(0);
@@ -123,7 +121,6 @@ export function ActionSheet({
   // sheet is never shown at the wrong (pre-layout) size.
   const layoutReadyRef = useRef(false);
   const hasMeasuredOverlayRef = useRef(false);
-  const instantLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredActions = searchable && query.trim()
     ? actions.filter((action) => {
@@ -198,30 +195,10 @@ export function ActionSheet({
   }, [overlayOpacity, sheetTranslateY]);
 
   const deferredAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearInstantLayoutTimer = useCallback(() => {
-    if (instantLayoutTimerRef.current) {
-      clearTimeout(instantLayoutTimerRef.current);
-      instantLayoutTimerRef.current = null;
-    }
-  }, []);
-  const scheduleInstantSheetPaintReady = useCallback(() => {
-    if (!shouldDelayInstantSheetPaint) {
-      setInstantLayoutReady(true);
-      return;
-    }
-
-    clearInstantLayoutTimer();
-    instantLayoutTimerRef.current = setTimeout(() => {
-      instantLayoutTimerRef.current = null;
-      requestAnimationFrame(() => setInstantLayoutReady(true));
-    }, ANDROID_INSTANT_OPEN_LAYOUT_SETTLE_MS);
-  }, [clearInstantLayoutTimer, shouldDelayInstantSheetPaint]);
 
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
     if (h > 0) {
-      // Instant sheets trust the first real Modal layout, then all sheets
-      // ratchet upward so later keyboard-shrunken layouts cannot clip them.
       const hasMeasuredLayout = hasMeasuredOverlayRef.current;
       setMeasuredHeight((prev) =>
         resolveActionSheetMeasuredHeight({
@@ -233,32 +210,8 @@ export function ActionSheet({
       );
       hasMeasuredOverlayRef.current = true;
     }
-    if (h > 0 && Platform.OS === 'android' && instantOpen) {
-      scheduleInstantSheetPaintReady();
-    }
-    // On Android, defer the animation start. Keyboard.dismiss() is async —
-    // the window restores its full height ~100-200ms after the call. By
-    // waiting, we ensure the final onLayout (at full height) has fired
-    // before we animate the sheet in. This prevents the visible
-    // shrink-then-expand flicker.
-    if (Platform.OS === 'android' && !layoutReadyRef.current) {
-      layoutReadyRef.current = true;
-      if (instantOpen) {
-        if (deferredAnimTimerRef.current) {
-          clearTimeout(deferredAnimTimerRef.current);
-          deferredAnimTimerRef.current = null;
-        }
-        overlayOpacity.setValue(1);
-        sheetTranslateY.setValue(0);
-        return;
-      }
-      if (deferredAnimTimerRef.current) clearTimeout(deferredAnimTimerRef.current);
-      deferredAnimTimerRef.current = setTimeout(() => {
-        deferredAnimTimerRef.current = null;
-        requestAnimationFrame(() => runEntryAnimation());
-      }, 30);
-    }
-  }, [instantOpen, overlayOpacity, runEntryAnimation, scheduleInstantSheetPaintReady, sheetTranslateY]);
+    layoutReadyRef.current = true;
+  }, [instantOpen]);
 
   // Dismiss keyboard when the ActionSheet opens and reset measured height
   // so the first onLayout of this open cycle sets it to the actual value.
@@ -278,14 +231,13 @@ export function ActionSheet({
 
   useEffect(() => {
     return () => {
-      clearInstantLayoutTimer();
       if (pendingActionCancelRef.current) {
         pendingActionCancelRef.current();
         pendingActionCancelRef.current = null;
       }
       pendingActionRef.current = null;
     };
-  }, [clearInstantLayoutTimer]);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -309,8 +261,6 @@ export function ActionSheet({
 
   useEffect(() => {
     if (!visible) {
-      clearInstantLayoutTimer();
-      setInstantLayoutReady(!shouldDelayInstantSheetPaint);
       setKeyboardHeight(0);
       overlayOpacity.setValue(0);
       sheetTranslateY.setValue(28);
@@ -322,12 +272,6 @@ export function ActionSheet({
         deferredAnimTimerRef.current = null;
       }
       return;
-    }
-
-    if (shouldDelayInstantSheetPaint) {
-      setInstantLayoutReady(false);
-    } else {
-      setInstantLayoutReady(true);
     }
 
     if (instantOpen) {
@@ -343,18 +287,16 @@ export function ActionSheet({
       return;
     }
 
-    // On iOS, start animation immediately (no adjustResize issue).
-    // On Android, animation is deferred to handleOverlayLayout.
-    if (Platform.OS !== 'android') {
-      runEntryAnimation();
-    }
+    // Start the entry animation as soon as `visible` flips true on every platform.
+    // Previously this was deferred to onLayout on Android (to ride out a
+    // keyboard-dismiss resize), but onLayout sometimes didn't fire, leaving
+    // the sheet stuck at opacity 0 (the "sometimes doesn't come" failure).
+    runEntryAnimation();
   }, [
-    clearInstantLayoutTimer,
     instantOpen,
     overlayOpacity,
     runEntryAnimation,
     sheetTranslateY,
-    shouldDelayInstantSheetPaint,
     visible,
   ]);
 
@@ -389,6 +331,13 @@ export function ActionSheet({
     onClose();
   }, [onClose, runActionAfterClose]);
 
+  const handleBackdropPress = useCallback(() => {
+    if (Date.now() - openedAtRef.current < ACTION_SHEET_BACKDROP_OPEN_GUARD_MS) {
+      return;
+    }
+    onClose();
+  }, [onClose]);
+
   if (!visible) {
     // A closed action sheet must not leave any native full-screen touch layer
     // mounted. Returning null is stricter than a hidden transparent Modal and
@@ -396,16 +345,16 @@ export function ActionSheet({
     return null;
   }
 
-  // No fixed height on Android: the overlay uses flex:1 to fill the Modal
-  // after the keyboard has been dismissed and layout has settled.
-  const shouldHideSheetForInitialLayout = shouldDelayInstantSheetPaint && !instantLayoutReady;
+  // No fixed height on Android: instant sheets start from the visible window
+  // height and then ratchet upward from real Modal layout. The sheet body must
+  // paint immediately; hiding it behind the backdrop creates a dead-looking
+  // overlay when Android reuses a Modal layout without another onLayout pass.
   const sheetBody = (
     <Animated.View
-      pointerEvents={shouldHideSheetForInitialLayout ? 'none' : 'auto'}
+      pointerEvents="auto"
       style={[
         styles.sheetContainer,
         {
-          opacity: shouldHideSheetForInitialLayout ? 0 : 1,
           transform: [{ translateY: sheetTranslateY }],
         },
       ]}
@@ -553,7 +502,7 @@ export function ActionSheet({
         <FastPressable
           style={[StyleSheet.absoluteFillObject, styles.backdrop]}
           latencyLabel="actionSheet.dismissOverlay"
-          onPress={onClose}
+          onPress={handleBackdropPress}
           activateOnPressIn
         />
 

@@ -8,6 +8,7 @@ import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
 import {
   resolveChartTradeSheetFrameHeight,
+  resolveFooterTradeDockBottom,
   shouldRenderChartTradeSheetBody,
   shouldShowChartTradeSheetHandle,
   shouldShowChartTradeSheetMarketExecutionButtons,
@@ -16,8 +17,6 @@ import { LiveOrderTickExecutionGraph } from '../../trade/OrderTickExecutionGraph
 import { useTranslation } from '../../../i18n/useTranslation';
 
 const FOOTER_LOT_PICKER_BASE_OFFSET = 54;
-const FOOTER_TRADE_DOCK_EDIT_GAP = 45;
-const FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP = 4;
 
 type ChartTradeTypeTabLayout = { x: number; width: number };
 
@@ -1257,27 +1256,16 @@ export function ChartTradeOverlayLayer({
   });
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
   const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
-  const isAndroidFloatingFooterLotEditor =
-    Platform.OS === 'android' &&
-    footer.footerLotEditorFocused &&
-    footer.showFloatingFooterTradeRow &&
-    !showInlineFooterDock;
-  const tradeFooterDockEditGap =
-    Platform.OS === 'ios' &&
-    footer.footerLotEditorFocused &&
-    footer.showFloatingFooterTradeRow &&
-    !showInlineFooterDock &&
-    footer.footerTradeRowKeyboardOffset > 0
-      ? FOOTER_TRADE_DOCK_EDIT_GAP
-      : 0;
-  const tradeFooterDockBottom =
-    footer.showFloatingFooterTradeRow && !showInlineFooterDock
-      ? (
-        isAndroidFloatingFooterLotEditor
-          ? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP
-          : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap
-      )
-      : 0;
+  const tradeFooterDockBottom = resolveFooterTradeDockBottom({
+    platform: Platform.OS,
+    footerLotEditorFocused: footer.footerLotEditorFocused,
+    showFloatingFooterTradeRow: footer.showFloatingFooterTradeRow,
+    showInlineFooterDock,
+    footerTradeRowKeyboardOffset: footer.footerTradeRowKeyboardOffset,
+    keyboardVisibleHeight: footer.keyboardVisibleHeight,
+    keyboardResizesHost: footer.keyboardResizesHost,
+    footerKeyboardAvoidanceOffset: footer.footerKeyboardAvoidanceOffset,
+  });
   const tradeSheetBottomInset =
     Number.isFinite(sheet.chartTradeSheetBottomInset) && sheet.chartTradeSheetBottomInset > 0
       ? sheet.chartTradeSheetBottomInset

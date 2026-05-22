@@ -44,6 +44,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - [x] Unit: quote live snapshots refresh receive-time state on duplicate backend feed payloads while preserving previous bid/ask only for real price movement.
 - [x] Unit: quote default watchlist fallback starts the public feed when the instrument catalog is temporarily unavailable and no device-local watchlist exists.
 - [x] Unit: quote symbol action sheets use prebuilt instant configs, open from touch-down through the immediate action guard, and avoid leaving the tapped row in a held/pressed visual state.
+- [x] Unit/device: Quotes tab owns the full watchlist live feed so virtualized rows can render snapshots for all subscribed symbols.
 - [ ] Integration: search + filter + mode switching.
 - [ ] E2E: swipe action and context menu flow.
 
@@ -51,6 +52,7 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - Quotes module reaches parity checklist with no P1 defects.
 
 ## Progress Notes
+- 2026-05-21: Fixed the Quotes live feed ownership regression where only mounted rows ingested bid/ask ticks. The Quotes tab now sends the full resolved watchlist to `/ws/feed`, and `useWatchlistLiveQuotes` filters the global tick stream into per-symbol snapshots so symbols such as `EURUSD`, `BTCUSD`, and `XAUUSD` paint live values even across a virtualized 60-symbol list. Verified with quote unit/contract tests, TypeScript, a direct 60-symbol websocket acknowledgement, and an Android screenshot after clearing the Expo bundle cache.
 - 2026-05-20: Restored public `/ws/feed` quote subscriptions across Quotes, Chart, trade quote buttons, market statistics, and chart preview consumers by removing the accidental `isLoggedIn` gate from the quote WebSocket hooks. Private REST/watchlist/account data remains login-gated, while the public quote stream now paints whenever the owning screen is active.
 - 2026-05-20: Verified the live feed on Android with screenshots and direct `/ws/feed` samples. The quote socket now subscribes to both broker-suffixed symbols and their normalized base symbols, and quote rows listen to both keys, so rows such as `GBPUSD.c`/`XAUUSDm` can still paint when the backend streams `GBPUSD`/`XAUUSD`.
 - 2026-05-16: Made Quotes symbol menus faster without sacrificing scroll safety. Tap and long-press ActionSheet configs are prebuilt per watchlist symbol, quote cards suppress held/pressed feedback when opening sheets, the tap path now opens from touch-down through the immediate action guard, and instant ActionSheets paint on the first modal frame instead of waiting for an Android layout opacity pass.

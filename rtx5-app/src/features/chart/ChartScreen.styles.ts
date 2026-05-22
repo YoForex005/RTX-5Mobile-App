@@ -2,12 +2,12 @@ import { FOOTER_LOT_PICKER_VALUE_ITEM_HEIGHT } from './ChartScreen.constants';
 import { ThemeColors } from "../../ui/theme/glass";
 import { spacing } from "../../ui/theme/index";
 import { StyleSheet, Platform, Dimensions } from "react-native";
-import { MENU_BTN_GUTTER } from "../../ui/components/AppHeader";
+import { MENU_BTN_GUTTER, MENU_BUTTON_VISUAL_LEFT } from "../../ui/components/AppHeader";
 
 
 
 export function makeStyles(T: ThemeColors, isDark: boolean) {
-    const APP_HEADER_MENU_VISUAL_LEFT = 16;
+    const APP_HEADER_MENU_VISUAL_LEFT = MENU_BUTTON_VISUAL_LEFT;
     const COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26;
     const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(0, APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT);
 
@@ -92,11 +92,12 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
     },
     chartHeaderMenuButton: {
-      width: 48,
+      width: MENU_BTN_GUTTER,
       height: 48,
       flexShrink: 0,
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'center',
+      paddingLeft: MENU_BUTTON_VISUAL_LEFT,
       marginBottom: 4,
     },
     symbolSection: {
@@ -335,17 +336,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       position: 'relative',
       overflow: 'hidden',
-    },
-    chartViewportMenuButton: {
-      position: 'absolute',
-      right: 8,
-      bottom: 2,
-      minWidth: 34,
-      minHeight: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 45,
-      elevation: 45,
     },
     footerLotKeyboardProxyInput: {
       position: 'absolute',

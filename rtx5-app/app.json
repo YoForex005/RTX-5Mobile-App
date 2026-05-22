@@ -19,13 +19,13 @@
     "splash": {
       "image": "./assets/rtx5-splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2d2c31"
     },
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000,
-      "url": "https://u.expo.dev/017504ac-1c55-42f4-91ff-982f5f172082"
+      "url": "https://u.expo.dev/092a58db-dea9-469a-a383-f27300598812"
     },
     "ios": {
       "bundleIdentifier": "com.rtx5.trading",
@@ -46,7 +46,7 @@
         "foregroundImage": "./assets/rtx5-adaptive-icon.png",
         "backgroundColor": "#2d2c31"
       },
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -76,7 +76,7 @@
       [
         "expo-updates",
         {
-          "username": "yoforex"
+          "username": "chinese-hedger"
         }
       ],
       "./withAdiRegistration.js",
@@ -96,9 +96,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "017504ac-1c55-42f4-91ff-982f5f172082"
+        "projectId": "092a58db-dea9-469a-a383-f27300598812"
       }
     },
-    "owner": "yoforex"
+    "owner": "chinese-hedger"
   }
 }

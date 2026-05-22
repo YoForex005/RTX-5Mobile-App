@@ -7,11 +7,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useCallback, useMemo } from 'react';
-import { Image, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
+import { AppLogo } from '../../ui/components/AppLogo';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
 import {
@@ -58,7 +59,7 @@ export function UserGuideScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Image source={require('../../../assets/rtx5-app-icon.png')} style={styles.logo} />
+          <AppLogo style={styles.logo} />
           <AppNameTitle appName={appName} styles={styles} />
           <Text style={styles.heroSubtitle}>{GUIDE_MANUAL_INTRO.subtitle}</Text>
           <Text style={styles.introText}>{GUIDE_MANUAL_INTRO.body}</Text>

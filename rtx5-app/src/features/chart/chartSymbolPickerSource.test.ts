@@ -42,13 +42,12 @@ test('native compact symbol header opens immediately from the full header tap ta
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const styles = readSource('src/features/chart/ChartScreen.styles.ts');
 
-  assert.match(source, /const CHART_SYMBOL_HEADER_HIT_SLOP = \{ top: 10, bottom: 18, left: 16, right: 48 \}/);
   assert.match(source, /const symbolPickerActions = useMemo\([\s\S]*availableSymbols\.map/);
   assert.match(source, /actions: symbolPickerActions/);
   assert.match(source, /instantOpen:\s*true/);
   assert.match(
     source,
-    /<Pressable[\s\S]*hitSlop=\{CHART_SYMBOL_HEADER_HIT_SLOP\}[\s\S]*style=\{\[styles\.symbolSection, styles\.symbolSectionTapTarget\]\}[\s\S]*onPressIn=\{handleOpenSymbolPicker\}/,
+    /accessibilityLabel=\{t\('Select Symbol'\)\}[\s\S]*onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnPressIn[\s\S]*hitSlop=\{8\}/,
   );
   assert.match(styles, /symbolSectionTapTarget:/);
   assert.match(styles, /symbolSectionContent:/);
@@ -58,7 +57,7 @@ test('native compact symbol header opens immediately from the full header tap ta
   assert.match(styles, /paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET/);
 });
 
-test('native chart toolbar opens frequent actions on touch down', () => {
+test('native chart toolbar keeps fast action openers on reliable press surfaces', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
@@ -78,7 +77,11 @@ test('native chart toolbar opens frequent actions on touch down', () => {
   assert.match(source, /title: t\('Expiration'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTradeExpirationActions/);
   assert.match(
     source,
-    /showActionSheet\(\{[\s\S]*title: t\('Timeframes'\)[\s\S]*\}\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)/,
+    /const warmChartContextAndCommit = useCallback\([\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
+  );
+  assert.match(
+    source,
+    /const handleTimeframeSelect = useCallback[\s\S]*warmChartContextAndCommit\(chartSymbol, nextTimeframe\)/,
   );
   assert.doesNotMatch(
     source.slice(source.indexOf('const handleOpenObjectsScreen'), source.indexOf('const handleOpenSignalDetails')),
@@ -88,12 +91,13 @@ test('native chart toolbar opens frequent actions on touch down', () => {
     source.slice(source.indexOf('const handleOpenSettingsScreen'), source.indexOf('const handleToggleChartExpanded')),
     /requestAnimationFrame/,
   );
-  assert.match(source, /onPressIn=\{handleOpenTimeframePicker\}/);
-  assert.match(source, /onPressIn=\{handleOpenChartTradeSheet\}/);
-  assert.match(source, /onPressIn=\{handleOpenChartTypePicker\}/);
-  assert.match(source, /onPressIn=\{handleOpenSettingsScreen\}/);
-  assert.match(source, /onPressIn=\{handleOpenChartViewportMenu\}/);
-  assert.match(source, /onPressIn=\{handleOpenChartExpirationMenu\}/);
+  assert.match(source, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenChartTradeSheet\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenChartViewportMenu\}[\s\S]*activateOnPressIn/);
+  assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(menuSource, /onPressIn=\{onPress\}/);
   assert.match(drawingSource, /onPressIn=\{onPress\}/);
 });

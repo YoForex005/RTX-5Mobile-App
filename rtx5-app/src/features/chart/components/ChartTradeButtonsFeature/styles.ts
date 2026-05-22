@@ -46,14 +46,38 @@ export const baseStyles = StyleSheet.create({
   actionLotPill: {
     flex: 1, minWidth: 0, height: '100%', paddingHorizontal: 4,
     alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
+    position: 'relative', zIndex: 3, elevation: 3,
   },
   actionLotAdjustButton: {
     width: 26, height: '100%', alignItems: 'center', justifyContent: 'center',
     position: 'relative', zIndex: 2, elevation: 2,
   },
   actionLotAdjustButtonDisabled: { opacity: 0.35 },
+  actionLotCommittedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    elevation: 20,
+    backgroundColor: 'transparent',
+  },
+  actionLotCommittedIconBox: {
+    width: 26,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionLotCommittedValue: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionLotDisplayGhost: {
+    opacity: 0,
+  },
   actionLotInputWrap: {
     flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
+    position: 'relative', zIndex: 3, elevation: 3,
   },
   actionBtnHeader: {
     position: 'absolute', top: 2, left: 6, zIndex: 1,
@@ -78,19 +102,31 @@ export const lightStyles = StyleSheet.create({
 });
 
 export const darkStyles = StyleSheet.create({
-  actionLotSlot: { backgroundColor: '#1F2937' },
-  actionLotControl: { backgroundColor: '#1F2937', borderColor: 'rgba(226,232,240,0.5)' },
-  actionLotControlPicker: { borderColor: 'rgba(226,232,240,0.5)' },
-  actionLotValue: { color: '#F8FAFC' },
-  actionLotAdjustIcon: { color: '#E2E8F0' },
-  actionLotAdjustIconDisabled: { color: '#64748B' },
-  actionLotInput: { color: '#F8FAFC' },
+  actionLotSlot: { backgroundColor: '#FFFFFF' },
+  actionLotControl: { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' },
+  actionLotControlPicker: { borderColor: '#CBD5E1' },
+  actionLotValue: { color: '#0F172A' },
+  actionLotAdjustIcon: { color: '#475569' },
+  actionLotAdjustIconDisabled: { color: '#94A3B8' },
+  actionLotInput: { color: '#0F172A' },
 });
 
 export const textBaseStyles = StyleSheet.create({
-  actionLotValue: { fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  actionLotValue: {
+    minWidth: 52,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    includeFontPadding: false,
+    position: 'relative',
+    zIndex: 4,
+    elevation: 4,
+  },
   actionLotInput: {
-    width: '100%', fontSize: 15, fontWeight: '600',
+    width: '100%', fontSize: 15, lineHeight: 20, fontWeight: '700',
     fontVariant: ['tabular-nums'], textAlign: 'center', paddingVertical: 0,
+    includeFontPadding: false,
   },
 });

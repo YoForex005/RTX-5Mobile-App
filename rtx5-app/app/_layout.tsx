@@ -7,6 +7,7 @@ import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
+import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
 import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -40,6 +41,15 @@ function WebIPhoneFrame({ children, bgColor }: PropsWithChildren<{ bgColor?: str
       <View style={[styles.deviceShell, { transform: [{ scale }] }]}>
         <View style={[styles.deviceFrame, bgColor ? { backgroundColor: bgColor } : null]}>{children}</View>
       </View>
+    </View>
+  );
+}
+
+function StartupLogoScreen() {
+  return (
+    <View style={styles.startupScreen}>
+      <StatusBar style="light" />
+      <AppLogo style={styles.startupLogo} />
     </View>
   );
 }
@@ -275,7 +285,7 @@ export default function RootLayout() {
   return (
     <AppProviders>
       <ErrorBoundary>
-        <InnerLayout />
+        {hasHydrated ? <InnerLayout /> : <StartupLogoScreen />}
       </ErrorBoundary>
     </AppProviders>
   );
@@ -314,5 +324,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderWidth: 1,
     borderColor: '#242b3a',
+  },
+  startupScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2d2c31',
+  },
+  startupLogo: {
+    width: 160,
+    height: 160,
   },
 });

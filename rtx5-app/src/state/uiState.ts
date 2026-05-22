@@ -56,9 +56,13 @@ type UIState = {
   isSearchActive: boolean;
   setSearchActive: (active: boolean) => void;
 
-  /** Tracks whether the chart is running an inline text-entry flow that should hide the tab bar */
+  /** Tracks whether the chart is running an inline text-entry flow */
   isChartInlineInputActive: boolean;
   setChartInlineInputActive: (active: boolean) => void;
+
+  /** Lifts the chart tab bar above Android keyboards when the host app does not resize */
+  chartTabBarKeyboardLift: number;
+  setChartTabBarKeyboardLift: (height: number) => void;
 
   /** Tool selection requested from the objects screen and consumed by the chart */
   pendingChartDrawingTool: ChartDrawingKind | null;
@@ -89,6 +93,9 @@ export const useUIState = create<UIState>((set) => ({
 
   isChartInlineInputActive: false,
   setChartInlineInputActive: (active) => set({ isChartInlineInputActive: active }),
+
+  chartTabBarKeyboardLift: 0,
+  setChartTabBarKeyboardLift: (height) => set({ chartTabBarKeyboardLift: Math.max(0, Math.round(height)) }),
 
   pendingChartDrawingTool: null,
   queueChartDrawingTool: (tool) => set({ pendingChartDrawingTool: tool }),

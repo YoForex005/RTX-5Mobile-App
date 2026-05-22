@@ -1,3 +1,4 @@
+import { normalizeQuoteTransportSymbol } from '../../api/ws/quoteSubscriptionState';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 
 export const DEFAULT_QUOTE_WATCHLIST = [
@@ -54,7 +55,7 @@ export const resolveQuoteFeedSymbols = (
   availableSymbols: readonly string[] = [],
 ): string[] => {
   if (availableSymbols.length === 0) {
-    return [...requestedSymbols];
+    return requestedSymbols.map(normalizeQuoteTransportSymbol).filter(Boolean);
   }
 
   const availableByKey = buildAvailableSymbolKeyLookup(availableSymbols);

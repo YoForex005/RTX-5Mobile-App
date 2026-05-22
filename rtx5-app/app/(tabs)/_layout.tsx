@@ -12,6 +12,7 @@ import { useUserPreferences } from '../../src/state/userPreferences';
 import { useTheme } from '../../src/ui/theme/useTheme';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
+import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
 
 const icons = {
   quotes: 'swap-vertical-outline',
@@ -111,6 +112,7 @@ export default function TabsLayout() {
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
+  const chartTabBarKeyboardLift = useUIState((s) => s.chartTabBarKeyboardLift);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const { t } = useTranslation();
@@ -124,10 +126,17 @@ export default function TabsLayout() {
     (isChartFullscreen && isChartTab) ||
     (isChartTab && isChartInlineInputActive) ||
     isSearchActive;
+  const shouldLiftChartTabBar =
+    isChartTab &&
+    !shouldHideMenu &&
+    chartTabBarKeyboardLift > 0;
 
   // Tab bar height adapts to the device's bottom inset (home indicator / pill)
   // Base: 56dp icon+label zone + real bottom inset + 2dp breathing room
-  const tabBarHeight = 56 + insets.bottom + 2;
+  const tabBarHeight = resolveBottomTabBarHeight({
+    safeAreaBottom: insets.bottom,
+    isChartTab,
+  });
 
   const tabBarStyle = useMemo(
     () => ({
@@ -159,7 +168,17 @@ export default function TabsLayout() {
         detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
-          tabBarStyle: shouldHideMenu ? { display: 'none' } : tabBarStyle,
+          tabBarStyle: shouldHideMenu
+            ? { display: 'none' }
+            : [
+                tabBarStyle,
+                shouldLiftChartTabBar && {
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
+                },
+              ],
           tabBarActiveTintColor: T.accent,
           tabBarInactiveTintColor: isDark ? '#5A6B87' : T.textDimmed,
           tabBarIcon: ({ color, size }) => {
