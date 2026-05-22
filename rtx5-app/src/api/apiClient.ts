@@ -15,10 +15,20 @@
 
 import { getSecureItemAsync } from '../utils/secureStorage';
 import { useUserPreferences } from '../state/userPreferences';
+import { persistAuthSessionTokens } from '../state/brokerSessionStorage';
 import { timedFetch } from '../utils/apiLatency';
+import {
+  DEFAULT_API_BASE_URL,
+  buildApiUrl,
+  buildBrokerApiBaseUrl,
+} from './brokerRouting';
 
 // V2 API base URL — resolved from environment variable, falls back to direct IP
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://backend.orrnn.com/api/v2';
+export const API_BASE_URL = DEFAULT_API_BASE_URL;
+export const getActiveApiBaseUrl = () =>
+  buildBrokerApiBaseUrl(useUserPreferences.getState().brokerServerUrl);
+export const buildActiveApiUrl = (endpoint: string) =>
+  buildApiUrl(endpoint, getActiveApiBaseUrl());
 
 export const isApiKeyCredential = (token: string | undefined | null): boolean =>
   typeof token === 'string' && token.startsWith('rtx5_');
@@ -122,10 +132,11 @@ async function silentReLogin(
     const saved = await getSecureItemAsync('rtx5_saved_login');
     if (!saved) return null;
 
-    const { broker, login: savedLogin, pass } = JSON.parse(saved);
+    const { broker, login: savedLogin, pass, server_url: savedServerUrl, serverUrl } = JSON.parse(saved);
     if (!broker || !savedLogin || !pass) return null;
 
-    const resp = await timedFetch(`${API_BASE_URL}/auth/login`, {
+    const apiBaseUrl = buildBrokerApiBaseUrl(savedServerUrl || serverUrl || state.brokerServerUrl);
+    const resp = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ username: savedLogin, password: pass, broker_id: broker }),
@@ -146,6 +157,11 @@ async function silentReLogin(
 
     state.updateTokens(accessToken, refreshToken ?? '', expiresAtIso);
     if (brokerId) state.setBrokerId(brokerId);
+    void persistAuthSessionTokens({
+      accessToken,
+      refreshToken: refreshToken ?? '',
+      expiresAt: expiresAtIso,
+    });
 
     const newBrokerId = decodeBrokerIdFromToken(accessToken);
     console.log('[apiClient] Silent re-login OK. JWT broker_id:', newBrokerId);
@@ -221,7 +237,8 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
 
   // Cache-bust all GET requests so React Native's aggressive caching doesn't
   // serve stale market data
-  let url = `${API_BASE_URL}${endpoint}`;
+  const apiBaseUrl = buildBrokerApiBaseUrl(state.brokerServerUrl);
+  let url = buildApiUrl(endpoint, apiBaseUrl);
   if (!config.method || config.method.toUpperCase() === 'GET') {
     url += url.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
   }
@@ -263,7 +280,7 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
       // new JWT claim when provided — without this the refreshed JWT loses the
       // broker_id and all trading requests fail with 403 permanently.
       const knownBrokerId = state.brokerId || decodeBrokerIdFromToken(token);
-      const rs = await timedFetch(`${API_BASE_URL}/auth/refresh`, {
+      const rs = await timedFetch(`${apiBaseUrl}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -298,6 +315,11 @@ export const apiClient = async (endpoint: string, options: ApiClientRequestInit 
         normalised.refreshToken ?? refreshToken,
         normalised.expiresAtIso,
       );
+      void persistAuthSessionTokens({
+        accessToken: normalised.accessToken,
+        refreshToken: normalised.refreshToken ?? refreshToken,
+        expiresAt: normalised.expiresAtIso,
+      });
 
       // Persist broker_id from refresh response body (the refreshed JWT may or
       // may not contain it depending on the server version).

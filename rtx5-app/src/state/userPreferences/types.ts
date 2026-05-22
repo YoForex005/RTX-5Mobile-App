@@ -97,6 +97,10 @@ export type UserPreferencesState = {
   hasSetInitialSymbols: boolean;
   /** Broker ID entered at login — used by GET /broker/config to fetch broker-specific settings */
   brokerId: string;
+  /** Broker-specific REST/WS origin selected from GET /api/v1/broker/servers */
+  brokerServerUrl: string;
+  /** Broker logo URL selected from the public broker directory */
+  brokerLogoUrl: string;
   accountDetails: {
     id: string;
     name: string;
@@ -113,7 +117,14 @@ export type UserPreferencesState = {
   language: LanguageCode;
 
   setLanguage: (lang: LanguageCode) => void;
-  login: (id: string, name: string, server: string, tokens: { access_token: string; refresh_token: string; expires_at: string }, brokerId?: string) => void;
+  login: (
+    id: string,
+    name: string,
+    server: string,
+    tokens: { access_token: string; refresh_token: string; expires_at: string },
+    brokerId?: string,
+    brokerConnection?: { serverUrl?: string; logoUrl?: string },
+  ) => void;
   logout: () => void;
   updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;
   setQuoteViewMode: (mode: QuoteViewMode) => void;
@@ -149,6 +160,8 @@ export type UserPreferencesState = {
   setIsDemoAccount: (isDemo: boolean) => void;
   /** Persist the broker_id from the login screen for app-wide broker config access */
   setBrokerId: (id: string) => void;
+  /** Persist the selected broker REST/WS origin and logo metadata */
+  setBrokerConnection: (brokerId: string, serverUrl?: string, logoUrl?: string) => void;
   setHasSetInitialSymbols: (hasSet: boolean) => void;
   setChartColorScheme: (scheme: ChartColorScheme) => void;
   setChartColor: (key: keyof ChartColorsConfig, color: string) => void;

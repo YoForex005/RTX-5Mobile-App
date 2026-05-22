@@ -31,7 +31,7 @@ export class CandlesWebSocketService {
   private static instance: CandlesWebSocketService;
 
   private ws: WebSocket | null = null;
-  private url = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
+  private url = this.resolveSocketUrl();
   // Last token we used to open the current `ws`. When the stored token
   // changes (login, logout, account switch), we tear the socket down and
   // reconnect so the backend re-authenticates the candle channels.
@@ -57,6 +57,13 @@ export class CandlesWebSocketService {
     return CandlesWebSocketService.instance;
   }
 
+  private resolveSocketUrl(): string {
+    return resolveCandlesWsUrl(
+      process.env.EXPO_PUBLIC_CANDLES_WS_URL,
+      useUserPreferences.getState().brokerServerUrl,
+    );
+  }
+
   /**
    * Establishes the WebSocket connection using the currently stored JWT access token.
    * Re-authenticates and resubscribes to all active channels automatically if the token changes.
@@ -67,13 +74,15 @@ export class CandlesWebSocketService {
     }
 
     const token = this.resolveConnectionToken();
+    const nextUrl = this.resolveSocketUrl();
     // If the socket is already up but the token has rotated, tear it down so
     // the new connection can use the fresh JWT for any account/broker-scoped
     // routing while public candle channels continue to work anonymously.
     if (
       (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) &&
-      this.activeToken !== token
+      (this.activeToken !== token || this.url !== nextUrl)
     ) {
+      this.url = nextUrl;
       this.tearDownSocketSafe();
     } else if (
       this.ws?.readyState === WebSocket.OPEN ||
@@ -82,6 +91,7 @@ export class CandlesWebSocketService {
       return;
     }
 
+    this.url = nextUrl;
     this.manualDisconnect = false;
     this.clearReconnectTimer();
     // Defensive call: under hot-module-reload the singleton may pre-date the
@@ -504,7 +514,9 @@ export class CandlesWebSocketService {
       this.tokenWatcherUnsubscribe = useUserPreferences.subscribe((state, prevState) => {
         const next = state.accountDetails?.credentials?.accessToken ?? null;
         const prev = prevState.accountDetails?.credentials?.accessToken ?? null;
-        if (next === prev) {
+        const nextServerUrl = state.brokerServerUrl;
+        const prevServerUrl = prevState.brokerServerUrl;
+        if (next === prev && nextServerUrl === prevServerUrl) {
           return;
         }
         this.anonymousFallbackToken = null;

@@ -16,6 +16,8 @@ export interface SignInRequest {
   username: string;
   password: string;
   brokerId: string;
+  serverUrl?: string;
+  logoUrl?: string;
 }
 
 export interface SignInResult {
@@ -26,6 +28,8 @@ export interface SignInResult {
   accountName: string;
   serverName: string;
   brokerId: string;
+  serverUrl: string;
+  logoUrl: string;
   accountType: TradingAccountType;
 }
 
@@ -40,12 +44,14 @@ export async function signInWithCredentials({
   username,
   password,
   brokerId,
+  serverUrl,
+  logoUrl,
 }: SignInRequest): Promise<SignInResult> {
   const response: any = await loginAPI({
     username,
     password,
     broker_id: brokerId,
-  });
+  }, { serverUrl });
 
   const accessToken = response.access_token ?? response.token;
   const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
@@ -53,7 +59,10 @@ export async function signInWithCredentials({
     response.account_login ??
     response.accountLogin ??
     response.user?.account_login ??
-    response.user?.id;
+    response.user?.id ??
+    response.username ??
+    response.user?.username ??
+    username;
   const accountName =
     response.account_name ??
     response.accountName ??
@@ -94,6 +103,8 @@ export async function signInWithCredentials({
     accountName,
     serverName,
     brokerId: canonicalBrokerId,
+    serverUrl: serverUrl ?? '',
+    logoUrl: logoUrl ?? '',
     accountType,
   };
 }

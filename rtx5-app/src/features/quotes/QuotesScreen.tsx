@@ -47,6 +47,7 @@ import {
   DEFAULT_QUOTE_WATCHLIST,
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
+import { buildAddSymbolCatalog } from './addSymbolCatalog';
 import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
 
 /* ───── Helpers ───── */
@@ -1107,7 +1108,10 @@ function AddSymbolModal({
     setQuery('');
   }, [visible]);
 
-  const allSymbols = useMemo(() => apiSymbols ?? [], [apiSymbols]);
+  const allSymbols = useMemo(
+    () => buildAddSymbolCatalog(apiSymbols, existingSymbols),
+    [apiSymbols, existingSymbols],
+  );
 
   const existingSymbolKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -1134,8 +1138,8 @@ function AddSymbolModal({
       metalsMtt: [],
     };
 
-    // The picker mirrors MT5 folders without hardcoding exact symbols. Each
-    // broker symbol is classified from its structure or asset-code pattern.
+    // The picker mirrors MT5 folders from broker symbols, with a typed local
+    // catalog only when the broker catalog is unavailable in dev/offline mode.
     allSymbols.forEach((symbol) => {
       const kind = classifyMarketSymbol(symbol);
       if (kind === 'forex') groups.forexMarket.push(symbol);
@@ -1269,7 +1273,7 @@ function AddSymbolModal({
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={isLoading ? t('Loading assets...') : t('Find symbols')}
+          placeholder={isLoading && allSymbols.length === 0 ? t('Loading assets...') : t('Find symbols')}
           placeholderTextColor={isDark ? 'rgba(226,232,240,0.48)' : '#B8B8B8'}
           style={[addSymbolStyles.searchInput, { color: T.text }, { outlineStyle: 'none' } as any]}
           autoCapitalize="characters"
@@ -1477,7 +1481,7 @@ function AddSymbolModal({
             >
               <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
               <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
-                {isLoading ? t('Fetching markets...') : t('No matching assets available.')}
+                {isLoading && allSymbols.length === 0 ? t('Fetching markets...') : t('No matching assets available.')}
               </Text>
             </View>
           }
@@ -2092,7 +2096,7 @@ const addSymbolStyles = StyleSheet.create({
     minHeight: 54,
     marginHorizontal: 16,
     marginTop: 14,
-    marginBottom: 12,
+    marginBottom: 8,
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2118,17 +2122,20 @@ const addSymbolStyles = StyleSheet.create({
   },
   breadcrumbScroll: {
     flexGrow: 0,
-    marginBottom: 6,
+    height: 60,
+    marginTop: -6,
+    marginBottom: 0,
   },
   breadcrumbRow: {
-    minHeight: 42,
+    minHeight: 60,
     paddingHorizontal: 16,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   breadcrumbChip: {
-    minHeight: 32,
+    height: 42,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 11,

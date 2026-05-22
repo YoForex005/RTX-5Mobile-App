@@ -13,7 +13,8 @@ import { useUserPreferences } from '../src/state/userPreferences';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
-import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
+import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
+import { normalizeBrokerServerUrl } from '../src/api/brokerRouting';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
@@ -23,6 +24,10 @@ import { getTradingAccountTypeFromBackend } from '../src/domain/accountType';
 import { safeRouterBack } from '../src/utils/navigation';
 import { runImmediateAction } from '../src/utils/actionLatency';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
+import {
+  persistAuthSessionTokens,
+  persistSelectedBrokerSession,
+} from '../src/state/brokerSessionStorage';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -39,6 +44,8 @@ type LoginBrokerOption = {
   key: string;
   brokerId: string;
   brokerName: string;
+  serverUrl: string;
+  logoUrl: string;
   region: string;
   protocol: string;
 };
@@ -77,6 +84,8 @@ const scheduleLoginSubmitAfterInputCommit = (task: () => void) => {
 
 type LoginCredentialsSnapshot = {
   brokerId: string;
+  serverUrl: string;
+  logoUrl: string;
   accountId: string;
   password: string;
 };
@@ -87,7 +96,7 @@ export function AccountLoginScreen() {
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
   // can fetch GET /broker/config with the correct broker context app-wide
-  const persistBrokerId = useUserPreferences((s) => s.setBrokerId);
+  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const queryClient = useQueryClient();
   const screenCopy = LOGIN_SCREEN_COPY;
   const { t } = useTranslation();
@@ -98,6 +107,8 @@ export function AccountLoginScreen() {
   const [savePassword, setSavePassword] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [brokerId, setBrokerId] = useState('');
+  const [brokerServerUrl, setBrokerServerUrl] = useState('');
+  const [brokerLogoUrl, setBrokerLogoUrl] = useState('');
   const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
   const themeMode = useUserPreferences((s) => s.themeMode);
@@ -109,6 +120,8 @@ export function AccountLoginScreen() {
   const loginSubmitPressGuardRef = useRef(false);
   const loginSubmitPressGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const brokerIdValueRef = useRef<string | null>(null);
+  const brokerServerUrlValueRef = useRef<string | null>(null);
+  const brokerLogoUrlValueRef = useRef<string | null>(null);
   const accountIdValueRef = useRef<string | null>(null);
   const passwordValueRef = useRef<string | null>(null);
   const {
@@ -124,10 +137,25 @@ export function AccountLoginScreen() {
     getSecureItemAsync(screenCopy.savedLoginKey).then((val) => {
       if (val) {
         try {
-          const { broker, login: savedAccountId, pass } = JSON.parse(val);
+          const {
+            broker,
+            server_url: savedServerUrl,
+            logo_url: savedLogoUrl,
+            login: savedAccountId,
+            pass,
+          } = JSON.parse(val);
           if (broker) {
             brokerIdValueRef.current = broker;
             setBrokerId(broker);
+          }
+          if (savedServerUrl) {
+            const normalizedServerUrl = normalizeBrokerServerUrl(savedServerUrl);
+            brokerServerUrlValueRef.current = normalizedServerUrl;
+            setBrokerServerUrl(normalizedServerUrl);
+          }
+          if (savedLogoUrl) {
+            brokerLogoUrlValueRef.current = savedLogoUrl;
+            setBrokerLogoUrl(savedLogoUrl);
           }
           if (savedAccountId) {
             accountIdValueRef.current = savedAccountId;
@@ -155,6 +183,25 @@ export function AccountLoginScreen() {
   const updateBrokerId = (value: string) => {
     brokerIdValueRef.current = value;
     setBrokerId(value);
+    brokerServerUrlValueRef.current = null;
+    brokerLogoUrlValueRef.current = null;
+    setBrokerServerUrl('');
+    setBrokerLogoUrl('');
+  };
+
+  const selectBrokerOption = (option: LoginBrokerOption) => {
+    brokerIdValueRef.current = option.brokerId;
+    brokerServerUrlValueRef.current = option.serverUrl;
+    brokerLogoUrlValueRef.current = option.logoUrl;
+    setBrokerId(option.brokerId);
+    setBrokerServerUrl(option.serverUrl);
+    setBrokerLogoUrl(option.logoUrl);
+    setBrokerConnection(option.brokerId, option.serverUrl, option.logoUrl);
+    void persistSelectedBrokerSession({
+      brokerId: option.brokerId,
+      serverUrl: option.serverUrl,
+      logoUrl: option.logoUrl,
+    });
   };
 
   const updateAccountId = (value: string) => {
@@ -210,6 +257,10 @@ export function AccountLoginScreen() {
         key,
         brokerId: brokerIdValue,
         brokerName: broker.broker_name?.trim() || brokerIdValue,
+        serverUrl: normalizeBrokerServerUrl(
+          broker.server_url || (broker.protocol && broker.server ? `${broker.protocol}://${broker.server}` : ''),
+        ),
+        logoUrl: broker.logo_url?.trim() || '',
         region: broker.region?.trim() || '',
         protocol: broker.protocol?.trim() || '',
       });
@@ -222,6 +273,8 @@ export function AccountLoginScreen() {
     if (!selectedKey) return undefined;
     return brokerOptions.find((option) => option.key === selectedKey);
   }, [brokerId, brokerOptions]);
+  const selectedBrokerServerUrl = brokerServerUrl || selectedBrokerOption?.serverUrl || '';
+  const selectedBrokerLogoUrl = brokerLogoUrl || selectedBrokerOption?.logoUrl || '';
 
   const brokerPickerActions = useMemo(() => {
     if (brokerOptions.length === 0) {
@@ -241,7 +294,7 @@ export function AccountLoginScreen() {
     return brokerOptions.map((option) => ({
       label: option.brokerName,
       subtitle: formatBrokerOptionSubtitle(option),
-      onPress: () => updateBrokerId(option.brokerId),
+      onPress: () => selectBrokerOption(option),
     }));
   }, [
     brokerOptions,
@@ -249,11 +302,15 @@ export function AccountLoginScreen() {
     isBrokerServersLoading,
     refetchBrokerServers,
     t,
-    updateBrokerId,
+    selectBrokerOption,
   ]);
 
   const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => ({
     brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
+    serverUrl: normalizeBrokerServerUrl(
+      brokerServerUrlValueRef.current ?? selectedBrokerServerUrl,
+    ),
+    logoUrl: brokerLogoUrlValueRef.current ?? selectedBrokerLogoUrl,
     accountId: (accountIdValueRef.current ?? accountId).trim(),
     password: passwordValueRef.current ?? password,
   });
@@ -270,11 +327,22 @@ export function AccountLoginScreen() {
       return;
     }
     const normalizedBrokerId = snapshot.brokerId;
+    const normalizedServerUrl = snapshot.serverUrl;
+    const selectedLogoUrl = snapshot.logoUrl;
     const normalizedAccountId = snapshot.accountId;
     const currentPassword = snapshot.password;
 
     if (!normalizedBrokerId) {
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
+      return;
+    }
+    if (!normalizedServerUrl) {
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: t('Please select a broker from the list.'),
+      });
       return;
     }
     if (!normalizedAccountId || !currentPassword) {
@@ -285,11 +353,12 @@ export function AccountLoginScreen() {
     loginRequestInFlightRef.current = true;
     setIsLoading(true);
     try {
+      await checkBrokerServerHealth(normalizedServerUrl);
       const response: any = await loginAPI({
         username: normalizedAccountId,
         password: currentPassword,
         broker_id: normalizedBrokerId,
-      });
+      }, { serverUrl: normalizedServerUrl });
 
       // ── Defensive response parsing ──
       // The V2 server's spec (AuthTokenResponse) returns `token` + nested
@@ -302,7 +371,10 @@ export function AccountLoginScreen() {
         response.account_login ??
         response.accountLogin ??
         response.user?.account_login ??
-        response.user?.id;
+        response.user?.id ??
+        response.username ??
+        response.user?.username ??
+        normalizedAccountId;
       const accountName =
         response.account_name ??
         response.accountName ??
@@ -348,6 +420,20 @@ export function AccountLoginScreen() {
       const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
+      await Promise.all([
+        persistSelectedBrokerSession({
+          brokerId: canonicalBrokerId,
+          serverUrl: normalizedServerUrl,
+          logoUrl: selectedLogoUrl,
+        }),
+        persistAuthSessionTokens({
+          accessToken,
+          refreshToken: refreshToken ?? '',
+          expiresAt: expiresAtIso,
+        }),
+      ]);
+      setBrokerConnection(canonicalBrokerId, normalizedServerUrl, selectedLogoUrl);
+
       // brokerId is persisted atomically inside login() to prevent race
       // conditions with the async Zustand persist middleware.
       login(
@@ -360,6 +446,7 @@ export function AccountLoginScreen() {
           expires_at: expiresAtIso,
         },
         canonicalBrokerId,
+        { serverUrl: normalizedServerUrl, logoUrl: selectedLogoUrl },
       );
 
       // The backend owns account classification. One login screen can connect
@@ -375,6 +462,8 @@ export function AccountLoginScreen() {
           name: accountName,
           brokerId: canonicalBrokerId,
           server: immediateServerName,
+          serverUrl: normalizedServerUrl,
+          logoUrl: selectedLogoUrl,
           accountType,
           lastUsedAt: Date.now(),
           hasCredentials: true,
@@ -392,7 +481,13 @@ export function AccountLoginScreen() {
         if (savePassword) {
           setSecureItemAsync(
             screenCopy.savedLoginKey,
-            JSON.stringify({ broker: normalizedBrokerId, login: normalizedAccountId, pass: currentPassword })
+            JSON.stringify({
+              broker: canonicalBrokerId,
+              server_url: normalizedServerUrl,
+              logo_url: selectedLogoUrl,
+              login: normalizedAccountId,
+              pass: currentPassword,
+            })
           );
         } else {
           removeSecureItemAsync(screenCopy.savedLoginKey);
@@ -410,6 +505,8 @@ export function AccountLoginScreen() {
                 name: accountName,
                 brokerId: canonicalBrokerId,
                 server: brokerConfig.server_name,
+                serverUrl: normalizedServerUrl,
+                logoUrl: selectedLogoUrl,
                 accountType,
                 lastUsedAt: Date.now(),
                 hasCredentials: true,

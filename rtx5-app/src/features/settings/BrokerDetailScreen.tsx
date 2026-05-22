@@ -33,7 +33,8 @@ import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSavedAccounts, setSavedAccountPassword } from '../../state/savedAccounts';
 import { loginAPI } from '../../api/auth';
-import { getBrokerConfig } from '../../api/broker';
+import { checkBrokerServerHealth, getBrokerConfig } from '../../api/broker';
+import { normalizeBrokerServerUrl } from '../../api/brokerRouting';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
 import { BROKER_CONFIG_KEY } from '../../query/broker';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
@@ -43,6 +44,10 @@ import {
   removeSecureItemAsync,
   getSecureItemAsync,
 } from '../../utils/secureStorage';
+import {
+  persistAuthSessionTokens,
+  persistSelectedBrokerSession,
+} from '../../state/brokerSessionStorage';
 import { BROKER_OVERRIDES, formatServerFromName } from './BrokersScreen/brokerData';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
@@ -50,6 +55,8 @@ const SAVED_LOGIN_KEY = 'rtx5_saved_login';
 type ServerOption = {
   label: string;
   brokerId: string;
+  serverUrl: string;
+  logoUrl: string;
 };
 
 export function BrokerDetailScreen() {
@@ -58,6 +65,8 @@ export function BrokerDetailScreen() {
     brokerId?: string;
     brokerName?: string;
     brokerServer?: string;
+    brokerServerUrl?: string;
+    brokerLogoUrl?: string;
     brokerDomain?: string;
   }>();
   const T = useTheme();
@@ -68,6 +77,7 @@ export function BrokerDetailScreen() {
 
   const persistedLogin = useUserPreferences((s) => s.login);
   const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
+  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
@@ -84,6 +94,10 @@ export function BrokerDetailScreen() {
   const initialServer = params.brokerServer
     ? String(params.brokerServer)
     : formatServerFromName(brokerName);
+  const initialServerUrl = normalizeBrokerServerUrl(
+    params.brokerServerUrl ? String(params.brokerServerUrl) : '',
+  );
+  const initialLogoUrl = params.brokerLogoUrl ? String(params.brokerLogoUrl) : '';
 
   // The broker_id we send to the API. Default to the broker slug from the
   // BrokersScreen list; fall back to the server name when no slug is given.
@@ -97,12 +111,22 @@ export function BrokerDetailScreen() {
     // Always offer the server we navigated in with first.
     if (initialServer) {
       seen.add(initialServer);
-      out.push({ label: initialServer, brokerId: apiBrokerId });
+      out.push({
+        label: initialServer,
+        brokerId: apiBrokerId,
+        serverUrl: initialServerUrl,
+        logoUrl: initialLogoUrl,
+      });
     }
     const override = BROKER_OVERRIDES[brokerName];
     if (override?.server && !seen.has(override.server)) {
       seen.add(override.server);
-      out.push({ label: override.server, brokerId: apiBrokerId });
+      out.push({
+        label: override.server,
+        brokerId: apiBrokerId,
+        serverUrl: initialServerUrl,
+        logoUrl: initialLogoUrl,
+      });
     }
     // MT5 commonly exposes a parallel Demo + Live server. Surface them as
     // alternatives so the user can flip between them inside the same broker.
@@ -114,18 +138,28 @@ export function BrokerDetailScreen() {
     for (const alt of alternates) {
       if (!seen.has(alt)) {
         seen.add(alt);
-        out.push({ label: alt, brokerId: apiBrokerId });
+        out.push({
+          label: alt,
+          brokerId: apiBrokerId,
+          serverUrl: initialServerUrl,
+          logoUrl: initialLogoUrl,
+        });
       }
     }
     return out;
-  }, [apiBrokerId, brokerName, initialServer]);
+  }, [apiBrokerId, brokerName, initialLogoUrl, initialServer, initialServerUrl]);
 
   const [loginValue, setLoginValue] = useState('');
   const [passwordValue, setPasswordValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [savePassword, setSavePassword] = useState(true);
   const [selectedServer, setSelectedServer] = useState<ServerOption>(
-    serverOptions[0] ?? { label: initialServer, brokerId: apiBrokerId },
+    serverOptions[0] ?? {
+      label: initialServer,
+      brokerId: apiBrokerId,
+      serverUrl: initialServerUrl,
+      logoUrl: initialLogoUrl,
+    },
   );
   const [isLoading, setIsLoading] = useState(false);
   const [modalState, setModalState] = useState<{
@@ -139,6 +173,16 @@ export function BrokerDetailScreen() {
 
   // Lazy-load any previously saved login on first focus so returning users
   // see their credentials pre-filled (mirrors the standalone /login screen).
+  useEffect(() => {
+    if (!apiBrokerId || !initialServerUrl) return;
+    setBrokerConnection(apiBrokerId, initialServerUrl, initialLogoUrl);
+    void persistSelectedBrokerSession({
+      brokerId: apiBrokerId,
+      serverUrl: initialServerUrl,
+      logoUrl: initialLogoUrl,
+    });
+  }, [apiBrokerId, initialLogoUrl, initialServerUrl, setBrokerConnection]);
+
   useEffect(() => {
     let cancelled = false;
     getSecureItemAsync(SAVED_LOGIN_KEY).then((val) => {
@@ -176,6 +220,8 @@ export function BrokerDetailScreen() {
         brokerId: apiBrokerId,
         brokerName,
         server: selectedServer.label,
+        serverUrl: selectedServer.serverUrl,
+        logoUrl: selectedServer.logoUrl,
       },
     });
   };
@@ -198,6 +244,8 @@ export function BrokerDetailScreen() {
     const trimmedLogin = loginValue.trim();
     const trimmedPassword = passwordValue;
     const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
+    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
+    const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
 
     if (!effectiveBrokerId) {
       setModalState({
@@ -205,6 +253,15 @@ export function BrokerDetailScreen() {
         type: 'error',
         title: t('Error'),
         message: t('Please choose a server'),
+      });
+      return;
+    }
+    if (!effectiveServerUrl) {
+      setModalState({
+        visible: true,
+        type: 'error',
+        title: t('Error'),
+        message: t('Please select a broker from the list.'),
       });
       return;
     }
@@ -221,11 +278,12 @@ export function BrokerDetailScreen() {
     requestInFlightRef.current = true;
     setIsLoading(true);
     try {
+      await checkBrokerServerHealth(effectiveServerUrl);
       const response: any = await loginAPI({
         username: trimmedLogin,
         password: trimmedPassword,
         broker_id: effectiveBrokerId,
-      });
+      }, { serverUrl: effectiveServerUrl });
 
       const accessToken = response.access_token ?? response.token;
       const refreshToken = response.refresh_token ?? response.refreshToken ?? '';
@@ -233,7 +291,10 @@ export function BrokerDetailScreen() {
         response.account_login ??
         response.accountLogin ??
         response.user?.account_login ??
-        response.user?.id;
+        response.user?.id ??
+        response.username ??
+        response.user?.username ??
+        trimmedLogin;
       const accountName =
         response.account_name ??
         response.accountName ??
@@ -271,6 +332,20 @@ export function BrokerDetailScreen() {
       const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
+      await Promise.all([
+        persistSelectedBrokerSession({
+          brokerId: canonicalBrokerId,
+          serverUrl: effectiveServerUrl,
+          logoUrl: effectiveLogoUrl,
+        }),
+        persistAuthSessionTokens({
+          accessToken,
+          refreshToken,
+          expiresAt: expiresAtIso,
+        }),
+      ]);
+      setBrokerConnection(canonicalBrokerId, effectiveServerUrl, effectiveLogoUrl);
+
       persistedLogin(
         savedLogin,
         accountName,
@@ -281,6 +356,7 @@ export function BrokerDetailScreen() {
           expires_at: expiresAtIso,
         },
         canonicalBrokerId,
+        { serverUrl: effectiveServerUrl, logoUrl: effectiveLogoUrl },
       );
       setIsDemoAccountFlag(accountType === 'demo');
 
@@ -289,6 +365,8 @@ export function BrokerDetailScreen() {
         name: accountName,
         brokerId: canonicalBrokerId,
         server: effectiveServerName,
+        serverUrl: effectiveServerUrl,
+        logoUrl: effectiveLogoUrl,
         accountType,
         lastUsedAt: Date.now(),
         hasCredentials: true,
@@ -304,6 +382,8 @@ export function BrokerDetailScreen() {
           SAVED_LOGIN_KEY,
           JSON.stringify({
             broker: canonicalBrokerId,
+            server_url: effectiveServerUrl,
+            logo_url: effectiveLogoUrl,
             login: trimmedLogin,
             pass: trimmedPassword,
           }),
@@ -610,6 +690,7 @@ export function BrokerDetailScreen() {
 
 const MT5_BLUE = '#0a84ff';
 const MT5_BLUE_LIGHT = '#3FA9F5';
+const LOGIN_VIOLET = '#7C3AED';
 
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Pure white card surface in light mode; subtle elevated slate in dark mode.
@@ -622,11 +703,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingLeft: 52,
+      paddingLeft: 16,
       paddingRight: 16,
       paddingTop: safeTop + 8,
       paddingBottom: 12,
-      gap: 12,
+      gap: 8,
       backgroundColor: pageBg,
     },
     iconBtn: {
@@ -746,12 +827,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     loginBtn: {
       marginHorizontal: 20,
       marginTop: 4,
-      backgroundColor: MT5_BLUE,
+      backgroundColor: LOGIN_VIOLET,
       minHeight: 52,
       borderRadius: 26,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: MT5_BLUE,
+      shadowColor: LOGIN_VIOLET,
       shadowOpacity: 0.3,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },

@@ -5,7 +5,10 @@
  * is alive. Not used for MT5 connection checks.
  */
 
+import { useUserPreferences } from '../state/userPreferences';
+import { timedFetch } from '../utils/apiLatency';
 import { apiClient } from './apiClient';
+import { buildBrokerHealthUrl } from './brokerRouting';
 
 /** Response from GET /health */
 export interface HealthResponse {
@@ -20,6 +23,24 @@ export interface HealthResponse {
  * GET /health
  */
 export async function getHealth(): Promise<HealthResponse> {
+  const brokerServerUrl = useUserPreferences.getState().brokerServerUrl;
+  if (brokerServerUrl) {
+    const response = await timedFetch(buildBrokerHealthUrl(brokerServerUrl), {
+      headers: { accept: 'application/json' },
+    }, {
+      label: 'health.broker',
+      method: 'GET',
+      endpoint: '/health',
+      source: 'broker',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gateway unhealthy: HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   const response = await apiClient('/health');
 
   if (!response.ok) {

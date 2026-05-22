@@ -170,7 +170,7 @@ test('buy and sell actions use the stricter critical trade budget', () => {
   const chartWebSource = readSource('src/features/chart/ChartScreen.web.tsx');
   const chartTradeHandlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
 
-  assert.match(ticketSource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '..\/..\/utils\/actionLatency'/);
+  assert.match(ticketSource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction \} from '..\/..\/utils\/actionLatency'/);
   assert.match(ticketSource, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{sellTradeAction\.side\}`\}[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
   assert.match(ticketSource, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{buyTradeAction\.side\}`\}[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
   assert.match(ticketSource, /latencyLabel=\{`orderTicket\.exec\.\$\{action\.side\}`\}[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
@@ -267,19 +267,25 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => router\.push\('\/settings\/mailbox'\)\}/);
   assert.match(settingsSource, /latencyLabel="settings\.logout\.prompt"/);
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
-  assert.match(accountsSource, /paddingLeft: 52/);
+  assert.match(accountsSource, /paddingLeft: 16/);
+  assert.match(accountsSource, /marginLeft: 8/);
   assert.match(accountsSource, /latencyLabel="accounts\.back"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(accountsSource, /latencyLabel="accounts\.connect\.open"/);
   assert.match(accountsSource, /latencyLabel="accounts\.options\.open"/);
   assert.doesNotMatch(accountsSource, /traceUiInteraction/);
-  assert.match(brokersSource, /paddingLeft: 52/);
+  assert.match(brokersSource, /paddingLeft: 16/);
+  assert.match(brokersSource, /gap: 8/);
   assert.match(brokersSource, /latencyLabel="brokers\.back"/);
   assert.match(brokersSource, /latencyLabel="brokers\.qr"/);
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
   assert.match(brokersSource, /canCancelContentTouches=\{false\}/);
   assert.match(brokersSource, /pointerEvents="box-none"/);
   assert.doesNotMatch(brokersSource, /traceUiInteraction/);
-  assert.match(brokerDetailSource, /paddingLeft: 52/);
+  assert.match(brokerDetailSource, /paddingLeft: 16/);
+  assert.match(brokerDetailSource, /gap: 8/);
+  assert.match(brokerDetailSource, /const LOGIN_VIOLET = '#7C3AED'/);
+  assert.match(brokerDetailSource, /optionIconDemo: \{[\s\S]*backgroundColor: MT5_BLUE/);
+  assert.match(brokerDetailSource, /loginBtn: \{[\s\S]*backgroundColor: LOGIN_VIOLET[\s\S]*shadowColor: LOGIN_VIOLET/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.back"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.login\.submit"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.server\.open"/);
@@ -293,6 +299,8 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   const source = readSource('src/features/trade/OrderTicketScreen.tsx');
 
   assert.match(source, /latencyLabel="orderTicket\.back"/);
+  assert.match(source, /latencyLabel="orderTicket\.symbol\.open"/);
+  assert.match(source, /visible=\{symbolPickerOpen\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{sellTradeAction\.side\}`\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.pricePanel\.\$\{buyTradeAction\.side\}`\}/);
   assert.match(source, /latencyLabel=\{`orderTicket\.exec\.\$\{action\.side\}`\}/);
@@ -301,6 +309,7 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.volume\.increment"/);
   assert.match(source, /latencyLabel="orderTicket\.sl\.decrement"/);
   assert.match(source, /latencyLabel="orderTicket\.tp\.increment"/);
+  assert.doesNotMatch(source, /livePill|liveDot|liveLabel/);
   assert.doesNotMatch(source, /traceUiInteraction/);
 });
 

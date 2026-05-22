@@ -24,6 +24,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -103,6 +104,7 @@ export function SettingsScreen() {
             candlesWsService.disconnect();
             useLiveAccountState.getState().resetMetrics();
             logout();
+            void clearAuthSessionTokens();
             router.replace('/login');
           },
         },

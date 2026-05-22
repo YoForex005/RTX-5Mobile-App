@@ -3,7 +3,7 @@
  * device. Powers the "Other Connected Accounts" section + one-tap account
  * switching.
  *
- * Public metadata (login, name, brokerId, server, accountType, lastUsedAt) is
+ * Public metadata (login, name, brokerId, server URL, accountType, lastUsedAt) is
  * persisted via AsyncStorage. The master password for each saved account is
  * stored separately in expo-secure-store via the credential helpers below so
  * sensitive material never lands in plain AsyncStorage.
@@ -36,6 +36,8 @@ export type SavedAccount = {
   name: string;
   brokerId: string;
   server: string;
+  serverUrl?: string;
+  logoUrl?: string;
   accountType: SavedAccountType;
   lastUsedAt: number;
   snapshot?: SavedAccountSnapshot;

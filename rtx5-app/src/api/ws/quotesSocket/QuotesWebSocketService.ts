@@ -10,6 +10,8 @@
 import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
+import { buildBrokerWsUrl } from '../../brokerRouting';
+import { useUserPreferences } from '../../../state/userPreferences';
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
 import {
   applyQuoteSubscriptionDelta,
@@ -43,7 +45,7 @@ const resolveQuoteListenerKeys = (symbol: string): string[] => {
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_QUOTES_WS_URL || 'wss://backend.orrnn.com/ws/feed';
+  private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
@@ -108,6 +110,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   public getConnectionStatus(): boolean {
     return this.isConnected;
+  }
+
+  private resolveSocketUrl(): string {
+    return process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
+      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
   }
 
   public addTickListener(listener: GlobalTickListener): void {
@@ -196,6 +203,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     this.shouldReconnect = true;
     this.clearReconnectTimer();
+    const nextUrl = this.resolveSocketUrl();
+    if (this.url !== nextUrl) {
+      this.url = nextUrl;
+      this.teardownSocket();
+    }
 
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;

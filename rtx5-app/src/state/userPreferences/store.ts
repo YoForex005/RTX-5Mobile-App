@@ -68,18 +68,22 @@ export const useUserPreferences = create<UserPreferencesState>()(
       isLoggedIn: false,
       hasSetInitialSymbols: false,
       brokerId: '',
+      brokerServerUrl: '',
+      brokerLogoUrl: '',
       accountDetails: null,
       chartColorScheme: 'custom',
       chartColors: DEFAULT_CHART_COLORS,
       chartDisplay: DEFAULT_CHART_DISPLAY_SETTINGS,
       language: 'en' as LanguageCode,
       setLanguage: (lang) => set({ language: normalizeLanguageCode(lang) }),
-      login: (id, name, server, tokens, brokerId) =>
+      login: (id, name, server, tokens, brokerId, brokerConnection) =>
         set((state) => ({
           isLoggedIn: true,
           // Persist brokerId atomically with login to prevent race conditions.
           // Falls back to existing brokerId if not provided (e.g., for register flow).
           brokerId: brokerId || state.brokerId || '',
+          brokerServerUrl: brokerConnection?.serverUrl ?? state.brokerServerUrl ?? '',
+          brokerLogoUrl: brokerConnection?.logoUrl ?? state.brokerLogoUrl ?? '',
           accountDetails: {
             id,
             name,
@@ -234,6 +238,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setHistoryDateRange: (fromMs, toMs) => set({ historyFromMs: fromMs, historyToMs: toMs }),
       setIsDemoAccount: (isDemo) => set({ isDemoAccount: isDemo }),
       setBrokerId: (id) => set({ brokerId: id }),
+      setBrokerConnection: (brokerId, serverUrl = '', logoUrl = '') =>
+        set({ brokerId, brokerServerUrl: serverUrl, brokerLogoUrl: logoUrl }),
       setHasSetInitialSymbols: (hasSet) => set({ hasSetInitialSymbols: hasSet }),
       setChartColorScheme: (scheme) =>
         set(() => {
@@ -270,7 +276,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 15,
+      version: 16,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
@@ -332,6 +338,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
           tradeSummaryDetailsVisible:
             state.tradeSummaryDetailsVisible ??
             true,
+          brokerServerUrl: state.brokerServerUrl ?? '',
+          brokerLogoUrl: state.brokerLogoUrl ?? '',
           chartDrawings: activeDrawingLabels.length > 0
             ? activeDrawingLabels
             : (state.chartDrawings ?? []),

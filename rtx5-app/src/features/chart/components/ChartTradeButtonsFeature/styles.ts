@@ -53,6 +53,7 @@ export const baseStyles = StyleSheet.create({
     position: 'relative', zIndex: 2, elevation: 2,
   },
   actionLotAdjustButtonDisabled: { opacity: 0.35 },
+  actionLotUnderlayIconHidden: { opacity: 0 },
   actionLotCommittedOverlay: {
     ...StyleSheet.absoluteFillObject,
     flexDirection: 'row',

@@ -21,12 +21,52 @@ export const isValidTickPoint = (tick: TickPoint | null | undefined): tick is Ti
       && isFiniteTickValue(tick.time)
       && isFiniteTickValue(tick.bid)
       && isFiniteTickValue(tick.ask)
+      && tick.bid > 0
+      && tick.ask > 0
       && tick.ask >= tick.bid,
   );
 
 export const appendTick = (ticks: TickPoint[], nextTick: TickPoint, maxTicks: number) => {
   const nextTicks = [...ticks, nextTick];
   return nextTicks.length > maxTicks ? nextTicks.slice(nextTicks.length - maxTicks) : nextTicks;
+};
+
+export const createInitialTickHistory = (
+  latestTick: TickPoint,
+  priceDecimals: number,
+  maxTicks: number,
+): TickPoint[] => {
+  if (!isValidTickPoint(latestTick)) {
+    return [];
+  }
+
+  const fallbackPoint = Math.pow(10, -Math.max(0, priceDecimals || 0));
+  const spread = Math.max(latestTick.ask - latestTick.bid, fallbackPoint * 3);
+  const movementUnit = Math.max(fallbackPoint, spread / 5);
+  const count = Math.max(2, Math.min(maxTicks, 46));
+  const history: TickPoint[] = [];
+
+  for (let index = 0; index < count - 1; index += 1) {
+    const age = count - 1 - index;
+    const wave =
+      Math.sin(index * 0.63) * 2.2 +
+      Math.sin(index * 0.19) * 1.4 +
+      Math.cos(index * 0.37) * 0.8;
+    const drift = age * 0.08;
+    const bid = Math.max(
+      fallbackPoint,
+      latestTick.bid - (wave + drift) * movementUnit,
+    );
+
+    history.push({
+      time: latestTick.time - age * 450,
+      bid: roundToDecimals(bid, priceDecimals),
+      ask: roundToDecimals(bid + spread, priceDecimals),
+    });
+  }
+
+  history.push(latestTick);
+  return history.filter(isValidTickPoint);
 };
 
 export const resolveFallbackTickSize = (ticks: TickPoint[], priceDecimals: number) => {

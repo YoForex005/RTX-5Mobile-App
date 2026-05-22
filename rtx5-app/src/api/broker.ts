@@ -5,7 +5,13 @@
  * based on the user's specific broker tenant. This configures the entire UI theme.
  */
 
+import { timedFetch } from '../utils/apiLatency';
 import { apiClient } from './apiClient';
+import {
+  PUBLIC_BROKER_DIRECTORY_BASE_URL,
+  buildBrokerHealthUrl,
+  normalizeBrokerServerUrl,
+} from './brokerRouting';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // V2 Broker Config API — https://backend.orrnn.com/api/v2/broker/config
@@ -84,12 +90,14 @@ export interface BrokerServer {
   id: number;
   broker_id: string;
   broker_name: string;
+  server_url?: string;
+  logo_url?: string;
   protocol: string;     // 'http' | 'https' | 'mt5' | ...
   region: string;
   server: string;       // host:port — used as the human-readable Server name
   server_ip: string;
   server_port: number;
-  enabled: boolean;
+  enabled?: boolean;
   created_at: number;   // epoch seconds
 }
 
@@ -136,6 +144,7 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
 // Keep broker directory lookups bounded so login/account navigation never
 // waits on a long network stall before the next touch can be handled.
 const BROKER_SERVERS_TIMEOUT_MS = 3500;
+const BROKER_HEALTH_TIMEOUT_MS = 2500;
 
 export function isBrokerConfigFull(
   data: BrokerConfigResponse | BrokerConfigFallbackResponse
@@ -216,7 +225,15 @@ export async function getBrokerServers(): Promise<BrokerServer[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BROKER_SERVERS_TIMEOUT_MS);
   try {
-    response = await apiClient('/broker/servers', { signal: controller.signal });
+    response = await timedFetch(`${PUBLIC_BROKER_DIRECTORY_BASE_URL}/broker/servers`, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' },
+    }, {
+      label: 'broker.servers',
+      method: 'GET',
+      endpoint: '/broker/servers',
+      source: 'broker',
+    });
   } catch (networkError) {
     if (networkError instanceof Error && networkError.name === 'AbortError') {
       throw new BrokerConfigError(
@@ -247,6 +264,45 @@ export async function getBrokerServers(): Promise<BrokerServer[]> {
   }
 
   const data = await response.json();
-  return Array.isArray(data) ? (data as BrokerServer[]) : [];
+  if (Array.isArray(data)) {
+    return data as BrokerServer[];
+  }
+  return Array.isArray(data?.value) ? (data.value as BrokerServer[]) : [];
+}
+
+export async function checkBrokerServerHealth(serverUrl: string): Promise<void> {
+  const healthUrl = buildBrokerHealthUrl(serverUrl);
+  if (!healthUrl) {
+    throw new BrokerConfigError(0, 'Broker server URL is missing. Please select a broker from the list.');
+  }
+
+  let response: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BROKER_HEALTH_TIMEOUT_MS);
+  try {
+    response = await timedFetch(healthUrl, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' },
+    }, {
+      label: 'broker.health',
+      method: 'GET',
+      endpoint: '/health',
+      source: 'broker',
+    });
+  } catch (networkError) {
+    if (networkError instanceof Error && networkError.name === 'AbortError') {
+      throw new BrokerConfigError(0, 'Broker health check timed out. Please try again in a moment.');
+    }
+    throw new BrokerConfigError(0, 'Broker temporarily unavailable. Please try again in a moment.');
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new BrokerConfigError(
+      response.status,
+      `Broker temporarily unavailable (${normalizeBrokerServerUrl(serverUrl)}). Please try again in a moment.`,
+    );
+  }
 }
 

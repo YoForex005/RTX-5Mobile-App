@@ -23,12 +23,15 @@ const withNetworkSecurityConfig = (config) => {
       const resPath = path.join(config.modRequest.platformProjectRoot, 'app', 'src', 'main', 'res', 'xml');
       const filePath = path.join(resPath, 'network_security_config.xml');
 
-      // All backend traffic is TLS (https://backend.orrnn.com, wss://backend.orrnn.com).
-      // Deny cleartext globally so a misconfigured URL can't silently downgrade to http/ws
-      // on release APKs. Matches Android's API 28+ default but declares it explicitly.
+      // Default to TLS-only traffic. The test broker directory currently
+      // includes one HTTP-only broker backend, so allow cleartext only for
+      // that explicit host instead of weakening the whole app.
       const xmlContent = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">69.197.178.27</domain>
+    </domain-config>
 </network-security-config>
 `;
 

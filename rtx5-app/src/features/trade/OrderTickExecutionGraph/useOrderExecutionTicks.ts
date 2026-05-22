@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   appendTick,
   createDemoTick,
+  createInitialTickHistory,
   isFiniteTickValue,
   randomBetween,
   roundToDecimals,
@@ -43,7 +44,7 @@ export function useOrderExecutionTicks({
   }, [symbol]);
 
   useEffect(() => {
-    if (!enabled || !isFiniteTickValue(bid) || !isFiniteTickValue(ask) || ask < bid) {
+    if (!enabled || !isFiniteTickValue(bid) || !isFiniteTickValue(ask) || bid <= 0 || ask <= 0 || ask < bid) {
       return;
     }
 
@@ -60,7 +61,12 @@ export function useOrderExecutionTicks({
 
     lastRealTickKeyRef.current = tickKey;
     lastRealTickSeenAtRef.current = Date.now();
-    setTicks((currentTicks) => appendTick(currentTicks, nextTick, maxTicks));
+    setTicks((currentTicks) => {
+      if (currentTicks.length === 0) {
+        return createInitialTickHistory(nextTick, priceDecimals, maxTicks);
+      }
+      return appendTick(currentTicks, nextTick, maxTicks);
+    });
   }, [ask, bid, enabled, maxTicks, priceDecimals, timestamp]);
 
   useEffect(() => {
@@ -89,6 +95,8 @@ export function useOrderExecutionTicks({
             ?? (
               isFiniteTickValue(bid)
                 && isFiniteTickValue(ask)
+                && bid > 0
+                && ask > 0
                 && ask >= bid
                 ? {
                     time: now,

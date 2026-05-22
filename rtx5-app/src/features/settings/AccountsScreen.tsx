@@ -74,6 +74,8 @@ type OtherAccountRow = {
   name: string;
   brokerId: string;
   server: string;
+  serverUrl: string;
+  logoUrl: string;
   accountType: SavedAccountType;
   hasSavedCredentials: boolean;
   snapshot: SavedAccountSnapshot | null;
@@ -133,6 +135,8 @@ export function AccountsScreen() {
 
   // ── GET /broker/config — broker name and server name ──
   const brokerId = useUserPreferences((s) => s.brokerId);
+  const brokerServerUrl = useUserPreferences((s) => s.brokerServerUrl);
+  const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
   const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
 
   // Find the active account by matching the login from Zustand state
@@ -170,6 +174,8 @@ export function AccountsScreen() {
         name: sa.name,
         brokerId: sa.brokerId,
         server: sa.server,
+        serverUrl: sa.serverUrl ?? '',
+        logoUrl: sa.logoUrl ?? '',
         accountType: sa.accountType,
         hasSavedCredentials: sa.hasCredentials,
         snapshot: sa.snapshot ?? null,
@@ -189,6 +195,8 @@ export function AccountsScreen() {
         name: a.name,
         brokerId: activeBrokerId,
         server: existing?.server || brokerConfig?.server_name || '',
+        serverUrl: existing?.serverUrl || brokerServerUrl,
+        logoUrl: existing?.logoUrl || brokerLogoUrl,
         accountType,
         hasSavedCredentials: existing?.hasSavedCredentials ?? false,
         snapshot: buildSavedAccountSnapshot(a),
@@ -201,7 +209,7 @@ export function AccountsScreen() {
       if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [accounts, activeBrokerId, activeKey, brokerConfig?.server_name, savedAccounts]);
+  }, [accounts, activeBrokerId, activeKey, brokerConfig?.server_name, brokerLogoUrl, brokerServerUrl, savedAccounts]);
 
   // Backfill the active session into the directory so accounts that were
   // logged in before this feature shipped (or pre-existing sessions on first
@@ -221,6 +229,8 @@ export function AccountsScreen() {
       existing
       && existing.name === nextName
       && existing.server === nextServer
+      && existing.serverUrl === brokerServerUrl
+      && existing.logoUrl === brokerLogoUrl
       && existing.accountType === nextType
       && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
     ) {
@@ -231,6 +241,8 @@ export function AccountsScreen() {
       name: nextName,
       brokerId: activeBrokerId,
       server: nextServer,
+      serverUrl: brokerServerUrl,
+      logoUrl: brokerLogoUrl,
       accountType: nextType,
       lastUsedAt: existing?.lastUsedAt ?? Date.now(),
       hasCredentials: existing?.hasCredentials ?? false,
@@ -241,6 +253,8 @@ export function AccountsScreen() {
     activeBrokerId,
     activeLoginStr,
     brokerConfig?.server_name,
+    brokerLogoUrl,
+    brokerServerUrl,
     isScreenFocused,
     isLoggedIn,
     savedAccounts,
@@ -319,6 +333,8 @@ export function AccountsScreen() {
         username: row.login,
         password,
         brokerId: row.brokerId,
+        serverUrl: row.serverUrl,
+        logoUrl: row.logoUrl,
       });
 
       userLogin(
@@ -331,6 +347,7 @@ export function AccountsScreen() {
           expires_at: result.expiresAtIso,
         },
         result.brokerId,
+        { serverUrl: result.serverUrl || row.serverUrl, logoUrl: result.logoUrl || row.logoUrl },
       );
       setIsDemoAccountFlag(result.accountType === 'demo');
       upsertSavedAccount({
@@ -338,6 +355,8 @@ export function AccountsScreen() {
         name: result.accountName || row.name,
         brokerId: result.brokerId,
         server: result.serverName || row.server,
+        serverUrl: result.serverUrl || row.serverUrl,
+        logoUrl: result.logoUrl || row.logoUrl,
         accountType: result.accountType,
         lastUsedAt: Date.now(),
         hasCredentials: true,
@@ -852,7 +871,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingLeft: 52,
+    paddingLeft: 16,
     paddingRight: 16,
     paddingTop: safeTop + 8,
     paddingBottom: 16,
@@ -863,7 +882,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     fontSize: 18,
     fontWeight: '600',
     flex: 1,
-    marginLeft: 16,
+    marginLeft: 8,
   },
   headerRight: {
     flexDirection: 'row',

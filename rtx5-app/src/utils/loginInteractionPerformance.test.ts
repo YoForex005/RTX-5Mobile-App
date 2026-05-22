@@ -59,7 +59,11 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
   assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
-  assert.match(source, /onPress: \(\) => updateBrokerId\(option\.brokerId\)/);
+  assert.match(source, /const selectBrokerOption = \(option: LoginBrokerOption\) => \{/);
+  assert.match(source, /setBrokerConnection\(option\.brokerId, option\.serverUrl, option\.logoUrl\)/);
+  assert.match(source, /persistSelectedBrokerSession\(\{/);
+  assert.match(source, /onPress: \(\) => selectBrokerOption\(option\)/);
+  assert.match(source, /serverUrl: normalizeBrokerServerUrl/);
   assert.match(source, /const handleBrokerPickerPress = \(\) => \{/);
   assert.match(source, /runImmediateAction\('login\.brokerPicker\.open'/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
@@ -82,6 +86,8 @@ test('login validation snapshots the latest committed native field values', () =
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(task, 0\);/);
   assert.match(source, /scheduleLoginSubmitAfterInputCommit\(\(\) => \{[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);[\s\S]*\}\)/);
   assert.match(source, /const brokerIdValueRef = useRef<string \| null>\(null\)/);
+  assert.match(source, /const brokerServerUrlValueRef = useRef<string \| null>\(null\)/);
+  assert.match(source, /const brokerLogoUrlValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const accountIdValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const passwordValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const updateBrokerId = \(value: string\) => \{[\s\S]*brokerIdValueRef\.current = value;[\s\S]*setBrokerId\(value\);[\s\S]*\}/);
@@ -89,11 +95,15 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /const updatePassword = \(value: string\) => \{[\s\S]*passwordValueRef\.current = value;[\s\S]*setPassword\(value\);[\s\S]*\}/);
   assert.match(source, /const getLoginCredentialsSnapshot = \(\): LoginCredentialsSnapshot => \(\{/);
   assert.match(source, /brokerId: \(brokerIdValueRef\.current \?\? brokerId\)\.trim\(\)/);
+  assert.match(source, /serverUrl: normalizeBrokerServerUrl\(/);
+  assert.match(source, /logoUrl: brokerLogoUrlValueRef\.current \?\? selectedBrokerLogoUrl/);
   assert.match(source, /accountId: \(accountIdValueRef\.current \?\? accountId\)\.trim\(\)/);
   assert.match(source, /password: passwordValueRef\.current \?\? password/);
   assert.match(source, /const handleLogin = async \(snapshot: LoginCredentialsSnapshot = getLoginCredentialsSnapshot\(\)\) => \{/);
   assert.match(source, /const normalizedBrokerId = snapshot\.brokerId/);
+  assert.match(source, /const normalizedServerUrl = snapshot\.serverUrl/);
   assert.match(source, /if \(!normalizedBrokerId\) \{/);
+  assert.match(source, /if \(!normalizedServerUrl\) \{/);
   assert.match(source, /onChangeText=\{updateBrokerId\}/);
   assert.match(source, /onEndEditing=\{updateBrokerIdFromEndEditing\}/);
   assert.match(source, /onChangeText=\{updateAccountId\}/);

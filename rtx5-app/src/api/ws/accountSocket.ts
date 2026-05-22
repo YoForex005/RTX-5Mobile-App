@@ -16,13 +16,17 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
+import { buildBrokerWsUrl } from '../brokerRouting';
 import {
   extractLiveAccountMetrics,
   resolveAccountWsSession,
   type AccountWsSession,
 } from './accountSocket.helpers';
 
-const BASE_WS_URL = process.env.EXPO_PUBLIC_ACCOUNT_WS_URL || 'wss://backend.orrnn.com/ws/v2';
+const DEFAULT_ACCOUNT_WS_URL = 'wss://backend.orrnn.com/ws/v2';
+const getAccountWsBaseUrl = () =>
+  process.env.EXPO_PUBLIC_ACCOUNT_WS_URL ||
+  buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/v2', DEFAULT_ACCOUNT_WS_URL);
 const DEBUG_ACCOUNT_WS =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNT_WS === 'true';
 
@@ -262,7 +266,7 @@ class AccountWebSocketService {
     }
 
     this.activeSession = session;
-    const wsUrl = `${BASE_WS_URL}?token=${encodeURIComponent(session.token)}`;
+    const wsUrl = `${getAccountWsBaseUrl()}?token=${encodeURIComponent(session.token)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);

@@ -5,6 +5,8 @@
 import { useTradingState } from '../../state/tradingState';
 import NetInfo from '@react-native-community/netinfo';
 import { liveCandleStream } from '../../domain/candles/stream/liveCandleStream';
+import { useUserPreferences } from '../../state/userPreferences';
+import { buildBrokerWsUrl } from '../brokerRouting';
 
 type SubscriptionMessage = {
   type: 'subscribe' | 'unsubscribe';
@@ -21,7 +23,7 @@ type WsMessage = SubscriptionMessage | { type: 'ping' | 'get_channels' };
 export class WebSocketService {
   private static instance: WebSocketService;
   private ws: WebSocket | null = null;
-  private url = process.env.EXPO_PUBLIC_WS_URL || 'wss://backend.orrnn.com/ws';
+  private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
@@ -44,6 +46,11 @@ export class WebSocketService {
     return this.isConnected;
   }
 
+  private resolveSocketUrl(): string {
+    return process.env.EXPO_PUBLIC_WS_URL ||
+      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws', 'wss://backend.orrnn.com/ws');
+  }
+
   /**
    * Dispatches the initial connection sequence and restores active channels if reconnecting.
    */
@@ -53,6 +60,7 @@ export class WebSocketService {
     }
 
     try {
+      this.url = this.resolveSocketUrl();
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {

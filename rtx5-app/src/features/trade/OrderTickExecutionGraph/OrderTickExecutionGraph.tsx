@@ -105,25 +105,22 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
   const yForPrice = (price: number) =>
     GRAPH_TOP_PADDING + plotHeight - ((price - chartMin) / chartSpan) * plotHeight;
 
-  const buildStepPath = (values: number[]) => {
+  const buildTracePath = (values: number[]) => {
     if (values.length === 0) return '';
 
     let path = `M ${xForTick(0, values.length)} ${yForPrice(values[0])}`;
     for (let index = 1; index < values.length; index += 1) {
-      const x = xForTick(index, values.length);
-      const previousY = yForPrice(values[index - 1]);
-      const nextY = yForPrice(values[index]);
-      path += ` L ${x} ${previousY} L ${x} ${nextY}`;
+      path += ` L ${xForTick(index, values.length)} ${yForPrice(values[index])}`;
     }
     return path;
   };
 
   const askPath = useMemo(
-    () => (layoutWidth > 0 ? buildStepPath(visibleTicks.map((tick) => tick.ask)) : ''),
+    () => (layoutWidth > 0 ? buildTracePath(visibleTicks.map((tick) => tick.ask)) : ''),
     [layoutWidth, visibleTicks],
   );
   const bidPath = useMemo(
-    () => (layoutWidth > 0 ? buildStepPath(visibleTicks.map((tick) => tick.bid)) : ''),
+    () => (layoutWidth > 0 ? buildTracePath(visibleTicks.map((tick) => tick.bid)) : ''),
     [layoutWidth, visibleTicks],
   );
 

@@ -3,6 +3,7 @@ export type ApiLatencySource =
   | 'auth'
   | 'publicDemo'
   | 'register'
+  | 'broker'
   | 'trade'
   | 'candles'
   | 'positions'

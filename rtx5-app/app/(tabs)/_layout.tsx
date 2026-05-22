@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import { Tabs, usePathname, useRouter } from 'expo-router';
@@ -16,7 +16,6 @@ import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
 
 const icons = {
   quotes: 'swap-vertical-outline',
-  chart: 'stats-chart-outline',
   trade: 'trending-up-outline',
   history: 'time-outline',
   settings: 'settings-outline',
@@ -182,6 +181,9 @@ export default function TabsLayout() {
           tabBarActiveTintColor: T.accent,
           tabBarInactiveTintColor: isDark ? '#5A6B87' : T.textDimmed,
           tabBarIcon: ({ color, size }) => {
+            if (route.name === 'chart') {
+              return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
+            }
             const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
             return <Ionicons name={name} size={size} color={color} />;
           },

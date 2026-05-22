@@ -2,7 +2,7 @@
  * Generic helpers for picking values out of inconsistent backend payloads.
  * Used by both the open-positions and closed-history paths.
  */
-import { API_BASE_URL, isApiKeyCredential } from '../apiClient';
+import { buildActiveApiUrl, isApiKeyCredential } from '../apiClient';
 import { useUserPreferences } from '../../state/userPreferences';
 import { timedFetch } from '../../utils/apiLatency';
 import type { JsonRecord } from './types';
@@ -20,7 +20,7 @@ export async function rawPositionsFetch(endpoint: string): Promise<Response> {
     headers['X-API-Key'] = token;
   }
 
-  return timedFetch(`${API_BASE_URL}${endpoint}`, {
+  return timedFetch(buildActiveApiUrl(endpoint), {
     method: 'GET',
     headers,
   }, {

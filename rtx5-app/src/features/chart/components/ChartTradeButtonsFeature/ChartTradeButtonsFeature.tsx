@@ -169,6 +169,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             themeStyles.actionLotAdjustIcon,
             { marginLeft: 4 },
             (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+            !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
       </Pressable>
@@ -231,6 +232,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             themeStyles.actionLotAdjustIcon,
             { marginRight: 4 },
             (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+            !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
       </Pressable>

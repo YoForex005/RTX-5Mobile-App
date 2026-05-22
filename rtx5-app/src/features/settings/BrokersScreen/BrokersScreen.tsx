@@ -19,6 +19,8 @@ import { useTranslation } from '../../../i18n/useTranslation';
 import { safeRouterBack } from '../../../utils/navigation';
 import { useBrokerServers } from '../../../query/broker';
 import type { BrokerServer } from '../../../api/broker';
+import { normalizeBrokerServerUrl } from '../../../api/brokerRouting';
+import { persistSelectedBrokerSession } from '../../../state/brokerSessionStorage';
 import { formatServerFromName } from './brokerData';
 
 // Always show this broker at the top when the search field is empty so the
@@ -30,6 +32,8 @@ type BrokerRow = {
   brokerId: string;
   name: string;
   server: string;
+  serverUrl: string;
+  logoUrl: string;
   region: string;
   protocol: string;
   domain?: string;
@@ -60,6 +64,7 @@ export function BrokersScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
+  const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   // ── GET /broker/servers — live broker directory ──────────────────────────
@@ -82,13 +87,14 @@ export function BrokersScreen() {
       deduped.push(r);
     }
     return deduped.map((b) => ({
-      id: `srv-${b.id}`,
+      id: `srv-${b.id ?? b.broker_id}`,
       brokerId: b.broker_id,
       name: b.broker_name,
-      // Display a friendly MT5-style server name (e.g. "FlexyMarkets-Live")
-      // derived from the broker name. The backend's `server` field is a raw
-      // host:port that users shouldn't see; auth uses broker_id, not host:port.
-      server: formatServerFromName(b.broker_name),
+      server: b.server?.trim() || formatServerFromName(b.broker_name),
+      serverUrl: normalizeBrokerServerUrl(
+        b.server_url || (b.protocol && b.server ? `${b.protocol}://${b.server}` : ''),
+      ),
+      logoUrl: b.logo_url?.trim() || '',
       region: b.region,
       protocol: b.protocol,
       domain: resolveBrokerDomain(b.broker_name) ?? resolveBrokerDomain(b.broker_id),
@@ -122,12 +128,20 @@ export function BrokersScreen() {
   }, [brokerRecords, isSearching, trimmedQuery]);
 
   const handleSelectBroker = (broker: BrokerRow) => {
+    setBrokerConnection(broker.brokerId, broker.serverUrl, broker.logoUrl);
+    void persistSelectedBrokerSession({
+      brokerId: broker.brokerId,
+      serverUrl: broker.serverUrl,
+      logoUrl: broker.logoUrl,
+    });
     routerInstance.push({
       pathname: '/settings/broker-detail',
       params: {
         brokerId: broker.brokerId,
         brokerName: broker.name,
         brokerServer: broker.server,
+        brokerServerUrl: broker.serverUrl,
+        brokerLogoUrl: broker.logoUrl,
         brokerDomain: broker.domain ?? '',
       },
     });
@@ -142,6 +156,8 @@ export function BrokersScreen() {
         brokerId: 'qr',
         brokerName: t('Scan QR Code'),
         brokerServer: '',
+        brokerServerUrl: '',
+        brokerLogoUrl: '',
         brokerDomain: '',
       },
     });
@@ -225,8 +241,8 @@ export function BrokersScreen() {
             >
               <BrokerAvatar
                 broker={item}
-                failed={Boolean(item.domain && logoFailed[item.domain])}
-                onError={(domain) => setLogoFailed((prev) => ({ ...prev, [domain]: true }))}
+                failed={Boolean((item.logoUrl || item.domain) && logoFailed[item.logoUrl || item.domain || ''])}
+                onError={(logoKey) => setLogoFailed((prev) => ({ ...prev, [logoKey]: true }))}
                 styles={styles}
                 T={T}
               />
@@ -298,6 +314,8 @@ export function BrokersScreen() {
               brokerId: 'custom',
               brokerName: t("Can't find your broker?"),
               brokerServer: '',
+              brokerServerUrl: '',
+              brokerLogoUrl: '',
               brokerDomain: '',
             },
           })}
@@ -321,11 +339,12 @@ function BrokerAvatar({
 }: {
   broker: BrokerRow;
   failed: boolean;
-  onError: (domain: string) => void;
+  onError: (logoKey: string) => void;
   styles: ReturnType<typeof makeStyles>;
   T: ThemeColors;
 }) {
-  if (!broker.domain || failed) {
+  const logoUri = broker.logoUrl || (broker.domain ? `https://logo.clearbit.com/${broker.domain}` : '');
+  if (!logoUri || failed) {
     return (
       <View style={[styles.avatar, styles.avatarFallback]}>
         <Ionicons name="business-outline" size={20} color={T.textMuted} />
@@ -335,10 +354,10 @@ function BrokerAvatar({
   return (
     <View style={styles.avatar}>
       <Image
-        source={{ uri: `https://logo.clearbit.com/${broker.domain}` }}
+        source={{ uri: logoUri }}
         style={styles.avatarImage}
         resizeMode="contain"
-        onError={() => onError(broker.domain as string)}
+        onError={() => onError(logoUri)}
       />
     </View>
   );
@@ -361,11 +380,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingLeft: 52,
+      paddingLeft: 16,
       paddingRight: 16,
       paddingTop: safeTop + 8,
       paddingBottom: 12,
-      gap: 16,
+      gap: 8,
       backgroundColor: pageBg,
     },
     iconBtn: {

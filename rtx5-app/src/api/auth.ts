@@ -1,4 +1,5 @@
 import { apiClient, API_BASE_URL } from './apiClient';
+import { buildBrokerApiBaseUrl } from './brokerRouting';
 import { timedFetch } from '../utils/apiLatency';
 
 const AUTH_LOGIN_TIMEOUT_MS = 8000;
@@ -32,6 +33,10 @@ export interface LoginRequest {
   password: string;
   broker_id: string;
 }
+
+export type LoginRequestOptions = {
+  serverUrl?: string;
+};
 
 /** POST /auth/register — request body */
 export interface RegisterRequest {
@@ -95,7 +100,10 @@ export interface AuthResponse {
  * @returns AuthResponse with access_token, refresh_token, expires_in, account_login
  * @throws Error with server message on 401 (invalid credentials) or other failures
  */
-export const loginAPI = async (credentials: LoginRequest): Promise<AuthResponse> => {
+export const loginAPI = async (
+  credentials: LoginRequest,
+  options: LoginRequestOptions = {},
+): Promise<AuthResponse> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
@@ -103,7 +111,8 @@ export const loginAPI = async (credentials: LoginRequest): Promise<AuthResponse>
 
   let response: Response;
   try {
-    response = await timedFetch(`${API_BASE_URL}/auth/login`, {
+    const apiBaseUrl = buildBrokerApiBaseUrl(options.serverUrl);
+    response = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
