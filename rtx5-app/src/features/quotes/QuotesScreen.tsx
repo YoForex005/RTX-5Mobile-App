@@ -20,6 +20,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -1511,7 +1512,7 @@ export function QuotesScreen() {
   const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const palette = useMemo(() => getQuotesPalette(T, isDark), [T, isDark]);
 

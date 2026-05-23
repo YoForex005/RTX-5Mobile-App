@@ -24,6 +24,7 @@ import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useThemeMode } from '../../../state/themeMode';
 import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
@@ -41,18 +42,18 @@ import { makeSettingsStyles } from './styles';
 
 export function SettingsScreen() {
   const isScreenFocused = useIsFocused();
-  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, themeMode, setThemeMode, accountDetails } = useUserPreferences(
+  const { quoteSymbols, chartDrawings, oneClickAccepted, setOneClickAccepted, isDemoAccount, setThemeMode, accountDetails } = useUserPreferences(
     useShallow((state) => ({
       quoteSymbols: state.quoteSymbols,
       chartDrawings: state.chartDrawings,
       oneClickAccepted: state.oneClickAccepted,
       setOneClickAccepted: state.setOneClickAccepted,
       isDemoAccount: state.isDemoAccount,
-      themeMode: state.themeMode,
       setThemeMode: state.setThemeMode,
       accountDetails: state.accountDetails,
     })),
   );
+  const themeMode = useThemeMode();
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const liveLogin = useLiveAccountState((s) => s.login);

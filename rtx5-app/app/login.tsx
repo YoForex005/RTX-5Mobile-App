@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
@@ -111,7 +112,7 @@ export function AccountLoginScreen() {
   const [brokerLogoUrl, setBrokerLogoUrl] = useState('');
   const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
-  const themeMode = useUserPreferences((s) => s.themeMode);
+  const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();

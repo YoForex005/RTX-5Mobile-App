@@ -11,6 +11,7 @@ import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
 import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useIsDarkTheme } from '../src/state/themeMode';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
@@ -56,12 +57,19 @@ function StartupLogoScreen() {
 
 function InnerLayout() {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const chartPageScreenOptions = {
     headerShown: false,
   };
+  const sidebarDetailScreenOptions = {
+    headerShown: false,
+    animation: 'none',
+  } as const;
+  const sidebarHeaderScreenOptions = {
+    animation: 'none',
+  } as const;
 
   return (
     <>
@@ -129,19 +137,19 @@ function InnerLayout() {
           <Stack.Screen name='chart/alerts' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/menu-order' options={chartPageScreenOptions} />
           <Stack.Screen name='history/filter' options={{ title: t('History Filter') }} />
-          <Stack.Screen name='settings/accounts' options={{ title: t('Accounts') }} />
-          <Stack.Screen name='settings/mailbox' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/news' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/accounts' options={{ title: t('Accounts'), ...sidebarHeaderScreenOptions }} />
+          <Stack.Screen name='settings/mailbox' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/news' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/brokers' options={{ headerShown: false }} />
           <Stack.Screen name='settings/broker-detail' options={{ headerShown: false }} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
-          <Stack.Screen name='settings/economic-calendar' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/interface' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/journal' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/traders-community' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/mql5-algo-trading' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/user-guide' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/about' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/economic-calendar' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/interface' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/journal' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/traders-community' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/mql5-algo-trading' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/user-guide' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
         </ThemeProvider>
       </WebIPhoneFrame>

@@ -26,6 +26,7 @@ import {
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../ui/components/Screen';
 import { resolveChartColorsForTheme, useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { resolveTradingLogin, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
@@ -561,7 +562,7 @@ const getContainerChartDimensions = (container: { clientWidth: number; clientHei
 export function ChartScreen() {
   const isScreenFocused = useIsFocused();
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const BLUE = T.trading.buy.primary;

@@ -22,7 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/useTheme';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useThemeMode } from '../../../state/themeMode';
 import { FastPressable } from '../FastPressable';
 import { OVERLAY_MODAL_PROPS } from '../../overlayModalProps';
 import { useTranslation } from '../../../i18n/useTranslation';
@@ -71,7 +71,7 @@ export function ActionSheet({
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
-  const themeMode = useUserPreferences((s) => s.themeMode);
+  const themeMode = useThemeMode();
   const isDark = themeMode === 'dark';
   const styles = makeActionSheetStyles(T, isDark);
   const { t } = useTranslation();

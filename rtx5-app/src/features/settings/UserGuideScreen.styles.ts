@@ -1,17 +1,33 @@
 import { StyleSheet } from 'react-native';
 
-export const makeUserGuideStyles = () =>
-  StyleSheet.create({
+export const makeUserGuideStyles = (isDark = false) => {
+  const palette = {
+    screen: isDark ? '#050607' : '#FFFFFF',
+    surfaceSoft: isDark ? '#10151D' : '#F7F7F8',
+    iconSurface: isDark ? 'rgba(96,165,250,0.14)' : '#F3F4F6',
+    activeSoft: isDark ? 'rgba(96,165,250,0.16)' : '#EEF8FF',
+    border: isDark ? 'rgba(148,163,184,0.20)' : '#E4E4E7',
+    text: isDark ? '#F8FAFC' : '#050505',
+    title: isDark ? '#E5E7EB' : '#3F3F46',
+    textSubtle: isDark ? '#CBD5E1' : '#5E5E63',
+    textMuted: isDark ? '#94A3B8' : '#7A7A80',
+    textBody: isDark ? '#E2E8F0' : '#2D2D2F',
+    textFooter: isDark ? '#94A3B8' : '#8C8C8C',
+    accent: isDark ? '#60A5FA' : '#0A6EEB',
+    bullet: isDark ? '#64748B' : '#8E8E93',
+  };
+
+  return StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: palette.screen,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 20,
       paddingBottom: 12,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: palette.screen,
     },
     menuButton: {
       width: 36,
@@ -21,7 +37,7 @@ export const makeUserGuideStyles = () =>
       marginRight: 14,
     },
     headerTitle: {
-      color: '#050505',
+      color: palette.text,
       fontSize: 21,
       lineHeight: 27,
       fontWeight: '600',
@@ -29,7 +45,7 @@ export const makeUserGuideStyles = () =>
     },
     scroll: {
       flex: 1,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: palette.screen,
     },
     scrollContent: {
       paddingHorizontal: 24,
@@ -40,7 +56,7 @@ export const makeUserGuideStyles = () =>
       paddingTop: 26,
       paddingBottom: 28,
       borderBottomWidth: 1,
-      borderBottomColor: '#E4E4E7',
+      borderBottomColor: palette.border,
     },
     logo: {
       width: 82,
@@ -49,7 +65,7 @@ export const makeUserGuideStyles = () =>
       marginBottom: 14,
     },
     heroTitle: {
-      color: '#3F3F46',
+      color: palette.title,
       fontSize: 30,
       lineHeight: 36,
       fontWeight: '800',
@@ -61,7 +77,7 @@ export const makeUserGuideStyles = () =>
       fontWeight: '800',
     },
     heroSubtitle: {
-      color: '#050505',
+      color: palette.text,
       fontSize: 23,
       lineHeight: 29,
       fontWeight: '500',
@@ -70,7 +86,7 @@ export const makeUserGuideStyles = () =>
       textAlign: 'center',
     },
     introText: {
-      color: '#5E5E63',
+      color: palette.textSubtle,
       fontSize: 16,
       lineHeight: 23,
       fontWeight: '400',
@@ -87,20 +103,20 @@ export const makeUserGuideStyles = () =>
       flex: 1,
       minHeight: 62,
       borderRadius: 8,
-      backgroundColor: '#F7F7F8',
+      backgroundColor: palette.surfaceSoft,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 8,
     },
     summaryValue: {
-      color: '#050505',
+      color: palette.text,
       fontSize: 18,
       lineHeight: 22,
       fontWeight: '800',
       letterSpacing: 0,
     },
     summaryLabel: {
-      color: '#7A7A80',
+      color: palette.textMuted,
       fontSize: 11,
       lineHeight: 14,
       fontWeight: '600',
@@ -127,10 +143,10 @@ export const makeUserGuideStyles = () =>
       borderRadius: 17,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#EEF8FF',
+      backgroundColor: palette.activeSoft,
     },
     indexText: {
-      color: '#0A6EEB',
+      color: palette.accent,
       fontSize: 12,
       lineHeight: 15,
       fontWeight: '800',
@@ -141,7 +157,7 @@ export const makeUserGuideStyles = () =>
       flex: 1,
       minHeight: 96,
       marginTop: 8,
-      backgroundColor: '#E4E4E7',
+      backgroundColor: palette.border,
     },
     sectionContent: {
       flex: 1,
@@ -160,19 +176,19 @@ export const makeUserGuideStyles = () =>
       borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#F3F4F6',
+      backgroundColor: palette.iconSurface,
     },
     sectionTitle: {
       flex: 1,
       minWidth: 0,
-      color: '#050505',
+      color: palette.text,
       fontSize: 20,
       lineHeight: 26,
       fontWeight: '700',
       letterSpacing: 0,
     },
     sectionSummary: {
-      color: '#68686D',
+      color: palette.textSubtle,
       fontSize: 15,
       lineHeight: 21,
       fontWeight: '400',
@@ -189,20 +205,20 @@ export const makeUserGuideStyles = () =>
       width: 5,
       height: 5,
       borderRadius: 3,
-      backgroundColor: '#8E8E93',
+      backgroundColor: palette.bullet,
       marginTop: 8,
     },
     bulletText: {
       flex: 1,
       minWidth: 0,
-      color: '#2D2D2F',
+      color: palette.textBody,
       fontSize: 14,
       lineHeight: 20,
       fontWeight: '400',
       letterSpacing: 0,
     },
     footerNote: {
-      color: '#8C8C8C',
+      color: palette.textFooter,
       fontSize: 14,
       lineHeight: 20,
       fontWeight: '500',
@@ -211,5 +227,6 @@ export const makeUserGuideStyles = () =>
       paddingBottom: 8,
     },
   });
+};
 
 export type UserGuideStyles = ReturnType<typeof makeUserGuideStyles>;

@@ -9,6 +9,7 @@ import Constants from 'expo-constants';
 import { useCallback, useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
@@ -25,10 +26,13 @@ import {
 
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
+  const isDark = useIsDarkTheme();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const styles = useMemo(() => makeUserGuideStyles(), []);
+  const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
+  const menuIconColor = isDark ? '#F8FAFC' : '#050505';
+  const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
   const appName = Constants.expoConfig?.name ?? 'RTX5';
   const handleOpenMenu = useCallback(() => {
     hideActionSheet();
@@ -46,7 +50,7 @@ export function UserGuideScreen() {
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
-          <Ionicons name="menu" size={32} color="#050505" />
+          <Ionicons name="menu" size={32} color={menuIconColor} />
         </FastPressable>
         <Text style={styles.headerTitle} numberOfLines={1}>User Guide</Text>
       </View>
@@ -78,6 +82,7 @@ export function UserGuideScreen() {
               section={section}
               isLast={index === GUIDE_MANUAL_SECTIONS.length - 1}
               styles={styles}
+              iconColor={sectionIconColor}
             />
           ))}
         </View>
@@ -127,10 +132,12 @@ function GuideSectionRow({
   section,
   isLast,
   styles,
+  iconColor,
 }: {
   section: GuideManualSection;
   isLast: boolean;
   styles: UserGuideStyles;
+  iconColor: string;
 }) {
   return (
     <View style={styles.sectionRow}>
@@ -144,7 +151,7 @@ function GuideSectionRow({
       <View style={styles.sectionContent}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionIcon}>
-            <Ionicons name={section.icon} size={18} color="#0A6EEB" />
+            <Ionicons name={section.icon} size={18} color={iconColor} />
           </View>
           <Text style={styles.sectionTitle} numberOfLines={2}>{section.title}</Text>
         </View>

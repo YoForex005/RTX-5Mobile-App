@@ -5,11 +5,12 @@ import { FastPressable as Pressable } from './FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
 import {
   Animated, BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useThemeMode } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { useTheme } from '../theme/useTheme';
 import { useBrokerConfig } from '../../query/broker';
@@ -23,11 +24,11 @@ type MenuItem = {
 };
 
 const MENU_ITEMS: MenuItem[] = [
-  { label: 'Trade', icon: 'flash-outline', route: '/(tabs)/trade' },
+  { label: 'Trade', icon: 'flash-outline', route: '/trade' },
   { label: 'News', icon: 'reader-outline', route: '/settings/news' },
   { label: 'Mailbox', icon: 'mail-outline', route: '/settings/mailbox' },
   { label: 'Journal', icon: 'book-outline', route: '/settings/journal' },
-  { label: 'Settings', icon: 'settings-outline', route: '/(tabs)/settings' },
+  { label: 'Settings', icon: 'settings-outline', route: '/settings' },
   { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
   { label: 'Traders Community', icon: 'people-outline', route: '/settings/traders-community' },
   { label: 'MQL5 Algo Trading', icon: 'code-slash-outline', route: '/settings/mql5-algo-trading' },
@@ -44,14 +45,9 @@ const DRAWER_CLOSE_ANIMATION_MS = 65;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
 const SIDEBAR_NAVIGATION_LOCK_MS = 120;
-const SIDEBAR_PREFETCH_DELAY_MS = 100;
-const PREFETCH_ROUTES = [
-  ...MENU_ITEMS.map((item) => item.route),
-  '/settings/accounts',
-  '/login',
-] as const;
+const SIDEBAR_PROFILE_DATA_DELAY_MS = 1000;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
-const AUTH_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
+const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -65,6 +61,12 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
+function scheduleAfterFirstVisualFrame(action: () => void) {
+  scheduleNextFrame(() => {
+    setTimeout(action, 0);
+  });
+}
+
 function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
 }
@@ -73,16 +75,18 @@ function normalizeSidebarPath(path: string) {
 export function SidebarDrawer() {
   const visible = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
+  const showSidebarRouteTransition = useUIState((s) => s.showSidebarRouteTransition);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
   const router = useRouter();
   const pathname = usePathname();
   const T = useTheme();
-  const themeMode = useUserPreferences((s) => s.themeMode);
+  const themeMode = useThemeMode();
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
-  const sidebarProfileDataActive = visible && isLoggedIn;
+  const [profileDataReady, setProfileDataReady] = useState(false);
+  const sidebarProfileDataActive = profileDataReady && isLoggedIn;
   const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
   const { data: accounts } = useAccounts(sidebarProfileDataActive);
   const isDark = themeMode === 'dark';
@@ -95,50 +99,27 @@ export function SidebarDrawer() {
   const isClosingRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sidebarPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sidebarPrefetchRunIdRef = useRef(0);
 
-  const clearSidebarPrefetchTimer = useCallback(() => {
-    sidebarPrefetchRunIdRef.current += 1;
-    if (sidebarPrefetchTimerRef.current) {
-      clearTimeout(sidebarPrefetchTimerRef.current);
-      sidebarPrefetchTimerRef.current = null;
-    }
-  }, []);
-
-  const prefetchSidebarRoute = useCallback((route: string) => {
-    const prefetch = (router as PrefetchRouter).prefetch;
-    if (typeof prefetch !== 'function') {
+  useEffect(() => {
+    if (!visible) {
+      setProfileDataReady(false);
       return;
     }
 
-    try {
-      prefetch(route);
-    } catch {
-      // Route warm-up must never block the visible sidebar interaction path.
-    }
-  }, [router]);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      scheduleNextFrame(() => {
+        if (!cancelled) {
+          setProfileDataReady(true);
+        }
+      });
+    }, SIDEBAR_PROFILE_DATA_DELAY_MS);
 
-  const prefetchSidebarRoutes = useCallback(() => {
-    const prefetchRunId = sidebarPrefetchRunIdRef.current + 1;
-    sidebarPrefetchRunIdRef.current = prefetchRunId;
-    let routeIndex = 0;
-
-    const prefetchNextRoute = () => {
-      if (sidebarPrefetchRunIdRef.current !== prefetchRunId) {
-        return;
-      }
-
-      prefetchSidebarRoute(PREFETCH_ROUTES[routeIndex]);
-      routeIndex += 1;
-
-      if (routeIndex < PREFETCH_ROUTES.length) {
-        scheduleNextFrame(prefetchNextRoute);
-      }
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
     };
-
-    prefetchNextRoute();
-  }, [prefetchSidebarRoute]);
+  }, [visible]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -160,26 +141,12 @@ export function SidebarDrawer() {
     });
   }, [isLoggedIn, router]);
 
-  useEffect(() => {
-    if (!visible) {
-      return;
-    }
-
-    sidebarPrefetchTimerRef.current = setTimeout(() => {
-      scheduleNextFrame(prefetchSidebarRoutes);
-      sidebarPrefetchTimerRef.current = null;
-    }, SIDEBAR_PREFETCH_DELAY_MS);
-
-    return clearSidebarPrefetchTimer;
-  }, [clearSidebarPrefetchTimer, prefetchSidebarRoutes, visible]);
-
   useEffect(() => () => {
     if (navigationUnlockTimerRef.current) {
       clearTimeout(navigationUnlockTimerRef.current);
       navigationUnlockTimerRef.current = null;
     }
-    clearSidebarPrefetchTimer();
-  }, [clearSidebarPrefetchTimer]);
+  }, []);
 
   /* Open immediately when `visible` becomes true so hamburger taps feel instant. */
   useLayoutEffect(() => {
@@ -249,13 +216,12 @@ export function SidebarDrawer() {
     }, SIDEBAR_NAVIGATION_LOCK_MS);
   }, []);
 
-  const navigateSidebarRoute = useCallback((route: string) => {
+  const navigateSidebarRoute = useCallback((route: string, label: string) => {
     if (navigationLockedRef.current) {
       return;
     }
 
     navigationLockedRef.current = true;
-    clearSidebarPrefetchTimer();
 
     const targetPath = normalizeSidebarPath(route);
     const currentPath = normalizeSidebarPath(pathname);
@@ -264,19 +230,21 @@ export function SidebarDrawer() {
     closeImmediately();
 
     if (shouldNavigate) {
-      prefetchSidebarRoute(route);
-      if (AUTH_STACK_ROUTES.has(route)) {
-        router.push(route as any);
-      } else {
-        router.navigate(route as any);
-      }
+      showSidebarRouteTransition({ route, label });
+      scheduleAfterFirstVisualFrame(() => {
+        if (SIDEBAR_STACK_ROUTES.has(route)) {
+          router.push(route as any);
+        } else {
+          router.navigate(route as any);
+        }
+      });
     }
 
     unlockSidebarNavigation();
-  }, [clearSidebarPrefetchTimer, closeImmediately, pathname, prefetchSidebarRoute, router, unlockSidebarNavigation]);
+  }, [closeImmediately, pathname, router, showSidebarRouteTransition, unlockSidebarNavigation]);
 
   const handleMenuItemPress = useCallback((item: MenuItem) => {
-    navigateSidebarRoute(item.route);
+    navigateSidebarRoute(item.route, item.label);
   }, [navigateSidebarRoute]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -325,7 +293,7 @@ export function SidebarDrawer() {
                   ) : null}
                   <Pressable
                     style={ds.manageBtn}
-                    onPress={() => navigateSidebarRoute('/settings/accounts')}
+                    onPress={() => navigateSidebarRoute('/settings/accounts', 'Accounts')}
                     activateOnPressIn
                     hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
                     latencyLabel="sidebar.manageAccounts"
@@ -337,7 +305,7 @@ export function SidebarDrawer() {
               ) : (
                 <Pressable
                   style={ds.profileText}
-                  onPress={() => navigateSidebarRoute('/login')}
+                  onPress={() => navigateSidebarRoute('/login', 'Login')}
                   activateOnPressIn
                   hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
                   latencyLabel="sidebar.getStarted"

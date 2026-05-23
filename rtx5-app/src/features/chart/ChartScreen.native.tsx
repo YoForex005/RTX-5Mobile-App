@@ -56,6 +56,7 @@ import {
   resolveChartColorsForTheme,
   useUserPreferences,
 } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { fmt } from '../../utils/format';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -262,7 +263,7 @@ export function ChartScreen() {
     return () => clearInterval(interval);
   }, [accountLogin, chartRuntimeActive, refreshPositions]);
 
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const {

@@ -185,15 +185,15 @@ test('action destination routes are warmed in non-blocking batches', () => {
   const warmupSource = readSource('src/utils/actionRouteWarmup.ts');
   const tabsSource = readSource('app/(tabs)/_layout.tsx');
 
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 1/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 750/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 30000/);
+  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
+  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 120/);
+  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 500/);
   assert.match(warmupSource, /requestAnimationFrame/);
-  assert.match(warmupSource, /\/\(tabs\)\/quotes/);
-  assert.match(warmupSource, /\/\(tabs\)\/chart/);
-  assert.match(warmupSource, /\/\(tabs\)\/trade/);
-  assert.match(warmupSource, /\/\(tabs\)\/history/);
-  assert.match(warmupSource, /\/\(tabs\)\/settings/);
+  assert.match(warmupSource, /\/quotes/);
+  assert.match(warmupSource, /\/chart/);
+  assert.match(warmupSource, /\/trade/);
+  assert.match(warmupSource, /\/history/);
+  assert.match(warmupSource, /\/settings/);
   assert.match(warmupSource, /\/settings\/news/);
   assert.match(warmupSource, /\/settings\/user-guide/);
   assert.match(warmupSource, /\/settings\/about/);
@@ -202,6 +202,8 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /\/chart\/objects/);
   assert.match(tabsSource, /import \{ warmActionRoutes \} from '..\/..\/src\/utils\/actionRouteWarmup'/);
   assert.match(tabsSource, /useEffect\(\(\) => warmActionRoutes\(router\), \[router\]\)/);
+  assert.match(tabsSource, /lazy: false/);
+  assert.doesNotMatch(tabsSource, /lazy: true/);
 });
 
 test('global action sheet actions use the immediate fast press path', () => {
@@ -372,6 +374,24 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(settingsStyles, /container: \{ flex: 1, backgroundColor: T\.bg \}/);
   assert.match(orderTicketSource, /function makeStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(orderTicketSource, /root: \{ flex: 1, backgroundColor: BG \}/);
-  assert.match(sidebarSource, /const themeMode = useUserPreferences\(\(s\) => s\.themeMode\)/);
+  assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);
   assert.match(sidebarSource, /const isDark = themeMode === 'dark'/);
+});
+
+test('theme toggles acknowledge before persisted preference writes', () => {
+  const storeSource = readSource('src/state/userPreferences/store.ts');
+  const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
+
+  assert.match(storeSource, /const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>\(\)/);
+  assert.match(storeSource, /function schedulePreferenceWriteFlush\(\)/);
+  assert.match(storeSource, /requestAnimationFrame/);
+  assert.match(storeSource, /setTimeout\(flushPendingPreferenceWrites, 0\)/);
+  assert.match(storeSource, /partialize: partializeUserPreferences/);
+  assert.match(storeSource, /setImmediateThemeMode\(mode\)/);
+  assert.match(storeSource, /schedulePersistedThemeModeCommit\(mode/);
+  assert.match(storeSource, /if \(get\(\)\.themeMode !== nextMode\) \{\s*set\(\{ themeMode: nextMode \}\);/);
+  assert.doesNotMatch(storeSource, /createJSONStorage\(\(\) => AsyncStorage\)/);
+  assert.match(readSource('src/ui/theme/useTheme.ts'), /const themeMode = useThemeMode\(\)/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!isDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{isDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
 });

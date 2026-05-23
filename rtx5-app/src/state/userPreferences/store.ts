@@ -4,7 +4,8 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import {
   DEFAULT_CHART_SHOW_ON_CHART,
   buildChartShowOnChartSettingsFromLegacy,
@@ -26,6 +27,7 @@ import {
   DEFAULT_CHART_COLORS,
   DEFAULT_CHART_DISPLAY_SETTINGS,
 } from './chartColors';
+import { setImmediateThemeMode } from '../themeMode';
 import type {
   ChartColorsConfig,
   ChartDisplaySettings,
@@ -35,6 +37,167 @@ import type {
 } from './types';
 
 const defaultSymbols: string[] = [];
+type PersistedUserPreferencesState = Omit<
+  UserPreferencesState,
+  | 'hasHydrated'
+  | 'setLanguage'
+  | 'login'
+  | 'logout'
+  | 'updateTokens'
+  | 'setQuoteViewMode'
+  | 'setThemeMode'
+  | 'addQuoteSymbol'
+  | 'removeQuoteSymbol'
+  | 'setQuoteSymbols'
+  | 'setChartSymbol'
+  | 'setChartTimeframe'
+  | 'setTradeVolume'
+  | 'setChartTradeVolumeDisplayMode'
+  | 'setChartVisualType'
+  | 'setChartViewportShowVolumePane'
+  | 'setChartViewportShowDrawingToolbar'
+  | 'addChartDrawing'
+  | 'removeChartDrawing'
+  | 'setChartDrawings'
+  | 'setChartDrawingRecordsForSymbol'
+  | 'removeChartDrawingRecordForSymbol'
+  | 'setChartLockAll'
+  | 'setChartHideAll'
+  | 'setChartShowOnChartItem'
+  | 'setHistorySummaryDetailsVisible'
+  | 'setTradeSummaryDetailsVisible'
+  | 'setPriceSource'
+  | 'setOpenOrderMode'
+  | 'setOneClickAccepted'
+  | 'setHistoryRange'
+  | 'setMarketNewsSavedIds'
+  | 'toggleMarketNewsSavedId'
+  | 'setHistoryDateRange'
+  | 'setIsDemoAccount'
+  | 'setBrokerId'
+  | 'setBrokerConnection'
+  | 'setHasSetInitialSymbols'
+  | 'setChartColorScheme'
+  | 'setChartColor'
+  | 'setChartDisplaySetting'
+  | 'setHasHydrated'
+  | 'updateAccountDetails'
+>;
+
+const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
+let preferenceWriteScheduled = false;
+let pendingThemeModeCommit: ThemeMode | null = null;
+let themeModeCommitScheduled = false;
+
+function flushPendingPreferenceWrites() {
+  preferenceWriteScheduled = false;
+  const writes = Array.from(pendingPreferenceWrites.entries());
+  pendingPreferenceWrites.clear();
+
+  writes.forEach(([name, value]) => {
+    void AsyncStorage.setItem(name, JSON.stringify(value)).catch((error) => {
+      console.warn('[UserPreferences] Failed to persist preferences', error);
+    });
+  });
+}
+
+function schedulePreferenceWriteFlush() {
+  if (preferenceWriteScheduled) return;
+  preferenceWriteScheduled = true;
+
+  const scheduleAfterFrame =
+    typeof globalThis.requestAnimationFrame === 'function'
+      ? globalThis.requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
+
+  scheduleAfterFrame(() => {
+    setTimeout(flushPendingPreferenceWrites, 0);
+  });
+}
+
+function scheduleAfterAcknowledgementFrame(action: () => void) {
+  const scheduleAfterFrame =
+    typeof globalThis.requestAnimationFrame === 'function'
+      ? globalThis.requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
+
+  scheduleAfterFrame(() => {
+    setTimeout(action, 0);
+  });
+}
+
+function schedulePersistedThemeModeCommit(
+  mode: ThemeMode,
+  commit: (mode: ThemeMode) => void,
+) {
+  pendingThemeModeCommit = mode;
+  if (themeModeCommitScheduled) return;
+  themeModeCommitScheduled = true;
+
+  scheduleAfterAcknowledgementFrame(() => {
+    themeModeCommitScheduled = false;
+    const nextMode = pendingThemeModeCommit;
+    pendingThemeModeCommit = null;
+    if (nextMode) {
+      commit(nextMode);
+    }
+  });
+}
+
+const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void> = {
+  getItem: async (name) => {
+    const value = await AsyncStorage.getItem(name);
+    return value ? (JSON.parse(value) as StorageValue<PersistedUserPreferencesState>) : null;
+  },
+  setItem: (name, value) => {
+    pendingPreferenceWrites.set(name, value);
+    schedulePreferenceWriteFlush();
+  },
+  removeItem: (name) => {
+    pendingPreferenceWrites.delete(name);
+    void AsyncStorage.removeItem(name);
+  },
+};
+
+function partializeUserPreferences(state: UserPreferencesState): PersistedUserPreferencesState {
+  return {
+    themeMode: state.themeMode,
+    quoteSymbols: state.quoteSymbols,
+    quoteViewMode: state.quoteViewMode,
+    chartSymbol: state.chartSymbol,
+    chartTimeframe: state.chartTimeframe,
+    tradeVolume: state.tradeVolume,
+    chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode,
+    chartVisualType: state.chartVisualType,
+    chartViewportShowVolumePane: state.chartViewportShowVolumePane,
+    chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar,
+    chartDrawings: state.chartDrawings,
+    chartDrawingRecordsBySymbol: state.chartDrawingRecordsBySymbol,
+    chartLockAll: state.chartLockAll,
+    chartHideAll: state.chartHideAll,
+    chartShowOnChart: state.chartShowOnChart,
+    historySummaryDetailsVisible: state.historySummaryDetailsVisible,
+    tradeSummaryDetailsVisible: state.tradeSummaryDetailsVisible,
+    priceSource: state.priceSource,
+    openOrderMode: state.openOrderMode,
+    oneClickAccepted: state.oneClickAccepted,
+    historyRange: state.historyRange,
+    marketNewsSavedIds: state.marketNewsSavedIds,
+    historyFromMs: state.historyFromMs,
+    historyToMs: state.historyToMs,
+    isDemoAccount: state.isDemoAccount,
+    isLoggedIn: state.isLoggedIn,
+    hasSetInitialSymbols: state.hasSetInitialSymbols,
+    brokerId: state.brokerId,
+    brokerServerUrl: state.brokerServerUrl,
+    brokerLogoUrl: state.brokerLogoUrl,
+    accountDetails: state.accountDetails,
+    chartColorScheme: state.chartColorScheme,
+    chartColors: state.chartColors,
+    chartDisplay: state.chartDisplay,
+    language: state.language,
+  };
+}
 
 export const useUserPreferences = create<UserPreferencesState>()(
   persist(
@@ -118,7 +281,15 @@ export const useUserPreferences = create<UserPreferencesState>()(
           };
         }),
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
-      setThemeMode: (mode) => set({ themeMode: mode }),
+      setThemeMode: (mode) => {
+        setImmediateThemeMode(mode);
+        if (get().themeMode === mode) return;
+        schedulePersistedThemeModeCommit(mode, (nextMode) => {
+          if (get().themeMode !== nextMode) {
+            set({ themeMode: nextMode });
+          }
+        });
+      },
       addQuoteSymbol: (symbol) => {
         const current = get().quoteSymbols;
         if (!current.includes(symbol)) {
@@ -277,7 +448,8 @@ export const useUserPreferences = create<UserPreferencesState>()(
     {
       name: 'rtx5-user-preferences-v2',
       version: 16,
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: userPreferencesStorage,
+      partialize: partializeUserPreferences,
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
           chartColors?: Partial<ChartColorsConfig>;
@@ -365,6 +537,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.warn('[UserPreferences] Failed to rehydrate persisted preferences', error);
+        }
+        if (state?.themeMode) {
+          setImmediateThemeMode(state.themeMode);
         }
         state?.setHasHydrated(true);
       },

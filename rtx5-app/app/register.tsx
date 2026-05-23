@@ -7,6 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
+import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
 import { getBrokerConfig } from '../src/api/broker';
@@ -90,7 +91,7 @@ export default function RegisterScreen() {
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const themeMode = useUserPreferences((s) => s.themeMode);
+  const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();

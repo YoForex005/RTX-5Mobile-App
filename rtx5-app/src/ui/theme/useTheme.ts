@@ -4,7 +4,7 @@
 
 import { useMemo } from 'react';
 import { GDark, GLight, ThemeColors } from './glass';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useThemeMode } from '../../state/themeMode';
 
 export type { ThemeColors };
 
@@ -13,6 +13,6 @@ export type { ThemeColors };
  * Reactively updates when the user toggles between light/dark.
  */
 export function useTheme(): ThemeColors {
-  const themeMode = useUserPreferences((s) => s.themeMode);
+  const themeMode = useThemeMode();
   return useMemo(() => (themeMode === 'light' ? GLight : GDark), [themeMode]);
 }

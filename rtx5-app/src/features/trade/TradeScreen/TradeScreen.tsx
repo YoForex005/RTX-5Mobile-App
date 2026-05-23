@@ -12,7 +12,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useMemo, useEffect, useCallback } from 'react';
+import React, { useMemo, useEffect, useCallback, useState } from 'react';
 import { Text, View, FlatList } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
@@ -21,6 +21,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 import { TradePositionRow } from '../../../ui/components/TradePositionRow';
 import { PositionItem } from '../../../dev/mock/tradingData';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { useIsDarkTheme } from '../../../state/themeMode';
 import { usePositionsState } from '../../../state/positionsState';
 import { useTradingState } from '../../../state/tradingState';
 import { resolveTradingLogin } from '../../../state/tradingLogin';
@@ -33,11 +34,32 @@ import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
+const TRADE_FOCUS_WORK_DELAY_MS = 650;
+
+function scheduleTradeFocusWork(action: () => void) {
+  let frameId: number | null = null;
+  const timerId = setTimeout(() => {
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(action);
+      return;
+    }
+    action();
+  }, TRADE_FOCUS_WORK_DELAY_MS);
+
+  return () => {
+    clearTimeout(timerId);
+    if (frameId !== null) {
+      globalThis.cancelAnimationFrame?.(frameId);
+    }
+  };
+}
+
 export function TradeScreen() {
   const isScreenFocused = useIsFocused();
+  const [focusWorkReady, setFocusWorkReady] = useState(false);
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const s = useMemo(() => makeTradeScreenStyles(T, isDark), [T, isDark]);
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
@@ -57,6 +79,25 @@ export function TradeScreen() {
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
   const resolvedLogin = resolveTradingLogin();
 
+  useEffect(() => {
+    if (!isScreenFocused) {
+      setFocusWorkReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    const cancelFocusWork = scheduleTradeFocusWork(() => {
+      if (!cancelled) {
+        setFocusWorkReady(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cancelFocusWork();
+    };
+  }, [isScreenFocused]);
+
   const fetchPositions = useCallback(async () => {
     const mt5Login = resolveTradingLogin();
     if (!mt5Login) {
@@ -69,10 +110,10 @@ export function TradeScreen() {
   // Initial fetch when the account login is first available. After that,
   // live position updates flow through the websocket/store pipeline.
   useEffect(() => {
-    if (isScreenFocused && resolvedLogin) {
+    if (focusWorkReady && resolvedLogin) {
       fetchPositions();
     }
-  }, [isScreenFocused, resolvedLogin, fetchPositions]);
+  }, [focusWorkReady, resolvedLogin, fetchPositions]);
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -118,6 +159,48 @@ export function TradeScreen() {
     />
   ), [pnlCurrency, showBulkSheet, showPositionSheet]);
 
+  if (!focusWorkReady) {
+    return (
+      <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+        <AppHeader title={t('Trade')} noBorder />
+        <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
+          <View style={s.summaryTop}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                {t('Floating P/L')}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: '700',
+                  color: T.up,
+                  letterSpacing: 0,
+                  fontVariant: ['tabular-nums'],
+                  textAlign: 'right',
+                }}
+              >
+                +0.00 {pnlCurrency}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
+          <View style={s.positionsHeaderLeft}>
+            <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
+            <View>
+              <View style={s.positionsTitleRow}>
+                <Text style={[s.positionsTitle, { color: T.text }]}>{t('Positions')}</Text>
+              </View>
+              <Text style={[s.positionsMeta, { color: T.textMuted }]}>
+                0 {t('open')} · 0.00 {t('lots')}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('Trade')} noBorder />
@@ -130,7 +213,7 @@ export function TradeScreen() {
         isDark={isDark}
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
-        active={isScreenFocused}
+        active={focusWorkReady}
       />
       <FlatList
         keyboardShouldPersistTaps="always"

@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
@@ -63,7 +63,7 @@ const ABOUT_BOTTOM_TABS = [
 
 export function AboutScreen() {
   const router = useRouter();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);

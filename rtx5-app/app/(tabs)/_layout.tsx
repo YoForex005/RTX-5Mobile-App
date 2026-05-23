@@ -8,10 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
 import { SidebarDrawer } from '../../src/ui/components/SidebarDrawer';
-import { useUserPreferences } from '../../src/state/userPreferences';
+import { SidebarRouteTransitionOverlay } from '../../src/ui/components/SidebarRouteTransitionOverlay';
+import { useIsDarkTheme } from '../../src/state/themeMode';
 import { useTheme } from '../../src/ui/theme/useTheme';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
+import { warmSidebarRouteModules } from '../../src/utils/sidebarRouteModuleWarmup';
 import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
 
 const icons = {
@@ -22,15 +24,19 @@ const icons = {
 } as const;
 
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
+const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
+type FastTabBarButtonProps = BottomTabBarButtonProps & {
+  latencyLabel?: string;
+};
 
 const getNow = () =>
   typeof globalThis.performance?.now === 'function'
     ? globalThis.performance.now()
     : Date.now();
 
-function scheduleTabSwitchBudgetCheck(startedAtMs: number) {
+function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, navigationFinishedAtMs: number) {
   if (typeof __DEV__ === 'undefined' || !__DEV__) {
     return;
   }
@@ -44,20 +50,26 @@ function scheduleTabSwitchBudgetCheck(startedAtMs: number) {
 
   runAfterFirstFrame(() => {
     const elapsedMs = getNow() - startedAtMs;
+    if (elapsedMs > STALE_TAB_SWITCH_SAMPLE_MS) {
+      return;
+    }
     if (elapsedMs > TAB_SWITCH_MAX_LATENCY_MS) {
+      const navigationMs = Math.max(0, navigationFinishedAtMs - startedAtMs);
       console.warn(
-        `[Tabs] Bottom navigation first frame took ${Math.round(elapsedMs)}ms; budget is ${TAB_SWITCH_MAX_LATENCY_MS}ms.`,
+        `[Tabs] ${label} first frame took ${Math.round(elapsedMs)}ms; ` +
+          `sync navigation ${Math.round(navigationMs)}ms; budget is ${TAB_SWITCH_MAX_LATENCY_MS}ms.`,
       );
     }
   });
 }
 
 const FastTabBarButton = memo(function FastTabBarButton({
+  latencyLabel = 'bottom tab',
   onPress,
   onPressIn,
   onPressOut,
   ...props
-}: BottomTabBarButtonProps) {
+}: FastTabBarButtonProps) {
   const pressStartedAtRef = useRef<number | null>(null);
   const handledOnPressInRef = useRef(false);
 
@@ -66,8 +78,8 @@ const FastTabBarButton = memo(function FastTabBarButton({
     pressStartedAtRef.current = null;
     useUIState.getState().hideActionSheet();
     onPress?.(event as TabPressEvent);
-    scheduleTabSwitchBudgetCheck(startedAtMs);
-  }, [onPress]);
+    scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
+  }, [latencyLabel, onPress]);
 
   const handlePressIn = useCallback((event: TabPressInEvent) => {
     pressStartedAtRef.current = getNow();
@@ -112,7 +124,7 @@ export default function TabsLayout() {
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
   const chartTabBarKeyboardLift = useUIState((s) => s.chartTabBarKeyboardLift);
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const T = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -150,6 +162,7 @@ export default function TabsLayout() {
   );
 
   useEffect(() => warmActionRoutes(router), [router]);
+  useEffect(() => warmSidebarRouteModules(), []);
 
   useEffect(() => {
     if (previousPathRef.current !== pathname && actionSheet !== null) {
@@ -161,9 +174,8 @@ export default function TabsLayout() {
   return (
     <View style={styles.root}>
       <Tabs
-        // Keep visited tabs alive, but do not eagerly mount every heavy tab
-        // during the first post-login navigation. Login should land on Quotes
-        // as soon as auth succeeds; route modules warm separately in idle work.
+        // Keep every primary bottom tab mounted so taps never wait on cold route construction.
+        // Inactive tab screens guard their own data work through focus/path checks.
         detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
@@ -195,9 +207,9 @@ export default function TabsLayout() {
           tabBarActiveBackgroundColor: 'transparent',
           tabBarItemStyle: { backgroundColor: 'transparent' },
           tabBarHideOnKeyboard: !isChartTab,
-          tabBarButton: (props) => <FastTabBarButton {...props} />,
+          tabBarButton: (props) => <FastTabBarButton {...props} latencyLabel={route.name} />,
           freezeOnBlur: false,
-          lazy: true,
+          lazy: false,
           animation: 'none',
         })}
       >
@@ -206,7 +218,7 @@ export default function TabsLayout() {
           name='chart'
           options={{
             title: t('Chart'),
-            lazy: true,
+            lazy: false,
           }}
         />
         <Tabs.Screen name='trade' options={{ title: t('Trade') }} />
@@ -214,6 +226,7 @@ export default function TabsLayout() {
         <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
       </Tabs>
 
+      <SidebarRouteTransitionOverlay />
       <SidebarDrawer />
 
       {/* Hamburger menu button is now inside AppHeader for consistent alignment */}

@@ -18,7 +18,7 @@ import { Platform, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
-import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 
 // Keep the visible menu icon close to the app edge while preserving a large
@@ -58,7 +58,7 @@ export function AppHeader({
   extraTopPad = 0,
 }: AppHeaderProps) {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);

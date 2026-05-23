@@ -14,6 +14,7 @@ import { Screen } from '../../ui/components/Screen';
 import { AppHeader } from '../../ui/components/AppHeader';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useUserPreferences } from '../../state/userPreferences';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { useResolvedTradingLogin } from '../../state/tradingLogin';
 import { usePositionHistoryQuery } from '../../query/positions';
@@ -363,7 +364,7 @@ export function HistoryScreen() {
 
   const T = useTheme();
   const { t } = useTranslation();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   // ── Live API data via TanStack Query ─────────────────────────────────

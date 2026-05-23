@@ -1,5 +1,7 @@
-import { NewsScreen } from '../../src/features/settings/NewsScreen';
+import { DeferredRouteModule } from '../../src/ui/components/DeferredRouteMount';
+
+const loadNewsScreen = () => import('../../src/features/settings/NewsScreen').then((module) => module.NewsScreen);
 
 export default function NewsRoute() {
-  return <NewsScreen />;
+  return <DeferredRouteModule load={loadNewsScreen} title="Market News" />;
 }

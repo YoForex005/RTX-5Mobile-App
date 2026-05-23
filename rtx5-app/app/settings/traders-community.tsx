@@ -1,5 +1,7 @@
-import { TradersCommunityScreen } from '../../src/features/settings/TradersCommunityScreen';
+import { DeferredRouteModule } from '../../src/ui/components/DeferredRouteMount';
+
+const loadTradersCommunityScreen = () => import('../../src/features/settings/TradersCommunityScreen').then((module) => module.TradersCommunityScreen);
 
 export default function TradersCommunityRoute() {
-  return <TradersCommunityScreen />;
+  return <DeferredRouteModule load={loadTradersCommunityScreen} title="Traders Community" />;
 }

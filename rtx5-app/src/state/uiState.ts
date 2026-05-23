@@ -48,6 +48,11 @@ type UIState = {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 
+  /** Immediate visual shell shown while a sidebar route navigation settles. */
+  sidebarRouteTransition: { route: string; label: string } | null;
+  showSidebarRouteTransition: (transition: { route: string; label: string }) => void;
+  clearSidebarRouteTransition: () => void;
+
   /** Controls whether the chart view is expanded to conceal the trade panels */
   isChartFullscreen: boolean;
   setChartFullscreen: (open: boolean) => void;
@@ -83,7 +88,11 @@ type UIState = {
  */
 export const useUIState = create<UIState>((set) => ({
   sidebarOpen: false,
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarOpen: (open) => set((state) => (state.sidebarOpen === open ? state : { sidebarOpen: open })),
+  sidebarRouteTransition: null,
+  showSidebarRouteTransition: (transition) => set({ sidebarRouteTransition: transition }),
+  clearSidebarRouteTransition: () =>
+    set((state) => (state.sidebarRouteTransition === null ? state : { sidebarRouteTransition: null })),
 
   isChartFullscreen: false,
   setChartFullscreen: (open) => set({ isChartFullscreen: open }),
@@ -103,5 +112,5 @@ export const useUIState = create<UIState>((set) => ({
 
   actionSheet: null,
   showActionSheet: (config) => set({ actionSheet: config }),
-  hideActionSheet: () => set({ actionSheet: null }),
+  hideActionSheet: () => set((state) => (state.actionSheet === null ? state : { actionSheet: null })),
 }));

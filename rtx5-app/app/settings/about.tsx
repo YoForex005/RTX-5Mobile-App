@@ -1,5 +1,7 @@
-import { AboutScreen } from '../../src/features/settings/AboutScreen';
+import { DeferredRouteModule } from '../../src/ui/components/DeferredRouteMount';
+
+const loadAboutScreen = () => import('../../src/features/settings/AboutScreen').then((module) => module.AboutScreen);
 
 export default function AboutRoute() {
-  return <AboutScreen />;
+  return <DeferredRouteModule load={loadAboutScreen} title="About" />;
 }

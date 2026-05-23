@@ -111,8 +111,14 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(settingsSource, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
 
   assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
-  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{isScreenFocused\}/);
+  assert.match(tradeSource, /const TRADE_FOCUS_WORK_DELAY_MS = 650/);
+  assert.match(tradeSource, /const \[focusWorkReady, setFocusWorkReady\] = useState\(false\)/);
+  assert.match(tradeSource, /scheduleTradeFocusWork/);
+  assert.match(tradeSource, /setFocusWorkReady\(true\)/);
+  assert.match(tradeSource, /if \(focusWorkReady && resolvedLogin\) \{/);
+  assert.match(tradeSource, /if \(!focusWorkReady\) \{/);
+  assert.match(tradeSource, /<AppHeader title=\{t\('Trade'\)\} noBorder \/>[\s\S]*\+0\.00 \{pnlCurrency\}/);
+  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{focusWorkReady\}/);
   assert.match(tradeSummarySource, /active: boolean/);
   assert.match(tradeSummarySource, /useMarketData\(liveQuoteSymbols, active\)/);
   assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);

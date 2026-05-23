@@ -43,6 +43,10 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [x] Unit: account API numeric normalization and live metric readiness guard.
 - [x] Unit: login auth payload account type aliases map demo, contest, and real accounts without route-specific hardcoding.
 - [x] Unit: About action links, store targets, contact categories, and developer email intent stay deterministic.
+- [x] Unit: User Guide manual screen keeps persisted dark-mode theme wiring.
+- [x] Unit: theme toggles acknowledge before persisted preference writes.
+- [x] Unit: theme rendering reads from the immediate theme store before persisted preferences catch up.
+- [x] Unit: sidebar menu routes prefetch within the sub-second interaction target.
 - [x] Typecheck: Accounts screen other-account cards expand into the same balance/metric detail layout as the current account.
 - [ ] Integration: navigation from settings to all sub-screens.
 - [ ] E2E: open broker list, open account details, read mailbox list.
@@ -121,6 +125,11 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - 2026-05-16: Restored the About screen hamburger/sidebar entry before the About heading and upgraded Contact Developer into a polished RTX5 support request screen with an app support card, grouped inputs, richer category picker, clearer consent/privacy treatment, and professional SEND footer styling.
 - 2026-05-16: Matched the User Guide heading to the About heading by adding the same hamburger/sidebar entry before the User Guide title.
 - 2026-05-16: Made the About and Contact Developer surfaces theme-aware for dark mode. The About identity screen, action rows, bottom navigation, contact form cards, fields, dropdown, consent area, and footer now switch to dark backgrounds, readable text, borders, and icon colors while keeping the same RTX5 layout and store/user-guide/contact behavior.
+- 2026-05-23: Fixed the RTX5 User Guide manual screen so it listens to persisted `themeMode`, rebuilds its manual layout palette on dark/light changes, and keeps header and section icons readable in dark mode.
+- 2026-05-23: Improved light/dark theme toggle responsiveness by skipping redundant theme writes and deferring coalesced user-preference persistence until after the first acknowledgement frame, preserving local storage while keeping the visible theme switch immediate.
+- 2026-05-23: Added a tiny immediate theme-mode store for visual rendering. Light/dark taps now update the visible app theme first and commit the existing persisted user preference after the acknowledgement frame, avoiding large preference-store fanout on the tap frame.
+- 2026-05-23: Tightened sidebar option navigation for Trade through About by starting route warmup within 500ms, prefetching sidebar routes immediately when the drawer opens, and using direct `router.push` for menu rows instead of the slower navigate resolution path.
+- 2026-05-23: Tightened bottom menubar switching by mounting all primary tab screens eagerly while keeping inactive tabs attached and unfrozen, so Quotes, Chart, Trade, History, and Settings changes do not wait on cold route construction.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.
