@@ -95,6 +95,13 @@ export const hasFreshLiveQuote = (
   );
 };
 
+export const hasDisplayableLiveQuotePrice = (
+  quote: Partial<QuoteItem> | undefined,
+): boolean =>
+  !!quote &&
+  toFiniteNumber(quote.bid) !== undefined &&
+  toFiniteNumber(quote.ask) !== undefined;
+
 export const buildInitialLiveQuoteSnapshot = (
   rawSymbol: string,
   liveQuote?: Partial<QuoteItem>,

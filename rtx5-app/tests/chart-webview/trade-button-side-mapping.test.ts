@@ -236,10 +236,19 @@ test('compact footer buy and sell prices stay right aligned independently from l
 test('compact footer buy and sell backgrounds cover the full button slots', () => {
   const stylesSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/styles.ts');
   const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const chartStylesSource = readSource('src/features/chart/ChartScreen.styles.ts');
 
   assert.match(
     stylesSource,
     /export const COMPACT_TRADE_FOOTER_ROW_HEIGHT = 40;/,
+  );
+  assert.match(
+    chartStylesSource,
+    /bottomArea:\s*\{[\s\S]*paddingBottom:\s*0/,
+  );
+  assert.match(
+    stylesSource,
+    /tradeControlsRow:\s*\{[\s\S]*borderTopWidth:\s*1,\s*borderBottomWidth:\s*0/,
   );
   assert.match(
     stylesSource,

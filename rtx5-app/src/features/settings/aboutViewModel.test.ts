@@ -105,12 +105,15 @@ test('about screen follows the active app theme and owns its drawer', () => {
   const screenSource = readSource('src/features/settings/AboutScreen.tsx');
   const stylesSource = readSource('src/features/settings/AboutScreen.styles.ts');
 
-  assert.match(screenSource, /useUserPreferences\(\(s\) => s\.themeMode\) === 'dark'/);
+  assert.match(screenSource, /const isDark = useIsDarkTheme\(\)/);
   assert.match(screenSource, /makeAboutStyles\(isDark\)/);
   assert.match(screenSource, /<SidebarDrawer \/>/);
   assert.match(screenSource, /latencyLabel="about\.menu"/);
-  assert.match(screenSource, /onPress=\{\(\) => setSidebarOpen\(true\)\}/);
+  assert.match(screenSource, /const handleOpenMenu = useCallback\(\(\) => \{[\s\S]*hideActionSheet\(\);[\s\S]*setSidebarOpen\(true\);/);
+  assert.match(screenSource, /onPress=\{handleOpenMenu\}/);
   assert.doesNotMatch(screenSource, /onPressIn=\{\(\) => setSidebarOpen\(true\)\}/);
+  assert.doesNotMatch(screenSource, /ABOUT_BOTTOM_TABS|about\.bottomNav|styles\.bottomNav/);
+  assert.doesNotMatch(stylesSource, /bottomNav|bottomTab|bottomIconWrap|bottomLabel/);
   assert.match(stylesSource, /export const makeAboutStyles = \(isDark = false\)/);
   assert.match(stylesSource, /screen: isDark \? '#050607' : '#FFFFFF'/);
   assert.match(stylesSource, /surface: isDark \? '#0B0F14' : '#FFFFFF'/);

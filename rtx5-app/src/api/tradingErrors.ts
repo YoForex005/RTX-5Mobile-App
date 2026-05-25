@@ -40,6 +40,15 @@ const ACTION_LABELS: Record<TradingAction, string> = {
   'modify-position': 'modify the position',
 };
 
+const BROKER_ERROR_MESSAGES: Record<string, string> = {
+  UNAUTHORIZED: 'Invalid session or credentials. Please log in again.',
+  BROKER_INACTIVE: 'The selected broker server is offline. Please try again later.',
+  LICENSE_EXPIRED: 'License expired. Please renew your trading license to proceed.',
+  INSUFFICIENT_MARGIN: 'Insufficient margin. You do not have enough funds to open this position.',
+  MARKET_CLOSED: 'Trading is disabled. The market is currently closed for this symbol.',
+  INVALID_SL_TP: 'Invalid Stop Loss or Take Profit levels. Please check your price offsets.',
+};
+
 const ORIGIN_LABELS: Record<TradingIssueOrigin, string> = {
   frontend: 'Frontend issue',
   api: 'API issue',
@@ -71,6 +80,23 @@ const extractDataMessage = (data: unknown): string | null => {
     || extractDataMessage(record.data)
     || null
   );
+};
+
+const extractDataCode = (data: unknown): string | null => {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+  const directCode =
+    cleanMessage(record.code) ||
+    cleanMessage(record.error_code) ||
+    cleanMessage(record.errorCode);
+  if (directCode) {
+    return directCode.toUpperCase();
+  }
+
+  return extractDataCode(record.error) || extractDataCode(record.data);
 };
 
 const getErrorStatus = (error: unknown): number | undefined => {
@@ -254,8 +280,24 @@ export const classifyTradingError = (
 ): TradingErrorFeedback => {
   const status = getErrorStatus(error);
   const headers = getErrorHeaders(error);
+  const brokerCode = extractDataCode(getErrorData(error));
   const detail = getErrorMessage(error);
   const retryAfterSeconds = getRetryAfterSeconds(headers);
+
+  if (brokerCode && BROKER_ERROR_MESSAGES[brokerCode]) {
+    return {
+      origin: brokerCode === 'UNAUTHORIZED' ? 'session' : 'backend',
+      kind: brokerCode === 'UNAUTHORIZED' ? 'session-expired' : 'backend-rejection',
+      title: brokerCode === 'UNAUTHORIZED'
+        ? 'Session Expired'
+        : options.action === 'place-order'
+          ? 'Order Rejected'
+          : 'Request Rejected',
+      message: BROKER_ERROR_MESSAGES[brokerCode],
+      status,
+      detail,
+    };
+  }
 
   if (status === 401 || (detail && detail.toLowerCase().includes('refresh token'))) {
     return {

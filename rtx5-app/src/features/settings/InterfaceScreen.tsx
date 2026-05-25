@@ -17,7 +17,6 @@ import { ThemeColors } from '../../ui/theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTranslation } from '../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES } from '../../i18n/translations';
-import { safeRouterBack } from '../../utils/navigation';
 
 export function InterfaceScreen() {
   const T = useTheme();
@@ -30,7 +29,7 @@ export function InterfaceScreen() {
     <Screen style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+          onPress={() => router.replace('/(tabs)/settings')}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           style={styles.backBtn}
         >

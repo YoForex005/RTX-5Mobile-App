@@ -144,7 +144,7 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
 // Keep broker directory lookups bounded so login/account navigation never
 // waits on a long network stall before the next touch can be handled.
 const BROKER_SERVERS_TIMEOUT_MS = 3500;
-const BROKER_HEALTH_TIMEOUT_MS = 2500;
+const BROKER_HEALTH_TIMEOUT_MS = 3000;
 
 export function isBrokerConfigFull(
   data: BrokerConfigResponse | BrokerConfigFallbackResponse
@@ -293,7 +293,7 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
     if (networkError instanceof Error && networkError.name === 'AbortError') {
       throw new BrokerConfigError(0, 'Broker health check timed out. Please try again in a moment.');
     }
-    throw new BrokerConfigError(0, 'Broker temporarily unavailable. Please try again in a moment.');
+    throw new BrokerConfigError(0, 'Broker temporarily unavailable');
   } finally {
     clearTimeout(timeout);
   }
@@ -301,7 +301,7 @@ export async function checkBrokerServerHealth(serverUrl: string): Promise<void> 
   if (!response.ok) {
     throw new BrokerConfigError(
       response.status,
-      `Broker temporarily unavailable (${normalizeBrokerServerUrl(serverUrl)}). Please try again in a moment.`,
+      `Broker temporarily unavailable (${normalizeBrokerServerUrl(serverUrl)})`,
     );
   }
 }

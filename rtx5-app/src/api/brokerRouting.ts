@@ -52,8 +52,7 @@ export function buildBrokerWsUrl(
     return fallbackUrl;
   }
 
-  const wsServer = normalizedServerUrl
-    .replace(/^https:/i, 'wss:')
-    .replace(/^http:/i, 'ws:');
+  const brokerHost = normalizedServerUrl.replace(/^(https?|wss?):\/\//i, '');
+  const wsServer = `wss://${brokerHost}`;
   return `${trimTrailingSlash(wsServer)}${path}`;
 }

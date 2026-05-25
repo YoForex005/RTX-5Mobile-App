@@ -876,6 +876,8 @@ export function OrderTicketScreen() {
         <FastPressable
           style={styles.symbolPickerBtn}
           onPress={handleOpenSymbolPicker}
+          activateOnPressIn
+          activateOnTouchStart
           latencyLabel="orderTicket.symbol.open"
           hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
           accessibilityRole="button"

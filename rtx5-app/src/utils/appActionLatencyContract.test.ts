@@ -115,18 +115,21 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(fastPressSource, /from 'react-native'/);
   assert.match(fastPressSource, /latencyBudgetMs\?: number/);
   assert.match(fastPressSource, /activateOnPressIn\?: boolean/);
+  assert.match(fastPressSource, /activateOnTouchStart\?: boolean/);
   assert.match(fastPressSource, /activateOnPressIn = false/);
+  assert.match(fastPressSource, /activateOnTouchStart = false/);
   assert.match(fastPressSource, /const DEFAULT_HIT_SLOP = \{ top: 6, bottom: 6, left: 6, right: 6 \} as const/);
   assert.match(fastPressSource, /const DEFAULT_PRESS_RETENTION_OFFSET = \{ top: 20, bottom: 20, left: 20, right: 20 \} as const/);
   assert.match(fastPressSource, /const needsPressInHandler = activateOnPressIn \|\| Boolean\(onPressIn\)/);
   assert.match(fastPressSource, /const needsPressHandler = Boolean\(onPress\) \|\| Boolean\(onPressIn\)/);
-  assert.match(fastPressSource, /const needsPressOutHandler = Boolean\(onPressOut\) \|\| activateOnPressIn \|\| Boolean\(onPressIn\)/);
+  assert.match(fastPressSource, /const needsTouchStartHandler = activateOnTouchStart \|\| Boolean\(onTouchStart\)/);
+  assert.match(fastPressSource, /const needsPressOutHandler = Boolean\(onPressOut\) \|\| activateOnPressIn \|\| activateOnTouchStart \|\| Boolean\(onPressIn\)/);
   assert.match(fastPressSource, /onPressIn=\{needsPressInHandler \? handlePressIn : undefined\}/);
   assert.match(fastPressSource, /onPress=\{needsPressHandler \? handlePress : undefined\}/);
   assert.match(fastPressSource, /onPressOut=\{needsPressOutHandler \? handlePressOut : undefined\}/);
   assert.match(fastPressSource, /onStartShouldSetResponder=\{onStartShouldSetResponder \? handleStartShouldSetResponder : undefined\}/);
   assert.match(fastPressSource, /onResponderGrant=\{onResponderGrant \? handleResponderGrant : undefined\}/);
-  assert.match(fastPressSource, /onTouchStart=\{onTouchStart \? handleTouchStart : undefined\}/);
+  assert.match(fastPressSource, /onTouchStart=\{needsTouchStartHandler \? handleTouchStart : undefined\}/);
   assert.match(fastPressSource, /hitSlop=\{hitSlop \?\? DEFAULT_HIT_SLOP\}/);
   assert.match(fastPressSource, /pressRetentionOffset=\{pressRetentionOffset \?\? DEFAULT_PRESS_RETENTION_OFFSET\}/);
   assert.match(fastPressSource, /unstable_pressDelay=\{unstable_pressDelay \?\? 0\}/);
@@ -136,6 +139,7 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(fastPressSource, /const deliveredExplicitPressInRef = React\.useRef\(false\)/);
   assert.match(fastPressSource, /if \(onPressIn && \(!pressAlreadyHandled \|\| onPressIn !== onPress\)\) \{\s*deliveredExplicitPressInRef\.current = true;\s*runPressAction\(onPressIn, event\);\s*\}/);
   assert.match(fastPressSource, /if \(activateOnPressIn && onPress && !pressAlreadyHandled\) \{/);
+  assert.match(fastPressSource, /if \(activateOnTouchStart && onPress && !pressAlreadyHandled\) \{/);
   assert.match(fastPressSource, /if \(onPress !== onPressIn\) \{/);
   assert.match(fastPressSource, /if \(onPressIn && !deliveredExplicitPressInRef\.current\) \{\s*runPressAction\(onPressIn, event\);\s*\}/);
   assert.match(fastPressSource, /cancelled gestures that never emit onPress/);
@@ -186,8 +190,8 @@ test('action destination routes are warmed in non-blocking batches', () => {
   const tabsSource = readSource('app/(tabs)/_layout.tsx');
 
   assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 120/);
-  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 500/);
+  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16/);
+  assert.match(warmupSource, /const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0/);
   assert.match(warmupSource, /requestAnimationFrame/);
   assert.match(warmupSource, /\/quotes/);
   assert.match(warmupSource, /\/chart/);
@@ -209,17 +213,57 @@ test('action destination routes are warmed in non-blocking batches', () => {
 test('global action sheet actions use the immediate fast press path', () => {
   const source = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
   const dismissSource = readSource('src/ui/components/ActionSheet/dismissTimer.ts');
+  const uiStateSource = readSource('src/state/uiState.ts');
 
   assert.match(source, /import \{ FastPressable \} from '\.\.\/FastPressable'/);
+  assert.match(source, /BackHandler/);
+  assert.match(source, /FlatList/);
   assert.match(source, /latencyLabel=\{`actionSheet\.\$\{action\.label\}`\}/);
+  assert.match(source, /runActionAfterClose = false/);
+  assert.match(source, /activeConfig\.runActionAfterClose \?\? false/);
+  assert.match(source, /const ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50/);
+  assert.match(source, /const ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50/);
+  assert.match(source, /const ACTION_SHEET_FAST_OPEN_OVERLAY_DURATION_MS = 0/);
+  assert.match(source, /const ACTION_SHEET_FAST_OPEN_SHEET_DURATION_MS = 0/);
+  assert.match(source, /const ACTION_SHEET_INLINE_ACTION_LIMIT = 12/);
+  assert.match(source, /const shouldRenderInlineActions =[\s\S]*!activeSearchable[\s\S]*filteredActions\.length <= ACTION_SHEET_INLINE_ACTION_LIMIT[\s\S]*estimatedActionsHeight <= actionsMaxHeight/);
+  assert.match(source, /const inlineActionRows = useMemo/);
+  assert.match(source, /shouldRenderInlineActions \? \(/);
+  assert.match(source, /if \(isFast\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);[\s\S]*return;/);
+  assert.match(source, /if \(activeInstantOpen\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);/);
+  assert.match(source, /const ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS = 50/);
+  assert.match(source, /const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50/);
   assert.match(source, /onPress=\{action\.disabled \? undefined : \(\) => handleActionPress\(action\.onPress\)\}/);
   assert.match(source, /latencyLabel="actionSheet\.cancel"/);
   assert.match(source, /latencyLabel="actionSheet\.dismissOverlay"/);
   assert.match(source, /style=\{\[StyleSheet\.absoluteFillObject, styles\.backdrop\]\}/);
+  assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
+  assert.match(source, /const ACTION_SHEET_KEEP_HOST_MOUNTED = true/);
+  assert.match(source, /const hasIncomingConfig =[\s\S]*actions\.length > 0/);
+  assert.match(source, /data=\{filteredActions\}/);
+  assert.match(source, /initialNumToRender=\{initialActionRowsToRender\}/);
+  assert.match(source, /maxToRenderPerBatch=\{12\}/);
+  assert.match(source, /windowSize=\{5\}/);
+  assert.match(source, /removeClippedSubviews=\{Platform\.OS === 'android'\}/);
   assert.match(source, /activateOnPressIn/);
   assert.match(source, /pointerEvents="box-none"/);
   assert.doesNotMatch(source, /traceUiInteraction/);
-  assert.match(dismissSource, /const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 0/);
+  assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: \{ \.\.\.config, instantOpen: true \} \}\)/);
+  assert.match(dismissSource, /const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 1/);
+});
+
+test('bottom-sheet style dropdowns avoid native slide animations on open', () => {
+  const bottomSheetFiles = [
+    'src/features/settings/MailboxScreen.tsx',
+    'src/features/settings/Mql5AlgoTradingScreen.tsx',
+    'src/features/chart/ChartColorsScreen.tsx',
+    'src/features/settings/ChartPropertiesScreen.tsx',
+  ];
+
+  for (const file of bottomSheetFiles) {
+    const source = readSource(file);
+    assert.doesNotMatch(source, /animationType=["']slide["']/, `${file} must not use native slide animation for bottom sheets`);
+  }
 });
 
 test('shared scroll containers keep taps active while keyboard or scroll responders are present', () => {
@@ -261,12 +305,23 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   const rootSource = readSource('app/_layout.tsx');
 
   assert.match(rowSource, /<FastPressable[\s\S]*latencyLabel=\{`settings\.row\.\$\{title\}`\}[\s\S]*onPress=\{onPress\}/);
+  assert.match(rowSource, /activateOnPressIn=\{Boolean\(onPress\)\}/);
+  assert.match(rowSource, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(rowSource, /traceUiInteraction/);
-  assert.match(backBarSource, /<FastPressable[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel="settings\.back"/);
+  assert.match(backBarSource, /<FastPressable[\s\S]*router\.replace\('\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel="settings\.back"/);
+  assert.match(settingsSource, /const SETTINGS_LOWER_CONTENT_DELAY_MS = 80/);
+  assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/mailbox'[\s\S]*'\/settings\/user-guide'[\s\S]*\] as const/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/otp'/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/support'/);
+  assert.match(settingsSource, /const openReadySettingsRoute = useCallback/);
+  assert.match(settingsSource, /router\.replace\(routePath as any\)/);
+  assert.match(settingsSource, /router\.push\(routePath as any\)/);
   assert.match(settingsSource, /latencyLabel="settings\.search\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.register\.open"/);
-  assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => router\.push\('\/settings\/mailbox'\)\}/);
+  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/settings\/accounts'\)\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.accounts\.open"/);
+  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/register'\)\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.register\.open"/);
+  assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/mailbox'\)\}/);
   assert.match(settingsSource, /latencyLabel="settings\.logout\.prompt"/);
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 16/);
@@ -335,10 +390,12 @@ test('high-traffic tab screens keep fast actions off the old trace wrapper', () 
   assert.match(quotesSource, /latencyLabel="quotes\.search\.clear"/);
   assert.doesNotMatch(quotesSource, /traceUiInteraction/);
   assert.match(historySource, /latencyLabel="history\.sort\.open"/);
+  assert.match(historySource, /latencyLabel="history\.sort\.open"[\s\S]*activateOnTouchStart/);
   assert.match(historySource, /latencyLabel=\{`history\.tab\.\$\{item\}`\}/);
   assert.doesNotMatch(historySource, /traceUiInteraction/);
   assert.match(tradeSummarySource, /latencyLabel="trade\.summary\.toggle"/);
   assert.match(tradeSummarySource, /latencyLabel="trade\.bulk\.open"/);
+  assert.match(tradeSummarySource, /latencyLabel="trade\.bulk\.open"[\s\S]*activateOnTouchStart/);
   assert.doesNotMatch(tradeSummarySource, /traceUiInteraction/);
   assert.match(chartSettingsSource, /latencyLabel="chartSettings\.back"/);
   assert.match(chartSettingsSource, /latencyLabel=\{`chartSettings\.nav\.\$\{label\}`\}/);
@@ -353,6 +410,10 @@ test('chart native and web hot actions use the shared immediate action guard', (
   assert.match(nativeChartSource, /runImmediateAction\('chart\.timeframePicker\.open'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.moreMenu\.open'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'/);
+  assert.match(nativeChartSource, /onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnTouchStart/);
+  assert.match(nativeChartSource, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnTouchStart/);
   assert.doesNotMatch(nativeChartSource, /traceUiInteraction/);
   assert.match(webChartSource, /import \{ runCriticalTradeAction, runImmediateAction \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(webChartSource, /runImmediateAction\('chart\.web\.timeframePicker\.open'/);
@@ -375,6 +436,7 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(orderTicketSource, /function makeStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(orderTicketSource, /root: \{ flex: 1, backgroundColor: BG \}/);
   assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);
+  assert.match(sidebarSource, /const T = useMemo\(\(\) => \(themeMode === 'light' \? GLight : GDark\), \[themeMode\]\)/);
   assert.match(sidebarSource, /const isDark = themeMode === 'dark'/);
 });
 
@@ -392,6 +454,17 @@ test('theme toggles acknowledge before persisted preference writes', () => {
   assert.match(storeSource, /if \(get\(\)\.themeMode !== nextMode\) \{\s*set\(\{ themeMode: nextMode \}\);/);
   assert.doesNotMatch(storeSource, /createJSONStorage\(\(\) => AsyncStorage\)/);
   assert.match(readSource('src/ui/theme/useTheme.ts'), /const themeMode = useThemeMode\(\)/);
-  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!isDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
-  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{isDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(sidebarSource, /const SIDEBAR_THEME_COMMIT_DELAY_MS = 650/);
+  assert.match(sidebarSource, /function SidebarThemeSelector\(\{ ds, T \}: SidebarThemeSelectorProps\)/);
+  assert.match(sidebarSource, /<SidebarThemeSelector ds=\{ds\} T=\{T\} \/>/);
+  assert.match(sidebarSource, /const selectedThemeMode = pendingThemeMode \?\? appliedThemeMode/);
+  assert.match(sidebarSource, /const \[pendingThemeMode, setPendingThemeMode\] = useState<ThemeMode \| null>\(null\)/);
+  assert.match(sidebarSource, /const pendingThemeModeRef = useRef<ThemeMode \| null>\(null\)/);
+  assert.match(sidebarSource, /setPendingThemeMode\(nextMode\)/);
+  assert.match(sidebarSource, /requestAnimationFrame\(scheduleCommitTimer\)/);
+  assert.match(sidebarSource, /setTimeout\(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS\)/);
+  assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('light'\)\}/);
+  assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('dark'\)\}/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(sidebarSource, /<Pressable[\s\S]*style=\{selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
 });

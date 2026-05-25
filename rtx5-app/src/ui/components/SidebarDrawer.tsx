@@ -7,14 +7,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
 import {
-  Animated, BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ThemeColors } from '../theme/glass';
+  Animated, BackHandler, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { GDark, GLight, ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useThemeMode } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
-import { useTheme } from '../theme/useTheme';
 import { useBrokerConfig } from '../../query/broker';
 import { useAccounts } from '../../query/accounts';
+import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
+import type { ThemeMode } from '../../state/userPreferences/types';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -40,14 +41,16 @@ const MENU_ITEMS: MenuItem[] = [
 // ─── Props ───────────────────────────────────────────────────────────────────
 // DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
-const DRAWER_OPEN_ANIMATION_MS = 0;
-const DRAWER_CLOSE_ANIMATION_MS = 65;
+const DRAWER_OPEN_ANIMATION_MS = 50;
+const DRAWER_CLOSE_ANIMATION_MS = 50;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
-const SIDEBAR_NAVIGATION_LOCK_MS = 120;
-const SIDEBAR_PROFILE_DATA_DELAY_MS = 1000;
+const SIDEBAR_NAVIGATION_LOCK_MS = 50;
+const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200;
+const SIDEBAR_THEME_COMMIT_DELAY_MS = 650;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
 const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
+const SIDEBAR_REPLACE_ROUTE_PREFIXES = ['/settings/'] as const;
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -61,32 +64,27 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
-function scheduleAfterFirstVisualFrame(action: () => void) {
-  scheduleNextFrame(() => {
-    setTimeout(action, 0);
-  });
-}
-
 function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
+}
+
+function shouldReplaceSidebarRoute(route: string) {
+  return SIDEBAR_REPLACE_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix));
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SidebarDrawer() {
   const visible = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
-  const showSidebarRouteTransition = useUIState((s) => s.showSidebarRouteTransition);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
   const router = useRouter();
   const pathname = usePathname();
-  const T = useTheme();
   const themeMode = useThemeMode();
-  const setThemeMode = useUserPreferences((s) => s.setThemeMode);
+  const T = useMemo(() => (themeMode === 'light' ? GLight : GDark), [themeMode]);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
-  const [profileDataReady, setProfileDataReady] = useState(false);
-  const sidebarProfileDataActive = profileDataReady && isLoggedIn;
+  const sidebarProfileDataActive = useDeferredActiveFlag(visible && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS);
   const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
   const { data: accounts } = useAccounts(sidebarProfileDataActive);
   const isDark = themeMode === 'dark';
@@ -99,27 +97,6 @@ export function SidebarDrawer() {
   const isClosingRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!visible) {
-      setProfileDataReady(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      scheduleNextFrame(() => {
-        if (!cancelled) {
-          setProfileDataReady(true);
-        }
-      });
-    }, SIDEBAR_PROFILE_DATA_DELAY_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [visible]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -148,19 +125,26 @@ export function SidebarDrawer() {
     }
   }, []);
 
-  /* Open immediately when `visible` becomes true so hamburger taps feel instant. */
+  /* Keep the drawer mounted, then animate only native opacity/translate work. */
   useLayoutEffect(() => {
     if (visible) {
-      // Cancel any in-progress close animation so re-open is instant.
-      // This handles the rapid-tap case: user closes sidebar (65ms anim)
-      // then immediately re-taps hamburger before animation completes.
       isClosingRef.current = false;
       slideAnim.stopAnimation();
       overlayAnim.stopAnimation();
-      if (DRAWER_OPEN_ANIMATION_MS === 0) {
-        slideAnim.setValue(0);
-        overlayAnim.setValue(1);
-      }
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: DRAWER_OPEN_ANIMATION_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(overlayAnim, {
+          toValue: 1,
+          duration: DRAWER_OPEN_ANIMATION_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
       return;
     }
 
@@ -199,12 +183,30 @@ export function SidebarDrawer() {
     return () => subscription.remove();
   }, [closeImmediately, visible]);
 
-  /* Close handler: run actions immediately so the hidden drawer cannot trap touches. */
-  const handleClose = (afterClose?: () => void) => {
-    if (isClosingRef.current) return; // prevent double-close
+  const handleClose = useCallback((afterClose?: () => void) => {
+    if (isClosingRef.current) return;
     isClosingRef.current = true;
-    closeImmediately(afterClose);
-  };
+    slideAnim.stopAnimation();
+    overlayAnim.stopAnimation();
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: -DRAWER_WIDTH,
+        duration: DRAWER_CLOSE_ANIMATION_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 0,
+        duration: DRAWER_CLOSE_ANIMATION_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+      isClosingRef.current = false;
+      afterClose?.();
+    });
+  }, [onClose, overlayAnim, slideAnim]);
 
   const unlockSidebarNavigation = useCallback(() => {
     if (navigationUnlockTimerRef.current) {
@@ -216,7 +218,7 @@ export function SidebarDrawer() {
     }, SIDEBAR_NAVIGATION_LOCK_MS);
   }, []);
 
-  const navigateSidebarRoute = useCallback((route: string, label: string) => {
+  const navigateSidebarRoute = useCallback((route: string) => {
     if (navigationLockedRef.current) {
       return;
     }
@@ -230,21 +232,20 @@ export function SidebarDrawer() {
     closeImmediately();
 
     if (shouldNavigate) {
-      showSidebarRouteTransition({ route, label });
-      scheduleAfterFirstVisualFrame(() => {
-        if (SIDEBAR_STACK_ROUTES.has(route)) {
-          router.push(route as any);
-        } else {
-          router.navigate(route as any);
-        }
-      });
+      if (SIDEBAR_STACK_ROUTES.has(route)) {
+        router.push(route as any);
+      } else if (shouldReplaceSidebarRoute(route)) {
+        router.replace(route as any);
+      } else {
+        router.navigate(route as any);
+      }
     }
 
     unlockSidebarNavigation();
-  }, [closeImmediately, pathname, router, showSidebarRouteTransition, unlockSidebarNavigation]);
+  }, [closeImmediately, pathname, router, unlockSidebarNavigation]);
 
   const handleMenuItemPress = useCallback((item: MenuItem) => {
-    navigateSidebarRoute(item.route, item.label);
+    navigateSidebarRoute(item.route);
   }, [navigateSidebarRoute]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
@@ -275,7 +276,7 @@ export function SidebarDrawer() {
         <Animated.View
           style={[
             ds.drawer,
-            !visible && { transform: [{ translateX: -DRAWER_WIDTH }] },
+            { transform: [{ translateX: slideAnim }] },
           ]}
         >
           {/* ── Profile Header ── */}
@@ -293,7 +294,7 @@ export function SidebarDrawer() {
                   ) : null}
                   <Pressable
                     style={ds.manageBtn}
-                    onPress={() => navigateSidebarRoute('/settings/accounts', 'Accounts')}
+                    onPress={() => navigateSidebarRoute('/settings/accounts')}
                     activateOnPressIn
                     hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
                     latencyLabel="sidebar.manageAccounts"
@@ -305,7 +306,7 @@ export function SidebarDrawer() {
               ) : (
                 <Pressable
                   style={ds.profileText}
-                  onPress={() => navigateSidebarRoute('/login', 'Login')}
+                  onPress={() => navigateSidebarRoute('/login')}
                   activateOnPressIn
                   hitSlop={SIDEBAR_PROFILE_ACTION_HIT_SLOP}
                   latencyLabel="sidebar.getStarted"
@@ -331,31 +332,7 @@ export function SidebarDrawer() {
           </View>
 
           {/* ── Theme Toggle ── */}
-          <View style={ds.themeSection}>
-            <Text style={ds.themeLabel}>Theme</Text>
-            <View style={ds.themePill}>
-              <Pressable
-                style={!isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => setThemeMode('light')}
-                activateOnPressIn
-                latencyLabel="sidebar.themeLight"
-                unstable_pressDelay={0}
-              >
-                <Ionicons name="sunny-outline" size={13} color={!isDark ? T.text : T.textMuted} />
-                <Text style={!isDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Light</Text>
-              </Pressable>
-              <Pressable
-                style={isDark ? ds.themeOptActive : ds.themeOptInactive}
-                onPress={() => setThemeMode('dark')}
-                activateOnPressIn
-                latencyLabel="sidebar.themeDark"
-                unstable_pressDelay={0}
-              >
-                <Ionicons name="moon-outline" size={13} color={isDark ? T.text : T.textMuted} />
-                <Text style={isDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Dark</Text>
-              </Pressable>
-            </View>
-          </View>
+          <SidebarThemeSelector ds={ds} T={T} />
 
           {/* ── Divider ── */}
           <View style={ds.divider} />
@@ -398,6 +375,117 @@ export function SidebarDrawer() {
 }
 
 // ─── Dynamic Styles ──────────────────────────────────────────────────────────
+type SidebarThemeSelectorProps = {
+  ds: ReturnType<typeof makeStyles>;
+  T: ThemeColors;
+};
+
+function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
+  const appliedThemeMode = useThemeMode();
+  const setThemeMode = useUserPreferences((s) => s.setThemeMode);
+  const [pendingThemeMode, setPendingThemeMode] = useState<ThemeMode | null>(null);
+  const themeCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const themeCommitFrameRef = useRef<number | null>(null);
+  const pendingThemeModeRef = useRef<ThemeMode | null>(null);
+  const selectedThemeMode = pendingThemeMode ?? appliedThemeMode;
+  const selectedIsDark = selectedThemeMode === 'dark';
+
+  const clearScheduledThemeCommit = useCallback(() => {
+    if (themeCommitTimerRef.current) {
+      clearTimeout(themeCommitTimerRef.current);
+      themeCommitTimerRef.current = null;
+    }
+    if (themeCommitFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(themeCommitFrameRef.current);
+      themeCommitFrameRef.current = null;
+    }
+  }, []);
+
+  const commitPendingThemeMode = useCallback(() => {
+    clearScheduledThemeCommit();
+
+    const nextMode = pendingThemeModeRef.current;
+    if (!nextMode) {
+      return;
+    }
+
+    if (nextMode === appliedThemeMode) {
+      pendingThemeModeRef.current = null;
+      setPendingThemeMode(null);
+      return;
+    }
+
+    setThemeMode(nextMode);
+  }, [appliedThemeMode, clearScheduledThemeCommit, setThemeMode]);
+
+  useEffect(() => () => {
+    clearScheduledThemeCommit();
+  }, [clearScheduledThemeCommit]);
+
+  useEffect(() => {
+    if (pendingThemeMode === appliedThemeMode) {
+      pendingThemeModeRef.current = null;
+      clearScheduledThemeCommit();
+      setPendingThemeMode(null);
+    }
+  }, [appliedThemeMode, clearScheduledThemeCommit, pendingThemeMode]);
+
+  const handleThemeModePress = useCallback((nextMode: ThemeMode) => {
+    if (selectedThemeMode === nextMode && appliedThemeMode === nextMode) {
+      return;
+    }
+
+    pendingThemeModeRef.current = nextMode;
+    setPendingThemeMode(nextMode);
+    clearScheduledThemeCommit();
+
+    const scheduleCommitTimer = () => {
+      themeCommitFrameRef.current = null;
+      themeCommitTimerRef.current = setTimeout(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      themeCommitFrameRef.current = globalThis.requestAnimationFrame(scheduleCommitTimer);
+      return;
+    }
+
+    themeCommitTimerRef.current = setTimeout(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS);
+  }, [
+    appliedThemeMode,
+    clearScheduledThemeCommit,
+    commitPendingThemeMode,
+    selectedThemeMode,
+  ]);
+
+  return (
+    <View style={ds.themeSection}>
+      <Text style={ds.themeLabel}>Theme</Text>
+      <View style={ds.themePill}>
+        <Pressable
+          style={!selectedIsDark ? ds.themeOptActive : ds.themeOptInactive}
+          onPress={() => handleThemeModePress('light')}
+          activateOnPressIn
+          latencyLabel="sidebar.themeLight"
+          unstable_pressDelay={0}
+        >
+          <Ionicons name="sunny-outline" size={13} color={!selectedIsDark ? T.text : T.textMuted} />
+          <Text style={!selectedIsDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Light</Text>
+        </Pressable>
+        <Pressable
+          style={selectedIsDark ? ds.themeOptActive : ds.themeOptInactive}
+          onPress={() => handleThemeModePress('dark')}
+          activateOnPressIn
+          latencyLabel="sidebar.themeDark"
+          unstable_pressDelay={0}
+        >
+          <Ionicons name="moon-outline" size={13} color={selectedIsDark ? T.text : T.textMuted} />
+          <Text style={selectedIsDark ? ds.themeOptTextActive : ds.themeOptTextInactive}>Dark</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     container: {

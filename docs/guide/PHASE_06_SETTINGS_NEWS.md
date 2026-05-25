@@ -52,6 +52,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
+- 2026-05-25: Removed native slide-open animations from settings-style bottom sheets and dropdowns that should behave like instant action sheets, including Mailbox detail/filter/options/action sheets, MQL5 filter sheet, chart properties color picker, and chart colors preset sheet. Header/filter/category dropdown openers now use the immediate press path so they do not wait for release before painting.
 - Settings hub layout was redesigned with a responsive premium card structure, a live market preview section tied to the active chart/watchlist context, and direct navigation affordances for accounts, mailbox, news, brokers, and chart settings on mobile widths.
 - 2026-05-20: Restored the login-screen `Register account` entry as a visible secondary action below the login CTA. The action dismisses the keyboard and routes to the existing `Register a demo account` screen without changing the frontend-only Orrnn public demo registration contract.
 - 2026-05-20: Added the broker directory picker to the login `Broker ID` row. The dropdown reuses `GET /broker/servers`, deduplicates enabled brokers by `broker_id`, keeps manual Broker ID typing as the offline fallback, and writes selected brokers back through the same login snapshot path.

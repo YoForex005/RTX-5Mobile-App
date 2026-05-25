@@ -10,12 +10,43 @@ import { PropsWithChildren } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
+function getQueryErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+
+  const record = error as Record<string, unknown>;
+  if (typeof record.status === 'number') {
+    return record.status;
+  }
+  if (typeof record.statusCode === 'number') {
+    return record.statusCode;
+  }
+
+  const response = record.response;
+  if (response && typeof response === 'object') {
+    const responseStatus = (response as Record<string, unknown>).status;
+    return typeof responseStatus === 'number' ? responseStatus : undefined;
+  }
+
+  return undefined;
+}
+
+function shouldRetryQuery(failureCount: number, error: unknown) {
+  const status = getQueryErrorStatus(error);
+  if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false;
+  }
+
+  return failureCount < 1;
+}
+
 export const appQueryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5_000,
       gcTime: 10 * 60_000,
-      retry: 1,
+      retry: shouldRetryQuery,
       refetchOnWindowFocus: false,
     },
     mutations: {

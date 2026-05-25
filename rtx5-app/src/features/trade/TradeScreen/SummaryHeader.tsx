@@ -197,6 +197,9 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
         <FastPressable
           latencyLabel="trade.bulk.open"
           onPress={onBulkPress}
+          activateOnPressIn
+          activateOnTouchStart
+          unstable_pressDelay={0}
           style={({ pressed }) => [s.bulkButton, { borderColor: T.border, backgroundColor: T.glass1 }, pressed && { backgroundColor: T.glass3 }]}
         >
           <Text style={[s.bulkButtonText, { color: T.textMuted }]}>{t('Bulk')}</Text>

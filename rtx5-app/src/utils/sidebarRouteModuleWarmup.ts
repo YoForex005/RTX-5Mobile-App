@@ -1,21 +1,22 @@
+import { preloadDeferredRouteModule } from '../ui/components/DeferredRouteMount';
 import { scheduleIdleWork } from './startupScheduler';
 
-const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 6000;
-const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 500;
+const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 2200;
+const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 180;
 
 const SIDEBAR_ROUTE_MODULE_LOADERS = [
-  () => import('../features/trade/TradeScreen'),
-  () => import('../features/settings/SettingsScreen'),
-  () => import('../features/settings/NewsScreen'),
-  () => import('../features/settings/MailboxScreen'),
-  () => import('../features/settings/JournalScreen'),
-  () => import('../features/settings/EconomicCalendarScreen'),
-  () => import('../features/settings/TradersCommunityScreen'),
-  () => import('../features/settings/Mql5AlgoTradingScreen'),
-  () => import('../features/settings/UserGuideScreen'),
-  () => import('../features/settings/AboutScreen'),
-  () => import('../features/settings/AccountsScreen'),
-  () => import('../features/settings/InterfaceScreen'),
+  { key: 'trade/index', load: () => import('../features/trade/TradeScreen').then((module) => module.TradeScreen) },
+  { key: 'settings/index', load: () => import('../features/settings/SettingsScreen').then((module) => module.SettingsScreen) },
+  { key: 'settings/about', load: () => import('../features/settings/AboutScreen').then((module) => module.AboutScreen) },
+  { key: 'settings/user-guide', load: () => import('../features/settings/UserGuideScreen').then((module) => module.UserGuideScreen) },
+  { key: 'settings/news', load: () => import('../features/settings/NewsScreen').then((module) => module.NewsScreen) },
+  { key: 'settings/mailbox', load: () => import('../features/settings/MailboxScreen').then((module) => module.MailboxScreen) },
+  { key: 'settings/journal', load: () => import('../features/settings/JournalScreen').then((module) => module.JournalScreen) },
+  { key: 'settings/economic-calendar', load: () => import('../features/settings/EconomicCalendarScreen').then((module) => module.EconomicCalendarScreen) },
+  { key: 'settings/traders-community', load: () => import('../features/settings/TradersCommunityScreen').then((module) => module.TradersCommunityScreen) },
+  { key: 'settings/mql5-algo-trading', load: () => import('../features/settings/Mql5AlgoTradingScreen').then((module) => module.Mql5AlgoTradingScreen) },
+  { key: 'settings/accounts', load: () => import('../features/settings/AccountsScreen').then((module) => module.AccountsScreen) },
+  { key: 'settings/interface', load: () => import('../features/settings/InterfaceScreen').then((module) => module.InterfaceScreen) },
 ] as const;
 
 let sidebarRouteModuleWarmupStarted = false;
@@ -35,9 +36,9 @@ export function warmSidebarRouteModules() {
       return;
     }
 
-    const loadModule = SIDEBAR_ROUTE_MODULE_LOADERS[cursor];
+    const module = SIDEBAR_ROUTE_MODULE_LOADERS[cursor];
     cursor += 1;
-    void loadModule().catch(() => undefined);
+    void preloadDeferredRouteModule(module.key, module.load).catch(() => undefined);
 
     if (cursor < SIDEBAR_ROUTE_MODULE_LOADERS.length) {
       const cancel = scheduleIdleWork(warmNextModule, {

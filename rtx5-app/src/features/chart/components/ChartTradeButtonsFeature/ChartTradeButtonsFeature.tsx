@@ -10,6 +10,7 @@ import {
   resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
+import { resolveChartTradeButtonQuote } from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
 
@@ -39,6 +40,8 @@ type ChartTradeButtonsProps = {
   onIncreaseLot?: () => void;
   variant?: 'compact' | 'mt5-market';
   active?: boolean;
+  fallbackBid?: number | null;
+  fallbackAsk?: number | null;
   isDark: boolean;
   buyColor: string;
   sellColor: string;
@@ -64,13 +67,19 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   onIncreaseLot,
   variant = 'compact',
   active = true,
+  fallbackBid,
+  fallbackAsk,
   isDark,
   buyColor,
   sellColor,
 }: ChartTradeButtonsProps) {
   const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
-  const latestBid = typeof latestQuote?.bid === 'number' && Number.isFinite(latestQuote.bid) ? latestQuote.bid : 0;
-  const latestAsk = typeof latestQuote?.ask === 'number' && Number.isFinite(latestQuote.ask) ? latestQuote.ask : 0;
+  const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
+    liveBid: latestQuote?.bid,
+    liveAsk: latestQuote?.ask,
+    fallbackBid,
+    fallbackAsk,
+  });
   const hasLiveBid = latestBid > 0;
   const hasLiveAsk = latestAsk > 0;
   const formattedBid = hasLiveBid ? latestBid.toFixed(displayDecimals) : '---';

@@ -1,8 +1,8 @@
 import { scheduleIdleWork } from './startupScheduler';
 
 const ACTION_ROUTE_WARMUP_BATCH_SIZE = 8;
-const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 120;
-const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 500;
+const ACTION_ROUTE_WARMUP_BATCH_DELAY_MS = 16;
+const ACTION_ROUTE_WARMUP_INITIAL_DELAY_MS = 0;
 
 export const ACTION_ROUTE_WARMUP_PATHS = [
   '/quotes',

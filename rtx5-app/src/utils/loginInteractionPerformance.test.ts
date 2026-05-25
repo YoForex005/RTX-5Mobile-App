@@ -19,6 +19,7 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /loginSubmitPressGuardRef\.current = true/);
   assert.match(source, /releaseLoginSubmitPressGuard\(\)/);
   assert.match(source, /runImmediateAction\('login\.submit\.touch'/);
+  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*Keyboard\.dismiss\(\)/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
   assert.match(source, /scheduleLoginSubmitAfterInputCommit\(\(\) => \{/);
   assert.match(source, /const snapshot = getLoginCredentialsSnapshot\(\)/);
@@ -59,7 +60,7 @@ test('login broker id can be selected from the broker directory dropdown', () =>
   assert.match(source, /const brokerOptions = useMemo<LoginBrokerOption\[\]>\(\(\) => \{/);
   assert.match(source, /const selectedBrokerOption = useMemo\(\(\) => \{/);
   assert.match(source, /const brokerPickerActions = useMemo\(\(\) => \{/);
-  assert.match(source, /const selectBrokerOption = \(option: LoginBrokerOption\) => \{/);
+  assert.match(source, /const selectBrokerOption = useCallback\(\(option: LoginBrokerOption\) => \{/);
   assert.match(source, /setBrokerConnection\(option\.brokerId, option\.serverUrl, option\.logoUrl\)/);
   assert.match(source, /persistSelectedBrokerSession\(\{/);
   assert.match(source, /onPress: \(\) => selectBrokerOption\(option\)/);
@@ -102,8 +103,9 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /const handleLogin = async \(snapshot: LoginCredentialsSnapshot = getLoginCredentialsSnapshot\(\)\) => \{/);
   assert.match(source, /const normalizedBrokerId = snapshot\.brokerId/);
   assert.match(source, /const normalizedServerUrl = snapshot\.serverUrl/);
-  assert.match(source, /if \(!normalizedBrokerId\) \{/);
-  assert.match(source, /if \(!normalizedServerUrl\) \{/);
+  assert.match(source, /if \(!normalizedBrokerId\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /if \(!normalizedServerUrl\) \{\s*setIsLoading\(false\);/);
+  assert.match(source, /if \(!normalizedAccountId \|\| !currentPassword\) \{\s*setIsLoading\(false\);/);
   assert.match(source, /onChangeText=\{updateBrokerId\}/);
   assert.match(source, /onEndEditing=\{updateBrokerIdFromEndEditing\}/);
   assert.match(source, /onChangeText=\{updateAccountId\}/);
@@ -130,12 +132,27 @@ test('login success path does not wait on optional broker config or a fixed succ
   const loginRequestIndex = source.indexOf('const response: any = await loginAPI');
   const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
   const postLoginWorkIndex = source.indexOf('schedulePostLoginWork(() => {', routerReplaceIndex);
+  const selectedBrokerPersistIndex = source.indexOf('persistSelectedBrokerSession({', postLoginWorkIndex);
+  const authTokenPersistIndex = source.indexOf('persistAuthSessionTokens({', postLoginWorkIndex);
   const brokerConfigRefreshIndex = source.indexOf('void getBrokerConfig(canonicalBrokerId)', postLoginWorkIndex);
 
   assert.notEqual(loginRequestIndex, -1);
   assert.notEqual(routerReplaceIndex, -1);
   assert.notEqual(postLoginWorkIndex, -1);
+  assert.notEqual(selectedBrokerPersistIndex, -1);
+  assert.notEqual(authTokenPersistIndex, -1);
   assert.notEqual(brokerConfigRefreshIndex, -1);
+  const loginCriticalPath = source.slice(loginRequestIndex, routerReplaceIndex);
+  assert.doesNotMatch(
+    loginCriticalPath,
+    /checkBrokerServerHealth/,
+    'login should not run a serial health probe after the user presses submit',
+  );
+  assert.doesNotMatch(
+    loginCriticalPath,
+    /persist(?:SelectedBrokerSession|AuthSessionTokens)/,
+    'login should not wait for secure-storage writes before navigation',
+  );
   assert.ok(
     brokerConfigRefreshIndex > loginRequestIndex,
     'broker config refresh should run after auth has already completed',
@@ -147,6 +164,10 @@ test('login success path does not wait on optional broker config or a fixed succ
   assert.ok(
     postLoginWorkIndex > routerReplaceIndex,
     'non-critical login bookkeeping should be scheduled after navigation starts',
+  );
+  assert.ok(
+    selectedBrokerPersistIndex > postLoginWorkIndex && authTokenPersistIndex > postLoginWorkIndex,
+    'secure broker persistence should stay in the post-navigation work queue',
   );
   assert.ok(
     brokerConfigRefreshIndex > postLoginWorkIndex,

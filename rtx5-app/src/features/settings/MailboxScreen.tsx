@@ -16,9 +16,9 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
-import { safeRouterBack } from '../../utils/navigation';
 import { makeMailboxScreenStyles, type MailboxScreenStyles } from './MailboxScreen.styles';
 import {
   MAILBOX_PREVIEW_DATA,
@@ -46,6 +46,7 @@ const MAIL_GOLD = '#F5B942';
 const MAIL_AMBER = '#F59E0B';
 const MAIL_PURPLE = '#7C3AED';
 const MAIL_RED = '#EF4444';
+const MAILBOX_SECONDARY_CONTENT_DELAY_MS = 320;
 
 type ConfirmationConfig = {
   title: string;
@@ -74,6 +75,7 @@ export function MailboxScreen() {
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [mailboxOptionsOpen, setMailboxOptionsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationConfig | null>(null);
+  const secondaryContentReady = useDeferredRouteContentReady(MAILBOX_SECONDARY_CONTENT_DELAY_MS);
 
   const mailboxMessages = useMemo(
     () => data.messages.map((message) => (readMessageIds.has(message.message_id) ? { ...message, read_status: 'Read' as const } : message)),
@@ -98,6 +100,10 @@ export function MailboxScreen() {
   const messages = useMemo(
     () => filterMailboxMessages(mailboxMessages, selectedCategory, selectedPriorityFilter, searchQuery),
     [mailboxMessages, selectedCategory, selectedPriorityFilter, searchQuery],
+  );
+  const renderedMessages = useMemo(
+    () => (secondaryContentReady ? messages : messages.slice(0, 3)),
+    [messages, secondaryContentReady],
   );
   const importantAnnouncement = useMemo(
     () => getImportantAnnouncement(data.importantAnnouncement, mailboxMessages),
@@ -194,7 +200,7 @@ export function MailboxScreen() {
   };
 
   const goBack = () => {
-    safeRouterBack(router, '/(tabs)/settings');
+    router.replace('/(tabs)/settings');
   };
 
   const openAnnouncementMessage = () => {
@@ -300,20 +306,24 @@ export function MailboxScreen() {
             />
             <MessageList
               allMessagesCount={mailboxMessages.length}
-              messages={messages}
+              messages={renderedMessages}
               onOpenMessage={setSelectedMessageId}
               onLongPressMessage={setActionSheetMessageId}
               onDeleteMessage={openDeleteConfirmation}
               T={T}
               styles={styles}
             />
-            <SupportShortcutCard supportState={data.supportState} isDark={isDark} styles={styles} />
-            <View style={styles.securityNote}>
-              <Ionicons name="lock-closed-outline" size={15} color={T.textMuted} />
-              <Text style={styles.securityNoteText}>
-                Official account, payout, KYC, and risk messages appear here. Never share passwords or OTPs with support.
-              </Text>
-            </View>
+            {secondaryContentReady ? (
+              <>
+                <SupportShortcutCard supportState={data.supportState} isDark={isDark} styles={styles} />
+                <View style={styles.securityNote}>
+                  <Ionicons name="lock-closed-outline" size={15} color={T.textMuted} />
+                  <Text style={styles.securityNoteText}>
+                    Official account, payout, KYC, and risk messages appear here. Never share passwords or OTPs with support.
+                  </Text>
+                </View>
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -442,7 +452,15 @@ function HeaderIcon({
   styles: MailboxScreenStyles;
 }) {
   return (
-    <Pressable style={styles.headerIconButton} onPress={onPress} hitSlop={8} accessibilityLabel={accessibilityLabel}>
+    <Pressable
+      style={styles.headerIconButton}
+      onPress={onPress}
+      activateOnPressIn={Boolean(onPress)}
+      activateOnTouchStart={Boolean(onPress)}
+      hitSlop={8}
+      accessibilityLabel={accessibilityLabel}
+      unstable_pressDelay={0}
+    >
       <Ionicons name={icon} size={19} color={T.textSub} />
     </Pressable>
   );
@@ -527,7 +545,14 @@ function MailboxSearchBar({
           <Ionicons name="close-circle" size={18} color={T.textMuted} />
         </Pressable>
       ) : (
-        <Pressable style={styles.searchShortcut} onPress={onOpenFilters} hitSlop={8}>
+        <Pressable
+          style={styles.searchShortcut}
+          onPress={onOpenFilters}
+          activateOnPressIn
+          activateOnTouchStart
+          hitSlop={8}
+          unstable_pressDelay={0}
+        >
           <Ionicons name="options-outline" size={15} color={MAIL_BLUE} />
         </Pressable>
       )}
@@ -901,12 +926,15 @@ function MailboxDetailScreen({
 }) {
   const detailContext = message ? getDetailContextConfig(message, T) : null;
 
+  if (!message) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={Boolean(message)} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
       <View style={styles.detailSheet}>
-        {message ? (
-          <>
+        <>
             <View style={styles.sheetHandle} />
             <View style={styles.detailHeader}>
               <Pressable style={styles.iconActionButton} onPress={onClose} accessibilityLabel="Back to mailbox">
@@ -952,8 +980,7 @@ function MailboxDetailScreen({
 
               <MessageActionButtons message={message} onDelete={() => onDelete(message)} styles={styles} />
             </ScrollView>
-          </>
-        ) : null}
+        </>
       </View>
     </Modal>
   );
@@ -972,23 +999,24 @@ function RiskDashboardPreviewSheet({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
-  const rows = message
-    ? [
-        { label: 'Account', value: message.related_account_id ?? 'Protected' },
-        { label: 'Challenge', value: message.related_challenge_id ?? 'Prop Firm' },
-        { label: 'Rule Set', value: message.category },
-        { label: 'Priority', value: message.priority },
-        { label: 'Status', value: message.status },
-        { label: 'Alert Time', value: formatShortTime(message.created_at) },
-      ]
-    : [];
+  if (!message) {
+    return null;
+  }
+
+  const rows = [
+    { label: 'Account', value: message.related_account_id ?? 'Protected' },
+    { label: 'Challenge', value: message.related_challenge_id ?? 'Prop Firm' },
+    { label: 'Rule Set', value: message.category },
+    { label: 'Priority', value: message.priority },
+    { label: 'Status', value: message.status },
+    { label: 'Alert Time', value: formatShortTime(message.created_at) },
+  ];
 
   return (
-    <Modal transparent visible={Boolean(message)} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
       <View style={styles.riskSheet}>
-        {message ? (
-          <>
+        <>
             <View style={styles.sheetHandle} />
             <View style={styles.riskSheetHeader}>
               <View style={[styles.detailContextIcon, { backgroundColor: withAlpha(MAIL_RED, 0.1), borderColor: withAlpha(MAIL_RED, 0.24) }]}>
@@ -1033,8 +1061,7 @@ function RiskDashboardPreviewSheet({
                 <Text style={styles.primaryButtonText}>Done</Text>
               </Pressable>
             </View>
-          </>
-        ) : null}
+        </>
       </View>
     </Modal>
   );
@@ -1240,8 +1267,12 @@ function MailboxFilterBottomSheet({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
       <View style={styles.filterSheet}>
         <View style={styles.sheetHandle} />
@@ -1364,8 +1395,12 @@ function MailboxOptionsSheet({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
       <View style={styles.actionSheet}>
         <View style={styles.sheetHandle} />
@@ -1406,18 +1441,20 @@ function MailboxActionSheet({
   T: ThemeColors;
   styles: MailboxScreenStyles;
 }) {
+  if (!message) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={Boolean(message)} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable style={styles.sheetOverlay} onPress={onClose} />
       <View style={styles.actionSheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.filterTitle} numberOfLines={1}>{message?.title ?? 'Message Actions'}</Text>
-        <ActionRow icon={message?.read_status === 'Unread' ? 'mail-open-outline' : 'mail-unread-outline'} label={message?.read_status === 'Unread' ? 'Mark as read' : 'Mark as unread'} onPress={onClose} T={T} styles={styles} />
+        <Text style={styles.filterTitle} numberOfLines={1}>{message.title}</Text>
+        <ActionRow icon={message.read_status === 'Unread' ? 'mail-open-outline' : 'mail-unread-outline'} label={message.read_status === 'Unread' ? 'Mark as read' : 'Mark as unread'} onPress={onClose} T={T} styles={styles} />
         <ActionRow icon="pin-outline" label="Pin message" onPress={onClose} T={T} styles={styles} />
         <ActionRow icon="archive-outline" label="Archive" onPress={onClose} T={T} styles={styles} />
-        {message ? (
-          <ActionRow icon="trash-outline" label="Delete" destructive onPress={() => onDelete(message)} T={T} styles={styles} />
-        ) : null}
+        <ActionRow icon="trash-outline" label="Delete" destructive onPress={() => onDelete(message)} T={T} styles={styles} />
       </View>
     </Modal>
   );
@@ -1464,21 +1501,25 @@ function ConfirmationModal({
   onClose: () => void;
   styles: MailboxScreenStyles;
 }) {
+  if (!config) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={Boolean(config)} animationType="fade" onRequestClose={onClose}>
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>{config?.title}</Text>
-          <Text style={styles.modalMessage}>{config?.message}</Text>
+          <Text style={styles.modalTitle}>{config.title}</Text>
+          <Text style={styles.modalMessage}>{config.message}</Text>
           <View style={styles.modalActions}>
             <Pressable style={styles.modalCancelButton} onPress={onClose}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.modalConfirmButton, config?.tone === 'danger' ? styles.modalDangerButton : null]}
-              onPress={config?.onConfirm}
+              style={[styles.modalConfirmButton, config.tone === 'danger' ? styles.modalDangerButton : null]}
+              onPress={config.onConfirm}
             >
-              <Text style={styles.modalConfirmText}>{config?.confirmLabel}</Text>
+              <Text style={styles.modalConfirmText}>{config.confirmLabel}</Text>
             </Pressable>
           </View>
         </View>

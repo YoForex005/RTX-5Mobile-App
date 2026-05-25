@@ -25,13 +25,14 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
 
   assert.match(quotesSource, /import \{ usePathname, useRouter \} from 'expo-router'/);
   assert.match(quotesSource, /const pathname = usePathname\(\)/);
-  assert.match(quotesSource, /const quoteServerDataActive = isScreenFocused && isLoggedIn/);
+  assert.match(quotesSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
+  assert.match(quotesSource, /const quoteServerDataActive = useDeferredActiveFlag\(isScreenFocused && isLoggedIn\)/);
   assert.match(quotesSource, /useMarketSymbols\(quoteServerDataActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteServerDataActive\)/);
+  assert.match(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(quotesSource, /const quoteRouteActive =[\s\S]*isScreenFocused[\s\S]*pathname === '\/quotes'[\s\S]*pathname\.startsWith\('\/quotes\/'\)[\s\S]*pathname === '\/\(tabs\)\/quotes'[\s\S]*pathname\.startsWith\('\/\(tabs\)\/quotes\/'\)/);
   assert.match(quotesSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesSource, /const quoteFeedActive = quoteStickyFeedActive/);
-  assert.doesNotMatch(quotesSource, /quoteFeedActive = quoteStickyFeedActive &&/);
+  assert.match(quotesSource, /const quoteFeedActive = quoteStickyFeedActive && !sidebarOpen/);
   assert.match(quotesSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteFeedActive\)/);
   assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteFeedActive\}/);
@@ -68,7 +69,8 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /import \{ router, useFocusEffect, usePathname \} from 'expo-router'/);
   assert.match(chartSource, /const pathname = usePathname\(\)/);
   assert.match(chartSource, /const isChartRouteActive =[\s\S]*pathname === '\/chart'[\s\S]*pathname\.startsWith\('\/chart\/'\)/);
-  assert.match(chartSource, /const chartRuntimeActive = isChartRouteActive/);
+  assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
+  assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive\)/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
@@ -106,7 +108,8 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(accountsSource, /useMt5Status\(isScreenFocused\)/);
 
   assert.match(settingsSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(settingsSource, /const settingsDataActive = isLoggedIn && isScreenFocused/);
+  assert.match(settingsSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
+  assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(isLoggedIn && isScreenFocused\)/);
   assert.match(settingsSource, /useAccounts\(settingsDataActive\)/);
   assert.match(settingsSource, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
 
@@ -123,7 +126,9 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSummarySource, /useMarketData\(liveQuoteSymbols, active\)/);
   assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(calendarSource, /if \(!isScreenFocused\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(calendarSource, /const CALENDAR_INITIAL_DATA_DELAY_MS = 120/);
+  assert.match(calendarSource, /const calendarDataReady = useDeferredRouteContentReady\(CALENDAR_INITIAL_DATA_DELAY_MS\)/);
+  assert.match(calendarSource, /if \(!isScreenFocused \|\| !calendarDataReady\) \{[\s\S]*return;[\s\S]*\}/);
 
   assert.match(healthSource, /export function useHealth\(enabled = true\)/);
   assert.match(healthSource, /refetchInterval: enabled \? 30000 : false/);

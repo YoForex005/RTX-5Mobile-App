@@ -31,21 +31,26 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.doesNotMatch(source, /ANDROID_EDGE_GESTURE_SAFE_PAD/);
 });
 
-test('sidebar drawer uses immediate non-blocking navigation for menu rows', () => {
+test('sidebar drawer uses native-driver motion and non-blocking navigation for menu rows', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
 
-  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 0/);
-  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 65/);
-  assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 120/);
-  assert.match(source, /const SIDEBAR_PROFILE_DATA_DELAY_MS = 1000/);
-  assert.match(source, /const \[profileDataReady, setProfileDataReady\] = useState\(false\)/);
-  assert.match(source, /const sidebarProfileDataActive = profileDataReady && isLoggedIn/);
-  assert.match(source, /setTimeout\(\(\) => \{[\s\S]*scheduleNextFrame\(\(\) => \{[\s\S]*setProfileDataReady\(true\)[\s\S]*SIDEBAR_PROFILE_DATA_DELAY_MS/);
+  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 50/);
+  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 50/);
+  assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 50/);
+  assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/hooks\/useDeferredActiveFlag'/);
+  assert.match(source, /const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200/);
+  assert.match(source, /const sidebarProfileDataActive = useDeferredActiveFlag\(visible && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS\)/);
+  assert.doesNotMatch(source, /profileDataReady/);
   assert.match(source, /const LOGGED_OUT_PREFETCH_ROUTES = \['\/login'\] as const/);
   assert.match(source, /const SIDEBAR_STACK_ROUTES = new Set<string>\(LOGGED_OUT_PREFETCH_ROUTES\)/);
+  assert.match(source, /const SIDEBAR_REPLACE_ROUTE_PREFIXES = \['\/settings\/'\] as const/);
+  assert.match(source, /function shouldReplaceSidebarRoute\(route: string\)/);
   assert.match(source, /useLayoutEffect\(\(\) => \{/);
-  assert.match(source, /slideAnim\.setValue\(0\)/);
-  assert.match(source, /overlayAnim\.setValue\(1\)/);
+  assert.match(source, /Animated\.parallel\(\[/);
+  assert.match(source, /toValue: 0,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
+  assert.match(source, /toValue: 1,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
+  assert.match(source, /toValue: -DRAWER_WIDTH,[\s\S]*duration: DRAWER_CLOSE_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
+  assert.match(source, /Easing\.out\(Easing\.cubic\)/);
   assert.match(source, /pointerEvents=\{visible \? 'auto' : 'none'\}/);
   assert.match(source, /containerHidden:/);
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
@@ -54,6 +59,7 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.match(source, /overlay: \{[\s\S]*left: DRAWER_WIDTH,[\s\S]*zIndex: 0,[\s\S]*elevation: 0,/);
   assert.doesNotMatch(source, /overlay: \{\s*\.\.\.StyleSheet\.absoluteFillObject/);
   assert.match(source, /drawer: \{[\s\S]*zIndex: 1,[\s\S]*elevation: 1,/);
+  assert.match(source, /transform: \[\{ translateX: slideAnim \}\]/);
   assert.doesNotMatch(source, /if \(!visible\) \{\s*return null;\s*\}/);
   assert.doesNotMatch(source, /const PREFETCH_ROUTES = \[/);
   assert.doesNotMatch(source, /SIDEBAR_PREFETCH_DELAY_MS/);
@@ -71,12 +77,12 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
   assert.match(source, /closeImmediately\(\)/);
   assert.match(source, /normalizeSidebarPath\(route\)/);
-  assert.match(source, /function scheduleAfterFirstVisualFrame\(action: \(\) => void\)/);
-  assert.match(source, /scheduleNextFrame\(\(\) => \{\s*setTimeout\(action, 0\);/);
-  assert.match(source, /showSidebarRouteTransition\(\{ route, label \}\)/);
-  assert.match(source, /scheduleAfterFirstVisualFrame\(\(\) => \{/);
+  assert.doesNotMatch(source, /scheduleAfterFirstVisualFrame/);
+  assert.doesNotMatch(source, /showSidebarRouteTransition/);
   assert.match(source, /SIDEBAR_STACK_ROUTES\.has\(route\)/);
   assert.match(source, /router\.push\(route as any\)/);
+  assert.match(source, /shouldReplaceSidebarRoute\(route\)/);
+  assert.match(source, /router\.replace\(route as any\)/);
   assert.match(source, /router\.navigate\(route as any\)/);
   assert.doesNotMatch(source, /prefetchSidebarRoute\(route\);\s*router\.push\(route as any\)/);
   assert.match(source, /unlockSidebarNavigation\(\)/);
@@ -93,6 +99,26 @@ test('sidebar drawer uses immediate non-blocking navigation for menu rows', () =
   assert.doesNotMatch(source, /traceUiInteraction/);
 });
 
+test('sidebar detail back buttons do not walk through old sidebar history', () => {
+  const directBackFiles = [
+    'src/features/settings/AccountsScreen.tsx',
+    'src/features/settings/NewsScreen.tsx',
+    'src/features/settings/MailboxScreen.tsx',
+    'src/features/settings/JournalScreen/JournalScreen.tsx',
+    'src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx',
+    'src/features/settings/InterfaceScreen.tsx',
+    'src/features/settings/TradersCommunityScreen.tsx',
+    'src/features/settings/Mql5AlgoTradingScreen.tsx',
+    'src/features/settings/SettingsBackBar.tsx',
+  ];
+
+  for (const file of directBackFiles) {
+    const source = readSource(file);
+    assert.match(source, /router\.replace\('\/\(tabs\)\/settings'\)/, `${file} should replace to the settings tab`);
+    assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/, `${file} should not replay stack history`);
+  }
+});
+
 test('chart header menu avoids Android edge gesture interception', () => {
   const source = readSource('src/features/chart/ChartScreen.styles.ts');
 
@@ -107,7 +133,7 @@ test('sidebar login prompt opens login from a large first-touch target', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
 
   assert.match(source, /const SIDEBAR_PROFILE_ACTION_HIT_SLOP = \{/);
-  assert.match(source, /onPress=\{\(\) => navigateSidebarRoute\('\/login', 'Login'\)\}/);
+  assert.match(source, /onPress=\{\(\) => navigateSidebarRoute\('\/login'\)\}/);
   assert.match(source, /activateOnPressIn/);
   assert.match(source, /hitSlop=\{SIDEBAR_PROFILE_ACTION_HIT_SLOP\}/);
   assert.match(source, /latencyLabel="sidebar\.getStarted"/);
@@ -123,8 +149,6 @@ test('sidebar keeps the main option routes warm and available', () => {
   const rootLayoutSource = readSource('app/_layout.tsx');
   const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
   const deferredMountSource = readSource('src/ui/components/DeferredRouteMount.tsx');
-  const moduleWarmupSource = readSource('src/utils/sidebarRouteModuleWarmup.ts');
-  const overlaySource = readSource('src/ui/components/SidebarRouteTransitionOverlay.tsx');
   const deferredRouteFiles = [
     'app/settings/accounts.tsx',
     'app/settings/news.tsx',
@@ -158,41 +182,24 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(rootLayoutSource, /name='settings\/mql5-algo-trading' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/user-guide' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/about' options=\{sidebarDetailScreenOptions\}/);
-  assert.match(tabsLayoutSource, /import \{ warmSidebarRouteModules \} from '..\/..\/src\/utils\/sidebarRouteModuleWarmup'/);
-  assert.match(tabsLayoutSource, /useEffect\(\(\) => warmSidebarRouteModules\(\), \[\]\)/);
-  assert.match(tabsLayoutSource, /import \{ SidebarRouteTransitionOverlay \} from '..\/..\/src\/ui\/components\/SidebarRouteTransitionOverlay'/);
-  assert.match(tabsLayoutSource, /<SidebarRouteTransitionOverlay \/>[\s\S]*<SidebarDrawer \/>/);
-  assert.match(overlaySource, /const SIDEBAR_ROUTE_TRANSITION_MAX_MS = 2500/);
-  assert.match(overlaySource, /normalizeSidebarTransitionPath/);
-  assert.match(overlaySource, /sidebarRouteTransition/);
-  assert.match(overlaySource, /clearSidebarRouteTransition/);
-  assert.match(overlaySource, /pointerEvents="none"/);
-  assert.match(overlaySource, /\.\.\.StyleSheet\.absoluteFillObject/);
-  assert.match(overlaySource, /zIndex: 9998/);
-  assert.match(overlaySource, /\{transition\.label\}/);
+  assert.doesNotMatch(tabsLayoutSource, /warmSidebarRouteModules/);
+  assert.doesNotMatch(tabsLayoutSource, /SidebarRouteTransitionOverlay/);
   assert.match(deferredMountSource, /requestAnimationFrame/);
   assert.match(deferredMountSource, /export function DeferredRouteModule/);
-  assert.match(deferredMountSource, /const ROUTE_MODULE_LOAD_DELAY_MS = 120/);
-  assert.match(deferredMountSource, /load\(\)\.then\(\(Component\) => \{/);
-  assert.match(deferredMountSource, /<DeferredRoutePlaceholder title=\{title\} \/>/);
-  assert.match(deferredMountSource, /<View style=\{\[styles\.placeholder, \{ backgroundColor: T\.bg \}\]\}>/);
-  assert.match(deferredMountSource, /placeholderTitle/);
-  assert.match(moduleWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_INITIAL_DELAY_MS = 6000/);
-  assert.match(moduleWarmupSource, /const SIDEBAR_ROUTE_MODULE_WARMUP_BATCH_DELAY_MS = 500/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/trade\/TradeScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/SettingsScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/NewsScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/MailboxScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/JournalScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/EconomicCalendarScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/TradersCommunityScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/Mql5AlgoTradingScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/UserGuideScreen'\)/);
-  assert.match(moduleWarmupSource, /import\('\.\.\/features\/settings\/AboutScreen'\)/);
+  assert.match(deferredMountSource, /const ROUTE_MODULE_LOAD_DELAY_MS = 0/);
+  assert.match(deferredMountSource, /const ROUTE_HEAVY_CONTENT_DELAY_MS = 1200/);
+  assert.match(deferredMountSource, /export function useDeferredRouteContentReady/);
+  assert.match(deferredMountSource, /scheduleDeferredFrameWork\(2/);
+  assert.match(deferredMountSource, /const routeModuleCache = new Map<string, CachedRouteModule>\(\)/);
+  assert.match(deferredMountSource, /export function preloadDeferredRouteModule/);
+  assert.match(deferredMountSource, /preloadDeferredRouteModule\(cacheKey, load\)/);
+  assert.match(deferredMountSource, /if \(!RouteComponent\) \{\s*return null;\s*\}/);
+  assert.doesNotMatch(deferredMountSource, /DeferredRoutePlaceholder|placeholderTitle|title\?: string/);
   for (const file of deferredRouteFiles) {
     const routeSource = readSource(file);
-    assert.match(routeSource, /import \{ DeferredRouteModule \} from '..\/..\/src\/ui\/components\/DeferredRouteMount'/);
-    assert.match(routeSource, /const load[A-Za-z0-9]+Screen = \(\) => import\('/);
-    assert.match(routeSource, /<DeferredRouteModule load=\{load[A-Za-z0-9]+Screen\} title="/);
+    assert.doesNotMatch(routeSource, /DeferredRouteModule|const load[A-Za-z0-9]+Screen = \(\) => import\('/);
+    assert.match(routeSource, /import \{ [A-Za-z0-9]+Screen \} from '..\/..\/src\/features\/settings\//);
+    assert.match(routeSource, /<[A-Za-z0-9]+Screen \/>/);
+    assert.doesNotMatch(routeSource, /title="/);
   }
 });

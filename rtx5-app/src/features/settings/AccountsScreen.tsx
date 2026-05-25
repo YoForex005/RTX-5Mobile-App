@@ -51,7 +51,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
-import { safeRouterBack } from '../../utils/navigation';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountType,
@@ -421,7 +420,7 @@ export function AccountsScreen() {
           <FastPressable
             style={styles.iconBtn}
             hitSlop={15}
-            onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+            onPress={() => router.replace('/(tabs)/settings')}
             activateOnPressIn
             latencyLabel="accounts.back"
             unstable_pressDelay={0}

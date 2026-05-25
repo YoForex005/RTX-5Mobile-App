@@ -52,6 +52,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - [x] Unit: Trade-tab position merging keeps other symbols visible when a scoped live update arrives and rejects symbol-less placeholder rows.
 - [x] Unit: Trade-tab position state deduplicates colliding order/position ticket rows before rendering.
 - [x] Unit: market order symbol candidates prefer cached broker symbols without brute-forcing hardcoded suffix POST attempts.
+- [x] Unit/device: shared Android ActionSheet geometry keeps the Trade bulk operations sheet at one settled position when opened.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -59,6 +60,8 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - Trading UI flows are functionally complete with no blocking defects.
 
 ## Progress Notes
+- 2026-05-25: Rechecked the Trade Bulk Operations dropdown with before/after ADB screenshots. The shared adaptive ActionSheet floor now prevents the short bulk action list from shrinking to content and dropping low on Android; the observed sheet top moved from y=887 before the fix to y=650 after the fix while keeping the action list and Cancel row stable.
+- 2026-05-23: Shared Android ActionSheet geometry now waits out the transient Modal/status-bar frame before painting, so Trade bulk and position action sheets no longer appear and then drop. ADB video verified Bulk Operations stays fixed at y=929 across all visible recorded frames.
 - 2026-05-20: Fixed duplicate React key warnings after market execution when the backend returns the same timestamp-style value for `order_ticket` and `position_ticket`. Optimistic order inserts now go through the position upsert path, the positions store deduplicates ticket collisions, trade/bulk/close-by render helpers consume deduped position arrays, and focused unit tests cover the `1774502954924` duplicate-ticket shape.
 - 2026-05-15: Reduced buy/sell response latency in the market order path by removing the cold `/instruments` preflight from the first order POST, caching the last accepted broker symbol per broker/base symbol, and replacing the previous hardcoded suffix POST loop with a single API-catalog fallback only after the server reports a market-data/symbol miss. Added a focused unit test for the candidate order and no-brute-force behavior.
 - 2026-05-05: Updated the shared live order execution graph so the final dotted guide uses the same vertical interval as the rest of the price grid, tightened the horizontal gap between right-side price labels and grid lines, added the missing right-side value for the lowest dotted guide, and softened generated bid/ask traces with a rounded pencil-style stroke treatment. This applies to the market order ticket and to the shared graph reused by chart trade SL/TP order tabs.

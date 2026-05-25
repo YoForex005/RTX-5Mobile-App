@@ -18,12 +18,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { ActionSheet } from '../../ui/components/ActionSheet';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useMarketSymbols } from '../../query/market';
 import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
-import { safeRouterBack } from '../../utils/navigation';
 import { resolveQuoteFeedSymbols } from '../quotes/quoteWatchlistDefaults';
 import { BreakingNewsCard, type BreakingNewsCardData } from './BreakingNewsCard';
 import { getNewsThemeColors, makeNewsScreenStyles, type NewsScreenStyles, type NewsThemeColors } from './NewsScreen.styles';
@@ -41,6 +41,8 @@ import {
   type NewsScreenStatus,
   type WatchlistNewsItem,
 } from './newsViewModel';
+
+const NEWS_SECONDARY_CONTENT_DELAY_MS = 320;
 
 export function NewsScreen() {
   const T = useTheme();
@@ -67,6 +69,7 @@ export function NewsScreen() {
   const [selectedLatestNews, setSelectedLatestNews] = useState<LatestNewsItem | null>(null);
   const [selectedAiBrief, setSelectedAiBrief] = useState<AiMarketBrief | null>(null);
   const [selectedWatchlistNews, setSelectedWatchlistNews] = useState<WatchlistNewsItem | null>(null);
+  const secondaryContentReady = useDeferredRouteContentReady(NEWS_SECONDARY_CONTENT_DELAY_MS);
 
   const previewData = useMemo(() => buildMarketNewsPreviewData(watchlistSymbols), [watchlistSymbols]);
   const data = useMemo(() => {
@@ -81,6 +84,10 @@ export function NewsScreen() {
     () => (selectedLatestNews ? data.latestNews.find((item) => item.newsId === selectedLatestNews.newsId) ?? selectedLatestNews : null),
     [data.latestNews, selectedLatestNews],
   );
+  const renderedLatestNews = useMemo(
+    () => (secondaryContentReady ? latestNews : latestNews.slice(0, 3)),
+    [latestNews, secondaryContentReady],
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -88,7 +95,7 @@ export function NewsScreen() {
   }, []);
 
   const goBack = useCallback(() => {
-    safeRouterBack(router, '/(tabs)/settings');
+    router.replace('/(tabs)/settings');
   }, []);
 
   const openBreakingSymbolChart = useCallback((symbol: string) => {
@@ -217,9 +224,14 @@ export function NewsScreen() {
 
       <FlatList
         style={styles.list}
-        data={status === 'loading' ? [] : latestNews}
+        data={status === 'loading' ? [] : renderedLatestNews}
         keyExtractor={(item) => item.newsId}
         renderItem={renderNewsCard}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        updateCellsBatchingPeriod={80}
+        windowSize={5}
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         onScrollBeginDrag={dismissSearchFromContent}
@@ -241,6 +253,7 @@ export function NewsScreen() {
             styles={styles}
             colors={newsColors}
             isDark={isDark}
+            secondaryContentReady={secondaryContentReady}
           />
         }
         ListEmptyComponent={
@@ -255,12 +268,14 @@ export function NewsScreen() {
           )
         }
         ListFooterComponent={
+          secondaryContentReady ? (
           <MarketNewsFooterContent
             data={data}
             status={status}
             colors={newsColors}
             styles={styles}
           />
+          ) : null
         }
         refreshControl={
           <RefreshControl
@@ -275,39 +290,39 @@ export function NewsScreen() {
         onEndReachedThreshold={0.45}
       />
 
-      <EconomicEventDetailModal
+      {selectedEconomicEvent ? <EconomicEventDetailModal
         event={selectedEconomicEvent}
         visible={Boolean(selectedEconomicEvent)}
         onClose={closeEconomicEvent}
         T={T}
         colors={newsColors}
         styles={styles}
-      />
-      <LatestNewsDetailModal
+      /> : null}
+      {selectedLatestNewsItem ? <LatestNewsDetailModal
         item={selectedLatestNewsItem}
         visible={Boolean(selectedLatestNewsItem)}
         onClose={closeLatestNews}
         T={T}
         colors={newsColors}
         styles={styles}
-      />
-      <AiMarketBriefDetailModal
+      /> : null}
+      {selectedAiBrief ? <AiMarketBriefDetailModal
         brief={selectedAiBrief}
         visible={Boolean(selectedAiBrief)}
         onClose={closeAiBrief}
         colors={newsColors}
         styles={styles}
-      />
-      <WatchlistNewsDetailModal
+      /> : null}
+      {selectedWatchlistNews ? <WatchlistNewsDetailModal
         item={selectedWatchlistNews}
         visible={Boolean(selectedWatchlistNews)}
         onClose={closeWatchlistNews}
         T={T}
         colors={newsColors}
         styles={styles}
-      />
+      /> : null}
 
-      <ActionSheet
+      {actionSheet !== null ? <ActionSheet
         visible={actionSheet !== null}
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
@@ -317,7 +332,7 @@ export function NewsScreen() {
         minimumTopInset={actionSheet?.minimumTopInset}
         instantOpen={actionSheet?.instantOpen}
         runActionAfterClose={actionSheet?.runActionAfterClose}
-      />
+      /> : null}
     </Screen>
   );
 }
@@ -334,6 +349,7 @@ function MarketNewsHeaderContent({
   styles,
   colors,
   isDark,
+  secondaryContentReady,
 }: {
   T: ThemeColors;
   status: NewsScreenStatus;
@@ -346,6 +362,7 @@ function MarketNewsHeaderContent({
   styles: NewsScreenStyles;
   colors: NewsThemeColors;
   isDark: boolean;
+  secondaryContentReady: boolean;
 }) {
   return (
     <View>
@@ -368,7 +385,7 @@ function MarketNewsHeaderContent({
         />
       )}
 
-      {data.aiMarketBrief ? (
+      {secondaryContentReady && data.aiMarketBrief ? (
         <AiMarketBriefCard
           brief={data.aiMarketBrief}
           colors={colors}
@@ -377,20 +394,20 @@ function MarketNewsHeaderContent({
         />
       ) : null}
 
-      <EconomicCalendarPreview
+      {secondaryContentReady ? <EconomicCalendarPreview
         events={data.economicEvents}
         colors={colors}
         styles={styles}
         onOpenEvent={onOpenEconomicEvent}
-      />
+      /> : null}
 
-      <WatchlistNewsSection
+      {secondaryContentReady ? <WatchlistNewsSection
         items={data.watchlistNews}
         T={T}
         colors={colors}
         styles={styles}
         onOpenItem={onOpenWatchlistNews}
-      />
+      /> : null}
 
       <LatestNewsFeed count={latestNewsCount} filterLabel={getSelectedFilterLabel(data.impactFilters)} styles={styles} />
     </View>
@@ -453,10 +470,26 @@ function NewsHeader({
       </View>
 
       <View style={styles.headerActions}>
-        <Pressable style={styles.headerIconButton} onPress={onOpenSearch} hitSlop={8} accessibilityLabel="Search market news">
+        <Pressable
+          style={styles.headerIconButton}
+          onPress={onOpenSearch}
+          activateOnPressIn
+          activateOnTouchStart
+          hitSlop={8}
+          accessibilityLabel="Search market news"
+          unstable_pressDelay={0}
+        >
           <Ionicons name="search" size={21} color={colors.sub} />
         </Pressable>
-        <Pressable style={styles.headerIconButton} onPress={onOpenFilters} hitSlop={8} accessibilityLabel="Open news filters">
+        <Pressable
+          style={styles.headerIconButton}
+          onPress={onOpenFilters}
+          activateOnPressIn
+          activateOnTouchStart
+          hitSlop={8}
+          accessibilityLabel="Open news filters"
+          unstable_pressDelay={0}
+        >
           <Ionicons name="ellipsis-vertical" size={20} color={colors.sub} />
         </Pressable>
       </View>

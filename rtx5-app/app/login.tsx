@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../src/ui/components/FastPressable';
 import { Stack, router } from 'expo-router';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
   ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
@@ -29,6 +29,7 @@ import {
   persistAuthSessionTokens,
   persistSelectedBrokerSession,
 } from '../src/state/brokerSessionStorage';
+import { bootstrapApp } from '../src/services/bootstrapApp';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
@@ -40,6 +41,19 @@ const LOGIN_BUTTON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as co
 const LOGIN_BUTTON_PRESS_RETENTION_OFFSET = { top: 24, bottom: 24, left: 24, right: 24 } as const;
 const LOGIN_SUBMIT_PRESS_GUARD_MS = 350;
 const PINNED_LOGIN_BROKER_NAMES = ['MetaQuotes Ltd.'];
+const DEV_LOGIN_PREFILL_ENABLED =
+  typeof __DEV__ !== 'undefined' &&
+  __DEV__ &&
+  process.env.EXPO_PUBLIC_PREFILL_TEST_LOGIN !== 'false';
+const DEV_DEFAULT_LOGIN = {
+  brokerId: process.env.EXPO_PUBLIC_TEST_BROKER_ID || 'testorrnn',
+  brokerName: process.env.EXPO_PUBLIC_TEST_BROKER_NAME || 'Test Orrnn Broker (Demo)',
+  serverUrl: normalizeBrokerServerUrl(
+    process.env.EXPO_PUBLIC_TEST_BROKER_SERVER_URL || 'http://69.197.178.27:8090',
+  ),
+  username: process.env.EXPO_PUBLIC_TEST_USERNAME || '900001',
+  password: process.env.EXPO_PUBLIC_TEST_PASSWORD || 'TestPass1234',
+};
 
 type LoginBrokerOption = {
   key: string;
@@ -111,6 +125,9 @@ export function AccountLoginScreen() {
   const [brokerServerUrl, setBrokerServerUrl] = useState('');
   const [brokerLogoUrl, setBrokerLogoUrl] = useState('');
   const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
+  const [brokerHealthWarning, setBrokerHealthWarning] = useState('');
+  const [isBrokerHealthChecking, setIsBrokerHealthChecking] = useState(false);
+  const [savedCredentialsChecked, setSavedCredentialsChecked] = useState(false);
   const [modalState, setModalState] = useState<{ visible: boolean; type: 'success' | 'error'; title: string; message: string; }>({ visible: false, type: 'success', title: '', message: '' });
   const themeMode = useThemeMode();
   const T = useTheme();
@@ -125,6 +142,9 @@ export function AccountLoginScreen() {
   const brokerLogoUrlValueRef = useRef<string | null>(null);
   const accountIdValueRef = useRef<string | null>(null);
   const passwordValueRef = useRef<string | null>(null);
+  const brokerHealthProbeRef = useRef(0);
+  const hasSavedCredentialsRef = useRef(false);
+  const hasAppliedDevDefaultsRef = useRef(false);
   const {
     data: brokerServers = [],
     isLoading: isBrokerServersLoading,
@@ -137,6 +157,7 @@ export function AccountLoginScreen() {
     // Auto-populate saved credentials if they exist
     getSecureItemAsync(screenCopy.savedLoginKey).then((val) => {
       if (val) {
+        hasSavedCredentialsRef.current = true;
         try {
           const {
             broker,
@@ -171,6 +192,8 @@ export function AccountLoginScreen() {
           // ignore parsing error
         }
       }
+    }).finally(() => {
+      setSavedCredentialsChecked(true);
     });
   }, [screenCopy.savedLoginKey]);
 
@@ -181,6 +204,34 @@ export function AccountLoginScreen() {
     }
   }, []);
 
+  const probeBrokerHealth = useCallback(async (serverUrl: string) => {
+    const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+    if (!normalizedServerUrl) {
+      setBrokerHealthWarning('');
+      return;
+    }
+
+    const probeId = brokerHealthProbeRef.current + 1;
+    brokerHealthProbeRef.current = probeId;
+    setIsBrokerHealthChecking(true);
+    setBrokerHealthWarning('');
+
+    try {
+      await checkBrokerServerHealth(normalizedServerUrl);
+      if (brokerHealthProbeRef.current === probeId) {
+        setBrokerHealthWarning('');
+      }
+    } catch {
+      if (brokerHealthProbeRef.current === probeId) {
+        setBrokerHealthWarning(t('Broker temporarily unavailable'));
+      }
+    } finally {
+      if (brokerHealthProbeRef.current === probeId) {
+        setIsBrokerHealthChecking(false);
+      }
+    }
+  }, [t]);
+
   const updateBrokerId = (value: string) => {
     brokerIdValueRef.current = value;
     setBrokerId(value);
@@ -188,9 +239,10 @@ export function AccountLoginScreen() {
     brokerLogoUrlValueRef.current = null;
     setBrokerServerUrl('');
     setBrokerLogoUrl('');
+    setBrokerHealthWarning('');
   };
 
-  const selectBrokerOption = (option: LoginBrokerOption) => {
+  const selectBrokerOption = useCallback((option: LoginBrokerOption) => {
     brokerIdValueRef.current = option.brokerId;
     brokerServerUrlValueRef.current = option.serverUrl;
     brokerLogoUrlValueRef.current = option.logoUrl;
@@ -203,7 +255,8 @@ export function AccountLoginScreen() {
       serverUrl: option.serverUrl,
       logoUrl: option.logoUrl,
     });
-  };
+    void probeBrokerHealth(option.serverUrl);
+  }, [probeBrokerHealth, setBrokerConnection]);
 
   const updateAccountId = (value: string) => {
     accountIdValueRef.current = value;
@@ -277,6 +330,47 @@ export function AccountLoginScreen() {
   const selectedBrokerServerUrl = brokerServerUrl || selectedBrokerOption?.serverUrl || '';
   const selectedBrokerLogoUrl = brokerLogoUrl || selectedBrokerOption?.logoUrl || '';
 
+  useEffect(() => {
+    if (
+      !DEV_LOGIN_PREFILL_ENABLED ||
+      !savedCredentialsChecked ||
+      hasSavedCredentialsRef.current ||
+      hasAppliedDevDefaultsRef.current ||
+      brokerId ||
+      accountId ||
+      password
+    ) {
+      return;
+    }
+
+    hasAppliedDevDefaultsRef.current = true;
+    const directoryOption = brokerOptions.find(
+      (option) => option.brokerId.toLowerCase() === DEV_DEFAULT_LOGIN.brokerId.toLowerCase(),
+    );
+    const defaultOption = {
+      key: normalizeBrokerKey(DEV_DEFAULT_LOGIN.brokerId),
+      brokerId: DEV_DEFAULT_LOGIN.brokerId,
+      brokerName: directoryOption?.brokerName || DEV_DEFAULT_LOGIN.brokerName,
+      serverUrl: directoryOption?.serverUrl || DEV_DEFAULT_LOGIN.serverUrl,
+      logoUrl: directoryOption?.logoUrl || '',
+      region: directoryOption?.region || 'Demo',
+      protocol: directoryOption?.protocol || 'https',
+    };
+
+    selectBrokerOption(defaultOption);
+    accountIdValueRef.current = DEV_DEFAULT_LOGIN.username;
+    passwordValueRef.current = DEV_DEFAULT_LOGIN.password;
+    setAccountId(DEV_DEFAULT_LOGIN.username);
+    setPassword(DEV_DEFAULT_LOGIN.password);
+  }, [
+    accountId,
+    brokerId,
+    brokerOptions,
+    password,
+    savedCredentialsChecked,
+    selectBrokerOption,
+  ]);
+
   const brokerPickerActions = useMemo(() => {
     if (brokerOptions.length === 0) {
       const isBusy = isBrokerServersLoading || isBrokerServersFetching;
@@ -334,10 +428,12 @@ export function AccountLoginScreen() {
     const currentPassword = snapshot.password;
 
     if (!normalizedBrokerId) {
+      setIsLoading(false);
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter your Broker ID') });
       return;
     }
     if (!normalizedServerUrl) {
+      setIsLoading(false);
       setModalState({
         visible: true,
         type: 'error',
@@ -347,6 +443,7 @@ export function AccountLoginScreen() {
       return;
     }
     if (!normalizedAccountId || !currentPassword) {
+      setIsLoading(false);
       setModalState({ visible: true, type: 'error', title: t('Error'), message: t('Please enter both Login ID and Password') });
       return;
     }
@@ -354,7 +451,6 @@ export function AccountLoginScreen() {
     loginRequestInFlightRef.current = true;
     setIsLoading(true);
     try {
-      await checkBrokerServerHealth(normalizedServerUrl);
       const response: any = await loginAPI({
         username: normalizedAccountId,
         password: currentPassword,
@@ -421,18 +517,6 @@ export function AccountLoginScreen() {
       const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
-      await Promise.all([
-        persistSelectedBrokerSession({
-          brokerId: canonicalBrokerId,
-          serverUrl: normalizedServerUrl,
-          logoUrl: selectedLogoUrl,
-        }),
-        persistAuthSessionTokens({
-          accessToken,
-          refreshToken: refreshToken ?? '',
-          expiresAt: expiresAtIso,
-        }),
-      ]);
       setBrokerConnection(canonicalBrokerId, normalizedServerUrl, selectedLogoUrl);
 
       // brokerId is persisted atomically inside login() to prevent race
@@ -455,6 +539,23 @@ export function AccountLoginScreen() {
       setIsDemoAccountFlag(accountType === 'demo');
       router.replace('/(tabs)/quotes');
       schedulePostLoginWork(() => {
+        void Promise.all([
+          persistSelectedBrokerSession({
+            brokerId: canonicalBrokerId,
+            serverUrl: normalizedServerUrl,
+            logoUrl: selectedLogoUrl,
+          }),
+          persistAuthSessionTokens({
+            accessToken,
+            refreshToken: refreshToken ?? '',
+            expiresAt: expiresAtIso,
+          }),
+        ]).catch((err) => {
+          console.warn('[Login] Failed to persist secure broker session', err);
+        });
+        void bootstrapApp({ accountLogin: savedLogin }).catch((err) => {
+          console.warn('[Login] Post-login bootstrap failed', err);
+        });
         // Record this account in the persistent directory and stash the master
         // password securely so the user can one-tap switch back to it later
         // from the Accounts screen.
@@ -547,6 +648,7 @@ export function AccountLoginScreen() {
 
     loginSubmitPressGuardRef.current = true;
     runImmediateAction('login.submit.touch', () => {
+      setIsLoading(true);
       Keyboard.dismiss();
       scheduleLoginSubmitAfterInputCommit(() => {
         const snapshot = getLoginCredentialsSnapshot();
@@ -647,6 +749,8 @@ export function AccountLoginScreen() {
                     pressed && styles.brokerPickerBtnPressed,
                   ]}
                   onPress={handleBrokerPickerPress}
+                  activateOnPressIn
+                  activateOnTouchStart
                   hitSlop={LOGIN_TOUCH_HIT_SLOP}
                   latencyLabel="login.brokerPicker.open"
                   accessibilityRole="button"
@@ -671,6 +775,15 @@ export function AccountLoginScreen() {
               ) : isBrokerServersError ? (
                 <Text style={[styles.brokerSelectedHint, styles.brokerSelectedHintError]} numberOfLines={2}>
                   {t('Broker list unavailable. You can type the Broker ID manually.')}
+                </Text>
+              ) : null}
+              {isBrokerHealthChecking ? (
+                <Text style={styles.brokerSelectedHint} numberOfLines={1}>
+                  {t('Checking broker server...')}
+                </Text>
+              ) : brokerHealthWarning ? (
+                <Text style={[styles.brokerSelectedHint, styles.brokerSelectedHintError]} numberOfLines={2}>
+                  {brokerHealthWarning}
                 </Text>
               ) : null}
               <View style={styles.fieldDivider} />

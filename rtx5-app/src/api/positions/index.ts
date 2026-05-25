@@ -5,7 +5,7 @@
  *  GET  /api/v2/positions/{login}             — open positions for an account
  *  GET  /api/v2/positions/{login}/history     — closed-trade history (paginated)
  *  POST /api/v2/positions/{ticket}/close      — close a single position
- *  PUT  /api/v2/positions/{ticket}            — modify SL/TP on an open position
+ *  POST /api/v2/positions/{ticket}/modify     — modify SL/TP on an open position
  *
  * All calls routed through `apiClient` which auto-injects Bearer token and
  * handles 401 refresh loops. Originally a single 514-line file; split for the
@@ -126,9 +126,20 @@ export const positionsApi = {
    */
   closePosition: async (
     ticketId: string | number,
-    ticketBy?: string | number,
+    ticketBy?: string | number | { ticketBy?: string | number; volume?: number },
   ): Promise<ClosePositionResponse> => {
-    const body = ticketBy ? JSON.stringify({ ticket_by: Number(ticketBy) }) : undefined;
+    const closePayload =
+      ticketBy && typeof ticketBy === 'object'
+        ? {
+            ...(ticketBy.ticketBy !== undefined ? { ticket_by: Number(ticketBy.ticketBy) } : {}),
+            ...(typeof ticketBy.volume === 'number' && ticketBy.volume > 0 ? { volume: ticketBy.volume } : {}),
+          }
+        : ticketBy
+          ? { ticket_by: Number(ticketBy) }
+          : undefined;
+    const body = closePayload && Object.keys(closePayload).length > 0
+      ? JSON.stringify(closePayload)
+      : undefined;
     const response = await apiClient(`/positions/${ticketId}/close`, {
       method: 'POST',
       body,
@@ -147,7 +158,7 @@ export const positionsApi = {
   /**
    * Modify an open position's SL/TP values.
    *
-   * PUT /api/v2/positions/{ticketId}
+   * POST /api/v2/positions/{ticketId}/modify
    *
    * SL/TP values are validated against the current market price on the server.
    *
@@ -159,8 +170,8 @@ export const positionsApi = {
     ticketId: string | number,
     payload: ModifyPositionPayload,
   ): Promise<Position> => {
-    const response = await apiClient(`/positions/${ticketId}`, {
-      method: 'PUT',
+    const response = await apiClient(`/positions/${ticketId}/modify`, {
+      method: 'POST',
       body: JSON.stringify(payload),
     });
 

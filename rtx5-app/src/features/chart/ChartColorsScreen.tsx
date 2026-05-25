@@ -121,7 +121,7 @@ export function ChartColorsScreen() {
       <Modal
         transparent
         visible={!!activeKey}
-        animationType="slide"
+        animationType="none"
         {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => setActiveKey(null)}
       >

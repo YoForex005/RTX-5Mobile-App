@@ -73,7 +73,7 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(mt5AccountSource, /label: 'mt5Account\.create'/);
   assert.match(candlesSource, /label: 'candles\.publicHistory'/);
   assert.match(brokerSource, /const BROKER_SERVERS_TIMEOUT_MS = 3500/);
-  assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 2500/);
+  assert.match(brokerSource, /const BROKER_HEALTH_TIMEOUT_MS = 3000/);
   assert.match(brokerSource, /const controller = new AbortController\(\)/);
   assert.match(brokerSource, /timedFetch\(`\$\{PUBLIC_BROKER_DIRECTORY_BASE_URL\}\/broker\/servers`/);
   assert.match(brokerSource, /label: 'broker\.servers'/);
@@ -86,4 +86,25 @@ test('trade and registration paths record backend response latency', () => {
   assert.match(orderSource, /label: `trade\.placeMarketOrder\.\$\{requestedSide\}`/);
   assert.match(orderSource, /endpoint: '\/orders'/);
   assert.match(orderSource, /source: 'trade'/);
+});
+
+test('expired broker sessions fail fast and do not keep stale secure tokens alive', () => {
+  const brokerApiSource = readSource('src/api/brokerApi.ts');
+  const brokerRealtimeSource = readSource('src/api/ws/BrokerRealtimeService.ts');
+
+  assert.match(brokerApiSource, /const AUTH_REFRESH_TIMEOUT_MS = 2500/);
+  assert.match(brokerApiSource, /clearAuthSessionTokens/);
+  assert.match(brokerApiSource, /private sessionInvalidated = false/);
+  assert.match(brokerApiSource, /createUnauthenticatedResponse/);
+  assert.match(brokerApiSource, /return createUnauthenticatedResponse\(AUTH_SESSION_EXPIRED_MESSAGE\)/);
+  assert.match(brokerApiSource, /await this\.invalidateAuthSession\(\)/);
+  assert.match(brokerApiSource, /await clearAuthSessionTokens\(\)/);
+  assert.match(brokerApiSource, /const liveServerUrl = normalizeBrokerServerUrl\(state\.brokerServerUrl \|\| ''\)/);
+  assert.match(brokerApiSource, /if \(state\.isLoggedIn && state\.brokerId && liveServerUrl && liveAccessToken\)/);
+  assert.match(brokerApiSource, /activeToken = await this\.getValidAccessTokenForSession\(session, false\)/);
+  assert.match(brokerApiSource, /shouldLoadStoredAuth \? getSecureItemAsync\(ACCESS_TOKEN_KEY\) : Promise\.resolve\(null\)/);
+  assert.match(brokerRealtimeSource, /AUTH_SESSION_UNAVAILABLE_PATTERN/);
+  assert.match(brokerRealtimeSource, /private hasAuthenticatedSession\(\): boolean/);
+  assert.match(brokerRealtimeSource, /private pauseUntilNextLogin\(\): void/);
+  assert.match(brokerRealtimeSource, /this\.pauseUntilNextLogin\(\)/);
 });

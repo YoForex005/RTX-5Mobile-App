@@ -40,6 +40,12 @@ type FastPressableProps = Omit<
    * raw View responders cause inside scrollable containers.
    */
   activateOnPressIn?: boolean;
+  /**
+   * For non-scrollable toolbar/dropdown launchers that sit above native
+   * surfaces, fire on the touch-down event before Pressability negotiates
+   * the press. Do not use for scrollable list rows.
+   */
+  activateOnTouchStart?: boolean;
 };
 type FastPressEvent = GestureResponderEvent;
 
@@ -88,6 +94,7 @@ export const FastPressable = memo(function FastPressable({
   latencyLabel = 'fastPress',
   latencyBudgetMs,
   activateOnPressIn = false,
+  activateOnTouchStart = false,
   ...props
 }: FastPressableProps) {
   // Guard ref: prevents the same tap from firing onPress twice when
@@ -110,6 +117,7 @@ export const FastPressable = memo(function FastPressable({
   const onStartShouldSetResponderRef = React.useRef(onStartShouldSetResponder);
   const onTouchStartRef = React.useRef(onTouchStart);
   const activateOnPressInRef = React.useRef(activateOnPressIn);
+  const activateOnTouchStartRef = React.useRef(activateOnTouchStart);
   const latencyLabelRef = React.useRef(latencyLabel);
   const latencyBudgetMsRef = React.useRef(latencyBudgetMs);
 
@@ -120,6 +128,7 @@ export const FastPressable = memo(function FastPressable({
   onStartShouldSetResponderRef.current = onStartShouldSetResponder;
   onTouchStartRef.current = onTouchStart;
   activateOnPressInRef.current = activateOnPressIn;
+  activateOnTouchStartRef.current = activateOnTouchStart;
   latencyLabelRef.current = latencyLabel;
   latencyBudgetMsRef.current = latencyBudgetMs;
 
@@ -162,10 +171,22 @@ export const FastPressable = memo(function FastPressable({
   }, [runPressAction]);
 
   const handleTouchStart = useCallback((event: FastPressEvent) => {
-    if (onTouchStartRef.current) {
-      runPressAction(onTouchStartRef.current, event);
+    const onTouchStart = onTouchStartRef.current;
+    const onPress = onPressRef.current;
+    const activateOnTouchStart = activateOnTouchStartRef.current;
+    const pressAlreadyHandled = handledOnPressInRef.current;
+
+    if (onTouchStart) {
+      runPressAction(onTouchStart, event);
     }
-  }, [runPressAction]);
+    if (activateOnTouchStart && onPress && !pressAlreadyHandled) {
+      clearPressGuardTimer();
+      handledOnPressInRef.current = true;
+      if (onPress !== onTouchStart) {
+        runPressAction(onPress, event);
+      }
+    }
+  }, [clearPressGuardTimer, runPressAction]);
 
   const handlePressIn = useCallback((event: FastPressEvent) => {
     const onPressIn = onPressInRef.current;
@@ -211,7 +232,7 @@ export const FastPressable = memo(function FastPressable({
     if (onPressOutRef.current) {
       onPressOutRef.current(event);
     }
-    if (activateOnPressInRef.current && handledOnPressInRef.current) {
+    if ((activateOnPressInRef.current || activateOnTouchStartRef.current) && handledOnPressInRef.current) {
       // Keep the guard briefly for successful taps where onPressOut precedes
       // onPress, then clear it for cancelled gestures that never emit onPress.
       resetPressGuard();
@@ -225,7 +246,8 @@ export const FastPressable = memo(function FastPressable({
 
   const needsPressInHandler = activateOnPressIn || Boolean(onPressIn);
   const needsPressHandler = Boolean(onPress) || Boolean(onPressIn);
-  const needsPressOutHandler = Boolean(onPressOut) || activateOnPressIn || Boolean(onPressIn);
+  const needsTouchStartHandler = activateOnTouchStart || Boolean(onTouchStart);
+  const needsPressOutHandler = Boolean(onPressOut) || activateOnPressIn || activateOnTouchStart || Boolean(onPressIn);
 
   return (
     <Pressable
@@ -234,7 +256,7 @@ export const FastPressable = memo(function FastPressable({
       style={style}
       onStartShouldSetResponder={onStartShouldSetResponder ? handleStartShouldSetResponder : undefined}
       onResponderGrant={onResponderGrant ? handleResponderGrant : undefined}
-      onTouchStart={onTouchStart ? handleTouchStart : undefined}
+      onTouchStart={needsTouchStartHandler ? handleTouchStart : undefined}
       onPressIn={needsPressInHandler ? handlePressIn : undefined}
       onPress={needsPressHandler ? handlePress : undefined}
       onPressOut={needsPressOutHandler ? handlePressOut : undefined}

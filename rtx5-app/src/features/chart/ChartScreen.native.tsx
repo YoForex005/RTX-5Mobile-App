@@ -25,6 +25,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import {
   ChartTapRadialMenu,
   type ChartTapMenuAnchor,
@@ -156,13 +157,19 @@ import {
 // Micro-component: isolated 1fps render cycle for the clock
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
   const ordered: string[] = [];
-  const seen = new Set<string>();
+  const indexByKey = new Map<string, number>();
   const push = (symbol: string | null | undefined) => {
     const trimmed = symbol?.trim();
     if (!trimmed) return;
     const key = trimmed.toUpperCase();
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex !== undefined) {
+      if (trimmed === key && ordered[existingIndex] !== key) {
+        ordered[existingIndex] = trimmed;
+      }
+      return;
+    }
+    indexByKey.set(key, ordered.length);
     ordered.push(trimmed);
   };
 
@@ -238,7 +245,7 @@ export function ChartScreen() {
     pathname.startsWith('/chart/') ||
     pathname === '/(tabs)/chart' ||
     pathname.startsWith('/(tabs)/chart/');
-  const chartRuntimeActive = isChartRouteActive;
+  const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive);
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
   const liveLogin = useLiveAccountState((s) => s.login);
@@ -1553,6 +1560,7 @@ export function ChartScreen() {
       Keyboard.dismiss();
       showActionSheet({
         title: t('Expiration'),
+        instantOpen: true,
         actions: chartTradeExpirationActions,
       });
     });
@@ -2532,6 +2540,9 @@ export function ChartScreen() {
     // Android. Defer it so it never blocks showActionSheet on the same frame.
     setTimeout(() => Keyboard.dismiss(), 0);
   }, [closeChartTapMenu]);
+  const scheduleChartActionSheetContextReset = useCallback(() => {
+    requestAnimationFrame(resetChartActionSheetContext);
+  }, [resetChartActionSheetContext]);
 
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
@@ -2617,26 +2628,28 @@ export function ChartScreen() {
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
-      closeChartTapMenu();
-      resetChartActionSheetContext();
       showActionSheet({
         title: t('Select Symbol'),
         searchable: true,
         detent: 'large',
+        instantOpen: true,
         actions: symbolPickerActions,
       });
+      scheduleChartActionSheetContextReset();
     });
-  }, [closeChartTapMenu, resetChartActionSheetContext, showActionSheet, t, symbolPickerActions]);
+  }, [scheduleChartActionSheetContextReset, showActionSheet, t, symbolPickerActions]);
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
-      resetChartActionSheetContext();
       showActionSheet({
         title: t('Timeframes'),
+        instantOpen: true,
+        runActionAfterClose: false,
         actions: timeframePickerActions,
       });
+      scheduleChartActionSheetContextReset();
     });
-  }, [resetChartActionSheetContext, showActionSheet, t, timeframePickerActions]);
+  }, [scheduleChartActionSheetContextReset, showActionSheet, t, timeframePickerActions]);
 
   const handleOpenChartTypePicker = useCallback(() => {
     runImmediateAction('chart.chartType.open', () => {
@@ -2699,14 +2712,15 @@ export function ChartScreen() {
 
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
-      resetChartActionSheetContext();
       showActionSheet({
         title: t('Drawing Tools'),
         minimumTopInset: drawingToolsSheetTopInset,
+        instantOpen: true,
         actions: drawingToolsActions,
       });
+      scheduleChartActionSheetContextReset();
     });
-  }, [drawingToolsActions, drawingToolsSheetTopInset, resetChartActionSheetContext, showActionSheet, t]);
+  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showActionSheet, t]);
 
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
@@ -2827,13 +2841,14 @@ export function ChartScreen() {
 
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
-      resetChartActionSheetContext();
       showActionSheet({
         title: t('Options'),
+        instantOpen: true,
         actions: chartMoreActions,
       });
+      scheduleChartActionSheetContextReset();
     });
-  }, [chartMoreActions, resetChartActionSheetContext, showActionSheet, t]);
+  }, [chartMoreActions, scheduleChartActionSheetContextReset, showActionSheet, t]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -3583,6 +3598,7 @@ export function ChartScreen() {
           style={styles.toolbarTimeframeButton}
           onPress={handleOpenTimeframePicker}
           activateOnPressIn
+          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3600,6 +3616,7 @@ export function ChartScreen() {
           style={styles.toolbarTradeButton}
           onPress={handleOpenChartTradeSheet}
           activateOnPressIn
+          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3616,6 +3633,7 @@ export function ChartScreen() {
           style={styles.toolbarIconButton}
           onPress={handleOpenDrawingTools}
           activateOnPressIn
+          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3655,6 +3673,7 @@ export function ChartScreen() {
           style={styles.toolbarIconButton}
           onPress={handleOpenMoreMenu}
           activateOnPressIn
+          activateOnTouchStart
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -3674,6 +3693,7 @@ export function ChartScreen() {
         style={styles.chartTradeSheetSymbolBlock}
         onPress={handleOpenSymbolPicker}
         activateOnPressIn
+        activateOnTouchStart
         unstable_pressDelay={0}
       >
         <View style={styles.chartTradeSheetSymbolRow}>
@@ -4093,42 +4113,6 @@ export function ChartScreen() {
                   syncChartViewportFrame();
                 }}
               >
-                <View style={styles.chartOverlaySymbolSection}>
-                  <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
-                    <View style={styles.symbolSectionContent}>
-                      <View style={styles.symbolNameRow}>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={t('Select Symbol')}
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
-                          onPress={handleOpenSymbolPicker}
-                          activateOnPressIn
-                          hitSlop={8}
-                          unstable_pressDelay={0}
-                        >
-                          <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
-                          <Ionicons name="chevron-down" size={10} color={T.text} />
-                          {symbolCategory ? (
-                            <View style={[styles.fxBadge, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', marginLeft: 4 }]}>
-                              <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      </View>
-
-                      <Pressable
-                        onPress={handleOpenSymbolPicker}
-                        activateOnPressIn
-                        unstable_pressDelay={0}
-                      >
-                        <View style={styles.symbolMetaRow}>
-                          <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
-                        </View>
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-
                 {isLoading && (
                   <View style={styles.chartOverlay}>
                     <ActivityIndicator size="large" color={BLUE} />
@@ -4350,6 +4334,38 @@ export function ChartScreen() {
                     } catch (_e) { }
                   }}
                 />
+                <View style={styles.chartOverlaySymbolSection}>
+                  <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Select Symbol')}
+                      style={styles.symbolSectionTapTarget}
+                      onPress={handleOpenSymbolPicker}
+                      activateOnPressIn
+                      activateOnTouchStart
+                      hitSlop={8}
+                      unstable_pressDelay={0}
+                    >
+                      <View style={styles.symbolSectionContent}>
+                        <View style={styles.symbolNameRow}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                            <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
+                            <Ionicons name="chevron-down" size={10} color={T.text} />
+                            {symbolCategory ? (
+                              <View style={[styles.fxBadge, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', marginLeft: 4 }]}>
+                                <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        <View style={styles.symbolMetaRow}>
+                          <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  </View>
+                </View>
                 {/* Grid lines are handled by lightweight-charts natively
                   (both vertLines and horzLines) so they move with scroll/zoom.
                   Custom SVG overlay is kept in the tree but disabled. */}
@@ -4874,6 +4890,8 @@ export function ChartScreen() {
                           comment={chartTradeComment}
                           variant='mt5-market'
                           active={chartRuntimeActive}
+                          fallbackBid={chartBid}
+                          fallbackAsk={chartAsk}
                           onTradeResult={setTradeFeedback}
                           isDark={isDark}
                           buyColor={BLUE}
@@ -4949,6 +4967,8 @@ export function ChartScreen() {
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
               active={chartRuntimeActive}
+              fallbackBid={chartBid}
+              fallbackAsk={chartAsk}
               onLayout={(event) => {
                 const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
                 if (nextHeight > 0) {
@@ -4985,6 +5005,8 @@ export function ChartScreen() {
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
               active={chartRuntimeActive}
+              fallbackBid={chartBid}
+              fallbackAsk={chartAsk}
               onLayout={(event) => {
                 const nextHeight = Math.max(0, Math.round(event.nativeEvent.layout.height));
                 if (nextHeight > 0) {

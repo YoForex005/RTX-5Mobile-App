@@ -1,9 +1,9 @@
 /**
- * Schedule a callback after the action sheet has moved through the closed
- * render path. The sheet returns null when closed, so the selected action can
- * run immediately without carrying an artificial post-dismiss frame delay.
+ * Schedule a callback after the action sheet has started the closed render
+ * path. One frame keeps route work out of the opening/closing gesture frame
+ * without adding a visible delay.
  */
-const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 0;
+const ACTION_SHEET_DISMISS_SETTLE_FRAMES = 1;
 const ACTION_SHEET_FRAME_FALLBACK_MS = 16;
 
 export function scheduleDismissSettledAction(callback: () => void): () => void {

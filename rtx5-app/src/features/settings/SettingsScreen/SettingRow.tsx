@@ -31,6 +31,9 @@ export function SettingRow({
       style={styles.row}
       latencyLabel={`settings.row.${title}`}
       onPress={onPress}
+      activateOnPressIn={Boolean(onPress)}
+      unstable_pressDelay={0}
+      accessibilityRole={onPress ? 'button' : undefined}
     >
       <View style={[styles.iconBox, { backgroundColor: `${color}1A` }]}>
         <Ionicons name={icon} size={20} color={color} />

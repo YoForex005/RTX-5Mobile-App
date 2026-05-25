@@ -3,7 +3,7 @@ import 'react-native-reanimated';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
-import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
@@ -15,7 +15,6 @@ import { useIsDarkTheme } from '../src/state/themeMode';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
-
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
@@ -157,7 +156,8 @@ function InnerLayout() {
   );
 }
 
-import { accountWsService } from '../src/api/ws/accountSocket';
+import { brokerRealtimeService } from '../src/api/ws/BrokerRealtimeService';
+import { brokerApi } from '../src/api/brokerApi';
 import { getAccountById, getAccounts } from '../src/api/accounts';
 import { useLiveAccountState } from '../src/state/liveAccountState';
 import { usePositionsState } from '../src/state/positionsState';
@@ -167,6 +167,7 @@ import { isDemoTradingAccount } from '../src/domain/accountType';
 import { hydratePersistedCandleCache } from '../src/domain/candles/state/persistedCandleCache';
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
+import { bootstrapApp } from '../src/services/bootstrapApp';
 
 export default function RootLayout() {
   useOtaUpdateOnLaunch();
@@ -237,7 +238,12 @@ export default function RootLayout() {
         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
           const mt5Login = String(mt5LoginNumber);
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
-          accountWsService.connect();
+          brokerRealtimeService.connect();
+          void bootstrapApp({ accountLogin: mt5Login }).catch((error) => {
+            if (!cancelled) {
+              console.warn('[Bootstrap] Initial dashboard load failed:', error);
+            }
+          });
 
           scheduleBootWork(scheduleIdleWork(() => {
             if (!cancelled) {
@@ -286,9 +292,30 @@ export default function RootLayout() {
         cancelScheduledBootWork.forEach((cancel) => cancel());
       };
     } else {
-      accountWsService.disconnect();
+      brokerRealtimeService.disconnect();
     }
   }, [isLoggedIn, accountDetails?.id]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        return;
+      }
+
+      void brokerApi.getValidAccessToken(false)
+        .then(() => {
+          brokerRealtimeService.reconnect();
+          return bootstrapApp();
+        })
+        .catch((error) => {
+          console.warn('[Lifecycle] Failed to refresh broker session on foreground:', error);
+        });
+    });
+
+    return () => subscription.remove();
+  }, [isLoggedIn]);
 
   return (
     <AppProviders>

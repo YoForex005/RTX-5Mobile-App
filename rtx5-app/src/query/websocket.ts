@@ -5,17 +5,33 @@
 import React, { useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/shallow';
 
+import { apiClient } from '../api/apiClient';
 import { wsService } from '../api/ws/socket';
 import { quotesWsService } from '../api/ws/quotesSocket';
+import type { QuoteTickEvent } from '../api/ws/quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
+import { liveCandleStream } from '../domain/candles/stream/liveCandleStream';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
+import { buildRestQuoteTickEvent } from './restQuoteTick';
 
 const LIVE_QUOTE_STALE_MS = 45_000;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 50;
+const LIVE_SYMBOL_REST_SNAPSHOT_POLL_MS = 1_000;
 const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
+
+type LiveSymbolQuoteListener = (tick: QuoteTickEvent) => void;
+
+type RestQuoteFallbackEntry = {
+  symbol: string;
+  listeners: Set<LiveSymbolQuoteListener>;
+  timer: ReturnType<typeof setInterval> | null;
+  inFlight: boolean;
+};
+
+const restQuoteFallbackEntries = new Map<string, RestQuoteFallbackEntry>();
 
 function getQuoteFreshnessAnchorMs(liveQuote?: Partial<QuoteItem>): number | null {
   return (
@@ -33,6 +49,150 @@ export function hasLiveQuoteFeedData(liveQuote?: Partial<QuoteItem>): boolean {
   const liveQuoteTickAt = getQuoteFreshnessAnchorMs(liveQuote);
   return !!liveQuote && liveQuoteTickAt !== null && Date.now() - liveQuoteTickAt <= LIVE_QUOTE_STALE_MS;
 }
+
+const asQuoteSnapshotArray = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.data)) {
+      return record.data;
+    }
+    if (Array.isArray(record.items)) {
+      return record.items;
+    }
+    if (Array.isArray(record.quotes)) {
+      return record.quotes;
+    }
+    return [record];
+  }
+
+  return [];
+};
+
+const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
+  useTradingState.getState().setQuote(tick.rawSymbol || tick.symbol, {
+    bid: tick.bid,
+    ask: tick.ask,
+    lastTickAt: tick.timestamp,
+    lastReceivedAt: tick.receivedAt,
+    feedTickAt: tick.feedTickAt ?? tick.timestamp,
+    ...(tick.last !== undefined ? { close: tick.last } : {}),
+    ...(tick.high !== undefined ? { high: tick.high } : {}),
+    ...(tick.low !== undefined ? { low: tick.low } : {}),
+    ...(tick.open !== undefined ? { open: tick.open } : {}),
+    ...(tick.spread !== undefined ? { spread: tick.spread } : {}),
+    ...(tick.volume !== undefined ? { volume: tick.volume } : {}),
+    ...(tick.digits !== undefined ? { digits: tick.digits } : {}),
+  });
+
+  const price = Number.isFinite(tick.bid) && tick.bid > 0
+    ? tick.bid
+    : Number.isFinite(tick.ask) && tick.ask > 0
+      ? tick.ask
+      : null;
+  if (price !== null) {
+    liveCandleStream.extendActiveCandlesFromQuoteTick(tick.symbol, {
+      price,
+      time: tick.timestamp,
+    });
+  }
+};
+
+const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Promise<void> => {
+  if (entry.inFlight || entry.listeners.size === 0) {
+    return;
+  }
+
+  entry.inFlight = true;
+  const receivedAt = Date.now();
+  try {
+    const response = await apiClient(`/quotes?symbols=${encodeURIComponent(entry.symbol)}`);
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = await response.json();
+    const requestedSymbol = normalizeSymbol(entry.symbol);
+    let selectedTick: QuoteTickEvent | null = null;
+    for (const snapshot of asQuoteSnapshotArray(payload)) {
+      const tick = buildRestQuoteTickEvent(entry.symbol, snapshot, receivedAt);
+      if (!tick) {
+        continue;
+      }
+      if (!requestedSymbol || normalizeSymbol(tick.symbol) === requestedSymbol) {
+        selectedTick = tick;
+        break;
+      }
+    }
+
+    if (!selectedTick) {
+      return;
+    }
+
+    publishQuoteTickToSharedStores(selectedTick);
+    entry.listeners.forEach((listener) => {
+      try {
+        listener(selectedTick);
+      } catch (error) {
+        console.warn('[Quotes REST] Symbol listener error', error);
+      }
+    });
+  } catch (error) {
+    console.warn('[Quotes REST] Symbol snapshot poll failed', error);
+  } finally {
+    entry.inFlight = false;
+  }
+};
+
+const subscribeLiveSymbolRestQuoteFallback = (
+  symbol: string,
+  listener: LiveSymbolQuoteListener,
+): (() => void) => {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  if (!normalizedSymbol) {
+    return () => {};
+  }
+
+  let entry = restQuoteFallbackEntries.get(normalizedSymbol);
+  if (!entry) {
+    entry = {
+      symbol: normalizedSymbol,
+      listeners: new Set(),
+      timer: null,
+      inFlight: false,
+    };
+    restQuoteFallbackEntries.set(normalizedSymbol, entry);
+  }
+
+  entry.listeners.add(listener);
+  void fetchRestQuoteSnapshotForEntry(entry);
+  if (!entry.timer) {
+    entry.timer = setInterval(() => {
+      const activeEntry = restQuoteFallbackEntries.get(normalizedSymbol);
+      if (activeEntry) {
+        void fetchRestQuoteSnapshotForEntry(activeEntry);
+      }
+    }, LIVE_SYMBOL_REST_SNAPSHOT_POLL_MS);
+  }
+
+  return () => {
+    const activeEntry = restQuoteFallbackEntries.get(normalizedSymbol);
+    if (!activeEntry) {
+      return;
+    }
+    activeEntry.listeners.delete(listener);
+    if (activeEntry.listeners.size > 0) {
+      return;
+    }
+    if (activeEntry.timer) {
+      clearInterval(activeEntry.timer);
+    }
+    restQuoteFallbackEntries.delete(normalizedSymbol);
+  };
+};
 
 // ─── WebSocket Global Connection Hook ───────────────────────────────────────
 
@@ -307,9 +467,11 @@ export function useLiveSymbolQuote(
     };
 
     const unsubscribe = quotesWsService.subscribeToSymbol(symbol, listener);
+    const unsubscribeRestFallback = subscribeLiveSymbolRestQuoteFallback(symbol, listener);
 
     return () => {
       unsubscribe();
+      unsubscribeRestFallback();
       cancelScheduledCommit();
     };
   }, [cancelScheduledCommit, isActive, normalizedSymbol, scheduleQuoteCommit, symbol]);

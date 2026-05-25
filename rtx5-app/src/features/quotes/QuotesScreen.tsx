@@ -20,9 +20,11 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
+import { useTradingState } from '../../state/tradingState';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
+import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
@@ -42,7 +44,7 @@ import { prefetchOrderTicketData } from '../../utils/navigationPrefetch';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { runImmediateAction } from '../../utils/actionLatency';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
-import { hasFreshLiveQuote } from './liveQuoteSnapshot';
+import { hasDisplayableLiveQuotePrice, hasFreshLiveQuote } from './liveQuoteSnapshot';
 import {
   buildDefaultQuoteWatchlist,
   DEFAULT_QUOTE_WATCHLIST,
@@ -252,7 +254,7 @@ const QuoteCard = React.memo(function QuoteCard({
   const isSimpleMode = viewMode === 'table';
   const liveSymbol = feedSymbol ?? symbol;
   const liveItem = useLiveQuoteSnapshot(liveSymbol);
-  const noData = !hasFreshLiveQuote(liveItem);
+  const noData = !hasDisplayableLiveQuotePrice(liveItem);
 
   if (!isSimpleMode && noData && (!liveItem || typeof liveItem.bid !== 'number' || typeof liveItem.ask !== 'number')) {
     const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : T.border;
@@ -272,6 +274,7 @@ const QuoteCard = React.memo(function QuoteCard({
           pressed && !suppressPressFeedback && sc.cardPressed,
         ]}
         unstable_pressDelay={0}
+        activateOnPressIn={Boolean(onPress)}
         onPressIn={onPressIn}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -399,6 +402,7 @@ const QuoteCard = React.memo(function QuoteCard({
         pressed && !suppressPressFeedback && sc.cardPressed,
       ]}
       unstable_pressDelay={0}
+      activateOnPressIn={Boolean(onPress)}
       onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
@@ -1529,7 +1533,8 @@ export function QuotesScreen() {
 
   const showActionSheet = useUIState((s) => s.showActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const quoteServerDataActive = isScreenFocused && isLoggedIn;
+  const sidebarOpen = useUIState((s) => s.sidebarOpen);
+  const quoteServerDataActive = useDeferredActiveFlag(isScreenFocused && isLoggedIn);
   const { data: apiSymbols = [] } = useMarketSymbols(quoteServerDataActive);
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
@@ -1677,7 +1682,7 @@ export function QuotesScreen() {
     pathname === '/(tabs)/quotes' ||
     pathname.startsWith('/(tabs)/quotes/');
   const quoteStickyFeedActive = quoteRouteActive;
-  const quoteFeedActive = quoteStickyFeedActive;
+  const quoteFeedActive = quoteStickyFeedActive && !sidebarOpen;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
@@ -1759,7 +1764,8 @@ export function QuotesScreen() {
       const displayName = fmt.symbol(sym);
       configs.set(sym, {
         title: `${displayName}: ${describeMarketSymbol(sym)}`,
-        detent: 'auto',
+        detent: 'adaptive',
+        instantOpen: true,
         actions: [
           {
             label: t('New Order'),
@@ -1811,6 +1817,7 @@ export function QuotesScreen() {
       configs.set(sym, {
         title: fmt.symbol(sym),
         detent: 'auto',
+        instantOpen: true,
         actions: [
           {
             label: t('Chart'),
@@ -1878,7 +1885,7 @@ export function QuotesScreen() {
         isDark={isDark}
         cardBackground={animatedCardBackground}
         viewMode={quoteViewMode}
-        onPressIn={() => handleSymbolTap(sym)}
+        onPress={() => handleSymbolTap(sym)}
         suppressPressFeedback
         onLongPress={() => handleSymbolLongPress(sym)}
       />
@@ -2557,6 +2564,15 @@ function TickCounter({
   const lastTickAtRef = useRef(0);
   const symbolsKey = symbols.join('|');
 
+  const hasFreshStateSnapshot = useCallback(() => {
+    const liveQuotes = useTradingState.getState().quotes;
+    return symbols.some((symbol) => {
+      const rawKey = normalizeQuoteSymbolKey(symbol);
+      const baseKey = normalizeSymbol(symbol);
+      return hasFreshLiveQuote(liveQuotes[rawKey] ?? liveQuotes[baseKey]);
+    });
+  }, [symbolsKey]);
+
   useEffect(() => {
     if (!active || symbols.length === 0) {
       return;
@@ -2597,16 +2613,21 @@ function TickCounter({
     setTps(0);
     setHasFreshFeed(false);
     let lastSampledTicks = 0;
+    let lastSampledStateTicks = useTradingState.getState().tickCount;
     const interval = setInterval(() => {
       const current = tickCounterRef.current;
-      setTps(current - lastSampledTicks);
+      const wsTickDelta = current - lastSampledTicks;
       lastSampledTicks = current;
+      const currentStateTicks = useTradingState.getState().tickCount;
+      const stateTickDelta = Math.max(0, currentStateTicks - lastSampledStateTicks);
+      lastSampledStateTicks = currentStateTicks;
+      setTps(Math.max(wsTickDelta, stateTickDelta));
       const last = lastTickAtRef.current;
       const fresh = last > 0 && Date.now() - last <= LIVE_SYMBOL_STALE_MS;
-      setHasFreshFeed(fresh);
+      setHasFreshFeed(fresh || hasFreshStateSnapshot());
     }, 1000);
     return () => clearInterval(interval);
-  }, [active, symbolsKey]);
+  }, [active, hasFreshStateSnapshot, symbolsKey]);
 
   const statusColor = hasFreshFeed ? T.trading.profit : palette.secondaryText;
 

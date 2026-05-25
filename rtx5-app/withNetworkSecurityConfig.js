@@ -20,13 +20,21 @@ const withNetworkSecurityConfig = (config) => {
   config = withDangerousMod(config, [
     'android',
     async (config) => {
-      const resPath = path.join(config.modRequest.platformProjectRoot, 'app', 'src', 'main', 'res', 'xml');
-      const filePath = path.join(resPath, 'network_security_config.xml');
+      const writeConfig = (sourceSet, xmlContent) => {
+        const resPath = path.join(config.modRequest.platformProjectRoot, 'app', 'src', sourceSet, 'res', 'xml');
+        const filePath = path.join(resPath, 'network_security_config.xml');
+
+        if (!fs.existsSync(resPath)) {
+          fs.mkdirSync(resPath, { recursive: true });
+        }
+
+        fs.writeFileSync(filePath, xmlContent);
+      };
 
       // Default to TLS-only traffic. The test broker directory currently
       // includes one HTTP-only broker backend, so allow cleartext only for
       // that explicit host instead of weakening the whole app.
-      const xmlContent = `<?xml version="1.0" encoding="utf-8"?>
+      const productionXml = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
@@ -35,10 +43,23 @@ const withNetworkSecurityConfig = (config) => {
 </network-security-config>
 `;
 
-      if (!fs.existsSync(resPath)) {
-        fs.mkdirSync(resPath, { recursive: true });
-      }
-      fs.writeFileSync(filePath, xmlContent);
+      // Debug/dev-client builds need local cleartext access for Metro when
+      // running over USB reverse or emulator host loopback.
+      const debugXml = `<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">69.197.178.27</domain>
+    </domain-config>
+</network-security-config>
+`;
+
+      writeConfig('main', productionXml);
+      writeConfig('debug', debugXml);
+      writeConfig('debugOptimized', debugXml);
       return config;
     },
   ]);

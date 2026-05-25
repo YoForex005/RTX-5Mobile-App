@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLiveQuoteTickToSnapshot, hasFreshLiveQuote } from './liveQuoteSnapshot';
+import {
+  applyLiveQuoteTickToSnapshot,
+  hasDisplayableLiveQuotePrice,
+  hasFreshLiveQuote,
+} from './liveQuoteSnapshot';
 
 test('applyLiveQuoteTickToSnapshot refreshes duplicate backend snapshots', () => {
   const first = applyLiveQuoteTickToSnapshot(
@@ -87,4 +91,23 @@ test('applyLiveQuoteTickToSnapshot tracks previous bid ask on real price movemen
   assert.equal(moved.prevBid, 1.35155);
   assert.equal(moved.prevAsk, 1.35193);
   assert.equal(moved.lastPriceChangedAt, 1777410003000);
+});
+
+test('hasDisplayableLiveQuotePrice keeps stale snapshots renderable when prices exist', () => {
+  const staleNow = 1777410100000;
+  const staleSnapshot = {
+    symbol: 'XAUUSD',
+    bid: 3358.14,
+    ask: 3358.55,
+    lastReceivedAt: staleNow - 46_000,
+  };
+
+  assert.equal(hasFreshLiveQuote(staleSnapshot, staleNow), false);
+  assert.equal(hasDisplayableLiveQuotePrice(staleSnapshot), true);
+});
+
+test('hasDisplayableLiveQuotePrice rejects snapshots without valid bid ask prices', () => {
+  assert.equal(hasDisplayableLiveQuotePrice(undefined), false);
+  assert.equal(hasDisplayableLiveQuotePrice({ symbol: 'EURUSD', bid: 1.17121 }), false);
+  assert.equal(hasDisplayableLiveQuotePrice({ symbol: 'EURUSD', bid: 1.17121, ask: Number.NaN }), false);
 });

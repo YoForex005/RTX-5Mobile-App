@@ -8,6 +8,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 test('bottom tab navigation keeps primary tabs hot for immediate switching', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
 
+  assert.match(source, /import \{ PlatformPressable \} from '@react-navigation\/elements'/);
   assert.match(source, /const TAB_SWITCH_MAX_LATENCY_MS = 20/);
   assert.match(source, /const STALE_TAB_SWITCH_SAMPLE_MS = 5000/);
   assert.match(source, /function scheduleTabSwitchBudgetCheck\(label: string, startedAtMs: number, navigationFinishedAtMs: number\)/);
@@ -16,12 +17,15 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /const pressStartedAtRef = useRef<number \| null>\(null\)/);
   assert.match(source, /const handledOnPressInRef = useRef\(false\)/);
   assert.match(source, /latencyLabel = 'bottom tab'/);
+  assert.match(source, /const handleTouchStart = useCallback/);
+  assert.match(source, /onTouchStart=\{handleTouchStart\}/);
   assert.match(source, /const handlePressIn = useCallback/);
   assert.match(source, /pressStartedAtRef\.current = getNow\(\)/);
   assert.match(source, /handledOnPressInRef\.current = true/);
   assert.match(source, /runTabPress\(event as unknown as TabPressEvent\)/);
   assert.match(source, /const startedAtMs = pressStartedAtRef\.current \?\? getNow\(\)/);
   assert.match(source, /useUIState\.getState\(\)\.hideActionSheet\(\)/);
+  assert.match(source, /onPress\?\.\(event as TabPressEvent\)/);
   assert.match(source, /scheduleTabSwitchBudgetCheck\(latencyLabel, startedAtMs, getNow\(\)\)/);
   assert.match(source, /onPressIn=\{handlePressIn\}/);
   assert.match(source, /onPress=\{handlePress\}/);
@@ -36,7 +40,9 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /name='chart'[\s\S]*lazy: false/);
   assert.match(source, /animation: 'none'/);
   assert.match(source, /previousPathRef/);
-  assert.match(source, /previousPathRef\.current !== pathname && actionSheet !== null/);
+  assert.match(source, /const GlobalActionSheetHost = memo/);
+  assert.match(source, /<GlobalActionSheetHost \/>/);
+  assert.match(source, /previousPathRef\.current !== pathname && useUIState\.getState\(\)\.actionSheet !== null/);
   assert.match(source, /taps never wait on cold route construction/);
   assert.doesNotMatch(source, /screenListeners=/);
   assert.doesNotMatch(source, /traceUiInteraction/);

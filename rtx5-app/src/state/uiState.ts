@@ -30,6 +30,8 @@ type ActionSheetConfig = {
   actions: ActionSheetAction[];
   /** Enable search filtering in the sheet */
   searchable?: boolean;
+  /** Optional placeholder for searchable sheets */
+  searchPlaceholder?: string;
   /** Sheet sizing detent */
   detent?: 'auto' | 'adaptive' | 'large';
   /** Minimum distance from the top of the screen */
@@ -47,11 +49,6 @@ type UIState = {
   /** Controls visibility of the main app sidebar/drawer */
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
-
-  /** Immediate visual shell shown while a sidebar route navigation settles. */
-  sidebarRouteTransition: { route: string; label: string } | null;
-  showSidebarRouteTransition: (transition: { route: string; label: string }) => void;
-  clearSidebarRouteTransition: () => void;
 
   /** Controls whether the chart view is expanded to conceal the trade panels */
   isChartFullscreen: boolean;
@@ -89,10 +86,6 @@ type UIState = {
 export const useUIState = create<UIState>((set) => ({
   sidebarOpen: false,
   setSidebarOpen: (open) => set((state) => (state.sidebarOpen === open ? state : { sidebarOpen: open })),
-  sidebarRouteTransition: null,
-  showSidebarRouteTransition: (transition) => set({ sidebarRouteTransition: transition }),
-  clearSidebarRouteTransition: () =>
-    set((state) => (state.sidebarRouteTransition === null ? state : { sidebarRouteTransition: null })),
 
   isChartFullscreen: false,
   setChartFullscreen: (open) => set({ isChartFullscreen: open }),
@@ -111,6 +104,6 @@ export const useUIState = create<UIState>((set) => ({
   clearPendingChartDrawingTool: () => set({ pendingChartDrawingTool: null }),
 
   actionSheet: null,
-  showActionSheet: (config) => set({ actionSheet: config }),
+  showActionSheet: (config) => set({ actionSheet: { ...config, instantOpen: true } }),
   hideActionSheet: () => set((state) => (state.actionSheet === null ? state : { actionSheet: null })),
 }));

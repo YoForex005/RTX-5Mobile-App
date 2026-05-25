@@ -4,7 +4,7 @@ import type { ThemeColors } from '../../theme/useTheme';
 export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     overlay: {
-      flex: 1,
+      ...StyleSheet.absoluteFillObject,
       width: '100%',
       zIndex: 9999,
       elevation: 9999,

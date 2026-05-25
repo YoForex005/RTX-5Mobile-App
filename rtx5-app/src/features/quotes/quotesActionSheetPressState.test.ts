@@ -6,18 +6,19 @@ import test from 'node:test';
 const readQuotesSource = () =>
   readFileSync(resolve(process.cwd(), 'src/features/quotes/QuotesScreen.tsx'), 'utf8');
 
-test('quote symbol action sheets do not leave the tapped symbol visually held', () => {
+test('quote symbol action sheets open immediately without leaving the tapped symbol visually held', () => {
   const source = readQuotesSource();
 
   assert.match(source, /import \{ runImmediateAction \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(source, /suppressPressFeedback = false/);
   assert.match(source, /suppressPressFeedback\?: boolean;/);
   assert.match(source, /pressed && !suppressPressFeedback && sc\.cardPressed/);
+  assert.match(source, /activateOnPressIn=\{Boolean\(onPress\)\}/);
   assert.match(
     source,
-    /<QuoteCard[\s\S]*onPressIn=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
+    /<QuoteCard[\s\S]*onPress=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,
   );
-  assert.doesNotMatch(source, /onPress=\{\(\) => handleSymbolTap\(sym\)\}/);
+  assert.doesNotMatch(source, /onPressIn=\{\(\) => handleSymbolTap\(sym\)\}/);
 
   const tapConfigsStart = source.indexOf('const quoteTapActionSheetConfigs = useMemo');
   const longPressConfigsStart = source.indexOf('const quoteLongPressActionSheetConfigs = useMemo');
@@ -31,10 +32,12 @@ test('quote symbol action sheets do not leave the tapped symbol visually held', 
 
   assert.match(tapConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(tapConfigSource, /describeMarketSymbol\(sym\)/);
-  assert.doesNotMatch(tapConfigSource, /instantOpen: true/);
+  assert.match(tapConfigSource, /detent: 'adaptive'/);
+  assert.match(tapConfigSource, /instantOpen: true/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
-  assert.doesNotMatch(longPressConfigSource, /instantOpen: true/);
+  assert.match(longPressConfigSource, /detent: 'auto'/);
+  assert.match(longPressConfigSource, /instantOpen: true/);
   assert.match(
     source,
     /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showActionSheet\(config\)/,

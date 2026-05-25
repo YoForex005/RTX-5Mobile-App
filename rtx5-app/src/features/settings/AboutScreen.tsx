@@ -53,13 +53,6 @@ type ExpoIosConfig = {
 };
 
 const RATING_STARS = [0, 1, 2, 3, 4] as const;
-const ABOUT_BOTTOM_TABS = [
-  { label: 'Quotes', icon: 'swap-vertical-outline', route: '/(tabs)/quotes', active: true },
-  { label: 'Charts', icon: 'stats-chart-outline', route: '/(tabs)/chart', active: false },
-  { label: 'Trade', icon: 'trending-up-outline', route: '/(tabs)/trade', active: false },
-  { label: 'History', icon: 'time-outline', route: '/(tabs)/history', active: false },
-  { label: 'Messages', icon: 'chatbubbles-outline', route: '/settings/mailbox', active: false },
-] as const;
 
 export function AboutScreen() {
   const router = useRouter();
@@ -69,7 +62,6 @@ export function AboutScreen() {
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
-  const bottomIconColor = isDark ? '#CBD5E1' : '#5C5552';
   const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
   const androidConfig = Constants.expoConfig?.android as ExpoAndroidConfig | undefined;
   const iosConfig = Constants.expoConfig?.ios as ExpoIosConfig | undefined;
@@ -229,26 +221,6 @@ export function AboutScreen() {
             />
           ))}
         </View>
-      </View>
-
-      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        {ABOUT_BOTTOM_TABS.map((tab) => (
-          <FastPressable
-            key={tab.label}
-            onPress={() => router.push(tab.route)}
-            latencyLabel={`about.bottomNav.${tab.label}`}
-            style={({ pressed }) => [styles.bottomTab, pressed && styles.bottomTabPressed]}
-            accessibilityRole="button"
-            accessibilityLabel={tab.label}
-          >
-            <View style={[styles.bottomIconWrap, tab.active && styles.bottomIconWrapActive]}>
-              <Ionicons name={tab.icon} size={26} color={bottomIconColor} />
-            </View>
-            <Text style={[styles.bottomLabel, tab.active && styles.bottomLabelActive]} numberOfLines={1}>
-              {tab.label}
-            </Text>
-          </FastPressable>
-        ))}
       </View>
 
       <SidebarDrawer />
@@ -432,6 +404,7 @@ function ContactDeveloperScreen({
             <Text style={styles.formFieldLabel}>Category</Text>
             <FastPressable
               onPress={onOpenCategorySheet}
+              activateOnPressIn
               latencyLabel="about.contact.category.open"
               style={({ pressed }) => [styles.categorySelectCard, pressed && styles.contactLinePressed]}
               accessibilityRole="button"

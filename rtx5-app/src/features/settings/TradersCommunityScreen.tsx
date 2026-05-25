@@ -14,10 +14,10 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
-import { safeRouterBack } from '../../utils/navigation';
 import { makeTradersCommunityStyles, type TradersCommunityStyles } from './TradersCommunityScreen.styles';
 import {
   COMMUNITY_FILTERS,
@@ -39,6 +39,7 @@ import {
 } from './tradersCommunityViewModel';
 
 const COMMUNITY_GOLD = '#F5B642';
+const COMMUNITY_FEED_DELAY_MS = 320;
 
 const CHART_CANDLES = [
   { body: 20, wick: 42, up: true },
@@ -63,10 +64,11 @@ export function TradersCommunityScreen() {
   const [selectedFilter, setSelectedFilter] = useState<CommunityFilter>('All');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const communityFeedReady = useDeferredRouteContentReady(COMMUNITY_FEED_DELAY_MS);
 
   const visiblePosts = useMemo(
-    () => filterCommunityPosts(COMMUNITY_POSTS, selectedFilter, searchQuery),
-    [selectedFilter, searchQuery],
+    () => (communityFeedReady ? filterCommunityPosts(COMMUNITY_POSTS, selectedFilter, searchQuery) : []),
+    [communityFeedReady, selectedFilter, searchQuery],
   );
 
   const closeSearch = () => {
@@ -75,7 +77,7 @@ export function TradersCommunityScreen() {
   };
 
   const goBack = () => {
-    safeRouterBack(router, '/(tabs)/settings');
+    router.replace('/(tabs)/settings');
   };
 
   return (
@@ -127,55 +129,59 @@ export function TradersCommunityScreen() {
           styles={styles}
         />
 
-        <SectionHeader title="Featured Traders" styles={styles} />
-        <ScrollView
-          keyboardShouldPersistTaps="always"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.horizontalRail}
-        >
-          {FEATURED_TRADERS.map((trader) => (
-            <FeaturedTraderCard key={trader.id} trader={trader} isDark={isDark} styles={styles} />
-          ))}
-        </ScrollView>
+        {communityFeedReady ? (
+          <>
+            <SectionHeader title="Featured Traders" styles={styles} />
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalRail}
+            >
+              {FEATURED_TRADERS.map((trader) => (
+                <FeaturedTraderCard key={trader.id} trader={trader} isDark={isDark} styles={styles} />
+              ))}
+            </ScrollView>
 
-        <SectionHeader title="Live Trading Rooms" styles={styles} />
-        <ScrollView
-          keyboardShouldPersistTaps="always"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.horizontalRail}
-        >
-          {LIVE_TRADING_ROOMS.map((room) => (
-            <TradingRoomCard key={room.id} room={room} T={T} isDark={isDark} styles={styles} />
-          ))}
-        </ScrollView>
+            <SectionHeader title="Live Trading Rooms" styles={styles} />
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalRail}
+            >
+              {LIVE_TRADING_ROOMS.map((room) => (
+                <TradingRoomCard key={room.id} room={room} T={T} isDark={isDark} styles={styles} />
+              ))}
+            </ScrollView>
 
-        <View style={styles.feedPollGrid}>
-          <View style={styles.feedColumn}>
-            <SectionHeader title="Community Feed" styles={styles} />
-            {visiblePosts.length ? (
-              visiblePosts.map((post) => (
-                <CommunityPostCard key={post.id} post={post} T={T} isDark={isDark} styles={styles} />
-              ))
-            ) : (
-              <CommunityEmptyState searchQuery={searchQuery} styles={styles} />
-            )}
-          </View>
+            <View style={styles.feedPollGrid}>
+              <View style={styles.feedColumn}>
+                <SectionHeader title="Community Feed" styles={styles} />
+                {visiblePosts.length ? (
+                  visiblePosts.map((post) => (
+                    <CommunityPostCard key={post.id} post={post} T={T} isDark={isDark} styles={styles} />
+                  ))
+                ) : (
+                  <CommunityEmptyState searchQuery={searchQuery} styles={styles} />
+                )}
+              </View>
 
-          <View style={styles.pollColumn}>
-            <SectionHeader title="Market Poll" styles={styles} />
-            <MarketPollCard T={T} isDark={isDark} styles={styles} />
-          </View>
-        </View>
+              <View style={styles.pollColumn}>
+                <SectionHeader title="Market Poll" styles={styles} />
+                <MarketPollCard T={T} isDark={isDark} styles={styles} />
+              </View>
+            </View>
 
-        <View style={styles.disclosureRow}>
-          <Ionicons name="shield-checkmark-outline" size={15} color={T.textMuted} />
-          <Text style={styles.disclosureText}>{EDUCATION_DISCLOSURE}</Text>
-        </View>
+            <View style={styles.disclosureRow}>
+              <Ionicons name="shield-checkmark-outline" size={15} color={T.textMuted} />
+              <Text style={styles.disclosureText}>{EDUCATION_DISCLOSURE}</Text>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
 
-      <ShareIdeaButton bottomOffset={insets.bottom + 20} isDark={isDark} styles={styles} />
+      {communityFeedReady ? <ShareIdeaButton bottomOffset={insets.bottom + 20} isDark={isDark} styles={styles} /> : null}
     </Screen>
   );
 }

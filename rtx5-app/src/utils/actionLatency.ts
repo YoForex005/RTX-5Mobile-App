@@ -21,15 +21,17 @@ export function scheduleActionLatencyCheck(
     return;
   }
 
-  const runAfterFirstFrame: (callback: (time: number) => void) => number =
-    typeof globalThis.requestAnimationFrame === 'function'
-      ? globalThis.requestAnimationFrame
-      : (callback) => {
-          setTimeout(() => callback(getInteractionNow()), 16);
-          return 0;
-        };
-
-  runAfterFirstFrame(() => {
+  let settled = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const settle = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
     const elapsedMs = getInteractionNow() - startedAtMs;
     if (elapsedMs > STALE_ACTION_LATENCY_SAMPLE_MS) {
       return;
@@ -39,7 +41,12 @@ export function scheduleActionLatencyCheck(
         `[Action] ${label} first frame took ${Math.round(elapsedMs)}ms; budget is ${budgetMs}ms.`,
       );
     }
-  });
+  };
+
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(settle);
+  }
+  timeoutHandle = setTimeout(settle, Math.min(16, Math.max(0, budgetMs)));
 }
 
 export function runImmediateAction<T>(

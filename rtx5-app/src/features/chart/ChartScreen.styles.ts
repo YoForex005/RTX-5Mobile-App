@@ -1519,7 +1519,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? '#080B11' : T.glass2,
       paddingHorizontal: 0,
       paddingTop: 0,
-      paddingBottom: 2,
+      paddingBottom: 0,
       overflow: 'visible',
       borderTopWidth: 0,
       borderTopColor: T.border,

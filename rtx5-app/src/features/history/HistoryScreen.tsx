@@ -23,6 +23,7 @@ import { useOrdersByLoginQuery } from '../../query/orders';
 import { useAccountSummary } from '../../query/account';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { Deal } from '../../api/deals';
+import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
@@ -372,17 +373,18 @@ export function HistoryScreen() {
   // GET /api/v2/account/deals             — deal history (JWT-resolved, date-range aware)
   // GET /api/v2/orders/{login}            — order history (login-based, verified real fields)
   const accountLogin = useResolvedTradingLogin();
+  const historyDataActive = useDeferredActiveFlag(isScreenFocused);
   // Cached data shows instantly on tab focus; the focus-refetch effect below
   // refreshes in the background without blocking the transition.
   const { data: rawPositionHistory = [], refetch: refetchPositionHistory } = usePositionHistoryQuery(accountLogin, {
-    enabled: isScreenFocused,
+    enabled: historyDataActive,
   });
   const { data: rawDeals = [], refetch: refetchDeals } = useAccountDealsQuery({
     login: accountLogin,
-    enabled: isScreenFocused,
+    enabled: historyDataActive,
   });
   const { data: rawOrders = [], refetch: refetchOrders } = useOrdersByLoginQuery(accountLogin, {
-    enabled: isScreenFocused,
+    enabled: historyDataActive,
   });
 
   // ── Refetch on tab focus ─────────────────────────────────────────────
@@ -391,13 +393,13 @@ export function HistoryScreen() {
   // Chart, etc.) appear in the list without waiting for the polling interval.
   const wasFocusedRef = useRef(isScreenFocused);
   useEffect(() => {
-    if (isScreenFocused && !wasFocusedRef.current) {
+    if (historyDataActive && !wasFocusedRef.current) {
       refetchPositionHistory();
       refetchDeals();
       refetchOrders();
     }
     wasFocusedRef.current = isScreenFocused;
-  }, [isScreenFocused, refetchPositionHistory, refetchDeals, refetchOrders]);
+  }, [historyDataActive, isScreenFocused, refetchPositionHistory, refetchDeals, refetchOrders]);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -416,7 +418,7 @@ export function HistoryScreen() {
   // GET /api/account/summary — provides balance, currency, leverage, etc.
   // Falls back to WebSocket live state for balance if API hasn't responded yet.
   const { data: accountSummary } = useAccountSummary(accountLoginString, {
-    enabled: isScreenFocused,
+    enabled: historyDataActive,
   });
   const liveBalance = useLiveAccountState((s) => s.balance);
   const balance = accountSummary?.balance ?? liveBalance ?? 0;
@@ -603,6 +605,9 @@ export function HistoryScreen() {
                       })
                   }
                   latencyLabel="history.sort.open"
+                  activateOnPressIn
+                  activateOnTouchStart
+                  unstable_pressDelay={0}
                 >
                   <Ionicons name='swap-vertical-outline' size={20} color={T.text} />
                 </FastPressable>

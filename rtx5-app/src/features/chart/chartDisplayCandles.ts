@@ -57,6 +57,18 @@ export const resolveLivePriceCoherentCandles = (
   }
 
   if (isPriceCoherentWithCandle(lastCandle, livePrice.price)) {
+    let coherentStartIndex = candles.length - 1;
+    for (let index = candles.length - 2; index >= 0; index -= 1) {
+      if (!isPriceCoherentWithCandle(candles[index], livePrice.price)) {
+        break;
+      }
+      coherentStartIndex = index;
+    }
+
+    if (coherentStartIndex > 0) {
+      return candles.slice(coherentStartIndex) as Candle[];
+    }
+
     return candles as Candle[];
   }
 

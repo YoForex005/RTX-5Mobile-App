@@ -1,6 +1,4 @@
 import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { useTheme } from '../theme/useTheme';
 
 type DeferredRouteMountProps = {
   children: ReactNode;
@@ -8,76 +6,150 @@ type DeferredRouteMountProps = {
 
 type DeferredRouteModuleProps = {
   load: () => Promise<ComponentType>;
-  title?: string;
+  cacheKey?: string;
 };
 
-const ROUTE_MODULE_LOAD_DELAY_MS = 120;
+const ROUTE_MODULE_LOAD_DELAY_MS = 0;
+const ROUTE_HEAVY_CONTENT_DELAY_MS = 1200;
 
-function useDeferredRouteReady() {
+type CachedRouteModule = {
+  component?: ComponentType;
+  promise?: Promise<ComponentType>;
+};
+
+const routeModuleCache = new Map<string, CachedRouteModule>();
+
+export function preloadDeferredRouteModule(
+  cacheKey: string,
+  load: () => Promise<ComponentType>,
+): Promise<ComponentType> {
+  const cached = routeModuleCache.get(cacheKey);
+  if (cached?.component) {
+    return Promise.resolve(cached.component);
+  }
+  if (cached?.promise) {
+    return cached.promise;
+  }
+
+  const promise = load().then((Component) => {
+    routeModuleCache.set(cacheKey, { component: Component });
+    return Component;
+  });
+  routeModuleCache.set(cacheKey, { promise });
+  return promise;
+}
+
+function scheduleDeferredFrameWork(frameCount: number, action: () => void) {
+  let cancelled = false;
+  let frameId: number | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const clearHandles = () => {
+    if (frameId !== null) {
+      globalThis.cancelAnimationFrame?.(frameId);
+      frameId = null;
+    }
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
+  const complete = () => {
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      if (!cancelled) {
+        action();
+      }
+    }, 0);
+  };
+
+  const nextFrame = (remainingFrames: number) => {
+    if (cancelled) {
+      return;
+    }
+
+    if (remainingFrames <= 0) {
+      complete();
+      return;
+    }
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(() => {
+        frameId = null;
+        nextFrame(remainingFrames - 1);
+      });
+      return;
+    }
+
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      nextFrame(remainingFrames - 1);
+    }, 16);
+  };
+
+  nextFrame(frameCount);
+
+  return () => {
+    cancelled = true;
+    clearHandles();
+  };
+}
+
+export function useDeferredRouteContentReady(delayMs = ROUTE_HEAVY_CONTENT_DELAY_MS) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    let cancelReady = () => {};
+    let cancelFrameWork: (() => void) | null = null;
 
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      const frameId = globalThis.requestAnimationFrame(() => {
+    setReady(false);
+
+    const markReady = () => {
+      cancelFrameWork = scheduleDeferredFrameWork(2, () => {
         if (!cancelled) {
           setReady(true);
         }
       });
-      cancelReady = () => {
-        globalThis.cancelAnimationFrame?.(frameId);
-      };
-    } else {
-      const timerId = setTimeout(() => {
-        if (!cancelled) {
-          setReady(true);
-        }
-      }, 16);
-      cancelReady = () => clearTimeout(timerId);
+    };
+
+    const delayTimer = delayMs > 0 ? setTimeout(markReady, delayMs) : null;
+    if (delayTimer === null) {
+      markReady();
     }
 
     return () => {
       cancelled = true;
-      cancelReady();
+      if (delayTimer) {
+        clearTimeout(delayTimer);
+      }
+      cancelFrameWork?.();
     };
-  }, []);
+  }, [delayMs]);
 
   return ready;
 }
 
-function DeferredRoutePlaceholder({ title }: { title?: string }) {
-  const T = useTheme();
-  return (
-    <View style={[styles.placeholder, { backgroundColor: T.bg }]}>
-      {title ? <Text style={[styles.placeholderTitle, { color: T.text }]}>{title}</Text> : null}
-    </View>
-  );
-}
-
 export function DeferredRouteMount({ children }: DeferredRouteMountProps) {
-  const ready = useDeferredRouteReady();
-
-  if (!ready) {
-    return <DeferredRoutePlaceholder />;
-  }
-
   return children;
 }
 
-export function DeferredRouteModule({ load, title }: DeferredRouteModuleProps) {
-  const ready = useDeferredRouteReady();
-  const [RouteComponent, setRouteComponent] = useState<ComponentType | null>(null);
+export function DeferredRouteModule({ load, cacheKey }: DeferredRouteModuleProps) {
+  const [RouteComponent, setRouteComponent] = useState<ComponentType | null>(() => (
+    cacheKey ? routeModuleCache.get(cacheKey)?.component ?? null : null
+  ));
 
   useEffect(() => {
-    if (!ready || RouteComponent) {
+    if (RouteComponent) {
       return;
     }
 
     let cancelled = false;
     const timer = setTimeout(() => {
-      void load().then((Component) => {
+      const routeModule = cacheKey
+        ? preloadDeferredRouteModule(cacheKey, load)
+        : load();
+      void routeModule.then((Component) => {
         if (!cancelled) {
           setRouteComponent(() => Component);
         }
@@ -88,25 +160,11 @@ export function DeferredRouteModule({ load, title }: DeferredRouteModuleProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [RouteComponent, load, ready]);
+  }, [RouteComponent, cacheKey, load]);
 
   if (!RouteComponent) {
-    return <DeferredRoutePlaceholder title={title} />;
+    return null;
   }
 
   return <RouteComponent />;
 }
-
-const styles = StyleSheet.create({
-  placeholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  placeholderTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-});

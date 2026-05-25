@@ -45,9 +45,15 @@ test('native compact symbol header opens immediately from the full header tap ta
   assert.match(source, /const symbolPickerActions = useMemo\([\s\S]*availableSymbols\.map/);
   assert.match(source, /actions: symbolPickerActions/);
   assert.match(source, /instantOpen:\s*true/);
+  assert.doesNotMatch(source, /const stopSymbolPickerTouchPropagation = useCallback/);
+  assert.doesNotMatch(source, /const handleSymbolPickerStartShouldSetResponder = useCallback/);
+  assert.ok(
+    source.indexOf('<WebView') < source.indexOf('style={styles.chartOverlaySymbolSection}'),
+    'symbol dropdown hit target must render after the native WebView so Android taps reach it',
+  );
   assert.match(
     source,
-    /accessibilityLabel=\{t\('Select Symbol'\)\}[\s\S]*onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnPressIn[\s\S]*hitSlop=\{8\}/,
+    /accessibilityLabel=\{t\('Select Symbol'\)\}[\s\S]*style=\{styles\.symbolSectionTapTarget\}[\s\S]*onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnPressIn[\s\S]*hitSlop=\{8\}/,
   );
   assert.match(styles, /symbolSectionTapTarget:/);
   assert.match(styles, /symbolSectionContent:/);
@@ -64,17 +70,18 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
 
   assert.match(source, /const timeframePickerActions = useMemo\([\s\S]*timeframes\.map/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
-  assert.match(source, /const chartViewportActions = useMemo\(/);
   assert.match(source, /const drawingToolsActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
+  assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
+  assert.match(source, /requestAnimationFrame\(resetChartActionSheetContext\)/);
   assert.match(
     source,
     /title: t\('Timeframes'\)[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: timeframePickerActions/,
   );
   assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
   assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
-  assert.match(source, /title: t\('Chart'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartViewportActions/);
   assert.match(source, /title: t\('Expiration'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTradeExpirationActions/);
+  assert.match(source, /showActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
   assert.match(
     source,
     /const warmChartContextAndCommit = useCallback\([\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
@@ -96,7 +103,6 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);
-  assert.match(source, /onPress=\{handleOpenChartViewportMenu\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(menuSource, /onPressIn=\{onPress\}/);
   assert.match(drawingSource, /onPressIn=\{onPress\}/);

@@ -14,6 +14,7 @@ import { useUIState } from '../../state/uiState';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
 import {
@@ -24,6 +25,8 @@ import {
   type GuideManualSection,
 } from './userGuideViewModel';
 
+const USER_GUIDE_MANUAL_DELAY_MS = 320;
+
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
@@ -31,6 +34,11 @@ export function UserGuideScreen() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
+  const manualReady = useDeferredRouteContentReady(USER_GUIDE_MANUAL_DELAY_MS);
+  const visibleSections = useMemo(
+    () => (manualReady ? GUIDE_MANUAL_SECTIONS : GUIDE_MANUAL_SECTIONS.slice(0, 3)),
+    [manualReady],
+  );
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
   const appName = Constants.expoConfig?.name ?? 'RTX5';
@@ -76,18 +84,18 @@ export function UserGuideScreen() {
         </View>
 
         <View style={styles.guideList}>
-          {GUIDE_MANUAL_SECTIONS.map((section, index) => (
+          {visibleSections.map((section, index) => (
             <GuideSectionRow
               key={section.id}
               section={section}
-              isLast={index === GUIDE_MANUAL_SECTIONS.length - 1}
+              isLast={manualReady && index === GUIDE_MANUAL_SECTIONS.length - 1}
               styles={styles}
               iconColor={sectionIconColor}
             />
           ))}
         </View>
 
-        <Text style={styles.footerNote}>{GUIDE_FOOTER_NOTE}</Text>
+        {manualReady ? <Text style={styles.footerNote}>{GUIDE_FOOTER_NOTE}</Text> : null}
       </ScrollView>
 
       <SidebarDrawer />

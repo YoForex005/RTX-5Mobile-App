@@ -9,7 +9,6 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../ui/theme/useTheme';
 import { FastPressable } from '../../ui/components/FastPressable';
-import { safeRouterBack } from '../../utils/navigation';
 import { spacing } from '../../ui/theme/index';
 
 export function SettingsBackBar({ title }: { title?: string }) {
@@ -21,7 +20,7 @@ export function SettingsBackBar({ title }: { title?: string }) {
   return (
     <View style={[styles.row, { height: insets.top + barHeight, paddingTop: insets.top }]}>
       <FastPressable
-        onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+        onPress={() => router.replace('/(tabs)/settings')}
         activateOnPressIn
         latencyLabel="settings.back"
         hitSlop={15}

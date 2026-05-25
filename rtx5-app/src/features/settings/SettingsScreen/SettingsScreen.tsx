@@ -18,11 +18,13 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
 import { AppHeader } from '../../../ui/components/AppHeader';
 import { FastPressable } from '../../../ui/components/FastPressable';
+import { useDeferredRouteContentReady } from '../../../ui/components/DeferredRouteMount';
+import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useThemeMode } from '../../../state/themeMode';
 import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
@@ -39,6 +41,38 @@ import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
+
+const SETTINGS_LOWER_CONTENT_DELAY_MS = 80;
+const SETTINGS_ROUTE_LOCK_MS = 250;
+const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 80;
+const SETTINGS_READY_ROUTE_PATHS = [
+  '/settings/accounts',
+  '/register',
+  '/settings/mailbox',
+  '/settings/news',
+  '/settings/economic-calendar',
+  '/settings/traders-community',
+  '/settings/mql5-algo-trading',
+  '/settings/interface',
+  '/settings/journal',
+  '/settings/user-guide',
+] as const;
+const SETTINGS_DETAIL_REPLACE_ROUTES = new Set<string>([
+  '/settings/accounts',
+  '/settings/mailbox',
+  '/settings/news',
+  '/settings/economic-calendar',
+  '/settings/traders-community',
+  '/settings/mql5-algo-trading',
+  '/settings/interface',
+  '/settings/journal',
+  '/settings/user-guide',
+]);
+
+type SettingsReadyRoute = (typeof SETTINGS_READY_ROUTE_PATHS)[number];
+type PrefetchRouter = {
+  prefetch?: (href: string) => void;
+};
 
 export function SettingsScreen() {
   const isScreenFocused = useIsFocused();
@@ -59,8 +93,8 @@ export function SettingsScreen() {
   const liveLogin = useLiveAccountState((s) => s.login);
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveHasBalance = useLiveAccountState((s) => s.metricFlags.balance);
-  const settingsDataActive = isLoggedIn && isScreenFocused;
-  const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
+  const settingsDataActive = useDeferredActiveFlag(isLoggedIn && isScreenFocused);
+  const { data: brokerConfig } = useBrokerConfig(brokerId, settingsDataActive);
   const { data: accounts } = useAccounts(settingsDataActive);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
@@ -82,6 +116,7 @@ export function SettingsScreen() {
   const displayAccountName = translateAccountCardName(rawAccountName, t);
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
+  const lowerSettingsReady = useDeferredRouteContentReady(SETTINGS_LOWER_CONTENT_DELAY_MS);
 
   void setSidebarOpen;
   void activeAccount;
@@ -90,6 +125,8 @@ export function SettingsScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showScanner, setShowScanner] = useState(false);
+  const routeLockRef = useRef(false);
+  const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLogout = () => {
     Alert.alert(
@@ -115,8 +152,88 @@ export function SettingsScreen() {
   const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    return () => setSearchActive(false);
+    return () => {
+      setSearchActive(false);
+      if (routeUnlockTimerRef.current) {
+        clearTimeout(routeUnlockTimerRef.current);
+        routeUnlockTimerRef.current = null;
+      }
+    };
   }, [setSearchActive]);
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      return undefined;
+    }
+
+    const prefetch = (router as PrefetchRouter).prefetch;
+    if (typeof prefetch !== 'function') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let frameId: number | null = null;
+
+    const warmRoutes = () => {
+      timerId = setTimeout(() => {
+        timerId = null;
+        if (cancelled) {
+          return;
+        }
+        SETTINGS_READY_ROUTE_PATHS.forEach((routePath) => {
+          try {
+            prefetch(routePath);
+          } catch {
+            // Expo Router prefetch can throw before a dev-client route is registered.
+          }
+        });
+      }, SETTINGS_ROUTE_PREFETCH_DELAY_MS);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(() => {
+        frameId = null;
+        warmRoutes();
+      });
+    } else {
+      timerId = setTimeout(warmRoutes, 16);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, [isScreenFocused]);
+
+  const unlockSettingsRoute = useCallback(() => {
+    if (routeUnlockTimerRef.current) {
+      clearTimeout(routeUnlockTimerRef.current);
+    }
+    routeUnlockTimerRef.current = setTimeout(() => {
+      routeLockRef.current = false;
+      routeUnlockTimerRef.current = null;
+    }, SETTINGS_ROUTE_LOCK_MS);
+  }, []);
+
+  const openReadySettingsRoute = useCallback((routePath: SettingsReadyRoute) => {
+    if (routeLockRef.current) {
+      return;
+    }
+
+    routeLockRef.current = true;
+    if (SETTINGS_DETAIL_REPLACE_ROUTES.has(routePath)) {
+      router.replace(routePath as any);
+    } else {
+      router.push(routePath as any);
+    }
+    unlockSettingsRoute();
+  }, [unlockSettingsRoute]);
 
   const enableSearch = () => {
     setIsSearching(true);
@@ -218,30 +335,31 @@ export function SettingsScreen() {
         {/* Search results overlay — kept mounted alongside the main settings
             tree so the Pressables in the main tree don't lose their refs (and
             their guard state) every time the user opens/closes search. */}
-        <View
-          style={[{ paddingHorizontal: 16, display: isSearching ? 'flex' : 'none' }]}
-          pointerEvents={isSearching ? 'auto' : 'none'}
-        >
-          <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
-            {searchResults.length > 0 ? searchResults.map((item, index) => (
-              <View key={item.title}>
-                <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
-                {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
-              </View>
-            )) : (
-              <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
-                <Ionicons name="search-outline" size={48} color={T.borderMedium} />
-                <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
-              </View>
-            )}
+        {isSearching ? (
+          <View style={{ paddingHorizontal: 16 }} pointerEvents="auto">
+            <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
+              {searchResults.length > 0 ? searchResults.map((item, index) => (
+                <View key={item.title}>
+                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
+                  {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
+                </View>
+              )) : (
+                <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
+                  <Ionicons name="search-outline" size={48} color={T.borderMedium} />
+                  <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        ) : null}
         <View
           style={{ display: isSearching ? 'none' : 'flex' }}
           pointerEvents={isSearching ? 'none' : 'auto'}
         >
             <FastPressable
-              onPress={() => router.push('/settings/accounts')}
+              onPress={() => openReadySettingsRoute('/settings/accounts')}
+              activateOnPressIn
+              unstable_pressDelay={0}
               latencyLabel="settings.accounts.open"
             >
               <View style={[styles.accountCard, styles.cardShadow]}>
@@ -345,7 +463,9 @@ export function SettingsScreen() {
             <Text style={styles.sectionTitle}>{t('TRADING & ACCOUNT')}</Text>
             <FastPressable
               style={[styles.singleRowCard, styles.cardShadow]}
-              onPress={() => router.push('/register')}
+              onPress={() => openReadySettingsRoute('/register')}
+              activateOnPressIn
+              unstable_pressDelay={0}
               latencyLabel="settings.register.open"
             >
               <View style={[styles.iconBox, { backgroundColor: 'rgba(29, 78, 216, 0.1)' }]}>
@@ -355,67 +475,71 @@ export function SettingsScreen() {
               <Ionicons name="chevron-forward" size={16} color={T.textMuted} />
             </FastPressable>
 
-            <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
-            <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} onPress={() => router.push('/settings/mailbox')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" onPress={() => router.push('/settings/news')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="calendar-outline" color="#1D4ED8" title={t('Economic Calender')} sub="" onPress={() => router.push('/settings/economic-calendar')} />
-            </View>
-
-            <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
-            <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="chatbubble-outline" color="#1D4ED8" title={t('Chat & Messages')} sub={t('Sign in to MQL5.community')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="people-outline" color="#1D4ED8" title={t('Traders Community')} onPress={() => router.push('/settings/traders-community')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="flash-outline" color="#1D4ED8" title={t('MQL5 Algo Trading')} onPress={() => router.push('/settings/mql5-algo-trading')} />
-            </View>
-
-            <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
-            <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="color-palette-outline" color="#1D4ED8" title={t('Theme')} sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
-                rightElement={
-                  <Switch
-                    value={themeMode === 'light'}
-                    onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                    trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                    thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
-                    style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                    {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
-                  />
-                }
-              />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="shield-checkmark-outline" color="#1D4ED8" title={t('OTP')} sub={t('Passcode Generator')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="qr-code-outline" color="#1D4ED8" title={t('QR Scanner')} sub={t('Scan code to connect')} onPress={() => setShowScanner(true)} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => router.push('/settings/interface')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} onPress={() => router.push('/settings/journal')} />
-            </View>
-
-            <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
-            <View style={[styles.groupCard, styles.cardShadow]}>
-              <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={t('Contact our dedicated team')} />
-              <View style={styles.dividerInner} />
-              <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQs & Documentation')} onPress={() => router.push('/settings/user-guide')} />
-            </View>
-
-            <View style={styles.logoutContainer}>
-              <FastPressable
-                style={styles.singleRowCardLogout}
-                onPress={handleLogout}
-                latencyLabel="settings.logout.prompt"
-              >
-                <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                  <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+            {lowerSettingsReady ? (
+              <>
+                <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
+                <View style={[styles.groupCard, styles.cardShadow]}>
+                  <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} onPress={() => openReadySettingsRoute('/settings/mailbox')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" onPress={() => openReadySettingsRoute('/settings/news')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="calendar-outline" color="#1D4ED8" title={t('Economic Calender')} sub="" onPress={() => openReadySettingsRoute('/settings/economic-calendar')} />
                 </View>
-                <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
-              </FastPressable>
-            </View>
+
+                <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
+                <View style={[styles.groupCard, styles.cardShadow]}>
+                  <SettingRow T={T} styles={styles} icon="chatbubble-outline" color="#1D4ED8" title={t('Chat & Messages')} sub={t('Sign in to MQL5.community')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="people-outline" color="#1D4ED8" title={t('Traders Community')} onPress={() => openReadySettingsRoute('/settings/traders-community')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="flash-outline" color="#1D4ED8" title={t('MQL5 Algo Trading')} onPress={() => openReadySettingsRoute('/settings/mql5-algo-trading')} />
+                </View>
+
+                <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
+                <View style={[styles.groupCard, styles.cardShadow]}>
+                  <SettingRow T={T} styles={styles} icon="color-palette-outline" color="#1D4ED8" title={t('Theme')} sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
+                    rightElement={
+                      <Switch
+                        value={themeMode === 'light'}
+                        onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                        trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                        thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                        style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                        {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                      />
+                    }
+                  />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="shield-checkmark-outline" color="#1D4ED8" title={t('OTP')} sub={t('Passcode Generator')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="qr-code-outline" color="#1D4ED8" title={t('QR Scanner')} sub={t('Scan code to connect')} onPress={() => setShowScanner(true)} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} onPress={() => openReadySettingsRoute('/settings/journal')} />
+                </View>
+
+                <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
+                <View style={[styles.groupCard, styles.cardShadow]}>
+                  <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={t('Contact our dedicated team')} />
+                  <View style={styles.dividerInner} />
+                  <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQs & Documentation')} onPress={() => openReadySettingsRoute('/settings/user-guide')} />
+                </View>
+
+                <View style={styles.logoutContainer}>
+                  <FastPressable
+                    style={styles.singleRowCardLogout}
+                    onPress={handleLogout}
+                    latencyLabel="settings.logout.prompt"
+                  >
+                    <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                      <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                    </View>
+                    <Text style={[styles.rowTitleSingle, { color: '#EF4444' }]}>{t('Logout')}</Text>
+                  </FastPressable>
+                </View>
+              </>
+            ) : null}
         </View>
       </ScrollView>
 

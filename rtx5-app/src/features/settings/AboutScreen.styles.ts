@@ -113,48 +113,6 @@ export const makeAboutStyles = (isDark = false) => {
       alignItems: 'center',
       gap: 5,
     },
-    bottomNav: {
-      minHeight: 86,
-      paddingTop: 8,
-      paddingHorizontal: 8,
-      borderTopWidth: 0,
-      backgroundColor: palette.screen,
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-    },
-    bottomTab: {
-      flex: 1,
-      minWidth: 0,
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      paddingTop: 2,
-    },
-    bottomTabPressed: {
-      opacity: 0.72,
-    },
-    bottomIconWrap: {
-      width: 56,
-      height: 34,
-      borderRadius: 17,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'transparent',
-    },
-    bottomIconWrapActive: {
-      backgroundColor: palette.activeSoft,
-    },
-    bottomLabel: {
-      color: palette.text,
-      fontSize: 12,
-      lineHeight: 16,
-      fontWeight: '700',
-      letterSpacing: 0,
-      marginTop: 4,
-    },
-    bottomLabelActive: {
-      fontWeight: '800',
-    },
     contactScreen: {
       flex: 1,
       backgroundColor: palette.surfaceAlt,

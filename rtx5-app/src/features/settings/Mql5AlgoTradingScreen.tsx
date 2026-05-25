@@ -14,10 +14,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Modal, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import type { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
-import { safeRouterBack } from '../../utils/navigation';
 import { makeMql5AlgoTradingStyles, type Mql5AlgoTradingStyles } from './Mql5AlgoTradingScreen.styles';
 import {
   DEFAULT_ALGO_STRATEGY_FILTERS,
@@ -53,6 +53,9 @@ type ConfirmationConfig = {
   onConfirm: () => void;
 };
 
+const MQL5_PRIMARY_CONTENT_DELAY_MS = 120;
+const MQL5_SECONDARY_CONTENT_DELAY_MS = 320;
+
 export function Mql5AlgoTradingScreen() {
   const T = useTheme();
   const insets = useSafeAreaInsets();
@@ -67,6 +70,8 @@ export function Mql5AlgoTradingScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [filters, setFilters] = useState<AlgoStrategyFilters>(DEFAULT_ALGO_STRATEGY_FILTERS);
+  const primaryContentReady = useDeferredRouteContentReady(MQL5_PRIMARY_CONTENT_DELAY_MS);
+  const secondaryContentReady = useDeferredRouteContentReady(MQL5_SECONDARY_CONTENT_DELAY_MS);
 
   const categories = useMemo(
     () => selectAlgoCategories(screenData.categories, selectedCategory),
@@ -76,9 +81,12 @@ export function Mql5AlgoTradingScreen() {
   // orthogonal concerns: filters cover trust/risk/library/sort, the tab
   // rail covers strategy *type*.
   const visibleStrategies = useMemo(() => {
+    if (!secondaryContentReady) {
+      return [];
+    }
     const filtered = applyAlgoStrategyFilters(screenData.featuredStrategies, filters);
     return filterStrategiesByCategory(filtered, selectedCategory);
-  }, [screenData.featuredStrategies, filters, selectedCategory]);
+  }, [screenData.featuredStrategies, filters, selectedCategory, secondaryContentReady]);
   const activeFilterCount = useMemo(() => getActiveAlgoFilterCount(filters), [filters]);
 
   const showLoading = screenData.uiState.loading_status === 'loading';
@@ -107,7 +115,7 @@ export function Mql5AlgoTradingScreen() {
   };
 
   const goBack = () => {
-    safeRouterBack(router, '/(tabs)/settings');
+    router.replace('/(tabs)/settings');
   };
 
   const closeSearch = () => {
@@ -198,7 +206,7 @@ export function Mql5AlgoTradingScreen() {
           />
         ) : null}
 
-        {showLoading ? (
+        {showLoading || !primaryContentReady ? (
           <AlgoSkeletonLoader styles={styles} />
         ) : showError ? (
           <ErrorState
@@ -213,6 +221,7 @@ export function Mql5AlgoTradingScreen() {
             categories={categories}
             visibleStrategies={visibleStrategies}
             accountConnected={accountConnected}
+            secondaryContentReady={secondaryContentReady}
             isDark={isDark}
             onSelectCategory={setSelectedCategory}
             onStopBot={openStopBotConfirmation}
@@ -246,6 +255,7 @@ function AlgoScreenContent({
   categories,
   visibleStrategies,
   accountConnected,
+  secondaryContentReady,
   isDark,
   onSelectCategory,
   onStopBot,
@@ -257,6 +267,7 @@ function AlgoScreenContent({
   categories: AlgoCategory[];
   visibleStrategies: Strategy[];
   accountConnected: boolean;
+  secondaryContentReady: boolean;
   isDark: boolean;
   onSelectCategory: (categoryId: string) => void;
   onStopBot: (bot: ActiveBot) => void;
@@ -278,22 +289,26 @@ function AlgoScreenContent({
       />
       <PerformanceOverviewCard performance={data.performance} currency={data.account?.currency} T={T} styles={styles} />
       <AlgoCategoryTabs categories={categories} onSelect={onSelectCategory} styles={styles} />
-      <FeaturedStrategiesSection strategies={visibleStrategies} T={T} styles={styles} />
-      <ActiveBotsSection bots={data.activeBots} currency={data.account?.currency} onStopBot={onStopBot} T={T} styles={styles} />
-      <RiskControlsPanel
-        settings={data.riskSettings}
-        currency={data.account?.currency}
-        onEmergencyStop={onEmergencyStop}
-        T={T}
-        styles={styles}
-      />
-      <RecentAlgoActivity activities={data.recentActivity} T={T} styles={styles} />
-      <View style={styles.disclaimer}>
-        <Ionicons name="shield-checkmark-outline" size={15} color={palette.secondary} />
-        <Text style={styles.disclaimerText}>
-          Algo trading involves risk. Strategy performance is not guaranteed. Use proper risk controls before enabling automation.
-        </Text>
-      </View>
+      {secondaryContentReady ? (
+        <>
+          <FeaturedStrategiesSection strategies={visibleStrategies} T={T} styles={styles} />
+          <ActiveBotsSection bots={data.activeBots} currency={data.account?.currency} onStopBot={onStopBot} T={T} styles={styles} />
+          <RiskControlsPanel
+            settings={data.riskSettings}
+            currency={data.account?.currency}
+            onEmergencyStop={onEmergencyStop}
+            T={T}
+            styles={styles}
+          />
+          <RecentAlgoActivity activities={data.recentActivity} T={T} styles={styles} />
+          <View style={styles.disclaimer}>
+            <Ionicons name="shield-checkmark-outline" size={15} color={palette.secondary} />
+            <Text style={styles.disclaimerText}>
+              Algo trading involves risk. Strategy performance is not guaranteed. Use proper risk controls before enabling automation.
+            </Text>
+          </View>
+        </>
+      ) : null}
     </>
   );
 }
@@ -394,7 +409,14 @@ function HeaderIcon({
   const palette = getAlgoUiPalette(T);
 
   return (
-    <Pressable style={styles.headerIconButton} hitSlop={8} onPress={onPress}>
+    <Pressable
+      style={styles.headerIconButton}
+      hitSlop={8}
+      onPress={onPress}
+      activateOnPressIn={Boolean(onPress)}
+      activateOnTouchStart={Boolean(onPress)}
+      unstable_pressDelay={0}
+    >
       <Ionicons name={icon} size={18} color={palette.secondary} />
     </Pressable>
   );
@@ -1100,8 +1122,8 @@ function AlgoFilterSheet({
   // will produce before committing. Ignores the category tab — the sheet is
   // orthogonal to it; users can verify their narrowing in the page after.
   const previewCount = useMemo(
-    () => applyAlgoStrategyFilters(strategies, draft).length,
-    [strategies, draft],
+    () => (visible ? applyAlgoStrategyFilters(strategies, draft).length : 0),
+    [strategies, draft, visible],
   );
 
   const toggleRisk = (level: AlgoRiskLevel) => {
@@ -1113,8 +1135,12 @@ function AlgoFilterSheet({
     }));
   };
 
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <View style={styles.filterSheetOverlay}>
         <Pressable style={styles.filterSheetBackdrop} onPress={onClose} />
         <View style={styles.filterSheet}>
@@ -1312,21 +1338,25 @@ function ConfirmationModal({
   onClose: () => void;
   styles: Mql5AlgoTradingStyles;
 }) {
+  if (!config) {
+    return null;
+  }
+
   return (
-    <Modal transparent visible={Boolean(config)} animationType="fade" onRequestClose={onClose}>
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>{config?.title}</Text>
-          <Text style={styles.modalMessage}>{config?.message}</Text>
+          <Text style={styles.modalTitle}>{config.title}</Text>
+          <Text style={styles.modalMessage}>{config.message}</Text>
           <View style={styles.modalActions}>
             <Pressable style={styles.modalCancelButton} onPress={onClose}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.modalConfirmButton, config?.tone === 'danger' ? styles.modalDangerButton : null]}
-              onPress={config?.onConfirm}
+              style={[styles.modalConfirmButton, config.tone === 'danger' ? styles.modalDangerButton : null]}
+              onPress={config.onConfirm}
             >
-              <Text style={styles.modalConfirmText}>{config?.confirmLabel}</Text>
+              <Text style={styles.modalConfirmText}>{config.confirmLabel}</Text>
             </Pressable>
           </View>
         </View>

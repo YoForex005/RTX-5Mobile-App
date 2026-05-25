@@ -381,6 +381,64 @@ export const CH_HTML = `
         return makePaddedPriceRange(minPrice, maxPrice);
       }
 
+      function getMarketPriceBadgeValues() {
+        var prices = [];
+        if (typeof lastBidPrice === 'number' && isFinite(lastBidPrice) && lastBidPrice > 0) {
+          prices.push(lastBidPrice);
+        }
+        if (typeof lastAskPrice === 'number' && isFinite(lastAskPrice) && lastAskPrice > 0) {
+          prices.push(lastAskPrice);
+        }
+        return prices;
+      }
+
+      function expandPriceRangeForMarketPriceBadges(range) {
+        var normalized = normalizePriceRange(range);
+        if (!normalized) {
+          return range;
+        }
+        var marketPrices = getMarketPriceBadgeValues();
+        if (marketPrices.length === 0) {
+          return normalized;
+        }
+        var minPrice = normalized.from;
+        var maxPrice = normalized.to;
+        var span = getPriceRangeSpan(normalized);
+        var center = (minPrice + maxPrice) / 2;
+        var maxQuoteDistance = Math.max(
+          span * 4,
+          Math.abs(center || 1) * PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE,
+          1
+        );
+        var expanded = false;
+        for (var i = 0; i < marketPrices.length; i += 1) {
+          var price = marketPrices[i];
+          if (price < minPrice && minPrice - price <= maxQuoteDistance) {
+            minPrice = price;
+            expanded = true;
+          } else if (price > maxPrice && price - maxPrice <= maxQuoteDistance) {
+            maxPrice = price;
+            expanded = true;
+          }
+        }
+        return expanded ? makePaddedPriceRange(minPrice, maxPrice) : normalized;
+      }
+
+      function rangeContainsMarketPriceBadges(range) {
+        var normalized = normalizePriceRange(range);
+        if (!normalized) {
+          return true;
+        }
+        var marketPrices = getMarketPriceBadgeValues();
+        for (var i = 0; i < marketPrices.length; i += 1) {
+          var price = marketPrices[i];
+          if (price < normalized.from || price > normalized.to) {
+            return false;
+          }
+        }
+        return true;
+      }
+
       function resolveRobustVisiblePriceRange(visibleBars, rawRange) {
         if (!visibleBars || visibleBars.length === 0 || !isValidPriceRange(rawRange)) {
           return rawRange;
@@ -505,7 +563,7 @@ export const CH_HTML = `
         }
 
         var rawRange = resolvePriceRangeFromBars(visibleBars);
-        return resolveRobustVisiblePriceRange(visibleBars, rawRange);
+        return expandPriceRangeForMarketPriceBadges(resolveRobustVisiblePriceRange(visibleBars, rawRange));
       }
 
       function resolveVerticalPanStartPriceRange() {
@@ -589,6 +647,7 @@ export const CH_HTML = `
           var dataOverlapRatio = getPriceRangeOverlapRatio(currentRange, dataRange);
           var pixelCompression = resolvePriceRangePixelCompression(dataRange);
           var dataVisuallyCollapsed = Boolean(pixelCompression && pixelCompression.collapsed);
+          var marketPriceBadgesOutOfRange = !rangeContainsMarketPriceBadges(currentRange);
 
           // A stale manual price range can be many times wider than the
           // visible OHLC range, or shifted away from it after horizontal
@@ -600,6 +659,7 @@ export const CH_HTML = `
             scaleSpan > dataSpan * PRICE_SCALE_HEALTH_SPAN_MULTIPLE ||
             dataSpan > scaleSpan * PRICE_SCALE_HEALTH_SPAN_MULTIPLE ||
             dataOverlapRatio < PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO ||
+            marketPriceBadgesOutOfRange ||
             dataVisuallyCollapsed
           ) {
             chartDebugLog('[WEBVIEW-CANDLE] heal_price_scale', {
@@ -633,6 +693,33 @@ export const CH_HTML = `
             schedulePriceScaleHealthCheck(reason, allowManualReset, remainingAttempts - 1);
           }
         });
+      }
+
+      function ensureMarketPriceBadgesVisible() {
+        try {
+          if (verticalPricePanGestureActive || activeTradeLineDrag || manualPriceScaleRangeActive) {
+            return;
+          }
+          var currentRange = null;
+          var priceScaleApi = getRightPriceScaleApi();
+          if (priceScaleApi && typeof priceScaleApi.getVisibleRange === 'function') {
+            currentRange = priceScaleApi.getVisibleRange();
+          }
+          if (!isValidPriceRange(currentRange)) {
+            return;
+          }
+          if (rangeContainsMarketPriceBadges(currentRange)) {
+            return;
+          }
+          var expandedRange = resolvePriceRangeFromVisibleData();
+          if (!isValidPriceRange(expandedRange)) {
+            return;
+          }
+          enableRightPriceAutoScale();
+          setRecoveredRightPriceRange(expandedRange);
+          scheduleOverlayDomRefresh();
+          postChartGeometry();
+        } catch (_e) {}
       }
 
       function lockVisiblePriceScaleRange(forceAutoScale, attempt) {
@@ -2270,8 +2357,8 @@ export const CH_HTML = `
           if (lastRawSeriesData && lastRawSeriesData.length > 0) {
             var mapped = mapForSeries(lastRawSeriesData);
             if (mapped && mapped.length > 0) {
+              clearMarketPriceLineRefs();
               series.setData(mapped);
-              detachMarketPriceLineRefsAfterSeriesReset();
               currentSeriesLength = mapped.length;
               lastBarTime = mapped[mapped.length - 1].time;
               schedulePriceScaleHealthCheck('recover_data', false);
@@ -2801,8 +2888,8 @@ export const CH_HTML = `
           } catch (_logErr) {}
           var mapped = mapForSeries(lastRawSeriesData);
           currentSeriesLength = mapped.length;
+          clearMarketPriceLineRefs();
           series.setData(mapped);
-          detachMarketPriceLineRefsAfterSeriesReset();
           var didPrependHistory =
             previousRawSeriesData.length > 0 &&
             lastRawSeriesData.length > 0 &&
@@ -3115,26 +3202,26 @@ export const CH_HTML = `
         askPriceLine = null;
       }
 
-      function makeMarketPriceLineOptions(price, color) {
+      function makeMarketPriceLineOptions(price, color, axisLabelVisible) {
         return {
           price: price,
           color: color,
           lineWidth: 1,
           lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
           lineVisible: true,
-          axisLabelVisible: true,
+          axisLabelVisible: axisLabelVisible !== false,
           axisLabelColor: color,
           axisLabelTextColor: '#FFFFFF',
           title: '',
         };
       }
 
-      function createMarketPriceLine(price, color) {
+      function createMarketPriceLine(price, color, axisLabelVisible) {
         if (!series) return null;
-        return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color)));
+        return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color, axisLabelVisible)));
       }
 
-      function setBidPriceLine(price, shouldScheduleRefresh) {
+      function setBidPriceLine(price, shouldScheduleRefresh, axisLabelVisible) {
         try {
           if (shouldScheduleRefresh !== false) {
             lastBidPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
@@ -3150,7 +3237,7 @@ export const CH_HTML = `
           }
           if (bidPriceLine) {
             try {
-              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor));
+              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor, axisLabelVisible));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -3158,14 +3245,14 @@ export const CH_HTML = `
             }
           }
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
-          bidPriceLine = createMarketPriceLine(price, marketBidColor);
+          bidPriceLine = createMarketPriceLine(price, marketBidColor, axisLabelVisible);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setBidPriceLine', e);
         }
       }
 
-      function setAskPriceLine(price, shouldScheduleRefresh) {
+      function setAskPriceLine(price, shouldScheduleRefresh, axisLabelVisible) {
         try {
           if (shouldScheduleRefresh !== false) {
             lastAskPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
@@ -3181,7 +3268,7 @@ export const CH_HTML = `
           }
           if (askPriceLine) {
             try {
-              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor));
+              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor, axisLabelVisible));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -3189,7 +3276,7 @@ export const CH_HTML = `
             }
           }
           askPriceLine = removeMarketPriceLine(askPriceLine);
-          askPriceLine = createMarketPriceLine(price, marketAskColor);
+          askPriceLine = createMarketPriceLine(price, marketAskColor, axisLabelVisible);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setAskPriceLine', e);
@@ -3206,19 +3293,18 @@ export const CH_HTML = `
           try { series.removePriceLine(directionPriceLine); } catch (_e) {}
           directionPriceLine = null;
         }
-        if (marketPriceLineRefs.length > 2) {
-          clearMarketPriceLineRefs();
-        }
+        clearMarketPriceLineRefs();
         if (hasBid) {
-          setBidPriceLine(bid, false);
+          setBidPriceLine(bid, false, true);
         } else {
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
         }
         if (hasAsk) {
-          setAskPriceLine(ask, false);
+          setAskPriceLine(ask, false, true);
         } else {
           askPriceLine = removeMarketPriceLine(askPriceLine);
         }
+        ensureMarketPriceBadgesVisible();
         scheduleOverlayDomRefresh();
       }
 
@@ -3229,7 +3315,13 @@ export const CH_HTML = `
       // of the data, which was blanking history on some rebuilds.
       function refreshBidPriceLineColor() {
         if (!bidPriceLine) return;
-        try { bidPriceLine.applyOptions({ color: marketBidColor }); } catch (_e) {}
+        try {
+          bidPriceLine.applyOptions({
+            color: marketBidColor,
+            axisLabelColor: marketBidColor,
+            axisLabelVisible: true,
+          });
+        } catch (_e) {}
       }
 
       function setDrawingTool(tool) {

@@ -125,6 +125,7 @@ export function TradeScreen() {
   const showBulkSheet = useCallback(() => {
     showActionSheet({
       title: t('Bulk Operations'),
+      instantOpen: true,
       actions: [
         { label: t('Close All Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'all' } }) },
         { label: t('Close Profitable Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'profitable' } }) },
@@ -138,6 +139,7 @@ export function TradeScreen() {
   const showPositionSheet = useCallback((item: PositionItem) => {
     showActionSheet({
       title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
+      instantOpen: true,
       actions: [
         { label: t('Close position'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
         { label: t('Close By'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },

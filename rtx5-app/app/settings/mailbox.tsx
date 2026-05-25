@@ -1,7 +1,5 @@
-import { DeferredRouteModule } from '../../src/ui/components/DeferredRouteMount';
-
-const loadMailboxScreen = () => import('../../src/features/settings/MailboxScreen').then((module) => module.MailboxScreen);
+import { MailboxScreen } from '../../src/features/settings/MailboxScreen';
 
 export default function MailboxRoute() {
-  return <DeferredRouteModule load={loadMailboxScreen} title="Mailbox" />;
+  return <MailboxScreen />;
 }

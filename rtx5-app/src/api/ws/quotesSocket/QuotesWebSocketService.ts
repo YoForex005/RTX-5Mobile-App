@@ -11,7 +11,13 @@ import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { buildBrokerWsUrl } from '../../brokerRouting';
+import {
+  ACTIVE_BROKER_ID_KEY,
+  ACTIVE_BROKER_LOGO_URL_KEY,
+  ACTIVE_BROKER_SERVER_URL_KEY,
+} from '../../../state/brokerSessionStorage';
 import { useUserPreferences } from '../../../state/userPreferences';
+import { getSecureItemAsync } from '../../../utils/secureStorage';
 import { recordUiFeedGap } from '../../../dev/uiInteractionDiagnostics';
 import {
   applyQuoteSubscriptionDelta,
@@ -52,6 +58,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private reconnectCooldownMs = 60000;
   private isConnected = false;
   private shouldReconnect = false;
+  private isResolvingSocketUrl = false;
 
   private activeSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();
@@ -115,6 +122,38 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private resolveSocketUrl(): string {
     return process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
       buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+  }
+
+  private async resolveSocketUrlAsync(): Promise<string> {
+    if (process.env.EXPO_PUBLIC_QUOTES_WS_URL) {
+      return process.env.EXPO_PUBLIC_QUOTES_WS_URL;
+    }
+
+    const state = useUserPreferences.getState();
+    if (state.brokerServerUrl) {
+      return buildBrokerWsUrl(state.brokerServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+    }
+
+    const [storedBrokerId, storedServerUrl, storedLogoUrl] = await Promise.all([
+      getSecureItemAsync(ACTIVE_BROKER_ID_KEY).catch(() => ''),
+      getSecureItemAsync(ACTIVE_BROKER_SERVER_URL_KEY).catch(() => ''),
+      getSecureItemAsync(ACTIVE_BROKER_LOGO_URL_KEY).catch(() => ''),
+    ]);
+
+    if (!storedServerUrl) {
+      return buildBrokerWsUrl('', '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+    }
+
+    const latestState = useUserPreferences.getState();
+    if (!latestState.brokerServerUrl) {
+      latestState.setBrokerConnection(
+        latestState.brokerId || storedBrokerId || '',
+        storedServerUrl,
+        latestState.brokerLogoUrl || storedLogoUrl || '',
+      );
+    }
+
+    return buildBrokerWsUrl(storedServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
   }
 
   public addTickListener(listener: GlobalTickListener): void {
@@ -203,7 +242,29 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     this.shouldReconnect = true;
     this.clearReconnectTimer();
-    const nextUrl = this.resolveSocketUrl();
+
+    if (this.isResolvingSocketUrl) {
+      return;
+    }
+
+    this.isResolvingSocketUrl = true;
+    void this.resolveSocketUrlAsync()
+      .then((nextUrl) => {
+        this.isResolvingSocketUrl = false;
+        this.openResolvedSocket(nextUrl);
+      })
+      .catch((error) => {
+        this.isResolvingSocketUrl = false;
+        console.warn('[Quotes WS] Failed to resolve broker socket URL. Will retry.', error);
+        this.attemptReconnect();
+      });
+  }
+
+  private openResolvedSocket(nextUrl: string): void {
+    if (!this.shouldReconnect || !this.hasActiveDemand()) {
+      return;
+    }
+
     if (this.url !== nextUrl) {
       this.url = nextUrl;
       this.teardownSocket();

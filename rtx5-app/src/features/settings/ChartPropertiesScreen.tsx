@@ -478,7 +478,7 @@ export function ChartPropertiesScreen() {
       <Modal
         transparent
         visible={activeColorKey !== null}
-        animationType="slide"
+        animationType="none"
         {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => applyDraftColor(draftColor)}
       >

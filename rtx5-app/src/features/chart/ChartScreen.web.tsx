@@ -102,13 +102,19 @@ const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
   const ordered: string[] = [];
-  const seen = new Set<string>();
+  const indexByKey = new Map<string, number>();
   const push = (symbol: string | null | undefined) => {
     const trimmed = symbol?.trim();
     if (!trimmed) return;
     const key = trimmed.toUpperCase();
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex !== undefined) {
+      if (trimmed === key && ordered[existingIndex] !== key) {
+        ordered[existingIndex] = trimmed;
+      }
+      return;
+    }
+    indexByKey.set(key, ordered.length);
     ordered.push(trimmed);
   };
 

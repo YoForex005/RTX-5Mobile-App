@@ -3,17 +3,15 @@ import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
 import { SidebarDrawer } from '../../src/ui/components/SidebarDrawer';
-import { SidebarRouteTransitionOverlay } from '../../src/ui/components/SidebarRouteTransitionOverlay';
 import { useIsDarkTheme } from '../../src/state/themeMode';
 import { useTheme } from '../../src/ui/theme/useTheme';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
-import { warmSidebarRouteModules } from '../../src/utils/sidebarRouteModuleWarmup';
 import { resolveBottomTabBarHeight } from '../../src/ui/layout/bottomTabBar';
 
 const icons = {
@@ -73,7 +71,7 @@ const FastTabBarButton = memo(function FastTabBarButton({
   const pressStartedAtRef = useRef<number | null>(null);
   const handledOnPressInRef = useRef(false);
 
-  const runTabPress = useCallback((event: TabPressEvent) => {
+  const runTabPress = useCallback((event: TabPressEvent | GestureResponderEvent) => {
     const startedAtMs = pressStartedAtRef.current ?? getNow();
     pressStartedAtRef.current = null;
     useUIState.getState().hideActionSheet();
@@ -81,10 +79,18 @@ const FastTabBarButton = memo(function FastTabBarButton({
     scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
   }, [latencyLabel, onPress]);
 
-  const handlePressIn = useCallback((event: TabPressInEvent) => {
+  const handleTouchStart = useCallback((event: GestureResponderEvent) => {
     pressStartedAtRef.current = getNow();
+    if (!handledOnPressInRef.current) {
+      handledOnPressInRef.current = true;
+      runTabPress(event);
+    }
+  }, [runTabPress]);
+
+  const handlePressIn = useCallback((event: TabPressInEvent) => {
     onPressIn?.(event);
     if (!handledOnPressInRef.current) {
+      pressStartedAtRef.current = getNow();
       handledOnPressInRef.current = true;
       runTabPress(event as unknown as TabPressEvent);
     }
@@ -109,6 +115,7 @@ const FastTabBarButton = memo(function FastTabBarButton({
   return (
     <PlatformPressable
       {...props}
+      onTouchStart={handleTouchStart}
       onPressIn={handlePressIn}
       onPress={handlePress}
       onPressOut={handlePressOut}
@@ -117,9 +124,27 @@ const FastTabBarButton = memo(function FastTabBarButton({
   );
 });
 
-export default function TabsLayout() {
+const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
+
+  return (
+    <ActionSheet
+      visible={actionSheet !== null}
+      title={actionSheet?.title}
+      actions={actionSheet?.actions ?? []}
+      onClose={hideActionSheet}
+      searchable={actionSheet?.searchable}
+      searchPlaceholder={actionSheet?.searchPlaceholder}
+      detent={actionSheet?.detent}
+      minimumTopInset={actionSheet?.minimumTopInset}
+      instantOpen={actionSheet?.instantOpen}
+      runActionAfterClose={actionSheet?.runActionAfterClose}
+    />
+  );
+});
+
+export default function TabsLayout() {
   const isChartFullscreen = useUIState((s) => s.isChartFullscreen);
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
@@ -162,14 +187,13 @@ export default function TabsLayout() {
   );
 
   useEffect(() => warmActionRoutes(router), [router]);
-  useEffect(() => warmSidebarRouteModules(), []);
 
   useEffect(() => {
-    if (previousPathRef.current !== pathname && actionSheet !== null) {
-      hideActionSheet();
+    if (previousPathRef.current !== pathname && useUIState.getState().actionSheet !== null) {
+      useUIState.getState().hideActionSheet();
     }
     previousPathRef.current = pathname;
-  }, [actionSheet, hideActionSheet, pathname]);
+  }, [pathname]);
 
   return (
     <View style={styles.root}>
@@ -226,23 +250,12 @@ export default function TabsLayout() {
         <Tabs.Screen name='settings' options={{ title: t('Settings') }} />
       </Tabs>
 
-      <SidebarRouteTransitionOverlay />
       <SidebarDrawer />
 
       {/* Hamburger menu button is now inside AppHeader for consistent alignment */}
 
       {/* Action sheet – shared across all tabs, renders inside device frame */}
-      <ActionSheet
-        visible={actionSheet !== null}
-        title={actionSheet?.title}
-        actions={actionSheet?.actions ?? []}
-        onClose={hideActionSheet}
-        searchable={actionSheet?.searchable}
-        detent={actionSheet?.detent}
-        minimumTopInset={actionSheet?.minimumTopInset}
-        instantOpen={actionSheet?.instantOpen}
-        runActionAfterClose={actionSheet?.runActionAfterClose}
-      />
+      <GlobalActionSheetHost />
     </View>
   );
 }

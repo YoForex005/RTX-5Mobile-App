@@ -634,6 +634,8 @@ function ChartTradeSheetContent({
               comment={sheet.chartTradeComment}
               variant='mt5-market'
               onTradeResult={sheet.onTradeResult}
+              fallbackBid={sheet.chartBid}
+              fallbackAsk={sheet.chartAsk}
               isDark={isDark}
               buyColor={colors.blue}
               sellColor={colors.sellPrimary}
@@ -1131,6 +1133,8 @@ function ChartTradeSheetBody({
             comment={sheet.chartTradeComment}
             variant='mt5-market'
             onTradeResult={sheet.onTradeResult}
+            fallbackBid={sheet.chartBid}
+            fallbackAsk={sheet.chartAsk}
             isDark={isDark}
             buyColor={colors.blue}
             sellColor={colors.sellPrimary}
@@ -1464,6 +1468,8 @@ export function ChartTradeOverlayLayer({
               onLotDraftSubmit={handlers.onLotDraftSubmit}
               onDecreaseLot={handlers.onDecreaseLot}
               onIncreaseLot={handlers.onIncreaseLot}
+              fallbackBid={sheet.chartBid}
+              fallbackAsk={sheet.chartAsk}
               isDark={isDark}
               buyColor={colors.blue}
               sellColor={colors.sellPrimary}
@@ -1520,6 +1526,8 @@ type ChartTradeInlineFooterProps = {
   onDecreaseLot: () => void;
   onIncreaseLot: () => void;
   active?: boolean;
+  fallbackBid?: number | null;
+  fallbackAsk?: number | null;
   onLayout?: (event: LayoutChangeEvent) => void;
 };
 
@@ -1550,6 +1558,8 @@ export function ChartTradeInlineFooter({
   onDecreaseLot,
   onIncreaseLot,
   active = true,
+  fallbackBid,
+  fallbackAsk,
   onLayout,
 }: ChartTradeInlineFooterProps) {
   const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;
@@ -1581,6 +1591,8 @@ export function ChartTradeInlineFooter({
           onDecreaseLot={onDecreaseLot}
           onIncreaseLot={onIncreaseLot}
           active={active}
+          fallbackBid={fallbackBid}
+          fallbackAsk={fallbackAsk}
           isDark={isDark}
           buyColor={buyColor}
           sellColor={sellColor}
