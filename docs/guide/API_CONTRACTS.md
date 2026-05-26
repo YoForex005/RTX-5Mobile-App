@@ -267,6 +267,8 @@ export type ApiError = {
 - `stopLimitPrice` required for stop-limit orders.
 - `expirationAt` required only when expiration type is `specified`.
 - `volume` must match symbol lot step constraints from symbol metadata.
+- `POST /api/v2/orders` is market execution only and requires `login`, `symbol`, `side`, and `volume`.
+- `POST /api/v2/orders/pending` is the pending limit/stop path and requires `login`, `symbol`, `side`, `volume`, `type`, and `price`; current backend support is limited to `buy_limit`, `sell_limit`, `buy_stop`, and `sell_stop`.
 
 ## Change Control
 - Any change to the above types requires:

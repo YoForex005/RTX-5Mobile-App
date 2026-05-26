@@ -52,6 +52,8 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
+- 2026-05-26: Tightened the Accounts screen three-dot options sheet by switching the short settings menu to content-sized `auto` height, removing the large unused white spacer between `Delete account` and `Cancel`. Verified with focused ActionSheet/account navigation tests, typecheck, and Android before/after screenshots.
+- 2026-05-26: Fixed the Settings hub theme canvas so light theme returns to the normal light background while dark theme keeps the requested full-screen black background. Verified with focused theme contract coverage and Android screenshots before/after the correction.
 - 2026-05-25: Removed native slide-open animations from settings-style bottom sheets and dropdowns that should behave like instant action sheets, including Mailbox detail/filter/options/action sheets, MQL5 filter sheet, chart properties color picker, and chart colors preset sheet. Header/filter/category dropdown openers now use the immediate press path so they do not wait for release before painting.
 - Settings hub layout was redesigned with a responsive premium card structure, a live market preview section tied to the active chart/watchlist context, and direct navigation affordances for accounts, mailbox, news, brokers, and chart settings on mobile widths.
 - 2026-05-20: Restored the login-screen `Register account` entry as a visible secondary action below the login CTA. The action dismisses the keyboard and routes to the existing `Register a demo account` screen without changing the frontend-only Orrnn public demo registration contract.
@@ -130,7 +132,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - 2026-05-23: Improved light/dark theme toggle responsiveness by skipping redundant theme writes and deferring coalesced user-preference persistence until after the first acknowledgement frame, preserving local storage while keeping the visible theme switch immediate.
 - 2026-05-23: Added a tiny immediate theme-mode store for visual rendering. Light/dark taps now update the visible app theme first and commit the existing persisted user preference after the acknowledgement frame, avoiding large preference-store fanout on the tap frame.
 - 2026-05-23: Tightened sidebar option navigation for Trade through About by starting route warmup within 500ms, prefetching sidebar routes immediately when the drawer opens, and using direct `router.push` for menu rows instead of the slower navigate resolution path.
-- 2026-05-23: Tightened bottom menubar switching by mounting all primary tab screens eagerly while keeping inactive tabs attached and unfrozen, so Quotes, Chart, Trade, History, and Settings changes do not wait on cold route construction.
+- 2026-05-23: Tightened bottom menubar switching by mounting all primary tab screens eagerly, then updated the shell to detach/freeze inactive native views so Quotes, Chart, Trade, History, and Settings changes do not wait on cold route construction while the active frame tree stays lean.
 
 ## Exit Criteria
 - All settings/news/account parity rows are marked complete.

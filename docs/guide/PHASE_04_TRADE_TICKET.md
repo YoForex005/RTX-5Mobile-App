@@ -35,7 +35,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - [ ] Trade tab metrics and list parity complete.
 - [ ] All order type screens from parity map are implemented.
 - [ ] One-click consent gate blocks order shortcut until accepted.
-- [ ] Bulk operations menu options are displayed per scope.
+- [x] Bulk operations menu options are displayed per scope.
 
 ## Test Checklist
 - [ ] Unit: order ticket validation rules.
@@ -53,6 +53,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - [x] Unit: Trade-tab position state deduplicates colliding order/position ticket rows before rendering.
 - [x] Unit: market order symbol candidates prefer cached broker symbols without brute-forcing hardcoded suffix POST attempts.
 - [x] Unit/device: shared Android ActionSheet geometry keeps the Trade bulk operations sheet at one settled position when opened.
+- [x] Unit/typecheck: Trade Bulk opens through the shared Quotes-style ActionSheet path and derives symbol-scoped actions from current positions without hardcoded symbols.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -60,6 +61,8 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - Trading UI flows are functionally complete with no blocking defects.
 
 ## Progress Notes
+- 2026-05-26: Rechecked the buy/sell submission flow against the live V2 contract. Market BUY/SELL remains on `POST /api/v2/orders`, while order-ticket pending limit/stop submissions now use `POST /api/v2/orders/pending` with the required `price` field instead of sending pending fields through the market-order wrapper where they were dropped.
+- 2026-05-26: Aligned the Trade Bulk launcher with the Quotes symbol tap sheet behavior. The Bulk button now opens the shared adaptive instant ActionSheet through the immediate action path, position-menu handoff schedules the next sheet after the current sheet closes, and symbol-scoped bulk rows are generated from current positions instead of a hardcoded symbol.
 - 2026-05-25: Rechecked the Trade Bulk Operations dropdown with before/after ADB screenshots. The shared adaptive ActionSheet floor now prevents the short bulk action list from shrinking to content and dropping low on Android; the observed sheet top moved from y=887 before the fix to y=650 after the fix while keeping the action list and Cancel row stable.
 - 2026-05-23: Shared Android ActionSheet geometry now waits out the transient Modal/status-bar frame before painting, so Trade bulk and position action sheets no longer appear and then drop. ADB video verified Bulk Operations stays fixed at y=929 across all visible recorded frames.
 - 2026-05-20: Fixed duplicate React key warnings after market execution when the backend returns the same timestamp-style value for `order_ticket` and `position_ticket`. Optimistic order inserts now go through the position upsert path, the positions store deduplicates ticket collisions, trade/bulk/close-by render helpers consume deduped position arrays, and focused unit tests cover the `1774502954924` duplicate-ticket shape.

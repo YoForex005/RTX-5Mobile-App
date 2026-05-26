@@ -1,0 +1,272 @@
+﻿[
+    {
+        "index":  1,
+        "cycle":  1,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:07.4578726+05:30",
+        "screenshot":  "01-quotes-c1.png"
+    },
+    {
+        "index":  2,
+        "cycle":  1,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:17.8689215+05:30",
+        "screenshot":  "02-chart-c1.png"
+    },
+    {
+        "index":  3,
+        "cycle":  1,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:24.5649136+05:30",
+        "screenshot":  "03-trade-c1.png"
+    },
+    {
+        "index":  4,
+        "cycle":  1,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:26.5014068+05:30",
+        "screenshot":  "04-history-c1.png"
+    },
+    {
+        "index":  5,
+        "cycle":  1,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:28.4776968+05:30",
+        "screenshot":  "05-settings-c1.png"
+    },
+    {
+        "index":  6,
+        "cycle":  2,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:30.2376113+05:30",
+        "screenshot":  "06-quotes-c2.png"
+    },
+    {
+        "index":  7,
+        "cycle":  2,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:35.8721348+05:30",
+        "screenshot":  "07-chart-c2.png"
+    },
+    {
+        "index":  8,
+        "cycle":  2,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:37.6578178+05:30",
+        "screenshot":  "08-trade-c2.png"
+    },
+    {
+        "index":  9,
+        "cycle":  2,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:39.6637968+05:30",
+        "screenshot":  "09-history-c2.png"
+    },
+    {
+        "index":  10,
+        "cycle":  2,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:41.4430150+05:30",
+        "screenshot":  "10-settings-c2.png"
+    },
+    {
+        "index":  11,
+        "cycle":  3,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:43.3700178+05:30",
+        "screenshot":  "11-quotes-c3.png"
+    },
+    {
+        "index":  12,
+        "cycle":  3,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:45.1856666+05:30",
+        "screenshot":  "12-chart-c3.png"
+    },
+    {
+        "index":  13,
+        "cycle":  3,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:47.0020552+05:30",
+        "screenshot":  "13-trade-c3.png"
+    },
+    {
+        "index":  14,
+        "cycle":  3,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:48.8374945+05:30",
+        "screenshot":  "14-history-c3.png"
+    },
+    {
+        "index":  15,
+        "cycle":  3,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:50.5492713+05:30",
+        "screenshot":  "15-settings-c3.png"
+    },
+    {
+        "index":  16,
+        "cycle":  4,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:52.4548937+05:30",
+        "screenshot":  "16-quotes-c4.png"
+    },
+    {
+        "index":  17,
+        "cycle":  4,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:54.2131153+05:30",
+        "screenshot":  "17-chart-c4.png"
+    },
+    {
+        "index":  18,
+        "cycle":  4,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:55.9861529+05:30",
+        "screenshot":  "18-trade-c4.png"
+    },
+    {
+        "index":  19,
+        "cycle":  4,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:57.8872148+05:30",
+        "screenshot":  "19-history-c4.png"
+    },
+    {
+        "index":  20,
+        "cycle":  4,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T11:59:59.7349674+05:30",
+        "screenshot":  "20-settings-c4.png"
+    },
+    {
+        "index":  21,
+        "cycle":  5,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:01.6878006+05:30",
+        "screenshot":  "21-quotes-c5.png"
+    },
+    {
+        "index":  22,
+        "cycle":  5,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:03.3724370+05:30",
+        "screenshot":  "22-chart-c5.png"
+    },
+    {
+        "index":  23,
+        "cycle":  5,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:05.1035793+05:30",
+        "screenshot":  "23-trade-c5.png"
+    },
+    {
+        "index":  24,
+        "cycle":  5,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:06.9121613+05:30",
+        "screenshot":  "24-history-c5.png"
+    },
+    {
+        "index":  25,
+        "cycle":  5,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:08.6824105+05:30",
+        "screenshot":  "25-settings-c5.png"
+    },
+    {
+        "index":  26,
+        "cycle":  6,
+        "tab":  "quotes",
+        "x":  72,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:10.4945180+05:30",
+        "screenshot":  "26-quotes-c6.png"
+    },
+    {
+        "index":  27,
+        "cycle":  6,
+        "tab":  "chart",
+        "x":  216,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:12.3801702+05:30",
+        "screenshot":  "27-chart-c6.png"
+    },
+    {
+        "index":  28,
+        "cycle":  6,
+        "tab":  "trade",
+        "x":  360,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:14.3488607+05:30",
+        "screenshot":  "28-trade-c6.png"
+    },
+    {
+        "index":  29,
+        "cycle":  6,
+        "tab":  "history",
+        "x":  504,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:16.1769532+05:30",
+        "screenshot":  "29-history-c6.png"
+    },
+    {
+        "index":  30,
+        "cycle":  6,
+        "tab":  "settings",
+        "x":  648,
+        "y":  1500,
+        "tappedAt":  "2026-05-26T12:00:17.9717217+05:30",
+        "screenshot":  "30-settings-c6.png"
+    }
+]

@@ -805,7 +805,7 @@ export function OrderTicketScreen() {
         symbol,
         side: pendingSideValue,
         volume,
-        ...(pendingEntryPrice > 0 ? { price_open: pendingEntryPrice } : {}),
+        ...(pendingEntryPrice > 0 ? { price: pendingEntryPrice } : {}),
         ...(slEnabled && slPrice > 0 ? { price_sl: slPrice } : {}),
         ...(tpEnabled && tpPrice > 0 ? { price_tp: tpPrice } : {}),
         comment: routeComment?.trim() || '',
@@ -814,9 +814,7 @@ export function OrderTicketScreen() {
 
       console.log('[PENDING-ORDER-PAYLOAD]', payload);
 
-      // Use the same placeMarketOrder endpoint; the backend differentiates
-      // via the `type` field. If not supported, it falls through gracefully.
-      const data = await ordersApi.placeMarketOrder(payload as any);
+      const data = await ordersApi.placePendingOrder(payload);
 
       if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
         const feedback = classifyTradingError(
@@ -841,7 +839,7 @@ export function OrderTicketScreen() {
         ticket: String(orderTicket ?? ''),
         symbol: symbol?.replace(/\//g, ''),
         volume,
-        price: pendingEntryPrice > 0 ? pendingEntryPrice : (pendingSideValue === 'buy' ? ASK : BID),
+        price: data.price ?? data.price_open ?? (pendingEntryPrice > 0 ? pendingEntryPrice : (pendingSideValue === 'buy' ? ASK : BID)),
         executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       });
     } catch (error: any) {

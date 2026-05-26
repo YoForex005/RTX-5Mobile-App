@@ -97,6 +97,17 @@ const scheduleLoginSubmitAfterInputCommit = (task: () => void) => {
   setTimeout(task, 0);
 };
 
+const scheduleLoginKeyboardDismiss = () => {
+  const dismissKeyboard = () => Keyboard.dismiss();
+
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(dismissKeyboard);
+    return;
+  }
+
+  setTimeout(dismissKeyboard, 0);
+};
+
 type LoginCredentialsSnapshot = {
   brokerId: string;
   serverUrl: string;
@@ -133,7 +144,7 @@ export function AccountLoginScreen() {
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(T, isDark, insets.top);
+  const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const loginRequestInFlightRef = useRef(false);
   const loginSubmitPressGuardRef = useRef(false);
   const loginSubmitPressGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -649,11 +660,11 @@ export function AccountLoginScreen() {
     loginSubmitPressGuardRef.current = true;
     runImmediateAction('login.submit.touch', () => {
       setIsLoading(true);
-      Keyboard.dismiss();
       scheduleLoginSubmitAfterInputCommit(() => {
         const snapshot = getLoginCredentialsSnapshot();
         void handleLogin(snapshot);
       });
+      scheduleLoginKeyboardDismiss();
       releaseLoginSubmitPressGuard();
     });
   };

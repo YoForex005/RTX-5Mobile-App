@@ -51,8 +51,12 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /toValue: 1,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /toValue: -DRAWER_WIDTH,[\s\S]*duration: DRAWER_CLOSE_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /Easing\.out\(Easing\.cubic\)/);
+  assert.match(source, /const \[keepDrawerMounted, setKeepDrawerMounted\] = useState\(false\)/);
+  assert.match(source, /const shouldRenderDrawer = visible \|\| keepDrawerMounted/);
+  assert.match(source, /Keep the drawer mounted only while visible\/closing so closed tabs stay lean/);
   assert.match(source, /pointerEvents=\{visible \? 'auto' : 'none'\}/);
   assert.match(source, /containerHidden:/);
+  assert.match(source, /if \(!shouldRenderDrawer\) \{\s*return null;\s*\}/);
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
   assert.match(source, /closeImmediately\(\);\s*return true;/);
   assert.match(source, /pointerEvents="box-none"[\s\S]*style=\{\[[\s\S]*ds\.overlay/);

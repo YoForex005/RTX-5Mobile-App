@@ -2,8 +2,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, type GestureResponderEvent } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, StyleSheet, Text, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
@@ -21,18 +21,39 @@ const icons = {
   settings: 'settings-outline',
 } as const;
 
+const tabPaths = {
+  quotes: '/quotes',
+  chart: '/chart',
+  trade: '/trade',
+  history: '/history',
+  settings: '/settings',
+} as const;
+
+type BottomTabName = keyof typeof tabPaths;
+
 const TAB_SWITCH_MAX_LATENCY_MS = 20;
 const STALE_TAB_SWITCH_SAMPLE_MS = 5000;
 type TabPressEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPress']>>[0];
 type TabPressInEvent = Parameters<NonNullable<BottomTabBarButtonProps['onPressIn']>>[0];
+type TabTouchEvent = GestureResponderEvent;
 type FastTabBarButtonProps = BottomTabBarButtonProps & {
   latencyLabel?: string;
+  onNavigateStart?: () => void;
 };
 
 const getNow = () =>
   typeof globalThis.performance?.now === 'function'
     ? globalThis.performance.now()
     : Date.now();
+
+const isBottomTabName = (value: string): value is BottomTabName =>
+  Object.prototype.hasOwnProperty.call(tabPaths, value);
+
+function resolveBottomTabName(pathname: string): BottomTabName {
+  const normalizedPathname = pathname.replace(/^\/\(tabs\)/, '');
+  const segment = normalizedPathname.split('/').filter(Boolean)[0];
+  return segment && isBottomTabName(segment) ? segment : 'quotes';
+}
 
 function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, navigationFinishedAtMs: number) {
   if (typeof __DEV__ === 'undefined' || !__DEV__) {
@@ -63,53 +84,44 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
 
 const FastTabBarButton = memo(function FastTabBarButton({
   latencyLabel = 'bottom tab',
+  onNavigateStart,
   onPress,
   onPressIn,
   onPressOut,
   ...props
 }: FastTabBarButtonProps) {
   const pressStartedAtRef = useRef<number | null>(null);
-  const handledOnPressInRef = useRef(false);
 
-  const runTabPress = useCallback((event: TabPressEvent | GestureResponderEvent) => {
+  const primeTabNavigation = useCallback(() => {
+    onNavigateStart?.();
+  }, [onNavigateStart]);
+
+  const runTabPress = useCallback((event: TabPressEvent) => {
     const startedAtMs = pressStartedAtRef.current ?? getNow();
     pressStartedAtRef.current = null;
     useUIState.getState().hideActionSheet();
-    onPress?.(event as TabPressEvent);
+    onPress?.(event);
     scheduleTabSwitchBudgetCheck(latencyLabel, startedAtMs, getNow());
   }, [latencyLabel, onPress]);
 
-  const handleTouchStart = useCallback((event: GestureResponderEvent) => {
+  const handleTouchStart = useCallback((_event: TabTouchEvent) => {
     pressStartedAtRef.current = getNow();
-    if (!handledOnPressInRef.current) {
-      handledOnPressInRef.current = true;
-      runTabPress(event);
-    }
-  }, [runTabPress]);
+    primeTabNavigation();
+  }, [primeTabNavigation]);
 
   const handlePressIn = useCallback((event: TabPressInEvent) => {
+    pressStartedAtRef.current = pressStartedAtRef.current ?? getNow();
+    primeTabNavigation();
     onPressIn?.(event);
-    if (!handledOnPressInRef.current) {
-      pressStartedAtRef.current = getNow();
-      handledOnPressInRef.current = true;
-      runTabPress(event as unknown as TabPressEvent);
-    }
-  }, [onPressIn, runTabPress]);
+  }, [onPressIn, primeTabNavigation]);
 
   const handlePress: NonNullable<BottomTabBarButtonProps['onPress']> = useCallback((event) => {
-    if (handledOnPressInRef.current) {
-      handledOnPressInRef.current = false;
-      return;
-    }
     runTabPress(event);
   }, [runTabPress]);
 
   const handlePressOut: NonNullable<BottomTabBarButtonProps['onPressOut']> = useCallback((event) => {
     onPressOut?.(event);
     pressStartedAtRef.current = null;
-    setTimeout(() => {
-      handledOnPressInRef.current = false;
-    }, 0);
   }, [onPressOut]);
 
   return (
@@ -156,8 +168,12 @@ export default function TabsLayout() {
   const pathname = usePathname();
   const router = useRouter();
   const previousPathRef = useRef(pathname);
+  const optimisticTabClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [optimisticTabName, setOptimisticTabName] = useState<BottomTabName | null>(null);
 
   const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
+  const activeTabName = useMemo(() => resolveBottomTabName(pathname), [pathname]);
+  const visualActiveTabName = optimisticTabName ?? activeTabName;
   const shouldHideMenu =
     (isChartFullscreen && isChartTab) ||
     (isChartTab && isChartInlineInputActive) ||
@@ -185,8 +201,45 @@ export default function TabsLayout() {
     }),
     [insets.bottom, isDark, tabBarHeight],
   );
+  const inactiveTabColor = isDark ? '#5A6B87' : T.textDimmed;
+
+  const markTabNavigationStarted = useCallback((routeName: string) => {
+    if (!isBottomTabName(routeName)) {
+      return;
+    }
+
+    if (optimisticTabClearTimerRef.current !== null) {
+      clearTimeout(optimisticTabClearTimerRef.current);
+    }
+
+    setOptimisticTabName(routeName);
+
+    optimisticTabClearTimerRef.current = setTimeout(() => {
+      setOptimisticTabName((current) => (current === routeName ? null : current));
+      optimisticTabClearTimerRef.current = null;
+    }, 800);
+  }, []);
 
   useEffect(() => warmActionRoutes(router), [router]);
+
+  useEffect(() => {
+    if (optimisticTabName === activeTabName) {
+      if (optimisticTabClearTimerRef.current !== null) {
+        clearTimeout(optimisticTabClearTimerRef.current);
+        optimisticTabClearTimerRef.current = null;
+      }
+      setOptimisticTabName(null);
+    }
+  }, [activeTabName, optimisticTabName]);
+
+  useEffect(
+    () => () => {
+      if (optimisticTabClearTimerRef.current !== null) {
+        clearTimeout(optimisticTabClearTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (previousPathRef.current !== pathname && useUIState.getState().actionSheet !== null) {
@@ -198,9 +251,9 @@ export default function TabsLayout() {
   return (
     <View style={styles.root}>
       <Tabs
-        // Keep every primary bottom tab mounted so taps never wait on cold route construction.
-        // Inactive tab screens guard their own data work through focus/path checks.
-        detachInactiveScreens={false}
+        // Keep primary tab routes eagerly mounted so taps never wait on cold route construction,
+        // while detached/frozen inactive native views keep the active frame tree MT-style lean.
+        detachInactiveScreens={true}
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle: shouldHideMenu
@@ -215,24 +268,36 @@ export default function TabsLayout() {
                 },
               ],
           tabBarActiveTintColor: T.accent,
-          tabBarInactiveTintColor: isDark ? '#5A6B87' : T.textDimmed,
-          tabBarIcon: ({ color, size }) => {
+          tabBarInactiveTintColor: inactiveTabColor,
+          tabBarIcon: ({ size }) => {
+            const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
+            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
             if (route.name === 'chart') {
               return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
             }
             const name = icons[route.name as keyof typeof icons] ?? 'ellipse-outline';
             return <Ionicons name={name} size={size} color={color} />;
           },
-          tabBarLabelStyle: {
-            fontSize: 12,
-            marginBottom: 4,
-            fontWeight: '600',
+          tabBarLabel: ({ children }) => {
+            const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
+            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
+            return (
+              <Text allowFontScaling={false} numberOfLines={1} style={[styles.tabLabel, { color }]}>
+                {children}
+              </Text>
+            );
           },
           tabBarActiveBackgroundColor: 'transparent',
           tabBarItemStyle: { backgroundColor: 'transparent' },
           tabBarHideOnKeyboard: !isChartTab,
-          tabBarButton: (props) => <FastTabBarButton {...props} latencyLabel={route.name} />,
-          freezeOnBlur: false,
+          tabBarButton: (props) => (
+            <FastTabBarButton
+              {...props}
+              latencyLabel={route.name}
+              onNavigateStart={() => markTabNavigationStarted(route.name)}
+            />
+          ),
+          freezeOnBlur: true,
           lazy: false,
           animation: 'none',
         })}
@@ -262,4 +327,10 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  tabLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });

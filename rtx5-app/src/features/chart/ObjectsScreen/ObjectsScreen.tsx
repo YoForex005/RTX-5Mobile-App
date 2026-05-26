@@ -16,6 +16,7 @@ import { useUserPreferences } from '../../../state/userPreferences';
 import { useUIState } from '../../../state/uiState';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { safeRouterBack } from '../../../utils/navigation';
+import { runImmediateAction } from '../../../utils/actionLatency';
 import { TvText, TvTrendLine } from '../components/ChartToolbarIcons';
 import {
   type ChartDrawingKind,
@@ -102,6 +103,10 @@ export function ObjectsScreen() {
     () => displayDrawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
     [displayDrawings, selectedDrawingId],
   );
+
+  const handleOpenAddObjectSheet = useCallback(() => {
+    runImmediateAction('chart.objects.addObjectSheet.open', () => setShowAddObjectSheet(true));
+  }, []);
 
   const handleSelectTool = useCallback((tool: ChartDrawingKind) => {
     setShowAddObjectSheet(false);
@@ -206,7 +211,14 @@ export function ObjectsScreen() {
             <Ionicons name="arrow-back" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>Objects</Text>
-          <Pressable onPress={() => setShowAddObjectSheet(true)} hitSlop={16} style={styles.headerButton}>
+          <Pressable
+            onPress={handleOpenAddObjectSheet}
+            activateOnPressIn
+            activateOnTouchStart
+            unstable_pressDelay={0}
+            hitSlop={16}
+            style={styles.headerButton}
+          >
             <Ionicons name="add" size={24} color="#3B82F6" />
           </Pressable>
         </View>
@@ -228,7 +240,7 @@ export function ObjectsScreen() {
             description="Trend line, fib zone, highlight and more"
             accent="#2563EB"
             Icon={TvTrendLine}
-            onPress={() => setShowAddObjectSheet(true)}
+            onPress={handleOpenAddObjectSheet}
             showDivider
             styles={styles}
             isDark={isDark}
@@ -331,6 +343,8 @@ export function ObjectsScreen() {
         visible={showAddObjectSheet}
         onClose={() => setShowAddObjectSheet(false)}
         title="Add object"
+        detent="adaptive"
+        instantOpen
         actions={addObjectActions}
       />
 
@@ -338,6 +352,8 @@ export function ObjectsScreen() {
         visible={Boolean(selectedDrawing)}
         onClose={() => setSelectedDrawingId(null)}
         title={selectedDrawing?.label ?? 'Object'}
+        detent="adaptive"
+        instantOpen
         actions={selectedDrawingActions}
       />
     </Screen>

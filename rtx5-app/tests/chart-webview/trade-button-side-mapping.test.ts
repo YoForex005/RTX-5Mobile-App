@@ -192,6 +192,10 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
 
   assert.match(
     buttonSource,
+    /<View style=\{\[baseStyles\.tradeControlsRow, themeStyles\.tradeControlsRow\]\}>/,
+  );
+  assert.match(
+    buttonSource,
     /<View style=\{\[baseStyles\.actionLotSlot, themeStyles\.actionLotSlot\]\}>/,
   );
   assert.match(
@@ -208,7 +212,7 @@ test('compact footer lot slot paints the full center area in dark theme', () => 
   );
   assert.match(
     stylesSource,
-    /export const darkStyles[\s\S]*actionLotControl:\s*\{ backgroundColor: '#1F2937', borderColor: 'rgba\(226,232,240,0\.5\)' \}[\s\S]*actionLotControlPicker:\s*\{ borderColor: 'rgba\(226,232,240,0\.5\)' \}/,
+    /export const darkStyles[\s\S]*tradeControlsRow:\s*\{ borderColor: '#334155' \}[\s\S]*actionLotControl:\s*\{ backgroundColor: '#1F2937', borderColor: '#334155' \}[\s\S]*actionLotControlPicker:\s*\{ borderColor: '#334155' \}/,
   );
   assert.doesNotMatch(
     stylesSource,

@@ -23,6 +23,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../utils/actionLatency';
 import { findPositionById, symbolDisplayName } from './tradeFlow';
 import { resolveLivePositionPrice } from './livePositionMetrics';
 import {
@@ -285,7 +286,10 @@ export function ClosePositionScreen() {
           <Pressable
             style={[styles.actionButton, styles.closeButton, (isClosing || actionLocked) && { opacity: 0.6 }]}
             disabled={isClosing || actionLocked}
-            onPressIn={handleClosePosition}
+            onPress={() => { void handleClosePosition(); }}
+            activateOnPressIn
+            latencyLabel="closePosition.submit"
+            latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
             unstable_pressDelay={0}
           >
             {isClosing ? (

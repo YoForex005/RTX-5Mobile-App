@@ -24,6 +24,7 @@ import { useTheme } from '../../ui/theme/useTheme';
 import { useMarketSymbols } from '../../query/market';
 import { useUIState } from '../../state/uiState';
 import { useUserPreferences } from '../../state/userPreferences';
+import { runImmediateAction } from '../../utils/actionLatency';
 import { resolveQuoteFeedSymbols } from '../quotes/quoteWatchlistDefaults';
 import { BreakingNewsCard, type BreakingNewsCardData } from './BreakingNewsCard';
 import { getNewsThemeColors, makeNewsScreenStyles, type NewsScreenStyles, type NewsThemeColors } from './NewsScreen.styles';
@@ -123,16 +124,19 @@ export function NewsScreen() {
       };
     };
 
-    showActionSheet({
-      title: 'Filter news',
-      actions: [
-        makeFilterAction('filter-all', 'All news', 'newspaper-outline'),
-        makeFilterAction('filter-high-impact', 'High impact', 'alert-circle-outline'),
-        makeFilterAction('filter-watchlist', 'Watchlist', 'list-outline'),
-        makeFilterAction('filter-saved', 'Bookmarks', 'bookmark-outline'),
-      ],
-      detent: 'auto',
-    });
+    runImmediateAction('news.filterSheet.open', () =>
+      showActionSheet({
+        title: 'Filter news',
+        actions: [
+          makeFilterAction('filter-all', 'All news', 'newspaper-outline'),
+          makeFilterAction('filter-high-impact', 'High impact', 'alert-circle-outline'),
+          makeFilterAction('filter-watchlist', 'Watchlist', 'list-outline'),
+          makeFilterAction('filter-saved', 'Bookmarks', 'bookmark-outline'),
+        ],
+        detent: 'adaptive',
+        instantOpen: true,
+      }),
+    );
   }, [newsColors.cyan, newsColors.sub, selectedImpactFilter, showActionSheet]);
 
   const closeSearch = useCallback(() => {

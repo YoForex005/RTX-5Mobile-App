@@ -70,7 +70,12 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /const pathname = usePathname\(\)/);
   assert.match(chartSource, /const isChartRouteActive =[\s\S]*pathname === '\/chart'[\s\S]*pathname\.startsWith\('\/chart\/'\)/);
   assert.match(chartSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
-  assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive\)/);
+  assert.match(chartSource, /import \{ scheduleIdleWork \} from '\.\.\/\.\.\/utils\/startupScheduler'/);
+  assert.match(chartSource, /const CHART_RUNTIME_ACTIVE_DELAY_MS = 650/);
+  assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 650/);
+  assert.match(chartSource, /const CHART_SURFACE_MOUNT_DELAY_MS = 650/);
+  assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);
+  assert.match(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
@@ -78,6 +83,9 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /useInstrumentMeta\(chartSymbol, chartRuntimeActive\)/);
   assert.match(chartSource, /useLiveCandles\(chartSymbol, chartTimeframe, chartRuntimeActive\)/);
   assert.match(chartSource, /const refreshShowOnChartSources = useCallback\(\(\) => \{[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(chartSource, /scheduleIdleWork\([\s\S]*refreshShowOnChartSources\(\);[\s\S]*requestChartViewportRecovery\(3\);[\s\S]*delayMs: CHART_FOCUS_WORK_DELAY_MS/);
+  assert.match(chartSource, /\{\(!chartSurfaceReady \|\| isLoading\) && \(/);
+  assert.match(chartSource, /\{chartSurfaceReady \? \(\s*<WebView/);
   assert.match(chartSource, /<LiveQuotePairHeader[\s\S]*bid=\{chartBid\}[\s\S]*ask=\{chartAsk\}/);
   assert.match(chartSource, /<ChartTradeButtons[\s\S]*active=\{chartRuntimeActive\}/);
   assert.match(priceAlertsSource, /const isScreenFocused = useIsFocused\(\)/);

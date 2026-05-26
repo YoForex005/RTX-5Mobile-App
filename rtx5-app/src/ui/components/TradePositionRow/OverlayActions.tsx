@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import type { ThemeColors } from '../../theme/useTheme';
+import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS } from '../../../utils/actionLatency';
 import { tradePositionRowStyles as styles } from './styles';
 
 export type OverlayActionsProps = {
@@ -44,6 +45,9 @@ export function OverlayActions({
         hitSlop={12}
         disabled={overlayActionLocked}
         onPress={onClose}
+        activateOnPressIn
+        latencyLabel="tradeRow.closePosition.open"
+        latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
         unstable_pressDelay={0}
         style={({ pressed }) => [
           styles.actionBtnContainer,

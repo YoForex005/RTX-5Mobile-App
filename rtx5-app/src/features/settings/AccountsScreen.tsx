@@ -15,7 +15,7 @@ import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Alert } from 're
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 
 import { useTheme } from '../../ui/theme/useTheme';
@@ -49,8 +49,15 @@ import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
+import { usePositionsState } from '../../state/positionsState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
+import { runImmediateAction } from '../../utils/actionLatency';
+import {
+  persistAuthSessionTokens,
+  persistSelectedBrokerSession,
+} from '../../state/brokerSessionStorage';
+import { bootstrapApp } from '../../services/bootstrapApp';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountType,
@@ -64,6 +71,54 @@ const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
 const logAccountsScreenDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED) {
     console.log(...args);
+  }
+};
+
+const ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE =
+  'Account does not exist on this broker anymore. It was removed from this device.';
+
+const ACCOUNT_SWITCH_STALE_QUERY_KEYS: ReadonlyArray<readonly unknown[]> = [
+  [ACCOUNTS_LIST_KEY],
+  [ACCOUNT_DETAIL_KEY],
+  [BROKER_CONFIG_KEY],
+  ['positions'],
+  ['ordersByLogin'],
+  ['accountOrders'],
+  ['orders'],
+  ['accountSummary'],
+  ['positionHistory'],
+  ['accountDeals'],
+  ['deals'],
+  ['exposure'],
+  ['transactions'],
+];
+
+const normalizeSwitchLogin = (login: string) => {
+  const numeric = Number(login);
+  return Number.isFinite(numeric) ? String(numeric) : login.trim();
+};
+
+const isMissingSavedAccountSwitchError = (error: unknown) => {
+  const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
+    ? Number((error as { statusCode?: unknown }).statusCode)
+    : 0;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    statusCode === 404 ||
+    normalizedMessage.includes('account not found') ||
+    normalizedMessage.includes('account does not exist') ||
+    normalizedMessage.includes('account no longer exists') ||
+    normalizedMessage.includes('login not found') ||
+    normalizedMessage.includes('user not found')
+  );
+};
+
+const removeAccountScopedQueries = (queryClient: QueryClient) => {
+  for (const queryKey of ACCOUNT_SWITCH_STALE_QUERY_KEYS) {
+    queryClient.removeQueries({ queryKey });
+    void queryClient.invalidateQueries({ queryKey });
   }
 };
 
@@ -320,6 +375,7 @@ export function AccountsScreen() {
         // Saved entry exists but secure-store lost the credential — clear the
         // stale flag so the directory matches reality and prompt re-login.
         removeSavedAccount(row.login, row.brokerId);
+        removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
         Alert.alert(
           t('Password not saved'),
           t('Sign in to this account once so it can be reconnected with one tap next time.'),
@@ -336,6 +392,10 @@ export function AccountsScreen() {
         logoUrl: row.logoUrl,
       });
 
+      if (normalizeSwitchLogin(result.accountLogin) !== normalizeSwitchLogin(row.login)) {
+        throw new Error(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE);
+      }
+
       userLogin(
         result.accountLogin,
         result.accountName,
@@ -349,6 +409,9 @@ export function AccountsScreen() {
         { serverUrl: result.serverUrl || row.serverUrl, logoUrl: result.logoUrl || row.logoUrl },
       );
       setIsDemoAccountFlag(result.accountType === 'demo');
+      useLiveAccountState.getState().resetMetrics();
+      usePositionsState.getState().clearPositions();
+      removeAccountScopedQueries(queryClient);
       upsertSavedAccount({
         login: result.accountLogin,
         name: result.accountName || row.name,
@@ -361,12 +424,35 @@ export function AccountsScreen() {
         hasCredentials: true,
       });
 
-      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+      void Promise.all([
+        persistSelectedBrokerSession({
+          brokerId: result.brokerId,
+          serverUrl: result.serverUrl || row.serverUrl,
+          logoUrl: result.logoUrl || row.logoUrl,
+        }),
+        persistAuthSessionTokens({
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.expiresAtIso,
+        }),
+      ]).catch((err) => {
+        console.warn('[Accounts] Failed to persist switched account session', err);
+      });
+      void bootstrapApp({ accountLogin: result.accountLogin }).catch((err) => {
+        console.warn('[Accounts] Failed to bootstrap switched account', err);
+      });
 
       setSuccessMessage(t('Account switched successfully'));
     } catch (error: any) {
+      if (isMissingSavedAccountSwitchError(error)) {
+        removeSavedAccount(row.login, row.brokerId);
+        removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
+        Alert.alert(
+          t('Account does not exist'),
+          t(ACCOUNT_SWITCH_ACCOUNT_MISSING_MESSAGE),
+        );
+        return;
+      }
       Alert.alert(t('Switch failed'), error?.message || t('Unable to switch account.'));
     } finally {
       setConnectingKey(null);
@@ -402,15 +488,19 @@ export function AccountsScreen() {
   };
 
   const openOptions = () => {
-    showActionSheet({
-      title: t('Settings'),
-      actions: [
-        { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
-        { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
-        { label: t('Clear saved password') },
-        { label: t('Delete account'), danger: true },
-      ],
-    });
+    runImmediateAction('accounts.optionsSheet.open', () =>
+      showActionSheet({
+        title: t('Settings'),
+        detent: 'auto',
+        instantOpen: true,
+        actions: [
+          { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
+          { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
+          { label: t('Clear saved password') },
+          { label: t('Delete account'), danger: true },
+        ],
+      }),
+    );
   };
 
   return (

@@ -137,7 +137,11 @@ export const loginAPI = async (
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.message || errorBody.error || 'Login failed');
+    const error = new Error(errorBody.message || errorBody.error || 'Login failed') as Error & {
+      statusCode?: number;
+    };
+    error.statusCode = response.status;
+    throw error;
   }
 
   return response.json();

@@ -110,6 +110,8 @@ export function ChartToolbarMoreActionSheet({
       visible={visible}
       onClose={onClose}
       title="Options"
+      detent="adaptive"
+      instantOpen
       actions={[
         {
           label: 'Remove from favorites',

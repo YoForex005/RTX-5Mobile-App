@@ -93,6 +93,7 @@ export const baseStyles = StyleSheet.create({
 });
 
 export const lightStyles = StyleSheet.create({
+  tradeControlsRow: { borderColor: '#9E9E9E' },
   actionLotSlot: { backgroundColor: '#FFFFFF' },
   actionLotControl: { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' },
   actionLotControlPicker: { borderColor: '#CBD5E1' },
@@ -103,13 +104,14 @@ export const lightStyles = StyleSheet.create({
 });
 
 export const darkStyles = StyleSheet.create({
-  actionLotSlot: { backgroundColor: '#FFFFFF' },
-  actionLotControl: { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' },
-  actionLotControlPicker: { borderColor: '#CBD5E1' },
-  actionLotValue: { color: '#0F172A' },
-  actionLotAdjustIcon: { color: '#475569' },
-  actionLotAdjustIconDisabled: { color: '#94A3B8' },
-  actionLotInput: { color: '#0F172A' },
+  tradeControlsRow: { borderColor: '#334155' },
+  actionLotSlot: { backgroundColor: '#1F2937' },
+  actionLotControl: { backgroundColor: '#1F2937', borderColor: '#334155' },
+  actionLotControlPicker: { borderColor: '#334155' },
+  actionLotValue: { color: '#F8FAFC' },
+  actionLotAdjustIcon: { color: '#CBD5E1' },
+  actionLotAdjustIconDisabled: { color: '#64748B' },
+  actionLotInput: { color: '#F8FAFC' },
 });
 
 export const textBaseStyles = StyleSheet.create({

@@ -299,6 +299,7 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   const rowSource = readSource('src/features/settings/SettingsScreen/SettingRow.tsx');
   const backBarSource = readSource('src/features/settings/SettingsBackBar.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
+  const registerSource = readSource('app/register.tsx');
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokersSource = readSource('src/features/settings/BrokersScreen/BrokersScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
@@ -326,6 +327,7 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 16/);
   assert.match(accountsSource, /marginLeft: 8/);
+  assert.match(accountsSource, /showActionSheet\(\{[\s\S]*title: t\('Settings'\),[\s\S]*detent: 'auto'/);
   assert.match(accountsSource, /latencyLabel="accounts\.back"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(accountsSource, /latencyLabel="accounts\.connect\.open"/);
   assert.match(accountsSource, /latencyLabel="accounts\.options\.open"/);
@@ -340,9 +342,12 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   assert.doesNotMatch(brokersSource, /traceUiInteraction/);
   assert.match(brokerDetailSource, /paddingLeft: 16/);
   assert.match(brokerDetailSource, /gap: 8/);
-  assert.match(brokerDetailSource, /const LOGIN_VIOLET = '#7C3AED'/);
-  assert.match(brokerDetailSource, /optionIconDemo: \{[\s\S]*backgroundColor: MT5_BLUE/);
-  assert.match(brokerDetailSource, /loginBtn: \{[\s\S]*backgroundColor: LOGIN_VIOLET[\s\S]*shadowColor: LOGIN_VIOLET/);
+  assert.match(registerSource, /registerBtn: \{[\s\S]*backgroundColor: T\.accent[\s\S]*shadowColor: T\.accent/);
+  assert.match(brokerDetailSource, /optionIconDemo: \{[\s\S]*backgroundColor: T\.accent/);
+  assert.match(brokerDetailSource, /optionIconReal: \{[\s\S]*backgroundColor: T\.accent/);
+  assert.match(brokerDetailSource, /loginBtn: \{[\s\S]*backgroundColor: T\.accent[\s\S]*shadowColor: T\.accent/);
+  assert.doesNotMatch(brokerDetailSource, /MT5_BLUE_LIGHT/);
+  assert.doesNotMatch(brokerDetailSource, /LOGIN_VIOLET/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.back"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.login\.submit"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.server\.open"/);
@@ -368,6 +373,18 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.tp\.increment"/);
   assert.doesNotMatch(source, /livePill|liveDot|liveLabel/);
   assert.doesNotMatch(source, /traceUiInteraction/);
+});
+
+test('close position actions use the immediate trade path', () => {
+  const rootSource = readSource('app/_layout.tsx');
+  const overlaySource = readSource('src/ui/components/TradePositionRow/OverlayActions.tsx');
+  const closePositionSource = readSource('src/features/trade/ClosePositionScreen.tsx');
+
+  assert.match(rootSource, /<Stack\.Screen name='trade\/close-position' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(overlaySource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
+  assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.open"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  assert.match(closePositionSource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/utils\/actionLatency'/);
+  assert.match(closePositionSource, /onPress=\{\(\) => \{ void handleClosePosition\(\); \}\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
 });
 
 test('high-traffic tab screens keep fast actions off the old trace wrapper', () => {
@@ -432,7 +449,12 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
-  assert.match(settingsStyles, /container: \{ flex: 1, backgroundColor: T\.bg \}/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
+  assert.match(settingsStyles, /const resolveSettingsBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_BACKGROUND : T\.bg/);
+  assert.match(settingsStyles, /const settingsBackground = resolveSettingsBackground\(T, themeMode\)/);
+  assert.match(settingsStyles, /screen: \{ flex: 1, backgroundColor: settingsBackground \}/);
+  assert.match(settingsStyles, /container: \{ flex: 1, backgroundColor: settingsBackground \}/);
+  assert.match(settingsStyles, /headerWrap: \{[\s\S]*backgroundColor: settingsBackground/);
   assert.match(orderTicketSource, /function makeStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(orderTicketSource, /root: \{ flex: 1, backgroundColor: BG \}/);
   assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);

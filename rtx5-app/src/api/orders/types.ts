@@ -83,6 +83,25 @@ export interface PlaceOrderPayload {
   magic?: number;
 }
 
+export type PendingOrderType =
+  | 'buy_limit'
+  | 'sell_limit'
+  | 'buy_stop'
+  | 'sell_stop';
+
+/**
+ * Payload for POST /api/v2/orders/pending.
+ *
+ * The pending endpoint uses `price` for the trigger price. `price_open` is
+ * accepted as a local legacy alias so older screen code can be migrated safely.
+ */
+export interface PlacePendingOrderPayload extends PlaceOrderPayload {
+  type: PendingOrderType | string;
+  price?: number;
+  price_open?: number;
+  expiration?: number;
+}
+
 /**
  * Response from POST /api/v2/orders on successful execution.
  *
@@ -113,6 +132,26 @@ export interface PlaceOrderResponse {
   status?: string;
   time?: number;
   action?: string;
+  message?: string;
+}
+
+export interface PlacePendingOrderResponse {
+  ticket?: number;
+  order_ticket?: number;
+  position_ticket?: number;
+  account_login?: number;
+  symbol: string;
+  type?: PendingOrderType | string;
+  side: TradeSide;
+  volume: number;
+  price?: number;
+  price_open?: number;
+  price_sl?: number | null;
+  price_tp?: number | null;
+  status?: string;
+  comment?: string;
+  time_create?: number;
+  magic?: number;
   message?: string;
 }
 

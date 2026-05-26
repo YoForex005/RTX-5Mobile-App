@@ -293,7 +293,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <Screen noBottomInset>
+    <Screen noBottomInset style={styles.screen}>
       <View style={styles.headerWrap}>
         <AppHeader
           title={t('Settings')}

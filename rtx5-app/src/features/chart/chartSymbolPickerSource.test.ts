@@ -71,6 +71,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /const timeframePickerActions = useMemo\([\s\S]*timeframes\.map/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
   assert.match(source, /const drawingToolsActions = useMemo\(/);
+  assert.match(source, /const chartTypePickerActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /requestAnimationFrame\(resetChartActionSheetContext\)/);
@@ -79,8 +80,13 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
     /title: t\('Timeframes'\)[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: timeframePickerActions/,
   );
   assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
   assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
   assert.match(source, /title: t\('Expiration'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTradeExpirationActions/);
+  assert.match(source, /requestAnimationFrame\(handleOpenChartTypePicker\)/);
+  assert.doesNotMatch(source, /showChartTypeMenu\s*\?/);
+  assert.doesNotMatch(source, /setShowChartTypeMenu/);
+  assert.doesNotMatch(source, /styles\.chartTypeMenuCard/);
   assert.match(source, /showActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
   assert.match(
     source,

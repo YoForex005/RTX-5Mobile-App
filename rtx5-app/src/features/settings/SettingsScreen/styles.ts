@@ -1,12 +1,21 @@
 import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
-export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
+const SETTINGS_DARK_BACKGROUND = '#000000';
+
+const resolveSettingsBackground = (T: ThemeColors, themeMode: 'light' | 'dark') =>
+  themeMode === 'dark' ? SETTINGS_DARK_BACKGROUND : T.bg;
+
+export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => {
+  const settingsBackground = resolveSettingsBackground(T, themeMode);
+
+  return StyleSheet.create({
+  screen: { flex: 1, backgroundColor: settingsBackground },
+  container: { flex: 1, backgroundColor: settingsBackground },
   content: { paddingBottom: 20 },
 
   headerWrap: {
-    backgroundColor: T.bg,
+    backgroundColor: settingsBackground,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: themeMode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
     zIndex: 10,
@@ -159,6 +168,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     backgroundColor: T.trading.buy.primary, borderRadius: 75, opacity: 0.05,
   },
   logoutContainer: { marginTop: 24, marginBottom: 24, paddingHorizontal: 16 },
-});
+  });
+};
 
 export type SettingsStyles = ReturnType<typeof makeSettingsStyles>;

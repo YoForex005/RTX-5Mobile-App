@@ -35,6 +35,7 @@ import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useShallow } from 'zustand/shallow';
+import { runImmediateAction } from '../../utils/actionLatency';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -596,13 +597,17 @@ export function HistoryScreen() {
                 <FastPressable
                   style={styles.iconButton}
                   onPress={() =>
+                    runImmediateAction('history.sortSheet.open', () =>
                       showActionSheet({
                         title: t('Sort By'),
+                        detent: 'adaptive',
+                        instantOpen: true,
                         actions: SORT_OPTIONS.map((option) => ({
                           label: option === sortBy ? `${t(option)} ✓` : t(option),
                           onPress: () => startTransition(() => setSortBy(option)),
                         })),
-                      })
+                      }),
+                    )
                   }
                   latencyLabel="history.sort.open"
                   activateOnPressIn

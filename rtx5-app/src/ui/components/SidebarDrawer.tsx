@@ -97,6 +97,8 @@ export function SidebarDrawer() {
   const isClosingRef = useRef(false);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [keepDrawerMounted, setKeepDrawerMounted] = useState(false);
+  const shouldRenderDrawer = visible || keepDrawerMounted;
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -125,9 +127,10 @@ export function SidebarDrawer() {
     }
   }, []);
 
-  /* Keep the drawer mounted, then animate only native opacity/translate work. */
+  /* Keep the drawer mounted only while visible/closing so closed tabs stay lean. */
   useLayoutEffect(() => {
     if (visible) {
+      setKeepDrawerMounted(true);
       isClosingRef.current = false;
       slideAnim.stopAnimation();
       overlayAnim.stopAnimation();
@@ -155,6 +158,7 @@ export function SidebarDrawer() {
       overlayAnim.stopAnimation();
       slideAnim.setValue(-DRAWER_WIDTH);
       overlayAnim.setValue(0);
+      setKeepDrawerMounted(false);
     }
   }, [overlayAnim, slideAnim, visible]);
 
@@ -165,6 +169,7 @@ export function SidebarDrawer() {
     overlayAnim.setValue(0);
     onClose();
     isClosingRef.current = false;
+    setKeepDrawerMounted(false);
     if (afterClose) {
       afterClose();
     }
@@ -204,6 +209,7 @@ export function SidebarDrawer() {
     ]).start(() => {
       onClose();
       isClosingRef.current = false;
+      setKeepDrawerMounted(false);
       afterClose?.();
     });
   }, [onClose, overlayAnim, slideAnim]);
@@ -249,6 +255,10 @@ export function SidebarDrawer() {
   }, [navigateSidebarRoute]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+
+  if (!shouldRenderDrawer) {
+    return null;
+  }
 
   return (
     <View

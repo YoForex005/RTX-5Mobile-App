@@ -302,6 +302,8 @@ export function ChartDrawingToolsActionSheet({
       onClose={onClose}
       title="Drawing Tools"
       minimumTopInset={minimumTopInset}
+      detent="adaptive"
+      instantOpen
       actions={createDrawingToolsActionSheetActions({
         chartHideAll,
         chartLockAll,

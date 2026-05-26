@@ -10,15 +10,20 @@
  *   - `types.ts`            — request/response shapes
  *   - `symbolResolver.ts`   — instrument-catalog symbol matching
  *   - `placeMarketOrder.ts` — POST /orders body
+ *   - `placePendingOrder.ts` — POST /orders/pending body
  */
 import { apiClient } from '../apiClient';
 import { placeMarketOrder } from './placeMarketOrder';
+import { placePendingOrder } from './placePendingOrder';
 import type { AccountOrder, LoginOrder } from './types';
 
 export type {
   AccountOrder,
   LoginOrder,
   OrderErrorResponse,
+  PendingOrderType,
+  PlacePendingOrderPayload,
+  PlacePendingOrderResponse,
   PlaceOrderPayload,
   PlaceOrderResponse,
 } from './types';
@@ -68,4 +73,5 @@ export const ordersApi = {
   },
 
   placeMarketOrder,
+  placePendingOrder,
 };

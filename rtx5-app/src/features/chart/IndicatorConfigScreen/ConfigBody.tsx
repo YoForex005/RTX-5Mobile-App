@@ -21,6 +21,7 @@ import {
   Separator,
 } from '../components/IndicatorConfigPrimitives';
 import { useIndicatorEditState } from '../indicatorEditState';
+import { runImmediateAction } from '../../../utils/actionLatency';
 import {
   APPLY_TO_OPTIONS,
   getIndicatorMeta,
@@ -140,11 +141,13 @@ export function ConfigBody({
             label={param.label}
             rightText={currentOption?.label ?? String(current)}
             onPress={() =>
-              setSelectSheet({
-                title: param.label,
-                options,
-                onPick: (v) => setValue(param.key, v),
-              })
+              runImmediateAction('chart.indicatorConfig.selectSheet.open', () =>
+                setSelectSheet({
+                  title: param.label,
+                  options,
+                  onPick: (v) => setValue(param.key, v),
+                }),
+              )
             }
             T={T}
             isDark={isDark}
@@ -423,6 +426,8 @@ export function ConfigBody({
         visible={selectSheet !== null}
         title={selectSheet?.title}
         onClose={() => setSelectSheet(null)}
+        detent="adaptive"
+        instantOpen
         actions={(selectSheet?.options ?? []).map((opt) => ({
           label: opt.label,
           onPress: () => {

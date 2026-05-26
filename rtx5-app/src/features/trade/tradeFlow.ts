@@ -27,6 +27,7 @@ export function symbolDisplayName(symbol: string) {
 
 export function bulkModeLabel(mode?: string | string[]) {
   const normalized = Array.isArray(mode) ? mode[0] : mode;
+  const symbolPrefix = 'symbol:';
 
   switch (normalized) {
     case 'all':
@@ -37,10 +38,13 @@ export function bulkModeLabel(mode?: string | string[]) {
       return 'Close Losing Positions';
     case 'buy':
       return 'Close Buy Positions';
-    case 'symbol:BTCUSD':
-    case 'symbol:BTCUSDm':
-      return 'Close BTCUSD Positions';
+    case 'sell':
+      return 'Close Sell Positions';
     default:
+      if (normalized?.startsWith(symbolPrefix)) {
+        const symbol = normalized.slice(symbolPrefix.length).trim().replace(/\//g, '');
+        return symbol ? `Close ${symbol} Positions` : 'Bulk Operation';
+      }
       return 'Bulk Operation';
   }
 }
@@ -56,6 +60,9 @@ export function filterPositionsForBulk(positions: PositionItem[], mode?: string 
   }
   if (normalized === 'buy') {
     return dedupePositionsById(positions.filter((position) => position.side === 'buy'));
+  }
+  if (normalized === 'sell') {
+    return dedupePositionsById(positions.filter((position) => position.side === 'sell'));
   }
   if (normalized?.startsWith('symbol:')) {
     const symbol = normalized.replace('symbol:', '');

@@ -306,7 +306,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   }
 
   return (
-    <View style={baseStyles.tradeControlsRow}>
+    <View style={[baseStyles.tradeControlsRow, themeStyles.tradeControlsRow]}>
       <View style={[baseStyles.actionButtonSlot, { backgroundColor: sellColor }]}>
         <Pressable
           style={[

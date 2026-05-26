@@ -1704,6 +1704,8 @@ export function ChartScreen() {
         visible={tfOpen}
         onClose={() => setTfOpen(false)}
         title='Timeframes'
+        detent="adaptive"
+        instantOpen
         actions={timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) }))}
       />
 
@@ -1712,6 +1714,7 @@ export function ChartScreen() {
         onClose={() => setSymbolPickerOpen(false)}
         title='Select Symbol'
         searchable={true}
+        detent='adaptive'
         instantOpen
         runActionAfterClose={false}
         actions={availableSymbols.map((sym) => ({
@@ -1725,6 +1728,8 @@ export function ChartScreen() {
         visible={showTemplatesMenu}
         onClose={() => setShowTemplatesMenu(false)}
         title='Templates & Layouts'
+        detent="adaptive"
+        instantOpen
         actions={[
           { label: 'Save Indicator Template', onPress: () => setShowTemplatesMenu(false) },
           { label: 'Apply Default Template', onPress: () => setShowTemplatesMenu(false) },
@@ -1736,6 +1741,8 @@ export function ChartScreen() {
         visible={showChartTypeMenu}
         onClose={() => setShowChartTypeMenu(false)}
         title='Chart Type'
+        detent="adaptive"
+        instantOpen
         actions={[
           { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
           { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
@@ -1748,6 +1755,8 @@ export function ChartScreen() {
         visible={showMoreMenu}
         onClose={() => setShowMoreMenu(false)}
         title='Options'
+        detent="adaptive"
+        instantOpen
         actions={[
           {
             label: 'Remove from favorites',

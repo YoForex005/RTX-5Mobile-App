@@ -3,7 +3,17 @@ import { Stack, router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, Alert } from 'react-native';
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  type LayoutChangeEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../src/state/userPreferences';
@@ -28,6 +38,21 @@ import {
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
 import { safeRouterBack } from '../src/utils/navigation';
+
+type RegisterFieldKey =
+  | 'firstName'
+  | 'lastName'
+  | 'email'
+  | 'phone'
+  | 'country'
+  | 'password'
+  | 'investorPassword'
+  | 'initialBalance'
+  | 'originBroker';
+
+const REGISTER_FIELD_SCROLL_OFFSET_Y = Platform.OS === 'android' ? 232 : 176;
+const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
+const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
@@ -90,12 +115,46 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const scrollViewRef = React.useRef<React.ElementRef<typeof ScrollView> | null>(null);
+  const fieldYPositionsRef = React.useRef<Partial<Record<RegisterFieldKey, number>>>({});
+  const fieldFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = makeStyles(T, isDark, insets.top);
+
+  React.useEffect(() => () => {
+    if (fieldFocusTimerRef.current) {
+      clearTimeout(fieldFocusTimerRef.current);
+    }
+  }, []);
+
+  const handleFieldLayout = React.useCallback((field: RegisterFieldKey) => (event: LayoutChangeEvent) => {
+    fieldYPositionsRef.current[field] = event.nativeEvent.layout.y;
+  }, []);
+
+  const scrollFieldAboveKeyboard = React.useCallback((field: RegisterFieldKey) => {
+    const fieldY = fieldYPositionsRef.current[field];
+    if (typeof fieldY !== 'number') {
+      return;
+    }
+
+    scrollViewRef.current?.scrollTo({
+      y: Math.max(0, fieldY - REGISTER_FIELD_SCROLL_OFFSET_Y),
+      animated: true,
+    });
+  }, []);
+
+  const handleFieldFocus = React.useCallback((field: RegisterFieldKey) => {
+    if (fieldFocusTimerRef.current) {
+      clearTimeout(fieldFocusTimerRef.current);
+    }
+    fieldFocusTimerRef.current = setTimeout(() => {
+      scrollFieldAboveKeyboard(field);
+    }, REGISTER_FIELD_FOCUS_DELAY_MS);
+  }, [scrollFieldAboveKeyboard]);
 
   const handleRegister = async () => {
     if (isPreparingDemoAccount) {
@@ -285,10 +344,15 @@ export default function RegisterScreen() {
 
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <ScrollView
-            canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="always">
+            ref={scrollViewRef}
+            canCancelContentTouches={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardShouldPersistTaps="always"
+          >
 
             <View style={styles.formContainer}>
 
@@ -427,12 +491,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* First name Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('firstName')}>
                 <Text style={styles.inputLabel}>{t('First name')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={firstName}
                   onChangeText={setFirstName}
+                  onFocus={() => handleFieldFocus('firstName')}
                   autoCapitalize="words"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -448,12 +513,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Last name Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('lastName')}>
                 <Text style={styles.inputLabel}>{t('Last name')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={lastName}
                   onChangeText={setLastName}
+                  onFocus={() => handleFieldFocus('lastName')}
                   autoCapitalize="words"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -469,12 +535,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Email Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('email')}>
                 <Text style={styles.inputLabel}>{t('Email')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={email}
                   onChangeText={setEmail}
+                  onFocus={() => handleFieldFocus('email')}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   selectionColor={T.accent}
@@ -491,12 +558,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Phone Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('phone')}>
                 <Text style={styles.inputLabel}>{t('Phone')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={phone}
                   onChangeText={setPhone}
+                  onFocus={() => handleFieldFocus('phone')}
                   keyboardType="phone-pad"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -512,12 +580,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Country Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('country')}>
                 <Text style={styles.inputLabel}>{t('Country')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={country}
                   onChangeText={setCountry}
+                  onFocus={() => handleFieldFocus('country')}
                   autoCapitalize="characters"
                   maxLength={2}
                   selectionColor={T.accent}
@@ -534,12 +603,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Master Password Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('password')}>
                 <Text style={styles.inputLabel}>{t('Master password')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={password}
                   onChangeText={setPassword}
+                  onFocus={() => handleFieldFocus('password')}
                   autoCapitalize="none"
                   secureTextEntry={!showPassword}
                   selectionColor={T.accent}
@@ -559,12 +629,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Investor Password Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('investorPassword')}>
                 <Text style={styles.inputLabel}>{t('Investor password')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={investorPassword}
                   onChangeText={setInvestorPassword}
+                  onFocus={() => handleFieldFocus('investorPassword')}
                   autoCapitalize="none"
                   secureTextEntry={!showInvestorPassword}
                   selectionColor={T.accent}
@@ -584,12 +655,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Initial balance Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('initialBalance')}>
                 <Text style={styles.inputLabel}>{t('Initial balance')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={initialBalance}
                   onChangeText={setInitialBalance}
+                  onFocus={() => handleFieldFocus('initialBalance')}
                   keyboardType="numeric"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -605,12 +677,13 @@ export default function RegisterScreen() {
               <View style={styles.fieldDivider} />
 
               {/* Origin broker Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
                   value={originBroker}
                   onChangeText={setOriginBroker}
+                  onFocus={() => handleFieldFocus('originBroker')}
                   autoCapitalize="none"
                   selectionColor={T.accent}
                   cursorColor={T.accent}
@@ -687,7 +760,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
 
     scrollContent: {
-      paddingBottom: 40,
+      paddingBottom: REGISTER_KEYBOARD_BOTTOM_PADDING,
     },
 
     formContainer: {

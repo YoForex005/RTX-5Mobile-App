@@ -31,10 +31,13 @@ import { useTheme } from '../../../ui/theme/useTheme';
 import { useUIState } from '../../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../../api/tradingErrors';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
+import { runImmediateAction } from '../../../utils/actionLatency';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
 const TRADE_FOCUS_WORK_DELAY_MS = 650;
+
+const formatBulkSymbolLabel = (symbol: string) => symbol.trim().replace(/\//g, '');
 
 function scheduleTradeFocusWork(action: () => void) {
   let frameId: number | null = null;
@@ -122,33 +125,66 @@ export function TradeScreen() {
   );
   const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);
 
-  const showBulkSheet = useCallback(() => {
-    showActionSheet({
-      title: t('Bulk Operations'),
-      instantOpen: true,
-      actions: [
-        { label: t('Close All Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'all' } }) },
-        { label: t('Close Profitable Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'profitable' } }) },
-        { label: t('Close Losing Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'losing' } }) },
-        { label: t('Close Buy Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'buy' } }) },
-        { label: t('Close BTCUSD Positions'), danger: true, onPress: () => router.push({ pathname: '/trade/bulk', params: { mode: 'symbol:BTCUSD' } }) },
-      ],
+  const navigateToBulkMode = useCallback((mode: string) => {
+    router.push({ pathname: '/trade/bulk', params: { mode } });
+  }, []);
+
+  const uniqueBulkSymbols = useMemo(() => {
+    const symbols: string[] = [];
+    const seen = new Set<string>();
+    renderablePositions.forEach((position) => {
+      const symbol = position.symbol.trim();
+      if (!symbol) return;
+      const key = symbol.toUpperCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      symbols.push(symbol);
     });
-  }, [showActionSheet, t]);
+    return symbols;
+  }, [renderablePositions]);
+
+  const bulkActionSheetConfig = useMemo<Parameters<typeof showActionSheet>[0]>(() => {
+    const actions: Parameters<typeof showActionSheet>[0]['actions'] = [
+      { label: t('Close All Positions'), danger: true, onPress: () => navigateToBulkMode('all') },
+      { label: t('Close Profitable Positions'), danger: true, onPress: () => navigateToBulkMode('profitable') },
+      { label: t('Close Losing Positions'), danger: true, onPress: () => navigateToBulkMode('losing') },
+      { label: t('Close Buy Positions'), danger: true, onPress: () => navigateToBulkMode('buy') },
+      { label: t('Close Sell Positions'), danger: true, onPress: () => navigateToBulkMode('sell') },
+      ...uniqueBulkSymbols.map((symbol) => ({
+        label: `${t('Close')} ${formatBulkSymbolLabel(symbol)} ${t('Positions')}`,
+        danger: true,
+        onPress: () => navigateToBulkMode(`symbol:${symbol}`),
+      })),
+    ];
+
+    return {
+      title: t('Bulk Operations'),
+      detent: 'adaptive',
+      instantOpen: true,
+      actions,
+    };
+  }, [navigateToBulkMode, showActionSheet, t, uniqueBulkSymbols]);
+
+  const showBulkSheet = useCallback(() => {
+    runImmediateAction('trade.bulkSheet.open', () => showActionSheet(bulkActionSheetConfig));
+  }, [bulkActionSheetConfig, showActionSheet]);
 
   const showPositionSheet = useCallback((item: PositionItem) => {
-    showActionSheet({
-      title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
-      instantOpen: true,
-      actions: [
-        { label: t('Close position'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
-        { label: t('Close By'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
-        { label: t('Modify position'), onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
-        { label: t('Trade'), onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
-        { label: t('Chart'), onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
-        { label: t('Bulk Operations...'), onPress: () => showBulkSheet() },
-      ],
-    });
+    runImmediateAction('trade.positionSheet.open', () =>
+      showActionSheet({
+        title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
+        detent: 'adaptive',
+        instantOpen: true,
+        actions: [
+          { label: t('Close position'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
+          { label: t('Close By'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
+          { label: t('Modify position'), onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
+          { label: t('Trade'), onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
+          { label: t('Chart'), onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
+          { label: t('Bulk Operations...'), onPress: () => requestAnimationFrame(showBulkSheet) },
+        ],
+      }),
+    );
   }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showActionSheet, showBulkSheet, t]);
 
   const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (

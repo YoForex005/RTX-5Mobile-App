@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
 import { AppState, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
+import { enableFreeze } from 'react-native-screens';
 import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
 import { AppLogo } from '../src/ui/components/AppLogo';
@@ -15,6 +16,8 @@ import { useIsDarkTheme } from '../src/state/themeMode';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
+
+enableFreeze(true);
 
 const IPHONE_14_PRO_MAX = {
   width: 430,
@@ -105,7 +108,7 @@ function InnerLayout() {
           <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false }} />
           <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade') }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
-          <Stack.Screen name='trade/close-position' options={{ headerShown: false }} />
+          <Stack.Screen name='trade/close-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
           <Stack.Screen
             name='trade/modify-position'

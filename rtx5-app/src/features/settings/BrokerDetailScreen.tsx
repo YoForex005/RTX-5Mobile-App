@@ -33,7 +33,7 @@ import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSavedAccounts, setSavedAccountPassword } from '../../state/savedAccounts';
 import { loginAPI } from '../../api/auth';
-import { checkBrokerServerHealth, getBrokerConfig } from '../../api/broker';
+import { getBrokerConfig } from '../../api/broker';
 import { normalizeBrokerServerUrl } from '../../api/brokerRouting';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
 import { BROKER_CONFIG_KEY } from '../../query/broker';
@@ -48,9 +48,34 @@ import {
   persistAuthSessionTokens,
   persistSelectedBrokerSession,
 } from '../../state/brokerSessionStorage';
+import { runImmediateAction } from '../../utils/actionLatency';
 import { BROKER_OVERRIDES, formatServerFromName } from './BrokersScreen/brokerData';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
+
+const scheduleBrokerDetailPostLoginWork = (task: () => void) => {
+  const runAfterFrame = () => {
+    setTimeout(task, 0);
+  };
+
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(runAfterFrame);
+    return;
+  }
+
+  setTimeout(task, 0);
+};
+
+const scheduleBrokerDetailKeyboardDismiss = () => {
+  const dismissKeyboard = () => Keyboard.dismiss();
+
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(dismissKeyboard);
+    return;
+  }
+
+  setTimeout(dismissKeyboard, 0);
+};
 
 type ServerOption = {
   label: string;
@@ -228,18 +253,22 @@ export function BrokerDetailScreen() {
 
   const openServerSelector = () => {
     if (serverOptions.length <= 1) return;
-    showActionSheet({
-      title: t('Choose server'),
-      actions: serverOptions.map((opt) => ({
-        label: opt.label,
-        onPress: () => setSelectedServer(opt),
-      })),
-    });
+    runImmediateAction('brokerDetail.serverSheet.open', () =>
+      showActionSheet({
+        title: t('Choose server'),
+        detent: 'adaptive',
+        instantOpen: true,
+        actions: serverOptions.map((opt) => ({
+          label: opt.label,
+          onPress: () => setSelectedServer(opt),
+        })),
+      }),
+    );
   };
 
   const submitLogin = async () => {
     if (requestInFlightRef.current) return;
-    Keyboard.dismiss();
+    scheduleBrokerDetailKeyboardDismiss();
 
     const trimmedLogin = loginValue.trim();
     const trimmedPassword = passwordValue;
@@ -278,7 +307,6 @@ export function BrokerDetailScreen() {
     requestInFlightRef.current = true;
     setIsLoading(true);
     try {
-      await checkBrokerServerHealth(effectiveServerUrl);
       const response: any = await loginAPI({
         username: trimmedLogin,
         password: trimmedPassword,
@@ -332,18 +360,6 @@ export function BrokerDetailScreen() {
       const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
-      await Promise.all([
-        persistSelectedBrokerSession({
-          brokerId: canonicalBrokerId,
-          serverUrl: effectiveServerUrl,
-          logoUrl: effectiveLogoUrl,
-        }),
-        persistAuthSessionTokens({
-          accessToken,
-          refreshToken,
-          expiresAt: expiresAtIso,
-        }),
-      ]);
       setBrokerConnection(canonicalBrokerId, effectiveServerUrl, effectiveLogoUrl);
 
       persistedLogin(
@@ -359,48 +375,61 @@ export function BrokerDetailScreen() {
         { serverUrl: effectiveServerUrl, logoUrl: effectiveLogoUrl },
       );
       setIsDemoAccountFlag(accountType === 'demo');
-
-      upsertSavedAccount({
-        login: savedLogin,
-        name: accountName,
-        brokerId: canonicalBrokerId,
-        server: effectiveServerName,
-        serverUrl: effectiveServerUrl,
-        logoUrl: effectiveLogoUrl,
-        accountType,
-        lastUsedAt: Date.now(),
-        hasCredentials: true,
-      });
-      setSavedAccountPassword(canonicalBrokerId, savedLogin, trimmedPassword).catch(() => undefined);
-
-      queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
-      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
-      queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
-
-      if (savePassword) {
-        setSecureItemAsync(
-          SAVED_LOGIN_KEY,
-          JSON.stringify({
-            broker: canonicalBrokerId,
-            server_url: effectiveServerUrl,
-            logo_url: effectiveLogoUrl,
-            login: trimmedLogin,
-            pass: trimmedPassword,
-          }),
-        );
-      } else {
-        removeSecureItemAsync(SAVED_LOGIN_KEY);
-      }
-
-      // Best-effort: refresh broker config so AccountsScreen shows the
-      // correct broker name/server immediately after login.
-      void getBrokerConfig(canonicalBrokerId)
-        .then((cfg) => {
-          queryClient.setQueryData([BROKER_CONFIG_KEY, canonicalBrokerId], cfg);
-        })
-        .catch(() => undefined);
-
       router.replace('/(tabs)/quotes');
+      scheduleBrokerDetailPostLoginWork(() => {
+        void Promise.all([
+          persistSelectedBrokerSession({
+            brokerId: canonicalBrokerId,
+            serverUrl: effectiveServerUrl,
+            logoUrl: effectiveLogoUrl,
+          }),
+          persistAuthSessionTokens({
+            accessToken,
+            refreshToken,
+            expiresAt: expiresAtIso,
+          }),
+        ]).catch(() => undefined);
+
+        upsertSavedAccount({
+          login: savedLogin,
+          name: accountName,
+          brokerId: canonicalBrokerId,
+          server: effectiveServerName,
+          serverUrl: effectiveServerUrl,
+          logoUrl: effectiveLogoUrl,
+          accountType,
+          lastUsedAt: Date.now(),
+          hasCredentials: true,
+        });
+        setSavedAccountPassword(canonicalBrokerId, savedLogin, trimmedPassword).catch(() => undefined);
+
+        queryClient.invalidateQueries({ queryKey: [ACCOUNTS_LIST_KEY] });
+        queryClient.invalidateQueries({ queryKey: [ACCOUNT_DETAIL_KEY] });
+        queryClient.invalidateQueries({ queryKey: [BROKER_CONFIG_KEY] });
+
+        if (savePassword) {
+          void setSecureItemAsync(
+            SAVED_LOGIN_KEY,
+            JSON.stringify({
+              broker: canonicalBrokerId,
+              server_url: effectiveServerUrl,
+              logo_url: effectiveLogoUrl,
+              login: trimmedLogin,
+              pass: trimmedPassword,
+            }),
+          );
+        } else {
+          void removeSecureItemAsync(SAVED_LOGIN_KEY);
+        }
+
+        // Best-effort: refresh broker config so AccountsScreen shows the
+        // correct broker name/server immediately after login.
+        void getBrokerConfig(canonicalBrokerId)
+          .then((cfg) => {
+            queryClient.setQueryData([BROKER_CONFIG_KEY, canonicalBrokerId], cfg);
+          })
+          .catch(() => undefined);
+      });
     } catch (error: any) {
       setModalState({
         visible: true,
@@ -689,8 +718,6 @@ export function BrokerDetailScreen() {
 }
 
 const MT5_BLUE = '#0a84ff';
-const MT5_BLUE_LIGHT = '#3FA9F5';
-const LOGIN_VIOLET = '#7C3AED';
 
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Pure white card surface in light mode; subtle elevated slate in dark mode.
@@ -749,12 +776,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       justifyContent: 'center',
     },
     optionIconDemo: {
-      backgroundColor: MT5_BLUE,
+      backgroundColor: T.accent,
     },
     // Disabled real account still shows a pale-blue circle in MT5 — only the
     // surrounding row opacity is dropped, not the brand color.
     optionIconReal: {
-      backgroundColor: MT5_BLUE_LIGHT,
+      backgroundColor: T.accent,
     },
     optionTextWrap: { flex: 1 },
     optionTitle: {
@@ -827,12 +854,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     loginBtn: {
       marginHorizontal: 20,
       marginTop: 4,
-      backgroundColor: LOGIN_VIOLET,
+      backgroundColor: T.accent,
       minHeight: 52,
       borderRadius: 26,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: LOGIN_VIOLET,
+      shadowColor: T.accent,
       shadowOpacity: 0.3,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },

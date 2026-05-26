@@ -19,8 +19,12 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /loginSubmitPressGuardRef\.current = true/);
   assert.match(source, /releaseLoginSubmitPressGuard\(\)/);
   assert.match(source, /runImmediateAction\('login\.submit\.touch'/);
-  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*Keyboard\.dismiss\(\)/);
+  assert.match(source, /const scheduleLoginKeyboardDismiss = \(\) => \{/);
+  assert.match(source, /const dismissKeyboard = \(\) => Keyboard\.dismiss\(\)/);
+  assert.match(source, /globalThis\.requestAnimationFrame\(dismissKeyboard\)/);
+  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*scheduleLoginSubmitAfterInputCommit\(\(\) => \{[\s\S]*void handleLogin\(snapshot\);[\s\S]*\}\);[\s\S]*scheduleLoginKeyboardDismiss\(\)/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
+  assert.doesNotMatch(source, /setIsLoading\(true\);\s*Keyboard\.dismiss\(\);/);
   assert.match(source, /scheduleLoginSubmitAfterInputCommit\(\(\) => \{/);
   assert.match(source, /const snapshot = getLoginCredentialsSnapshot\(\)/);
   assert.match(source, /void handleLogin\(snapshot\)/);
@@ -183,6 +187,46 @@ test('login success path does not wait on optional broker config or a fixed succ
   assert.match(source, /const schedulePostLoginWork = \(task: \(\) => void\) => \{[\s\S]*requestAnimationFrame/);
   assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*schedulePostLoginWork\(\(\) => \{/);
   assert.match(source, /queryClient\.setQueryData\(\[BROKER_CONFIG_KEY, canonicalBrokerId\], brokerConfig\)/);
+});
+
+test('broker detail login does not wait on health probes or secure storage before navigation', () => {
+  const source = readSource('src/features/settings/BrokerDetailScreen.tsx');
+  const submitIndex = source.indexOf('const submitLogin = async () => {');
+  const loginRequestIndex = source.indexOf('const response: any = await loginAPI', submitIndex);
+  const routerReplaceIndex = source.indexOf("router.replace('/(tabs)/quotes');", loginRequestIndex);
+  const postLoginWorkIndex = source.indexOf('scheduleBrokerDetailPostLoginWork(() => {', routerReplaceIndex);
+  const selectedBrokerPersistIndex = source.indexOf('persistSelectedBrokerSession({', postLoginWorkIndex);
+  const authTokenPersistIndex = source.indexOf('persistAuthSessionTokens({', postLoginWorkIndex);
+
+  assert.notEqual(submitIndex, -1);
+  assert.notEqual(loginRequestIndex, -1);
+  assert.notEqual(routerReplaceIndex, -1);
+  assert.notEqual(postLoginWorkIndex, -1);
+  assert.notEqual(selectedBrokerPersistIndex, -1);
+  assert.notEqual(authTokenPersistIndex, -1);
+  assert.match(source, /const scheduleBrokerDetailKeyboardDismiss = \(\) => \{/);
+  assert.match(source, /scheduleBrokerDetailKeyboardDismiss\(\);/);
+  assert.doesNotMatch(source, /checkBrokerServerHealth/);
+  const brokerDetailCriticalPath = source.slice(submitIndex, routerReplaceIndex);
+  assert.doesNotMatch(
+    brokerDetailCriticalPath,
+    /persist(?:SelectedBrokerSession|AuthSessionTokens)/,
+    'broker detail login should not wait for secure-storage writes before navigation',
+  );
+  assert.doesNotMatch(
+    brokerDetailCriticalPath,
+    /await Promise\.all/,
+    'broker detail login should not await optional post-login bookkeeping before navigation',
+  );
+  assert.ok(
+    postLoginWorkIndex > routerReplaceIndex,
+    'broker detail post-login bookkeeping should be scheduled after navigation starts',
+  );
+  assert.ok(
+    selectedBrokerPersistIndex > postLoginWorkIndex && authTokenPersistIndex > postLoginWorkIndex,
+    'broker detail secure broker persistence should stay in the post-navigation work queue',
+  );
+  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
 });
 
 test('login auth request has a bounded frontend timeout', () => {
