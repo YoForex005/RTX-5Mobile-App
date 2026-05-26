@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from './FastPressable';
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet, Vibration } from 'react-native';
+import { View, Text, Animated, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -58,7 +58,6 @@ export const TradeFeedbackModal = React.memo(({
     ]).start();
 
     if (state.type === 'success') {
-      Vibration.vibrate([0, 28, 40, 28]);
       Animated.timing(progressAnim, { toValue: 0, duration: 5000, useNativeDriver: false }).start();
       const timer = setTimeout(onClose, 5000);
       return () => clearTimeout(timer);

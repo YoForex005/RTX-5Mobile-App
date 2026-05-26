@@ -5,7 +5,7 @@
 import React from 'react';
 import { router } from 'expo-router';
 import { classifyTradingError } from '../../../../api/tradingErrors';
-import { usePlaceOrderMutation } from '../../../../query/orders';
+import { usePlaceOrderExecutor } from '../../../../query/orders';
 import { resolveTradingLogin } from '../../../../state/tradingLogin';
 import { useUserPreferences } from '../../../../state/userPreferences';
 import { runCriticalTradeAction } from '../../../../utils/actionLatency';
@@ -31,6 +31,17 @@ const warnChartTradeDiagnostic = (...args: Parameters<typeof console.warn>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
     console.warn(...args);
   }
+};
+
+const runAfterChartTradeTapPaint = (work: () => void) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      setTimeout(work, 0);
+    });
+    return;
+  }
+
+  setTimeout(work, 0);
 };
 
 type TradeFeedback = {
@@ -67,7 +78,7 @@ export function useTradeHandler({
 }: TradeHandlerOptions) {
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const currentChartSymbol = useUserPreferences((s) => s.chartSymbol);
-  const { mutate: placeOrder, isPending } = usePlaceOrderMutation();
+  const placeOrder = usePlaceOrderExecutor();
   const [activeSide, setActiveSide] = React.useState<TradeSide | null>(null);
   const activeSideResetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const tradeTapLockRef = React.useRef(false);
@@ -144,7 +155,7 @@ export function useTradeHandler({
       return;
     }
     const sharedLockSide = getChartTradeButtonSharedLockSide();
-    if (tradeTapLockRef.current || sharedLockSide !== null || isPending) {
+    if (tradeTapLockRef.current || sharedLockSide !== null) {
       logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
@@ -153,7 +164,7 @@ export function useTradeHandler({
         sidePassedToHandler: action.side,
         ignored: true,
         lockSide: sharedLockSide,
-        reason: tradeTapLockRef.current ? 'tap-lock' : sharedLockSide !== null ? 'shared-tap-lock' : 'mutation-pending',
+        reason: tradeTapLockRef.current ? 'tap-lock' : 'shared-tap-lock',
         timestamp: new Date().toISOString(),
       });
       return;
@@ -290,38 +301,41 @@ export function useTradeHandler({
           releaseTradeTapLock();
         },
       });
+      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
     } else {
       logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
-      try {
-        router.push({
-          pathname: '/trade/order-ticket',
-          params: {
-            symbol,
+      runAfterChartTradeTapPaint(() => {
+        try {
+          router.push({
+            pathname: '/trade/order-ticket',
+            params: {
+              symbol,
+              side: action.side,
+              ...(trimmedComment ? { comment: trimmedComment } : {}),
+            },
+          });
+          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+        } catch (navErr: any) {
+          warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
+          onTradeResult?.({
+            visible: true, type: 'error',
+            title: 'Navigation Error',
+            message: navErr?.message || 'Could not open the order ticket screen.',
             side: action.side,
-            ...(trimmedComment ? { comment: trimmedComment } : {}),
-          },
-        });
-        releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-      } catch (navErr: any) {
-        warnChartTradeDiagnostic('[Trade] navigation failed', navErr);
-        onTradeResult?.({
-          visible: true, type: 'error',
-          title: 'Navigation Error',
-          message: navErr?.message || 'Could not open the order ticket screen.',
-          side: action.side,
-        });
-        releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
-      }
+          });
+          releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+        }
+      });
     }
   };
 
   const handleTrade = (side: TradeSide) =>
     runCriticalTradeAction(`chart.${variant}.trade.${side}`, () => executeTrade(side));
 
-  const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && (isPending || tradeTapLockRef.current);
+  const isChartTradeActionBusy = (side: TradeSide) => activeSide === side && tradeTapLockRef.current;
   const isChartTradeActionVisuallyLocked = (side: TradeSide) =>
     !isCurrentChartSymbol || activeSide === side;
-  const chartTradeActionDisabled = isPending || !isCurrentChartSymbol;
+  const chartTradeActionDisabled = !isCurrentChartSymbol;
 
   return {
     handleTrade,
@@ -329,7 +343,6 @@ export function useTradeHandler({
     isChartTradeActionVisuallyLocked,
     chartTradeActionDisabled,
     isCurrentChartSymbol,
-    isPending,
   };
 }
 

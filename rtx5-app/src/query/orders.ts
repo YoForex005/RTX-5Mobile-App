@@ -9,8 +9,9 @@
  *  - usePlaceOrderMutation  — submits new market orders via POST /api/v2/orders
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ordersApi, type PlaceOrderPayload } from '../api/orders';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { ordersApi, type PlaceOrderPayload, type PlaceOrderResponse } from '../api/orders';
 
 type PollingQueryOptions = {
   enabled?: boolean;
@@ -76,11 +77,103 @@ import { resolveTradingLoginString } from '../state/tradingLogin';
 
 const ORDER_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250;
 
 const logOrderDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (ORDER_DIAGNOSTICS_ENABLED) {
     console.log(...args);
   }
+};
+
+const scheduleTradePostSuccessRefresh = (work: () => void) => {
+  setTimeout(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS);
+};
+
+const logPlaceOrderPayload = (payload: PlaceOrderPayload) => {
+  logOrderDiagnostic('[TRADE-PAYLOAD]', {
+    symbol: payload.symbol,
+    side: payload.side,
+    action: payload.side,
+    orderType: 'market',
+    command: payload.side,
+    tradeType: 'market',
+    volume: payload.volume,
+    priceSource: payload.side === 'buy' ? 'ask' : 'bid',
+    rawPayload: payload,
+  });
+};
+
+const handlePlaceOrderSuccess = (
+  queryClient: QueryClient,
+  data: PlaceOrderResponse,
+  variables: PlaceOrderPayload,
+) => {
+  logOrderDiagnostic('[TRADE-RESPONSE]', {
+    requestSide: variables.side,
+    result: data?.status ?? 'success',
+    backendSide: data?.side ?? null,
+    rawResponse: data,
+  });
+  // â”€â”€ Optimistic UI Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Instantly inject the trade into the Zustand store so the Chart Screen
+  // renders the new position line without waiting for the next data poll.
+  const positionTicket = data.position_ticket ?? data.order_ticket ?? data.ticket;
+  if (positionTicket) {
+    const state = usePositionsState.getState();
+    const newPos = {
+      id: String(positionTicket),
+      symbol: variables.symbol,
+      side: variables.side,
+      volume: variables.volume,
+      openPrice: data.price || 0,
+      currentPrice: data.price || 0,
+      pnl: 0,
+      swap: 0,
+      openTime: new Date().toISOString(),
+      sl: 0,
+      tp: 0,
+      clientCreatedAt: Date.now(),
+    };
+    state.upsertPosition(newPos);
+
+  }
+
+  scheduleTradePostSuccessRefresh(() => {
+    // Fire a background sync loop to eventually replace the optimistic record
+    // with the fully-hydrated backend record after the chart has painted.
+    const mt5Login = resolveTradingLoginString();
+    if (mt5Login && positionTicket) {
+      const syncLoop = async () => {
+        for (let i = 0; i < 5; i++) {
+          await usePositionsState.getState().refreshPositions(mt5Login);
+          const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
+          if (exists) break;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      };
+      syncLoop().catch(() => {});
+    }
+
+    // Invalidate queries that should update after a new trade.
+    queryClient.invalidateQueries({ queryKey: ['positions'] });
+    queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  });
+};
+
+type PlaceOrderExecutorOptions = {
+  onSuccess?: (data: PlaceOrderResponse) => void;
+  onError?: (error: unknown) => void;
+};
+
+const submitPlaceOrderWithCacheUpdate = async (
+  queryClient: QueryClient,
+  payload: PlaceOrderPayload,
+) => {
+  logPlaceOrderPayload(payload);
+  const data = await ordersApi.placeMarketOrder(payload);
+  handlePlaceOrderSuccess(queryClient, data, payload);
+  return data;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,17 +192,7 @@ export const usePlaceOrderMutation = () => {
 
   return useMutation({
     mutationFn: (payload: PlaceOrderPayload) => {
-      logOrderDiagnostic('[TRADE-PAYLOAD]', {
-        symbol: payload.symbol,
-        side: payload.side,
-        action: payload.side,
-        orderType: 'market',
-        command: payload.side,
-        tradeType: 'market',
-        volume: payload.volume,
-        priceSource: payload.side === 'buy' ? 'ask' : 'bid',
-        rawPayload: payload,
-      });
+      logPlaceOrderPayload(payload);
       return ordersApi.placeMarketOrder(payload);
     },
     onSuccess: (data, variables) => {
@@ -122,7 +205,7 @@ export const usePlaceOrderMutation = () => {
       // ── Optimistic UI Update ───────────────────────────
       // Instantly inject the trade into the Zustand store so the Chart Screen
       // renders the new position line without waiting for the next data poll.
-      const positionTicket = data.position_ticket ?? data.order_ticket;
+      const positionTicket = data.position_ticket ?? data.order_ticket ?? data.ticket;
       if (positionTicket) {
         const state = usePositionsState.getState();
         const newPos = {
@@ -141,13 +224,16 @@ export const usePlaceOrderMutation = () => {
         };
         state.upsertPosition(newPos);
 
+      }
+
+      scheduleTradePostSuccessRefresh(() => {
         // Fire a background sync loop to eventually replace the optimistic record
-        // with the fully-hydrated backend record.
+        // with the fully-hydrated backend record after the chart has painted.
         const mt5Login = resolveTradingLoginString();
-        if (mt5Login) {
+        if (mt5Login && positionTicket) {
           const syncLoop = async () => {
             for (let i = 0; i < 5; i++) {
-              await state.refreshPositions(mt5Login);
+              await usePositionsState.getState().refreshPositions(mt5Login);
               const exists = usePositionsState.getState().positions.some(p => String(p.id) === String(positionTicket));
               if (exists) break;
               await new Promise(r => setTimeout(r, 1000));
@@ -155,12 +241,26 @@ export const usePlaceOrderMutation = () => {
           };
           syncLoop().catch(() => {});
         }
-      }
 
-      // Invalidate queries that should update after a new trade
-      queryClient.invalidateQueries({ queryKey: ['positions'] });
-      queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        // Invalidate queries that should update after a new trade.
+        queryClient.invalidateQueries({ queryKey: ['positions'] });
+        queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+        queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      });
     },
   });
+};
+
+export const usePlaceOrderExecutor = () => {
+  const queryClient = useQueryClient();
+
+  return useCallback((payload: PlaceOrderPayload, options: PlaceOrderExecutorOptions = {}) => {
+    void submitPlaceOrderWithCacheUpdate(queryClient, payload)
+      .then((data) => {
+        options.onSuccess?.(data);
+      })
+      .catch((error) => {
+        options.onError?.(error);
+      });
+  }, [queryClient]);
 };

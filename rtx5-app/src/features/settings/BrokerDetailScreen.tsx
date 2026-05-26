@@ -101,7 +101,6 @@ export function BrokerDetailScreen() {
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   const persistedLogin = useUserPreferences((s) => s.login);
-  const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
   const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
@@ -306,6 +305,7 @@ export function BrokerDetailScreen() {
 
     requestInFlightRef.current = true;
     setIsLoading(true);
+    let didStartSuccessNavigation = false;
     try {
       const response: any = await loginAPI({
         username: trimmedLogin,
@@ -360,8 +360,6 @@ export function BrokerDetailScreen() {
       const effectiveServerName = serverNameFromApi || selectedServer.label || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
-      setBrokerConnection(canonicalBrokerId, effectiveServerUrl, effectiveLogoUrl);
-
       persistedLogin(
         savedLogin,
         accountName,
@@ -372,10 +370,14 @@ export function BrokerDetailScreen() {
           expires_at: expiresAtIso,
         },
         canonicalBrokerId,
-        { serverUrl: effectiveServerUrl, logoUrl: effectiveLogoUrl },
+        {
+          serverUrl: effectiveServerUrl,
+          logoUrl: effectiveLogoUrl,
+          isDemoAccount: accountType === 'demo',
+        },
       );
-      setIsDemoAccountFlag(accountType === 'demo');
       router.replace('/(tabs)/quotes');
+      didStartSuccessNavigation = true;
       scheduleBrokerDetailPostLoginWork(() => {
         void Promise.all([
           persistSelectedBrokerSession({
@@ -440,7 +442,9 @@ export function BrokerDetailScreen() {
       setTimeout(() => setModalState((p) => ({ ...p, visible: false })), 2200);
     } finally {
       requestInFlightRef.current = false;
-      setIsLoading(false);
+      if (!didStartSuccessNavigation) {
+        setIsLoading(false);
+      }
     }
   };
 

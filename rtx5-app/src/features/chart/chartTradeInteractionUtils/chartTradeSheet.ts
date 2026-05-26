@@ -268,25 +268,11 @@ export function resolveChartTradeSheetMaxHeight({
   );
 }
 
-export function resolveChartTradeSheetHeaderLift({
-  topInset,
-  compactHeaderHeight,
-  isFullscreen,
-}: ChartTradeSheetHeaderLiftInput) {
-  if (isFullscreen) {
-    return 0;
-  }
-
-  const normalizedTopInset =
-    Number.isFinite(topInset) && topInset > 0
-      ? topInset
-      : 0;
-  const normalizedCompactHeaderHeight =
-    Number.isFinite(compactHeaderHeight) && compactHeaderHeight > 0
-      ? compactHeaderHeight
-      : 0;
-
-  return normalizedTopInset + normalizedCompactHeaderHeight;
+export function resolveChartTradeSheetHeaderLift(input: ChartTradeSheetHeaderLiftInput) {
+  void input;
+  // The expanded sheet now reserves its toolbar boundary through topInset.
+  // Adding a separate header lift would let it climb into the compact header.
+  return 0;
 }
 
 export function resolveChartTradeSheetHostHeight({

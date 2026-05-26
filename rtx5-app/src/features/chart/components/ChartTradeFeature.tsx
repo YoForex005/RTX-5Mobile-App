@@ -1314,23 +1314,23 @@ export function ChartTradeOverlayLayer({
                     sheet={sheet}
                     handlers={handlers}
                   />
+
+                  {/* Pinned symbol header - always visible, never scrolls away */}
+                  <ChartTradeSheetPinnedHeader
+                    styles={styles}
+                    colors={colors}
+                    symbolHeader={symbolHeader}
+                    sheet={sheet}
+                    handlers={handlers}
+                    tabs={{
+                      scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
+                      onViewportLayout: handlers.onOverlayTabsViewportLayout,
+                      onTabLayout: handlers.onOverlayTabLayout,
+                    }}
+                    components={components}
+                  />
                 </View>
               </GestureDetector>
-
-              {/* Pinned symbol header — always visible, never scrolls away */}
-              <ChartTradeSheetPinnedHeader
-                styles={styles}
-                colors={colors}
-                symbolHeader={symbolHeader}
-                sheet={sheet}
-                handlers={handlers}
-                tabs={{
-                  scrollRef: sheet.chartTradeTypeTabsOverlayScrollRef,
-                  onViewportLayout: handlers.onOverlayTabsViewportLayout,
-                  onTabLayout: handlers.onOverlayTabLayout,
-                }}
-                components={components}
-              />
 
               {showSheetBody ? (
                 <ScrollView

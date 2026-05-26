@@ -600,16 +600,16 @@ test('chart tap radial menu remains disabled for drawing tools', () => {
   );
 });
 
-test('resolveChartTradeSheetMaxHeight lifts the inline trade sheet into the compact chart header area', () => {
+test('resolveChartTradeSheetMaxHeight keeps inline SL/TP sheet below the compact chart toolbar gap', () => {
   assert.equal(
     resolveChartTradeSheetMaxHeight({
       collapsedHeight: 186,
       hostHeight: 620,
-      topInset: 0,
-      headerLift: 72,
+      topInset: 82,
+      headerLift: 0,
       bottomInset: 0,
     }),
-    692,
+    538,
   );
 });
 
@@ -665,24 +665,24 @@ test('resolveChartTradeSheetMaxHeight reserves both the chart heading gap and vi
   );
 });
 
-test('resolveChartTradeSheetHeaderLift lets max expanded sheet stop below the chart title', () => {
+test('resolveChartTradeSheetHeaderLift does not lift expanded SL/TP sheet into the compact toolbar', () => {
   assert.equal(
     resolveChartTradeSheetHeaderLift({
       topInset: 58,
       compactHeaderHeight: 64,
       isFullscreen: false,
     }),
-    122,
+    0,
   );
   assert.equal(
     resolveChartTradeSheetMaxHeight({
       collapsedHeight: 120,
       hostHeight: 620,
       topInset: 58,
-      headerLift: 122,
+      headerLift: 0,
       bottomInset: 0,
     }),
-    684,
+    562,
   );
 });
 

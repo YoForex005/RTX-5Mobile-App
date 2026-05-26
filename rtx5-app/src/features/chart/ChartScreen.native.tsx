@@ -798,9 +798,15 @@ export function ChartScreen() {
     screenHeight,
     showChartTradeSheet,
   ]);
-  const chartTradeSheetFallbackTopInset = isChartExpanded ? fullscreenToolbarTopPadding + 36 : 48;
+  const compactChartTradeSheetTopInset =
+    chartTradeCompactHeaderHeight > 0
+      ? chartTradeCompactHeaderHeight
+      : chartHeaderTopPadding + 58;
+  const chartTradeSheetFallbackTopInset = isChartExpanded
+    ? fullscreenToolbarTopPadding + 36
+    : compactChartTradeSheetTopInset;
   const chartTradeSheetToolbarBottomInset =
-    chartTradeTopToolbarBottomOffset > 0
+    isChartExpanded && chartTradeTopToolbarBottomOffset > 0
       ? Math.max(chartTradeTopToolbarBottomOffset, chartTradeSheetFallbackTopInset)
       : chartTradeSheetFallbackTopInset;
   const chartTradeSheetTopInset = chartTradeSheetToolbarBottomInset + CHART_TRADE_SHEET_TOP_GAP;
@@ -1410,9 +1416,7 @@ export function ChartScreen() {
 
   const handleOpenChartTradeSheet = useCallback(() => {
     runImmediateAction('chart.tradeSheet.open', () => {
-      requestAnimationFrame(() => {
-        openChartTradeSheet();
-      });
+      openChartTradeSheet();
     });
   }, [openChartTradeSheet]);
 
@@ -3644,9 +3648,7 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="SL/TP"
           style={styles.toolbarTradeButton}
-          onPress={handleOpenChartTradeSheet}
-          activateOnPressIn
-          activateOnTouchStart
+          onPressIn={handleOpenChartTradeSheet}
           hitSlop={8}
           unstable_pressDelay={0}
         >

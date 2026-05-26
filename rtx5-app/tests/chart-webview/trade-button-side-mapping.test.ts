@@ -33,6 +33,7 @@ const readSource = (relativePath: string): string => {
 
 test('chart trade buttons keep buy and sell press handlers mapped to the matching side', () => {
   const source = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const handlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
   const actionSource = readSource('src/features/chart/chartTradeActions.ts');
 
   assert.match(source, /onPressIn=\{\(\) => handleTrade\('sell'\)\}/);
@@ -59,13 +60,20 @@ test('chart trade buttons keep buy and sell press handlers mapped to the matchin
 
   assert.match(actionSource, /testID: 'chart-trade-sell-button'/);
   assert.match(actionSource, /testID: 'chart-trade-buy-button'/);
-  assert.match(source, /side: action\.side/);
-  assert.match(source, /const payload = buildChartMarketOrderPayload\(/);
-  assert.match(source, /tradeTapLockRef\.current \|\| sharedLockSide !== null \|\| isPending/);
-  assert.match(source, /const currentChartSymbol = useUserPreferences\(\(s\) => s\.chartSymbol\)/);
-  assert.match(source, /const stateChartSymbol = useUserPreferences\.getState\(\)\.chartSymbol/);
-  assert.match(source, /reason: 'stale-symbol'/);
-  assert.match(source, /const chartTradeActionDisabled = isPending \|\| !isCurrentChartSymbol;/);
+  assert.match(handlerSource, /side: action\.side/);
+  assert.match(handlerSource, /const payload = buildChartMarketOrderPayload\(/);
+  assert.match(handlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
+  assert.match(handlerSource, /tradeTapLockRef\.current \|\| sharedLockSide !== null/);
+  assert.doesNotMatch(handlerSource, /sharedLockSide !== null \|\| isPending/);
+  assert.doesNotMatch(handlerSource, /usePlaceOrderMutation/);
+  assert.match(handlerSource, /const currentChartSymbol = useUserPreferences\(\(s\) => s\.chartSymbol\)/);
+  assert.match(handlerSource, /const stateChartSymbol = useUserPreferences\.getState\(\)\.chartSymbol/);
+  assert.match(handlerSource, /reason: 'stale-symbol'/);
+  assert.match(handlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol;/);
+  assert.match(
+    handlerSource,
+    /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
+  );
   assert.match(source, /disabled=\{chartTradeActionDisabled\}/);
 });
 
@@ -252,7 +260,7 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
   assert.match(
     stylesSource,
-    /tradeControlsRow:\s*\{[\s\S]*borderTopWidth:\s*1,\s*borderBottomWidth:\s*0/,
+    /tradeControlsRow:\s*\{[\s\S]*borderTopWidth:\s*1,\s*borderBottomWidth:\s*1/,
   );
   assert.match(
     stylesSource,
@@ -264,20 +272,37 @@ test('compact footer buy and sell backgrounds cover the full button slots', () =
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: sellColor \}\]\}>/,
+    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: sellTileColor \}\]\}>/,
   );
   assert.match(
     buttonSource,
-    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: buyColor \}\]\}>/,
+    /<View style=\{\[baseStyles\.actionButtonSlot, \{ backgroundColor: buyTileColor \}\]\}>/,
   );
   assert.match(
     buttonSource,
-    /\{ backgroundColor: sellColor,[\s\S]*?testID=\{sellAction\.testID\}/,
+    /\{ backgroundColor: sellTileColor,[\s\S]*?testID=\{sellAction\.testID\}/,
   );
   assert.match(
     buttonSource,
-    /\{ backgroundColor: buyColor,[\s\S]*?testID=\{buyAction\.testID\}/,
+    /\{ backgroundColor: buyTileColor,[\s\S]*?testID=\{buyAction\.testID\}/,
   );
+});
+
+test('compact footer buy and sell tile colors follow per-side MT5 tick movement', () => {
+  const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const quoteSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/quoteFallback.ts');
+
+  assert.match(buttonSource, /resolveChartTradeButtonPriceColor/);
+  assert.match(
+    buttonSource,
+    /const sellTileVisual = resolveChartTradeButtonPriceColor\(\{[\s\S]*currentPrice: latestBid[\s\S]*upColor: buyColor[\s\S]*downColor: sellColor[\s\S]*fallbackColor: sellColor/,
+  );
+  assert.match(
+    buttonSource,
+    /const buyTileVisual = resolveChartTradeButtonPriceColor\(\{[\s\S]*currentPrice: latestAsk[\s\S]*upColor: buyColor[\s\S]*downColor: sellColor[\s\S]*fallbackColor: buyColor/,
+  );
+  assert.match(quoteSource, /current > previous[\s\S]*direction = 'up'/);
+  assert.match(quoteSource, /current < previous[\s\S]*direction = 'down'/);
 });
 
 test('order ticket buy and sell execution buttons call the matching side', () => {
@@ -298,20 +323,22 @@ test('order ticket buy and sell execution buttons call the matching side', () =>
 
 test('trade buttons keep the busy visual state on only the pressed side', () => {
   const chartSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const handlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
   const ticketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
 
   assert.match(
-    chartSource,
-    /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && \(isPending \|\| tradeTapLockRef\.current\);/,
+    handlerSource,
+    /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && tradeTapLockRef\.current;/,
   );
   assert.match(
-    chartSource,
+    handlerSource,
     /const isChartTradeActionVisuallyLocked = \(side: TradeSide\) =>[\s\S]*!isCurrentChartSymbol \|\| activeSide === side;/,
   );
-  assert.match(chartSource, /clearActiveTradeSide\(lockedSide, delayMs\);/);
+  assert.match(handlerSource, /clearActiveTradeSide\(lockedSide, delayMs\);/);
   assert.match(chartSource, /busy: isChartTradeActionBusy\('sell'\)/);
   assert.match(chartSource, /busy: isChartTradeActionBusy\('buy'\)/);
-  assert.doesNotMatch(chartSource, /isPending && !activeSide/);
+  assert.doesNotMatch(handlerSource, /isPending \|\| tradeTapLockRef\.current/);
+  assert.doesNotMatch(chartSource, /isPending/);
 
   assert.match(
     ticketSource,
@@ -357,6 +384,8 @@ test('chart trade rows are remounted by symbol so first trade after symbol switc
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const featureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
   const buttonSource = readSource('src/features/chart/components/ChartTradeButtonsFeature.tsx');
+  const handlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
+  const sharedLockSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/sharedLock.ts');
 
   assert.match(chartSource, /<ChartTradeOverlayLayer[\s\S]*showHiddenInlineTradeSheet: !isChartExpanded && showChartTradeSheet/);
   assert.match(chartSource, /<ChartTradeInlineFooter[\s\S]*chartSymbol=\{chartSymbol\}/);
@@ -367,9 +396,9 @@ test('chart trade rows are remounted by symbol so first trade after symbol switc
   assert.match(featureSource, /pointerEvents=\{tradeFooterDockVisible \? 'auto' : 'none'\}/);
   assert.match(featureSource, /const inlineFooterReceivesTouches = !showFloatingFooterTradeRow && !hideInlineTradeRow;/);
   assert.match(featureSource, /pointerEvents=\{inlineFooterReceivesTouches \? 'auto' : 'none'\}/);
-  assert.match(buttonSource, /let chartTradeButtonSharedLockSide: TradeSide \| null = null;/);
-  assert.match(buttonSource, /acquireChartTradeButtonSharedLock\(action\.side\)/);
-  assert.match(buttonSource, /reason: tradeTapLockRef\.current \? 'tap-lock' : sharedLockSide !== null \? 'shared-tap-lock' : 'mutation-pending'/);
-  assert.match(buttonSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[symbol\]\);/);
-  assert.match(buttonSource, /currentChartSymbol: stateChartSymbol/);
+  assert.match(sharedLockSource, /let chartTradeButtonSharedLockSide: TradeSide \| null = null;/);
+  assert.match(handlerSource, /acquireChartTradeButtonSharedLock\(action\.side\)/);
+  assert.match(handlerSource, /reason: tradeTapLockRef\.current \? 'tap-lock' : 'shared-tap-lock'/);
+  assert.match(handlerSource, /releaseChartTradeButtonSharedLock\(tradeTapLockSideRef\.current\);[\s\S]*?\}, \[symbol\]\);/);
+  assert.match(handlerSource, /currentChartSymbol: stateChartSymbol/);
 });

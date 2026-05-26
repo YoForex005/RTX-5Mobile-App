@@ -242,6 +242,9 @@ export const useUserPreferences = create<UserPreferencesState>()(
       login: (id, name, server, tokens, brokerId, brokerConnection) =>
         set((state) => ({
           isLoggedIn: true,
+          ...(typeof brokerConnection?.isDemoAccount === 'boolean'
+            ? { isDemoAccount: brokerConnection.isDemoAccount }
+            : {}),
           // Persist brokerId atomically with login to prevent race conditions.
           // Falls back to existing brokerId if not provided (e.g., for register flow).
           brokerId: brokerId || state.brokerId || '',

@@ -316,11 +316,87 @@ test('pending chart CTA does not open the blocking preview-only Alert', () => {
   }
 });
 
+test('collapsed SL/TP sheet drag gesture covers the pinned header surface', () => {
+  const visibleSheetStart = chartTradeFeatureSource.indexOf('{sheet.showChartTradeSheet ? (');
+  const visibleSheetBodyStart = chartTradeFeatureSource.indexOf('{showSheetBody ? (', visibleSheetStart);
+  assert.notEqual(visibleSheetStart, -1, 'visible chart trade sheet branch was not found');
+  assert.notEqual(visibleSheetBodyStart, -1, 'visible chart trade sheet body branch was not found');
+
+  const visibleSheetHeaderSource = chartTradeFeatureSource.slice(visibleSheetStart, visibleSheetBodyStart);
+  assertSourceContains(
+    visibleSheetHeaderSource,
+    /<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>[\s\S]*<ChartTradeSheetDragHeader[\s\S]*<ChartTradeSheetPinnedHeader/,
+    'SL/TP sheet drag gesture must cover the visible pinned header, not only the tiny handle',
+  );
+
+  const dragDetectorCount =
+    visibleSheetHeaderSource.match(/<GestureDetector gesture=\{sheet\.chartTradeSheetDragGesture\}>/g)?.length ?? 0;
+  assert.equal(dragDetectorCount, 1, 'visible sheet header should use one gesture detector around handle and header');
+});
+
 test('tap menu is suppressed while lot input or picker interaction is active', () => {
   assertSourceContains(
     source,
     /shouldSuppressChartTapMenu\(\{[\s\S]*footerLotEditorFocused[\s\S]*footerLotEditorOpening[\s\S]*footerLotPickerOpen: footerLotPickerMode !== null[\s\S]*suppressUntil: chartTapMenuSuppressUntilRef\.current/,
     'chart tap menu must not fight active lot editing interactions',
+  );
+});
+
+test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface', () => {
+  const openHandlerStart = source.indexOf('const handleOpenChartTradeSheet = useCallback');
+  const openHandlerEnd = source.indexOf('const scrollChartTradeTypeTabsToOrderType', openHandlerStart);
+  assert.notEqual(openHandlerStart, -1, 'SL/TP toolbar open handler was not found');
+  assert.notEqual(openHandlerEnd, -1, 'SL/TP toolbar open handler end was not found');
+
+  const openHandlerSource = source.slice(openHandlerStart, openHandlerEnd);
+  assertSourceContains(
+    openHandlerSource,
+    /runImmediateAction\('chart\.tradeSheet\.open'[\s\S]*openChartTradeSheet\(\);/,
+    'SL/TP toolbar action must open the sheet from the first handled tap frame',
+  );
+  assert.doesNotMatch(
+    openHandlerSource,
+    /requestAnimationFrame/,
+    'SL/TP toolbar action must not defer opening until a later frame',
+  );
+  assertSourceContains(
+    source,
+    /accessibilityLabel="SL\/TP"[\s\S]*style=\{styles\.toolbarTradeButton\}[\s\S]*onPressIn=\{handleOpenChartTradeSheet\}/,
+    'SL/TP toolbar button must open directly from press-in so Android dropped press/release events cannot leave it inert',
+  );
+
+  const stylesPath = (() => {
+    const candidates = [
+      resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
+      resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
+  })();
+  assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
+  const stylesSource = readFileSync(stylesPath, 'utf8');
+
+  assertSourceContains(
+    stylesSource,
+    /toolbarTradeButton: \{[\s\S]*width: '100%'[\s\S]*minHeight: 44/,
+    'SL/TP toolbar touch target must fill its slot with a reliable mobile tap height',
+  );
+});
+
+test('expanded SL/TP sheet maximum height reserves the compact chart toolbar boundary', () => {
+  assertSourceContains(
+    source,
+    /const compactChartTradeSheetTopInset =[\s\S]*chartTradeCompactHeaderHeight > 0[\s\S]*\? chartTradeCompactHeaderHeight[\s\S]*: chartHeaderTopPadding \+ 58/,
+    'expanded SL/TP sheet must use the measured compact toolbar height as its top boundary',
+  );
+  assertSourceContains(
+    source,
+    /const chartTradeSheetFallbackTopInset = isChartExpanded[\s\S]*\? fullscreenToolbarTopPadding \+ 36[\s\S]*: compactChartTradeSheetTopInset/,
+    'normal chart SL/TP sheet must stop below the compact toolbar instead of the status bar',
+  );
+  assertSourceContains(
+    source,
+    /isChartExpanded && chartTradeTopToolbarBottomOffset > 0/,
+    'compact chart SL/TP sheet must not apply fullscreen toolbar offsets in normal mode',
   );
 });
 
@@ -346,6 +422,29 @@ test('trade sheet volume lot value is manually editable without opening only the
   if (/<Pressable[\s\S]*styles\.chartTradeVolumeCard[\s\S]*onPress=\{handlers\.onOpenVolumeStepper\}/.test(chartTradeFeatureSource)) {
     throw new Error('extracted volume card must not be a Pressable that steals manual lot editing');
   }
+});
+
+test('SL/TP sheet volume input keeps numeric value vertically unclipped', () => {
+  const stylesPath = (() => {
+    const candidates = [
+      resolve(process.cwd(), 'src/features/chart/ChartScreen.styles.ts'),
+      resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.styles.ts'),
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
+  })();
+  assert.ok(stylesPath, 'ChartScreen.styles.ts was not found from the test working directory');
+  const stylesSource = readFileSync(stylesPath, 'utf8');
+
+  assertSourceContains(
+    stylesSource,
+    /chartTradeVolumeInput: \{[\s\S]*paddingVertical: 0[\s\S]*textAlignVertical: 'center'[\s\S]*lineHeight: 20/,
+    'SL/TP volume TextInput must explicitly center numeric text without Android default vertical padding',
+  );
+  assertSourceContains(
+    stylesSource,
+    /chartTradeVolumeInputPending: \{[\s\S]*height: 42[\s\S]*lineHeight: 22/,
+    'expanded SL/TP volume TextInput must be tall enough for the bold lot value',
+  );
 });
 
 test('compact footer lot editing does not add an Android pre-keyboard lift gap', () => {

@@ -133,6 +133,7 @@ test('shared press action budget is capped without touch-down activation by defa
   assert.match(fastPressSource, /hitSlop=\{hitSlop \?\? DEFAULT_HIT_SLOP\}/);
   assert.match(fastPressSource, /pressRetentionOffset=\{pressRetentionOffset \?\? DEFAULT_PRESS_RETENTION_OFFSET\}/);
   assert.match(fastPressSource, /unstable_pressDelay=\{unstable_pressDelay \?\? 0\}/);
+  assert.match(fastPressSource, /android_disableSound=\{props\.android_disableSound \?\? true\}/);
   assert.match(fastPressSource, /handledOnPressInRef\.current = true;\s*if \(onPress !== onPressIn\) \{\s*runPressAction\(onPress, event\);\s*\}/);
   assert.match(fastPressSource, /const handleStartShouldSetResponder = useCallback/);
   assert.match(fastPressSource, /return Boolean\(onStartShouldSetResponder\?\.\(event\)\)/);
@@ -183,6 +184,48 @@ test('buy and sell actions use the stricter critical trade budget', () => {
   assert.match(chartWebSource, /runCriticalTradeAction\('chart\.web\.trade\.sell'/);
   assert.match(chartWebSource, /runCriticalTradeAction\('chart\.web\.trade\.buy'/);
   assert.match(chartTradeHandlerSource, /runCriticalTradeAction\(`chart\.\$\{variant\}\.trade\.\$\{side\}`/);
+});
+
+test('chart trade one-click and ticket paths keep heavy work out of the tap paint', () => {
+  const ordersSource = readSource('src/query/orders.ts');
+  const chartTradeHandlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
+
+  assert.match(ordersSource, /const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250/);
+  assert.match(ordersSource, /export const usePlaceOrderExecutor = \(\) => \{/);
+  assert.match(ordersSource, /submitPlaceOrderWithCacheUpdate\(queryClient, payload\)/);
+  assert.match(ordersSource, /const scheduleTradePostSuccessRefresh = \(work: \(\) => void\) => \{[\s\S]*setTimeout\(work, TRADE_POST_SUCCESS_REFRESH_DELAY_MS\)/);
+  assert.match(
+    ordersSource,
+    /state\.upsertPosition\(newPos\);[\s\S]*scheduleTradePostSuccessRefresh\(\(\) => \{[\s\S]*refreshPositions\(mt5Login\)[\s\S]*queryClient\.invalidateQueries\(\{ queryKey: \['positions'\] \}\)/,
+  );
+  assert.match(chartTradeHandlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol;/);
+  assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
+  assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
+  assert.match(chartTradeHandlerSource, /if \(oneClickAccepted\) \{[\s\S]*placeOrder\(payload,/);
+  assert.match(chartTradeHandlerSource, /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && tradeTapLockRef\.current;/);
+  assert.match(
+    chartTradeHandlerSource,
+    /const runAfterChartTradeTapPaint = \(work: \(\) => void\) => \{[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*setTimeout\(work, 0\)/,
+  );
+  assert.match(
+    chartTradeHandlerSource,
+    /\} else \{[\s\S]*runAfterChartTradeTapPaint\(\(\) => \{[\s\S]*router\.push\(\{[\s\S]*pathname: '\/trade\/order-ticket'/,
+  );
+  assert.match(
+    chartTradeHandlerSource,
+    /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
+  );
+  assert.doesNotMatch(chartTradeHandlerSource, /isPending/);
+  assert.doesNotMatch(chartTradeHandlerSource, /usePlaceOrderMutation/);
+});
+
+test('trade success feedback does not trigger device vibration', () => {
+  const ticketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
+  const feedbackModalSource = readSource('src/ui/components/TradeFeedbackModal.tsx');
+
+  assert.doesNotMatch(ticketSource, /\bVibration\b|\.vibrate\(/);
+  assert.doesNotMatch(feedbackModalSource, /\bVibration\b|\.vibrate\(/);
+  assert.match(ticketSource, /without device vibration/);
 });
 
 test('action destination routes are warmed in non-blocking batches', () => {
@@ -295,7 +338,7 @@ test('shared scroll containers keep taps active while keyboard or scroll respond
   assert.deepEqual(scrollResponderIssues, []);
 });
 
-test('settings navigation surfaces use the immediate fast press path', () => {
+test('settings navigation surfaces keep scrollable rows release-confirmed', () => {
   const rowSource = readSource('src/features/settings/SettingsScreen/SettingRow.tsx');
   const backBarSource = readSource('src/features/settings/SettingsBackBar.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
@@ -304,11 +347,22 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   const brokersSource = readSource('src/features/settings/BrokersScreen/BrokersScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
   const rootSource = readSource('app/_layout.tsx');
+  const accountCardStart = settingsSource.indexOf("onPress={() => openReadySettingsRoute('/settings/accounts')}");
+  const metricsRowStart = settingsSource.indexOf('<View style={styles.metricsRow}', accountCardStart);
+  const registerRowStart = settingsSource.indexOf("onPress={() => openReadySettingsRoute('/register')}");
+  const lowerSettingsStart = settingsSource.indexOf('{lowerSettingsReady ? (', registerRowStart);
 
   assert.match(rowSource, /<FastPressable[\s\S]*latencyLabel=\{`settings\.row\.\$\{title\}`\}[\s\S]*onPress=\{onPress\}/);
-  assert.match(rowSource, /activateOnPressIn=\{Boolean\(onPress\)\}/);
+  assert.doesNotMatch(rowSource, /activateOnPressIn/);
+  assert.doesNotMatch(rowSource, /activateOnTouchStart/);
   assert.match(rowSource, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(rowSource, /traceUiInteraction/);
+  assert.notEqual(accountCardStart, -1);
+  assert.notEqual(metricsRowStart, -1);
+  assert.notEqual(registerRowStart, -1);
+  assert.notEqual(lowerSettingsStart, -1);
+  assert.doesNotMatch(settingsSource.slice(accountCardStart, metricsRowStart), /activateOnPressIn|activateOnTouchStart/);
+  assert.doesNotMatch(settingsSource.slice(registerRowStart, lowerSettingsStart), /activateOnPressIn|activateOnTouchStart/);
   assert.match(backBarSource, /<FastPressable[\s\S]*router\.replace\('\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel="settings\.back"/);
   assert.match(settingsSource, /const SETTINGS_LOWER_CONTENT_DELAY_MS = 80/);
   assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/mailbox'[\s\S]*'\/settings\/user-guide'[\s\S]*\] as const/);
@@ -320,8 +374,8 @@ test('settings navigation surfaces use the immediate fast press path', () => {
   assert.match(settingsSource, /latencyLabel="settings\.search\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.register\.open"/);
-  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/settings\/accounts'\)\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.accounts\.open"/);
-  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/register'\)\}[\s\S]*activateOnPressIn[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.register\.open"/);
+  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/settings\/accounts'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.accounts\.open"/);
+  assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/register'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.register\.open"/);
   assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/mailbox'\)\}/);
   assert.match(settingsSource, /latencyLabel="settings\.logout\.prompt"/);
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);

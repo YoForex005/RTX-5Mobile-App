@@ -31,7 +31,6 @@ export function SettingRow({
       style={styles.row}
       latencyLabel={`settings.row.${title}`}
       onPress={onPress}
-      activateOnPressIn={Boolean(onPress)}
       unstable_pressDelay={0}
       accessibilityRole={onPress ? 'button' : undefined}
     >

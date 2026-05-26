@@ -123,7 +123,7 @@ export type UserPreferencesState = {
     server: string,
     tokens: { access_token: string; refresh_token: string; expires_at: string },
     brokerId?: string,
-    brokerConnection?: { serverUrl?: string; logoUrl?: string },
+    brokerConnection?: { serverUrl?: string; logoUrl?: string; isDemoAccount?: boolean },
   ) => void;
   logout: () => void;
   updateTokens: (accessToken: string, refreshToken: string, expiresAt: string) => void;

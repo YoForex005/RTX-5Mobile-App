@@ -22,14 +22,13 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /const scheduleLoginKeyboardDismiss = \(\) => \{/);
   assert.match(source, /const dismissKeyboard = \(\) => Keyboard\.dismiss\(\)/);
   assert.match(source, /globalThis\.requestAnimationFrame\(dismissKeyboard\)/);
-  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*scheduleLoginSubmitAfterInputCommit\(\(\) => \{[\s\S]*void handleLogin\(snapshot\);[\s\S]*\}\);[\s\S]*scheduleLoginKeyboardDismiss\(\)/);
+  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*setIsLoading\(true\);[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);[\s\S]*scheduleLoginKeyboardDismiss\(\)/);
   assert.match(source, /Keyboard\.dismiss\(\)/);
   assert.doesNotMatch(source, /setIsLoading\(true\);\s*Keyboard\.dismiss\(\);/);
-  assert.match(source, /scheduleLoginSubmitAfterInputCommit\(\(\) => \{/);
   assert.match(source, /const snapshot = getLoginCredentialsSnapshot\(\)/);
   assert.match(source, /void handleLogin\(snapshot\)/);
-  assert.match(source, /onPress=\{handleLoginPress\}/);
-  assert.match(source, /activateOnPressIn/);
+  assert.match(source, /onPress=\{handleLoginPress\}[\s\S]*activateOnTouchStart/);
+  assert.doesNotMatch(source, /onPressIn=\{handleLoginPress\}/);
   assert.match(source, /disabled=\{isLoading\}/);
   assert.match(source, /hitSlop=\{LOGIN_BUTTON_HIT_SLOP\}/);
   assert.match(source, /pressRetentionOffset=\{LOGIN_BUTTON_PRESS_RETENTION_OFFSET\}/);
@@ -86,10 +85,10 @@ test('login validation snapshots the latest committed native field values', () =
   assert.match(source, /type LoginCredentialsSnapshot = \{/);
   assert.match(source, /type NativeSyntheticEvent/);
   assert.match(source, /type TextInputEndEditingEventData/);
-  assert.match(source, /const scheduleLoginSubmitAfterInputCommit = \(task: \(\) => void\) => \{/);
-  assert.match(source, /globalThis\.requestAnimationFrame\(task\)/);
+  assert.doesNotMatch(source, /const scheduleLoginSubmitAfterInputCommit/);
+  assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(task\)/);
   assert.doesNotMatch(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*setTimeout\(task, 0\);/);
-  assert.match(source, /scheduleLoginSubmitAfterInputCommit\(\(\) => \{[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);[\s\S]*\}\)/);
+  assert.match(source, /runImmediateAction\('login\.submit\.touch'[\s\S]*const snapshot = getLoginCredentialsSnapshot\(\);[\s\S]*void handleLogin\(snapshot\);/);
   assert.match(source, /const brokerIdValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerServerUrlValueRef = useRef<string \| null>\(null\)/);
   assert.match(source, /const brokerLogoUrlValueRef = useRef<string \| null>\(null\)/);
@@ -157,6 +156,20 @@ test('login success path does not wait on optional broker config or a fixed succ
     /persist(?:SelectedBrokerSession|AuthSessionTokens)/,
     'login should not wait for secure-storage writes before navigation',
   );
+  assert.doesNotMatch(
+    loginCriticalPath,
+    /setBrokerConnection\(canonicalBrokerId/,
+    'login should avoid a duplicate broker-store write before navigation',
+  );
+  assert.doesNotMatch(
+    loginCriticalPath,
+    /setIsDemoAccount/,
+    'login should fold account type into the atomic session update before navigation',
+  );
+  assert.match(loginCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.match(source, /let didStartSuccessNavigation = false/);
+  assert.match(source, /didStartSuccessNavigation = true/);
+  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*setIsLoading\(false\);/);
   assert.ok(
     brokerConfigRefreshIndex > loginRequestIndex,
     'broker config refresh should run after auth has already completed',
@@ -185,7 +198,7 @@ test('login success path does not wait on optional broker config or a fixed succ
     /setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]*router\.replace\('\/\(tabs\)\/quotes'\)[\s\S]*\},\s*1200\s*\)/,
   );
   assert.match(source, /const schedulePostLoginWork = \(task: \(\) => void\) => \{[\s\S]*requestAnimationFrame/);
-  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*schedulePostLoginWork\(\(\) => \{/);
+  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*schedulePostLoginWork\(\(\) => \{/);
   assert.match(source, /queryClient\.setQueryData\(\[BROKER_CONFIG_KEY, canonicalBrokerId\], brokerConfig\)/);
 });
 
@@ -218,6 +231,20 @@ test('broker detail login does not wait on health probes or secure storage befor
     /await Promise\.all/,
     'broker detail login should not await optional post-login bookkeeping before navigation',
   );
+  assert.doesNotMatch(
+    brokerDetailCriticalPath,
+    /setBrokerConnection\(canonicalBrokerId/,
+    'broker detail login should avoid a duplicate broker-store write before navigation',
+  );
+  assert.doesNotMatch(
+    brokerDetailCriticalPath,
+    /setIsDemoAccount/,
+    'broker detail login should fold account type into the atomic session update before navigation',
+  );
+  assert.match(brokerDetailCriticalPath, /isDemoAccount: accountType === 'demo'/);
+  assert.match(source, /let didStartSuccessNavigation = false/);
+  assert.match(source, /didStartSuccessNavigation = true/);
+  assert.match(source, /if \(!didStartSuccessNavigation\) \{\s*setIsLoading\(false\);/);
   assert.ok(
     postLoginWorkIndex > routerReplaceIndex,
     'broker detail post-login bookkeeping should be scheduled after navigation starts',
@@ -226,7 +253,7 @@ test('broker detail login does not wait on health probes or secure storage befor
     selectedBrokerPersistIndex > postLoginWorkIndex && authTokenPersistIndex > postLoginWorkIndex,
     'broker detail secure broker persistence should stay in the post-navigation work queue',
   );
-  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
+  assert.match(source, /router\.replace\('\/\(tabs\)\/quotes'\);\s*didStartSuccessNavigation = true;\s*scheduleBrokerDetailPostLoginWork\(\(\) => \{/);
 });
 
 test('login auth request has a bounded frontend timeout', () => {

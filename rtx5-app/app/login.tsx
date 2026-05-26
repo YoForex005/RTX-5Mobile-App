@@ -88,15 +88,6 @@ const schedulePostLoginWork = (task: () => void) => {
   setTimeout(task, 0);
 };
 
-const scheduleLoginSubmitAfterInputCommit = (task: () => void) => {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(task);
-    return;
-  }
-
-  setTimeout(task, 0);
-};
-
 const scheduleLoginKeyboardDismiss = () => {
   const dismissKeyboard = () => Keyboard.dismiss();
 
@@ -118,7 +109,6 @@ type LoginCredentialsSnapshot = {
 
 export function AccountLoginScreen() {
   const login = useUserPreferences((s) => s.login);
-  const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   // Broker config integration: persist broker_id to Zustand so useBrokerConfig()
   // can fetch GET /broker/config with the correct broker context app-wide
@@ -461,6 +451,7 @@ export function AccountLoginScreen() {
 
     loginRequestInFlightRef.current = true;
     setIsLoading(true);
+    let didStartSuccessNavigation = false;
     try {
       const response: any = await loginAPI({
         username: normalizedAccountId,
@@ -528,10 +519,9 @@ export function AccountLoginScreen() {
       const immediateServerName = serverName || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
-      setBrokerConnection(canonicalBrokerId, normalizedServerUrl, selectedLogoUrl);
-
       // brokerId is persisted atomically inside login() to prevent race
-      // conditions with the async Zustand persist middleware.
+      // conditions with the async Zustand persist middleware. Account type is
+      // included here too so success performs one store update before routing.
       login(
         savedLogin,
         accountName,
@@ -542,13 +532,15 @@ export function AccountLoginScreen() {
           expires_at: expiresAtIso,
         },
         canonicalBrokerId,
-        { serverUrl: normalizedServerUrl, logoUrl: selectedLogoUrl },
+        {
+          serverUrl: normalizedServerUrl,
+          logoUrl: selectedLogoUrl,
+          isDemoAccount: accountType === 'demo',
+        },
       );
 
-      // The backend owns account classification. One login screen can connect
-      // demo, contest, and real accounts without route-specific hardcoding.
-      setIsDemoAccountFlag(accountType === 'demo');
       router.replace('/(tabs)/quotes');
+      didStartSuccessNavigation = true;
       schedulePostLoginWork(() => {
         void Promise.all([
           persistSelectedBrokerSession({
@@ -638,7 +630,9 @@ export function AccountLoginScreen() {
       }, 2000);
     } finally {
       loginRequestInFlightRef.current = false;
-      setIsLoading(false);
+      if (!didStartSuccessNavigation) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -660,10 +654,8 @@ export function AccountLoginScreen() {
     loginSubmitPressGuardRef.current = true;
     runImmediateAction('login.submit.touch', () => {
       setIsLoading(true);
-      scheduleLoginSubmitAfterInputCommit(() => {
-        const snapshot = getLoginCredentialsSnapshot();
-        void handleLogin(snapshot);
-      });
+      const snapshot = getLoginCredentialsSnapshot();
+      void handleLogin(snapshot);
       scheduleLoginKeyboardDismiss();
       releaseLoginSubmitPressGuard();
     });
@@ -869,7 +861,7 @@ export function AccountLoginScreen() {
                   (pressed || isLoading) && styles.loginBtnPressed
                 ]}
                 onPress={handleLoginPress}
-                activateOnPressIn
+                activateOnTouchStart
                 disabled={isLoading}
                 hitSlop={LOGIN_BUTTON_HIT_SLOP}
                 pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}

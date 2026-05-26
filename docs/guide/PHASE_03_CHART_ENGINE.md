@@ -39,15 +39,28 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Compact chart footer supports right-aligned Sell/Buy prices with increase-left/decrease-right lot controls.
 - [x] Compact chart footer Sell/Buy backgrounds cover the full button slots.
 - [x] Compact chart footer keeps the Sell/Lot/Buy row fully visible above the keyboard.
+- [x] Compact chart footer Sell/Lot/Buy row has matching top and bottom divider lines before the bottom menubar.
+- [x] Compact chart footer Sell/Buy tile colors follow MT-style per-side tick movement while keeping Bid on Sell and Ask on Buy.
 - [x] Native chart top header matches the 2026-05-20 MT-style reference by collapsing the title, symbol, and toolbar actions into one safe-area row while preserving fullscreen toolbar access.
 - [x] Bottom navbar switches primary tabs within a strict 20ms local first-frame frontend budget.
 - [x] Shared app actions use a strict 20ms local first-frame frontend budget.
 - [x] Buy/Sell trade actions use a stricter 10ms local first-frame frontend budget.
 - [x] Trade, auth/register, symbol, candle, and positions REST calls record backend response latency separately from local touch latency.
+- [x] Chart Buy/Sell success updates insert the optimistic position before deferred background refresh work.
+- [x] Compact chart Buy/Sell actions stay tappable after the short local tap guard instead of remaining disabled for the full order mutation.
 - [x] Action destination routes are warmed non-blockingly so option screens do not cold-load after tap.
 - [x] Chart toolbar dropdowns use the shared Quotes-style ActionSheet path for Timeframes, Select Symbol, Drawing Tools, Options, and nested Chart Type.
+- [x] Compact chart `SL/TP` sheet can be dismissed by dragging down from the visible handle/header surface.
+- [x] Compact chart `SL/TP` toolbar tap opens reliably and the expanded sheet volume value remains vertically unclipped.
+- [x] Expanded compact chart `SL/TP` sheet stops below the top chart toolbar with a small visible gap at maximum drag height.
 
 ## Progress Notes
+- 2026-05-26: Smoothed the compact chart Buy/Sell placed-trade path after MT5 reference observation. Successful market orders now write the optimistic open position immediately, then defer position refresh and query invalidation for 250ms so the chart placement moment is not competing with background cache work.
+- 2026-05-26: Captured a longer MT5 chart Buy/Sell footer sequence over ADB and matched the compact RTX5 footer behavior to the observed MT-style per-side tick coloring: a bid/ask price uptick paints that tile blue, a downtick paints it red, and unchanged prices keep the last movement color.
+- 2026-05-26: Added the matching bottom divider to the compact chart Sell/Lot/Buy footer so the row is separated from the bottom tab menubar by the same line used above the row.
+- 2026-05-26: Corrected the compact chart `SL/TP` expanded drag limit. The maximum expanded sheet height now respects the compact chart toolbar boundary instead of lifting into the timeframe-to-3-dot option row/status area, leaving only the intended small gap below the toolbar.
+- 2026-05-26: Fixed the compact chart `SL/TP` toolbar tap path and expanded-sheet volume clipping. The `SL/TP` button now opens the sheet directly from the first handled touch frame with a full-height toolbar touch surface, and the volume `TextInput` uses explicit Android vertical metrics so the `0.01` lot value is centered instead of clipped at the top.
+- 2026-05-26: Fixed compact chart `SL/TP` sheet drag dismissal. The same pan gesture now covers the visible grab handle plus pinned symbol/order header, so users can hide the bottom sheet by dragging the sheet surface down instead of needing to hit only the small handle; ADB screenshots captured before and after the header-drag fix.
 - 2026-05-26: Aligned native chart dropdown behavior with the Quotes symbol action sheet path. Timeframes, Select Symbol, Drawing Tools, and Options already used the shared global ActionSheet; the nested `Chart Type` option inside the 3-dot sheet now also opens as a bottom ActionSheet instead of the older floating card, with a source guard preventing the local chart-type menu from returning.
 - 2026-05-25: Rechecked the chart Timeframes, Select Symbol, Drawing Tools, and Options dropdowns with ADB screenshots. Shared Android ActionSheet adaptive detents now keep a stable minimum floor so short action lists do not shrink downward, and the chart symbol header is one full tap target rendered above the WebView responder layer so tapping the symbol/name/category area opens `Select Symbol` reliably.
 - 2026-05-25: Fixed the chart live-candle handoff when BTCUSD has symbol prices from the quote snapshot path but `/ws/feed` and `/ws/v2` only acknowledge subscriptions without immediate tick/candle payloads. Shared live-symbol quote consumers now normalize REST quote snapshots into the same live tick shape, update local quote state, and extend the active candle stream with the bid price while still preferring WebSocket ticks when they arrive; the display layer also drops stale incompatible history when a generated live candle starts a new price regime so the current candle stays visible.
@@ -385,6 +398,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - 2026-05-15: Expanded and accelerated the native chart compact symbol header tap target. The whole symbol/name/category area now opens the symbol picker on touch-down, and symbol picker actions are prebuilt before the tap so the sheet does not spend press time constructing the dropdown list.
 - 2026-05-16: Stabilized the native chart symbol picker first-open layout on Android. Instant ActionSheet opens now start from the visible window height, refuse shorter first modal layouts, and keep later keyboard/layout shrink events from clipping the sheet, preventing the initial oversized/cut dropdown frame before it settles.
 - 2026-05-16: Added extra vertical clearance to the compact Sell/Lot/Buy footer so the row no longer clips at the bottom edge. The fixed footer row is now 40px tall, the keyboard/dock reserve is 72px, the dock keeps a 20px internal bottom cushion, and Android lot editing applies a small bottom safety gap instead of sitting exactly on the keyboard edge.
+- 2026-05-26: Tightened the compact chart Buy/Sell footer response against the MT5 reference. The chart trade handler no longer treats a pending order mutation as a footer-wide disabled state; it uses the existing short tap guard for duplicate responder protection, releases the visual lock after that guard, and leaves Sell/Buy plus lot controls tappable while backend work continues.
 ## Test Checklist
 - [x] Unit: candle transforms and viewport math.
 - [x] Unit/typecheck: app-wide fast actions stay on the immediate action path without the old tracing wrapper across Settings, Accounts, Quotes, History, Trade summary, Chart Settings, Order Ticket, and native/web ChartScreen, with light/dark theme wiring guarded.
@@ -392,6 +406,10 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit/typecheck: compact chart symbol dropdown uses a 26px left shift from the hamburger visual-left reference while preserving the instant-open tap target.
 - [x] Unit/typecheck: compact footer uses a fixed shared row height plus a matching keyboard reserve so the Sell/Lot/Buy row cannot be clipped below during lot editing.
 - [x] Unit/typecheck/screenshot: compact chart Sell/Lot/Buy footer removes the tiny bottom spacer by using zero inline bottom padding and no compact row bottom border inset.
+- [x] Unit/typecheck: compact chart Sell/Lot/Buy footer keeps matching top and bottom divider borders while Sell/Buy backgrounds still fill their slots.
+- [x] Unit/typecheck/ADB screenshot reference: compact chart Sell/Buy tiles resolve MT-style tick movement colors independently for bid and ask while preserving the mapped Sell/Bid and Buy/Ask values.
+- [x] Unit/typecheck/device: chart trade success defers heavy refresh and invalidation work until after the optimistic placement paint.
+- [x] Unit/typecheck/device: compact chart Buy/Sell buttons stay enabled after the short local tap guard and ADB captures confirm the footer returns to an enabled non-busy state.
 - [x] Unit/typecheck: compact footer Sell/Buy action backgrounds stretch through the full button slots while preserving dynamic red/blue action colors.
 - [x] Unit/typecheck: compact footer Sell/Buy price values right-align inside their buttons, while the lot control renders increase-left, value-center, and decrease-right without breaking picker/manual-edit behavior.
 - [x] Unit/typecheck: chart symbol dropdown reads full nested/paginated broker instrument payloads, preserves broker suffix variants, and scopes the symbol cache by broker/account to avoid stale partial dropdown lists.
@@ -438,6 +456,9 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit: footer lot picker advances positive and negative adjustment ladders from hundredths to tenths and whole-lot ranges.
 - [x] Typecheck/unit: chart i18n expansion covers toolbar/action sheets, drawing-tool labels, and chart trade price/stop/expiration/comment controls.
 - [x] Unit: chart trade sheet body stays hidden in compact `SL/TP` mode and renders only after expand.
+- [x] Unit/typecheck/screenshot: compact chart `SL/TP` sheet drag dismissal covers the pinned header surface, with ADB before/after screenshots showing header drag now hides the sheet.
+- [x] Unit/typecheck/screenshot: compact chart `SL/TP` toolbar opens immediately from a reliable full-size touch surface, and the expanded sheet volume value stays vertically centered without clipping.
+- [x] Unit/typecheck/screenshot: expanded compact chart `SL/TP` maximum drag height clamps below the timeframe-to-3-dot toolbar with a small visible gap.
 - [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph uniform guide-spacing contract.
 - [x] Unit: chart SL/TP trade-sheet execution preview uses the shared graph compact right-axis label-gap contract.
 - [x] Unit: chart SL/TP trade-sheet execution preview shows a right-side value for the lowest dotted guide.

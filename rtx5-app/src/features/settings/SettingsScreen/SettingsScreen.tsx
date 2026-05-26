@@ -358,7 +358,6 @@ export function SettingsScreen() {
         >
             <FastPressable
               onPress={() => openReadySettingsRoute('/settings/accounts')}
-              activateOnPressIn
               unstable_pressDelay={0}
               latencyLabel="settings.accounts.open"
             >
@@ -464,7 +463,6 @@ export function SettingsScreen() {
             <FastPressable
               style={[styles.singleRowCard, styles.cardShadow]}
               onPress={() => openReadySettingsRoute('/register')}
-              activateOnPressIn
               unstable_pressDelay={0}
               latencyLabel="settings.register.open"
             >

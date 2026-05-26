@@ -10,7 +10,11 @@ import {
   resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
 } from '../../chartTradeInteractionUtils';
-import { resolveChartTradeButtonQuote } from './quoteFallback';
+import {
+  resolveChartTradeButtonPriceColor,
+  resolveChartTradeButtonQuote,
+  type ChartTradeButtonPriceColorResult,
+} from './quoteFallback';
 import { baseStyles, darkStyles, lightStyles, textBaseStyles } from './styles';
 import { useTradeHandler, type TradeFeedback } from './useTradeHandler';
 
@@ -131,7 +135,6 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     isChartTradeActionVisuallyLocked,
     chartTradeActionDisabled,
     isCurrentChartSymbol,
-    isPending,
   } = useTradeHandler({
     symbol,
     variant,
@@ -141,10 +144,45 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     latestAsk,
     onTradeResult,
   });
+  const tradeControlsDisabled = !isCurrentChartSymbol;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
   const buyAction = getChartTradeAction('buy');
+  const bidPriceVisualRef = React.useRef<Pick<ChartTradeButtonPriceColorResult, 'direction' | 'lastPrice'>>({
+    direction: null,
+    lastPrice: null,
+  });
+  const askPriceVisualRef = React.useRef<Pick<ChartTradeButtonPriceColorResult, 'direction' | 'lastPrice'>>({
+    direction: null,
+    lastPrice: null,
+  });
+  const sellTileVisual = resolveChartTradeButtonPriceColor({
+    currentPrice: latestBid,
+    previousPrice: bidPriceVisualRef.current.lastPrice,
+    previousDirection: bidPriceVisualRef.current.direction,
+    upColor: buyColor,
+    downColor: sellColor,
+    fallbackColor: sellColor,
+  });
+  const buyTileVisual = resolveChartTradeButtonPriceColor({
+    currentPrice: latestAsk,
+    previousPrice: askPriceVisualRef.current.lastPrice,
+    previousDirection: askPriceVisualRef.current.direction,
+    upColor: buyColor,
+    downColor: sellColor,
+    fallbackColor: buyColor,
+  });
+  bidPriceVisualRef.current = {
+    direction: sellTileVisual.direction,
+    lastPrice: sellTileVisual.lastPrice,
+  };
+  askPriceVisualRef.current = {
+    direction: buyTileVisual.direction,
+    lastPrice: buyTileVisual.lastPrice,
+  };
+  const sellTileColor = sellTileVisual.color;
+  const buyTileColor = buyTileVisual.color;
   const lotDisplayValue = (
     <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue]} numberOfLines={1}>
       {formattedLotSize}
@@ -162,11 +200,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
-          (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+          (!canUseIncreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
         onPress={handleIncreaseLotPress}
-        disabled={!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol}
-        accessibilityState={{ disabled: !canUseIncreaseLotControl || isPending || !isCurrentChartSymbol }}
+        disabled={!canUseIncreaseLotControl || tradeControlsDisabled}
+        accessibilityState={{ disabled: !canUseIncreaseLotControl || tradeControlsDisabled }}
         accessibilityLabel="Increase lot"
         testID="chart-trade-lot-increase-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
@@ -177,7 +215,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             themeStyles.actionLotAdjustIcon,
             { marginLeft: 4 },
-            (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+            (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
@@ -208,7 +246,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           onPress={handleLotCenterPress}
           onLongPress={handleLotCenterLongPress}
           delayLongPress={220}
-          disabled={isPending || !isCurrentChartSymbol || typeof handleLotCenterPress !== 'function'}
+          disabled={tradeControlsDisabled || typeof handleLotCenterPress !== 'function'}
           hitSlop={LOT_VALUE_HIT_SLOP}
           unstable_pressDelay={0}
           accessibilityLabel="Edit lot"
@@ -225,11 +263,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
-          (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && baseStyles.actionLotAdjustButtonDisabled,
+          (!canUseDecreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
         onPress={handleDecreaseLotPress}
-        disabled={!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol}
-        accessibilityState={{ disabled: !canUseDecreaseLotControl || isPending || !isCurrentChartSymbol }}
+        disabled={!canUseDecreaseLotControl || tradeControlsDisabled}
+        accessibilityState={{ disabled: !canUseDecreaseLotControl || tradeControlsDisabled }}
         accessibilityLabel="Decrease lot"
         testID="chart-trade-lot-decrease-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
@@ -240,7 +278,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             themeStyles.actionLotAdjustIcon,
             { marginRight: 4 },
-            (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+            (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
@@ -307,11 +345,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
 
   return (
     <View style={[baseStyles.tradeControlsRow, themeStyles.tradeControlsRow]}>
-      <View style={[baseStyles.actionButtonSlot, { backgroundColor: sellColor }]}>
+      <View style={[baseStyles.actionButtonSlot, { backgroundColor: sellTileColor }]}>
         <Pressable
           style={[
             baseStyles.actionBtn,
-            { backgroundColor: sellColor, borderWidth: 0, shadowColor: sellColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
+            { backgroundColor: sellTileColor, borderWidth: 0, shadowColor: sellTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
             isChartTradeActionVisuallyLocked('sell') && { opacity: 0.5 },
           ]}
           disabled={chartTradeActionDisabled}
@@ -345,7 +383,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  (!canUseIncreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                  (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
             </View>
@@ -361,7 +399,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  (!canUseDecreaseLotControl || isPending || !isCurrentChartSymbol) && themeStyles.actionLotAdjustIconDisabled,
+                  (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
             </View>
@@ -369,11 +407,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         ) : null}
       </View>
 
-      <View style={[baseStyles.actionButtonSlot, { backgroundColor: buyColor }]}>
+      <View style={[baseStyles.actionButtonSlot, { backgroundColor: buyTileColor }]}>
         <Pressable
           style={[
             baseStyles.actionBtn,
-            { backgroundColor: buyColor, borderWidth: 0, shadowColor: buyColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
+            { backgroundColor: buyTileColor, borderWidth: 0, shadowColor: buyTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
             isChartTradeActionVisuallyLocked('buy') && { opacity: 0.5 },
           ]}
           disabled={chartTradeActionDisabled}

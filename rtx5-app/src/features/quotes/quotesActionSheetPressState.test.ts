@@ -6,14 +6,19 @@ import test from 'node:test';
 const readQuotesSource = () =>
   readFileSync(resolve(process.cwd(), 'src/features/quotes/QuotesScreen.tsx'), 'utf8');
 
-test('quote symbol action sheets open immediately without leaving the tapped symbol visually held', () => {
+test('quote symbol action sheets open on confirmed taps without leaving the tapped symbol visually held', () => {
   const source = readQuotesSource();
+  const quoteCardSource = source.slice(
+    source.indexOf('const QuoteCard = React.memo'),
+    source.indexOf('function EditQuoteRow'),
+  );
 
   assert.match(source, /import \{ runImmediateAction \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(source, /suppressPressFeedback = false/);
   assert.match(source, /suppressPressFeedback\?: boolean;/);
   assert.match(source, /pressed && !suppressPressFeedback && sc\.cardPressed/);
-  assert.match(source, /activateOnPressIn=\{Boolean\(onPress\)\}/);
+  assert.doesNotMatch(quoteCardSource, /activateOnPressIn/);
+  assert.doesNotMatch(quoteCardSource, /activateOnTouchStart/);
   assert.match(
     source,
     /<QuoteCard[\s\S]*onPress=\{\(\) => handleSymbolTap\(sym\)\}[\s\S]*suppressPressFeedback[\s\S]*onLongPress=/,

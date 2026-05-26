@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Animated, Platform, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Animated, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -200,8 +200,8 @@ export function OrderTicketScreen() {
   const modalOpacityAnim = useRef(new Animated.Value(0)).current;
   const autoDismissTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Show feedback with a short animation. Successful orders also vibrate and
-  // auto-dismiss after a few seconds.
+  // Show feedback with a short animation. Successful orders auto-dismiss after
+  // a few seconds without device vibration so execution stays calm and smooth.
   const showModal = useCallback((state: typeof modalState) => {
     setModalState(state);
     modalScaleAnim.setValue(0.85);
@@ -212,7 +212,6 @@ export function OrderTicketScreen() {
     ]).start();
 
     if (state.type === 'success') {
-      Vibration.vibrate([0, 40, 60, 40]);
       autoDismissTimer.current = setTimeout(() => handleModalClose(), 4000);
     }
   }, []);

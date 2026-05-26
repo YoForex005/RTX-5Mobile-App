@@ -253,6 +253,7 @@ export const FastPressable = memo(function FastPressable({
     <Pressable
       {...props}
       disabled={disabled}
+      android_disableSound={props.android_disableSound ?? true}
       style={style}
       onStartShouldSetResponder={onStartShouldSetResponder ? handleStartShouldSetResponder : undefined}
       onResponderGrant={onResponderGrant ? handleResponderGrant : undefined}

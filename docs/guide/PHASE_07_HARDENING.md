@@ -31,17 +31,29 @@ Harden RTX5 for secure, observable, and stable beta operation.
 - [ ] Security checklist in `SECURITY.md` passes.
 - [ ] Observability events are visible in staging tools.
 - [ ] Critical journeys meet performance thresholds.
+- [x] Login submit starts auth from touch-start without an extra frontend frame wait.
+- [x] Scrollable Quotes and Settings rows open actions only on confirmed taps, not during vertical scroll gestures.
+- [x] Chart Buy/Sell success handling keeps heavy position refresh/cache invalidation work out of the immediate placement paint.
+- [x] Chart Buy/Sell footer controls do not remain disabled for network-pending order mutations.
 - [ ] No open P0/P1 issues remain.
 
 ## Test Checklist
 - [ ] Unit: redaction and kill-switch guards.
 - [ ] Integration: app lock lifecycle.
 - [ ] E2E: degraded network and reconnect scenarios.
+- [x] Unit/typecheck: login submit touch-start snapshots ref-backed fields, starts auth before deferred keyboard dismiss work, and keeps successful session state atomic before navigation.
+- [x] Unit/device: Quotes symbol sheets and Settings navigation rows stay release-confirmed in scroll containers; ADB screenshots captured before/after scroll checks.
+- [x] Unit/typecheck/device: Chart Buy/Sell post-success refresh work is deferred after the optimistic position insert so the placement moment stays smooth against the MT5 reference.
+- [x] Unit/typecheck/device: Chart Buy/Sell taps use a short local tap guard only; ADB screenrecord/gfxinfo captures verify the footer is enabled and non-busy after safe Sell/Buy tap loops.
 
 ## Exit Criteria
 - Release readiness sign-off from security, QA, and mobile leads.
 
 ## Progress Notes
+- 2026-05-26: Rechecked MT5 Buy/Sell footer behavior with ADB screenshot observation, then tightened RTX5 chart trade success smoothness. The order success path now inserts the optimistic position first and defers position refresh plus query invalidations by 250ms, so the chart can paint the placed-trade result before heavier background sync work starts.
+- 2026-05-26: Removed the chart footer's network-pending Buy/Sell lock. The shared chart trade handler now blocks only the short local tap-guard window, releases the pressed-side visual without waiting for the backend mutation, and keeps Sell/Buy plus the footer lot controls enabled while the order response/background refresh finishes. Verified on device with `oneClickAccepted: false` safe tap captures in `artifacts/trade_speed_20260526/`.
+- 2026-05-26: Fixed scroll gestures opening row actions on Quotes and Settings. Quote symbol cards, Settings rows, and the scrollable account/new-account cards no longer use press-in/touch-start activation, so vertical swipes can scroll without opening the symbol action sheet or navigating to a settings option; header and toolbar actions keep their immediate fast path. Verified with focused source contracts plus ADB screenshots in `artifacts/scroll_dropdown_20260526/`.
+- 2026-05-26: Removed the extra animation-frame wait from the login submit path and moved the LOGIN button to the touch-start fast path. The flow snapshots the ref-backed Broker/Login/Password fields immediately, starts auth before deferred keyboard dismissal, performs one atomic session/account-type store update before navigation, and skips the success-side loading reset rerender. Direct auth endpoint probes returned 200 in 894ms, 537ms, and 523ms, so sub-100ms full login still depends on backend/network latency rather than frontend tap handling.
 - 2026-05-26: Rechecked MT5 and RTX5 bottom menubar behavior with repeated ADB screenshot/video probes plus clean `gfxinfo` tap loops. RTX5 now enables native screen freezing, detaches inactive tab views, unmounts the closed sidebar drawer, keeps bottom-tab active feedback instant on touch-start while preserving React Navigation as the single route switch path, and defers Chart WebView/focus work so rapid menubar sweeps do not wait on chart boot. Final clean RTX5 run (`artifacts/bottom-menubar-rtx5/rtx5-final-surface-delay-clean-gfx-20260526-123105`) measured 2001 frames, 14.44% jank, p50 10ms, p90 18ms, p95 22ms, p99 38ms versus MT5 clean reference p50 8ms, p90 25ms, p95 32ms, p99 109ms.
 - 2026-05-26: Audited the shared ActionSheet/dropdown contract after feedback that Chart and Bulk flows must open exactly like the Quotes symbol tap sheet. The app now has a source-level guard covering 15 direct `ActionSheet` mounts and 14 global `showActionSheet` opener calls; direct sheet mounts must declare or forward `detent` plus `instantOpen`, the global store forces instant open, and high-traffic Quotes, Chart, Bulk Trade, History, News, Accounts, and Broker selector sheets use the immediate action path.
 - 2026-05-21: Rechecked the sidebar open and menu-option navigation path after device feedback that first taps were slow or missed. The shared app header and native chart header hamburger targets now sit outside the Android edge-gesture strip, sidebar route dispatch closes the drawer and navigates immediately while warming the selected route, and the duplicate-navigation lock now matches the fast-press guard window. Verified with the focused interaction gate.

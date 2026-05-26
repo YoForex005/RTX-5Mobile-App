@@ -56,7 +56,6 @@ const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
-  const setIsDemoAccount = useUserPreferences((s) => s.setIsDemoAccount);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -278,9 +277,9 @@ export default function RegisterScreen() {
           refresh_token: sessionRefreshToken,
           expires_at: sessionExpiresAt,
         },
-        canonicalBrokerId
+        canonicalBrokerId,
+        { isDemoAccount: true },
       );
-      setIsDemoAccount(true);
 
       // Persist the new demo account in the directory + secure-store the
       // master password so the user can switch back to it from the Accounts

@@ -274,7 +274,6 @@ const QuoteCard = React.memo(function QuoteCard({
           pressed && !suppressPressFeedback && sc.cardPressed,
         ]}
         unstable_pressDelay={0}
-        activateOnPressIn={Boolean(onPress)}
         onPressIn={onPressIn}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -402,7 +401,6 @@ const QuoteCard = React.memo(function QuoteCard({
         pressed && !suppressPressFeedback && sc.cardPressed,
       ]}
       unstable_pressDelay={0}
-      activateOnPressIn={Boolean(onPress)}
       onPressIn={onPressIn}
       onPress={onPress}
       onLongPress={onLongPress}
