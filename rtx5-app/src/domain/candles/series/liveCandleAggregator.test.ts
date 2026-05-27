@@ -269,6 +269,38 @@ test('first snapshot for a bucket writes broker OHLC unchanged', () => {
   assert.equal(result.candle!.close, 1.0807);
 });
 
+test('identical backend snapshot records backend confirmation metadata', () => {
+  const candleMap = buildEmptyMap();
+  applyQuoteTickExtensionToCandleMap(
+    candleMap,
+    { price: 1.0812, time: BUCKET + 5 },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60, latestHistoryCandle: null },
+  );
+
+  const result = applyLiveCandleToCandleMap(
+    candleMap,
+    {
+      time: BUCKET + 8,
+      open: 1.0812,
+      high: 1.0812,
+      low: 1.0812,
+      close: 1.0812,
+      volume: 0,
+      closed: false,
+    },
+    TIMEFRAME,
+    { historyCutoffTime: BUCKET - 60 },
+  );
+  const stored = candleMap.get(BUCKET);
+
+  assert.equal(result.ignored, false);
+  assert.equal(result.changed, true, 'metadata-only backend confirmation must publish');
+  assert.equal(stored?.source, 'live_candle');
+  assert.equal(stored?.lastQuoteTime, BUCKET + 5);
+  assert.equal(stored?.lastBackendUpdateTime, BUCKET + 8);
+});
+
 test('opens tick-only bucket when REST seed for the same bucket is stale', () => {
   // REST returned a current candle for this bucket but the broker's price
   // jumped (news event, weekend reopen) so the tick is far outside REST's

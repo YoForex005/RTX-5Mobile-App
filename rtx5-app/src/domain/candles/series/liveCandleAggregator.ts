@@ -140,11 +140,30 @@ export const applyLiveCandleToCandleMap = (
     return { candle: toPublicCandle(existing), changed: false, ignored: true, reason: 'closed_live_candle' };
   }
 
+  const eventTime = normalizeTimestampToSeconds(liveCandle.time) ?? incoming.time;
   if (existing && areCandleValuesEqual(toPublicCandle(existing), incoming)) {
-    return { candle: toPublicCandle(existing), changed: false, ignored: false };
+    const next: MutableCandle = {
+      ...existing,
+      source: 'live_candle',
+      closed: liveCandle.closed ?? existing.closed ?? false,
+      firstUpdateTime: existing.firstUpdateTime ?? eventTime,
+      lastUpdateTime: Math.max(existing.lastUpdateTime ?? eventTime, eventTime),
+      lastBackendUpdateTime: Math.max(existing.lastBackendUpdateTime ?? eventTime, eventTime),
+      lastQuoteTime: existing.lastQuoteTime,
+    };
+    candleMap.set(incoming.time, next);
+    return {
+      candle: toPublicCandle(next),
+      changed:
+        existing.source !== next.source ||
+        existing.closed !== next.closed ||
+        existing.firstUpdateTime !== next.firstUpdateTime ||
+        existing.lastUpdateTime !== next.lastUpdateTime ||
+        existing.lastBackendUpdateTime !== next.lastBackendUpdateTime,
+      ignored: false,
+    };
   }
 
-  const eventTime = normalizeTimestampToSeconds(liveCandle.time) ?? incoming.time;
   const lastBackendUpdateTime = getLastBackendUpdateTime(existing);
   const outOfOrderSameBucket =
     existing?.source === 'live_candle' &&

@@ -30,6 +30,19 @@ const putHistoryCandle = (
   });
 };
 
+const getLiveMetadata = (
+  candle: Candle,
+  existing?: MutableCandle,
+): Partial<MutableCandle> => {
+  const runtime = candle as Candle & Partial<MutableCandle>;
+  return {
+    firstUpdateTime: runtime.firstUpdateTime ?? existing?.firstUpdateTime,
+    lastUpdateTime: runtime.lastUpdateTime ?? existing?.lastUpdateTime,
+    lastBackendUpdateTime: runtime.lastBackendUpdateTime ?? existing?.lastBackendUpdateTime,
+    lastQuoteTime: runtime.lastQuoteTime ?? existing?.lastQuoteTime,
+  };
+};
+
 const putLiveCandle = (
   map: Map<number, MutableCandle>,
   candle: Candle,
@@ -49,14 +62,16 @@ const putLiveCandle = (
   }
 
   const existing = map.get(bucketed.time);
+  const metadata = getLiveMetadata(candle, existing);
   if (!existing || !areCandlePricesCoherent(existing, bucketed)) {
-    map.set(bucketed.time, { ...bucketed, source: 'live_candle', closed: false });
+    map.set(bucketed.time, { ...bucketed, ...metadata, source: 'live_candle', closed: false });
     return;
   }
 
   map.set(bucketed.time, {
     ...existing,
     ...bucketed,
+    ...metadata,
     time: bucketed.time,
     high: Math.max(existing.high, bucketed.high, bucketed.open, bucketed.close),
     low: Math.min(existing.low, bucketed.low, bucketed.open, bucketed.close),
@@ -71,7 +86,7 @@ export const buildFreshHistoryLiveCandleSeries = (
   liveCandles: readonly Candle[],
   timeframe: string,
   limit?: number,
-  options: { closedHistoryLastTime?: number | null } = {},
+  options: { closedHistoryLastTime?: number | null; preserveProvenance?: boolean } = {},
 ): Candle[] => {
   const map = new Map<number, MutableCandle>();
 
@@ -83,14 +98,17 @@ export const buildFreshHistoryLiveCandleSeries = (
     putLiveCandle(map, candle, timeframe, options.closedHistoryLastTime);
   }
 
-  return materializeCandleMap(map, limit);
+  return materializeCandleMap(map, limit, { preserveMetadata: options.preserveProvenance === true });
 };
 
 export const materializeLiveCandleMap = (
   liveCandleMap: Map<number, MutableCandle>,
   closedHistoryLastTime: number | null,
+  options: { preserveProvenance?: boolean } = {},
 ): Candle[] => {
-  const liveCandles = materializeCandleMap(liveCandleMap);
+  const liveCandles = materializeCandleMap(liveCandleMap, undefined, {
+    preserveMetadata: options.preserveProvenance === true,
+  });
   if (closedHistoryLastTime === null) {
     return liveCandles;
   }

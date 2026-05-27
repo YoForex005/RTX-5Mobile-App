@@ -1,0 +1,634 @@
+env: load .env
+env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_QUOTES_WS_URL EXPO_PUBLIC_CANDLES_WS_URL EXPO_PUBLIC_ACCOUNT_WS_URL EXPO_PUBLIC_WS_URL
+Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+› Opening http://127.0.0.1:8081/_expo/loading?platform=android on moto_g_9__power
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android .\index.ts ▓░░░░░░░░░░░░░░░  9.0% ( 35/148)
+Android .\index.ts ▓▓▓▓▓▓░░░░░░░░░░ 41.4% (253/393)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 85.3% (504/551)
+Android node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 97.1% (617/631)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% (667/790)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 97.1% (655/676)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% ( 796/1007)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 97.1% (656/676)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% ( 891/1242)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 98.0% (676/683)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% (1050/1428)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 98.0% (676/683)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% (1211/1620)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (683/683)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.3% (1378/1724)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (683/683)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 74.0% (1578/1834)
+Android Bundled 36242ms index.ts (683 modules)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 82.4% (1795/1977)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 85.6% (1990/2247)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 88.5% (2310/2456)
+Android Bundled 39153ms node_modules\expo-router\entry.js (2907 modules)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (2907/2907)
+Android node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 25.0% (245/699)
+Android node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 25.0% (366/853)
+Android node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 28.2% ( 636/1198)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓░░░░░░░░░░░ 35.6% ( 846/1417)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓░░░░░░░░░ 46.2% (1106/1628)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 60.6% (1344/1727)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 66.6% (1444/1770)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 74.7% (1622/1877)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 80.1% (1813/2123)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 81.7% (2162/2447)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 88.7% (2467/2620)
+Android Bundled 42016ms node_modules\expo-router\entry.js (2907 modules)
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ LOG  [API warn] GET /accounts 403 2587ms (apiClient.GET)
+ LOG  [API warn] GET /watchlist 200 2604ms (apiClient.GET)
+ LOG  [API warn] GET /auth/me 200 2603ms (apiClient.GET)
+ LOG  [API warn] GET /instruments 200 2632ms (apiClient.GET)
+ LOG  [API warn] GET /positions 404 2604ms (apiClient.GET)
+ LOG  [API warn] GET /orders 405 2605ms (apiClient.GET)
+ LOG  [API warn] GET /instruments?favorites=true 200 2605ms (apiClient.GET)
+ LOG  [API warn] GET /market/status 200 2606ms (apiClient.GET)
+ WARN  [Bootstrap] /accounts failed {"response": {"data": {"error": "FORBIDDEN", "message": "Admin or manager role required"}, "status": 403}}
+ WARN  [Bootstrap] /positions failed {"response": {"data": {}, "status": 404}}
+ WARN  [Bootstrap] /orders failed {"response": {"data": {}, "status": 405}}
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 5497ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122 200 2365ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1712ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 2774ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 1035ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1403ms (apiClient.GET)
+ LOG  [API warn] GET /broker/servers 200 1869ms (broker.servers)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1114ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 1932ms (apiClient.GET)
+ LOG  [API warn] POST /calculate/margin 404 1522ms (apiClient.POST)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1509ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1766ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1178ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD%2CAUDJPY%2CAUDUSD%2CCADJPY%2CCHFJPY%2CEURAUD%2CEURGBP%2CEURJPY%2CEURNZD%2CEURTRY%2CUSDCZK%2CUSDPLN%2CXAGUSD%2CEURCAD%2CEURCHF%2CGBPJPY 200 1902ms (apiClient.GET)
+ WARN  [Tabs] chart first frame took 1228ms; sync navigation 5ms; budget is 20ms.
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /alerts 200 1163ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /account/200122 200 1242ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 5579ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 6, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [CANDLE-STREAM] history_request {"requestId": 2, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778563500}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778563500, "historyCandles": 2996, "replayedLiveEvents": 0, "requestId": 2, "seededCurrentCandleTime": 1778563500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /alerts 200 1137ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 1043ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 3, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778533560}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778533560, "historyCandles": 3495, "replayedLiveEvents": 0, "requestId": 3, "seededCurrentCandleTime": 1778533560, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /orders/200122?limit=500 200 1458ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Candles WS] connection error
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /account/200122 200 1006ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /account/200122 200 1107ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 5287ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 5, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1183ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [API warn] GET /orders/200122?limit=500 200 1281ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1035ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [CANDLE-STREAM] history_request {"requestId": 2, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778563500}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778563500, "historyCandles": 2996, "replayedLiveEvents": 0, "requestId": 2, "seededCurrentCandleTime": 1778563500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 3, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778533560}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778533560, "historyCandles": 3495, "replayedLiveEvents": 0, "requestId": 3, "seededCurrentCandleTime": 1778533560, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1724ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1472ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1451ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1250ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1195ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1260ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1398ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1205ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 1232ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1099ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1600ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ WARN  [Candles WS] connection error
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [CANDLE-STREAM] history_request {"requestId": 4, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778503620}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778503620, "historyCandles": 3994, "replayedLiveEvents": 0, "requestId": 4, "seededCurrentCandleTime": 1778503620, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 5, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778473680}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2104ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778473680, "historyCandles": 4493, "replayedLiveEvents": 0, "requestId": 5, "seededCurrentCandleTime": 1778473680, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1032ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1544ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1399ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /alerts 200 1507ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ LOG  [CANDLE-STREAM] history_request {"requestId": 6, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778443560}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778443560, "historyCandles": 4992, "replayedLiveEvents": 0, "requestId": 6, "seededCurrentCandleTime": 1778443560, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [Candles WS] connection error
+ LOG  [API warn] GET /orders/200122?limit=500 200 2646ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2379ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1026ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /orders/200122?limit=500 200 1920ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 2621ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2150ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 2320ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /account/200122 200 2094ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [CANDLE-STREAM] history_request {"requestId": 7, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778413620}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778413620, "historyCandles": 5491, "replayedLiveEvents": 0, "requestId": 7, "seededCurrentCandleTime": 1778413620, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 8, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778383680}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2954ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778383680, "historyCandles": 5990, "replayedLiveEvents": 0, "requestId": 8, "seededCurrentCandleTime": 1778383680, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2931ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 2305ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2177ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2049ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 2549ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [CANDLE-STREAM] history_request {"requestId": 9, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778353680}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778353680, "historyCandles": 6489, "replayedLiveEvents": 0, "requestId": 9, "seededCurrentCandleTime": 1778353680, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 10, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778323740}
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778323740, "historyCandles": 6988, "replayedLiveEvents": 0, "requestId": 10, "seededCurrentCandleTime": 1778323740, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3589ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 11, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778293800}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778293800, "historyCandles": 7487, "replayedLiveEvents": 0, "requestId": 11, "seededCurrentCandleTime": 1778293800, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 12, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778258940}
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3843ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778258940, "historyCandles": 7986, "replayedLiveEvents": 0, "requestId": 12, "seededCurrentCandleTime": 1778258940, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3779ms (apiClient.GET)
+ WARN  [Action] fastPress first frame took 309ms; budget is 20ms.
+ WARN  [Action] fastPress first frame took 299ms; budget is 20ms.
+ WARN  [Action] fastPress first frame took 297ms; budget is 20ms.
+ LOG  [API warn] GET /alerts 200 1215ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1210ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1080ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1048ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3122ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 2991ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 13, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778210220}
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778210220, "historyCandles": 8485, "replayedLiveEvents": 0, "requestId": 13, "seededCurrentCandleTime": 1778210220, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 14, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778163480}
+ WARN  [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3731ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778163480, "historyCandles": 8984, "replayedLiveEvents": 0, "requestId": 14, "seededCurrentCandleTime": 1778163480, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3483ms (apiClient.GET)
+ WARN  [API slow] GET /orders/200122?limit=500 200 3089ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1140ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 15, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778117520}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778117520, "historyCandles": 9483, "replayedLiveEvents": 0, "requestId": 15, "seededCurrentCandleTime": 1778117520, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 16, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778061660}
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=500&from=1777881660&to=1778061660 200 3672ms (apiClient.GET)
+ WARN  [API slow] GET /orders/200122?limit=500 200 3533ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778061660, "historyCandles": 9982, "replayedLiveEvents": 0, "requestId": 16, "seededCurrentCandleTime": 1778061660, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 17, "symbol": "BTCUSD", "timeframe": "M1", "to": 1778026740}
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 4505ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 4421ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=500&from=1777846740&to=1778026740 200 3755ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778026740, "historyCandles": 10479, "replayedLiveEvents": 0, "requestId": 17, "seededCurrentCandleTime": 1778026740, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 4787ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3570ms (apiClient.GET)
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3378ms (apiClient.GET)
+ WARN  [API slow] GET /orders/200122?limit=500 200 3865ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1194ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3637ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ WARN  [API slow] GET /alerts 200 4463ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122/history?limit=1000&offset=0 200 4076ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2959ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 2856ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2845ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2544ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /alerts 200 3110ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122/history?limit=1000&offset=0 200 3054ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3124ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /account/200122 200 3548ms (apiClient.GET)
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3095ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [API slow] GET /orders/200122?limit=500 200 3047ms (apiClient.GET)
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3449ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2977ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ WARN  [API slow] GET /quotes?symbols=BTCUSD 200 3000ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /positions/200122?limit=50&offset=0 200 3286ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2865ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2722ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 2994ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [API slow] GET /orders/200122?limit=500 200 3022ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2350ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /account/200122 200 3076ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2864ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2879ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2962ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 2880ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 2896ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2509ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2685ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2515ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [API warn] GET /orders/200122?limit=500 200 2653ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2894ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2860ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2346ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2605ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 2536ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 2424ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1684ms (apiClient.GET)
+ WARN  [CHART WEBVIEW ERROR] updateChartData: series not initialized
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1049ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4823ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 4, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ WARN  [Quotes WS] Silent TCP drop detected (41s). Healing invisibly...
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2237ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /account/200122 200 1191ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1194ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 1198ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1043ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1202ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [API warn] GET /account/200122 200 1177ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1061ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /orders/200122?limit=500 200 1183ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1203ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1168ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1186ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /alerts 200 1380ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1387ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1387ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /instruments/BTCUSD 404 1575ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1576ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 1812ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1785ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 1786ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1801ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ LOG  [API warn] GET /account/200122 200 1949ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 5409ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 4, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1547ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1022ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1636ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4477ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 4, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1981ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1187ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1228ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 2658ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1712ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 ERR 3207ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1947ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122/history?limit=1000&offset=0 200 1946ms (apiClient.GET)
+ LOG  [API warn] GET /alerts 200 1947ms (apiClient.GET)
+ LOG  [API warn] GET /account/200122 200 1948ms (apiClient.GET)
+ LOG  [API warn] GET /instruments/BTCUSD 404 1443ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4517ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 5, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1418ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4158ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 5, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [CANDLE-STREAM] history_request {"requestId": 1, "symbol": "BTCUSD", "timeframe": "M1", "to": undefined}
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 1464ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4906ms (apiClient.GET)
+ LOG  [CANDLE-STREAM] history_success {"currentCandleTime": 1778713500, "historyCandles": 2497, "replayedLiveEvents": 6, "requestId": 1, "seededCurrentCandleTime": 1778713500, "symbol": "BTCUSD", "timeframe": "M1", "trustedHistoryLastTime": 1778713440}
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1051ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1193ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1160ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1105ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Candles WS] connection error
+ WARN  [Candles WS] connection error
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1140ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1041ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200122?limit=50&offset=0 200 1157ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200122?limit=500 200 1191ms (apiClient.GET)
+ WARN  [Quotes WS] Silent TCP drop detected (40s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /orders/200122?limit=500 200 1031ms (apiClient.GET)
+ WARN  [Candles WS] connection error

@@ -35,7 +35,11 @@ export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
 export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 8;
 export const CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING = 3;
 export const CHART_TIME_SCALE_FIX_LEFT_EDGE = false;
-export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = true;
+// Keep the library clamp disabled: LightweightCharts clamps positive
+// rightOffset back to the last bar when fixRightEdge is true. The native
+// WebView enforces the live-edge bound itself at latest + rightOffset so the
+// live candle gets the MT-style gap without allowing unlimited future scroll.
+export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = false;
 // LightweightCharts v5 LineStyle enum:
 //   0 = Solid     []
 //   1 = Dotted    [1, 1]

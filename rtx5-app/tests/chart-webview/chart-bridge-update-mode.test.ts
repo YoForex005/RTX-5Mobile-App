@@ -238,6 +238,21 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
+    /PRICE_SCALE_ROBUST_MARKET_CLUSTER_MIN_BARS = 1[\s\S]*PRICE_SCALE_ROBUST_MARKET_CLUSTER_RELATIVE_TOLERANCE = 0\.006[\s\S]*PRICE_SCALE_ROBUST_MARKET_CLUSTER_SPAN_MULTIPLE = 3/,
+    'right-edge live scroll recovery must be able to prefer the visible candle cluster anchored around the current bid or ask',
+  );
+  assertSourceContains(
+    source,
+    /function resolveMarketAnchoredVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*getMarketPriceBadgeValues\(\)[\s\S]*Math\.abs\(center - marketPrice\) <= tolerance[\s\S]*rawSpan > marketSpan \* PRICE_SCALE_ROBUST_MARKET_CLUSTER_SPAN_MULTIPLE/,
+    'right-edge live scroll recovery must ignore detached far-price history when visible candles exist around the live market price',
+  );
+  assertSourceContains(
+    source,
+    /function resolveRobustVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*var marketAnchoredRange = resolveMarketAnchoredVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*if \(marketAnchoredRange\) \{[\s\S]*return marketAnchoredRange/,
+    'visible price-range recovery must try the live-market anchored cluster before falling back to majority clustering',
+  );
+  assertSourceContains(
+    source,
     /function resolveTrimmedPriceRangeFromBars\(bars\)[\s\S]*PRICE_SCALE_ROBUST_TRIM_RATIO[\s\S]*makePaddedPriceRange\(minPrice, maxPrice\)/,
     'visible price-range recovery must trim isolated high/low outlier values before autoscale recovery',
   );

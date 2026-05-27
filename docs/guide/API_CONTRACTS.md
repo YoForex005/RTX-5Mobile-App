@@ -218,6 +218,7 @@ export type OrrnnDemoAccount = {
 
 ## Temporary Chart History Integration Note
 - Chart history is currently hydrated from `GET /api/v2/candles/{symbol}?timeframe={tf}&limit=2500`, matching the frontend chart's rolling 2500-candle buffer so M1 history includes previous-date candles when the backend provides them.
+- Chart history pagination uses Unix timestamp seconds for `from` and `to`, matching the candle `time` values returned by the backend. The frontend must not send millisecond bounds, because that asks the backend for a far-future window and returns no older history during left-scroll.
 - If no authenticated session exists, or the authenticated candle request fails, the chart falls back to the public backend candle contract (`GET /api/v1/candles/{symbol}` or `GET /api/v1/candles?symbol={symbol}`) so market candles remain available before login without fabricating data.
 - Candle history requests use the selected backend timeframe token only. Timeframe aggregation, session calendars, and historical gap policy belong to the backend, not to frontend fallback aliases.
 - Returned candle arrays are normalized client-side only for rendering safety: invalid OHLC rows are rejected, valid rows are sorted ascending, duplicate backend timestamps are merged into one candle, and OHLC bounds must already satisfy `high >= max(open, close)` and `low <= min(open, close)`. Backend candle timestamps are preserved; the frontend does not rebucket REST history by timeframe.

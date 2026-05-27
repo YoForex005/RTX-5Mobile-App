@@ -61,6 +61,21 @@ export const getStoreCache = (symbol: string, timeframe: string): Candle[] => {
 export const getEventTime = (event: BufferedLiveEvent): number =>
   event.type === 'live_candle' ? event.candle.time : event.time;
 
+const getSeriesMetadata = (candle: Candle): Partial<CandleParams> => candle as Partial<CandleParams>;
+
+const isSameCandleMetadata = (left: Candle, right: Candle): boolean => {
+  const a = getSeriesMetadata(left);
+  const b = getSeriesMetadata(right);
+  return (
+    a.source === b.source &&
+    a.closed === b.closed &&
+    a.firstUpdateTime === b.firstUpdateTime &&
+    a.lastUpdateTime === b.lastUpdateTime &&
+    a.lastBackendUpdateTime === b.lastBackendUpdateTime &&
+    a.lastQuoteTime === b.lastQuoteTime
+  );
+};
+
 /**
  * Highly optimized deep equality check for two arrays of candles.
  * Used to skip unnecessary React state updates and re-renders if a tick didn't
@@ -78,7 +93,8 @@ export const isSameSeries = (left: readonly Candle[], right: readonly Candle[]):
       a.high !== b.high ||
       a.low !== b.low ||
       a.close !== b.close ||
-      (a.volume ?? 0) !== (b.volume ?? 0)
+      (a.volume ?? 0) !== (b.volume ?? 0) ||
+      !isSameCandleMetadata(a, b)
     ) {
       return false;
     }

@@ -1,0 +1,10 @@
+video=artifacts\mt5_grid_motion_recheck.mp4
+fps=33.12
+frames_processed=929
+x_spacing_median_min_max=(56.0, 33.5, 56.0)
+y_spacing_median_min_max=(149.995, 149.90500000000003, 150.0)
+grid_dx_active_count=206
+grid_dx_abs_p50_p90_max_px_frame=(14.0, 17.0, 24)
+grid_speed_abs_p50_p90_max_px_s=(463.67999999999995, 563.04, 794.8799999999999)
+horizontal_grid_dy_active_count=0
+horizontal_grid_dy_abs_p50_p90_max_px_frame=(None, None, None)

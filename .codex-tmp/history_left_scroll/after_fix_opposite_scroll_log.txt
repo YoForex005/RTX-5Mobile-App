@@ -1,0 +1,9 @@
+05-27 16:24:21.581 I/ReactNativeJS(16544): [API warn] GET /positions/200122?limit=50&offset=0 200 1580ms (apiClient.GET)
+05-27 16:24:27.216 I/ReactNativeJS(16544): [API warn] GET /quotes?symbols=BTCUSD 200 1379ms (apiClient.GET)
+05-27 16:24:30.299 I/ReactNativeJS(16544): [API warn] GET /positions/200122?limit=50&offset=0 200 1504ms (apiClient.GET)
+05-27 16:24:32.234 I/ReactNativeJS(16544): [API warn] GET /quotes?symbols=BTCUSD 200 1318ms (apiClient.GET)
+05-27 16:24:35.218 I/ReactNativeJS(16544): [API warn] GET /orders/200122?limit=500 200 1739ms (apiClient.GET)
+05-27 16:24:35.309 I/ReactNativeJS(16544): [API warn] GET /quotes?symbols=BTCUSD 200 1356ms (apiClient.GET)
+05-27 16:24:38.562 I/ReactNativeJS(16544): [API warn] GET /account/200122 200 1541ms (apiClient.GET)
+05-27 16:24:39.236 I/ReactNativeJS(16544): '[ClosedHistory] Response json:', '[]'
+05-27 16:24:39.237 I/ReactNativeJS(16544): '[ClosedHistory] Parsed rows length:', 0

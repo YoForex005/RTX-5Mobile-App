@@ -118,6 +118,7 @@ export const CH_HTML = `
       var activeHorizontalScrollGesture = false;
       var activeHorizontalScrollGestureUntil = 0;
       var visibleRangeIdleTimer = null;
+      var liveRightEdgeClampActive = false;
       var movingVerticalGridRaf = 0;
       var movingVerticalGridColor = 'transparent';
       var movingVerticalGridVisible = false;
@@ -153,6 +154,9 @@ export const CH_HTML = `
       var PRICE_SCALE_ROBUST_CLUSTER_KEEP_RATIO = 0.55;
       var PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE = 0.006;
       var PRICE_SCALE_ROBUST_CLUSTER_SPAN_MULTIPLE = 5;
+      var PRICE_SCALE_ROBUST_MARKET_CLUSTER_MIN_BARS = 1;
+      var PRICE_SCALE_ROBUST_MARKET_CLUSTER_RELATIVE_TOLERANCE = 0.006;
+      var PRICE_SCALE_ROBUST_MARKET_CLUSTER_SPAN_MULTIPLE = 3;
       var PRICE_SCALE_ROBUST_TRIM_MIN_VALUES = 12;
       var PRICE_SCALE_ROBUST_TRIM_RATIO = 0.08;
       var PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE = 5;
@@ -794,11 +798,63 @@ export const CH_HTML = `
         return true;
       }
 
+      function resolveMarketAnchoredVisiblePriceRange(visibleBars, rawRange) {
+        if (!visibleBars || visibleBars.length === 0 || !isValidPriceRange(rawRange)) {
+          return null;
+        }
+        var rawSpan = getPriceRangeSpan(rawRange);
+        if (!(rawSpan > 0)) {
+          return null;
+        }
+        var marketPrices = getMarketPriceBadgeValues();
+        if (marketPrices.length === 0) {
+          return null;
+        }
+
+        var bestBars = [];
+        for (var marketIndex = 0; marketIndex < marketPrices.length; marketIndex += 1) {
+          var marketPrice = marketPrices[marketIndex];
+          var tolerance = Math.max(
+            Math.abs(marketPrice) * PRICE_SCALE_ROBUST_MARKET_CLUSTER_RELATIVE_TOLERANCE,
+            1e-9
+          );
+          var candidateBars = [];
+          for (var barIndex = 0; barIndex < visibleBars.length; barIndex += 1) {
+            var bar = visibleBars[barIndex];
+            var center = getBarPriceCenter(bar);
+            if (isFinite(center) && Math.abs(center - marketPrice) <= tolerance) {
+              candidateBars.push(bar);
+            }
+          }
+          if (candidateBars.length > bestBars.length) {
+            bestBars = candidateBars;
+          }
+        }
+
+        if (bestBars.length < PRICE_SCALE_ROBUST_MARKET_CLUSTER_MIN_BARS) {
+          return null;
+        }
+
+        var marketRange = resolvePriceRangeFromBars(bestBars);
+        if (!isValidPriceRange(marketRange)) {
+          return null;
+        }
+        var marketSpan = getPriceRangeSpan(marketRange);
+        return rawSpan > marketSpan * PRICE_SCALE_ROBUST_MARKET_CLUSTER_SPAN_MULTIPLE
+          ? marketRange
+          : null;
+      }
+
       function resolveRobustVisiblePriceRange(visibleBars, rawRange) {
         if (!visibleBars || visibleBars.length === 0 || !isValidPriceRange(rawRange)) {
           return rawRange;
         }
         var rawSpan = getPriceRangeSpan(rawRange);
+
+        var marketAnchoredRange = resolveMarketAnchoredVisiblePriceRange(visibleBars, rawRange);
+        if (marketAnchoredRange) {
+          return marketAnchoredRange;
+        }
 
         var trimmedRange = resolveTrimmedPriceRangeFromBars(visibleBars);
         var trimmedSpan = getPriceRangeSpan(trimmedRange);
@@ -2179,6 +2235,52 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
+      function getBoundedLiveRightEdge(lengthOverride) {
+        var dataLength =
+          (typeof lengthOverride === 'number' && isFinite(lengthOverride) && lengthOverride > 0)
+            ? Math.round(lengthOverride)
+            : currentSeriesLength;
+        if (!(dataLength > 0)) return null;
+        return Math.max(0.5, dataLength - 0.5) + ${CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET};
+      }
+
+      function clampVisibleLogicalRangeToLiveEdge(range) {
+        try {
+          if (liveRightEdgeClampActive) return false;
+          if (!chart || !chart.timeScale || typeof chart.timeScale().setVisibleLogicalRange !== 'function') return false;
+          if (
+            !range ||
+            typeof range.from !== 'number' ||
+            typeof range.to !== 'number' ||
+            !isFinite(range.from) ||
+            !isFinite(range.to)
+          ) {
+            return false;
+          }
+          var maxRight = getBoundedLiveRightEdge();
+          if (maxRight === null || range.to <= maxRight + 0.001) {
+            return false;
+          }
+          var span = Math.max(1, range.to - range.from);
+          var nextFrom = maxRight - span;
+          if (!isFinite(nextFrom)) {
+            return false;
+          }
+          liveRightEdgeClampActive = true;
+          chart.timeScale().setVisibleLogicalRange({
+            from: nextFrom,
+            to: maxRight,
+          });
+          setTimeout(function() {
+            liveRightEdgeClampActive = false;
+          }, 0);
+          return true;
+        } catch (_e) {
+          liveRightEdgeClampActive = false;
+          return false;
+        }
+      }
+
       function applyRecentViewport(lengthOverride) {
         try {
           if (!chart || !chart.timeScale) return;
@@ -2190,16 +2292,17 @@ export const CH_HTML = `
           resetTimeScaleDefaults(dataLength);
           if (typeof chart.timeScale().setVisibleLogicalRange === 'function') {
             var visibleBars = getRecentVisibleBars(dataLength);
-            var lastVisibleBar = Math.max(0.5, dataLength - 0.5);
+            var lastVisibleBar = getBoundedLiveRightEdge(dataLength);
+            if (lastVisibleBar === null) return;
             chart.timeScale().setVisibleLogicalRange({
-              from: Math.max(-0.5, dataLength - visibleBars - 0.5),
+              from: Math.max(-0.5, lastVisibleBar - visibleBars),
               to: lastVisibleBar,
             });
           } else {
             chart.timeScale().fitContent();
-          }
-          if (typeof chart.timeScale().scrollToRealTime === 'function') {
-            chart.timeScale().scrollToRealTime();
+            if (typeof chart.timeScale().scrollToRealTime === 'function') {
+              chart.timeScale().scrollToRealTime();
+            }
           }
           // Respect a user-driven vertical pan: if manualPriceScaleRangeActive
           // is set, this call leaves the manual range in place. A pinch or
@@ -2333,6 +2436,7 @@ export const CH_HTML = `
 
       window.__rtx5ApplyRecentViewport = applyRecentViewport;
       window.__rtx5ResetTimeScale = resetTimeScaleDefaults;
+      window.__rtx5ClampLiveRightEdge = clampVisibleLogicalRangeToLiveEdge;
       window.__rtx5ResetPriceScale = function() {
         scheduleOverlayPriceScaleLock(true);
       };
@@ -2651,6 +2755,9 @@ export const CH_HTML = `
           ) {
             var lastPaginateTime = 0;
             chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
+              if (clampVisibleLogicalRangeToLiveEdge(range)) {
+                return;
+              }
               scheduleMovingVerticalGridUpdate();
               scheduleActiveScrollPriceScaleRecovery('visible_range_active');
               scheduleVisibleRangeIdleWork();
@@ -3089,6 +3196,7 @@ export const CH_HTML = `
       var RAW_SERIES_INTERNAL_RANGE_MULTIPLE = 10;
       var RAW_SERIES_INTERNAL_RELATIVE_TOLERANCE = 0.2;
       var RAW_SERIES_CONTIGUOUS_TIME_TOLERANCE_MULTIPLE = 1.5;
+      var RAW_SERIES_MAX_ISOLATED_OUTLIER_RUN = 5;
 
       function getRawSeriesBounds(item) {
         return {
@@ -3212,46 +3320,46 @@ export const CH_HTML = `
         }
 
         var expectedSeconds = inferRawSeriesExpectedSeconds(data);
-        var segments = [];
-        var currentSegment = [];
-        for (var i = 0; i < data.length; i++) {
-          var datum = data[i];
-          var previous = currentSegment[currentSegment.length - 1];
+        var filtered = [data[0]];
+        var index = 1;
+        while (index < data.length) {
+          var previous = filtered[filtered.length - 1];
+          var datum = data[index];
           if (
             previous &&
             isRawSeriesContiguousPair(previous, datum, expectedSeconds) &&
             !areRawSeriesDataRegimesCoherent(previous, datum)
           ) {
-            segments.push(currentSegment);
-            currentSegment = [datum];
-          } else {
-            currentSegment.push(datum);
+            var maxAnchorIndex = Math.min(data.length - 1, index + RAW_SERIES_MAX_ISOLATED_OUTLIER_RUN);
+            var contiguousRun = true;
+            var foundAnchor = false;
+            for (var anchorIndex = index + 1; anchorIndex <= maxAnchorIndex; anchorIndex++) {
+              var prior = data[anchorIndex - 1];
+              var candidateAnchor = data[anchorIndex];
+              contiguousRun =
+                contiguousRun &&
+                isRawSeriesContiguousPair(prior, candidateAnchor, expectedSeconds);
+              if (!contiguousRun) {
+                break;
+              }
+
+              if (areRawSeriesDataRegimesCoherent(previous, candidateAnchor)) {
+                filtered.push(candidateAnchor);
+                index = anchorIndex + 1;
+                foundAnchor = true;
+                break;
+              }
+            }
+            if (foundAnchor) {
+              continue;
+            }
           }
-        }
-        if (currentSegment.length > 0) {
-          segments.push(currentSegment);
-        }
-        if (segments.length <= 1) {
-          return data.slice();
+
+          filtered.push(datum);
+          index++;
         }
 
-        var keptSegments = [segments[segments.length - 1]];
-        for (var segmentIndex = segments.length - 2; segmentIndex >= 0; segmentIndex--) {
-          var candidate = segments[segmentIndex];
-          var candidateTail = candidate[candidate.length - 1];
-          var keptHead = keptSegments[0][0];
-          if (candidateTail && keptHead && areRawSeriesDataRegimesCoherent(candidateTail, keptHead)) {
-            keptSegments.unshift(candidate);
-          }
-        }
-
-        var out = [];
-        for (var keptIndex = 0; keptIndex < keptSegments.length; keptIndex++) {
-          for (var itemIndex = 0; itemIndex < keptSegments[keptIndex].length; itemIndex++) {
-            out.push(keptSegments[keptIndex][itemIndex]);
-          }
-        }
-        return out;
+        return filtered;
       }
 
       function normalizeRawSeriesDatum(item) {

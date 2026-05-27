@@ -1,0 +1,2 @@
+  mCurrentFocus=Window{3d6783a u0 net.metaquotes.metatrader5/net.metaquotes.metatrader5.ui.MainActivity}
+  mFocusedApp=ActivityRecord{fddc7e9 u0 net.metaquotes.metatrader5/.ui.MainActivity t1210}

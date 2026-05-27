@@ -184,7 +184,12 @@ test('webview bridge: watchdog keeps re-sending initChart until CHART_READY', ()
   assertSourceContains(source, /setChartReadyEpoch\(\(c\) => c \+ 1\)/, 'CHART_READY must bump epoch for dependent bridge effects');
 });
 
-test('webview bridge: recent viewport does not reserve a blank future-bar gap', () => {
+test('webview bridge: recent viewport reserves a bounded live-edge gap before the price scale', () => {
+  const recentViewportBody = extractFunctionBody(chartWebViewHtmlSource, 'applyRecentViewport');
+  const logicalRangeBranchEnd = recentViewportBody.indexOf('} else {');
+  const logicalRangeBranch =
+    logicalRangeBranchEnd >= 0 ? recentViewportBody.slice(0, logicalRangeBranchEnd) : recentViewportBody;
+
   assertSourceContains(
     source,
     /rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET/,
@@ -192,8 +197,18 @@ test('webview bridge: recent viewport does not reserve a blank future-bar gap', 
   );
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var lastVisibleBar = Math\.max\(0\.5, dataLength - 0\.5\)[\s\S]*to: lastVisibleBar/,
-    'recent viewport must end at the last candle instead of adding future bars',
+    /function getBoundedLiveRightEdge\(lengthOverride\)[\s\S]*Math\.max\(0\.5, dataLength - 0\.5\) \+ \$\{CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET\}[\s\S]*var lastVisibleBar = getBoundedLiveRightEdge\(dataLength\)[\s\S]*from: Math\.max\(-0\.5, lastVisibleBar - visibleBars\)[\s\S]*to: lastVisibleBar/,
+    'recent viewport must keep a bounded right-offset gap between the latest candle and price scale',
+  );
+  assert.doesNotMatch(
+    logicalRangeBranch,
+    /scrollToRealTime\(\)/,
+    'recent logical viewport must not immediately scroll flush to the newest candle after applying the bounded gap',
+  );
+  assertSourceContains(
+    recentViewportBody,
+    /\} else \{[\s\S]*fitContent\(\)[\s\S]*scrollToRealTime\(\)/,
+    'legacy fallback may still use scrollToRealTime when logical range APIs are unavailable',
   );
 });
 

@@ -280,10 +280,15 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
     /function normalizeRawSeriesDatum\(item\)[\s\S]*isRawSeriesDatumInternallyCoherent\(normalized\) \? normalized : null/,
     'WebView must reject one OHLC candle that mixes incompatible price regimes',
   );
+  assertSourceContains(
+    chartSource,
+    /function filterRawSeriesDataByPriceContinuity\(data\)[\s\S]*var filtered = \[data\[0\]\][\s\S]*areRawSeriesDataRegimesCoherent\(previous, candidateAnchor\)[\s\S]*return filtered/,
+    'WebView must remove only anchored short outlier runs instead of dropping the valid history side of a split',
+  );
   assert.doesNotMatch(
     chartSource,
-    /return filterRawSeriesDataByPriceContinuity\(sorted\)/,
-    'WebView must not trim structurally valid history segments before setData',
+    /trimTrailingFlatRawSeriesOutlier|isRawSeriesFlatLineDatum/,
+    'WebView must not blindly delete flat tail candles without host-side provenance',
   );
 });
 

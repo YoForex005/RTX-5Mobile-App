@@ -1,0 +1,19 @@
+Error: C:\Users\ADMIN\AppData\Local\Android\Sdk/platform-tools/adb start-server exited with non-zero code: 4294967295
+Error: C:\Users\ADMIN\AppData\Local\Android\Sdk/platform-tools/adb start-server exited with non-zero code: 4294967295
+    at ChildProcess.completionListener (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\@expo\spawn-async\src\spawnAsync.ts:67:13)
+    at Object.onceWrapper (node:events:623:26)
+    at ChildProcess.emit (node:events:508:28)
+    at ChildProcess.cp.emit (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\cross-spawn\lib\enoent.js:34:29)
+    at maybeClose (node:internal/child_process:1100:16)
+    at Process.ChildProcess._handle.onexit (node:internal/child_process:305:5)
+    ...
+    at spawnAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\@expo\spawn-async\src\spawnAsync.ts:28:21)
+    at ADBServer.startAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\ADBServer.ts:49:59)
+    at ADBServer.runAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\ADBServer.ts:82:16)
+    at getAttachedDevicesAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\adb.ts:240:36)
+    at startAdbReverseAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\adbReverse.ts:25:48)
+    at AndroidPlatformManager.openAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\platforms\android\AndroidPlatformManager.ts:64:31)
+    at MetroBundlerDevServer.openPlatformAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\server\BundlerDevServer.ts:433:20)
+    at async Promise.allSettled (index 0)
+    at openPlatformsAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\server\openPlatforms.ts:10:19)
+    at startAsync (C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app\node_modules\expo\node_modules\@expo\cli\src\start\startAsync.ts:114:3)

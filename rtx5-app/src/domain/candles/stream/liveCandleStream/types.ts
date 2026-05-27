@@ -12,6 +12,10 @@ export type CandleParams = Candle & {
   ask?: number;
   source?: 'history' | 'live_candle' | 'rest' | 'live';
   closed?: boolean;
+  firstUpdateTime?: number;
+  lastUpdateTime?: number;
+  lastBackendUpdateTime?: number;
+  lastQuoteTime?: number;
   priceBasis?: string;
   serverTimeframe?: string;
 };

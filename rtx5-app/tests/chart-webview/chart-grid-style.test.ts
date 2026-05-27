@@ -228,8 +228,8 @@ test('chart time scale keeps older history open and bounds the live right edge',
   );
   assert.match(
     constantsSource,
-    /export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = true;/,
-    'right chart edge must stop at the newest live-candle area instead of unlimited future scrolling',
+    /export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = false;/,
+    'the library right-edge clamp must stay off so the visible live-candle right-offset gap is not collapsed',
   );
   assert.match(
     nativeChartSource,
@@ -244,6 +244,16 @@ test('chart time scale keeps older history open and bounds the live right edge',
   assert.match(
     chartWebViewHtmlSource,
     /function resetTimeScaleDefaults\(lengthOverride\)[\s\S]*fixLeftEdge: \$\{CHART_TIME_SCALE_FIX_LEFT_EDGE\}[\s\S]*fixRightEdge: \$\{CHART_TIME_SCALE_FIX_RIGHT_EDGE\}/,
-    'WebView reset must preserve open-left and fixed-right scroll bounds',
+    'WebView reset must preserve the shared open-edge time-scale options',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /function clampVisibleLogicalRangeToLiveEdge\(range\)[\s\S]*var maxRight = getBoundedLiveRightEdge\(\)[\s\S]*range\.to <= maxRight \+ 0\.001[\s\S]*setVisibleLogicalRange\(\{[\s\S]*to: maxRight/,
+    'WebView must bound right-side panning at latest candle plus the default right offset',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*if \(clampVisibleLogicalRangeToLiveEdge\(range\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*scheduleMovingVerticalGridUpdate\(\)/,
+    'WebView must clamp extra live-side scroll before doing scroll-path work',
   );
 });

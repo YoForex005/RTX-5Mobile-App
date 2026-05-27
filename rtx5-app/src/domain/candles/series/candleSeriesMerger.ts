@@ -136,20 +136,45 @@ export const createCandleMap = (candles: readonly Candle[] = []): Map<number, Mu
 export const mergeHistoryCandles = (historyCandles: readonly Candle[]): Candle[] =>
   sortAndDedupeCandles(historyCandles);
 
+type MaterializeCandleMapOptions = {
+  preserveMetadata?: boolean;
+};
+
+const materializeMapCandle = (
+  candle: MutableCandle,
+  options: MaterializeCandleMapOptions,
+): Candle => {
+  const publicCandle = {
+    time: candle.time,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: candle.volume ?? 0,
+  };
+
+  if (!options.preserveMetadata) {
+    return publicCandle;
+  }
+
+  const withMetadata = { ...publicCandle } as Candle & Partial<MutableCandle>;
+  if (candle.source !== undefined) withMetadata.source = candle.source;
+  if (candle.closed !== undefined) withMetadata.closed = candle.closed;
+  if (candle.firstUpdateTime !== undefined) withMetadata.firstUpdateTime = candle.firstUpdateTime;
+  if (candle.lastUpdateTime !== undefined) withMetadata.lastUpdateTime = candle.lastUpdateTime;
+  if (candle.lastBackendUpdateTime !== undefined) withMetadata.lastBackendUpdateTime = candle.lastBackendUpdateTime;
+  if (candle.lastQuoteTime !== undefined) withMetadata.lastQuoteTime = candle.lastQuoteTime;
+  return withMetadata;
+};
+
 export const materializeCandleMap = (
   candleMap: Map<number, MutableCandle>,
   limit?: number,
+  options: MaterializeCandleMapOptions = {},
 ): Candle[] => {
   const candles = Array.from(candleMap.values())
     .filter((candle) => validateCandle(candle) && isCandleInternallyCoherent(candle))
-    .map((candle) => ({
-      time: candle.time,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.volume ?? 0,
-    }))
+    .map((candle) => materializeMapCandle(candle, options))
     .sort((left, right) => left.time - right.time);
 
   return typeof limit === 'number' && limit > 0 ? candles.slice(-limit) : candles;

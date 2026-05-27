@@ -1,0 +1,74 @@
+Root#0
+mWindowContainers#0
+DisplayArea.Root#0
+Leaf:0:1#0
+WallpaperWindowToken{1113992 token=android.os.Binder@e9e631d}#0
+14efa55 com.android.systemui.ImageWallpaper#0
+com.android.systemui.ImageWallpaper#0
+Leaf:2:2#0
+DefaultTaskDisplayArea#0
+Task=929#0
+Task=930#0
+ActivityRecord{9e98703 u0 com.motorola.launcher3/com.android.launcher3.CustomizationPanelLauncher#0
+398c30 com.motorola.launcher3/com.android.launcher3.CustomizationPanelLauncher#0
+3e06d4f com.motorola.launcher3/com.android.launcher3.CustomizationPanelLauncher#0
+homeAnimationLayer#0
+animationLayer#0
+Task=4#0
+Secondary Divider Dim#0
+Task=3#0
+Primary Divider Dim#0
+splitScreenDividerAnchor#0
+Surface(name=Task=91)/@0x7d771a7 - animation-leash#0
+Task=759#0
+ActivityRecord{373b623 u0 com.android.vending/com.google.android.finsky.transparentmainactivity.TransparentMainActivityPrivate t759 f}}#0
+Task=1235#0
+ActivityRecord{44f6730 u0 com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity#0
+252b067 com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity#0
+Surface(name=Task=139)/@0x5bf6705 - animation-leash#0
+Surface(name=Task=392)/@0xa0e3c4a - animation-leash#0
+Surface(name=Task=728)/@0x26ab563 - animation-leash#0
+Surface(name=Task=814)/@0x3a5fc72 - animation-leash#0
+Surface(name=Task=1174)/@0x7fd913e - animation-leash#0
+Surface(name=Task=1175)/@0x1c2f1fa - animation-leash#0
+Task=1210#0
+ActivityRecord{fddc7e9 u0 net.metaquotes.metatrader5/.ui.MainActivity#0
+3d6783a net.metaquotes.metatrader5/net.metaquotes.metatrader5.ui.MainActivity#0
+Surface(name=Task=382)/@0x40da84e - animation-leash#0
+Surface(name=Task=828)/@0xea9d0b6 - animation-leash#0
+Task=1237#0
+ActivityRecord{7739248 u0 host.exp.exponent/.experience.ExperienceActivity#0
+e6bb7d8 host.exp.exponent/host.exp.exponent.experience.ExperienceActivity#0
+host.exp.exponent/host.exp.exponent.experience.ExperienceActivity#0
+ImeContainer#0
+WindowToken{9c7394b android.os.Binder@adc1a1a}#0
+Surface(name=59b6603 InputMethod)/@0xc685a0a - animation-leash#0
+59b6603 InputMethod#0
+Input Consumer recents_animation_input_consumer#0
+boostedAnimationLayer#0
+Surface(name=Task=438)/@0x96ea5f5 - animation-leash#0
+Surface(name=Task=1102)/@0x439d31a - animation-leash#0
+Leaf:3:14#0
+WindowToken{57d8115 android.os.BinderProxy@913cff}#0
+f028c2a AssistPreviewPanel#0
+Leaf:17:34#0
+WindowToken{a8bfcd8 android.os.BinderProxy@224a44a}#0
+Surface(name=bb4a831 StatusBar)/@0x2873032 - animation-leash#0
+bb4a831 StatusBar#0
+StatusBar#0
+WindowToken{cdc289f android.os.BinderProxy@d8892f9}#0
+817edec NotificationShade#0
+WindowToken{f5a2d51 android.os.BinderProxy@62e27db}#0
+Surface(name=e5d66b7 NavigationBar0)/@0xceaf183 - animation-leash#1
+e5d66b7 NavigationBar0#0
+NavigationBar0#0
+WindowToken{74444b7 android.os.BinderProxy@fb9bfb6}#0
+18b3424 pip-dismiss-overlay#0
+WindowToken{de45ab4 android.os.BinderProxy@ae6ab87}#0
+915a6dd EdgeBackGestureHandler0#0
+WindowToken{bf44c4c android.os.BinderProxy@cf847f}#0
+50bd495 SecondaryHomeHandle0#0
+WindowToken{da99117 android.os.BinderProxy@8871d1f}#0
+WindowToken{8fa58e1 android.os.BinderProxy@6596b65}#0
+WindowToken{3eddebc android.os.BinderProxy@32eb990}#0
+mOverlayContainers#0

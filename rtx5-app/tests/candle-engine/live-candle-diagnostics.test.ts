@@ -127,7 +127,10 @@ test('data analyzer is opt-in and avoids engine-only REST history probes', () =>
 test('canonical live stream commits one fresh history plus backend live candle series', () => {
   assert.match(source, /historyCandles: Candle\[]/);
   assert.match(source, /liveCandleMap: Map<number, MutableCandle>/);
-  assert.match(source, /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime\)/);
+  assert.match(
+    source,
+    /materializeLiveCandleMap\(entry\.liveCandleMap, entry\.historyLastTime,\s*\{\s*preserveProvenance: true,\s*\}\)/,
+  );
   assert.match(source, /renderHistoryLimit = Math\.min\(/);
   assert.match(source, /buildFreshHistoryLiveCandleSeries\(/);
   assert.match(source, /closedHistoryLastTime: entry\.historyLastTime/);

@@ -343,7 +343,9 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
   /** @internal Used by historyFetching helpers; not part of the public API. */
   public commit(entry: StreamEntry): void {
-    const liveCandles = materializeLiveCandleMap(entry.liveCandleMap, entry.historyLastTime);
+    const liveCandles = materializeLiveCandleMap(entry.liveCandleMap, entry.historyLastTime, {
+      preserveProvenance: true,
+    });
     const renderHistoryLimit = Math.min(
       MAX_RENDERED_HISTORY_CANDLES,
       Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
@@ -353,7 +355,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       liveCandles,
       entry.timeframe,
       renderHistoryLimit,
-      { closedHistoryLastTime: entry.historyLastTime },
+      { closedHistoryLastTime: entry.historyLastTime, preserveProvenance: true },
     );
     const safeNextCandles = sanitizeCandlesForChart(nextCandles, { timeframe: entry.timeframe });
     const nextParams = toCandleParams(safeNextCandles);
