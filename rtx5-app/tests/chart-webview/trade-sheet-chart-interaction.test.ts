@@ -382,21 +382,40 @@ test('toolbar SL/TP tap opens the sheet immediately on a full-size touch surface
   );
 });
 
-test('expanded SL/TP sheet maximum height reserves the compact chart toolbar boundary', () => {
+test('expanded SL/TP sheet maximum height keeps only a small gap below the compact chart toolbar', () => {
   assertSourceContains(
     source,
-    /const compactChartTradeSheetTopInset =[\s\S]*chartTradeCompactHeaderHeight > 0[\s\S]*\? chartTradeCompactHeaderHeight[\s\S]*: chartHeaderTopPadding \+ 58/,
-    'expanded SL/TP sheet must use the measured compact toolbar height as its top boundary',
+    /CHART_TRADE_COMPACT_SHEET_TOP_GAP/,
+    'compact SL/TP sheet must use the compact top-gap constant',
   );
   assertSourceContains(
     source,
-    /const chartTradeSheetFallbackTopInset = isChartExpanded[\s\S]*\? fullscreenToolbarTopPadding \+ 36[\s\S]*: compactChartTradeSheetTopInset/,
-    'normal chart SL/TP sheet must stop below the compact toolbar instead of the status bar',
+    /const chartTradeSheetToolbarBottomInset =[\s\S]*: isChartExpanded[\s\S]*\? fullscreenChartTradeSheetTopInset[\s\S]*: 0;/,
+    'normal chart SL/TP sheet host already starts below the compact toolbar, so it must not subtract the header height again',
+  );
+  assertSourceContains(
+    source,
+    /const chartTradeSheetTopGap = isChartExpanded[\s\S]*\? CHART_TRADE_SHEET_TOP_GAP[\s\S]*: CHART_TRADE_COMPACT_SHEET_TOP_GAP;/,
+    'normal chart SL/TP sheet must keep only a small visual gap below the compact toolbar',
   );
   assertSourceContains(
     source,
     /isChartExpanded && chartTradeTopToolbarBottomOffset > 0/,
     'compact chart SL/TP sheet must not apply fullscreen toolbar offsets in normal mode',
+  );
+  const constantsPath = (() => {
+    const candidates = [
+      resolve(process.cwd(), 'src/features/chart/ChartScreen.constants.ts'),
+      resolve(process.cwd(), 'rtx5-app/src/features/chart/ChartScreen.constants.ts'),
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
+  })();
+  assert.ok(constantsPath, 'ChartScreen.constants.ts was not found from the test working directory');
+  const constantsSource = readFileSync(constantsPath, 'utf8');
+  assertSourceContains(
+    constantsSource,
+    /CHART_TRADE_COMPACT_SHEET_TOP_GAP = 4/,
+    'compact chart SL/TP sheet must leave only a small 4px gap under the top toolbar',
   );
 });
 

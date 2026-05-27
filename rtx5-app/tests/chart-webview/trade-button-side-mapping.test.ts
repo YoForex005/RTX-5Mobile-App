@@ -189,8 +189,8 @@ test('compact footer lot chevrons open range picker without opening manual lot e
   assert.ok(editButtonIndex >= 0, 'lot edit button should render in compact footer');
   assert.ok(decreaseButtonIndex >= 0, 'decrease lot button should render in compact footer');
   assert.ok(
-    increaseButtonIndex < editButtonIndex && editButtonIndex < decreaseButtonIndex,
-    'compact footer lot controls should render increase-left, value-center, decrease-right',
+    decreaseButtonIndex < editButtonIndex && editButtonIndex < increaseButtonIndex,
+    'compact footer lot controls should render decrease-left, value-center, increase-right',
   );
 });
 

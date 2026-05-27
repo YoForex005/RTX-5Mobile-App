@@ -35,6 +35,7 @@ Harden RTX5 for secure, observable, and stable beta operation.
 - [x] Scrollable Quotes and Settings rows open actions only on confirmed taps, not during vertical scroll gestures.
 - [x] Chart Buy/Sell success handling keeps heavy position refresh/cache invalidation work out of the immediate placement paint.
 - [x] Chart Buy/Sell footer controls do not remain disabled for network-pending order mutations.
+- [x] Chart footer lot control keeps decrease/down on the left of the lot value and increase/up on the right.
 - [ ] No open P0/P1 issues remain.
 
 ## Test Checklist
@@ -45,11 +46,13 @@ Harden RTX5 for secure, observable, and stable beta operation.
 - [x] Unit/device: Quotes symbol sheets and Settings navigation rows stay release-confirmed in scroll containers; ADB screenshots captured before/after scroll checks.
 - [x] Unit/typecheck/device: Chart Buy/Sell post-success refresh work is deferred after the optimistic position insert so the placement moment stays smooth against the MT5 reference.
 - [x] Unit/typecheck/device: Chart Buy/Sell taps use a short local tap guard only; ADB screenrecord/gfxinfo captures verify the footer is enabled and non-busy after safe Sell/Buy tap loops.
+- [x] Unit: Compact footer lot chevron source contract verifies decrease-left/value-center/increase-right ordering.
 
 ## Exit Criteria
 - Release readiness sign-off from security, QA, and mobile leads.
 
 ## Progress Notes
+- 2026-05-27: Corrected the compact chart footer lot chevron order so the down/decrease control renders and receives taps on the left of the lot value, while the up/increase control renders and receives taps on the right. Updated the chart parity map and source-level regression contract for the footer lot ordering.
 - 2026-05-26: Rechecked MT5 Buy/Sell footer behavior with ADB screenshot observation, then tightened RTX5 chart trade success smoothness. The order success path now inserts the optimistic position first and defers position refresh plus query invalidations by 250ms, so the chart can paint the placed-trade result before heavier background sync work starts.
 - 2026-05-26: Removed the chart footer's network-pending Buy/Sell lock. The shared chart trade handler now blocks only the short local tap-guard window, releases the pressed-side visual without waiting for the backend mutation, and keeps Sell/Buy plus the footer lot controls enabled while the order response/background refresh finishes. Verified on device with `oneClickAccepted: false` safe tap captures in `artifacts/trade_speed_20260526/`.
 - 2026-05-26: Fixed scroll gestures opening row actions on Quotes and Settings. Quote symbol cards, Settings rows, and the scrollable account/new-account cards no longer use press-in/touch-start activation, so vertical swipes can scroll without opening the symbol action sheet or navigating to a settings option; header and toolbar actions keep their immediate fast path. Verified with focused source contracts plus ADB screenshots in `artifacts/scroll_dropdown_20260526/`.

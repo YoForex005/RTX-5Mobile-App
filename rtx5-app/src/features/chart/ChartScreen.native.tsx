@@ -138,7 +138,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { DraggableChartMetaOverlay } from "./components/DraggableChartMetaOverlay";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -798,18 +798,17 @@ export function ChartScreen() {
     screenHeight,
     showChartTradeSheet,
   ]);
-  const compactChartTradeSheetTopInset =
-    chartTradeCompactHeaderHeight > 0
-      ? chartTradeCompactHeaderHeight
-      : chartHeaderTopPadding + 58;
-  const chartTradeSheetFallbackTopInset = isChartExpanded
-    ? fullscreenToolbarTopPadding + 36
-    : compactChartTradeSheetTopInset;
+  const fullscreenChartTradeSheetTopInset = fullscreenToolbarTopPadding + 36;
   const chartTradeSheetToolbarBottomInset =
     isChartExpanded && chartTradeTopToolbarBottomOffset > 0
-      ? Math.max(chartTradeTopToolbarBottomOffset, chartTradeSheetFallbackTopInset)
-      : chartTradeSheetFallbackTopInset;
-  const chartTradeSheetTopInset = chartTradeSheetToolbarBottomInset + CHART_TRADE_SHEET_TOP_GAP;
+      ? Math.max(chartTradeTopToolbarBottomOffset, fullscreenChartTradeSheetTopInset)
+      : isChartExpanded
+        ? fullscreenChartTradeSheetTopInset
+        : 0;
+  const chartTradeSheetTopGap = isChartExpanded
+    ? CHART_TRADE_SHEET_TOP_GAP
+    : CHART_TRADE_COMPACT_SHEET_TOP_GAP;
+  const chartTradeSheetTopInset = chartTradeSheetToolbarBottomInset + chartTradeSheetTopGap;
   const chartTradeSheetFallbackHostHeight = Math.max(
     chartTradeSheetCollapsedHeight + 180,
     screenHeight - Math.max(safeInsets.top, 0),

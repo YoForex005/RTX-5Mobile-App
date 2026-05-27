@@ -36,7 +36,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Compact chart footer buy/sell prices are positioned independently from their labels.
 - [x] Compact chart footer lot borders and bottom-right chart dots stay visible across themes and symbols.
 - [x] Chart symbol dropdown uses the full broker instrument API list across brokers/accounts.
-- [x] Compact chart footer supports right-aligned Sell/Buy prices with increase-left/decrease-right lot controls.
+- [x] Compact chart footer supports right-aligned Sell/Buy prices with decrease-left/increase-right lot controls.
 - [x] Compact chart footer Sell/Buy backgrounds cover the full button slots.
 - [x] Compact chart footer keeps the Sell/Lot/Buy row fully visible above the keyboard.
 - [x] Compact chart footer Sell/Lot/Buy row has matching top and bottom divider lines before the bottom menubar.
@@ -50,11 +50,14 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Compact chart Buy/Sell actions stay tappable after the short local tap guard instead of remaining disabled for the full order mutation.
 - [x] Action destination routes are warmed non-blockingly so option screens do not cold-load after tap.
 - [x] Chart toolbar dropdowns use the shared Quotes-style ActionSheet path for Timeframes, Select Symbol, Drawing Tools, Options, and nested Chart Type.
+- [x] Chart symbol dropdown opens slightly higher while preserving the instant no-shrink ActionSheet layout.
 - [x] Compact chart `SL/TP` sheet can be dismissed by dragging down from the visible handle/header surface.
 - [x] Compact chart `SL/TP` toolbar tap opens reliably and the expanded sheet volume value remains vertically unclipped.
 - [x] Expanded compact chart `SL/TP` sheet stops below the top chart toolbar with a small visible gap at maximum drag height.
 
 ## Progress Notes
+- 2026-05-27: Tightened the compact `SL/TP` sheet expanded top position. The normal chart sheet host already starts below the timeframe-to-3-dot toolbar, so compact mode now reserves only a 4px top gap instead of subtracting the full compact header height again; fullscreen keeps the larger status-toolbar-safe gap.
+- 2026-05-27: Nudged the chart symbol dropdown layout slightly upward by increasing the shared large ActionSheet detent used by `Select Symbol`, keeping the instant no-shrink open path intact while giving the symbol list a taller settled frame.
 - 2026-05-26: Smoothed the compact chart Buy/Sell placed-trade path after MT5 reference observation. Successful market orders now write the optimistic open position immediately, then defer position refresh and query invalidation for 250ms so the chart placement moment is not competing with background cache work.
 - 2026-05-26: Captured a longer MT5 chart Buy/Sell footer sequence over ADB and matched the compact RTX5 footer behavior to the observed MT-style per-side tick coloring: a bid/ask price uptick paints that tile blue, a downtick paints it red, and unchanged prices keep the last movement color.
 - 2026-05-26: Added the matching bottom divider to the compact chart Sell/Lot/Buy footer so the row is separated from the bottom tab menubar by the same line used above the row.
@@ -411,7 +414,7 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit/typecheck/device: chart trade success defers heavy refresh and invalidation work until after the optimistic placement paint.
 - [x] Unit/typecheck/device: compact chart Buy/Sell buttons stay enabled after the short local tap guard and ADB captures confirm the footer returns to an enabled non-busy state.
 - [x] Unit/typecheck: compact footer Sell/Buy action backgrounds stretch through the full button slots while preserving dynamic red/blue action colors.
-- [x] Unit/typecheck: compact footer Sell/Buy price values right-align inside their buttons, while the lot control renders increase-left, value-center, and decrease-right without breaking picker/manual-edit behavior.
+- [x] Unit/typecheck: compact footer Sell/Buy price values right-align inside their buttons, while the lot control renders decrease-left, value-center, and increase-right without breaking picker/manual-edit behavior.
 - [x] Unit/typecheck: chart symbol dropdown reads full nested/paginated broker instrument payloads, preserves broker suffix variants, and scopes the symbol cache by broker/account to avoid stale partial dropdown lists.
 - [x] Unit/typecheck: bid/ask market lines extend as thin guides over the right price scale while native filled right-axis price badges remain hidden.
 - [x] Unit/typecheck/screenshot: BTCUSD chart WebView removes tracked market price lines before full candle `setData` and surface recovery, recreates quote guides from a clean slate, and exposes only the bid and ask right-axis value badges so stale labels no longer stack.
@@ -444,6 +447,8 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Unit/typecheck: REST candle-history abort handling is React Native safe without browser `DOMException` globals, and the history request parameter test matches the backend millisecond `from`/`to` contract.
 - [x] Unit/typecheck: native compact symbol header opens the picker immediately from the full symbol tap target and keeps the full fallback/API symbol list ready.
 - [x] Unit/typecheck: instant chart symbol picker ActionSheet uses visible-window no-shrink height resolution so the first Android frame is not oversized, shrunken, or cut before settling.
+- [x] Unit/typecheck: chart symbol picker large ActionSheet detent opens slightly higher while preserving no-shrink first-frame layout.
+- [x] Unit/typecheck: compact `SL/TP` expanded sheet keeps only a 4px gap below the timeframe-to-3-dot toolbar while fullscreen preserves its toolbar-safe gap.
 - [x] Unit/typecheck: compact Sell/Lot/Buy footer uses a taller fixed row, larger dock reserve, and Android bottom safety gap so the row stays fully visible above the keyboard/footer edge.
 - [x] Unit/typecheck: instant ActionSheet layout cannot shrink below its first visible window height, chart toolbar sheets open on touch-down, timeframe prefetch runs after the sheet is displayed, and Sell/Buy chart buttons place through touch-down handlers.
 - [x] Unit/typecheck: chart hot-touch paths prebuild action-sheet actions, keep Objects/Settings navigation off frame-delayed wrappers, gate order payload logs behind `EXPO_PUBLIC_DEBUG_CHART_TRADE`, and show Sell/Buy busy feedback from the tap lock before the network mutation settles.

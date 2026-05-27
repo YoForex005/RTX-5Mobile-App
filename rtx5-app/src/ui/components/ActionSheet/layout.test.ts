@@ -72,7 +72,7 @@ test('large and searchable action sheet floors preserve their existing detents',
       searchable: true,
       availableWindowHeight: 1600,
     }),
-    992,
+    1024,
   );
   assert.equal(
     resolveActionSheetFloor({

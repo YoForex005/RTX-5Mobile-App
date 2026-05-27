@@ -200,22 +200,22 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
-          (!canUseIncreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
+          (!canUseDecreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
-        onPress={handleIncreaseLotPress}
-        disabled={!canUseIncreaseLotControl || tradeControlsDisabled}
-        accessibilityState={{ disabled: !canUseIncreaseLotControl || tradeControlsDisabled }}
-        accessibilityLabel="Increase lot"
-        testID="chart-trade-lot-increase-button"
+        onPress={handleDecreaseLotPress}
+        disabled={!canUseDecreaseLotControl || tradeControlsDisabled}
+        accessibilityState={{ disabled: !canUseDecreaseLotControl || tradeControlsDisabled }}
+        accessibilityLabel="Decrease lot"
+        testID="chart-trade-lot-decrease-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
       >
         <Ionicons
-          name="chevron-up"
+          name="chevron-down"
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
             { marginLeft: 4 },
-            (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
+            (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
@@ -263,22 +263,22 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
       <Pressable
         style={[
           baseStyles.actionLotAdjustButton,
-          (!canUseDecreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
+          (!canUseIncreaseLotControl || tradeControlsDisabled) && baseStyles.actionLotAdjustButtonDisabled,
         ]}
-        onPress={handleDecreaseLotPress}
-        disabled={!canUseDecreaseLotControl || tradeControlsDisabled}
-        accessibilityState={{ disabled: !canUseDecreaseLotControl || tradeControlsDisabled }}
-        accessibilityLabel="Decrease lot"
-        testID="chart-trade-lot-decrease-button"
+        onPress={handleIncreaseLotPress}
+        disabled={!canUseIncreaseLotControl || tradeControlsDisabled}
+        accessibilityState={{ disabled: !canUseIncreaseLotControl || tradeControlsDisabled }}
+        accessibilityLabel="Increase lot"
+        testID="chart-trade-lot-increase-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
       >
         <Ionicons
-          name="chevron-down"
+          name="chevron-up"
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
             { marginRight: 4 },
-            (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
+            (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
         />
@@ -379,11 +379,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           >
             <View style={baseStyles.actionLotCommittedIconBox}>
               <Ionicons
-                name="chevron-up"
+                name="chevron-down"
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
+                  (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
             </View>
@@ -395,11 +395,11 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             </Text>
             <View style={baseStyles.actionLotCommittedIconBox}>
               <Ionicons
-                name="chevron-down"
+                name="chevron-up"
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
-                  (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
+                  (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
             </View>
