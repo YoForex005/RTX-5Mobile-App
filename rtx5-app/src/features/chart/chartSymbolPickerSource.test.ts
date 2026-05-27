@@ -67,6 +67,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+  const tradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
 
   assert.match(source, /const timeframePickerActions = useMemo\([\s\S]*timeframes\.map/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
@@ -82,7 +83,10 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
   assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
   assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
-  assert.match(source, /title: t\('Expiration'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTradeExpirationActions/);
+  assert.match(
+    source,
+    /title: t\('Expiration'\)[\s\S]*detent:\s*'auto'[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: chartTradeExpirationActions/,
+  );
   assert.match(source, /requestAnimationFrame\(handleOpenChartTypePicker\)/);
   assert.doesNotMatch(source, /showChartTypeMenu\s*\?/);
   assert.doesNotMatch(source, /setShowChartTypeMenu/);
@@ -110,6 +114,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
+  assert.match(tradeFeatureSource, /onPress=\{handlers\.onOpenExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(menuSource, /onPressIn=\{onPress\}/);
   assert.match(drawingSource, /onPressIn=\{onPress\}/);
 });

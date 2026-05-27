@@ -7,6 +7,7 @@ import {
   resolveChartTradeSheetFrameHeight,
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
+  resolveChartTradeSheetTopInset,
   resolveChartTradeSheetHostHeight,
   resolveFooterLotChevronPressBehavior,
   resolveFooterLotChevronState,
@@ -492,13 +493,13 @@ test('resolveFooterTradeDockBottom returns zero for inline or hidden floating fo
   );
 });
 
-test('shouldHideChartTabBarForTradeInput keeps the chart route stable for overlay comment input', () => {
+test('shouldHideChartTabBarForTradeInput hides the bottom menu while the SL/TP comment box is focused', () => {
   assert.equal(
     shouldHideChartTabBarForTradeInput({
       showChartTradeSheet: true,
       chartTradeCommentFocused: true,
     }),
-    false,
+    true,
   );
 
   assert.equal(
@@ -649,6 +650,45 @@ test('resolveChartTradeSheetMaxHeight keeps expanded SL/TP sheet below the chart
       bottomInset: 0,
     }),
     562,
+  );
+});
+
+test('resolveChartTradeSheetTopInset keeps compact SL/TP sheet below the toolbar when its host overlaps the header', () => {
+  assert.equal(
+    resolveChartTradeSheetTopInset({
+      isFullscreen: false,
+      toolbarBottomInset: 0,
+      topGap: 4,
+      compactHeaderHeight: 194,
+      hostTopOffset: 70,
+    }),
+    128,
+  );
+});
+
+test('resolveChartTradeSheetTopInset keeps only the compact gap when the host already starts below the toolbar', () => {
+  assert.equal(
+    resolveChartTradeSheetTopInset({
+      isFullscreen: false,
+      toolbarBottomInset: 0,
+      topGap: 4,
+      compactHeaderHeight: 194,
+      hostTopOffset: 194,
+    }),
+    4,
+  );
+});
+
+test('resolveChartTradeSheetTopInset preserves fullscreen toolbar offsets without compact overlap math', () => {
+  assert.equal(
+    resolveChartTradeSheetTopInset({
+      isFullscreen: true,
+      toolbarBottomInset: 92,
+      topGap: 10,
+      compactHeaderHeight: 194,
+      hostTopOffset: 0,
+    }),
+    102,
   );
 });
 

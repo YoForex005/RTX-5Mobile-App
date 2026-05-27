@@ -21,6 +21,17 @@ const chartTradeFeatureSource = (() => {
   }
   return readFileSync(filePath, 'utf8');
 })();
+const chartTradeControlsSource = (() => {
+  const candidates = [
+    resolve(process.cwd(), 'src/features/chart/components/ChartTradeControls.tsx'),
+    resolve(process.cwd(), 'rtx5-app/src/features/chart/components/ChartTradeControls.tsx'),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    throw new Error('ChartTradeControls.tsx was not found from the test working directory');
+  }
+  return readFileSync(filePath, 'utf8');
+})();
 
 const extractAssignedFunctionBody = (sourceText: string, functionName: string): string => {
   const functionStart = sourceText.indexOf(`var ${functionName} = function`);
@@ -400,6 +411,21 @@ test('expanded SL/TP sheet maximum height keeps only a small gap below the compa
   );
   assertSourceContains(
     source,
+    /const \[chartTradeSheetHostTopOffset, setChartTradeSheetHostTopOffset\] = useState\(0\);/,
+    'normal chart SL/TP sheet must track where the overlay host starts relative to the compact toolbar',
+  );
+  assertSourceContains(
+    source,
+    /const chartTradeSheetTopInset = resolveChartTradeSheetTopInset\(\{[\s\S]*compactHeaderHeight: chartTradeCompactHeaderHeight,[\s\S]*hostTopOffset: chartTradeSheetHostTopOffset,[\s\S]*\}\);/,
+    'normal chart SL/TP sheet must compensate if the host overlaps the timeframe-to-more toolbar',
+  );
+  assertSourceContains(
+    source,
+    /chartTradeHostRef\.current\.measureInWindow\(\(_x, y, _width, height\) => \{[\s\S]*const nextTopOffset = Math\.max\(0, Math\.round\(y\)\);[\s\S]*setChartTradeSheetHostTopOffset/,
+    'chart trade host window measurement must keep its top offset fresh for the expanded sheet cap',
+  );
+  assertSourceContains(
+    source,
     /isChartExpanded && chartTradeTopToolbarBottomOffset > 0/,
     'compact chart SL/TP sheet must not apply fullscreen toolbar offsets in normal mode',
   );
@@ -443,6 +469,49 @@ test('trade sheet volume lot value is manually editable without opening only the
   }
 });
 
+test('SL/TP sheet volume slider keeps local drag smooth and coalesces volume commits', () => {
+  assertSourceContains(
+    chartTradeControlsSource,
+    /import \{ Gesture, GestureDetector \} from 'react-native-gesture-handler'[\s\S]*useAnimatedStyle[\s\S]*useSharedValue/,
+    'volume slider must use the native gesture/Reanimated path for smooth local movement',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /const sliderValueShared = useSharedValue\(value\)[\s\S]*const trackWidthShared = useSharedValue\(0\)|const trackWidthShared = useSharedValue\(0\)[\s\S]*const sliderValueShared = useSharedValue\(value\)/,
+    'volume slider must keep the in-flight drag value on the UI thread',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /const flushPendingCommit = React\.useCallback\(\(\) => \{[\s\S]*onChangeRef\.current\(nextValue\)/,
+    'volume slider must commit the latest pending value through a stable callback',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /commitFrameRef\.current = requestAnimationFrame\(flushPendingCommit\)/,
+    'volume slider move commits must be coalesced on animation frames',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /Gesture\.Pan\(\)[\s\S]*\.minDistance\(0\)[\s\S]*\.onUpdate\(\(event\) => \{[\s\S]*sliderValueShared\.value = nextValue[\s\S]*runOnJS\(scheduleCommit\)\(nextValue, false\)/,
+    'volume slider must move the thumb locally during drag and coalesce JS commits',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /<GestureDetector gesture=\{sliderGesture\}>[\s\S]*<Animated\.View style=\{\[styles\.chartTradeSliderFill, animatedFillStyle\]\} \/>[\s\S]*<Animated\.View[\s\S]*styles\.chartTradeSliderThumb[\s\S]*animatedThumbStyle/,
+    'volume slider fill and thumb must render from animated UI-thread styles',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /handlers\.onOpenVolumeStepper\(\);[\s\S]*unstable_pressDelay=\{0\}[\s\S]*activateOnPressIn/,
+    'extracted volume stepper launcher must open from press-in for a fast picker response',
+  );
+  assertSourceContains(
+    source,
+    /runImmediateAction\('chart\.tradeSheet\.stepper\.volume'[\s\S]*unstable_pressDelay=\{0\}[\s\S]*activateOnPressIn/,
+    'native volume stepper launcher must keep the same fast press-in behavior',
+  );
+});
+
 test('SL/TP sheet volume input keeps numeric value vertically unclipped', () => {
   const stylesPath = (() => {
     const candidates = [
@@ -463,6 +532,29 @@ test('SL/TP sheet volume input keeps numeric value vertically unclipped', () => 
     stylesSource,
     /chartTradeVolumeInputPending: \{[\s\S]*height: 42[\s\S]*lineHeight: 22/,
     'expanded SL/TP volume TextInput must be tall enough for the bold lot value',
+  );
+});
+
+test('SL/TP sheet comment editor accepts typing immediately and applies cleanly', () => {
+  assertSourceContains(
+    source,
+    /const handleSubmitChartTradeComment = useCallback\(\(\) => \{[\s\S]*setChartTradeCommentFocused\(false\);[\s\S]*Keyboard\.dismiss\(\);/,
+    'comment apply must leave edit mode and dismiss the keyboard',
+  );
+  assertSourceContains(
+    source,
+    /const handleBlurChartTradeComment = useCallback\(\(\) => \{[\s\S]*Platform\.OS === 'android' && showChartTradeSheet[\s\S]*chartTradeCommentInputRef\.current\?\.focus\(\);[\s\S]*return;[\s\S]*setChartTradeCommentFocused\(false\);[\s\S]*\}, \[showChartTradeSheet\]\);/,
+    'Android comment blur while the keyboard is visible must refocus instead of closing the editor during typing',
+  );
+  assertSourceContains(
+    source,
+    /<TextInput[\s\S]*ref=\{chartTradeCommentInputRef\}[\s\S]*autoFocus[\s\S]*showSoftInputOnFocus[\s\S]*value=\{chartTradeComment\}[\s\S]*onChangeText=\{\(text\) => setChartTradeComment\(text\.slice\(0, 50\)\)\}/,
+    'native inline comment editor must focus immediately so first typed characters enter the field',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /<TextInput[\s\S]*ref=\{sheet\.chartTradeCommentInputRef\}[\s\S]*autoFocus[\s\S]*showSoftInputOnFocus[\s\S]*value=\{sheet\.chartTradeComment\}[\s\S]*onChangeText=\{handlers\.onChangeComment\}/,
+    'extracted inline comment editor must keep the same immediate focus behavior',
   );
 });
 

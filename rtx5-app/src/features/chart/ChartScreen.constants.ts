@@ -34,17 +34,31 @@ export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
 // range. 8 bars matches the convention without wasting too much canvas.
 export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 8;
 export const CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING = 3;
+export const CHART_TIME_SCALE_FIX_LEFT_EDGE = false;
+export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = true;
 // LightweightCharts v5 LineStyle enum:
 //   0 = Solid     []
-//   1 = Dotted    [1, 1]  ← MT5/cTrader fine-dot grid (this is what we want)
+//   1 = Dotted    [1, 1]
 //   2 = Dashed    [2, 2]
-//   3 = LargeDashed [6, 6] ← coarse dashes — looked wrong as a grid
+//   3 = LargeDashed [6, 6]
 //   4 = SparseDotted [1, 4]
 // Older docs (and v4 typings in some bundles) listed the enum in a
 // different order, which is why this used to read "= 3 // Dotted". v5's
-// canonical enum has Dotted = 1 — see lightweight-charts.standalone.production.js.
-export const CHART_GRID_LINE_STYLE = 1;
-export const CHART_GRID_HORIZONTAL_LINE_COUNT = 11;
+// canonical enum has Dotted = 1; see lightweight-charts.standalone.production.js.
+// The custom native WebView grid is drawn as faint MT5-mobile guides behind
+// candles, matching the measured 720x1640 reference recording.
+export const CHART_GRID_LINE_STYLE = 4;
+export const CHART_GRID_HORIZONTAL_LINE_COUNT = 7;
+export const CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET = 118;
+export const CHART_GRID_HORIZONTAL_SPACING = 150;
+// WebView vertical guides keep this measured visual spacing while anchoring
+// their phase to LightweightCharts logical coordinates, so they pan with candles.
+export const CHART_GRID_VERTICAL_SPACING = 56;
+export const CHART_GRID_DASH_PATTERN = '7 5';
+// SVG uses CSS pixels inside the Android WebView. A full 1px stroke reads
+// heavier than the MT5 mobile capture after compositing behind the candle
+// canvas, so use a fractional stroke while preserving the measured cadence.
+export const CHART_GRID_STROKE_WIDTH = 0.5;
 export const CHART_TAP_MENU_PADDING = 10;
 export const CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS = 450;
 export const CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT = 72;

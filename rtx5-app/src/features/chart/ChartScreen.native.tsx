@@ -35,10 +35,7 @@ import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
 import { createDrawingToolsActionSheetActions } from './drawingTools';
-import {
-  ChartFixedHorizontalGridOverlay,
-  type FixedHorizontalGridPlotArea,
-} from './components/ChartFixedHorizontalGridOverlay';
+import type { FixedHorizontalGridPlotArea } from './components/ChartFixedHorizontalGridOverlay';
 import {
   ChartTradeInlineFooter,
   ChartTradeOverlayLayer,
@@ -120,6 +117,7 @@ import {
   type FooterLotPickerMode,
   resolveChartTradeSheetHeaderLift,
   resolveChartTradeSheetMaxHeight,
+  resolveChartTradeSheetTopInset,
   resolveChartTradeSheetHostHeight,
   resolveFooterLotCommitDraft as resolveFooterLotCommitDraftValue,
   resolveKeyboardDockOffset,
@@ -138,7 +136,7 @@ import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
 import { DraggableChartMetaOverlay } from "./components/DraggableChartMetaOverlay";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -605,6 +603,7 @@ export function ChartScreen() {
   const [keyboardVisibleHeight, setKeyboardVisibleHeight] = useState(0);
   const [keyboardDockOffset, setKeyboardDockOffset] = useState(0);
   const [chartTradeSheetHostHeight, setChartTradeSheetHostHeight] = useState(0);
+  const [chartTradeSheetHostTopOffset, setChartTradeSheetHostTopOffset] = useState(0);
   const [chartTradeKeyboardFreeHostHeight, setChartTradeKeyboardFreeHostHeight] = useState(0);
   const [chartTradeInlineFooterHeight, setChartTradeInlineFooterHeight] = useState(0);
   const [chartTradeTopToolbarBottomOffset, setChartTradeTopToolbarBottomOffset] = useState(0);
@@ -692,6 +691,10 @@ export function ChartScreen() {
 
     chartTradeHostRef.current.measureInWindow((_x, y, _width, height) => {
       if (Number.isFinite(y) && Number.isFinite(height) && height > 0) {
+        const nextTopOffset = Math.max(0, Math.round(y));
+        setChartTradeSheetHostTopOffset((current) => (
+          current === nextTopOffset ? current : nextTopOffset
+        ));
         chartTradeHostBottomRef.current = y + height;
       }
       onMeasured?.();
@@ -808,7 +811,13 @@ export function ChartScreen() {
   const chartTradeSheetTopGap = isChartExpanded
     ? CHART_TRADE_SHEET_TOP_GAP
     : CHART_TRADE_COMPACT_SHEET_TOP_GAP;
-  const chartTradeSheetTopInset = chartTradeSheetToolbarBottomInset + chartTradeSheetTopGap;
+  const chartTradeSheetTopInset = resolveChartTradeSheetTopInset({
+    isFullscreen: isChartExpanded,
+    toolbarBottomInset: chartTradeSheetToolbarBottomInset,
+    topGap: chartTradeSheetTopGap,
+    compactHeaderHeight: chartTradeCompactHeaderHeight,
+    hostTopOffset: chartTradeSheetHostTopOffset,
+  });
   const chartTradeSheetFallbackHostHeight = Math.max(
     chartTradeSheetCollapsedHeight + 180,
     screenHeight - Math.max(safeInsets.top, 0),
@@ -865,7 +874,7 @@ export function ChartScreen() {
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
-  const [chartPlotArea, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
+  const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
@@ -1561,8 +1570,9 @@ export function ChartScreen() {
       Keyboard.dismiss();
       showActionSheet({
         title: t('Expiration'),
-        detent: 'adaptive',
+        detent: 'auto',
         instantOpen: true,
+        runActionAfterClose: false,
         actions: chartTradeExpirationActions,
       });
     });
@@ -1580,8 +1590,16 @@ export function ChartScreen() {
       chartTradeCommentSubmitIntentRef.current = false;
       return;
     }
+
+    if (Platform.OS === 'android' && showChartTradeSheet) {
+      requestAnimationFrame(() => {
+        chartTradeCommentInputRef.current?.focus();
+      });
+      return;
+    }
+
     setChartTradeCommentFocused(false);
-  }, []);
+  }, [showChartTradeSheet]);
   const handleSubmitChartTradeComment = useCallback(() => {
     chartTradeCommentSubmitIntentRef.current = false;
     const nextComment = chartTradeComment.trim();
@@ -2882,11 +2900,11 @@ export function ChartScreen() {
     },
     grid: {
       vertLines: {
-        color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+        color: 'transparent',
         style: CHART_GRID_LINE_STYLE,
       },
       horzLines: {
-        color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+        color: 'transparent',
         style: CHART_GRID_LINE_STYLE,
       },
     },
@@ -2903,8 +2921,8 @@ export function ChartScreen() {
       barSpacing: CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
       minBarSpacing: CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
       shiftVisibleRangeOnNewBar: true,
-      fixLeftEdge: false,
-      fixRightEdge: false,
+      fixLeftEdge: CHART_TIME_SCALE_FIX_LEFT_EDGE,
+      fixRightEdge: CHART_TIME_SCALE_FIX_RIGHT_EDGE,
     },
     handleScroll: {
       mouseWheel: true,
@@ -2933,6 +2951,7 @@ export function ChartScreen() {
       barsUptrend: resolvedChartColors.barsUptrend,
       barsDowntrend: resolvedChartColors.barsDowntrend,
       lineBody: resolvedChartColors.lineBody,
+      grid: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
     }
   }), [chartDisplay.showGrid, chartType, resolvedChartColors, showChartVolumePane]);
 
@@ -3270,8 +3289,11 @@ export function ChartScreen() {
   // Track current config signature. When it changes, mark chart as
   // not-initialized so the watchdog knows to retry for the new config.
   const currentSig = useMemo(
-    () => `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${showChartVolumePane ? 'vol' : 'novol'}-${chartColorsSignature}`,
-    [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane],
+    () =>
+      `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${
+        showChartVolumePane ? 'vol' : 'novol'
+      }-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartColorsSignature}`,
+    [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane, chartDisplay.showGrid],
   );
   useEffect(() => {
     const lastCandle = sanitizedCandles[sanitizedCandles.length - 1];
@@ -4346,14 +4368,6 @@ export function ChartScreen() {
                     </Pressable>
                   </View>
                 </View>
-                {/* Grid lines are handled by lightweight-charts natively
-                  (both vertLines and horzLines) so they move with scroll/zoom.
-                  Custom SVG overlay is kept in the tree but disabled. */}
-                <ChartFixedHorizontalGridOverlay
-                  visible={false}
-                  plotArea={chartPlotArea}
-                  color={resolvedChartColors.grid}
-                />
                 <DraggableChartMetaOverlay
                   visible={showChartMetaRow}
                   bounds={chartTapMenuBounds}
@@ -4533,6 +4547,7 @@ export function ChartScreen() {
                               }}
                               hitSlop={8}
                               unstable_pressDelay={0}
+                              activateOnPressIn
                             >
                               <View style={styles.chartTradeStepperLaunchIconStack}>
                                 <Ionicons name="chevron-up" size={12} color={TEXT_MUTED} />
@@ -4797,6 +4812,8 @@ export function ChartScreen() {
                               <View style={styles.chartTradeCommentEditorInlineInputWrap}>
                                 <TextInput
                                   ref={chartTradeCommentInputRef}
+                                  autoFocus
+                                  showSoftInputOnFocus
                                   style={styles.chartTradeCommentEditorInlineInput}
                                   value={chartTradeComment}
                                   onChangeText={(text) => setChartTradeComment(text.slice(0, 50))}

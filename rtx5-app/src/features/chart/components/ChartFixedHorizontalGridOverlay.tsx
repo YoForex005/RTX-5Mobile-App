@@ -1,7 +1,11 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
-import { CHART_GRID_HORIZONTAL_LINE_COUNT } from '../ChartScreen.constants';
+import {
+  CHART_GRID_DASH_PATTERN,
+  CHART_GRID_HORIZONTAL_LINE_COUNT,
+  CHART_GRID_STROKE_WIDTH,
+} from '../ChartScreen.constants';
 
 export type FixedHorizontalGridPlotArea = {
   left: number;
@@ -12,6 +16,7 @@ export type FixedHorizontalGridPlotArea = {
 
 type ChartFixedHorizontalGridOverlayProps = {
   color: string;
+  dashPattern?: string;
   lineCount?: number;
   plotArea: FixedHorizontalGridPlotArea | null;
   visible: boolean;
@@ -21,11 +26,12 @@ const DEFAULT_LINE_COUNT = CHART_GRID_HORIZONTAL_LINE_COUNT;
 
 export function ChartFixedHorizontalGridOverlay({
   color,
+  dashPattern = CHART_GRID_DASH_PATTERN,
   lineCount = DEFAULT_LINE_COUNT,
   plotArea,
   visible,
 }: ChartFixedHorizontalGridOverlayProps) {
-  const lines = useMemo(() => {
+  const horizontalLines = useMemo(() => {
     if (!visible || !plotArea || plotArea.width <= 0 || plotArea.height <= 0 || lineCount <= 0) {
       return [];
     }
@@ -36,22 +42,23 @@ export function ChartFixedHorizontalGridOverlay({
       const progress = (index + 1) / (safeCount + 1);
       const y = Math.round((plotArea.top + plotArea.height * progress) * 2) / 2;
       return {
-        key: `fixed-grid-${index}`,
+        key: `fixed-grid-horizontal-${index}`,
         y,
       };
     });
   }, [lineCount, plotArea, visible]);
 
-  if (lines.length === 0 || !plotArea) {
+  if (!horizontalLines.length || !plotArea) {
     return null;
   }
 
   return (
     <View pointerEvents="none" style={styles.overlay}>
       <Svg width="100%" height="100%">
-        {lines.map((line) => (
-          // 1-on / 1-off dash pattern — dotted line matching lightweight-charts
-          // v5's `LineStyle.Dotted` rendering. No solid lines.
+        {horizontalLines.map((line) => (
+          // MT5 keeps horizontal price guides fixed on screen while the price
+          // scale pans underneath them; vertical time guides are drawn in the
+          // WebView so they can move with the candles during left/right scroll.
           <Line
             key={line.key}
             x1={plotArea.left}
@@ -59,8 +66,9 @@ export function ChartFixedHorizontalGridOverlay({
             x2={plotArea.left + plotArea.width}
             y2={line.y}
             stroke={color}
-            strokeWidth="1"
-            strokeDasharray="1 1"
+            strokeWidth={CHART_GRID_STROKE_WIDTH}
+            strokeDasharray={dashPattern}
+            strokeLinecap="round"
           />
         ))}
       </Svg>

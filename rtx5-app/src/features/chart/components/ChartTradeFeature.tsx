@@ -166,6 +166,7 @@ function ChartTradeVolumeSection({
               }}
               hitSlop={8}
               unstable_pressDelay={0}
+              activateOnPressIn
             >
               <View style={styles.chartTradeStepperLaunchIconStack}>
                 <Ionicons name="chevron-up" size={12} color={colors.textMuted} />
@@ -545,6 +546,7 @@ function ChartTradeSheetContent({
           <Pressable
             style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
             onPress={handlers.onOpenExpirationMenu}
+            activateOnPressIn
             unstable_pressDelay={0}
           >
             <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
@@ -560,6 +562,8 @@ function ChartTradeSheetContent({
                 <View style={styles.chartTradeCommentEditorInlineInputWrap}>
                   <TextInput
                     ref={sheet.chartTradeCommentInputRef}
+                    autoFocus
+                    showSoftInputOnFocus
                     style={styles.chartTradeCommentEditorInlineInput}
                     value={sheet.chartTradeComment}
                     onChangeText={handlers.onChangeComment}
@@ -1044,6 +1048,7 @@ function ChartTradeSheetBody({
         <Pressable
           style={[styles.chartTradeInfoRow, useMtPendingTradeSheetLayout && styles.chartTradeInfoRowPending]}
           onPress={handlers.onOpenExpirationMenu}
+          activateOnPressIn
           unstable_pressDelay={0}
         >
           <Text style={[styles.chartTradeInfoLabel, useMtPendingTradeSheetLayout && styles.chartTradeInfoLabelPending]}>{t('Expiration')}:</Text>
@@ -1059,6 +1064,8 @@ function ChartTradeSheetBody({
               <View style={styles.chartTradeCommentEditorInlineInputWrap}>
                 <TextInput
                   ref={sheet.chartTradeCommentInputRef}
+                  autoFocus
+                  showSoftInputOnFocus
                   style={styles.chartTradeCommentEditorInlineInput}
                   value={sheet.chartTradeComment}
                   onChangeText={handlers.onChangeComment}

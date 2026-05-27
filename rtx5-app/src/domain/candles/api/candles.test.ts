@@ -58,7 +58,7 @@ test('extractCandleHistoryPayload accepts nested data wrappers used by some gate
   assert.equal(extracted.candles.length, 1);
 });
 
-test('buildCandleHistorySearchParams anchors history requests to a bounded recent window', () => {
+test('buildCandleHistorySearchParams anchors history requests with Unix-second bounds', () => {
   const params = buildCandleHistorySearchParams('m1', 500, {
     from: 1775738200.9,
     to: 1775738800.4,
@@ -66,8 +66,8 @@ test('buildCandleHistorySearchParams anchors history requests to a bounded recen
 
   assert.equal(params.get('timeframe'), 'M1');
   assert.equal(params.get('limit'), '500');
-  assert.equal(params.get('from'), '1775738200900');
-  assert.equal(params.get('to'), '1775738800400');
+  assert.equal(params.get('from'), '1775738200');
+  assert.equal(params.get('to'), '1775738800');
 });
 
 test('buildCandleHistorySearchParams leaves explicit backend timeframe token casing intact', () => {

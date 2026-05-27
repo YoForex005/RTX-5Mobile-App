@@ -26,6 +26,7 @@ export {
   shouldSuppressChartTapMenu,
   resolveChartTradeSheetMaxHeight,
   resolveChartTradeSheetHeaderLift,
+  resolveChartTradeSheetTopInset,
   resolveChartTradeSheetHostHeight,
   resolveChartTradeSheetFrameHeight,
   shouldShowChartTradeSheetHeader,

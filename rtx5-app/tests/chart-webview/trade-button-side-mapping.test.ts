@@ -165,12 +165,12 @@ test('compact footer lot chevrons open range picker without opening manual lot e
   );
   assert.match(
     buttonSource,
-    /onPress=\{handleDecreaseLotPress\}[\s\S]*testID="chart-trade-lot-decrease-button"[\s\S]*hitSlop=\{LOT_ADJUST_HIT_SLOP\}/,
+    /onPress=\{handleDecreaseLotPress\}[\s\S]*testID="chart-trade-lot-decrease-button"[\s\S]*hitSlop=\{LOT_ADJUST_HIT_SLOP\}[\s\S]*activateOnPressIn/,
   );
   assert.match(buttonSource, /return \(\) => lotPickerAction\('decrease'\);/);
   assert.match(
     buttonSource,
-    /onPress=\{handleIncreaseLotPress\}[\s\S]*testID="chart-trade-lot-increase-button"[\s\S]*hitSlop=\{LOT_ADJUST_HIT_SLOP\}/,
+    /onPress=\{handleIncreaseLotPress\}[\s\S]*testID="chart-trade-lot-increase-button"[\s\S]*hitSlop=\{LOT_ADJUST_HIT_SLOP\}[\s\S]*activateOnPressIn/,
   );
   assert.match(buttonSource, /return \(\) => lotPickerAction\('increase'\);/);
   assert.match(

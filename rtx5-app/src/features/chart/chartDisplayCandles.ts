@@ -14,6 +14,8 @@ type LivePriceInput = {
 const isFinitePositivePrice = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0;
 
+const MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP = 20;
+
 const buildLivePriceCandle = (
   price: number,
   timeframe: string,
@@ -66,9 +68,23 @@ export const resolveLivePriceCoherentCandles = (
     }
 
     if (coherentStartIndex > 0) {
+      if (coherentStartIndex >= MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP) {
+        return candles as Candle[];
+      }
+
       return candles.slice(coherentStartIndex) as Candle[];
     }
 
+    return candles as Candle[];
+  }
+
+  if (candles.length >= MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP) {
+    if (liveCandle.time > lastCandle.time) {
+      return [...candles, liveCandle] as Candle[];
+    }
+    if (liveCandle.time === lastCandle.time) {
+      return [...candles.slice(0, -1), liveCandle] as Candle[];
+    }
     return candles as Candle[];
   }
 

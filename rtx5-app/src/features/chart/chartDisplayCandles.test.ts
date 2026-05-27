@@ -51,6 +51,56 @@ test('drops stale history when a generated live candle starts a new price regime
   assert.deepEqual(result[0], staleBitcoinHistoryWithLiveTail[2]);
 });
 
+test('keeps substantial backend history when the latest live tail starts a new price regime', () => {
+  const loadedHistoryWithLiveTail: Candle[] = Array.from({ length: 30 }, (_, index) => ({
+    time: 1_771_000_020 + index * 60,
+    open: 66200 + index,
+    high: 66220 + index,
+    low: 66180 + index,
+    close: 66205 + index,
+    volume: 10,
+  }));
+  loadedHistoryWithLiveTail.push({
+    time: 1_771_001_820,
+    open: 75907.21,
+    high: 75907.21,
+    low: 75902,
+    close: 75907.21,
+    volume: 0,
+  });
+
+  const result = resolveLivePriceCoherentCandles(loadedHistoryWithLiveTail, 'M1', {
+    price: 75907.21,
+    time: 1_771_001_820,
+    nowSeconds: 1_771_001_820,
+  });
+
+  assert.equal(result.length, loadedHistoryWithLiveTail.length);
+  assert.deepEqual(result, loadedHistoryWithLiveTail);
+});
+
+test('keeps substantial backend history when a quote opens the next visible bucket', () => {
+  const loadedHistory: Candle[] = Array.from({ length: 30 }, (_, index) => ({
+    time: 1_771_000_020 + index * 60,
+    open: 66200 + index,
+    high: 66220 + index,
+    low: 66180 + index,
+    close: 66205 + index,
+    volume: 10,
+  }));
+
+  const result = resolveLivePriceCoherentCandles(loadedHistory, 'M1', {
+    price: 75907.21,
+    time: 1_771_001_820,
+    nowSeconds: 1_771_001_820,
+  });
+
+  assert.equal(result.length, loadedHistory.length + 1);
+  assert.deepEqual(result.slice(0, loadedHistory.length), loadedHistory);
+  assert.equal(result[result.length - 1].time, 1_771_001_820);
+  assert.equal(result[result.length - 1].close, 75907.21);
+});
+
 test('does not synthesize candles without a positive finite live price', () => {
   const result = resolveLivePriceCoherentCandles(staleGoldHistory, 'M1', {
     price: null,

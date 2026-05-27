@@ -98,6 +98,12 @@ import {
   resolveChartSymbolKey,
 } from './chartSymbolMetadata';
 import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
+import {
+  CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
+  CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_TIME_SCALE_FIX_LEFT_EDGE,
+  CHART_TIME_SCALE_FIX_RIGHT_EDGE,
+} from './ChartScreen.constants';
 const timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
 const buildAvailableChartSymbols = (chartSymbol: string, apiSymbols: readonly string[]): string[] => {
@@ -917,10 +923,9 @@ export function ChartScreen() {
         fontSize: 11,
       },
       grid: {
-        // Tight dotted grid (LineStyle.Dotted) matches the MT5 desktop look,
-        // mirroring the native chart's grid style for cross-platform parity.
-        vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.Dotted },
-        horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.Dotted },
+        // Sparse dotted guides match the MT5 mobile chart grid.
+        vertLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
+        horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -950,11 +955,11 @@ export function ChartScreen() {
           return formatChartTickLabel(time, true);
         },
         rightOffset: 0,
-        barSpacing: 13,
-        minBarSpacing: 3,
+        barSpacing: CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
+        minBarSpacing: CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
         shiftVisibleRangeOnNewBar: true,
-        fixLeftEdge: false,
-        fixRightEdge: false,
+        fixLeftEdge: CHART_TIME_SCALE_FIX_LEFT_EDGE,
+        fixRightEdge: CHART_TIME_SCALE_FIX_RIGHT_EDGE,
       },
       rightPriceScale: {
         borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',

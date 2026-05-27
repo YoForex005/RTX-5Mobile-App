@@ -1,6 +1,12 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, {  } from 'react';
-import { Dimensions, Modal, PanResponder, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { OVERLAY_MODAL_PROPS } from '../../../ui/overlayModalProps';
 import {
@@ -287,72 +293,170 @@ export function ChartTradeVolumeSlider({
   const resolved = React.useMemo(() => resolveTradeVolumeBounds(bounds), [bounds]);
   const { minVolume, maxVolume } = resolved;
   const resolvedRef = React.useRef(resolved);
-  React.useEffect(() => {
-    resolvedRef.current = resolved;
-  }, [resolved]);
-
-  const [trackWidth, setTrackWidth] = React.useState(0);
   const trackWidthRef = React.useRef(0);
+  const trackWidthShared = useSharedValue(0);
+  const sliderValueShared = useSharedValue(value);
+  const minVolumeShared = useSharedValue(resolved.minVolume);
+  const maxVolumeShared = useSharedValue(resolved.maxVolume);
+  const stepVolumeShared = useSharedValue(resolved.stepVolume);
+  const decimalsShared = useSharedValue(resolved.decimals);
+  const sliderDraggingRef = React.useRef(false);
   const onChangeRef = React.useRef(onChange);
+  const commitFrameRef = React.useRef<number | null>(null);
+  const pendingCommitValueRef = React.useRef<number | null>(null);
+  const lastCommittedValueRef = React.useRef(value);
   React.useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
-  const range = Math.max(maxVolume - minVolume, resolved.stepVolume);
-  const clampedValue = Math.min(maxVolume, Math.max(minVolume, value));
-  const progress = (clampedValue - minVolume) / range;
+  const clampedExternalValue = Math.min(maxVolume, Math.max(minVolume, value));
   const thumbRadius = CHART_TRADE_SLIDER_THUMB_SIZE / 2;
-  const usableWidth = Math.max(0, trackWidth - CHART_TRADE_SLIDER_THUMB_SIZE);
-  const thumbCenterX = thumbRadius + progress * usableWidth;
 
-  const applyFromX = React.useCallback((x: number) => {
-    const width = trackWidthRef.current;
-    if (width <= 0) return;
-    const usable = Math.max(1, width - CHART_TRADE_SLIDER_THUMB_SIZE);
-    const ratio = Math.min(1, Math.max(0, (x - CHART_TRADE_SLIDER_THUMB_SIZE / 2) / usable));
-    const r = resolvedRef.current;
-    const raw = r.minVolume + ratio * (r.maxVolume - r.minVolume);
-    onChangeRef.current(normalizeTradeVolume(raw, {
-      minVolume: r.minVolume,
-      maxVolume: r.maxVolume,
-      stepVolume: r.stepVolume,
-    }));
+  React.useEffect(() => {
+    resolvedRef.current = resolved;
+    minVolumeShared.value = resolved.minVolume;
+    maxVolumeShared.value = resolved.maxVolume;
+    stepVolumeShared.value = resolved.stepVolume;
+    decimalsShared.value = resolved.decimals;
+    if (!sliderDraggingRef.current) {
+      sliderValueShared.value = clampedExternalValue;
+      lastCommittedValueRef.current = clampedExternalValue;
+    }
+  }, [
+    clampedExternalValue,
+    decimalsShared,
+    maxVolumeShared,
+    minVolumeShared,
+    resolved,
+    sliderValueShared,
+    stepVolumeShared,
+  ]);
+
+  const flushPendingCommit = React.useCallback(() => {
+    commitFrameRef.current = null;
+    const nextValue = pendingCommitValueRef.current;
+    pendingCommitValueRef.current = null;
+    if (nextValue === null) {
+      return;
+    }
+    const epsilon = resolvedRef.current.stepVolume / 1000;
+    if (Math.abs(nextValue - lastCommittedValueRef.current) <= epsilon) {
+      return;
+    }
+    lastCommittedValueRef.current = nextValue;
+    onChangeRef.current(nextValue);
   }, []);
 
-  const panResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponderCapture: () => true,
-        onPanResponderGrant: (evt) => applyFromX(evt.nativeEvent.locationX),
-        onPanResponderMove: (evt) => applyFromX(evt.nativeEvent.locationX),
-        onPanResponderRelease: (evt) => applyFromX(evt.nativeEvent.locationX),
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [applyFromX],
-  );
+  const scheduleCommit = React.useCallback((nextValue: number, immediate = false) => {
+    pendingCommitValueRef.current = nextValue;
+    if (immediate) {
+      if (commitFrameRef.current !== null) {
+        cancelAnimationFrame(commitFrameRef.current);
+        commitFrameRef.current = null;
+      }
+      flushPendingCommit();
+      return;
+    }
+    if (commitFrameRef.current !== null) {
+      return;
+    }
+    commitFrameRef.current = requestAnimationFrame(flushPendingCommit);
+  }, [flushPendingCommit]);
+
+  React.useEffect(() => () => {
+    if (commitFrameRef.current !== null) {
+      cancelAnimationFrame(commitFrameRef.current);
+    }
+  }, []);
+
+  const setSliderDragging = React.useCallback((dragging: boolean) => {
+    sliderDraggingRef.current = dragging;
+  }, []);
+
+  const sliderGesture = React.useMemo(() => {
+    const resolveValueFromX = (x: number) => {
+      'worklet';
+      const width = trackWidthShared.value;
+      if (width <= 0) {
+        return sliderValueShared.value;
+      }
+      const min = minVolumeShared.value;
+      const max = maxVolumeShared.value;
+      const step = Math.max(stepVolumeShared.value, 0.0000001);
+      const usable = Math.max(1, width - CHART_TRADE_SLIDER_THUMB_SIZE);
+      const ratio = Math.min(1, Math.max(0, (x - CHART_TRADE_SLIDER_THUMB_SIZE / 2) / usable));
+      const raw = min + ratio * (max - min);
+      const stepped = min + Math.round((raw - min) / step) * step;
+      const clamped = Math.min(max, Math.max(min, stepped));
+      const factor = Math.pow(10, Math.max(0, decimalsShared.value));
+      return Math.round(clamped * factor) / factor;
+    };
+
+    return Gesture.Pan()
+      .minDistance(0)
+      .onBegin((event) => {
+        runOnJS(setSliderDragging)(true);
+        const nextValue = resolveValueFromX(event.x);
+        sliderValueShared.value = nextValue;
+        runOnJS(scheduleCommit)(nextValue, false);
+      })
+      .onUpdate((event) => {
+        const nextValue = resolveValueFromX(event.x);
+        sliderValueShared.value = nextValue;
+        runOnJS(scheduleCommit)(nextValue, false);
+      })
+      .onEnd((event) => {
+        const nextValue = resolveValueFromX(event.x);
+        sliderValueShared.value = nextValue;
+        runOnJS(scheduleCommit)(nextValue, true);
+      })
+      .onFinalize(() => {
+        runOnJS(setSliderDragging)(false);
+      });
+  }, [scheduleCommit]);
+
+  const animatedFillStyle = useAnimatedStyle(() => {
+    const width = trackWidthShared.value;
+    const min = minVolumeShared.value;
+    const max = maxVolumeShared.value;
+    const range = Math.max(max - min, stepVolumeShared.value);
+    const value = Math.min(max, Math.max(min, sliderValueShared.value));
+    const progress = (value - min) / range;
+    const usable = Math.max(0, width - CHART_TRADE_SLIDER_THUMB_SIZE);
+    return { width: thumbRadius + progress * usable };
+  });
+
+  const animatedThumbStyle = useAnimatedStyle(() => {
+    const width = trackWidthShared.value;
+    const min = minVolumeShared.value;
+    const max = maxVolumeShared.value;
+    const range = Math.max(max - min, stepVolumeShared.value);
+    const value = Math.min(max, Math.max(min, sliderValueShared.value));
+    const progress = (value - min) / range;
+    const usable = Math.max(0, width - CHART_TRADE_SLIDER_THUMB_SIZE);
+    return { left: progress * usable };
+  });
 
   return (
-    <View
-      style={styles.chartTradeSliderTouch}
-      onLayout={(e) => {
-        const w = e.nativeEvent.layout.width;
-        trackWidthRef.current = w;
-        setTrackWidth(w);
-      }}
-      {...panResponder.panHandlers}
-    >
-      <View style={styles.chartTradeSliderTrack}>
-        <View style={[styles.chartTradeSliderFill, { width: thumbCenterX }]} />
-      </View>
+    <GestureDetector gesture={sliderGesture}>
       <View
-        style={[
-          styles.chartTradeSliderThumb,
-          { left: thumbCenterX - thumbRadius },
-        ]}
-      />
-    </View>
+        style={styles.chartTradeSliderTouch}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          trackWidthRef.current = w;
+          trackWidthShared.value = w;
+        }}
+      >
+        <View style={styles.chartTradeSliderTrack}>
+          <Animated.View style={[styles.chartTradeSliderFill, animatedFillStyle]} />
+        </View>
+        <Animated.View
+          style={[
+            styles.chartTradeSliderThumb,
+            animatedThumbStyle,
+          ]}
+        />
+      </View>
+    </GestureDetector>
   );
 }

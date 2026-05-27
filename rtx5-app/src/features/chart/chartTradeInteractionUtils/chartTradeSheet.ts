@@ -77,6 +77,14 @@ type ChartTradeSheetHeaderLiftInput = {
   isFullscreen: boolean;
 };
 
+type ChartTradeSheetTopInsetInput = {
+  isFullscreen: boolean;
+  toolbarBottomInset: number;
+  topGap: number;
+  compactHeaderHeight: number;
+  hostTopOffset: number;
+};
+
 type ChartTradeSheetHostHeightInput = {
   currentHostHeight: number;
   nextHostHeight: number;
@@ -196,9 +204,7 @@ export function shouldHideChartTabBarForTradeInput({
   showChartTradeSheet,
   chartTradeCommentFocused,
 }: ChartTradeInlineInputVisibilityInput) {
-  void showChartTradeSheet;
-  void chartTradeCommentFocused;
-  return false;
+  return showChartTradeSheet && chartTradeCommentFocused;
 }
 
 export function shouldShowChartTradePreviewOnChart({
@@ -273,6 +279,37 @@ export function resolveChartTradeSheetHeaderLift(input: ChartTradeSheetHeaderLif
   // The expanded sheet now reserves its toolbar boundary through topInset.
   // Adding a separate header lift would let it climb into the compact header.
   return 0;
+}
+
+export function resolveChartTradeSheetTopInset({
+  isFullscreen,
+  toolbarBottomInset,
+  topGap,
+  compactHeaderHeight,
+  hostTopOffset,
+}: ChartTradeSheetTopInsetInput) {
+  const normalizedToolbarBottomInset =
+    Number.isFinite(toolbarBottomInset) && toolbarBottomInset > 0
+      ? toolbarBottomInset
+      : 0;
+  const normalizedTopGap =
+    Number.isFinite(topGap) && topGap > 0
+      ? topGap
+      : 0;
+  const normalizedCompactHeaderHeight =
+    Number.isFinite(compactHeaderHeight) && compactHeaderHeight > 0
+      ? compactHeaderHeight
+      : 0;
+  const normalizedHostTopOffset =
+    Number.isFinite(hostTopOffset) && hostTopOffset > 0
+      ? hostTopOffset
+      : 0;
+  const compactHostOverlapInset =
+    !isFullscreen
+      ? Math.max(0, normalizedCompactHeaderHeight - normalizedHostTopOffset)
+      : 0;
+
+  return normalizedToolbarBottomInset + compactHostOverlapInset + normalizedTopGap;
 }
 
 export function resolveChartTradeSheetHostHeight({

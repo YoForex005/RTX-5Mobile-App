@@ -86,9 +86,17 @@ export const extractCandleHistoryPayload = (payload: unknown): ExtractedCandleHi
   };
 };
 
+const normalizeBoundedUnixSeconds = (value: number): string =>
+  String(Math.max(1, Math.floor(value)));
+
 /**
  * Builds the URL query parameters for fetching historical candles.
- * Specifically converts frontend Unix SECONDS timestamps into backend MILLISECONDS.
+ *
+ * The candle backend contract uses Unix timestamps in seconds for both
+ * response candle times and pagination bounds. Keeping request bounds in the
+ * same unit is important for left-scroll history: sending milliseconds turns a
+ * valid 2026 cursor into a far-future year and the backend returns an empty
+ * page.
  */
 export const buildCandleHistorySearchParams = (
   timeframe: string,
@@ -106,13 +114,11 @@ export const buildCandleHistorySearchParams = (
   params.set('limit', String(count));
 
   if (typeof options?.from === 'number' && Number.isFinite(options.from) && options.from > 0) {
-    // The backend API expects epoch in milliseconds, so we convert the seconds timestamp.
-    params.set('from', String(Math.floor(options.from * 1000)));
+    params.set('from', normalizeBoundedUnixSeconds(options.from));
   }
 
   if (typeof options?.to === 'number' && Number.isFinite(options.to) && options.to > 0) {
-    // The backend API expects epoch in milliseconds, so we convert the seconds timestamp.
-    params.set('to', String(Math.floor(options.to * 1000)));
+    params.set('to', normalizeBoundedUnixSeconds(options.to));
   }
 
   return params;

@@ -136,8 +136,13 @@ test('webview bridge: setMarketPriceLines updates only bid and ask right-axis ma
   assertSourceContains(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask price badges must match their line color');
   assertSourceContains(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask price badges must keep readable text');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
-  assertSourceContains(visibleRangeBody, /expandPriceRangeForMarketPriceBadges\(resolveRobustVisiblePriceRange\(visibleBars, rawRange\)\)/, 'visible price-scale recovery must include in-range bid/ask badge values');
-  assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover when bid or ask badges leave the visible axis range');
+  assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore far live bid/ask badges during horizontal navigation');
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function expandPriceRangeForMarketPriceBadges\(range\)[\s\S]*var maxQuoteDistance = span \* 4[\s\S]*return expanded \? makePaddedPriceRange/,
+    'market bid/ask badge expansion must stay local to the visible candle range',
+  );
+  assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near bid/ask badges outside the visible axis range');
   assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask labels must come from the chart price-scale renderer');
   assert.doesNotMatch(chartWebViewHtmlSource, /renderMarketPriceScaleExtensions|MARKET_PRICE_SCALE_EXTENSION/, 'market bid/ask price badges must not have a second DOM line over the price scale');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
@@ -154,7 +159,11 @@ test('webview bridge: resizeChartViewport replays pending init and updates geome
 test('webview bridge: recoverChartSurface restores data overlays market lines and geometry', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'recoverChartSurface');
 
+  assertSourceContains(chartWebViewHtmlSource, /lastInitHostOptions = cloneSerializableValue\(opts \|\| \{\}, \{\}\)/, 'init must cache an immutable copy of host chart options');
+  assertSourceContains(chartWebViewHtmlSource, /var safeOpts = applyChartLayout\(cloneSerializableValue\(opts \|\| \{\}, \{\}\)\)/, 'WebView chart creation must mutate only a throwaway options copy');
+  assertSourceContains(chartWebViewHtmlSource, /var customCols = safeOpts\.customColors[\s\S]*applyMovingVerticalGridColor\(customCols && customCols\.grid\)[\s\S]*delete safeOpts\.customColors/, 'chart creation must read grid colors before removing customColors from LightweightCharts options');
   assertSourceContains(body, /lastRawSeriesData[\s\S]*series\.setData\(mapped\)/, 'surface recovery must restore the last raw series');
+  assertSourceContains(body, /cloneSerializableValue\(lastInitHostOptions, \{\}\)[\s\S]*lastInitChartType/, 'surface recovery must recreate missing charts from preserved host options');
   assertSourceContains(body, /clearMarketPriceLineRefs\(\)[\s\S]*series\.setData\(mapped\)/, 'surface recovery must remove tracked market price lines before setData can orphan them');
   assertSourceContains(body, /applyOverlayPayload\(_overlayPayload\)/, 'surface recovery must reapply overlays');
   assertSourceContains(body, /setMarketPriceLines\(lastBidPrice, lastAskPrice\)/, 'surface recovery must reapply market price lines');

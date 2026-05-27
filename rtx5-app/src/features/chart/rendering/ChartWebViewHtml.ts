@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING } from "../ChartScreen.constants";
+import { CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -15,12 +15,23 @@ export const CH_HTML = `
     <script>${ENHANCED_DRAWING_TOOLS_JS}</script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
-      #chart { width: 100%; height: 100%; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; position: relative; }
+      #chart { width: 100%; height: 100%; position: relative; z-index: 1; background: transparent; }
+      #rtx5-moving-vertical-grid {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        overflow: visible;
+        z-index: 0;
+      }
     </style>
 </head>
 <body>
     <div id="chart"></div>
+    <svg id="rtx5-moving-vertical-grid" aria-hidden="true"></svg>
     <script>
       // ─────────────────────────────────────────────────────────────────
       //   Minimal, fresh candle pipeline
@@ -100,7 +111,29 @@ export const CH_HTML = `
       var lastPriceLineDirection = null; // 'up' | 'down' — last colour applied
       var overlayRefreshRaf = 0;
       var overlayPriceScaleLockRaf = 0;
+      var overlayPriceScaleLockForceAutoScale = false;
       var priceScaleHealthRaf = 0;
+      var activeScrollPriceScaleRaf = 0;
+      var lastActiveScrollPriceScaleCheckAt = 0;
+      var activeHorizontalScrollGesture = false;
+      var activeHorizontalScrollGestureUntil = 0;
+      var visibleRangeIdleTimer = null;
+      var movingVerticalGridRaf = 0;
+      var movingVerticalGridColor = 'transparent';
+      var movingVerticalGridVisible = false;
+      var movingGridVerticalLines = [];
+      var movingGridHorizontalLines = [];
+      var movingGridVerticalGroup = null;
+      var movingGridHorizontalGroup = null;
+      var movingGridLayerSignature = '';
+      var movingGridVerticalSignature = '';
+      var movingGridHorizontalSignature = '';
+      var MOVING_GRID_HORIZONTAL_LINE_COUNT = ${CHART_GRID_HORIZONTAL_LINE_COUNT};
+      var MOVING_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET = ${CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET};
+      var MOVING_GRID_HORIZONTAL_SPACING = ${CHART_GRID_HORIZONTAL_SPACING};
+      var MOVING_GRID_STROKE_WIDTH = ${CHART_GRID_STROKE_WIDTH};
+      var MOVING_VERTICAL_GRID_SPACING = ${CHART_GRID_VERTICAL_SPACING};
+      var MOVING_VERTICAL_GRID_DASH_PATTERN = '${CHART_GRID_DASH_PATTERN}';
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
       var chartTouchInteractionSuspendDepth = 0;
@@ -123,6 +156,9 @@ export const CH_HTML = `
       var PRICE_SCALE_ROBUST_TRIM_MIN_VALUES = 12;
       var PRICE_SCALE_ROBUST_TRIM_RATIO = 0.08;
       var PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE = 5;
+      var ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS = 48;
+      var ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE = 8;
+      var ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS = 160;
       var HISTORY_PAGINATION_MIN_LEFT_BARS = 50;
       var HISTORY_PAGINATION_MAX_LEFT_BARS = 500;
       var HISTORY_PAGINATION_VIEWPORT_MULTIPLIER = 3;
@@ -205,6 +241,308 @@ export const CH_HTML = `
           plotTop: plotTop,
           plotHeight: Math.max(0, plotBottom - plotTop),
         };
+      }
+
+      function isTransparentChartColor(color) {
+        if (typeof color !== 'string' || color.length === 0) {
+          return true;
+        }
+        var normalized = color.toLowerCase().split(' ').join('');
+        if (normalized === 'transparent') {
+          return true;
+        }
+        if (normalized.indexOf('rgba(') === 0 && normalized.lastIndexOf(')') === normalized.length - 1) {
+          var parts = normalized.slice(5, -1).split(',');
+          if (parts.length >= 4) {
+            var alpha = Number(parts[3]);
+            return isFinite(alpha) && alpha <= 0;
+          }
+        }
+        return false;
+      }
+
+      function getMovingVerticalGridLayer() {
+        return document.getElementById('rtx5-moving-vertical-grid');
+      }
+
+      function clearMovingVerticalGrid() {
+        if (movingVerticalGridRaf) {
+          try { cancelAnimationFrame(movingVerticalGridRaf); } catch (_e) {}
+          movingVerticalGridRaf = 0;
+        }
+        var layer = getMovingVerticalGridLayer();
+        if (!layer) {
+          return;
+        }
+        layer.textContent = '';
+        layer.style.display = 'none';
+        movingGridVerticalLines = [];
+        movingGridHorizontalLines = [];
+        movingGridVerticalGroup = null;
+        movingGridHorizontalGroup = null;
+        movingGridLayerSignature = '';
+        movingGridVerticalSignature = '';
+        movingGridHorizontalSignature = '';
+      }
+
+      function applyMovingVerticalGridColor(color) {
+        movingVerticalGridColor = typeof color === 'string' ? color : 'transparent';
+        movingVerticalGridVisible = !isTransparentChartColor(movingVerticalGridColor);
+        if (!movingVerticalGridVisible) {
+          clearMovingVerticalGrid();
+          return;
+        }
+        scheduleMovingVerticalGridUpdate();
+      }
+
+      function scheduleMovingVerticalGridUpdate() {
+        if (movingVerticalGridRaf) {
+          return;
+        }
+        movingVerticalGridRaf = requestAnimationFrame(function() {
+          movingVerticalGridRaf = 0;
+          updateMovingVerticalGrid();
+        });
+      }
+
+      function applyMovingGridLineStyle(line) {
+        var styleSignature = [
+          movingVerticalGridColor,
+          MOVING_GRID_STROKE_WIDTH,
+          MOVING_VERTICAL_GRID_DASH_PATTERN
+        ].join('|');
+        if (line.__rtx5GridStyleSignature !== styleSignature) {
+          line.setAttribute('stroke', movingVerticalGridColor);
+          line.setAttribute('stroke-width', String(MOVING_GRID_STROKE_WIDTH));
+          line.setAttribute('stroke-linecap', 'round');
+          if (MOVING_VERTICAL_GRID_DASH_PATTERN) {
+            line.setAttribute('stroke-dasharray', MOVING_VERTICAL_GRID_DASH_PATTERN);
+          } else {
+            line.removeAttribute('stroke-dasharray');
+          }
+          line.setAttribute('vector-effect', 'non-scaling-stroke');
+          line.__rtx5GridStyleSignature = styleSignature;
+        }
+        if (line.style.display !== 'block') {
+          line.style.display = 'block';
+        }
+      }
+
+      function setMovingGridAttribute(line, name, value) {
+        var nextValue = String(value);
+        if (line.getAttribute(name) !== nextValue) {
+          line.setAttribute(name, nextValue);
+        }
+      }
+
+      function resolveMovingGridGroup(layer, namespace, id) {
+        var group = id === 'vertical' ? movingGridVerticalGroup : movingGridHorizontalGroup;
+        if (!group || group.parentNode !== layer) {
+          group = document.createElementNS(namespace, 'g');
+          layer.appendChild(group);
+          if (id === 'vertical') {
+            movingGridVerticalGroup = group;
+          } else {
+            movingGridHorizontalGroup = group;
+          }
+        }
+        return group;
+      }
+
+      function setMovingGridGroupTransform(group, x) {
+        var nextTransform = 'translate(' + Math.round(x) + ',0)';
+        if (group.getAttribute('transform') !== nextTransform) {
+          group.setAttribute('transform', nextTransform);
+        }
+      }
+
+      function resolveMovingGridLine(pool, layer, namespace, index) {
+        var line = pool[index];
+        if (!line || line.parentNode !== layer) {
+          line = document.createElementNS(namespace, 'line');
+          layer.appendChild(line);
+          pool[index] = line;
+        }
+        applyMovingGridLineStyle(line);
+        return line;
+      }
+
+      function hideUnusedMovingGridLines(pool, startIndex) {
+        for (var index = startIndex; index < pool.length; index += 1) {
+          if (pool[index]) {
+            pool[index].style.display = 'none';
+          }
+        }
+      }
+
+      function resolveMovingVerticalGridXPositions(metrics) {
+        var positions = [];
+        var timeScaleApi = chart && typeof chart.timeScale === 'function' ? chart.timeScale() : null;
+        if (!timeScaleApi) {
+          return positions;
+        }
+
+        var range =
+          typeof timeScaleApi.getVisibleLogicalRange === 'function'
+            ? timeScaleApi.getVisibleLogicalRange()
+            : null;
+        var options =
+          typeof timeScaleApi.options === 'function'
+            ? timeScaleApi.options()
+            : null;
+        var barSpacing =
+          options && typeof options.barSpacing === 'number' && isFinite(options.barSpacing) && options.barSpacing > 0
+            ? options.barSpacing
+            : ${CHART_DEFAULT_TIME_SCALE_BAR_SPACING};
+        var visualSpacing = Math.max(12, MOVING_VERTICAL_GRID_SPACING);
+
+        if (
+          range &&
+          typeof range.from === 'number' &&
+          typeof range.to === 'number' &&
+          isFinite(range.from) &&
+          isFinite(range.to) &&
+          typeof timeScaleApi.logicalToCoordinate === 'function'
+        ) {
+          var anchorCoordinate = timeScaleApi.logicalToCoordinate(0);
+          if (typeof anchorCoordinate !== 'number' || !isFinite(anchorCoordinate)) {
+            anchorCoordinate = -(range.from * barSpacing);
+          }
+          var firstCoordinate = anchorCoordinate % visualSpacing;
+          while (firstCoordinate > 0) {
+            firstCoordinate -= visualSpacing;
+          }
+          while (firstCoordinate < -visualSpacing) {
+            firstCoordinate += visualSpacing;
+          }
+          for (var x = firstCoordinate; x <= metrics.paneWidth + 1; x += visualSpacing) {
+            if (x >= -1) {
+              positions.push(Math.round(x));
+            }
+          }
+          if (positions.length > 0) {
+            return positions;
+          }
+        }
+
+        var fallbackX = 0;
+        if (range && typeof range.from === 'number' && isFinite(range.from)) {
+          fallbackX = -((range.from * barSpacing) % visualSpacing);
+          while (fallbackX > 0) {
+            fallbackX -= visualSpacing;
+          }
+          while (fallbackX < -visualSpacing) {
+            fallbackX += visualSpacing;
+          }
+        }
+        for (; fallbackX <= metrics.paneWidth + 1; fallbackX += visualSpacing) {
+          if (fallbackX >= -1) {
+            positions.push(Math.round(fallbackX));
+          }
+        }
+        return positions;
+      }
+
+      function resolveMovingGridYPositions(metrics) {
+        var positions = [];
+        var lineCount = Math.max(1, Math.round(MOVING_GRID_HORIZONTAL_LINE_COUNT));
+        var spacing = Math.max(24, MOVING_GRID_HORIZONTAL_SPACING);
+        var firstInteriorLine = MOVING_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET;
+        for (var index = 0; index < lineCount; index++) {
+          var y = firstInteriorLine + index * spacing;
+          if (y > 0 && y < metrics.paneHeight - 1) {
+            positions.push(Math.round(y));
+          }
+        }
+        return positions;
+      }
+
+      function updateMovingVerticalGrid() {
+        var layer = getMovingVerticalGridLayer();
+        if (!layer || !chart || !movingVerticalGridVisible) {
+          clearMovingVerticalGrid();
+          return;
+        }
+        try {
+          var metrics = resolvePrimaryPaneMetrics();
+          if (!(metrics.paneWidth > 0) || !(metrics.paneHeight > 0)) {
+            clearMovingVerticalGrid();
+            return;
+          }
+
+          var xPositions = resolveMovingVerticalGridXPositions(metrics);
+          var yPositions = resolveMovingGridYPositions(metrics);
+          if (!xPositions.length && !yPositions.length) {
+            clearMovingVerticalGrid();
+            return;
+          }
+
+          layer.style.display = 'block';
+          var layerSignature = [
+            metrics.leftAxisWidth,
+            metrics.paneWidth,
+            metrics.paneHeight
+          ].join('|');
+          if (layerSignature !== movingGridLayerSignature) {
+            layer.style.left = metrics.leftAxisWidth + 'px';
+            layer.style.top = '0px';
+            layer.style.width = metrics.paneWidth + 'px';
+            layer.style.height = metrics.paneHeight + 'px';
+            layer.setAttribute('width', String(metrics.paneWidth));
+            layer.setAttribute('height', String(metrics.paneHeight));
+            layer.setAttribute('viewBox', '0 0 ' + metrics.paneWidth + ' ' + metrics.paneHeight);
+            movingGridLayerSignature = layerSignature;
+            movingGridHorizontalSignature = '';
+          }
+          var namespace = 'http://www.w3.org/2000/svg';
+          var verticalGroup = resolveMovingGridGroup(layer, namespace, 'vertical');
+          var horizontalGroup = resolveMovingGridGroup(layer, namespace, 'horizontal');
+          var visualSpacing = Math.max(12, MOVING_VERTICAL_GRID_SPACING);
+          var verticalOffset = xPositions.length ? xPositions[0] : 0;
+          var verticalSignature = [
+            xPositions.length,
+            metrics.paneHeight,
+            movingVerticalGridColor,
+            MOVING_GRID_STROKE_WIDTH,
+            MOVING_VERTICAL_GRID_DASH_PATTERN,
+            visualSpacing
+          ].join('|');
+          if (verticalSignature !== movingGridVerticalSignature) {
+          for (var index = 0; index < xPositions.length; index++) {
+            var x = index * visualSpacing;
+            var line = resolveMovingGridLine(movingGridVerticalLines, verticalGroup, namespace, index);
+            setMovingGridAttribute(line, 'x1', x);
+            setMovingGridAttribute(line, 'y1', 0);
+            setMovingGridAttribute(line, 'x2', x);
+            setMovingGridAttribute(line, 'y2', metrics.paneHeight);
+          }
+          hideUnusedMovingGridLines(movingGridVerticalLines, xPositions.length);
+            movingGridVerticalSignature = verticalSignature;
+          }
+          setMovingGridGroupTransform(verticalGroup, verticalOffset);
+          var horizontalSignature = [
+            metrics.paneWidth,
+            metrics.paneHeight,
+            movingVerticalGridColor,
+            MOVING_GRID_STROKE_WIDTH,
+            MOVING_VERTICAL_GRID_DASH_PATTERN,
+            yPositions.join(',')
+          ].join('|');
+          if (horizontalSignature !== movingGridHorizontalSignature) {
+            for (var yIndex = 0; yIndex < yPositions.length; yIndex++) {
+              var y = yPositions[yIndex];
+              var horizontalLine = resolveMovingGridLine(movingGridHorizontalLines, horizontalGroup, namespace, yIndex);
+              setMovingGridAttribute(horizontalLine, 'x1', 0);
+              setMovingGridAttribute(horizontalLine, 'y1', y);
+              setMovingGridAttribute(horizontalLine, 'x2', metrics.paneWidth);
+              setMovingGridAttribute(horizontalLine, 'y2', y);
+            }
+            hideUnusedMovingGridLines(movingGridHorizontalLines, yPositions.length);
+            movingGridHorizontalSignature = horizontalSignature;
+          }
+        } catch (_e) {
+          clearMovingVerticalGrid();
+        }
       }
 
       function isValidPriceRange(range) {
@@ -392,6 +730,24 @@ export const CH_HTML = `
         return prices;
       }
 
+      function isMarketPriceNearRange(price, range) {
+        var normalized = normalizePriceRange(range);
+        if (!normalized || typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return false;
+        }
+        if (price >= normalized.from && price <= normalized.to) {
+          return true;
+        }
+        var span = getPriceRangeSpan(normalized);
+        if (!(span > 0)) {
+          return false;
+        }
+        var distance = price < normalized.from
+          ? normalized.from - price
+          : price - normalized.to;
+        return distance <= span * 4;
+      }
+
       function expandPriceRangeForMarketPriceBadges(range) {
         var normalized = normalizePriceRange(range);
         if (!normalized) {
@@ -404,12 +760,7 @@ export const CH_HTML = `
         var minPrice = normalized.from;
         var maxPrice = normalized.to;
         var span = getPriceRangeSpan(normalized);
-        var center = (minPrice + maxPrice) / 2;
-        var maxQuoteDistance = Math.max(
-          span * 4,
-          Math.abs(center || 1) * PRICE_SCALE_ROBUST_CLUSTER_RELATIVE_TOLERANCE,
-          1
-        );
+        var maxQuoteDistance = span * 4;
         var expanded = false;
         for (var i = 0; i < marketPrices.length; i += 1) {
           var price = marketPrices[i];
@@ -424,14 +775,18 @@ export const CH_HTML = `
         return expanded ? makePaddedPriceRange(minPrice, maxPrice) : normalized;
       }
 
-      function rangeContainsMarketPriceBadges(range) {
+      function rangeContainsMarketPriceBadges(range, referenceRange) {
         var normalized = normalizePriceRange(range);
         if (!normalized) {
           return true;
         }
+        var reference = normalizePriceRange(referenceRange);
         var marketPrices = getMarketPriceBadgeValues();
         for (var i = 0; i < marketPrices.length; i += 1) {
           var price = marketPrices[i];
+          if (reference && !isMarketPriceNearRange(price, reference)) {
+            continue;
+          }
           if (price < normalized.from || price > normalized.to) {
             return false;
           }
@@ -523,7 +878,7 @@ export const CH_HTML = `
           : rawRange;
       }
 
-      function resolvePriceRangeFromVisibleData() {
+      function resolvePriceRangeFromVisibleData(includeMarketPriceBadges) {
         if (!lastRawSeriesData || lastRawSeriesData.length === 0) {
           return null;
         }
@@ -563,7 +918,10 @@ export const CH_HTML = `
         }
 
         var rawRange = resolvePriceRangeFromBars(visibleBars);
-        return expandPriceRangeForMarketPriceBadges(resolveRobustVisiblePriceRange(visibleBars, rawRange));
+        var robustRange = resolveRobustVisiblePriceRange(visibleBars, rawRange);
+        return includeMarketPriceBadges === false
+          ? robustRange
+          : expandPriceRangeForMarketPriceBadges(robustRange);
       }
 
       function resolveVerticalPanStartPriceRange() {
@@ -575,7 +933,7 @@ export const CH_HTML = `
         if (isValidPriceRange(currentRange)) {
           return currentRange;
         }
-        return resolvePriceRangeFromVisibleData();
+        return resolvePriceRangeFromVisibleData(false);
       }
 
       function enableRightPriceAutoScale() {
@@ -633,11 +991,13 @@ export const CH_HTML = `
           }
           currentRange = normalizePriceRange(currentRange);
 
-          var dataRange = resolvePriceRangeFromVisibleData();
+          var candleDataRange = resolvePriceRangeFromVisibleData(false);
+          var dataRange = expandPriceRangeForMarketPriceBadges(candleDataRange);
           if (!isValidPriceRange(dataRange)) {
             return;
           }
           dataRange = normalizePriceRange(dataRange);
+          candleDataRange = normalizePriceRange(candleDataRange);
 
           var scaleSpan = getPriceRangeSpan(currentRange);
           var dataSpan = getPriceRangeSpan(dataRange);
@@ -647,7 +1007,7 @@ export const CH_HTML = `
           var dataOverlapRatio = getPriceRangeOverlapRatio(currentRange, dataRange);
           var pixelCompression = resolvePriceRangePixelCompression(dataRange);
           var dataVisuallyCollapsed = Boolean(pixelCompression && pixelCompression.collapsed);
-          var marketPriceBadgesOutOfRange = !rangeContainsMarketPriceBadges(currentRange);
+          var marketPriceBadgesOutOfRange = !rangeContainsMarketPriceBadges(currentRange, candleDataRange);
 
           // A stale manual price range can be many times wider than the
           // visible OHLC range, or shifted away from it after horizontal
@@ -695,6 +1055,112 @@ export const CH_HTML = `
         });
       }
 
+      function isChartScaleGestureSuppressed() {
+        return Date.now() <= suppressChartTapUntil;
+      }
+
+      function markHorizontalScrollGestureActive() {
+        activeHorizontalScrollGesture = true;
+        activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
+      }
+
+      function finishHorizontalScrollGesture() {
+        activeHorizontalScrollGesture = false;
+        activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
+      }
+
+      function isHorizontalScrollGesturePriceScaleRecoveryEligible() {
+        return activeHorizontalScrollGesture || Date.now() <= activeHorizontalScrollGestureUntil;
+      }
+
+      function clearActiveScrollPriceScaleRecovery() {
+        if (activeScrollPriceScaleRaf) {
+          try { cancelAnimationFrame(activeScrollPriceScaleRaf); } catch (_) {}
+          activeScrollPriceScaleRaf = 0;
+        }
+        lastActiveScrollPriceScaleCheckAt = 0;
+        activeHorizontalScrollGesture = false;
+        activeHorizontalScrollGestureUntil = 0;
+      }
+
+      function healVisiblePriceScaleDuringActiveScroll(reason) {
+        try {
+          if (
+            verticalPricePanGestureActive ||
+            activeTradeLineDrag ||
+            manualPriceScaleRangeActive ||
+            isChartScaleGestureSuppressed() ||
+            !isHorizontalScrollGesturePriceScaleRecoveryEligible()
+          ) {
+            return;
+          }
+          var priceScaleApi = getRightPriceScaleApi();
+          var currentRange =
+            priceScaleApi && typeof priceScaleApi.getVisibleRange === 'function'
+              ? priceScaleApi.getVisibleRange()
+              : null;
+          if (!isValidPriceRange(currentRange)) {
+            return;
+          }
+          currentRange = normalizePriceRange(currentRange);
+
+          var candleDataRange = normalizePriceRange(resolvePriceRangeFromVisibleData(false));
+          if (!isValidPriceRange(candleDataRange)) {
+            return;
+          }
+          var scaleSpan = getPriceRangeSpan(currentRange);
+          var dataSpan = getPriceRangeSpan(candleDataRange);
+          if (!(scaleSpan > 0) || !(dataSpan > 0)) {
+            return;
+          }
+
+          var dataOverlapRatio = getPriceRangeOverlapRatio(currentRange, candleDataRange);
+          var pixelCompression = resolvePriceRangePixelCompression(candleDataRange);
+          var shouldRecover =
+            scaleSpan > dataSpan * ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE ||
+            dataSpan > scaleSpan * ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE ||
+            dataOverlapRatio < PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO ||
+            Boolean(pixelCompression && pixelCompression.collapsed);
+
+          if (!shouldRecover) {
+            return;
+          }
+
+          chartDebugLog('[WEBVIEW-CANDLE] heal_price_scale_active_scroll', {
+            reason: reason || 'visible_range_active',
+            scaleSpan: scaleSpan,
+            dataSpan: dataSpan,
+            dataOverlapRatio: dataOverlapRatio,
+            dataPixelSpan: pixelCompression ? pixelCompression.pixelSpan : null,
+            minDataPixelSpan: pixelCompression ? pixelCompression.minPixelSpan : null,
+          });
+          enableRightPriceAutoScale();
+          setRecoveredRightPriceRange(candleDataRange);
+          scheduleOverlayDomRefresh();
+          postChartGeometry();
+        } catch (_e) {}
+      }
+
+      function scheduleActiveScrollPriceScaleRecovery(reason) {
+        if (activeScrollPriceScaleRaf) {
+          return;
+        }
+        if (isChartScaleGestureSuppressed() || !isHorizontalScrollGesturePriceScaleRecoveryEligible()) {
+          return;
+        }
+        var now = Date.now();
+        if (now - lastActiveScrollPriceScaleCheckAt < ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS) {
+          return;
+        }
+        activeScrollPriceScaleRaf = requestAnimationFrame(function() {
+          activeScrollPriceScaleRaf = 0;
+          lastActiveScrollPriceScaleCheckAt = Date.now();
+          if (!isChartScaleGestureSuppressed()) {
+            healVisiblePriceScaleDuringActiveScroll(reason || 'visible_range_active');
+          }
+        });
+      }
+
       function ensureMarketPriceBadgesVisible() {
         try {
           if (verticalPricePanGestureActive || activeTradeLineDrag || manualPriceScaleRangeActive) {
@@ -708,10 +1174,11 @@ export const CH_HTML = `
           if (!isValidPriceRange(currentRange)) {
             return;
           }
-          if (rangeContainsMarketPriceBadges(currentRange)) {
+          var candleRange = resolvePriceRangeFromVisibleData(false);
+          if (rangeContainsMarketPriceBadges(currentRange, candleRange)) {
             return;
           }
-          var expandedRange = resolvePriceRangeFromVisibleData();
+          var expandedRange = expandPriceRangeForMarketPriceBadges(candleRange);
           if (!isValidPriceRange(expandedRange)) {
             return;
           }
@@ -753,12 +1220,17 @@ export const CH_HTML = `
       }
 
       function scheduleOverlayPriceScaleLock(forceAutoScale) {
+        if (forceAutoScale === true) {
+          overlayPriceScaleLockForceAutoScale = true;
+        }
         if (overlayPriceScaleLockRaf) {
-          cancelAnimationFrame(overlayPriceScaleLockRaf);
+          return;
         }
         overlayPriceScaleLockRaf = requestAnimationFrame(function() {
           overlayPriceScaleLockRaf = 0;
-          lockVisiblePriceScaleRange(forceAutoScale, 0);
+          var shouldForceAutoScale = overlayPriceScaleLockForceAutoScale;
+          overlayPriceScaleLockForceAutoScale = false;
+          lockVisiblePriceScaleRange(shouldForceAutoScale, 0);
         });
       }
 
@@ -789,6 +1261,7 @@ export const CH_HTML = `
               height: metrics.plotHeight,
             },
           }));
+          scheduleMovingVerticalGridUpdate();
         } catch (_e) {}
       }
 
@@ -914,6 +1387,18 @@ export const CH_HTML = `
           overlayRefreshRaf = 0;
           refreshOverlayDomLabels(_overlayPayload);
         });
+      }
+
+      function scheduleVisibleRangeIdleWork() {
+        if (visibleRangeIdleTimer !== null) {
+          clearTimeout(visibleRangeIdleTimer);
+        }
+        visibleRangeIdleTimer = setTimeout(function() {
+          visibleRangeIdleTimer = null;
+          scheduleOverlayPriceScaleLock(false);
+          schedulePriceScaleHealthCheck('visible_range_change', true);
+          scheduleOverlayDomRefresh();
+        }, 96);
       }
 
       var chartTradeLineDragDomRefreshTimer = null;
@@ -1114,6 +1599,10 @@ export const CH_HTML = `
           if (overlayPriceScaleLockRaf) {
             cancelAnimationFrame(overlayPriceScaleLockRaf);
             overlayPriceScaleLockRaf = 0;
+          }
+          if (visibleRangeIdleTimer !== null) {
+            clearTimeout(visibleRangeIdleTimer);
+            visibleRangeIdleTimer = null;
           }
           vertPanState = {
             startY: clientY,
@@ -1324,6 +1813,8 @@ export const CH_HTML = `
         var onPointerDown = function(event) {
           rememberPointerDown(event);
           postChartTouchState(true);
+          activeHorizontalScrollGesture = false;
+          activeHorizontalScrollGestureUntil = 0;
           if (isScaleGestureEvent(event)) {
             suppressChartTapAfterScale();
             return;
@@ -1370,6 +1861,9 @@ export const CH_HTML = `
             stopChartEvent(event);
             return;
           }
+          if (point && activeHorizontalScrollGesture) {
+            markHorizontalScrollGestureActive();
+          }
           if (point && vertPanPending && !vertPanState) {
             var dx = Math.abs(point.x - vertPanPending.startX);
             var dy = Math.abs(point.y - vertPanPending.startY);
@@ -1393,6 +1887,8 @@ export const CH_HTML = `
               try {
                 enableRightPriceAutoScale();
               } catch (_e) {}
+              markHorizontalScrollGestureActive();
+              scheduleActiveScrollPriceScaleRecovery('horizontal_pan_active');
               pendingPointerTap = null;
               vertPanPending = null;
             }
@@ -1404,6 +1900,7 @@ export const CH_HTML = `
           var wasScaleGesture = isScaleGestureEvent(event) || gestureHadMultitouch || Date.now() <= suppressChartTapUntil;
           if (finishTradeLineDrag(event, false)) {
             releasePointer(event);
+            finishHorizontalScrollGesture();
             if (activePointerCount <= 0) {
               gestureHadMultitouch = false;
               postChartTouchState(false);
@@ -1411,6 +1908,7 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
+          finishHorizontalScrollGesture();
           if (wasScaleGesture) {
             suppressChartTapAfterScale();
             if (activePointerCount <= 0) {
@@ -1464,6 +1962,7 @@ export const CH_HTML = `
         var onPointerCancel = function(event) {
           if (finishTradeLineDrag(event, true)) {
             releasePointer(event);
+            finishHorizontalScrollGesture();
             if (activePointerCount <= 0) {
               gestureHadMultitouch = false;
               postChartTouchState(false);
@@ -1471,6 +1970,7 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
+          finishHorizontalScrollGesture();
           if (Date.now() <= suppressChartTapUntil) {
             if (activePointerCount <= 0) {
               // Same auto-scale snap-back when a pinch is cancelled —
@@ -1588,6 +2088,8 @@ export const CH_HTML = `
           activePointerIds = {};
           activePointerCount = 0;
           gestureHadMultitouch = false;
+          activeHorizontalScrollGesture = false;
+          activeHorizontalScrollGestureUntil = 0;
           activeTradeLineDrag = null;
           suppressNextChartClickUntil = 0;
           suppressChartTapUntil = 0;
@@ -1671,6 +2173,8 @@ export const CH_HTML = `
             rightOffset: ${CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET},
             barSpacing: resolveDefaultBarSpacing(lengthOverride),
             minBarSpacing: ${CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING},
+            fixLeftEdge: ${CHART_TIME_SCALE_FIX_LEFT_EDGE},
+            fixRightEdge: ${CHART_TIME_SCALE_FIX_RIGHT_EDGE},
           });
         } catch (_e) {}
       }
@@ -1960,6 +2464,30 @@ export const CH_HTML = `
         return opts || {};
       }
 
+      function resolveChartBackgroundColor(opts) {
+        try {
+          var background = opts && opts.layout ? opts.layout.background : null;
+          if (background && typeof background.color === 'string') {
+            return background.color;
+          }
+          if (typeof background === 'string') {
+            return background;
+          }
+        } catch (_e) {}
+        return '#FFFFFF';
+      }
+
+      function makeChartCanvasBackgroundTransparent(opts) {
+        if (!opts) {
+          opts = {};
+        }
+        if (!opts.layout) {
+          opts.layout = {};
+        }
+        opts.layout.background = { type: 'solid', color: 'transparent' };
+        return opts;
+      }
+
       function cloneSerializableValue(value, fallback) {
         try {
           return JSON.parse(JSON.stringify(value));
@@ -2021,6 +2549,7 @@ export const CH_HTML = `
         }
         chartTouchInteractionSuspendDepth = 0;
         lastPostedChartTouchActive = false;
+        clearMovingVerticalGrid();
         if (chart) {
           try { chart.remove(); } catch (_e) {}
           chart = null;
@@ -2050,9 +2579,15 @@ export const CH_HTML = `
           try { cancelAnimationFrame(overlayPriceScaleLockRaf); } catch (_) {}
           overlayPriceScaleLockRaf = 0;
         }
+        overlayPriceScaleLockForceAutoScale = false;
         if (priceScaleHealthRaf) {
           try { cancelAnimationFrame(priceScaleHealthRaf); } catch (_) {}
           priceScaleHealthRaf = 0;
+        }
+        clearActiveScrollPriceScaleRecovery();
+        if (visibleRangeIdleTimer !== null) {
+          try { clearTimeout(visibleRangeIdleTimer); } catch (_) {}
+          visibleRangeIdleTimer = null;
         }
         pendingTick = null;
         lastBarTime = 0;
@@ -2066,12 +2601,21 @@ export const CH_HTML = `
             : 2;
         lastRawSeriesData = sanitizeSeriesData(data);
 
-        var safeOpts = applyChartLayout(opts);
+        var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
+        var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
+        try {
+          document.body.style.background = chartBackgroundColor;
+          el.style.background = 'transparent';
+        } catch (_bgErr) {}
+        safeOpts = makeChartCanvasBackgroundTransparent(safeOpts);
         var customCols = safeOpts.customColors;
+        applyMovingVerticalGridColor(customCols && customCols.grid);
         if (safeOpts.customColors) { delete safeOpts.customColors; }
         if (!safeOpts.timeScale) {
           safeOpts.timeScale = {};
         }
+        safeOpts.timeScale.fixLeftEdge = ${CHART_TIME_SCALE_FIX_LEFT_EDGE};
+        safeOpts.timeScale.fixRightEdge = ${CHART_TIME_SCALE_FIX_RIGHT_EDGE};
         safeOpts.timeScale.tickMarkFormatter = formatChartTickMark;
         // Crosshair / tooltip formatter uses the backend candle timestamp
         // that the host sends to the series.
@@ -2107,9 +2651,9 @@ export const CH_HTML = `
           ) {
             var lastPaginateTime = 0;
             chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
-              scheduleOverlayPriceScaleLock(false);
-              schedulePriceScaleHealthCheck('visible_range_change', true);
-              refreshOverlayDomLabels(_overlayPayload);
+              scheduleMovingVerticalGridUpdate();
+              scheduleActiveScrollPriceScaleRecovery('visible_range_active');
+              scheduleVisibleRangeIdleWork();
               if (shouldPaginateForVisibleLogicalRange(range)) {
                 var now = Date.now();
                 if (now - lastPaginateTime > HISTORY_PAGINATION_DEBOUNCE_MS) {
@@ -2243,7 +2787,7 @@ export const CH_HTML = `
           try {
             var bg = (opts && opts.layout && opts.layout.background && opts.layout.background.color) || '#000';
             document.body.style.background = bg;
-            document.getElementById('chart').style.background = bg;
+            document.getElementById('chart').style.background = 'transparent';
           } catch(_) {}
 
           // Defer to requestAnimationFrame so the browser completes layout
@@ -2805,9 +3349,10 @@ export const CH_HTML = `
           }
         }
 
-        return Object.keys(byTime)
+        var sorted = Object.keys(byTime)
           .map(function(key) { return byTime[key]; })
           .sort(function(left, right) { return left.time - right.time; });
+        return filterRawSeriesDataByPriceContinuity(sorted);
       }
 
       function upsertRawSeriesDatum(tick) {

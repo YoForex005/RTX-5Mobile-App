@@ -208,6 +208,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         accessibilityLabel="Decrease lot"
         testID="chart-trade-lot-decrease-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
+        activateOnPressIn
       >
         <Ionicons
           name="chevron-down"
@@ -271,6 +272,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
         accessibilityLabel="Increase lot"
         testID="chart-trade-lot-increase-button"
         hitSlop={LOT_ADJUST_HIT_SLOP}
+        activateOnPressIn
       >
         <Ionicons
           name="chevron-up"

@@ -163,8 +163,48 @@ test('quote updates never patch candle geometry inside the WebView', () => {
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*refreshOverlayDomLabels/,
-    'visible logical range changes must refresh overlays without overriding an active manual price range',
+    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*scheduleMovingVerticalGridUpdate\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)/,
+    'visible logical range changes must run a throttled active-scroll price-scale recovery before deferred overlay maintenance',
+  );
+  assertSourceContains(
+    source,
+    /ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS = 48[\s\S]*ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE = 8/,
+    'active-scroll recovery must be fast enough for 60 FPS scroll while staying throttled off every frame',
+  );
+  assertSourceContains(
+    source,
+    /function scheduleActiveScrollPriceScaleRecovery\(reason\)[\s\S]*activeScrollPriceScaleRaf[\s\S]*isChartScaleGestureSuppressed\(\) \|\| !isHorizontalScrollGesturePriceScaleRecoveryEligible\(\)[\s\S]*Date\.now\(\)[\s\S]*ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS[\s\S]*requestAnimationFrame\(function\(\) \{[\s\S]*!isChartScaleGestureSuppressed\(\)[\s\S]*healVisiblePriceScaleDuringActiveScroll\(reason \|\| 'visible_range_active'\)/,
+    'active-scroll recovery must be RAF based, throttled, tied to one-finger horizontal pan, and suppressed during scale gestures',
+  );
+  assertSourceContains(
+    source,
+    /function healVisiblePriceScaleDuringActiveScroll\(reason\)[\s\S]*manualPriceScaleRangeActive \|\|[\s\S]*isChartScaleGestureSuppressed\(\) \|\|[\s\S]*!isHorizontalScrollGesturePriceScaleRecoveryEligible\(\)[\s\S]*resolvePriceRangeFromVisibleData\(false\)[\s\S]*scaleSpan > dataSpan \* ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*setRecoveredRightPriceRange\(candleDataRange\)/,
+    'active horizontal scroll must heal stale price ranges from visible candles only without fighting manual vertical scaling',
+  );
+  assertSourceContains(
+    source,
+    /function isChartScaleGestureSuppressed\(\)[\s\S]*Date\.now\(\) <= suppressChartTapUntil/,
+    'active-scroll price recovery must share the existing pinch/scale suppression window',
+  );
+  assertSourceContains(
+    source,
+    /dx > VERT_PAN_THRESHOLD && dx > dy \* 1\.2[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*markHorizontalScrollGestureActive\(\)[\s\S]*scheduleActiveScrollPriceScaleRecovery\('horizontal_pan_active'\)/,
+    'active-scroll recovery must be armed only after the gesture is classified as horizontal pan',
+  );
+  assertSourceContains(
+    source,
+    /function clearActiveScrollPriceScaleRecovery\(\)[\s\S]*cancelAnimationFrame\(activeScrollPriceScaleRaf\)[\s\S]*lastActiveScrollPriceScaleCheckAt = 0[\s\S]*activeHorizontalScrollGesture = false[\s\S]*activeHorizontalScrollGestureUntil = 0/,
+    'chart teardown/reinit must cancel pending active-scroll price recovery work',
+  );
+  assertSourceContains(
+    source,
+    /if \(priceScaleHealthRaf\)[\s\S]*priceScaleHealthRaf = 0[\s\S]*clearActiveScrollPriceScaleRecovery\(\)[\s\S]*if \(visibleRangeIdleTimer !== null\)/,
+    'chart reinitialization must clear active-scroll recovery before the old chart is removed',
+  );
+  assertSourceContains(
+    source,
+    /function scheduleVisibleRangeIdleWork\(\)[\s\S]*clearTimeout\(visibleRangeIdleTimer\)[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)[\s\S]*scheduleOverlayDomRefresh\(\)/,
+    'visible range idle work must refresh overlays and price-scale recovery after scroll settles',
   );
   assertSourceContains(
     source,
@@ -213,13 +253,18 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
+    /function sanitizeSeriesData\(data\)[\s\S]*var sorted = Object\.keys\(byTime\)[\s\S]*sort\(function\(left, right\) \{ return left\.time - right\.time; \}\)[\s\S]*return filterRawSeriesDataByPriceContinuity\(sorted\)/,
+    'WebView setData sanitization must drop contiguous split-regime candle fragments before they can flatten historical scroll frames',
+  );
+  assertSourceContains(
+    source,
     /dataVisuallyCollapsed[\s\S]*enableRightPriceAutoScale\(\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/,
     'left-scroll navigation must recover the right price scale when visible candles are compressed into a tiny pixel band',
   );
   assertSourceContains(
     source,
-    /var rawRange = resolvePriceRangeFromBars\(visibleBars\)[\s\S]*return resolveRobustVisiblePriceRange\(visibleBars, rawRange\)/,
-    'visible price-range recovery must use the robust viewport range',
+    /var rawRange = resolvePriceRangeFromBars\(visibleBars\)[\s\S]*var robustRange = resolveRobustVisiblePriceRange\(visibleBars, rawRange\)[\s\S]*includeMarketPriceBadges === false/,
+    'visible price-range recovery must use the robust viewport range and allow horizontal pan to ignore far live price badges',
   );
   assertSourceContains(
     source,
@@ -228,12 +273,12 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
   );
   assertSourceContains(
     source,
-    /subscribeVisibleLogicalRangeChange\(function\(range\) \{[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)/,
-    'horizontal navigation must be allowed to clear a stale manual price range',
+    /function scheduleVisibleRangeIdleWork\(\)[\s\S]*schedulePriceScaleHealthCheck\('visible_range_change', true\)/,
+    'horizontal navigation must be allowed to clear a stale manual price range after scroll settles',
   );
   assertSourceContains(
     source,
-    /didPrependHistory[\s\S]*schedulePriceScaleHealthCheck\([\s\S]*'update_data_prepend_history'[\s\S]*didPrependHistory \? 5 : 1/,
+    /var priceScaleReason = didPrependHistory[\s\S]*'update_data_prepend_history'[\s\S]*schedulePriceScaleHealthCheck\([\s\S]*priceScaleReason[\s\S]*didPrependHistory \|\| didReplaceVisibleSeries[\s\S]*didPrependHistory \|\| didReplaceVisibleSeries \? 5 : 1/,
     'older-history full reloads must run repeated price-scale recovery passes and clear stale manual ranges',
   );
   assertSourceContains(
@@ -251,7 +296,7 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
 test('vertical candle drag can own the price range without autoscale fighting it', () => {
   assertSourceContains(
     source,
-    /function resolveVerticalPanStartPriceRange\(\)[\s\S]*getVisibleRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(\)/,
+    /function resolveVerticalPanStartPriceRange\(\)[\s\S]*getVisibleRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(false\)/,
     'vertical pan must fall back to visible candle data when autoscale has no explicit range',
   );
   assertSourceContains(
