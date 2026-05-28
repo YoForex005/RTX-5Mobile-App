@@ -35,7 +35,7 @@ export const baseStyles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
   actionLotSlot: {
-    width: 164, minWidth: 156, maxWidth: 176, flexShrink: 0,
+    width: 172, minWidth: 164, maxWidth: 184, flexShrink: 0,
     alignSelf: 'stretch', height: COMPACT_TRADE_FOOTER_ROW_HEIGHT, overflow: 'hidden',
   },
   actionLotControl: {
@@ -49,7 +49,7 @@ export const baseStyles = StyleSheet.create({
     position: 'relative', zIndex: 3, elevation: 3,
   },
   actionLotAdjustButton: {
-    width: 26, height: '100%', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: '100%', alignItems: 'center', justifyContent: 'center',
     position: 'relative', zIndex: 2, elevation: 2,
   },
   actionLotAdjustButtonDisabled: { opacity: 0.35 },
@@ -64,7 +64,7 @@ export const baseStyles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   actionLotCommittedIconBox: {
-    width: 26,
+    width: 32,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',

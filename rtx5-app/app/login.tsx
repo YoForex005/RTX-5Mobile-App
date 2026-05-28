@@ -892,7 +892,7 @@ export function AccountLoginScreen() {
                 accessibilityLabel={t('Register account')}
                 testID="login-register-account-button"
               >
-                <Ionicons name="person-add-outline" size={18} color={T.accent} />
+                <Ionicons name="person-add-outline" size={18} color="#ffffff" />
                 <Text style={styles.registerAccountText}>{t('Register account')}</Text>
               </Pressable>
             </View>
@@ -1084,13 +1084,13 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
 
     /* Solid Login Button */
     loginBtn: {
-      backgroundColor: T.accent,
+      backgroundColor: '#2563EB',
       minHeight: 56,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 20,
-      shadowColor: T.accent,
+      shadowColor: '#2563EB',
       shadowOpacity: 0.3,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },
@@ -1115,14 +1115,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       marginTop: 16,
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: T.accent,
-      backgroundColor: isDark ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.06)',
+      borderColor: '#2563EB',
+      backgroundColor: '#2563EB',
     },
     registerAccountBtnPressed: {
       opacity: 0.82,
     },
     registerAccountText: {
-      color: T.accent,
+      color: '#ffffff',
       fontSize: 15,
       fontWeight: '600',
     },

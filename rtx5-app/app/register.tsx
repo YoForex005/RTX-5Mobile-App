@@ -1068,13 +1068,13 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
 
     /* Solid Register Button */
     registerBtn: {
-      backgroundColor: T.accent,
+      backgroundColor: '#2563EB',
       height: 54,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 36,
-      shadowColor: T.accent,
+      shadowColor: '#2563EB',
       shadowOpacity: 0.3,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },

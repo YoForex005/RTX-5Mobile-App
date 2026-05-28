@@ -54,10 +54,13 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
 import { runImmediateAction } from '../../utils/actionLatency';
 import {
+  clearAuthSessionTokens,
   persistAuthSessionTokens,
   persistSelectedBrokerSession,
 } from '../../state/brokerSessionStorage';
 import { bootstrapApp } from '../../services/bootstrapApp';
+import { accountWsService } from '../../api/ws/accountSocket';
+import { candlesWsService } from '../../domain/candles/ws/candlesSocket';
 import {
   getTradingAccountBadgeLabel,
   getTradingAccountType,
@@ -173,6 +176,7 @@ export function AccountsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const userLogin = useUserPreferences((s) => s.login);
+  const userLogout = useUserPreferences((s) => s.logout);
   const setIsDemoAccountFlag = useUserPreferences((s) => s.setIsDemoAccount);
   const savedAccounts = useSavedAccounts((s) => s.accounts);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
@@ -356,6 +360,7 @@ export function AccountsScreen() {
   const [successMessage, setSuccessMessage] = React.useState('');
   const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
   const [qrData, setQRData] = React.useState('');
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = React.useState(false);
 
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
     if (connectingKey) return;
@@ -487,6 +492,22 @@ export function AccountsScreen() {
     setPasswordSheetVisible(true);
   };
 
+  const handleConfirmDeleteAccount = () => {
+    setDeleteConfirmVisible(false);
+    if (displayLogin && displayLogin !== '---' && brokerId) {
+      removeSavedAccount(displayLogin, brokerId);
+      removeSavedAccountPassword(brokerId, displayLogin).catch(() => undefined);
+    }
+    accountWsService.disconnect();
+    candlesWsService.disconnect();
+    useLiveAccountState.getState().resetMetrics();
+    usePositionsState.getState().clearPositions();
+    removeAccountScopedQueries(queryClient);
+    userLogout();
+    clearAuthSessionTokens().catch(() => undefined);
+    router.replace('/login');
+  };
+
   const openOptions = () => {
     runImmediateAction('accounts.optionsSheet.open', () =>
       showActionSheet({
@@ -497,7 +518,7 @@ export function AccountsScreen() {
           { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
           { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
           { label: t('Clear saved password') },
-          { label: t('Delete account'), danger: true },
+          { label: t('Delete account'), danger: true, onPress: () => setDeleteConfirmVisible(true) },
         ],
       }),
     );
@@ -863,6 +884,34 @@ export function AccountsScreen() {
         </View>
       )}
 
+      {/* Delete Account Confirmation Modal */}
+      {deleteConfirmVisible && (
+        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setDeleteConfirmVisible(false)} />
+          <View style={styles.deleteModal}>
+            <Text style={styles.deleteTitle}>{t('Delete account')}</Text>
+            <View style={styles.deleteDivider} />
+            <Text style={styles.deleteMessage}>
+              {t('Do you really want to delete account')} {displayLogin}?
+            </Text>
+            <View style={styles.deleteActions}>
+              <Pressable
+                style={[styles.deleteBtn, styles.deleteBtnSecondary]}
+                onPress={() => setDeleteConfirmVisible(false)}
+              >
+                <Text style={styles.deleteBtnSecondaryText}>{t('No')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deleteBtn, styles.deleteBtnPrimary]}
+                onPress={handleConfirmDeleteAccount}
+              >
+                <Text style={styles.deleteBtnPrimaryText}>{t('Yes')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Success Modal */}
       {!!successMessage && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
@@ -955,6 +1004,66 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  deleteModal: {
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: T.glass2,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: T.borderMedium,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  deleteTitle: {
+    color: T.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  deleteDivider: {
+    height: 1,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+    marginBottom: 16,
+  },
+  deleteMessage: {
+    color: T.textSub,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  deleteActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  deleteBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnSecondary: {
+    borderWidth: 1,
+    borderColor: T.borderMedium,
+    backgroundColor: 'transparent',
+  },
+  deleteBtnSecondaryText: {
+    color: T.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  deleteBtnPrimary: {
+    backgroundColor: '#2563EB',
+  },
+  deleteBtnPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   header: {
     flexDirection: 'row',

@@ -4364,6 +4364,26 @@ export function ChartScreen() {
                         <View style={styles.symbolMetaRow}>
                           <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
                         </View>
+                        {overlayCandles.length > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', marginTop: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>O:</Text>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open)}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>H:</Text>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).high)}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>L:</Text>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).low)}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>C:</Text>
+                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close)}</Text>
+                            </View>
+                          </View>
+                        )}
                       </View>
                     </Pressable>
                   </View>

@@ -103,7 +103,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     symbolSection: {
       flexBasis: 'auto',
       minWidth: 0,
-      maxWidth: 110,
+      maxWidth: 300,
       flexShrink: 1,
       minHeight: 48,
     },
@@ -164,7 +164,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: 4,
       minWidth: 0,
-      marginTop: 1,
+      marginTop: 4,
     },
     symbolSubText: {
       color: isDark ? '#94A3B8' : '#64748B',
@@ -422,7 +422,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartOverlaySymbolSection: {
       position: 'absolute' as any,
-      top: 8,
+      top: 16,
       left: 8,
       zIndex: 20,
       elevation: 10,

@@ -780,12 +780,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       justifyContent: 'center',
     },
     optionIconDemo: {
-      backgroundColor: T.accent,
+      backgroundColor: '#2563EB',
     },
     // Disabled real account still shows a pale-blue circle in MT5 — only the
     // surrounding row opacity is dropped, not the brand color.
     optionIconReal: {
-      backgroundColor: T.accent,
+      backgroundColor: '#2563EB',
     },
     optionTextWrap: { flex: 1 },
     optionTitle: {

@@ -215,7 +215,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginLeft: 4 },
+            { marginLeft: 12 },
             (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -279,7 +279,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           size={12}
           style={[
             themeStyles.actionLotAdjustIcon,
-            { marginRight: 4 },
+            { marginRight: 12 },
             (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
             !isLotEditing && baseStyles.actionLotUnderlayIconHidden,
           ]}
@@ -385,6 +385,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
+                  { marginLeft: 12 },
                   (!canUseDecreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
@@ -401,6 +402,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
                 size={12}
                 style={[
                   themeStyles.actionLotAdjustIcon,
+                  { marginRight: 12 },
                   (!canUseIncreaseLotControl || tradeControlsDisabled) && themeStyles.actionLotAdjustIconDisabled,
                 ]}
               />
