@@ -267,11 +267,11 @@ export default function TabsLayout() {
                   bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
                 },
               ],
-          tabBarActiveTintColor: T.accent,
+          tabBarActiveTintColor: '#2563EB',
           tabBarInactiveTintColor: inactiveTabColor,
           tabBarIcon: ({ size }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? '#2563EB' : inactiveTabColor;
             if (route.name === 'chart') {
               return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
             }
@@ -280,7 +280,7 @@ export default function TabsLayout() {
           },
           tabBarLabel: ({ children }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? '#2563EB' : inactiveTabColor;
             return (
               <Text allowFontScaling={false} numberOfLines={1} style={[styles.tabLabel, { color }]}>
                 {children}

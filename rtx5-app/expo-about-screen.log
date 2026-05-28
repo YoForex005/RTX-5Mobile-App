@@ -1,7 +1,0 @@
-env: load .env
-env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_QUOTES_WS_URL EXPO_PUBLIC_CANDLES_WS_URL EXPO_PUBLIC_ACCOUNT_WS_URL EXPO_PUBLIC_WS_URL
-Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
-Metro is running in CI mode, reloads are disabled. Remove CI=true to enable watch mode.
-Starting Metro Bundler
-Waiting on http://localhost:8082
-Logs for your project will appear below.

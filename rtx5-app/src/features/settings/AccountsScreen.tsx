@@ -30,6 +30,10 @@ import {
   type SavedAccountSnapshot,
   type SavedAccountType,
 } from '../../state/savedAccounts';
+import {
+  buildTradeNotificationKey,
+  useTradeNotifications,
+} from '../../state/tradeNotifications';
 import { signInWithCredentials } from '../../api/authSession';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
@@ -361,6 +365,15 @@ export function AccountsScreen() {
   const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
   const [qrData, setQRData] = React.useState('');
   const [deleteConfirmVisible, setDeleteConfirmVisible] = React.useState(false);
+  const [tradeNotificationsSheetVisible, setTradeNotificationsSheetVisible] = React.useState(false);
+
+  const tradeNotificationKey = brokerId && displayLogin !== '---'
+    ? buildTradeNotificationKey(brokerId, displayLogin)
+    : '';
+  const tradeNotificationsEnabled = useTradeNotifications(
+    (s) => (tradeNotificationKey ? !!s.enabledKeys[tradeNotificationKey] : false),
+  );
+  const setTradeNotificationsEnabled = useTradeNotifications((s) => s.setEnabled);
 
   const handleConnectSavedAccount = async (row: OtherAccountRow) => {
     if (connectingKey) return;
@@ -667,8 +680,16 @@ export function AccountsScreen() {
                 <Pressable style={styles.actionIcon} onPress={() => openQRSheet(displayLogin)} hitSlop={12}>
                   <Ionicons name="qr-code-outline" size={16} color={T.textMuted} />
                 </Pressable>
-                <Pressable style={styles.actionIcon} hitSlop={12}>
-                  <Ionicons name="notifications-outline" size={16} color={T.textMuted} />
+                <Pressable
+                  style={styles.actionIcon}
+                  onPress={() => setTradeNotificationsSheetVisible(true)}
+                  hitSlop={12}
+                >
+                  <Ionicons
+                    name={tradeNotificationsEnabled ? 'notifications' : 'notifications-outline'}
+                    size={16}
+                    color={tradeNotificationsEnabled ? '#2563EB' : T.textMuted}
+                  />
                 </Pressable>
               </View>
             </View>
@@ -884,6 +905,42 @@ export function AccountsScreen() {
         </View>
       )}
 
+      {/* Trade Notifications Modal */}
+      {tradeNotificationsSheetVisible && (
+        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setTradeNotificationsSheetVisible(false)} />
+          <View style={styles.tradeNotifModal}>
+            <Text style={styles.tradeNotifTitle}>{t('Trade notifications')}</Text>
+            <Text style={styles.tradeNotifMessage}>
+              {t('Receive notifications about trading operations performed on this account. These may include information about orders, deals, deposits and withdrawals, depending on your broker\'s settings.')}
+            </Text>
+            <View style={styles.tradeNotifActions}>
+              <Pressable
+                style={styles.tradeNotifTextBtn}
+                onPress={() => setTradeNotificationsSheetVisible(false)}
+                hitSlop={8}
+              >
+                <Text style={styles.tradeNotifTextBtnLabel}>{t('Cancel')}</Text>
+              </Pressable>
+              <Pressable
+                style={styles.tradeNotifTextBtn}
+                onPress={() => {
+                  if (tradeNotificationKey) {
+                    setTradeNotificationsEnabled(tradeNotificationKey, !tradeNotificationsEnabled);
+                  }
+                  setTradeNotificationsSheetVisible(false);
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.tradeNotifTextBtnLabel}>
+                  {tradeNotificationsEnabled ? t('Disable') : t('Enable')}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Delete Account Confirmation Modal */}
       {deleteConfirmVisible && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
@@ -1064,6 +1121,53 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
+  },
+  tradeNotifModal: {
+    width: '85%',
+    maxWidth: 360,
+    backgroundColor: isDark ? '#1B2230' : '#FFFFFF',
+    borderRadius: 16,
+    paddingTop: 22,
+    paddingHorizontal: 22,
+    paddingBottom: 8,
+    borderWidth: 1,
+    borderColor: T.borderMedium,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  tradeNotifTitle: {
+    color: T.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  tradeNotifMessage: {
+    color: T.textSub,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  tradeNotifActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  tradeNotifTextBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  tradeNotifTextBtnLabel: {
+    color: '#2563EB',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   header: {
     flexDirection: 'row',

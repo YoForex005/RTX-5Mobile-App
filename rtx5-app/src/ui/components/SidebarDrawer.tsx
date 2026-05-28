@@ -16,6 +16,7 @@ import { useBrokerConfig } from '../../query/broker';
 import { useAccounts } from '../../query/accounts';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import type { ThemeMode } from '../../state/userPreferences/types';
+import { AppLogo } from './AppLogo';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -293,7 +294,7 @@ export function SidebarDrawer() {
           <View style={ds.profileHeader}>
             <View style={ds.profileRow}>
               <View style={ds.avatarWrap}>
-                <Ionicons name="person-circle" size={48} color={T.accent} />
+                <AppLogo style={ds.avatarImage} />
               </View>
               {isLoggedIn && accountDetails ? (
                 <View style={ds.profileText}>
@@ -548,6 +549,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    avatarImage: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+    },
     profileText: {
       flex: 1,
       marginLeft: 12,
@@ -568,7 +574,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 4,
     },
     manageText: {
-      color: T.accent,
+      color: '#2563EB',
       fontSize: 15,
       fontWeight: '700',
     },
