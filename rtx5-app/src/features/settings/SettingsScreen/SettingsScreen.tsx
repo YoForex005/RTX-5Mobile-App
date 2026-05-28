@@ -331,7 +331,7 @@ export function SettingsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Search results overlay — kept mounted alongside the main settings
             tree so the Pressables in the main tree don't lose their refs (and
             their guard state) every time the user opens/closes search. */}
