@@ -98,7 +98,7 @@ export function IndicatorLevelScreen() {
 
         <ScrollView
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+          canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
           <SectionHeader title="Level" isDark={isDark} />
           <Card isDark={isDark}>
             <Row

@@ -11,7 +11,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
@@ -111,7 +111,7 @@ export function TradersCommunityScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,

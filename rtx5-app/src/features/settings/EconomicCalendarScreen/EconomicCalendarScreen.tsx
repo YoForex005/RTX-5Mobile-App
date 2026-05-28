@@ -331,7 +331,7 @@ export function EconomicCalendarScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
 
         {isLoading ? (
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>

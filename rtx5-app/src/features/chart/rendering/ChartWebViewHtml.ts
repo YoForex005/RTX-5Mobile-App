@@ -4258,7 +4258,7 @@ export const CH_HTML = `
         try {
           entry.api.applyOptions({
             price: price,
-            axisLabelVisible: false,
+            axisLabelVisible: entry.line && entry.line.axisLabelVisible === true,
             title: '',
           });
         } catch (_e) {}
@@ -4387,6 +4387,61 @@ export const CH_HTML = `
             anchoredTop = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredTop));
             renderLabel(anchoredItem, anchoredTop);
           }
+
+          // MT5-parity: render OUTLINED right-axis price box for each
+          // position / pending order / SL / TP line. Only the live bid/ask
+          // labels stay FILLED (those are drawn by lightweight-charts via
+          // axisLabelVisible: true on the market price lines). Position
+          // labels are drawn as DOM divs here so we can style them with a
+          // white background + colored border + colored text — matching the
+          // MT5 box style. One box per price level (dedup by tolerance) so
+          // stacked positions at the same entry never render a tower of
+          // duplicate boxes.
+          var POSITION_BOX_ID = /^(open-|order-entry-|order-sl-|order-tp-|sl-|tp-)/;
+          var boxDecimals = (typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0)
+            ? Math.min(8, Math.max(0, Math.floor(lastDisplayDecimals)))
+            : 2;
+          var seenBoxLevels = [];
+          var positionBoxes = [];
+          for (var pi = 0; pi < lines.length; pi++) {
+            var pln = lines[pi];
+            if (!pln || typeof pln.id !== 'string' || !POSITION_BOX_ID.test(pln.id)) continue;
+            if (typeof pln.price !== 'number' || !isFinite(pln.price)) continue;
+            if (typeof series.priceToCoordinate !== 'function') continue;
+            var alreadyShown = false;
+            for (var ki = 0; ki < seenBoxLevels.length; ki++) {
+              var levelScale = Math.max(Math.abs(seenBoxLevels[ki]), Math.abs(pln.price), 1);
+              if (Math.abs(seenBoxLevels[ki] - pln.price) <= levelScale * 1e-4) {
+                alreadyShown = true;
+                break;
+              }
+            }
+            if (alreadyShown) continue;
+            var ry = series.priceToCoordinate(pln.price);
+            if (typeof ry !== 'number' || !isFinite(ry)) continue;
+            seenBoxLevels.push(pln.price);
+            positionBoxes.push({ y: ry, color: pln.color || '#2962FF', price: pln.price });
+          }
+          for (var bi = 0; bi < positionBoxes.length; bi++) {
+            var box = positionBoxes[bi];
+            var boxEl = document.createElement('div');
+            boxEl.textContent = box.price.toFixed(boxDecimals);
+            boxEl.style.position = 'absolute';
+            boxEl.style.right = '2px';
+            boxEl.style.top = Math.round(box.y - 9) + 'px';
+            boxEl.style.background = '#FFFFFF';
+            boxEl.style.color = box.color;
+            boxEl.style.border = '1px solid ' + box.color;
+            boxEl.style.borderRadius = '2px';
+            boxEl.style.fontSize = '11px';
+            boxEl.style.fontWeight = '700';
+            boxEl.style.padding = '1px 5px';
+            boxEl.style.height = '16px';
+            boxEl.style.lineHeight = '14px';
+            boxEl.style.boxSizing = 'border-box';
+            boxEl.style.whiteSpace = 'nowrap';
+            layer.appendChild(boxEl);
+          }
         } catch (labelErr) {
           postError('refreshOverlayDomLabels', labelErr);
         }
@@ -4421,7 +4476,7 @@ export const CH_HTML = `
                 color: ln.color || '#2962FF',
                 lineWidth: ln.lineWidth || 1,
                 lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0),
-                axisLabelVisible: false,
+                axisLabelVisible: ln.axisLabelVisible === true,
                 title: '',
               });
               _positionLinesArr.push(priceLine);

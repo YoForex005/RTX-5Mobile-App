@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../../../../ui/components/FastPressable';
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { TradeJournalEntry } from '../types';
 
@@ -25,7 +25,7 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
 
         <ScrollView
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false} contentContainerStyle={styles.scrollContent}>
+          canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={styles.scrollContent}>
           {/* Top Info */}
           <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.rowBetween}>

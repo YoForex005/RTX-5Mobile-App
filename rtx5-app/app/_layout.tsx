@@ -14,8 +14,12 @@ import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
 import { useIsDarkTheme } from '../src/state/themeMode';
 import { useTranslation } from '../src/i18n/useTranslation';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+
+SplashScreen.preventAutoHideAsync();
 
 enableFreeze(true);
 
@@ -176,6 +180,11 @@ export default function RootLayout() {
   useOtaUpdateOnLaunch();
   useDataAnalyzer();
 
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+  });
+
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
@@ -319,6 +328,23 @@ export default function RootLayout() {
 
     return () => subscription.remove();
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (hasHydrated && fontsLoaded) {
+      // Small timeout allows SafeAreaProvider to measure insets on Android
+      setTimeout(() => {
+        void SplashScreen.hideAsync();
+      }, 100);
+    }
+  }, [hasHydrated, fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return (
+      <AppProviders>
+        <StartupLogoScreen />
+      </AppProviders>
+    );
+  }
 
   return (
     <AppProviders>

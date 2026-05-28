@@ -2,7 +2,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import type { NewsImpactLevel, NewsSentiment } from './newsViewModel';
 
 export type BreakingNewsCardData = {
@@ -419,7 +419,7 @@ function AllSymbolsModal({
 
           <ScrollView
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.allSymbolsGrid}
           >

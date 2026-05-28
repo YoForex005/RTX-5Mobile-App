@@ -11,7 +11,7 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Alert, Platform } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
@@ -595,7 +595,7 @@ export function AccountsScreen() {
 
         <ScrollView
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false} style={styles.content} showsVerticalScrollIndicator={false}>
+          canCancelContentTouches={Platform.OS === 'ios'} style={styles.content} showsVerticalScrollIndicator={false}>
           {/* ── Active Account Card ── */}
           <View style={styles.activeCard}>
             {/* Corner ribbons */}

@@ -118,7 +118,7 @@ export function PriceAlertsScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           style={styles.flex1}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
           showsVerticalScrollIndicator={false}

@@ -716,7 +716,7 @@ export function AccountLoginScreen() {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
           >
 
             {/* ── Section Title ── */}

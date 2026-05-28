@@ -7,7 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
 import {
-  Animated, BackHandler, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+  Animated, BackHandler, Easing, ScrollView, StyleSheet, Text, View,
+  Platform
+} from 'react-native';
 import { GDark, GLight, ThemeColors } from '../theme/glass';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useThemeMode } from '../../state/themeMode';
@@ -353,7 +355,7 @@ export function SidebarDrawer() {
             style={ds.menuScroll}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             contentContainerStyle={ds.menuContent}
           >
             {MENU_ITEMS.map((item) => (

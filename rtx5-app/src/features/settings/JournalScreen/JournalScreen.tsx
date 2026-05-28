@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -66,7 +66,7 @@ export function JournalScreen() {
       </View>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.container} contentContainerStyle={styles.content}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.container} contentContainerStyle={styles.content}>
 
         {/* TOP TABS */}
         <JournalTabs activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} />

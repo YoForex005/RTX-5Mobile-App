@@ -1,7 +1,7 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, Platform } from 'react-native';
 import { ActionSheet } from '../../../ui/components/ActionSheet';
 import {
   TvRadialPlus,
@@ -248,7 +248,7 @@ export function ChartDrawingToolsSidebar({
   return (
     <ScrollView
       keyboardShouldPersistTaps="always"
-      canCancelContentTouches={false}
+      canCancelContentTouches={Platform.OS === 'ios'}
       style={[
         baseStyles.leftToolbar,
         themeStyles.leftToolbar,

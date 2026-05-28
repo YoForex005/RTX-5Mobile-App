@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme } from '../../ui/theme/useTheme';
@@ -49,7 +49,7 @@ export function ChartOpenOrderModeScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <Pressable style={styles.row} onPress={() => handleSelect('Regular')}>
             <Text style={styles.rowLabel}>Regular</Text>

@@ -149,7 +149,7 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
     payload.priceLines.map((line: any) => line.id).sort(),
     ['sl-1', 'open-1', 'tp-1', 'alert-7', 'potential-stop-out'].sort(),
   );
-  assert.equal(payload.priceLines.find((line: any) => line.id === 'open-1')?.lineStyle, CHART_LINE_STYLE.Solid);
+  assert.equal(payload.priceLines.find((line: any) => line.id === 'open-1')?.lineStyle, CHART_LINE_STYLE.Dashed);
   assert.equal(payload.priceLines.find((line: any) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
   assert.equal(payload.markers.length, 1);
   assert.equal(payload.markers[0].id, 'closed-99');
@@ -424,7 +424,7 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
   );
 });
 
-test('buildChartOverlayPayload hides right-axis labels for overlay price lines', () => {
+test('buildChartOverlayPayload shows one right-axis label per price for stacked open positions', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'GBPUSD',
     candles,
@@ -467,6 +467,11 @@ test('buildChartOverlayPayload hides right-axis labels for overlay price lines',
   });
 
   const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);
-  assert.equal(stackedLines.length, 2);
-  assert.equal(stackedLines.filter((line: any) => line.axisLabelVisible !== false).length, 0);
+  // MT5-parity: stacked open positions at the same price level collapse to a
+  // single line so the chart never renders overlapping horizontal lines at
+  // the same level. The right-axis OUTLINED box is drawn by the WebView's
+  // custom DOM layer, so axisLabelVisible stays false here (it would render
+  // a FILLED box otherwise, which we only want for live bid/ask).
+  assert.equal(stackedLines.length, 1);
+  assert.equal(stackedLines[0].axisLabelVisible, false);
 });

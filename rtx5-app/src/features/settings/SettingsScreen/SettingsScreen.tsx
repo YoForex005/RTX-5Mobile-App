@@ -10,6 +10,7 @@ import { router } from 'expo-router';
 import {
   Alert,
   Keyboard,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -331,7 +332,7 @@ export function SettingsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Search results overlay — kept mounted alongside the main settings
             tree so the Pressables in the main tree don't lose their refs (and
             their guard state) every time the user opens/closes search. */}

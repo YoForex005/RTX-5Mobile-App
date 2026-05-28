@@ -8,7 +8,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../ui/theme/useTheme';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -40,7 +40,7 @@ export function TradingSignalDetailsModal({ visible, onClose, symbol }: Props) {
           </View>
           <ScrollView
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             style={styles.container} 
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}

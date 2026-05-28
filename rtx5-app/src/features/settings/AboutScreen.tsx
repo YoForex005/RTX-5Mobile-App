@@ -360,7 +360,7 @@ function ContactDeveloperScreen({
 
       <View style={styles.contactPageBody}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           style={styles.contactFormScroll}
           contentContainerStyle={styles.contactFormContent}
           keyboardShouldPersistTaps="always"

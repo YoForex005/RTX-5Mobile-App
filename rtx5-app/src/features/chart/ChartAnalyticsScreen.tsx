@@ -197,7 +197,7 @@ export function ChartAnalyticsScreen() {
       </View>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Performance Block — Dynamic from candle data */}
         <View style={styles.card}>

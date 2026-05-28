@@ -89,12 +89,12 @@ export function ActionSheet({
   title,
   actions,
   onClose,
-  searchable,
+  searchable = false,
   searchPlaceholder,
-  detent = 'adaptive',
-  minimumTopInset,
-  instantOpen = true,
-  runActionAfterClose = false,
+  detent = 'auto',
+  minimumTopInset = 100,
+  instantOpen = false,
+  runActionAfterClose = true,
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
@@ -160,11 +160,12 @@ export function ActionSheet({
   if (visible !== prevVisibleRef.current) {
     if (visible) {
       openedAtRef.current = Date.now();
+      // Always start hidden on the very first frame to allow children to layout.
+      // This prevents a "blank flash" when the sheet first opens natively.
+      overlayOpacity.setValue(0);
       if (activeInstantOpen) {
-        overlayOpacity.setValue(1);
-        sheetTranslateY.setValue(0);
+        sheetTranslateY.setValue(ACTION_SHEET_FAST_OPEN_TRANSLATE_Y);
       } else {
-        overlayOpacity.setValue(0);
         sheetTranslateY.setValue(ACTION_SHEET_OPEN_TRANSLATE_Y);
       }
     }
@@ -237,25 +238,25 @@ export function ActionSheet({
   // content are already resolved before the first visible frame.
   const runEntryAnimation = useCallback((mode: 'fast' | 'standard' = 'standard') => {
     const isFast = mode === 'fast';
-    if (isFast) {
+    if (isFast && Platform.OS === 'ios') {
       overlayOpacity.setValue(1);
       sheetTranslateY.setValue(0);
       return;
     }
 
     overlayOpacity.setValue(0);
-    sheetTranslateY.setValue(ACTION_SHEET_OPEN_TRANSLATE_Y);
+    sheetTranslateY.setValue(isFast ? ACTION_SHEET_FAST_OPEN_TRANSLATE_Y : ACTION_SHEET_OPEN_TRANSLATE_Y);
     Animated.parallel([
       Animated.timing(overlayOpacity, {
         toValue: 1,
-        duration: ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
+        duration: isFast ? 50 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
+        easing: isFast ? Easing.linear : Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(sheetTranslateY, {
         toValue: 0,
-        duration: ACTION_SHEET_OPEN_SHEET_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
+        duration: isFast ? 50 : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
+        easing: isFast ? Easing.linear : Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
@@ -374,7 +375,27 @@ export function ActionSheet({
     setMounted(true);
     overlayOpacity.stopAnimation();
     sheetTranslateY.stopAnimation();
-    runEntryAnimation(activeInstantOpen ? 'fast' : 'standard');
+    
+    let raf1: number;
+    let raf2: number;
+    if (Platform.OS === 'android' && activeInstantOpen) {
+      // Use double requestAnimationFrame to wait exactly until the native UI thread
+      // has processed the view creation and Yoga layout, without any arbitrary
+      // setTimeout delay. This prevents the layout "shrinking" flash while
+      // ensuring the sheet appears as fast as physically possible.
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          runEntryAnimation('fast');
+        });
+      });
+    } else {
+      runEntryAnimation(activeInstantOpen ? 'fast' : 'standard');
+    }
+
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
   }, [
     activeInstantOpen,
     mounted,
@@ -579,7 +600,7 @@ export function ActionSheet({
             showsVerticalScrollIndicator={false}
             bounces={false}
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             nestedScrollEnabled
             removeClippedSubviews={Platform.OS === 'android'}

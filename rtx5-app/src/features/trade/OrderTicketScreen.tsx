@@ -929,7 +929,7 @@ export function OrderTicketScreen() {
 
       {/* Scrollable form: order type, volume, risk controls, graph, market data, and submit controls. */}
       <ScrollView
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.root}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}

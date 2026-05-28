@@ -6,7 +6,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo, useState } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View, Platform } from 'react-native';
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
 import { useMarketData } from '../../../query/websocket';
 import { useUserPreferences } from '../../../state/userPreferences';
@@ -218,7 +218,7 @@ export function SymbolDetailsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
+        canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
 
         <View style={s.glassHero.container}>
           {isDark && <BlurView intensity={50} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}

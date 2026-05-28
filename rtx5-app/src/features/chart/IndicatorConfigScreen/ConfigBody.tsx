@@ -196,7 +196,7 @@ export function ConfigBody({
         </View>
 
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}

@@ -1357,7 +1357,7 @@ function AddSymbolModal({
           data={listData}
           keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             addSymbolStyles.listContent,

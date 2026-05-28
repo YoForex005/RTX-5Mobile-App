@@ -347,7 +347,7 @@ export default function RegisterScreen() {
         >
           <ScrollView
             ref={scrollViewRef}
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             contentContainerStyle={styles.scrollContent}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="always"

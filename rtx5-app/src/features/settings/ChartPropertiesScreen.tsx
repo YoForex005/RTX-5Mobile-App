@@ -258,7 +258,7 @@ export function ChartPropertiesScreen() {
       </View>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         <View style={styles.previewCard}>
           <View style={styles.previewHeader}>
@@ -487,7 +487,7 @@ export function ChartPropertiesScreen() {
             <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
               <ScrollView
                 keyboardShouldPersistTaps="always"
-                canCancelContentTouches={false} showsVerticalScrollIndicator={false}>
+                canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
                 <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
 
                 <ColorPicker

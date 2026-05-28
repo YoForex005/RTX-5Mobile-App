@@ -44,7 +44,7 @@ export function Screen({ children, scroll = false, style, noBottomInset = false 
           style={[styles.base, { backgroundColor: T.bg }]}
           contentContainerStyle={[{ paddingBottom: bottomPad + 24 }, style]}
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           showsVerticalScrollIndicator={false}
         >
           {children}

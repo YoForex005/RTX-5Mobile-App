@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -122,7 +122,7 @@ export function ChartSpecificationScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Trading Hours Section */}
         <Text style={styles.sectionHeader}>TRADING HOURS</Text>

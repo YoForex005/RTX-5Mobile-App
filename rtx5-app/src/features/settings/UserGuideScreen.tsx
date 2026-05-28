@@ -7,7 +7,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useCallback, useMemo } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
@@ -65,7 +65,7 @@ export function UserGuideScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

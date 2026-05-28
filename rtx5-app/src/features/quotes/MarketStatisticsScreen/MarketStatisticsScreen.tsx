@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { quotes, type QuoteItem } from '../../../dev/mock/tradingData';
@@ -233,7 +233,7 @@ export function MarketStatisticsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
         showsVerticalScrollIndicator={false}

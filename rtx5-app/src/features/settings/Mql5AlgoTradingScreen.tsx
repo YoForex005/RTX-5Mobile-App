@@ -11,7 +11,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Modal, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Keyboard, Modal, RefreshControl, ScrollView, Switch, Text, TextInput, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
@@ -157,7 +157,7 @@ export function Mql5AlgoTradingScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
@@ -1160,7 +1160,7 @@ function AlgoFilterSheet({
 
           <ScrollView
             keyboardShouldPersistTaps="always"
-            canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetBody}>
+            canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetBody}>
             <FilterSection title="Library" styles={styles}>
               <View style={styles.filterChipRow}>
                 {LIBRARY_OPTIONS.map((option) => (

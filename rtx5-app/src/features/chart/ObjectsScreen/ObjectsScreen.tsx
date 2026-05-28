@@ -229,7 +229,7 @@ export function ObjectsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 24 }}
         showsVerticalScrollIndicator={false}
       >

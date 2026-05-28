@@ -87,8 +87,14 @@ const collectScrollResponderIssues = (file: string, source: string) => {
       }
 
       const isHorizontal = /\bhorizontal\b(?:=\{true\})?/.test(tagSource);
-      if (tag === 'ScrollView' && !isHorizontal && !/\bcanCancelContentTouches=\{false\}/.test(tagSource)) {
-        issues.push(`${file}:${line} vertical ScrollView is missing canCancelContentTouches={false}`);
+      // Accept either the legacy Android-only optimization `={false}` OR
+      // the Platform-aware form `={Platform.OS === 'ios'}` which keeps the
+      // Android latency win while letting iOS use its default scroll-takeover
+      // behavior (otherwise iOS scroll locks when a finger lands on any
+      // Pressable child).
+      const hasOptimization = /\bcanCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/.test(tagSource);
+      if (tag === 'ScrollView' && !isHorizontal && !hasOptimization) {
+        issues.push(`${file}:${line} vertical ScrollView is missing canCancelContentTouches={false} or canCancelContentTouches={Platform.OS === 'ios'}`);
       }
 
       index = end + 1;
@@ -319,12 +325,13 @@ test('shared scroll containers keep taps active while keyboard or scroll respond
     ...walkSourceFiles('src/ui/components'),
   ].filter(isActiveSourceFile);
 
+  const canCancelPattern = /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/;
   assert.match(screenSource, /keyboardShouldPersistTaps="always"/);
-  assert.match(screenSource, /canCancelContentTouches=\{false\}/);
+  assert.match(screenSource, canCancelPattern);
   assert.match(actionSheetSource, /keyboardShouldPersistTaps="always"/);
-  assert.match(actionSheetSource, /canCancelContentTouches=\{false\}/);
+  assert.match(actionSheetSource, canCancelPattern);
   assert.match(sidebarSource, /keyboardShouldPersistTaps="always"/);
-  assert.match(sidebarSource, /canCancelContentTouches=\{false\}/);
+  assert.match(sidebarSource, canCancelPattern);
   for (const file of files) {
     const source = readSource(file);
     assert.doesNotMatch(
@@ -391,15 +398,18 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(brokersSource, /latencyLabel="brokers\.back"/);
   assert.match(brokersSource, /latencyLabel="brokers\.qr"/);
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
-  assert.match(brokersSource, /canCancelContentTouches=\{false\}/);
+  assert.match(brokersSource, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(brokersSource, /pointerEvents="box-none"/);
   assert.doesNotMatch(brokersSource, /traceUiInteraction/);
   assert.match(brokerDetailSource, /paddingLeft: 16/);
   assert.match(brokerDetailSource, /gap: 8/);
-  assert.match(registerSource, /registerBtn: \{[\s\S]*backgroundColor: T\.accent[\s\S]*shadowColor: T\.accent/);
-  assert.match(brokerDetailSource, /optionIconDemo: \{[\s\S]*backgroundColor: T\.accent/);
-  assert.match(brokerDetailSource, /optionIconReal: \{[\s\S]*backgroundColor: T\.accent/);
-  assert.match(brokerDetailSource, /loginBtn: \{[\s\S]*backgroundColor: T\.accent[\s\S]*shadowColor: T\.accent/);
+  // Accent buttons accept either the theme token (T.accent) or the brand
+  // blue (#2563EB) so the global color refresh doesn't break the contract.
+  const accentColorPattern = `(?:T\\.accent|['"]#2563EB['"])`;
+  assert.match(registerSource, new RegExp(`registerBtn: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}[\\s\\S]*shadowColor: ${accentColorPattern}`));
+  assert.match(brokerDetailSource, new RegExp(`optionIconDemo: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));
+  assert.match(brokerDetailSource, new RegExp(`optionIconReal: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));
+  assert.match(brokerDetailSource, new RegExp(`loginBtn: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}[\\s\\S]*shadowColor: ${accentColorPattern}`));
   assert.doesNotMatch(brokerDetailSource, /MT5_BLUE_LIGHT/);
   assert.doesNotMatch(brokerDetailSource, /LOGIN_VIOLET/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.back"/);
@@ -455,7 +465,7 @@ test('high-traffic tab screens keep fast actions off the old trace wrapper', () 
   assert.match(quotesSource, /animationType="none"/);
   assert.match(quotesSource, /latencyLabel="quotes\.addSymbol\.search\.clear"/);
   assert.match(quotesSource, /latencyLabel=\{`quotes\.addSymbol\.folder\.\$\{item\.key\}`\}/);
-  assert.match(quotesSource, /canCancelContentTouches=\{false\}/);
+  assert.match(quotesSource, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(quotesSource, /onPress=\{toggleEditMode\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="quotes\.editMode\.toggle"/);
   assert.match(quotesSource, /onPress=\{handleHeaderBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="quotes\.addSymbol\.back"/);
   assert.match(quotesSource, /latencyLabel="quotes\.search\.clear"/);

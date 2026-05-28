@@ -11,7 +11,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Keyboard, Modal, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { Keyboard, Modal, RefreshControl, ScrollView, Text, TextInput, View, Platform } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -255,7 +255,7 @@ export function MailboxScreen() {
       </View>
 
       <ScrollView
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
@@ -958,7 +958,7 @@ function MailboxDetailScreen({
 
             <ScrollView
               keyboardShouldPersistTaps="always"
-              canCancelContentTouches={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
+              canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
               {detailContext ? <DetailContextPanel config={detailContext} styles={styles} /> : null}
               {!detailContext ? <MessageDetailMetaPanel message={message} T={T} styles={styles} /> : null}
 

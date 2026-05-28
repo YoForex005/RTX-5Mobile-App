@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { ClosedPosition } from '../../api/positions';
@@ -411,7 +411,7 @@ export function HistoryNetProfitLossScreen() {
       </View>
 
       <ScrollView
-        canCancelContentTouches={false}
+        canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,

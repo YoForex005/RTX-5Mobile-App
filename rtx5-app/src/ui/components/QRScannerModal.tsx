@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from './FastPressable';
 import React, { useState, useEffect } from 'react';
-import { Modal, StyleSheet, Text, View, Platform, Alert } from 'react-native';
+import { Modal, StyleSheet, Text, View, Platform, Alert, Linking } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
@@ -31,7 +31,28 @@ export function QRScannerModal({ visible, onClose, onScan }: QRScannerModalProps
   }
 
   if (!permission.granted) {
-    // Permission is not granted yet.
+    // On iOS, once permission has been denied the system silently ignores
+    // requestPermission() and never re-prompts. The only way the user can
+    // re-grant is via the Settings app — so route them there in that case.
+    const mustOpenSettings = !permission.canAskAgain;
+    const handleGrantPress = async () => {
+      if (mustOpenSettings) {
+        await Linking.openSettings().catch(() => undefined);
+        return;
+      }
+      const result = await requestPermission();
+      if (!result.granted && !result.canAskAgain) {
+        Alert.alert(
+          'Camera access required',
+          'Please enable camera access for RTX-5 in your device Settings to scan QR codes.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+          ],
+        );
+      }
+    };
+
     return (
       <Modal
         visible={visible}
@@ -44,10 +65,14 @@ export function QRScannerModal({ visible, onClose, onScan }: QRScannerModalProps
           <View style={styles.permissionBox}>
             <Ionicons name="camera-outline" size={48} color={T.text} style={{ marginBottom: 16 }} />
             <Text style={[styles.message, { color: T.text }]}>
-              RTX-5 needs access to your camera to scan QR codes for quick pairing or logins.
+              {mustOpenSettings
+                ? 'Camera access was previously denied. Enable it in your device Settings to scan QR codes.'
+                : 'RTX-5 needs access to your camera to scan QR codes for quick pairing or logins.'}
             </Text>
-            <Pressable style={[styles.button, { backgroundColor: T.accent }]} onPress={requestPermission}>
-              <Text style={styles.buttonText}>Grant Camera Access</Text>
+            <Pressable style={[styles.button, { backgroundColor: T.accent }]} onPress={handleGrantPress}>
+              <Text style={styles.buttonText}>
+                {mustOpenSettings ? 'Open Settings' : 'Grant Camera Access'}
+              </Text>
             </Pressable>
             <Pressable style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: T.border, marginTop: 12 }]} onPress={onClose}>
               <Text style={[styles.buttonText, { color: T.text }]}>Cancel</Text>

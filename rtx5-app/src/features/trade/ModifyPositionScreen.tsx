@@ -11,7 +11,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+  ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
+  Platform
+} from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -453,7 +455,7 @@ export function ModifyPositionScreen() {
           </GestureDetector>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,

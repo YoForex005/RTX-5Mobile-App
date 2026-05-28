@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, {  } from 'react';
-import { Dimensions, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Modal, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -232,7 +232,7 @@ export function ChartFooterLotPicker({
             })}
           </View>
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             ref={valueScrollRef}
             showsVerticalScrollIndicator={valueOptions.length > 5}
             style={styles.footerLotPickerValuesScrollVertical}

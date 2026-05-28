@@ -6,7 +6,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  * defining the time window of historical trades to pull from the backend.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -214,7 +214,7 @@ export function HistoryFilterScreen() {
 
         <ScrollView
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={s.symbolRow}>
             <Text style={s.label}>{t('Symbol')}:</Text>
             <Text style={s.value}>{t('All symbols')}</Text>

@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image } from 'react-native';
+import { ActivityIndicator, Alert, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, View, Dimensions, Image, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
@@ -1491,7 +1491,7 @@ export function ChartScreen() {
             {(isChartExpanded || showDrawingToolbar) && (
               <ScrollView
                 keyboardShouldPersistTaps="always"
-                canCancelContentTouches={false}
+                canCancelContentTouches={Platform.OS === 'ios'}
                 style={[styles.leftToolbar, !isChartExpanded && styles.leftToolbarOverlay]}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.leftToolbarContent}

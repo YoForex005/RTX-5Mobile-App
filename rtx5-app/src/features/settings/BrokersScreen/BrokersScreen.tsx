@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -224,7 +224,7 @@ export function BrokersScreen() {
         {/* ── Results ── */}
         <FlatList
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           style={styles.brokerList}
           data={visibleBrokers}
           keyExtractor={(item) => item.id}

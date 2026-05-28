@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
@@ -41,7 +42,7 @@ export function ChartSettingsScreen() {
       </View>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
 
 

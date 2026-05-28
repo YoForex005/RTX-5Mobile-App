@@ -1341,7 +1341,7 @@ export function ChartTradeOverlayLayer({
 
               {showSheetBody ? (
                 <ScrollView
-                  canCancelContentTouches={false}
+                  canCancelContentTouches={Platform.OS === 'ios'}
                   ref={sheet.chartTradeSheetScrollRef}
                   style={styles.chartTradeSheetContentScroll}
                   contentContainerStyle={[
@@ -1407,7 +1407,7 @@ export function ChartTradeOverlayLayer({
             ) : null}
 
             <ScrollView
-              canCancelContentTouches={false}
+              canCancelContentTouches={Platform.OS === 'ios'}
               style={styles.chartTradeSheetContentScroll}
               contentContainerStyle={[
                 styles.chartTradeSheetContent,

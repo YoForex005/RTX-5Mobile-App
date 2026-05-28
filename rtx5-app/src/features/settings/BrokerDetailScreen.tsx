@@ -476,7 +476,7 @@ export function BrokerDetailScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches={Platform.OS === 'ios'}
             keyboardShouldPersistTaps="always"
             contentContainerStyle={styles.scrollContent}
           >

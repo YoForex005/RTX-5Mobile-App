@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, TextInput } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, TextInput, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
 import { useInstrumentMeta } from '../../query/instruments';
@@ -128,7 +128,7 @@ export function ChartTradingCalculatorScreen() {
       </View>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Segmented Control */}
         <View style={styles.segmentContainer}>

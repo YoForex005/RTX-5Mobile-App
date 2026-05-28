@@ -4048,7 +4048,7 @@ export function ChartScreen() {
         }}
       >
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches={Platform.OS === 'ios'}
           ref={chartScrollRef}
           style={styles.card}
           contentContainerStyle={[
@@ -4515,7 +4515,7 @@ export function ChartScreen() {
                     })}
                   </ScrollView>
                   <ScrollView
-                    canCancelContentTouches={false}
+                    canCancelContentTouches={Platform.OS === 'ios'}
                     ref={undefined}
                     style={styles.chartTradeSheetContentScroll}
                     contentContainerStyle={[

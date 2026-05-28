@@ -77,7 +77,7 @@ export function ChartColorsScreen() {
     <Screen style={styles.screen}>
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={false} style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'} style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {SECTIONS.map((section, sIdx) => (
           <View key={section.title} style={{ marginTop: sIdx === 0 ? 8 : 24 }}>
             <View style={styles.sectionHeaderRow}>
