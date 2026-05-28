@@ -35,6 +35,7 @@ import {
   useTradeNotifications,
 } from '../../state/tradeNotifications';
 import { signInWithCredentials } from '../../api/authSession';
+import { removeSecureItemAsync } from '../../utils/secureStorage';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { QRCodeSheet } from './QRCodeSheet';
@@ -511,6 +512,9 @@ export function AccountsScreen() {
       removeSavedAccount(displayLogin, brokerId);
       removeSavedAccountPassword(brokerId, displayLogin).catch(() => undefined);
     }
+    // Wipe the login screen's auto-fill credentials so the deleted account's
+    // broker id / login id / password do NOT pre-populate on next visit.
+    removeSecureItemAsync('rtx5_saved_login').catch(() => undefined);
     accountWsService.disconnect();
     candlesWsService.disconnect();
     useLiveAccountState.getState().resetMetrics();
@@ -518,7 +522,10 @@ export function AccountsScreen() {
     removeAccountScopedQueries(queryClient);
     userLogout();
     clearAuthSessionTokens().catch(() => undefined);
-    router.replace('/login');
+    // Delete must NOT redirect to /login (that's the logout flow). Go back
+    // to the settings tab so the user sees the app in a logged-out state
+    // without their old credentials pre-filled anywhere.
+    router.replace('/(tabs)/settings');
   };
 
   const openOptions = () => {
