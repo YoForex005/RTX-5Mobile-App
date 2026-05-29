@@ -185,6 +185,16 @@ export function BrokerDetailScreen() {
       logoUrl: initialLogoUrl,
     },
   );
+  const brokerInitials = useMemo(() => {
+    const words = brokerName
+      .replace(/\([^)]*\)/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const initials = words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
+    return initials || 'BR';
+  }, [brokerName]);
+  const brokerServerLabel = selectedServer.label || apiBrokerId || t('Server');
   const [isLoading, setIsLoading] = useState(false);
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -480,181 +490,252 @@ export function BrokerDetailScreen() {
             keyboardShouldPersistTaps="always"
             contentContainerStyle={styles.scrollContent}
           >
-            {/* ── Open a demo account ── */}
-            <Pressable
-              style={styles.optionRow}
-              onPress={() => navigateToRegister('demo')}
-              activateOnPressIn
-              latencyLabel="brokerDetail.openDemo"
-              unstable_pressDelay={0}
-            >
-              <View style={[styles.optionIcon, styles.optionIconDemo]}>
-                <Ionicons name="school" size={20} color="#FFFFFF" />
+            {/* Selected broker account entry surface */}
+            <View style={styles.brokerSummaryCard}>
+              <View style={styles.brokerSummaryTop}>
+                <View style={styles.brokerLogoMark}>
+                  <Text style={styles.brokerLogoText}>{brokerInitials}</Text>
+                </View>
+                <View style={styles.brokerSummaryBody}>
+                  <View style={styles.brokerKickerRow}>
+                    <Text style={styles.brokerEyebrow}>{t('Selected broker')}</Text>
+                    <View style={styles.readyPill}>
+                      <View style={styles.readyDot} />
+                      <Text style={styles.readyText}>{t('Ready')}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.brokerName} numberOfLines={1}>{brokerName}</Text>
+                  <View style={styles.brokerServerPill}>
+                    <Ionicons name="server-outline" size={15} color={T.textSub} />
+                    <Text style={styles.brokerServerLine} numberOfLines={1}>
+                      {brokerServerLabel}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.optionTextWrap}>
-                <Text style={styles.optionTitle}>{t('Open a demo account')}</Text>
-                <Text style={styles.optionSub}>
-                  {t('To learn trading and to test your strategies')}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={T.textMuted} />
-            </Pressable>
-            <View style={styles.divider} />
-
-            {/* ── Open a real account (disabled when already on a real account) ── */}
-            <Pressable
-              style={[styles.optionRow, hasActiveRealAccount && styles.optionRowDisabled]}
-              onPress={() => {
-                if (hasActiveRealAccount) return;
-                navigateToRegister('real');
-              }}
-              disabled={hasActiveRealAccount}
-              activateOnPressIn
-              latencyLabel="brokerDetail.openReal"
-              unstable_pressDelay={0}
-            >
-              <View style={[styles.optionIcon, styles.optionIconReal]}>
-                <Ionicons name="trending-up" size={20} color="#FFFFFF" />
-              </View>
-              <View style={styles.optionTextWrap}>
-                <Text
-                  style={[
-                    styles.optionTitle,
-                    hasActiveRealAccount && styles.optionTitleDisabled,
-                  ]}
-                >
-                  {t('Open a real account')}
-                </Text>
-                <Text
-                  style={[
-                    styles.optionSub,
-                    hasActiveRealAccount && styles.optionSubDisabled,
-                  ]}
-                >
-                  {t('For live trading, additional identification is required')}
-                </Text>
-              </View>
-              {!hasActiveRealAccount && (
-                <Ionicons name="chevron-forward" size={20} color={T.textMuted} />
-              )}
-            </Pressable>
-            <View style={styles.divider} />
-
-            {/* ── Existing-account login form ── */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t('Login to an existing account')}</Text>
             </View>
-            <View style={styles.divider} />
 
-            <View style={styles.inputRow}>
-              <Text style={styles.inputLabel}>{t('Login')}</Text>
-              <TextInput
-                style={styles.input}
-                value={loginValue}
-                onChangeText={setLoginValue}
-                autoCapitalize="none"
-                keyboardType="numeric"
-                selectionColor={T.accent}
-                cursorColor={T.accent}
-                underlineColorAndroid="transparent"
-                placeholder={t('Login')}
-                placeholderTextColor={T.textMuted}
-              />
-            </View>
-            <View style={styles.divider} />
-
-            <View style={styles.inputRow}>
-              <Text style={styles.inputLabel}>{t('Password')}</Text>
-              <TextInput
-                style={styles.input}
-                value={passwordValue}
-                onChangeText={setPasswordValue}
-                autoCapitalize="none"
-                secureTextEntry={!showPassword}
-                selectionColor={T.accent}
-                cursorColor={T.accent}
-                underlineColorAndroid="transparent"
-                placeholder={t('Password')}
-                placeholderTextColor={T.textMuted}
-              />
+            <View style={styles.optionPanel}>
               <Pressable
-                onPress={() => setShowPassword((v) => !v)}
-                hitSlop={12}
+                style={({ pressed }) => [
+                  styles.optionCommand,
+                  pressed && styles.optionCommandPressed,
+                ]}
+                onPress={() => navigateToRegister('demo')}
                 activateOnPressIn
-                latencyLabel="brokerDetail.password.toggle"
+                latencyLabel="brokerDetail.openDemo"
                 unstable_pressDelay={0}
               >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color={T.textSub}
-                />
+                <View style={[styles.optionIcon, styles.optionIconDemo]}>
+                  <Ionicons name="school" size={18} color="#FFFFFF" />
+                </View>
+                <View style={styles.optionTextWrap}>
+                  <Text style={styles.optionTitle}>{t('Open a demo account')}</Text>
+                  <Text style={styles.optionSub} numberOfLines={2}>
+                    {t('To learn trading and to test your strategies')}
+                  </Text>
+                </View>
+                <Text style={styles.optionModePill}>{t('Demo')}</Text>
+                <Ionicons name="chevron-forward" size={18} color={T.textSub} />
+              </Pressable>
+
+              <View style={styles.optionDivider} />
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.optionCommand,
+                  hasActiveRealAccount && styles.optionRowDisabled,
+                  pressed && !hasActiveRealAccount && styles.optionCommandPressed,
+                ]}
+                onPress={() => {
+                  if (hasActiveRealAccount) return;
+                  navigateToRegister('real');
+                }}
+                disabled={hasActiveRealAccount}
+                activateOnPressIn
+                latencyLabel="brokerDetail.openReal"
+                unstable_pressDelay={0}
+              >
+                <View style={[styles.optionIcon, styles.optionIconReal]}>
+                  <Ionicons name="trending-up" size={18} color="#FFFFFF" />
+                </View>
+                <View style={styles.optionTextWrap}>
+                  <Text
+                    style={[
+                      styles.optionTitle,
+                      hasActiveRealAccount && styles.optionTitleDisabled,
+                    ]}
+                  >
+                    {t('Open a real account')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.optionSub,
+                      hasActiveRealAccount && styles.optionSubDisabled,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {t('For live trading, additional identification is required')}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.optionModePill,
+                    hasActiveRealAccount && styles.optionModePillDisabled,
+                  ]}
+                >
+                  {t('Real')}
+                </Text>
+                {!hasActiveRealAccount && (
+                  <Ionicons name="chevron-forward" size={18} color={T.textSub} />
+                )}
               </Pressable>
             </View>
-            <View style={styles.divider} />
 
-            <Pressable
-              style={styles.inputRow}
-              onPress={openServerSelector}
-              disabled={!hasServerChoices}
-              activateOnPressIn
-              latencyLabel="brokerDetail.server.open"
-              unstable_pressDelay={0}
-            >
-              <Text style={styles.inputLabel}>{t('Server')}</Text>
-              <Text style={styles.serverValue}>{selectedServer.label || '—'}</Text>
-              {hasServerChoices && (
-                <Ionicons name="chevron-down" size={18} color={T.textSub} />
-              )}
-            </Pressable>
-            <View style={styles.divider} />
+            <View style={styles.loginPanel}>
+              <View style={styles.panelHeader}>
+                <View style={styles.panelTitleTopRow}>
+                  <View style={styles.panelTitleRow}>
+                    <View style={styles.panelIconMark}>
+                      <Ionicons name="key-outline" size={18} color="#2563EB" />
+                    </View>
+                    <Text style={styles.panelEyebrow}>{t('Existing account')}</Text>
+                  </View>
+                  <View style={styles.securePill}>
+                    <Ionicons name="shield-checkmark-outline" size={14} color="#10B981" />
+                    <Text style={styles.secureText}>{t('Secure')}</Text>
+                  </View>
+                </View>
+                <Text style={styles.sectionTitle} numberOfLines={1}>
+                  {t('Login to an existing account')}
+                </Text>
+              </View>
 
-            <Pressable
-              style={styles.checkboxRow}
-              onPress={() => setSavePassword((v) => !v)}
-              hitSlop={10}
-              activateOnPressIn
-              latencyLabel="brokerDetail.savePassword.toggle"
-              unstable_pressDelay={0}
-            >
-              <Text style={styles.inputLabel}>{t('Save password')}</Text>
-              <View style={{ flex: 1 }} />
-              <Ionicons
-                name={savePassword ? 'checkbox' : 'square-outline'}
-                size={22}
-                color={savePassword ? T.accent : T.textSub}
-              />
-            </Pressable>
-            <View style={styles.divider} />
+              <View style={styles.fieldGroup}>
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.inputLabel}>{t('Login')}</Text>
+                  <View style={styles.inputShell}>
+                    <Ionicons name="person-outline" size={19} color={T.textMuted} />
+                    <TextInput
+                      style={styles.input}
+                      value={loginValue}
+                      onChangeText={setLoginValue}
+                      autoCapitalize="none"
+                      keyboardType="numeric"
+                      selectionColor={T.accent}
+                      cursorColor={T.accent}
+                      underlineColorAndroid="transparent"
+                      placeholder={t('Login')}
+                      placeholderTextColor={T.textMuted}
+                    />
+                  </View>
+                </View>
 
-            <Pressable
-              style={styles.forgotBtn}
-              onPress={handleForgotPassword}
-              hitSlop={10}
-              activateOnPressIn
-              latencyLabel="brokerDetail.forgotPassword.open"
-              unstable_pressDelay={0}
-            >
-              <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
-            </Pressable>
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.inputLabel}>{t('Password')}</Text>
+                  <View style={styles.inputShell}>
+                    <Ionicons name="lock-closed-outline" size={19} color={T.textMuted} />
+                    <TextInput
+                      style={styles.input}
+                      value={passwordValue}
+                      onChangeText={setPasswordValue}
+                      autoCapitalize="none"
+                      secureTextEntry={!showPassword}
+                      selectionColor={T.accent}
+                      cursorColor={T.accent}
+                      underlineColorAndroid="transparent"
+                      placeholder={t('Password')}
+                      placeholderTextColor={T.textMuted}
+                    />
+                    <Pressable
+                      style={styles.fieldIconButton}
+                      onPress={() => setShowPassword((v) => !v)}
+                      hitSlop={12}
+                      activateOnPressIn
+                      latencyLabel="brokerDetail.password.toggle"
+                      unstable_pressDelay={0}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color={T.textSub}
+                      />
+                    </Pressable>
+                  </View>
+                </View>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.loginBtn,
-                (pressed || isLoading) && styles.loginBtnPressed,
-              ]}
-              onPress={submitLogin}
-              disabled={isLoading}
-              activateOnPressIn
-              latencyLabel="brokerDetail.login.submit"
-              unstable_pressDelay={0}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.loginBtnText}>{t('LOGIN')}</Text>
-              )}
-            </Pressable>
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.inputLabel}>{t('Server')}</Text>
+                  <Pressable
+                    style={styles.inputShell}
+                    onPress={openServerSelector}
+                    disabled={!hasServerChoices}
+                    activateOnPressIn
+                    latencyLabel="brokerDetail.server.open"
+                    unstable_pressDelay={0}
+                  >
+                    <Ionicons name="server-outline" size={19} color={T.textMuted} />
+                    <Text style={styles.serverValue} numberOfLines={1}>
+                      {selectedServer.label || '---'}
+                    </Text>
+                    {hasServerChoices && (
+                      <Ionicons name="chevron-down" size={18} color={T.textSub} />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.formMetaRow}>
+                <Pressable
+                  style={styles.checkboxRow}
+                  onPress={() => setSavePassword((v) => !v)}
+                  hitSlop={10}
+                  activateOnPressIn
+                  latencyLabel="brokerDetail.savePassword.toggle"
+                  unstable_pressDelay={0}
+                >
+                  <Ionicons
+                    name={savePassword ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={savePassword ? T.accent : T.textSub}
+                  />
+                  <Text style={styles.checkboxText}>{t('Save password')}</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.forgotBtn}
+                  onPress={handleForgotPassword}
+                  hitSlop={10}
+                  activateOnPressIn
+                  latencyLabel="brokerDetail.forgotPassword.open"
+                  unstable_pressDelay={0}
+                >
+                  <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
+                </Pressable>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.loginBtn,
+                  (pressed || isLoading) && styles.loginBtnPressed,
+                ]}
+                onPress={submitLogin}
+                disabled={isLoading}
+                activateOnPressIn
+                latencyLabel="brokerDetail.login.submit"
+                unstable_pressDelay={0}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Text style={styles.loginBtnText}>{t('Login')}</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                  </>
+                )}
+              </Pressable>
+            </View>
+
           </ScrollView>
         </KeyboardAvoidingView>
 
@@ -726,8 +807,12 @@ const MT5_BLUE = '#0a84ff';
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
   // Pure white card surface in light mode; subtle elevated slate in dark mode.
   // Keeps the form area visually distinct from the device chrome on both themes.
-  const pageBg = isDark ? T.bgRoot : '#FFFFFF';
-  const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+  const pageBg = isDark ? '#05070D' : '#F3F6FA';
+  const surface = isDark ? '#0E1420' : '#FFFFFF';
+  const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
+  const dividerColor = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
+  const cardBorder = isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)';
+  const cardShadowColor = isDark ? '#000000' : '#0F172A';
   return StyleSheet.create({
     page: { flex: 1, backgroundColor: pageBg },
     container: { flex: 1, backgroundColor: pageBg },
@@ -751,9 +836,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       flex: 1,
       color: T.text,
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: '700',
     },
     scrollContent: {
+      paddingHorizontal: 20,
       paddingBottom: 32,
       backgroundColor: pageBg,
     },
@@ -761,6 +847,133 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       height: 1,
       backgroundColor: dividerColor,
       marginHorizontal: 20,
+    },
+    brokerSummaryCard: {
+      marginTop: 4,
+      marginBottom: 10,
+      padding: 14,
+      borderRadius: 18,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      shadowColor: cardShadowColor,
+      shadowOpacity: isDark ? 0.24 : 0.06,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: isDark ? 2 : 1,
+    },
+    brokerSummaryTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    brokerLogoMark: {
+      width: 48,
+      height: 48,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#2563EB',
+    },
+    brokerLogoText: {
+      color: '#FFFFFF',
+      fontSize: 17,
+      fontWeight: '900',
+      letterSpacing: 0,
+    },
+    brokerSummaryBody: {
+      flex: 1,
+      minWidth: 0,
+    },
+    brokerKickerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      marginBottom: 4,
+    },
+    brokerEyebrow: {
+      color: T.textMuted,
+      fontSize: 11,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0,
+      marginBottom: 3,
+    },
+    brokerName: {
+      color: T.text,
+      fontSize: 17,
+      fontWeight: '800',
+      letterSpacing: 0,
+    },
+    brokerServerPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
+      gap: 6,
+      marginTop: 8,
+      paddingHorizontal: 9,
+      minHeight: 28,
+      borderRadius: 14,
+      backgroundColor: softSurface,
+      borderWidth: 1,
+      borderColor: dividerColor,
+    },
+    brokerServerLine: {
+      color: T.textSub,
+      flexShrink: 1,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    readyPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 9,
+      minHeight: 26,
+      borderRadius: 13,
+      backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)',
+    },
+    readyDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: '#10B981',
+    },
+    readyText: {
+      color: '#059669',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    optionPanel: {
+      marginBottom: 12,
+      borderRadius: 18,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      shadowColor: cardShadowColor,
+      shadowOpacity: isDark ? 0.18 : 0.04,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: isDark ? 2 : 1,
+      overflow: 'hidden',
+    },
+    optionCommand: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      minHeight: 78,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    optionCommandPressed: {
+      backgroundColor: softSurface,
+    },
+    optionDivider: {
+      height: 1,
+      marginLeft: 64,
+      backgroundColor: dividerColor,
     },
     optionRow: {
       flexDirection: 'row',
@@ -773,25 +986,29 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       opacity: 0.55,
     },
     optionIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 36,
+      height: 36,
+      borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
     },
     optionIconDemo: {
       backgroundColor: '#2563EB',
     },
-    // Disabled real account still shows a pale-blue circle in MT5 — only the
+    // Disabled real account still shows a pale-blue circle in MT5; only the
     // surrounding row opacity is dropped, not the brand color.
     optionIconReal: {
       backgroundColor: '#2563EB',
     },
-    optionTextWrap: { flex: 1 },
+    optionTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
     optionTitle: {
       color: T.text,
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '800',
+      lineHeight: 18,
     },
     optionTitleDisabled: {
       color: T.textMuted,
@@ -799,10 +1016,83 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     optionSub: {
       color: T.textSub,
       fontSize: 12,
-      marginTop: 2,
+      lineHeight: 16,
+      marginTop: 3,
     },
     optionSubDisabled: {
       color: T.textDimmed,
+    },
+    optionModePill: {
+      overflow: 'hidden',
+      color: '#2563EB',
+      fontSize: 12,
+      fontWeight: '800',
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 12,
+      backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)',
+    },
+    optionModePillDisabled: {
+      color: T.textDimmed,
+      backgroundColor: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(148,163,184,0.16)',
+    },
+    loginPanel: {
+      padding: 16,
+      borderRadius: 18,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      shadowColor: cardShadowColor,
+      shadowOpacity: isDark ? 0.22 : 0.06,
+      shadowRadius: 20,
+      shadowOffset: { width: 0, height: 10 },
+      elevation: isDark ? 3 : 1,
+    },
+    panelHeader: {
+      gap: 8,
+      marginBottom: 16,
+    },
+    panelTitleTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    panelTitleRow: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    panelIconMark: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)',
+    },
+    panelEyebrow: {
+      color: T.textMuted,
+      fontSize: 11,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0,
+    },
+    securePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 9,
+      minHeight: 28,
+      borderRadius: 14,
+      backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.10)',
+    },
+    secureText: {
+      color: '#059669',
+      fontSize: 12,
+      fontWeight: '800',
     },
     sectionHeader: {
       alignItems: 'center',
@@ -810,8 +1100,16 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     },
     sectionTitle: {
       color: T.text,
-      fontSize: 15,
-      fontWeight: '700',
+      fontSize: 17,
+      fontWeight: '800',
+      letterSpacing: 0,
+      lineHeight: 22,
+    },
+    fieldGroup: {
+      gap: 12,
+    },
+    fieldBlock: {
+      gap: 7,
     },
     inputRow: {
       flexDirection: 'row',
@@ -822,8 +1120,21 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     },
     inputLabel: {
       color: T.textSub,
-      fontSize: 14,
-      width: 110,
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0,
+    },
+    inputShell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: 50,
+      paddingHorizontal: 13,
+      borderRadius: 14,
+      backgroundColor: softSurface,
+      borderWidth: 1,
+      borderColor: dividerColor,
     },
     input: {
       flex: 1,
@@ -833,36 +1144,56 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       paddingVertical: 12,
       backgroundColor: 'transparent',
     },
+    fieldIconButton: {
+      width: 34,
+      height: 34,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 17,
+    },
     serverValue: {
       flex: 1,
       color: T.text,
       fontSize: 15,
-      fontWeight: '500',
-      textAlign: 'right',
+      fontWeight: '700',
+    },
+    formMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      marginTop: 14,
+      marginBottom: 14,
     },
     checkboxRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      minHeight: 52,
+      gap: 8,
+      minHeight: 36,
+      flexShrink: 1,
+    },
+    checkboxText: {
+      color: T.text,
+      fontSize: 13,
+      fontWeight: '700',
     },
     forgotBtn: {
-      alignSelf: 'center',
-      paddingVertical: 18,
+      paddingVertical: 8,
+      flexShrink: 0,
     },
     forgotText: {
-      color: MT5_BLUE,
-      fontSize: 14,
-      fontWeight: '500',
+      color: '#2563EB',
+      fontSize: 13,
+      fontWeight: '800',
     },
     loginBtn: {
-      marginHorizontal: 20,
-      marginTop: 4,
-      backgroundColor: '#2563EB',
-      minHeight: 52,
-      borderRadius: 26,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 8,
+      backgroundColor: '#2563EB',
+      minHeight: 54,
+      borderRadius: 16,
       shadowColor: '#2563EB',
       shadowOpacity: 0.3,
       shadowRadius: 10,
@@ -874,7 +1205,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       color: '#FFFFFF',
       fontSize: 16,
       fontWeight: '700',
-      letterSpacing: 0.8,
+      letterSpacing: 0,
     },
     modalOverlay: {
       ...StyleSheet.absoluteFillObject,
@@ -955,7 +1286,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       color: MT5_BLUE,
       fontSize: 15,
       fontWeight: '700',
-      letterSpacing: 0.6,
+      letterSpacing: 0,
       paddingHorizontal: 8,
       paddingVertical: 6,
     },

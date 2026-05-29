@@ -56,6 +56,37 @@ function resolveBrokerDomain(name: string): string | undefined {
   return undefined;
 }
 
+function formatBrokerInitials(name: string) {
+  const words = name
+    .replace(/\([^)]*\)/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
+  return initials || 'BR';
+}
+
+function isRawNetworkEndpoint(value: string) {
+  const host = value
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .split('/')[0];
+
+  return (
+    /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(host) ||
+    /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(host)
+  );
+}
+
+function formatVisibleServerName(broker: BrokerServer) {
+  const server = broker.server?.trim() || '';
+  if (!server || isRawNetworkEndpoint(server)) {
+    return formatServerFromName(broker.broker_name);
+  }
+
+  return server;
+}
+
 export function BrokersScreen() {
   const [search, setSearch] = useState('');
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
@@ -90,7 +121,7 @@ export function BrokersScreen() {
       id: `srv-${b.id ?? b.broker_id}`,
       brokerId: b.broker_id,
       name: b.broker_name,
-      server: b.server?.trim() || formatServerFromName(b.broker_name),
+      server: formatVisibleServerName(b),
       serverUrl: normalizeBrokerServerUrl(
         b.server_url || (b.protocol && b.server ? `${b.protocol}://${b.server}` : ''),
       ),
@@ -209,17 +240,17 @@ export function BrokersScreen() {
           />
           {search.length > 0 && (
             <Pressable
+              style={styles.searchClearBtn}
               onPress={() => setSearch('')}
               hitSlop={10}
               activateOnPressIn
               latencyLabel="brokers.search.clear"
               unstable_pressDelay={0}
             >
-              <Ionicons name="close-circle" size={18} color={T.textMuted} />
+              <Ionicons name="close" size={16} color={T.textMuted} />
             </Pressable>
           )}
         </View>
-        <View style={styles.divider} />
 
         {/* ── Results ── */}
         <FlatList
@@ -230,10 +261,13 @@ export function BrokersScreen() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.rowDivider} />}
+          ItemSeparatorComponent={() => <View style={styles.cardGap} />}
           renderItem={({ item }) => (
             <Pressable
-              style={styles.brokerRow}
+              style={({ pressed }) => [
+                styles.brokerRow,
+                pressed && styles.brokerRowPressed,
+              ]}
               onPress={() => handleSelectBroker(item)}
               activateOnPressIn
               latencyLabel={`brokers.row.${item.brokerId}`}
@@ -244,21 +278,22 @@ export function BrokersScreen() {
                 failed={Boolean((item.logoUrl || item.domain) && logoFailed[item.logoUrl || item.domain || ''])}
                 onError={(logoKey) => setLogoFailed((prev) => ({ ...prev, [logoKey]: true }))}
                 styles={styles}
-                T={T}
               />
               <View style={styles.brokerInfo}>
                 <Text style={styles.brokerName} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.brokerSub} numberOfLines={1}>{item.brokerId}</Text>
+                <View style={styles.brokerIdRow}>
+                  <Text style={styles.brokerIdLabel} numberOfLines={1}>{item.brokerId}</Text>
+                </View>
               </View>
               <Pressable
-                style={styles.infoBtn}
+                style={styles.selectBtn}
                 hitSlop={10}
                 onPress={() => handleSelectBroker(item)}
                 activateOnPressIn
                 latencyLabel={`brokers.info.${item.brokerId}`}
                 unstable_pressDelay={0}
               >
-                <Ionicons name="information-circle-outline" size={22} color={T.textMuted} />
+                <Ionicons name="chevron-forward" size={20} color={T.textSub} />
               </Pressable>
             </Pressable>
           )}
@@ -323,7 +358,8 @@ export function BrokersScreen() {
           latencyLabel="brokers.custom"
           unstable_pressDelay={0}
         >
-          <Text style={styles.footerText}>{t("CAN'T FIND YOUR BROKER?")}</Text>
+          <Ionicons name="add-circle-outline" size={19} color={T.text} />
+          <Text style={styles.footerText}>{t("Can't find your broker?")}</Text>
         </Pressable>
       </View>
     </Screen>
@@ -335,19 +371,17 @@ function BrokerAvatar({
   failed,
   onError,
   styles,
-  T,
 }: {
   broker: BrokerRow;
   failed: boolean;
   onError: (logoKey: string) => void;
   styles: ReturnType<typeof makeStyles>;
-  T: ThemeColors;
 }) {
   const logoUri = broker.logoUrl || (broker.domain ? `https://logo.clearbit.com/${broker.domain}` : '');
   if (!logoUri || failed) {
     return (
       <View style={[styles.avatar, styles.avatarFallback]}>
-        <Ionicons name="business-outline" size={20} color={T.textMuted} />
+        <Text style={styles.avatarInitials}>{formatBrokerInitials(broker.name)}</Text>
       </View>
     );
   }
@@ -366,12 +400,12 @@ function BrokerAvatar({
 const MT5_BLUE = '#0a84ff';
 
 const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
-  // Use a pure-white surface in light mode (matches MT5's broker list) and
-  // the existing dark slate in dark mode. Dividers/borders adapt accordingly.
-  const pageBg = isDark ? T.bgRoot : '#FFFFFF';
-  const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-  const subtleSurface = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
-  const footerBg = isDark ? '#0E1420' : '#F5F5F5';
+  const pageBg = isDark ? '#05070D' : '#F3F6FA';
+  const surface = isDark ? '#0E1420' : '#FFFFFF';
+  const softSurface = isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC';
+  const dividerColor = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
+  const cardBorder = isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)';
+  const cardShadowColor = isDark ? '#000000' : '#0F172A';
   return StyleSheet.create({
     page: {
       flex: 1,
@@ -396,16 +430,22 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     headerTitle: {
       flex: 1,
       color: T.text,
-      fontSize: 20,
-      fontWeight: '600',
+      fontSize: 22,
+      fontWeight: '800',
     },
     searchRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 10,
+      minHeight: 52,
+      marginHorizontal: 20,
+      marginTop: 4,
+      marginBottom: 14,
+      paddingHorizontal: 12,
       gap: 12,
-      backgroundColor: pageBg,
+      borderRadius: 14,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
     },
     searchInput: {
       flex: 1,
@@ -413,6 +453,14 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       fontSize: 16,
       paddingVertical: 6,
       backgroundColor: 'transparent',
+    },
+    searchClearBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.16)',
     },
     divider: {
       height: 1,
@@ -424,17 +472,32 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       backgroundColor: pageBg,
     },
     listContent: {
-      paddingBottom: 24,
+      paddingHorizontal: 20,
+      paddingBottom: 18,
       backgroundColor: pageBg,
       flexGrow: 1,
+    },
+    cardGap: {
+      height: 10,
     },
     brokerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 14,
-      gap: 14,
-      backgroundColor: pageBg,
+      minHeight: 88,
+      padding: 14,
+      gap: 12,
+      borderRadius: 16,
+      backgroundColor: surface,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      shadowColor: cardShadowColor,
+      shadowOpacity: isDark ? 0.16 : 0.04,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: isDark ? 2 : 1,
+    },
+    brokerRowPressed: {
+      backgroundColor: isDark ? '#121B2A' : '#F8FAFC',
     },
     rowDivider: {
       height: 1,
@@ -442,43 +505,60 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       marginLeft: 64,
     },
     avatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 10,
-      backgroundColor: subtleSurface,
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: softSurface,
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
     },
     avatarFallback: {
-      backgroundColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)',
+      backgroundColor: '#2563EB',
+    },
+    avatarInitials: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '900',
+      letterSpacing: 0,
     },
     avatarImage: {
-      width: 32,
-      height: 32,
+      width: 36,
+      height: 36,
     },
     brokerInfo: {
       flex: 1,
+      minWidth: 0,
     },
     brokerName: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '800',
     },
-    brokerSub: {
+    brokerIdRow: {
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
+      marginTop: 5,
+      paddingHorizontal: 8,
+      minHeight: 24,
+      borderRadius: 12,
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)',
+    },
+    brokerIdLabel: {
       color: MT5_BLUE,
-      fontSize: 13,
-      fontWeight: '500',
-      marginTop: 2,
+      fontSize: 12,
+      fontWeight: '800',
     },
-    infoBtn: {
-      width: 30,
-      height: 30,
+    selectBtn: {
+      width: 36,
+      height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 15,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: dividerColor,
+      backgroundColor: softSurface,
     },
     emptyState: {
       alignItems: 'center',
@@ -509,21 +589,23 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       color: '#FFFFFF',
       fontSize: 13,
       fontWeight: '700',
-      letterSpacing: 0.4,
+      letterSpacing: 0,
     },
     footerBtn: {
+      flexDirection: 'row',
       minHeight: 56,
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 8,
       borderTopWidth: 1,
       borderTopColor: dividerColor,
-      backgroundColor: footerBg,
+      backgroundColor: surface,
     },
     footerText: {
       color: T.text,
       fontSize: 14,
-      fontWeight: '700',
-      letterSpacing: 0.6,
+      fontWeight: '800',
+      letterSpacing: 0,
     },
   });
 };
