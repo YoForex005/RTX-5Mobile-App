@@ -63,9 +63,9 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
   const runAfterFirstFrame: (callback: (time: number) => void) => number = typeof globalThis.requestAnimationFrame === 'function'
     ? globalThis.requestAnimationFrame
     : (callback) => {
-        setTimeout(() => callback(getNow()), 16);
-        return 0;
-      };
+      setTimeout(() => callback(getNow()), 16);
+      return 0;
+    };
 
   runAfterFirstFrame(() => {
     const elapsedMs = getNow() - startedAtMs;
@@ -76,7 +76,7 @@ function scheduleTabSwitchBudgetCheck(label: string, startedAtMs: number, naviga
       const navigationMs = Math.max(0, navigationFinishedAtMs - startedAtMs);
       console.warn(
         `[Tabs] ${label} first frame took ${Math.round(elapsedMs)}ms; ` +
-          `sync navigation ${Math.round(navigationMs)}ms; budget is ${TAB_SWITCH_MAX_LATENCY_MS}ms.`,
+        `sync navigation ${Math.round(navigationMs)}ms; budget is ${TAB_SWITCH_MAX_LATENCY_MS}ms.`,
       );
     }
   });
@@ -138,20 +138,23 @@ const FastTabBarButton = memo(function FastTabBarButton({
 
 const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   const actionSheet = useUIState((s) => s.actionSheet);
+  const preloadConfig = useUIState((s) => s.preloadedActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
+
+  const activeConfig = actionSheet || preloadConfig;
 
   return (
     <ActionSheet
       visible={actionSheet !== null}
-      title={actionSheet?.title}
-      actions={actionSheet?.actions ?? []}
+      title={activeConfig?.title}
+      actions={activeConfig?.actions ?? []}
       onClose={hideActionSheet}
-      searchable={actionSheet?.searchable}
-      searchPlaceholder={actionSheet?.searchPlaceholder}
-      detent={actionSheet?.detent}
-      minimumTopInset={actionSheet?.minimumTopInset}
-      instantOpen={actionSheet?.instantOpen}
-      runActionAfterClose={actionSheet?.runActionAfterClose}
+      searchable={activeConfig?.searchable}
+      searchPlaceholder={activeConfig?.searchPlaceholder}
+      detent={activeConfig?.detent}
+      minimumTopInset={activeConfig?.minimumTopInset}
+      instantOpen={activeConfig?.instantOpen}
+      runActionAfterClose={activeConfig?.runActionAfterClose}
     />
   );
 });
@@ -259,14 +262,14 @@ export default function TabsLayout() {
           tabBarStyle: shouldHideMenu
             ? { display: 'none' }
             : [
-                tabBarStyle,
-                shouldLiftChartTabBar && {
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
-                },
-              ],
+              tabBarStyle,
+              shouldLiftChartTabBar && {
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
+              },
+            ],
           tabBarActiveTintColor: '#2563EB',
           tabBarInactiveTintColor: inactiveTabColor,
           tabBarIcon: ({ size }) => {

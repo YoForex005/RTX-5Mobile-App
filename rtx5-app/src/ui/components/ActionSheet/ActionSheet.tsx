@@ -164,7 +164,7 @@ export function ActionSheet({
       // This prevents a "blank flash" when the sheet first opens natively.
       overlayOpacity.setValue(0);
       if (activeInstantOpen) {
-        sheetTranslateY.setValue(ACTION_SHEET_FAST_OPEN_TRANSLATE_Y);
+        sheetTranslateY.setValue(80);
       } else {
         sheetTranslateY.setValue(ACTION_SHEET_OPEN_TRANSLATE_Y);
       }
@@ -177,14 +177,14 @@ export function ActionSheet({
 
   const filteredActions = activeSearchable && query.trim()
     ? activeActions.filter((action) => {
-        const rawLabel = action.label.toLowerCase();
-        const localizedLabel = t(action.label).toLowerCase();
-        const rawSubtitle = action.subtitle?.toLowerCase() ?? '';
-        const normalizedQuery = query.toLowerCase();
-        return rawLabel.includes(normalizedQuery) ||
-          localizedLabel.includes(normalizedQuery) ||
-          rawSubtitle.includes(normalizedQuery);
-      })
+      const rawLabel = action.label.toLowerCase();
+      const localizedLabel = t(action.label).toLowerCase();
+      const rawSubtitle = action.subtitle?.toLowerCase() ?? '';
+      const normalizedQuery = query.toLowerCase();
+      return rawLabel.includes(normalizedQuery) ||
+        localizedLabel.includes(normalizedQuery) ||
+        rawSubtitle.includes(normalizedQuery);
+    })
     : activeActions;
   const keyboardLift = Platform.OS === 'android' && activeSearchable ? Math.max(0, keyboardHeight) : 0;
   // Reserve a tappable dismiss strip above the sheet that sits clear of any
@@ -238,25 +238,20 @@ export function ActionSheet({
   // content are already resolved before the first visible frame.
   const runEntryAnimation = useCallback((mode: 'fast' | 'standard' = 'standard') => {
     const isFast = mode === 'fast';
-    if (isFast && Platform.OS === 'ios') {
-      overlayOpacity.setValue(1);
-      sheetTranslateY.setValue(0);
-      return;
-    }
 
     overlayOpacity.setValue(0);
-    sheetTranslateY.setValue(isFast ? ACTION_SHEET_FAST_OPEN_TRANSLATE_Y : ACTION_SHEET_OPEN_TRANSLATE_Y);
+    sheetTranslateY.setValue(isFast ? 80 : ACTION_SHEET_OPEN_TRANSLATE_Y);
     Animated.parallel([
       Animated.timing(overlayOpacity, {
         toValue: 1,
-        duration: isFast ? 50 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
-        easing: isFast ? Easing.linear : Easing.out(Easing.cubic),
+        duration: isFast ? 60 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(sheetTranslateY, {
         toValue: 0,
-        duration: isFast ? 50 : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
-        easing: isFast ? Easing.linear : Easing.out(Easing.cubic),
+        duration: isFast ? 80 : ACTION_SHEET_OPEN_SHEET_DURATION_MS,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
@@ -352,13 +347,13 @@ export function ActionSheet({
       Animated.parallel([
         Animated.timing(overlayOpacity, {
           toValue: 0,
-          duration: ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS,
+          duration: activeInstantOpen ? 60 : ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(sheetTranslateY, {
-          toValue: ACTION_SHEET_FAST_OPEN_TRANSLATE_Y,
-          duration: ACTION_SHEET_CLOSE_SHEET_DURATION_MS,
+          toValue: activeInstantOpen ? 80 : ACTION_SHEET_FAST_OPEN_TRANSLATE_Y,
+          duration: activeInstantOpen ? 80 : ACTION_SHEET_CLOSE_SHEET_DURATION_MS,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -375,27 +370,10 @@ export function ActionSheet({
     setMounted(true);
     overlayOpacity.stopAnimation();
     sheetTranslateY.stopAnimation();
-    
-    let raf1: number;
-    let raf2: number;
-    if (Platform.OS === 'android' && activeInstantOpen) {
-      // Use double requestAnimationFrame to wait exactly until the native UI thread
-      // has processed the view creation and Yoga layout, without any arbitrary
-      // setTimeout delay. This prevents the layout "shrinking" flash while
-      // ensuring the sheet appears as fast as physically possible.
-      raf1 = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(() => {
-          runEntryAnimation('fast');
-        });
-      });
-    } else {
-      runEntryAnimation(activeInstantOpen ? 'fast' : 'standard');
-    }
 
-    return () => {
-      if (raf1) cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
-    };
+    runEntryAnimation(activeInstantOpen ? 'fast' : 'standard');
+
+    return () => { };
   }, [
     activeInstantOpen,
     mounted,
@@ -506,10 +484,10 @@ export function ActionSheet({
     () =>
       shouldRenderInlineActions
         ? filteredActions.map((action, index) => (
-            <React.Fragment key={keyAction(action, index)}>
-              {renderActionRow(action, index)}
-            </React.Fragment>
-          ))
+          <React.Fragment key={keyAction(action, index)}>
+            {renderActionRow(action, index)}
+          </React.Fragment>
+        ))
         : null,
     [filteredActions, keyAction, renderActionRow, shouldRenderInlineActions],
   );

@@ -199,87 +199,87 @@ export function CloseByScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
       >
-      <View style={styles.header}>
-        <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>
-      </View>
-
-      <View style={styles.referenceCard}>
-        <Text style={styles.referenceTitle}>SOURCE POSITION</Text>
-        <View style={styles.separator} />
-        <View style={styles.pairTopRow}>
-          <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
-          <Text style={styles.pairTicket}>#{sourcePosition.id}</Text>
+        <View style={styles.header}>
+          <Text style={styles.subTitle}>Select a matching position to pair-close.</Text>
         </View>
-        <View style={styles.pairBottomRow}>
-          <Text style={[styles.sideText, sourcePosition.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-            {sourcePosition.side.toUpperCase()} {(sourcePosition.volume || 0).toFixed(2)}
-          </Text>
-          <View style={styles.priceContainer}>
-            <Text style={styles.pairDivider}>•</Text>
-            <Text style={styles.pairPrice}>{fmt.price(getLivePrice(sourcePosition))}</Text>
+
+        <View style={styles.referenceCard}>
+          <Text style={styles.referenceTitle}>SOURCE POSITION</Text>
+          <View style={styles.separator} />
+          <View style={styles.pairTopRow}>
+            <Text style={styles.pairSymbol}>{sourcePosition.symbol.replace(/\//g, '')}</Text>
+            <Text style={styles.pairTicket}>#{sourcePosition.id}</Text>
+          </View>
+          <View style={styles.pairBottomRow}>
+            <Text style={[styles.sideText, sourcePosition.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
+              {sourcePosition.side.toUpperCase()} {(sourcePosition.volume || 0).toFixed(2)}
+            </Text>
+            <View style={styles.priceContainer}>
+              <Text style={styles.pairDivider}>•</Text>
+              <Text style={styles.pairPrice}>{fmt.price(getLivePrice(sourcePosition))}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <View style={styles.candidateContainer}>
-        {candidates.map((candidate) => (
-          <Pressable
-            key={candidate.id}
-            style={[
-              styles.pairCard,
-              activePairId === candidate.id && styles.pairCardSelected,
-            ]}
-            onPress={() => setSelectedPairId(candidate.id)}
-          >
-            <View>
-              <View style={styles.pairTopRow}>
-                <Text style={styles.pairSymbol}>{candidate.symbol.replace(/\//g, '')}</Text>
-                <Text style={styles.pairTicket}>#{candidate.id}</Text>
-              </View>
-              <View style={styles.pairBottomRow}>
-                <Text style={[styles.sideText, candidate.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
-                  {candidate.side.toUpperCase()} {(candidate.volume || 0).toFixed(2)}
-                </Text>
-                <View style={styles.priceContainer}>
-                  <Text style={styles.pairDivider}>•</Text>
-                  <Text style={styles.pairPrice}>{fmt.price(getLivePrice(candidate))}</Text>
+        <View style={styles.candidateContainer}>
+          {candidates.map((candidate) => (
+            <Pressable
+              key={candidate.id}
+              style={[
+                styles.pairCard,
+                activePairId === candidate.id && styles.pairCardSelected,
+              ]}
+              onPress={() => setSelectedPairId(candidate.id)}
+            >
+              <View>
+                <View style={styles.pairTopRow}>
+                  <Text style={styles.pairSymbol}>{candidate.symbol.replace(/\//g, '')}</Text>
+                  <Text style={styles.pairTicket}>#{candidate.id}</Text>
+                </View>
+                <View style={styles.pairBottomRow}>
+                  <Text style={[styles.sideText, candidate.side === 'buy' ? styles.sideTextBuy : styles.sideTextSell]}>
+                    {candidate.side.toUpperCase()} {(candidate.volume || 0).toFixed(2)}
+                  </Text>
+                  <View style={styles.priceContainer}>
+                    <Text style={styles.pairDivider}>•</Text>
+                    <Text style={styles.pairPrice}>{fmt.price(getLivePrice(candidate))}</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-            <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
-              {fmt.pnl(candidate.pnl)}
-            </Text>
-          </Pressable>
-        ))}
-        {candidates.length === 0 ? (
-          <Text style={styles.emptyText}>No matching positions available for close-by.</Text>
-        ) : null}
-      </View>
-
-      {closeError || submitted ? (
-        <View style={closeError ? styles.error : styles.success}>
-          <Text style={closeError ? styles.errorText : styles.successText}>
-            {closeError ? closeError : 'Close-by request completed successfully.'}
-          </Text>
+              <Text style={[styles.pairPnl, candidate.pnl >= 0 ? styles.positive : styles.negative]}>
+                {fmt.pnl(candidate.pnl)}
+              </Text>
+            </Pressable>
+          ))}
+          {candidates.length === 0 ? (
+            <Text style={styles.emptyText}>No matching positions available for close-by.</Text>
+          ) : null}
         </View>
-      ) : null}
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.submitButton,
-          (!activePairId || candidates.length === 0 || isClosing || actionLocked) && styles.submitDisabled,
-          pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
-        ]}
-        disabled={!activePairId || candidates.length === 0 || isClosing || actionLocked}
-        onPressIn={handleSubmit}
-        unstable_pressDelay={0}
-      >
-        {isClosing ? (
-          <ActivityIndicator color="#FFF" />
-        ) : (
-          <Text style={styles.submitText}>Send Close By Request</Text>
-        )}
-      </Pressable>
+        {closeError || submitted ? (
+          <View style={closeError ? styles.error : styles.success}>
+            <Text style={closeError ? styles.errorText : styles.successText}>
+              {closeError ? closeError : 'Close-by request completed successfully.'}
+            </Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.submitButton,
+            (!activePairId || candidates.length === 0 || isClosing || actionLocked) && styles.submitDisabled,
+            pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }
+          ]}
+          disabled={!activePairId || candidates.length === 0 || isClosing || actionLocked}
+          onPressIn={handleSubmit}
+          unstable_pressDelay={0}
+        >
+          {isClosing ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text style={styles.submitText}>Send Close By Request</Text>
+          )}
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -385,7 +385,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   pairMeta: { color: T.textSub, fontSize: 13, fontWeight: '500' },
   pairDivider: { color: T.textMuted, fontSize: 13, fontWeight: '600', marginRight: 2 },
   pairPrice: { color: T.text, fontSize: 14, fontVariant: ['tabular-nums'], fontWeight: '600' },
-  
+
   pairPnl: {
     fontSize: 16,
     fontWeight: '700',
@@ -432,8 +432,8 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   submitButton: {
     marginHorizontal: spacing.md,
     marginTop: spacing.xl,
-    borderRadius: 12, 
-    backgroundColor: T.accent, 
+    borderRadius: 12,
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,

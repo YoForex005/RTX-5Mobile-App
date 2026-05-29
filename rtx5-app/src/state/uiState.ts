@@ -73,8 +73,12 @@ type UIState = {
 
   /** Current active action sheet config. Null means closed. */
   actionSheet: ActionSheetConfig | null;
+  /** Action sheet config to render invisibly in the background to pre-warm the layout engine */
+  preloadedActionSheet: ActionSheetConfig | null;
   /** Opens the global action sheet with the provided config */
   showActionSheet: (config: ActionSheetConfig) => void;
+  /** Pre-loads a config into the hidden action sheet to trigger Native UI measurement */
+  preloadActionSheet: (config: ActionSheetConfig) => void;
   /** Closes/hides the active action sheet */
   hideActionSheet: () => void;
 };
@@ -104,6 +108,8 @@ export const useUIState = create<UIState>((set) => ({
   clearPendingChartDrawingTool: () => set({ pendingChartDrawingTool: null }),
 
   actionSheet: null,
+  preloadedActionSheet: null,
   showActionSheet: (config) => set({ actionSheet: { ...config, instantOpen: true } }),
+  preloadActionSheet: (config) => set({ preloadedActionSheet: { ...config, instantOpen: true } }),
   hideActionSheet: () => set((state) => (state.actionSheet === null ? state : { actionSheet: null })),
 }));

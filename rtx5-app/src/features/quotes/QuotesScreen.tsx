@@ -14,9 +14,11 @@ import { useIsFocused } from '@react-navigation/native';
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
-  useCallback, useDeferredValue, useEffect, useRef, useMemo, useState, } from 'react';
+  useCallback, useDeferredValue, useEffect, useRef, useMemo, useState,
+} from 'react';
 import {
-  Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform } from 'react-native';
+  Animated, Easing, FlatList, ScrollView, StyleSheet, Text, TextInput, View, Modal, Platform
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useUserPreferences } from '../../state/userPreferences';
@@ -271,7 +273,7 @@ const QuoteCard = React.memo(function QuoteCard({
             justifyContent: 'center',
             borderColor: cardBorder,
           },
-          pressed && !suppressPressFeedback && sc.cardPressed,
+          pressed ? (suppressPressFeedback ? sc.cardPressedNoShrink : sc.cardPressed) : null,
         ]}
         unstable_pressDelay={0}
         onPressIn={onPressIn}
@@ -398,7 +400,7 @@ const QuoteCard = React.memo(function QuoteCard({
         { borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
         isDark && sc.cardShadowDark,
-        pressed && !suppressPressFeedback && sc.cardPressed,
+        pressed ? (suppressPressFeedback ? sc.cardPressedNoShrink : sc.cardPressed) : null,
       ]}
       unstable_pressDelay={0}
       onPressIn={onPressIn}
@@ -715,53 +717,53 @@ function LegacyAddSymbolModal({
           renderItem={({ item: sym }) => {
             const alreadyAdded = existingBasesSet.has(sym.toLowerCase());
             return (
-            <Pressable
-              onPress={() => { if (!alreadyAdded) onAdd(sym); }}
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                paddingVertical: 14,
-                paddingHorizontal: 12,
-                marginBottom: 8,
-                borderWidth: 1,
-                borderRadius: 18,
-                borderColor: palette.cardBorder,
-                overflow: 'hidden',
-                opacity: alreadyAdded ? 0.55 : 1,
-              }}
-            >
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  StyleSheet.absoluteFillObject,
-                  { backgroundColor: cardBackground },
-                ]}
-              />
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
-              />
+              <Pressable
+                onPress={() => { if (!alreadyAdded) onAdd(sym); }}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  paddingVertical: 14,
+                  paddingHorizontal: 12,
+                  marginBottom: 8,
+                  borderWidth: 1,
+                  borderRadius: 18,
+                  borderColor: palette.cardBorder,
+                  overflow: 'hidden',
+                  opacity: alreadyAdded ? 0.55 : 1,
+                }}
+              >
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: cardBackground },
+                  ]}
+                />
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
 
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>
-                    {fmt.symbol(sym)}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: palette.secondaryText }}>
-                    {alreadyAdded ? t('Already in your watchlist') : t('Add to live quotes desk')}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: T.text }}>
+                      {fmt.symbol(sym)}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: palette.secondaryText }}>
+                      {alreadyAdded ? t('Already in your watchlist') : t('Add to live quotes desk')}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              <Ionicons
-                name={alreadyAdded ? 'checkmark-circle' : 'add-circle'}
-                size={26}
-                color={alreadyAdded ? T.textMuted : T.trading.profit}
-              />
-            </Pressable>
+                <Ionicons
+                  name={alreadyAdded ? 'checkmark-circle' : 'add-circle'}
+                  size={26}
+                  color={alreadyAdded ? T.textMuted : T.trading.profit}
+                />
+              </Pressable>
             );
           }}
           ListEmptyComponent={
@@ -1354,140 +1356,140 @@ function AddSymbolModal({
       </ScrollView>
 
       <FlatList
-          data={listData}
-          keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
-          keyboardShouldPersistTaps="always"
-          canCancelContentTouches={Platform.OS === 'ios'}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            addSymbolStyles.listContent,
-            { paddingBottom: Math.max(insets.bottom + 28, 40) },
-          ]}
-          renderItem={({ item }) => {
-            if (typeof item !== 'string') {
-              const added = countAdded(item.symbols);
-              const disabled = item.symbols.length === 0;
-              return (
-                <Pressable
-                  onPress={() => {
-                    if (disabled) return;
-                    setFolder(item.key);
-                    setQuery('');
-                  }}
-                  activateOnPressIn
-                  latencyLabel={`quotes.addSymbol.folder.${item.key}`}
-                  unstable_pressDelay={0}
-                  disabled={disabled}
-                  style={({ pressed }) => [
-                    addSymbolStyles.folderRow,
-                    {
-                      backgroundColor: addPalette.rowBg,
-                      borderColor: addPalette.rowBorder,
-                      opacity: disabled ? 0.52 : 1,
-                    },
-                    pressed && !disabled && { backgroundColor: addPalette.rowPressed },
-                  ]}
-                >
-                  <View style={addSymbolStyles.folderLeft}>
-                    <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
-                      <Ionicons name="folder-open" size={22} color="#FBBF24" />
-                    </View>
-                    <View style={addSymbolStyles.folderTextCol}>
-                      <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
-                      <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
-                        {item.symbols.length} {t('symbols')}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={addSymbolStyles.folderRight}>
-                    <View
-                      style={[
-                        addSymbolStyles.folderCountPill,
-                        { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
-                      ]}
-                    >
-                      <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
-                        {added}/{item.symbols.length}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={addPalette.mutedText} />
-                  </View>
-                </Pressable>
-              );
-            }
-
-            const alreadyAdded = isSymbolAdded(item);
-            const kind = classifyMarketSymbol(item);
-            const kindMeta = SYMBOL_KIND_META[kind];
+        data={listData}
+        keyExtractor={(item) => (typeof item === 'string' ? item : item.key)}
+        keyboardShouldPersistTaps="always"
+        canCancelContentTouches={Platform.OS === 'ios'}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          addSymbolStyles.listContent,
+          { paddingBottom: Math.max(insets.bottom + 28, 40) },
+        ]}
+        renderItem={({ item }) => {
+          if (typeof item !== 'string') {
+            const added = countAdded(item.symbols);
+            const disabled = item.symbols.length === 0;
             return (
               <Pressable
                 onPress={() => {
-                  if (!alreadyAdded) onAdd(item);
+                  if (disabled) return;
+                  setFolder(item.key);
+                  setQuery('');
                 }}
                 activateOnPressIn
-                latencyLabel={`quotes.addSymbol.asset.${item}`}
+                latencyLabel={`quotes.addSymbol.folder.${item.key}`}
                 unstable_pressDelay={0}
-                disabled={alreadyAdded}
+                disabled={disabled}
                 style={({ pressed }) => [
-                  addSymbolStyles.symbolRow,
+                  addSymbolStyles.folderRow,
                   {
                     backgroundColor: addPalette.rowBg,
                     borderColor: addPalette.rowBorder,
-                    opacity: alreadyAdded ? 0.72 : 1,
+                    opacity: disabled ? 0.52 : 1,
                   },
-                  pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
+                  pressed && !disabled && { backgroundColor: addPalette.rowPressed },
                 ]}
               >
-                <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
-                <View style={addSymbolStyles.symbolTextCol}>
-                  <View style={addSymbolStyles.symbolNameRow}>
-                    <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
-                    <View
-                      style={[
-                        addSymbolStyles.symbolKindPill,
-                        {
-                          backgroundColor: isDark ? kindMeta.tintDark : kindMeta.tintLight,
-                          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
-                        },
-                      ]}
-                    >
-                      <Text style={[addSymbolStyles.symbolKindText, { color: kindMeta.accent }]}>
-                        {kindMeta.label}
-                      </Text>
-                    </View>
+                <View style={addSymbolStyles.folderLeft}>
+                  <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
+                    <Ionicons name="folder-open" size={22} color="#FBBF24" />
                   </View>
-                  <Text style={[addSymbolStyles.symbolDescription, { color: T.textMuted }]} numberOfLines={1}>
-                    {describeMarketSymbol(item)}
-                  </Text>
+                  <View style={addSymbolStyles.folderTextCol}>
+                    <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
+                    <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
+                      {item.symbols.length} {t('symbols')}
+                    </Text>
+                  </View>
                 </View>
-                <View
-                  style={[
-                    addSymbolStyles.symbolActionButton,
-                    { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
-                  ]}
-                >
-                  <Ionicons
-                    name={alreadyAdded ? 'checkmark' : 'add'}
-                    size={20}
-                    color={alreadyAdded ? T.trading.profit : T.accent}
-                  />
+                <View style={addSymbolStyles.folderRight}>
+                  <View
+                    style={[
+                      addSymbolStyles.folderCountPill,
+                      { backgroundColor: addPalette.chipBg, borderColor: addPalette.chipBorder },
+                    ]}
+                  >
+                    <Text style={[addSymbolStyles.folderCount, { color: T.accent }]}>
+                      {added}/{item.symbols.length}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={addPalette.mutedText} />
                 </View>
               </Pressable>
             );
-          }}
-          ListEmptyComponent={
-            <View
-              style={[
-                addSymbolStyles.emptyCard,
-                { backgroundColor: addPalette.rowBg, borderColor: addPalette.rowBorder },
+          }
+
+          const alreadyAdded = isSymbolAdded(item);
+          const kind = classifyMarketSymbol(item);
+          const kindMeta = SYMBOL_KIND_META[kind];
+          return (
+            <Pressable
+              onPress={() => {
+                if (!alreadyAdded) onAdd(item);
+              }}
+              activateOnPressIn
+              latencyLabel={`quotes.addSymbol.asset.${item}`}
+              unstable_pressDelay={0}
+              disabled={alreadyAdded}
+              style={({ pressed }) => [
+                addSymbolStyles.symbolRow,
+                {
+                  backgroundColor: addPalette.rowBg,
+                  borderColor: addPalette.rowBorder,
+                  opacity: alreadyAdded ? 0.72 : 1,
+                },
+                pressed && !alreadyAdded && { backgroundColor: addPalette.rowPressed },
               ]}
             >
-              <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
-              <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
-                {isLoading && allSymbols.length === 0 ? t('Fetching markets...') : t('No matching assets available.')}
-              </Text>
-            </View>
-          }
+              <View style={[addSymbolStyles.symbolRail, { backgroundColor: kindMeta.accent }]} />
+              <View style={addSymbolStyles.symbolTextCol}>
+                <View style={addSymbolStyles.symbolNameRow}>
+                  <Text style={[addSymbolStyles.symbolName, { color: T.text }]}>{fmt.symbol(item)}</Text>
+                  <View
+                    style={[
+                      addSymbolStyles.symbolKindPill,
+                      {
+                        backgroundColor: isDark ? kindMeta.tintDark : kindMeta.tintLight,
+                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
+                      },
+                    ]}
+                  >
+                    <Text style={[addSymbolStyles.symbolKindText, { color: kindMeta.accent }]}>
+                      {kindMeta.label}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[addSymbolStyles.symbolDescription, { color: T.textMuted }]} numberOfLines={1}>
+                  {describeMarketSymbol(item)}
+                </Text>
+              </View>
+              <View
+                style={[
+                  addSymbolStyles.symbolActionButton,
+                  { backgroundColor: alreadyAdded ? addPalette.actionAddedBg : addPalette.actionBg },
+                ]}
+              >
+                <Ionicons
+                  name={alreadyAdded ? 'checkmark' : 'add'}
+                  size={20}
+                  color={alreadyAdded ? T.trading.profit : T.accent}
+                />
+              </View>
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={
+          <View
+            style={[
+              addSymbolStyles.emptyCard,
+              { backgroundColor: addPalette.rowBg, borderColor: addPalette.rowBorder },
+            ]}
+          >
+            <Ionicons name="search-outline" size={28} color={addPalette.mutedText} />
+            <Text style={[addSymbolStyles.emptyText, { color: T.textMuted }]}>
+              {isLoading && allSymbols.length === 0 ? t('Fetching markets...') : t('No matching assets available.')}
+            </Text>
+          </View>
+        }
       />
     </View>
   );
@@ -1748,6 +1750,7 @@ export function QuotesScreen() {
 
   const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
+  const preloadActionSheet = useUIState((s) => s.preloadActionSheet);
 
   const goDetail = useCallback((sym: string) => {
     prefetchQuoteDetails(sym);
@@ -1836,6 +1839,16 @@ export function QuotesScreen() {
 
     return configs;
   }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showActionSheet, t]);
+
+  useEffect(() => {
+    const firstSym = quoteSymbols[0];
+    if (firstSym) {
+      const config = quoteTapActionSheetConfigs.get(firstSym);
+      if (config) {
+        preloadActionSheet(config);
+      }
+    }
+  }, [quoteSymbols, quoteTapActionSheetConfigs, preloadActionSheet]);
 
   const handleSymbolTap = useCallback((sym: string) => {
     if (showAddModal) return;
@@ -2425,6 +2438,7 @@ const sc = StyleSheet.create({
   },
 
   cardPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
+  cardPressedNoShrink: { opacity: 0.8, backgroundColor: 'rgba(128,128,128,0.1)' },
 
   cardInner: {
     flexDirection: 'row',
