@@ -53,7 +53,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - [x] Unit: Trade-tab position state deduplicates colliding order/position ticket rows before rendering.
 - [x] Unit: market order symbol candidates prefer cached broker symbols without brute-forcing hardcoded suffix POST attempts.
 - [x] Unit/device: shared Android ActionSheet geometry keeps the Trade bulk operations sheet at one settled position when opened.
-- [x] Unit/typecheck: Trade Bulk opens through the shared Quotes-style ActionSheet path and derives symbol-scoped actions from current positions without hardcoded symbols.
+- [x] Unit/typecheck: Trade Bulk opens through the shared Quotes-style ActionSheet path and limits menu actions to the approved broad close scopes without hardcoded symbol rows.
 - [ ] Integration: trade summary updates on position events.
 - [ ] E2E: open position menu, perform action, submit pending order.
 
@@ -61,6 +61,7 @@ Replicate Trade tab and order ticket flows, including bulk operations and one-cl
 - Trading UI flows are functionally complete with no blocking defects.
 
 ## Progress Notes
+- 2026-05-29: Simplified the Trade Bulk operations ActionSheet to the approved close scopes only: close all, profitable, losing, and buy positions. The sheet no longer offers sell-side or runtime symbol-specific close rows such as BTCUSD or USDJPY, and the shortened menu now uses content-height instant ActionSheet sizing so removed rows do not leave extra blank space.
 - 2026-05-26: Rechecked the buy/sell submission flow against the live V2 contract. Market BUY/SELL remains on `POST /api/v2/orders`, while order-ticket pending limit/stop submissions now use `POST /api/v2/orders/pending` with the required `price` field instead of sending pending fields through the market-order wrapper where they were dropped.
 - 2026-05-26: Aligned the Trade Bulk launcher with the Quotes symbol tap sheet behavior. The Bulk button now opens the shared adaptive instant ActionSheet through the immediate action path, position-menu handoff schedules the next sheet after the current sheet closes, and symbol-scoped bulk rows are generated from current positions instead of a hardcoded symbol.
 - 2026-05-25: Rechecked the Trade Bulk Operations dropdown with before/after ADB screenshots. The shared adaptive ActionSheet floor now prevents the short bulk action list from shrinking to content and dropping low on Android; the observed sheet top moved from y=887 before the fix to y=650 after the fix while keeping the action list and Cancel row stable.

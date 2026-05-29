@@ -14,15 +14,17 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   const summarySource = readTradeSummarySource();
 
   assert.match(source, /import \{ runImmediateAction \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
-  assert.match(source, /const uniqueBulkSymbols = useMemo\(/);
-  assert.match(source, /renderablePositions\.forEach\(\(position\) => \{/);
   assert.match(source, /const bulkActionSheetConfig = useMemo<Parameters<typeof showActionSheet>\[0\]>/);
   assert.match(source, /title: t\('Bulk Operations'\)/);
-  assert.match(source, /detent: 'adaptive'/);
+  assert.match(source, /detent: 'auto'/);
   assert.match(source, /instantOpen: true/);
-  assert.match(source, /label: t\('Close Sell Positions'\)/);
-  assert.match(source, /uniqueBulkSymbols\.map\(\(symbol\) => \(\{/);
-  assert.match(source, /navigateToBulkMode\(`symbol:\$\{symbol\}`\)/);
+  assert.match(source, /label: t\('Close All Positions'\)/);
+  assert.match(source, /label: t\('Close Profitable Positions'\)/);
+  assert.match(source, /label: t\('Close Losing Positions'\)/);
+  assert.match(source, /label: t\('Close Buy Positions'\)/);
+  assert.doesNotMatch(source, /label: t\('Close Sell Positions'\)/);
+  assert.doesNotMatch(source, /uniqueBulkSymbols/);
+  assert.doesNotMatch(source, /navigateToBulkMode\(`symbol:\$\{symbol\}`\)/);
   assert.match(
     source,
     /const showBulkSheet = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('trade\.bulkSheet\.open', \(\) => showActionSheet\(bulkActionSheetConfig\)\)/,
@@ -31,4 +33,6 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   assert.match(source, /requestAnimationFrame\(showBulkSheet\)/);
   assert.doesNotMatch(source, /Close BTCUSD Positions/);
   assert.doesNotMatch(source, /symbol:BTCUSD/);
+  assert.doesNotMatch(source, /Close USDJPY Positions/);
+  assert.doesNotMatch(source, /symbol:USDJPY/);
 });

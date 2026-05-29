@@ -37,8 +37,6 @@ import { makeTradeScreenStyles } from './styles';
 
 const TRADE_FOCUS_WORK_DELAY_MS = 650;
 
-const formatBulkSymbolLabel = (symbol: string) => symbol.trim().replace(/\//g, '');
-
 function scheduleTradeFocusWork(action: () => void) {
   let frameId: number | null = null;
   const timerId = setTimeout(() => {
@@ -129,41 +127,21 @@ export function TradeScreen() {
     router.push({ pathname: '/trade/bulk', params: { mode } });
   }, []);
 
-  const uniqueBulkSymbols = useMemo(() => {
-    const symbols: string[] = [];
-    const seen = new Set<string>();
-    renderablePositions.forEach((position) => {
-      const symbol = position.symbol.trim();
-      if (!symbol) return;
-      const key = symbol.toUpperCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      symbols.push(symbol);
-    });
-    return symbols;
-  }, [renderablePositions]);
-
   const bulkActionSheetConfig = useMemo<Parameters<typeof showActionSheet>[0]>(() => {
     const actions: Parameters<typeof showActionSheet>[0]['actions'] = [
       { label: t('Close All Positions'), danger: true, onPress: () => navigateToBulkMode('all') },
       { label: t('Close Profitable Positions'), danger: true, onPress: () => navigateToBulkMode('profitable') },
       { label: t('Close Losing Positions'), danger: true, onPress: () => navigateToBulkMode('losing') },
       { label: t('Close Buy Positions'), danger: true, onPress: () => navigateToBulkMode('buy') },
-      { label: t('Close Sell Positions'), danger: true, onPress: () => navigateToBulkMode('sell') },
-      ...uniqueBulkSymbols.map((symbol) => ({
-        label: `${t('Close')} ${formatBulkSymbolLabel(symbol)} ${t('Positions')}`,
-        danger: true,
-        onPress: () => navigateToBulkMode(`symbol:${symbol}`),
-      })),
     ];
 
     return {
       title: t('Bulk Operations'),
-      detent: 'adaptive',
+      detent: 'auto',
       instantOpen: true,
       actions,
     };
-  }, [navigateToBulkMode, showActionSheet, t, uniqueBulkSymbols]);
+  }, [navigateToBulkMode, showActionSheet, t]);
 
   const showBulkSheet = useCallback(() => {
     runImmediateAction('trade.bulkSheet.open', () => showActionSheet(bulkActionSheetConfig));
