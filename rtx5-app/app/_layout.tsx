@@ -10,9 +10,9 @@ import { AppProviders } from '../src/state/providers/AppProviders';
 import { ErrorBoundary } from '../src/ui/components/ErrorBoundary';
 import { AppLogo } from '../src/ui/components/AppLogo';
 import { FastPressable } from '../src/ui/components/FastPressable';
-import { useTheme } from '../src/ui/theme/useTheme';
 import { useUserPreferences } from '../src/state/userPreferences';
-import { useIsDarkTheme } from '../src/state/themeMode';
+import { useDeferredThemeMode, useIsDarkTheme } from '../src/state/themeMode';
+import { GDark, GLight } from '../src/ui/theme/glass';
 import { useTranslation } from '../src/i18n/useTranslation';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { safeRouterBack } from '../src/utils/navigation';
@@ -61,9 +61,15 @@ function StartupLogoScreen() {
   );
 }
 
-function InnerLayout() {
-  const T = useTheme();
+function AppStatusBar() {
   const isDark = useIsDarkTheme();
+  return <StatusBar style={isDark ? 'light' : 'dark'} />;
+}
+
+function InnerLayout() {
+  const navigationThemeMode = useDeferredThemeMode();
+  const isDark = navigationThemeMode === 'dark';
+  const T = navigationThemeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const router = useRouter();
   const chartPageScreenOptions = {
@@ -79,7 +85,7 @@ function InnerLayout() {
 
   return (
     <>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AppStatusBar />
       <WebIPhoneFrame bgColor={T.bg}>
         <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
           <Stack

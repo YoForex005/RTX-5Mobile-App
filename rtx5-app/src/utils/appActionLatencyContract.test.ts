@@ -360,7 +360,8 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   const lowerSettingsStart = settingsSource.indexOf('{lowerSettingsReady ? (', registerRowStart);
 
   assert.match(rowSource, /<FastPressable[\s\S]*latencyLabel=\{`settings\.row\.\$\{title\}`\}[\s\S]*onPress=\{onPress\}/);
-  assert.doesNotMatch(rowSource, /activateOnPressIn/);
+  assert.match(rowSource, /activateOnPressIn\?: boolean/);
+  assert.match(rowSource, /activateOnPressIn=\{activateOnPressIn\}/);
   assert.doesNotMatch(rowSource, /activateOnTouchStart/);
   assert.match(rowSource, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(rowSource, /traceUiInteraction/);
@@ -510,6 +511,7 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
 
   assert.match(tabsSource, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
+  assert.match(tabsSource, /useDeferredThemeMode\(\)/);
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
@@ -528,29 +530,58 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
 
 test('theme toggles acknowledge before persisted preference writes', () => {
   const storeSource = readSource('src/state/userPreferences/store.ts');
+  const themeModeSource = readSource('src/state/themeMode.ts');
+  const rootSource = readSource('app/_layout.tsx');
+  const tabsSource = readSource('app/(tabs)/_layout.tsx');
   const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
+  const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
+  const settingRowSource = readSource('src/features/settings/SettingsScreen/SettingRow.tsx');
 
   assert.match(storeSource, /const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>\(\)/);
   assert.match(storeSource, /function schedulePreferenceWriteFlush\(\)/);
   assert.match(storeSource, /requestAnimationFrame/);
   assert.match(storeSource, /setTimeout\(flushPendingPreferenceWrites, 0\)/);
   assert.match(storeSource, /partialize: partializeUserPreferences/);
-  assert.match(storeSource, /setImmediateThemeMode\(mode\)/);
-  assert.match(storeSource, /schedulePersistedThemeModeCommit\(mode/);
-  assert.match(storeSource, /if \(get\(\)\.themeMode !== nextMode\) \{\s*set\(\{ themeMode: nextMode \}\);/);
+  assert.match(storeSource, /function scheduleThemeModePreferenceCommit\(commit: \(\) => void\)/);
+  assert.match(storeSource, /setImmediateThemeMode\(mode\);[\s\S]*pendingThemeModeCommit = mode;[\s\S]*scheduleThemeModePreferenceCommit/);
+  assert.match(storeSource, /set\(\{ themeMode: nextMode \}\);/);
+  assert.doesNotMatch(storeSource, /if \(get\(\)\.themeMode === mode\) return;\s*set\(\{ themeMode: mode \}\);/);
   assert.doesNotMatch(storeSource, /createJSONStorage\(\(\) => AsyncStorage\)/);
+  assert.match(themeModeSource, /export function useDeferredThemeMode\(delayMs = 750\): ThemeMode/);
+  assert.match(themeModeSource, /NavigationContext, NavigationRouteContext/);
+  assert.match(themeModeSource, /function useNavigationFocusState\(\): boolean/);
+  assert.match(themeModeSource, /navigation\.addListener\('focus'/);
+  assert.match(themeModeSource, /navigation\.addListener\('blur'/);
+  assert.match(themeModeSource, /const frozenThemeModeRef = useRef\(useThemeModeState\.getState\(\)\.themeMode\)/);
+  assert.match(themeModeSource, /isFocusedRef\.current \? state\.themeMode : frozenThemeModeRef\.current/);
+  assert.match(themeModeSource, /useThemeModeState\.subscribe\(\(state, previousState\)/);
+  assert.match(themeModeSource, /setTimeout\(\(\) => \{[\s\S]*setThemeMode\(state\.themeMode\);[\s\S]*\}, delayMs\)/);
   assert.match(readSource('src/ui/theme/useTheme.ts'), /const themeMode = useThemeMode\(\)/);
-  assert.match(sidebarSource, /const SIDEBAR_THEME_COMMIT_DELAY_MS = 650/);
+  assert.match(rootSource, /function AppStatusBar\(\)[\s\S]*const isDark = useIsDarkTheme\(\)/);
+  assert.match(rootSource, /const navigationThemeMode = useDeferredThemeMode\(\)/);
+  assert.doesNotMatch(rootSource, /function InnerLayout\(\) \{\s*const T = useTheme\(\)/);
+  assert.match(tabsSource, /const navigationThemeMode = useDeferredThemeMode\(\)/);
+  assert.doesNotMatch(tabsSource, /const isDark = useIsDarkTheme\(\)/);
+  assert.doesNotMatch(tabsSource, /const T = useTheme\(\)/);
+  assert.doesNotMatch(sidebarSource, /SIDEBAR_THEME_COMMIT_DELAY_MS/);
   assert.match(sidebarSource, /function SidebarThemeSelector\(\{ ds, T \}: SidebarThemeSelectorProps\)/);
   assert.match(sidebarSource, /<SidebarThemeSelector ds=\{ds\} T=\{T\} \/>/);
   assert.match(sidebarSource, /const selectedThemeMode = pendingThemeMode \?\? appliedThemeMode/);
   assert.match(sidebarSource, /const \[pendingThemeMode, setPendingThemeMode\] = useState<ThemeMode \| null>\(null\)/);
-  assert.match(sidebarSource, /const pendingThemeModeRef = useRef<ThemeMode \| null>\(null\)/);
   assert.match(sidebarSource, /setPendingThemeMode\(nextMode\)/);
-  assert.match(sidebarSource, /requestAnimationFrame\(scheduleCommitTimer\)/);
-  assert.match(sidebarSource, /setTimeout\(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS\)/);
+  assert.match(sidebarSource, /setThemeMode\(nextMode\)/);
+  assert.doesNotMatch(sidebarSource, /requestAnimationFrame\(scheduleCommitTimer\)/);
+  assert.doesNotMatch(sidebarSource, /setTimeout\(commitPendingThemeMode/);
   assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('light'\)\}/);
   assert.match(sidebarSource, /onPress=\{\(\) => handleThemeModePress\('dark'\)\}/);
   assert.match(sidebarSource, /<Pressable[\s\S]*style=\{!selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeLight"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(sidebarSource, /<Pressable[\s\S]*style=\{selectedIsDark \? ds\.themeOptActive : ds\.themeOptInactive\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="sidebar\.themeDark"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(settingsSource, /const toggleThemeMode = useCallback\(\(\) => \{\s*setThemeMode\(themeMode === 'light' \? 'dark' : 'light'\);/);
+  assert.match(settingsSource, /const isThemeItem = item\.title === 'Theme'/);
+  assert.match(settingsSource, /onPress=\{isThemeItem \? toggleThemeMode : item\.routePath \|\| item\.action \? \(\) => handleSearchResultPress\(item\) : undefined\}/);
+  assert.match(settingsSource, /activateOnPressIn=\{isThemeItem\}/);
+  assert.match(settingsSource, /title=\{t\('Theme'\)\}[\s\S]*onPress=\{toggleThemeMode\}[\s\S]*activateOnPressIn/);
+  assert.match(settingsSource, /<View pointerEvents="none">[\s\S]*<Switch/);
+  assert.match(settingRowSource, /activateOnPressIn\?: boolean/);
+  assert.match(settingRowSource, /activateOnPressIn=\{activateOnPressIn\}/);
 });

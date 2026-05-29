@@ -125,6 +125,9 @@ export function SettingsScreen() {
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
   const lowerSettingsReady = useDeferredRouteContentReady(SETTINGS_LOWER_CONTENT_DELAY_MS);
+  const toggleThemeMode = useCallback(() => {
+    setThemeMode(themeMode === 'light' ? 'dark' : 'light');
+  }, [setThemeMode, themeMode]);
 
   void setSidebarOpen;
   void activeAccount;
@@ -360,14 +363,22 @@ export function SettingsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={Platform.OS === 'ios'} style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        canCancelContentTouches={Platform.OS === 'ios'}
+        removeClippedSubviews={Platform.OS === 'android'}
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Search results overlay — kept mounted alongside the main settings
             tree so the Pressables in the main tree don't lose their refs (and
             their guard state) every time the user opens/closes search. */}
         {isSearching ? (
           <View style={{ paddingHorizontal: 16 }} pointerEvents="auto">
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
-              {searchResults.length > 0 ? searchResults.map((item, index) => (
+              {searchResults.length > 0 ? searchResults.map((item, index) => {
+                const isThemeItem = item.title === 'Theme';
+
+                return (
                 <View key={item.title}>
                   <SettingRow
                     T={T}
@@ -377,22 +388,26 @@ export function SettingsScreen() {
                     title={t(item.title)}
                     sub={item.sub ? t(item.sub) : item.sub}
                     rightElement={
-                      item.title === 'Theme' ? (
-                        <Switch
-                          value={themeMode === 'light'}
-                          onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                          trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                          thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
-                          style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                          {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
-                        />
+                      isThemeItem ? (
+                        <View pointerEvents="none">
+                          <Switch
+                            value={themeMode === 'light'}
+                            onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                            trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                            thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                            style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                            {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                          />
+                        </View>
                       ) : undefined
                     }
-                    onPress={item.routePath || item.action ? () => handleSearchResultPress(item) : undefined}
+                    onPress={isThemeItem ? toggleThemeMode : item.routePath || item.action ? () => handleSearchResultPress(item) : undefined}
+                    activateOnPressIn={isThemeItem}
                   />
                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
                 </View>
-              )) : (
+                );
+              }) : (
                 <View style={{ paddingTop: 60, paddingBottom: 60, alignItems: 'center' }}>
                   <Ionicons name="search-outline" size={48} color={T.borderMedium} />
                   <Text style={{ color: T.textMuted, marginTop: 16, fontSize: 16 }}>{t('No settings found matching')} "{searchQuery}"</Text>
@@ -544,16 +559,26 @@ export function SettingsScreen() {
 
                 <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
                 <View style={[styles.groupCard, styles.cardShadow]}>
-                  <SettingRow T={T} styles={styles} icon="color-palette-outline" color="#1D4ED8" title={t('Theme')} sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
+                  <SettingRow
+                    T={T}
+                    styles={styles}
+                    icon="color-palette-outline"
+                    color="#1D4ED8"
+                    title={t('Theme')}
+                    sub={themeMode === 'light' ? t('Light Mode') : t('Dark Mode')}
+                    onPress={toggleThemeMode}
+                    activateOnPressIn
                     rightElement={
-                      <Switch
-                        value={themeMode === 'light'}
-                        onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
-                        trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
-                        thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
-                        style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                        {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
-                      />
+                      <View pointerEvents="none">
+                        <Switch
+                          value={themeMode === 'light'}
+                          onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                          trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                          thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                          style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                          {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                        />
+                      </View>
                     }
                   />
                   <View style={styles.dividerInner} />

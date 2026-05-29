@@ -13,6 +13,7 @@ export function SettingRow({
   badge,
   rightElement,
   onPress,
+  activateOnPressIn,
   T,
   styles,
 }: {
@@ -23,6 +24,7 @@ export function SettingRow({
   badge?: string;
   rightElement?: React.ReactNode;
   onPress?: () => void;
+  activateOnPressIn?: boolean;
   T: ThemeColors;
   styles: SettingsStyles;
 }) {
@@ -31,6 +33,7 @@ export function SettingRow({
       style={styles.row}
       latencyLabel={`settings.row.${title}`}
       onPress={onPress}
+      activateOnPressIn={activateOnPressIn}
       unstable_pressDelay={0}
       accessibilityRole={onPress ? 'button' : undefined}
     >

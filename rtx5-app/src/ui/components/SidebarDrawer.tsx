@@ -50,7 +50,6 @@ const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as c
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
 const SIDEBAR_NAVIGATION_LOCK_MS = 50;
 const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200;
-const SIDEBAR_THEME_COMMIT_DELAY_MS = 650;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
 const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
 const SIDEBAR_REPLACE_ROUTE_PREFIXES = ['/settings/'] as const;
@@ -397,77 +396,26 @@ function SidebarThemeSelector({ ds, T }: SidebarThemeSelectorProps) {
   const appliedThemeMode = useThemeMode();
   const setThemeMode = useUserPreferences((s) => s.setThemeMode);
   const [pendingThemeMode, setPendingThemeMode] = useState<ThemeMode | null>(null);
-  const themeCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const themeCommitFrameRef = useRef<number | null>(null);
-  const pendingThemeModeRef = useRef<ThemeMode | null>(null);
   const selectedThemeMode = pendingThemeMode ?? appliedThemeMode;
   const selectedIsDark = selectedThemeMode === 'dark';
 
-  const clearScheduledThemeCommit = useCallback(() => {
-    if (themeCommitTimerRef.current) {
-      clearTimeout(themeCommitTimerRef.current);
-      themeCommitTimerRef.current = null;
-    }
-    if (themeCommitFrameRef.current !== null) {
-      globalThis.cancelAnimationFrame?.(themeCommitFrameRef.current);
-      themeCommitFrameRef.current = null;
-    }
-  }, []);
-
-  const commitPendingThemeMode = useCallback(() => {
-    clearScheduledThemeCommit();
-
-    const nextMode = pendingThemeModeRef.current;
-    if (!nextMode) {
-      return;
-    }
-
-    if (nextMode === appliedThemeMode) {
-      pendingThemeModeRef.current = null;
-      setPendingThemeMode(null);
-      return;
-    }
-
-    setThemeMode(nextMode);
-  }, [appliedThemeMode, clearScheduledThemeCommit, setThemeMode]);
-
-  useEffect(() => () => {
-    clearScheduledThemeCommit();
-  }, [clearScheduledThemeCommit]);
-
   useEffect(() => {
     if (pendingThemeMode === appliedThemeMode) {
-      pendingThemeModeRef.current = null;
-      clearScheduledThemeCommit();
       setPendingThemeMode(null);
     }
-  }, [appliedThemeMode, clearScheduledThemeCommit, pendingThemeMode]);
+  }, [appliedThemeMode, pendingThemeMode]);
 
   const handleThemeModePress = useCallback((nextMode: ThemeMode) => {
     if (selectedThemeMode === nextMode && appliedThemeMode === nextMode) {
       return;
     }
 
-    pendingThemeModeRef.current = nextMode;
     setPendingThemeMode(nextMode);
-    clearScheduledThemeCommit();
-
-    const scheduleCommitTimer = () => {
-      themeCommitFrameRef.current = null;
-      themeCommitTimerRef.current = setTimeout(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS);
-    };
-
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      themeCommitFrameRef.current = globalThis.requestAnimationFrame(scheduleCommitTimer);
-      return;
-    }
-
-    themeCommitTimerRef.current = setTimeout(commitPendingThemeMode, SIDEBAR_THEME_COMMIT_DELAY_MS);
+    setThemeMode(nextMode);
   }, [
     appliedThemeMode,
-    clearScheduledThemeCommit,
-    commitPendingThemeMode,
     selectedThemeMode,
+    setThemeMode,
   ]);
 
   return (

@@ -115,32 +115,20 @@ function schedulePreferenceWriteFlush() {
   });
 }
 
-function scheduleAfterAcknowledgementFrame(action: () => void) {
+function scheduleThemeModePreferenceCommit(commit: () => void) {
+  if (themeModeCommitScheduled) return;
+  themeModeCommitScheduled = true;
+
   const scheduleAfterFrame =
     typeof globalThis.requestAnimationFrame === 'function'
       ? globalThis.requestAnimationFrame
       : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
 
   scheduleAfterFrame(() => {
-    setTimeout(action, 0);
-  });
-}
-
-function schedulePersistedThemeModeCommit(
-  mode: ThemeMode,
-  commit: (mode: ThemeMode) => void,
-) {
-  pendingThemeModeCommit = mode;
-  if (themeModeCommitScheduled) return;
-  themeModeCommitScheduled = true;
-
-  scheduleAfterAcknowledgementFrame(() => {
-    themeModeCommitScheduled = false;
-    const nextMode = pendingThemeModeCommit;
-    pendingThemeModeCommit = null;
-    if (nextMode) {
-      commit(nextMode);
-    }
+    setTimeout(() => {
+      themeModeCommitScheduled = false;
+      commit();
+    }, 0);
   });
 }
 
@@ -286,11 +274,17 @@ export const useUserPreferences = create<UserPreferencesState>()(
       setQuoteViewMode: (mode) => set({ quoteViewMode: mode }),
       setThemeMode: (mode) => {
         setImmediateThemeMode(mode);
-        if (get().themeMode === mode) return;
-        schedulePersistedThemeModeCommit(mode, (nextMode) => {
-          if (get().themeMode !== nextMode) {
-            set({ themeMode: nextMode });
-          }
+        if (get().themeMode === mode) {
+          pendingThemeModeCommit = null;
+          return;
+        }
+
+        pendingThemeModeCommit = mode;
+        scheduleThemeModePreferenceCommit(() => {
+          const nextMode = pendingThemeModeCommit;
+          pendingThemeModeCommit = null;
+          if (!nextMode || get().themeMode === nextMode) return;
+          set({ themeMode: nextMode });
         });
       },
       addQuoteSymbol: (symbol) => {
