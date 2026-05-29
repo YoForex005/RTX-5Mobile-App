@@ -38,6 +38,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 
 ## Test Checklist
 - [x] Unit: list item formatting helpers.
+- [x] Unit: Settings search results route to the same settings destinations as the visible hub rows.
 - [x] Unit: active-language dictionary coverage includes reported Settings account-card status and finance labels.
 - [x] Unit: active-language dictionary coverage includes account login, demo registration, and broker directory labels.
 - [x] Unit: account API numeric normalization and live metric readiness guard.
@@ -52,6 +53,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
+- 2026-05-29: Wired Settings search results to the same destinations/actions as their visible Settings hub counterparts. Search results now open Accounts, New Account, Mailbox, News, Economic Calendar, Traders Community, MQL5 Algo Trading, Language Preference, Journal, Help, and QR Scanner through the same route/action path used by the normal Settings rows, while Theme keeps the same live light/dark switch in search.
 - 2026-05-26: Tightened the Accounts screen three-dot options sheet by switching the short settings menu to content-sized `auto` height, removing the large unused white spacer between `Delete account` and `Cancel`. Verified with focused ActionSheet/account navigation tests, typecheck, and Android before/after screenshots.
 - 2026-05-26: Fixed the Settings hub theme canvas so light theme returns to the normal light background while dark theme keeps the requested full-screen black background. Verified with focused theme contract coverage and Android screenshots before/after the correction.
 - 2026-05-25: Removed native slide-open animations from settings-style bottom sheets and dropdowns that should behave like instant action sheets, including Mailbox detail/filter/options/action sheets, MQL5 filter sheet, chart properties color picker, and chart colors preset sheet. Header/filter/category dropdown openers now use the immediate press path so they do not wait for release before painting.

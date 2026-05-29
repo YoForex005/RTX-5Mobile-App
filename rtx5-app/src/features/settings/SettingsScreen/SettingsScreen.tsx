@@ -74,6 +74,13 @@ type SettingsReadyRoute = (typeof SETTINGS_READY_ROUTE_PATHS)[number];
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
 };
+type SearchableSettingsItem = {
+  title: string;
+  sub: string;
+  icon: string;
+  routePath?: SettingsReadyRoute;
+  action?: 'qr-scanner';
+};
 
 export function SettingsScreen() {
   const isScreenFocused = useIsFocused();
@@ -249,22 +256,23 @@ export function SettingsScreen() {
     Keyboard.dismiss();
   };
 
-  const SEARCHABLE_ITEMS = useMemo(() => [
-    { title: 'New Account', sub: '', icon: 'person-outline' },
-    { title: 'Mailbox', sub: 'High Importance News', icon: 'mail-outline' },
-    { title: 'News', sub: 'WTI, US-Iran Talks, OPEC+', icon: 'newspaper-outline' },
-    { title: 'Economic Calender', sub: '', icon: 'calendar-outline' },
+  const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => [
+    { title: 'Accounts', sub: 'Manage trading accounts', icon: 'server-outline', routePath: '/settings/accounts' },
+    { title: 'New Account', sub: '', icon: 'person-outline', routePath: '/register' },
+    { title: 'Mailbox', sub: 'High Importance News', icon: 'mail-outline', routePath: '/settings/mailbox' },
+    { title: 'News', sub: 'WTI, US-Iran Talks, OPEC+', icon: 'newspaper-outline', routePath: '/settings/news' },
+    { title: 'Economic Calender', sub: '', icon: 'calendar-outline', routePath: '/settings/economic-calendar' },
     { title: 'Chat & Messages', sub: 'Sign in to MQL5.community', icon: 'chatbubble-outline' },
-    { title: 'Traders Community', sub: '', icon: 'people-outline' },
-    { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline' },
-    { title: 'Theme', sub: 'Light/Dark Mode toggle', icon: 'color-palette-outline' },
+    { title: 'Traders Community', sub: '', icon: 'people-outline', routePath: '/settings/traders-community' },
+    { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline', routePath: '/settings/mql5-algo-trading' },
+    { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' },
     { title: 'OTP', sub: 'Passcode Generator', icon: 'shield-checkmark-outline' },
-    { title: 'QR Scanner', sub: 'Scan to connect or log in', icon: 'qr-code-outline' },
-    { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline' },
-    { title: 'Journal', sub: '', icon: 'reader-outline' },
+    { title: 'QR Scanner', sub: 'Scan to connect or log in', icon: 'qr-code-outline', action: 'qr-scanner' },
+    { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline', routePath: '/settings/interface' },
+    { title: 'Journal', sub: '', icon: 'reader-outline', routePath: '/settings/journal' },
     { title: 'Support', sub: 'Contact our dedicated team', icon: 'help-buoy-outline' },
-    { title: 'Help', sub: 'FAQs & Documentation', icon: 'information-circle-outline' },
-  ], [currentLanguageNative]);
+    { title: 'Help', sub: 'FAQs & Documentation', icon: 'information-circle-outline', routePath: '/settings/user-guide' },
+  ], [currentLanguageNative, themeMode]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery) return SEARCHABLE_ITEMS;
@@ -276,6 +284,26 @@ export function SettingsScreen() {
       t(it.sub).toLowerCase().includes(q)
     ));
   }, [searchQuery, SEARCHABLE_ITEMS, t]);
+
+  const handleSearchResultPress = useCallback((item: SearchableSettingsItem) => {
+    if (!item.routePath && !item.action) {
+      return;
+    }
+
+    setIsSearching(false);
+    setSearchActive(false);
+    setSearchQuery('');
+    Keyboard.dismiss();
+
+    if (item.action === 'qr-scanner') {
+      setShowScanner(true);
+      return;
+    }
+
+    if (item.routePath) {
+      openReadySettingsRoute(item.routePath);
+    }
+  }, [openReadySettingsRoute, setSearchActive]);
 
   const searchBarStyle: any = themeMode === 'dark' ? {
     backgroundColor: 'rgba(30, 41, 59, 0.55)',
@@ -341,7 +369,27 @@ export function SettingsScreen() {
             <View style={[styles.groupCard, styles.cardShadow, { marginTop: 8, marginHorizontal: 0 }]}>
               {searchResults.length > 0 ? searchResults.map((item, index) => (
                 <View key={item.title}>
-                  <SettingRow T={T} styles={styles} icon={item.icon as any} color="#1D4ED8" title={t(item.title)} sub={item.sub ? t(item.sub) : item.sub} />
+                  <SettingRow
+                    T={T}
+                    styles={styles}
+                    icon={item.icon as any}
+                    color="#1D4ED8"
+                    title={t(item.title)}
+                    sub={item.sub ? t(item.sub) : item.sub}
+                    rightElement={
+                      item.title === 'Theme' ? (
+                        <Switch
+                          value={themeMode === 'light'}
+                          onValueChange={(val) => setThemeMode(val ? 'light' : 'dark')}
+                          trackColor={{ false: T.borderMedium, true: 'rgba(59, 130, 246, 0.5)' }}
+                          thumbColor={themeMode === 'light' ? '#3b82f6' : '#f4f3f4'}
+                          style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                          {...({ activeThumbColor: '#3b82f6', activeTrackColor: 'rgba(59, 130, 246, 0.5)', thumbTintColor: themeMode === 'light' ? '#3b82f6' : '#f4f3f4' } as any)}
+                        />
+                      ) : undefined
+                    }
+                    onPress={item.routePath || item.action ? () => handleSearchResultPress(item) : undefined}
+                  />
                   {index < searchResults.length - 1 && <View style={styles.dividerInner} />}
                 </View>
               )) : (
