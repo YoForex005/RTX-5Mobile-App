@@ -139,16 +139,36 @@ const FastTabBarButton = memo(function FastTabBarButton({
 const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
   const actionSheet = useUIState((s) => s.actionSheet);
   const preloadConfig = useUIState((s) => s.preloadedActionSheet);
+  const scopedActionSheets = useUIState((s) => s.scopedActionSheets);
+  const preloadedScopedActionSheets = useUIState((s) => s.preloadedScopedActionSheets);
+  const actionSheetScope = useUIState((s) => s.actionSheetScope);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const hideScopedActionSheet = useUIState((s) => s.hideScopedActionSheet);
 
-  const activeConfig = actionSheet || preloadConfig;
+  const scopedActionSheet = actionSheetScope ? scopedActionSheets[actionSheetScope] : null;
+  const scopedPreloadConfig = actionSheetScope
+    ? preloadedScopedActionSheets[actionSheetScope]
+    : Object.values(preloadedScopedActionSheets).find(Boolean) ?? null;
+  const activeConfig = actionSheet || scopedActionSheet || preloadConfig || scopedPreloadConfig;
+  const visible = actionSheet !== null || scopedActionSheet !== null;
+  const handleClose = useCallback(() => {
+    if (actionSheet !== null) {
+      hideActionSheet();
+      return;
+    }
+    if (actionSheetScope) {
+      hideScopedActionSheet(actionSheetScope);
+      return;
+    }
+    hideActionSheet();
+  }, [actionSheet, actionSheetScope, hideActionSheet, hideScopedActionSheet]);
 
   return (
     <ActionSheet
-      visible={actionSheet !== null}
+      visible={visible}
       title={activeConfig?.title}
       actions={activeConfig?.actions ?? []}
-      onClose={hideActionSheet}
+      onClose={handleClose}
       searchable={activeConfig?.searchable}
       searchPlaceholder={activeConfig?.searchPlaceholder}
       detent={activeConfig?.detent}
@@ -246,8 +266,15 @@ export default function TabsLayout() {
   );
 
   useEffect(() => {
-    if (previousPathRef.current !== pathname && useUIState.getState().actionSheet !== null) {
-      useUIState.getState().hideActionSheet();
+    if (previousPathRef.current !== pathname) {
+      const uiState = useUIState.getState();
+      const visibleScopedActionSheet = uiState.actionSheetScope
+        ? uiState.scopedActionSheets[uiState.actionSheetScope] !== null
+        : false;
+
+      if (uiState.actionSheet !== null || visibleScopedActionSheet) {
+        useUIState.getState().hideActionSheet();
+      }
     }
     previousPathRef.current = pathname;
   }, [pathname]);

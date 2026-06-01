@@ -389,7 +389,7 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 16/);
   assert.match(accountsSource, /marginLeft: 8/);
-  assert.match(accountsSource, /showActionSheet\(\{[\s\S]*title: t\('Settings'\),[\s\S]*detent: 'auto'/);
+  assert.match(accountsSource, /showAccountsActionSheet\(\{[\s\S]*title: t\('Settings'\),[\s\S]*detent: 'auto'/);
   assert.match(accountsSource, /latencyLabel="accounts\.back"[\s\S]*unstable_pressDelay=\{0\}/);
   assert.match(accountsSource, /latencyLabel="accounts\.connect\.open"/);
   assert.match(accountsSource, /latencyLabel="accounts\.options\.open"/);

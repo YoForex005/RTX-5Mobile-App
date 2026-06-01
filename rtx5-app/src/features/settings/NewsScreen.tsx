@@ -53,9 +53,9 @@ export function NewsScreen() {
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const savedNewsIds = useUserPreferences((s) => s.marketNewsSavedIds);
   const toggleSavedNews = useUserPreferences((s) => s.toggleMarketNewsSavedId);
-  const showActionSheet = useUIState((s) => s.showActionSheet);
-  const actionSheet = useUIState((s) => s.actionSheet);
-  const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const showNewsActionSheet = useUIState((s) => s.showNewsActionSheet);
+  const actionSheet = useUIState((s) => s.scopedActionSheets.settingsNews);
+  const hideNewsActionSheet = useUIState((s) => s.hideNewsActionSheet);
   const isScreenFocused = useIsFocused();
   const { data: marketSymbols = [] } = useMarketSymbols(isScreenFocused);
   const styles = useMemo(() => makeNewsScreenStyles(T, isDark), [T, isDark]);
@@ -125,7 +125,7 @@ export function NewsScreen() {
     };
 
     runImmediateAction('news.filterSheet.open', () =>
-      showActionSheet({
+      showNewsActionSheet({
         title: 'Filter news',
         actions: [
           makeFilterAction('filter-all', 'All news', 'newspaper-outline'),
@@ -137,7 +137,7 @@ export function NewsScreen() {
         instantOpen: true,
       }),
     );
-  }, [newsColors.cyan, newsColors.sub, selectedImpactFilter, showActionSheet]);
+  }, [newsColors.cyan, newsColors.sub, selectedImpactFilter, showNewsActionSheet]);
 
   const closeSearch = useCallback(() => {
     Keyboard.dismiss();
@@ -330,7 +330,7 @@ export function NewsScreen() {
         visible={actionSheet !== null}
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
-        onClose={hideActionSheet}
+        onClose={hideNewsActionSheet}
         searchable={actionSheet?.searchable}
         detent={actionSheet?.detent}
         minimumTopInset={actionSheet?.minimumTopInset}

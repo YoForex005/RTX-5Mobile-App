@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   type LayoutChangeEvent,
   Platform,
@@ -17,11 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  resolveChartColorsForTheme,
-  useUserPreferences,
-  type ChartColorsConfig,
-} from '../src/state/userPreferences';
+import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
@@ -43,6 +40,7 @@ import {
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
 import { safeRouterBack } from '../src/utils/navigation';
+import { ActionSheet } from '../src/ui/components/ActionSheet';
 
 type RegisterFieldKey =
   | 'firstName'
@@ -58,25 +56,40 @@ type RegisterFieldKey =
 const REGISTER_FIELD_SCROLL_OFFSET_Y = Platform.OS === 'android' ? 232 : 176;
 const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
-
-const REGISTER_HERO_CANDLES = [
-  { x: 4, wickTop: 134, wickHeight: 50, bodyTop: 152, bodyHeight: 18, volume: 26, up: true },
-  { x: 30, wickTop: 126, wickHeight: 56, bodyTop: 146, bodyHeight: 22, volume: 34, up: true },
-  { x: 56, wickTop: 118, wickHeight: 64, bodyTop: 138, bodyHeight: 28, volume: 42, up: false },
-  { x: 82, wickTop: 102, wickHeight: 72, bodyTop: 124, bodyHeight: 34, volume: 52, up: true },
-  { x: 108, wickTop: 88, wickHeight: 78, bodyTop: 108, bodyHeight: 44, volume: 64, up: true },
-  { x: 134, wickTop: 72, wickHeight: 84, bodyTop: 94, bodyHeight: 50, volume: 72, up: true },
-  { x: 160, wickTop: 44, wickHeight: 104, bodyTop: 70, bodyHeight: 64, volume: 94, up: true },
-  { x: 186, wickTop: 28, wickHeight: 114, bodyTop: 54, bodyHeight: 72, volume: 108, up: false },
-  { x: 212, wickTop: 12, wickHeight: 116, bodyTop: 34, bodyHeight: 58, volume: 86, up: true },
-  { x: 238, wickTop: 22, wickHeight: 96, bodyTop: 42, bodyHeight: 46, volume: 74, up: false },
-  { x: 264, wickTop: 36, wickHeight: 84, bodyTop: 56, bodyHeight: 40, volume: 62, up: true },
+const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
+const DEMO_COUNTRY_OPTIONS = [
+  { label: 'United States', code: 'US' },
+  { label: 'India', code: 'IN' },
+  { label: 'United Kingdom', code: 'GB' },
+  { label: 'United Arab Emirates', code: 'AE' },
+  { label: 'Canada', code: 'CA' },
+  { label: 'Australia', code: 'AU' },
+  { label: 'Germany', code: 'DE' },
+  { label: 'France', code: 'FR' },
+  { label: 'Italy', code: 'IT' },
+  { label: 'Spain', code: 'ES' },
+  { label: 'Netherlands', code: 'NL' },
+  { label: 'Switzerland', code: 'CH' },
+  { label: 'Singapore', code: 'SG' },
+  { label: 'Malaysia', code: 'MY' },
+  { label: 'Indonesia', code: 'ID' },
+  { label: 'Thailand', code: 'TH' },
+  { label: 'Vietnam', code: 'VN' },
+  { label: 'Philippines', code: 'PH' },
+  { label: 'Japan', code: 'JP' },
+  { label: 'South Korea', code: 'KR' },
+  { label: 'China', code: 'CN' },
+  { label: 'Hong Kong', code: 'HK' },
+  { label: 'South Africa', code: 'ZA' },
+  { label: 'Nigeria', code: 'NG' },
+  { label: 'Brazil', code: 'BR' },
+  { label: 'Mexico', code: 'MX' },
+  { label: 'Turkey', code: 'TR' },
+  { label: 'Saudi Arabia', code: 'SA' },
 ] as const;
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
-  const chartColors = useUserPreferences((s) => s.chartColors);
-  const chartColorScheme = useUserPreferences((s) => s.chartColorScheme);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -124,6 +137,12 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('United States');
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState('');
+  const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
+  const [selectedLeverageValue, setSelectedLeverageValue] = useState<number | null>(null);
+  const [leveragePickerOpen, setLeveragePickerOpen] = useState(false);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [investorPassword, setInvestorPassword] = useState('');
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
@@ -139,12 +158,8 @@ export default function RegisterScreen() {
   const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
-  const resolvedChartColors = React.useMemo(
-    () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
-    [chartColors, chartColorScheme, isDark],
-  );
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(T, isDark, insets.top, resolvedChartColors);
+  const styles = makeStyles(T, isDark, insets.top);
 
   React.useEffect(() => () => {
     if (fieldFocusTimerRef.current) {
@@ -206,12 +221,12 @@ export default function RegisterScreen() {
     const trimmedLastName = lastName.trim();
     const trimmedEmail = email.trim();
     const trimmedPhone = phone.trim();
-    const trimmedCountryInput = country.trim();
-    const trimmedCountry = trimmedCountryInput.toLowerCase() === 'united states'
-      ? 'US'
-      : trimmedCountryInput.toUpperCase();
+    const selectedCountry = DEMO_COUNTRY_OPTIONS.find((option) => option.label === country);
+    const trimmedCountry = selectedCountry?.code ?? country.trim().toUpperCase();
     const trimmedOriginBroker = originBroker.trim();
     const parsedInitialBalance = Number(initialBalance);
+    const effectiveCurrency = selectedCurrencyCode || selectedDemoGroup.currency;
+    const effectiveLeverage = selectedLeverageValue ?? selectedDemoGroup.leverage;
 
     if (!trimmedFirstName || !trimmedLastName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
       Alert.alert(t('Error'), t('Please fill in all required fields'));
@@ -251,8 +266,8 @@ export default function RegisterScreen() {
         last_name: trimmedLastName,
         phone: trimmedPhone || undefined,
         country: trimmedCountry,
-        currency: selectedDemoGroup.currency,
-        leverage: selectedDemoGroup.leverage,
+        currency: effectiveCurrency,
+        leverage: effectiveLeverage,
         initial_balance: parsedInitialBalance,
         origin_broker: trimmedOriginBroker || undefined,
       });
@@ -360,7 +375,90 @@ export default function RegisterScreen() {
     : passwordStrengthScore >= 2
       ? '#F59E0B'
       : '#64748B';
-  const selectedCurrency = selectedDemoGroup?.currency ?? 'USD';
+  const selectedCurrency = selectedCurrencyCode || selectedDemoGroup?.currency || 'USD';
+  const selectedLeverage = selectedLeverageValue ?? selectedDemoGroup?.leverage ?? 0;
+  const countryPickerActions = React.useMemo(
+    () => DEMO_COUNTRY_OPTIONS.map((option) => ({
+      label: t(option.label),
+      subtitle: option.code,
+      onPress: () => setCountry(option.label),
+    })),
+    [t],
+  );
+  const handleOpenCountryPicker = React.useCallback(() => {
+    Keyboard.dismiss();
+    handleFieldFocus('country');
+    setCountryPickerOpen(true);
+  }, [handleFieldFocus]);
+  const currencyOptions = React.useMemo(() => {
+    const codes = demoGroupOptions
+      .map((group) => group.currency)
+      .filter((code): code is string => Boolean(code));
+    const uniqueCodes = Array.from(new Set(codes));
+
+    return uniqueCodes.length > 0 ? uniqueCodes : [selectedCurrency];
+  }, [demoGroupOptions, selectedCurrency]);
+  const leverageOptions = React.useMemo(() => {
+    const leverages = demoGroupOptions
+      .map((group) => group.leverage)
+      .filter((leverage): leverage is number => Number.isFinite(leverage) && leverage > 0);
+    const uniqueLeverages = Array.from(new Set(leverages)).sort((left, right) => left - right);
+
+    return uniqueLeverages.length > 0 || selectedLeverage <= 0
+      ? uniqueLeverages
+      : [selectedLeverage];
+  }, [demoGroupOptions, selectedLeverage]);
+  const currencyPickerActions = React.useMemo(
+    () => currencyOptions.map((code) => ({
+      label: code,
+      subtitle: code === selectedDemoGroup?.currency ? t('Group default') : undefined,
+      onPress: () => setSelectedCurrencyCode(code),
+    })),
+    [currencyOptions, selectedDemoGroup?.currency, t],
+  );
+  const leveragePickerActions = React.useMemo(
+    () => leverageOptions.map((leverage) => ({
+      label: `1:${leverage}`,
+      subtitle: leverage === selectedDemoGroup?.leverage ? t('Group default') : undefined,
+      onPress: () => setSelectedLeverageValue(leverage),
+    })),
+    [leverageOptions, selectedDemoGroup?.leverage, t],
+  );
+  const groupPickerActions = React.useMemo(
+    () => demoGroupOptions.map((group) => ({
+      label: group.name,
+      subtitle: `${group.currency} / 1:${group.leverage}`,
+      onPress: () => {
+        setSelectedGroupName(group.name);
+        setSelectedCurrencyCode(group.currency);
+        setSelectedLeverageValue(group.leverage);
+      },
+    })),
+    [demoGroupOptions],
+  );
+  const handleOpenCurrencyPicker = React.useCallback(() => {
+    Keyboard.dismiss();
+    setCurrencyPickerOpen(true);
+  }, []);
+  const handleOpenLeveragePicker = React.useCallback(() => {
+    Keyboard.dismiss();
+    setLeveragePickerOpen(true);
+  }, []);
+  const handleOpenGroupPicker = React.useCallback(() => {
+    if (demoGroupOptions.length === 0) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    setGroupPickerOpen(true);
+  }, [demoGroupOptions.length]);
+  const fieldIconColor = isDark ? '#A7B4CC' : T.textMuted;
+  const fieldPlaceholderColor = isDark ? '#8EA0BA' : T.textMuted;
+  const strongPlaceholderColor = isDark ? '#EAF2FF' : T.text;
+  const fieldAccentColor = isDark ? '#22A8FF' : T.trading.buy.primary;
+  const heroBackIconColor = isDark ? '#DCEBFF' : T.text;
+  const noticeIconColor = isDark ? '#38BDF8' : T.trading.buy.primary;
+  const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
 
   return (
     <>
@@ -372,7 +470,7 @@ export default function RegisterScreen() {
           input:-webkit-autofill:hover, 
           input:-webkit-autofill:focus, 
           input:-webkit-autofill:active {
-              -webkit-box-shadow: 0 0 0 1000px ${T.bg} inset !important;
+              -webkit-box-shadow: 0 0 0 1000px ${autofillBackgroundColor} inset !important;
               -webkit-text-fill-color: ${T.text} !important;
               transition: background-color 5000s ease-in-out 0s;
           }
@@ -394,64 +492,23 @@ export default function RegisterScreen() {
 
             <View style={styles.formContainer}>
               <View style={styles.heroSection}>
-                <View pointerEvents="none" style={styles.heroHistoryChart}>
-                  <View style={[styles.heroChartGridLine, styles.heroChartGridLineTop]} />
-                  <View style={[styles.heroChartGridLine, styles.heroChartGridLineMiddle]} />
-                  <View style={[styles.heroChartGridLine, styles.heroChartGridLineBottom]} />
-                  <View style={[styles.heroChartGridColumn, styles.heroChartGridColumnOne]} />
-                  <View style={[styles.heroChartGridColumn, styles.heroChartGridColumnTwo]} />
-                  <View style={styles.heroChartAverageLine} />
-                  {REGISTER_HERO_CANDLES.map((candle, index) => {
-                    const colorStyles = candle.up
-                      ? {
-                          body: styles.heroCandleUpBody,
-                          wick: styles.heroCandleUpWick,
-                          volume: styles.heroVolumeUp,
-                        }
-                      : {
-                          body: styles.heroCandleDownBody,
-                          wick: styles.heroCandleDownWick,
-                          volume: styles.heroVolumeDown,
-                        };
-
-                    return (
-                      <View key={`register-hero-candle-${index}`} style={[styles.heroCandleSlot, { left: candle.x }]}>
-                        <View
-                          style={[
-                            styles.heroCandleWick,
-                            colorStyles.wick,
-                            { top: candle.wickTop, height: candle.wickHeight },
-                          ]}
-                        />
-                        <View
-                          style={[
-                            styles.heroCandleBody,
-                            colorStyles.body,
-                            { top: candle.bodyTop, height: candle.bodyHeight },
-                          ]}
-                        />
-                        <View
-                          style={[
-                            styles.heroVolumeBar,
-                            colorStyles.volume,
-                            { height: candle.volume },
-                          ]}
-                        />
-                      </View>
-                    );
-                  })}
+                <View style={styles.heroTitleRow}>
+                  <Pressable
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => safeRouterBack(router, '/login')}
+                    style={styles.heroBackButton}
+                  >
+                    <Ionicons name="arrow-back" size={26} color={heroBackIconColor} />
+                  </Pressable>
+                  <Text
+                    style={styles.heroTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                  >
+                    {t('Demo Trading Account')}
+                  </Text>
                 </View>
-                <Pressable
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  onPress={() => safeRouterBack(router, '/login')}
-                  style={styles.heroBackButton}
-                >
-                  <Ionicons name="arrow-back" size={26} color="#DCEBFF" />
-                </Pressable>
-                <Text style={styles.heroTitle}>
-                  {t('Open Your Demo')}{'\n'}
-                  <Text style={styles.heroTitleAccent}>{t('Trading Account')}</Text>
-                </Text>
                 <Text style={styles.heroSubtitle}>
                   {t('Create a practice account and start trading in minutes.')}
                 </Text>
@@ -462,7 +519,7 @@ export default function RegisterScreen() {
                   <Ionicons
                     name={isDemoServiceUnavailable ? 'cloud-offline-outline' : 'list-outline'}
                     size={18}
-                    color="#38BDF8"
+                    color={noticeIconColor}
                   />
                   <Text style={styles.statusNoticeText} numberOfLines={2}>
                     {isDemoServiceUnavailable
@@ -492,17 +549,17 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('firstName')}>
                 <Text style={styles.inputLabel}>{t('First name')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="person-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="person-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={firstName}
                     onChangeText={setFirstName}
                     onFocus={() => handleFieldFocus('firstName')}
                     placeholder={t('First name')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="words"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="name"
@@ -517,17 +574,17 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('lastName')}>
                 <Text style={styles.inputLabel}>{t('Last name')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="id-card-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="id-card-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={lastName}
                     onChangeText={setLastName}
                     onFocus={() => handleFieldFocus('lastName')}
                     placeholder={t('Last name')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="words"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="name-family"
@@ -542,18 +599,18 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('email')}>
                 <Text style={styles.inputLabel}>{t('Email')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="mail-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="mail-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={email}
                     onChangeText={setEmail}
                     onFocus={() => handleFieldFocus('email')}
                     placeholder={t('you@example.com')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="email"
@@ -568,17 +625,17 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('phone')}>
                 <Text style={styles.inputLabel}>{t('Phone')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="call-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="call-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={phone}
                     onChangeText={setPhone}
                     onFocus={() => handleFieldFocus('phone')}
                     placeholder="+1 (555) 123-4567"
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     keyboardType="phone-pad"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="tel"
@@ -592,45 +649,41 @@ export default function RegisterScreen() {
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('country')}>
                 <Text style={styles.inputLabel}>{t('Country')}</Text>
-                <View style={styles.inputShell}>
-                  <Ionicons name="earth-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
-                  <TextInput
-                    style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
-                    value={country}
-                    onChangeText={setCountry}
-                    onFocus={() => handleFieldFocus('country')}
-                    placeholder={t('United States')}
-                    placeholderTextColor="#EAF2FF"
-                    autoCapitalize="words"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
-                    underlineColorAndroid="transparent"
-                    importantForAutofill={"no" as any}
-                    autoComplete="off"
-                    textContentType="countryName"
-                    spellCheck={false}
-                    autoCorrect={false}
-                    disableFullscreenUI={true}
-                  />
-                  <Ionicons name="chevron-down" size={20} color="#A7B4CC" />
-                </View>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.inputShell,
+                    pressed && styles.inputShellPressed,
+                  ]}
+                  onPress={handleOpenCountryPicker}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  latencyLabel="register.country.open"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Country')}
+                  accessibilityState={{ expanded: countryPickerOpen }}
+                >
+                  <Ionicons name="earth-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
+                  <Text style={styles.selectValue} numberOfLines={1}>
+                    {t(country)}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
+                </Pressable>
               </View>
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('password')}>
                 <Text style={styles.inputLabel}>{t('Master password')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="lock-closed-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="lock-closed-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={password}
                     onChangeText={setPassword}
                     onFocus={() => handleFieldFocus('password')}
                     placeholder={t('Master password')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     secureTextEntry={!showPassword}
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="off"
@@ -640,7 +693,7 @@ export default function RegisterScreen() {
                     disableFullscreenUI={true}
                   />
                   <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={15} style={styles.eyeIconBtn}>
-                    <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color="#A7B4CC" />
+                    <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color={fieldIconColor} />
                   </Pressable>
                 </View>
                 <View style={styles.passwordStrengthRow}>
@@ -662,18 +715,18 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('investorPassword')}>
                 <Text style={styles.inputLabel}>{t('Investor password')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="lock-closed-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="lock-closed-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={investorPassword}
                     onChangeText={setInvestorPassword}
                     onFocus={() => handleFieldFocus('investorPassword')}
                     placeholder={t('Investor password')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     secureTextEntry={!showInvestorPassword}
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="off"
@@ -683,7 +736,7 @@ export default function RegisterScreen() {
                     disableFullscreenUI={true}
                   />
                   <Pressable onPress={() => setShowInvestorPassword(!showInvestorPassword)} hitSlop={15} style={styles.eyeIconBtn}>
-                    <Ionicons name={showInvestorPassword ? "eye-off-outline" : "eye-outline"} size={21} color="#A7B4CC" />
+                    <Ionicons name={showInvestorPassword ? "eye-off-outline" : "eye-outline"} size={21} color={fieldIconColor} />
                   </Pressable>
                 </View>
               </View>
@@ -691,29 +744,51 @@ export default function RegisterScreen() {
               <View style={styles.twoColumnRow}>
                 <View style={styles.twoColumnCell}>
                   <Text style={styles.inputLabel}>{t('Currency')}</Text>
-                  <View style={styles.inputShell}>
-                    <Ionicons name="cash-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.inputShell,
+                      pressed && styles.inputShellPressed,
+                    ]}
+                    onPress={handleOpenCurrencyPicker}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    latencyLabel="register.currency.open"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Currency')}
+                    accessibilityState={{ expanded: currencyPickerOpen }}
+                  >
+                    <Ionicons name="cash-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                     <Text style={styles.selectValue} numberOfLines={1}>{selectedCurrency}</Text>
-                    <Ionicons name="chevron-down" size={20} color="#A7B4CC" />
-                  </View>
+                    <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
+                  </Pressable>
                 </View>
 
                 <View style={styles.twoColumnCell}>
                   <Text style={styles.inputLabel}>{t('Leverage')}</Text>
-                  <View style={styles.inputShell}>
-                    <Ionicons name="speedometer-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.inputShell,
+                      pressed && styles.inputShellPressed,
+                    ]}
+                    onPress={handleOpenLeveragePicker}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    latencyLabel="register.leverage.open"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Leverage')}
+                    accessibilityState={{ expanded: leveragePickerOpen }}
+                  >
+                    <Ionicons name="speedometer-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                     <Text style={styles.selectValue} numberOfLines={1}>
-                      {selectedDemoGroup?.leverage ? `1:${selectedDemoGroup.leverage}` : '--'}
+                      {selectedLeverage ? `1:${selectedLeverage}` : '--'}
                     </Text>
-                    <Ionicons name="chevron-down" size={20} color="#A7B4CC" />
-                  </View>
+                    <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
+                  </Pressable>
                 </View>
               </View>
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('initialBalance')}>
                 <Text style={styles.inputLabel}>{t('Initial balance')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="wallet-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="wallet-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={initialBalance}
@@ -721,9 +796,9 @@ export default function RegisterScreen() {
                     onFocus={() => handleFieldFocus('initialBalance')}
                     keyboardType="numeric"
                     placeholder="10000"
-                    placeholderTextColor="#EAF2FF"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    placeholderTextColor={strongPlaceholderColor}
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="off"
@@ -738,17 +813,17 @@ export default function RegisterScreen() {
               <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
                 <View style={styles.inputShell}>
-                  <Ionicons name="business-outline" size={21} color="#A7B4CC" style={styles.inputRowIcon} />
+                  <Ionicons name="business-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={originBroker}
                     onChangeText={setOriginBroker}
                     onFocus={() => handleFieldFocus('originBroker')}
                     placeholder={t('Origin broker')}
-                    placeholderTextColor="#8EA0BA"
+                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
-                    selectionColor="#22A8FF"
-                    cursorColor="#22A8FF"
+                    selectionColor={fieldAccentColor}
+                    cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
                     importantForAutofill={"no" as any}
                     autoComplete="off"
@@ -763,24 +838,26 @@ export default function RegisterScreen() {
               <View style={styles.inputRow}>
                 <Text style={styles.inputLabel}>{t('Group')}</Text>
                 <Pressable
-                  style={styles.inputShell}
-                  onPress={() => {
-                    if (demoGroupOptions.length <= 1) {
-                      return;
-                    }
-                    const currentIndex = demoGroupOptions.findIndex((group) => group.name === selectedDemoGroup?.name);
-                    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % demoGroupOptions.length : 0;
-                    setSelectedGroupName(demoGroupOptions[nextIndex]?.name ?? '');
+                  style={({ pressed }) => [
+                    styles.inputShell,
+                    pressed && styles.inputShellPressed,
+                  ]}
+                  onPress={handleOpenGroupPicker}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  latencyLabel="register.group.open"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Group')}
+                  accessibilityState={{
+                    expanded: groupPickerOpen,
+                    disabled: demoGroupOptions.length === 0,
                   }}
+                  disabled={demoGroupOptions.length === 0}
                 >
-                  <Ionicons name="shield-checkmark-outline" size={21} color="#0A84FF" style={styles.inputRowIcon} />
+                  <Ionicons name="shield-checkmark-outline" size={21} color={fieldAccentColor} style={styles.inputRowIcon} />
                   <Text style={styles.selectValue} numberOfLines={1}>
                     {selectedDemoGroup?.name ?? t('Demo groups unavailable')}
                   </Text>
-                  <View style={styles.demoTypeAction}>
-                    <Ionicons name="arrow-forward" size={18} color="#9CCAFF" />
-                  </View>
-                  <Ionicons name="chevron-down" size={20} color="#A7B4CC" />
+                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
                 </Pressable>
               </View>
 
@@ -822,19 +899,70 @@ export default function RegisterScreen() {
 
           </ScrollView>
         </KeyboardAvoidingView>
+
+        <ActionSheet
+          visible={countryPickerOpen}
+          title={t('Country')}
+          actions={countryPickerActions}
+          onClose={() => setCountryPickerOpen(false)}
+          searchable
+          searchPlaceholder={t('Search countries...')}
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
+        <ActionSheet
+          visible={currencyPickerOpen}
+          title={t('Currency')}
+          actions={currencyPickerActions}
+          onClose={() => setCurrencyPickerOpen(false)}
+          searchable
+          searchPlaceholder={t('Search currencies...')}
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
+        <ActionSheet
+          visible={leveragePickerOpen}
+          title={t('Leverage')}
+          actions={leveragePickerActions}
+          onClose={() => setLeveragePickerOpen(false)}
+          searchable
+          searchPlaceholder={t('Search leverage...')}
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
+        <ActionSheet
+          visible={groupPickerOpen}
+          title={t('Group')}
+          actions={groupPickerActions}
+          onClose={() => setGroupPickerOpen(false)}
+          searchable
+          searchPlaceholder={t('Search groups...')}
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
       </View>
     </>
   );
 }
 
 // Dynamic theme + register layout.
-function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColors: ChartColorsConfig) {
-  const pageBg = '#020B18';
-  const surface = 'rgba(7,23,44,0.74)';
-  const surfaceSoft = 'rgba(14,34,60,0.82)';
-  const border = 'rgba(128,166,211,0.34)';
-  const borderStrong = 'rgba(34,168,255,0.56)';
-  const iconBg = 'rgba(17,44,76,0.88)';
+function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
+  const pageBg = isDark ? '#020B18' : REGISTER_QUOTES_LIGHT_BACKGROUND;
+  const surface = isDark ? 'rgba(7,23,44,0.74)' : '#FFFFFF';
+  const border = isDark ? 'rgba(128,166,211,0.34)' : '#DFE7F1';
+  const borderStrong = isDark ? 'rgba(34,168,255,0.56)' : '#D8E2EF';
+  const primaryBlue = T.trading.buy.primary;
+  const heroTitleColor = isDark ? '#FFFFFF' : T.text;
+  const secondaryText = isDark ? '#B8C4D8' : T.textSub;
+  const fieldText = isDark ? '#F8FBFF' : T.text;
+  const mutedText = isDark ? '#9AA8BE' : T.textMuted;
+  const statusBg = isDark ? 'rgba(9,31,58,0.78)' : '#FFFFFF';
+  const statusBorder = isDark ? 'rgba(34,168,255,0.36)' : '#D8E2EF';
+  const actionTintBg = isDark ? 'rgba(10,132,255,0.14)' : 'rgba(37,99,235,0.08)';
 
   return StyleSheet.create({
     bg: {
@@ -879,7 +1007,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
 
     scrollContent: {
       paddingBottom: REGISTER_KEYBOARD_BOTTOM_PADDING,
-      paddingTop: 28,
+      paddingTop: 18,
     },
 
     formContainer: {
@@ -892,125 +1020,22 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       marginHorizontal: -24,
       paddingHorizontal: 24,
       paddingTop: 0,
-      paddingBottom: 18,
-      marginBottom: 4,
+      paddingBottom: 14,
+      marginBottom: 2,
     },
-    heroHistoryChart: {
-      position: 'absolute',
-      top: 16,
-      right: -72,
-      width: 316,
-      height: 232,
-      opacity: 0.5,
-    },
-    heroChartGridLine: {
-      position: 'absolute',
-      left: -18,
-      right: -20,
-      height: 1,
-      borderTopWidth: 1,
-      borderStyle: 'dashed',
-      borderColor: 'rgba(41,98,255,0.16)',
-    },
-    heroChartGridLineTop: {
-      top: 34,
-      transform: [{ rotate: '5deg' }],
-    },
-    heroChartGridLineMiddle: {
-      top: 98,
-      transform: [{ rotate: '-2deg' }],
-    },
-    heroChartGridLineBottom: {
-      top: 166,
-      transform: [{ rotate: '3deg' }],
-    },
-    heroChartGridColumn: {
-      position: 'absolute',
-      top: 0,
-      bottom: 12,
-      width: 1,
-      borderLeftWidth: 1,
-      borderStyle: 'dashed',
-      borderColor: 'rgba(41,98,255,0.12)',
-    },
-    heroChartGridColumnOne: {
-      left: 100,
-    },
-    heroChartGridColumnTwo: {
-      left: 210,
-    },
-    heroChartAverageLine: {
-      position: 'absolute',
-      left: 16,
-      right: -20,
-      bottom: 70,
-      height: 1,
-      backgroundColor: chartColors.candlesUptrend,
-      opacity: 0.2,
-      transform: [{ rotate: '-15deg' }],
-    },
-    heroCandleSlot: {
-      position: 'absolute',
-      top: 0,
-      width: 14,
-      height: 232,
-    },
-    heroCandleWick: {
-      position: 'absolute',
-      left: 6,
-      width: 1,
-      borderRadius: 1,
-    },
-    heroCandleBody: {
-      position: 'absolute',
-      left: 2,
-      width: 10,
-      borderWidth: 1,
-      borderRadius: 1,
-    },
-    heroCandleUpWick: {
-      backgroundColor: chartColors.candlesUptrend,
-      opacity: 0.62,
-    },
-    heroCandleDownWick: {
-      backgroundColor: chartColors.candlesDowntrend,
-      opacity: 0.42,
-    },
-    heroCandleUpBody: {
-      backgroundColor: chartColors.candlesUptrend,
-      borderColor: chartColors.candlesUptrend,
-      opacity: 0.56,
-    },
-    heroCandleDownBody: {
-      backgroundColor: 'transparent',
-      borderColor: chartColors.candlesDowntrend,
-      opacity: 0.5,
-    },
-    heroVolumeBar: {
-      position: 'absolute',
-      left: 6,
-      bottom: 4,
-      width: 2,
-      borderRadius: 1,
-    },
-    heroVolumeUp: {
-      backgroundColor: chartColors.candlesUptrend,
-      opacity: 0.18,
-    },
-    heroVolumeDown: {
-      backgroundColor: chartColors.candlesDowntrend,
-      opacity: 0.14,
+    heroTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 9,
     },
     heroTitle: {
-      color: '#FFFFFF',
-      fontSize: 36,
-      lineHeight: 42,
+      color: heroTitleColor,
+      fontSize: 26,
+      lineHeight: 32,
       fontWeight: '900',
       letterSpacing: 0,
-      marginBottom: 14,
-    },
-    heroTitleAccent: {
-      color: '#38BDF8',
+      flex: 1,
+      marginBottom: 0,
     },
     heroBackButton: {
       alignSelf: 'flex-start',
@@ -1018,17 +1043,16 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 0,
-      marginBottom: 22,
+      marginRight: 10,
       backgroundColor: 'transparent',
     },
     heroSubtitle: {
-      color: '#B8C4D8',
-      fontSize: 18,
-      lineHeight: 25,
+      color: secondaryText,
+      fontSize: 15,
+      lineHeight: 21,
       fontWeight: '500',
+      marginLeft: 0,
       marginBottom: 0,
-      maxWidth: 270,
     },
     statusNotice: {
       minHeight: 48,
@@ -1040,12 +1064,12 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       marginBottom: 12,
       borderRadius: 8,
       borderWidth: 1,
-      borderColor: 'rgba(34,168,255,0.36)',
-      backgroundColor: 'rgba(9,31,58,0.78)',
+      borderColor: statusBorder,
+      backgroundColor: statusBg,
     },
     statusNoticeText: {
       flex: 1,
-      color: '#B8C4D8',
+      color: secondaryText,
       fontSize: 12,
       lineHeight: 16,
       fontWeight: '600',
@@ -1056,7 +1080,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       borderRadius: 7,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#0A84FF',
+      backgroundColor: primaryBlue,
     },
     statusRetryText: {
       color: '#FFFFFF',
@@ -1348,7 +1372,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       textAlign: 'center',
     },
     inputLabel: {
-      color: '#FFFFFF',
+      color: heroTitleColor,
       fontSize: 15,
       lineHeight: 19,
       fontWeight: '600',
@@ -1366,9 +1390,12 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       borderColor: border,
       backgroundColor: surface,
     },
+    inputShellPressed: {
+      opacity: 0.86,
+    },
     input: {
       flex: 1,
-      color: '#F8FBFF',
+      color: fieldText,
       fontSize: 16,
       fontWeight: '500',
       padding: 0,
@@ -1387,7 +1414,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
     },
     readonlyValue: {
       flex: 1,
-      color: '#F8FBFF',
+      color: fieldText,
       fontSize: 16,
       fontWeight: '700',
       textAlign: 'right',
@@ -1421,7 +1448,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       backgroundColor: 'rgba(100,116,139,0.42)',
     },
     passwordStrengthText: {
-      color: '#9AA8BE',
+      color: mutedText,
       fontSize: 12,
       lineHeight: 16,
       fontWeight: '500',
@@ -1438,7 +1465,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
     },
     selectValue: {
       flex: 1,
-      color: '#F8FBFF',
+      color: fieldText,
       fontSize: 13,
       fontWeight: '600',
       includeFontPadding: false,
@@ -1457,19 +1484,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
     },
     demoTypeText: {
       flex: 1,
-      color: '#F8FBFF',
+      color: fieldText,
       fontSize: 16,
       fontWeight: '600',
-    },
-    demoTypeAction: {
-      width: 48,
-      height: 28,
-      borderRadius: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: 'rgba(10,132,255,0.70)',
-      backgroundColor: 'rgba(10,132,255,0.14)',
     },
     termsRow: {
       flexDirection: 'row',
@@ -1485,33 +1502,33 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number, chartColor
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: '#0A84FF',
-      backgroundColor: 'rgba(10,132,255,0.12)',
+      borderColor: primaryBlue,
+      backgroundColor: actionTintBg,
     },
     checkboxChecked: {
-      backgroundColor: '#0A84FF',
+      backgroundColor: primaryBlue,
     },
     termsText: {
       flex: 1,
-      color: '#B8C4D8',
+      color: secondaryText,
       fontSize: 14,
       lineHeight: 20,
       fontWeight: '500',
     },
     linkText: {
-      color: '#0A84FF',
+      color: primaryBlue,
       fontWeight: '700',
     },
     registerBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#2563EB',
+      backgroundColor: primaryBlue,
       height: 58,
       borderRadius: 8,
       marginTop: 0,
       overflow: 'hidden',
-      shadowColor: '#2563EB',
+      shadowColor: primaryBlue,
       shadowOpacity: 0.28,
       shadowRadius: 14,
       shadowOffset: { width: 0, height: 8 },

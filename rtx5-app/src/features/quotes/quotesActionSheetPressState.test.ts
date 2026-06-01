@@ -45,11 +45,11 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(longPressConfigSource, /instantOpen: true/);
   assert.match(
     source,
-    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showActionSheet\(config\)/,
+    /const handleSymbolTap = useCallback[\s\S]*quoteTapActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\)/,
   );
   assert.match(
     source,
-    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showActionSheet\(config\)/,
+    /const handleSymbolLongPress = useCallback[\s\S]*quoteLongPressActionSheetConfigs\.get\(sym\)[\s\S]*runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\)/,
   );
   assert.match(source, /onLongPress=\{\(\) => handleSymbolLongPress\(sym\)\}/);
 });

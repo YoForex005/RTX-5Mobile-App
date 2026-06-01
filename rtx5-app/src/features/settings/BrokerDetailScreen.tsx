@@ -106,7 +106,7 @@ export function BrokerDetailScreen() {
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
-  const showActionSheet = useUIState((s) => s.showActionSheet);
+  const showBrokerDetailActionSheet = useUIState((s) => s.showBrokerDetailActionSheet);
 
   // Real-account option is disabled while the active session is a real
   // account, matching MT5: it shows as muted so the user knows they already
@@ -263,7 +263,7 @@ export function BrokerDetailScreen() {
   const openServerSelector = () => {
     if (serverOptions.length <= 1) return;
     runImmediateAction('brokerDetail.serverSheet.open', () =>
-      showActionSheet({
+      showBrokerDetailActionSheet({
         title: t('Choose server'),
         detent: 'adaptive',
         instantOpen: true,

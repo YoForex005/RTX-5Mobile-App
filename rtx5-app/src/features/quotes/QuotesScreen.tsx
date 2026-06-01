@@ -1531,7 +1531,7 @@ export function QuotesScreen() {
   const setQuoteSymbols = useUserPreferences((st) => st.setQuoteSymbols);
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
-  const showActionSheet = useUIState((s) => s.showActionSheet);
+  const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const quoteServerDataActive = useDeferredActiveFlag(isScreenFocused && isLoggedIn);
@@ -1750,7 +1750,7 @@ export function QuotesScreen() {
 
   const quoteViewMode = useUserPreferences((st) => st.quoteViewMode);
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
-  const preloadActionSheet = useUIState((s) => s.preloadActionSheet);
+  const preloadQuotesActionSheet = useUIState((s) => s.preloadQuotesActionSheet);
 
   const goDetail = useCallback((sym: string) => {
     prefetchQuoteDetails(sym);
@@ -1759,7 +1759,7 @@ export function QuotesScreen() {
   }, [router, setChartSymbol]);
 
   const quoteTapActionSheetConfigs = useMemo(() => {
-    const configs = new Map<string, Parameters<typeof showActionSheet>[0]>();
+    const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
 
     quoteSymbols.forEach((sym) => {
       const displayName = fmt.symbol(sym);
@@ -1809,10 +1809,10 @@ export function QuotesScreen() {
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showActionSheet, t]);
+  }, [goDetail, quoteSymbols, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showQuotesActionSheet, t]);
 
   const quoteLongPressActionSheetConfigs = useMemo(() => {
-    const configs = new Map<string, Parameters<typeof showActionSheet>[0]>();
+    const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
 
     quoteSymbols.forEach((sym) => {
       configs.set(sym, {
@@ -1838,33 +1838,33 @@ export function QuotesScreen() {
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showActionSheet, t]);
+  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showQuotesActionSheet, t]);
 
   useEffect(() => {
     const firstSym = quoteSymbols[0];
     if (firstSym) {
       const config = quoteTapActionSheetConfigs.get(firstSym);
       if (config) {
-        preloadActionSheet(config);
+        preloadQuotesActionSheet(config);
       }
     }
-  }, [quoteSymbols, quoteTapActionSheetConfigs, preloadActionSheet]);
+  }, [quoteSymbols, quoteTapActionSheetConfigs, preloadQuotesActionSheet]);
 
   const handleSymbolTap = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteTapActionSheetConfigs.get(sym);
     if (config) {
-      runImmediateAction('quotes.symbolSheet.tap.open', () => showActionSheet(config));
+      runImmediateAction('quotes.symbolSheet.tap.open', () => showQuotesActionSheet(config));
     }
-  }, [quoteTapActionSheetConfigs, showActionSheet, showAddModal]);
+  }, [quoteTapActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   const handleSymbolLongPress = useCallback((sym: string) => {
     if (showAddModal) return;
     const config = quoteLongPressActionSheetConfigs.get(sym);
     if (config) {
-      runImmediateAction('quotes.symbolSheet.longPress.open', () => showActionSheet(config));
+      runImmediateAction('quotes.symbolSheet.longPress.open', () => showQuotesActionSheet(config));
     }
-  }, [quoteLongPressActionSheetConfigs, showActionSheet, showAddModal]);
+  }, [quoteLongPressActionSheetConfigs, showQuotesActionSheet, showAddModal]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearch(text);
@@ -2654,4 +2654,3 @@ function TickCounter({
     </View>
   );
 }
-

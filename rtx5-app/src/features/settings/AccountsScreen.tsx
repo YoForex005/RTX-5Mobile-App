@@ -175,9 +175,9 @@ export function AccountsScreen() {
   const isScreenFocused = useIsFocused();
   const queryClient = useQueryClient();
   const accountDetails = useUserPreferences((s) => s.accountDetails);
-  const showActionSheet = useUIState((s) => s.showActionSheet);
-  const actionSheet = useUIState((s) => s.actionSheet);
-  const hideActionSheet = useUIState((s) => s.hideActionSheet);
+  const showAccountsActionSheet = useUIState((s) => s.showAccountsActionSheet);
+  const actionSheet = useUIState((s) => s.scopedActionSheets.settingsAccounts);
+  const hideAccountsActionSheet = useUIState((s) => s.hideAccountsActionSheet);
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const isDemoAccount = useUserPreferences((s) => s.isDemoAccount);
   const userLogin = useUserPreferences((s) => s.login);
@@ -530,7 +530,7 @@ export function AccountsScreen() {
 
   const openOptions = () => {
     runImmediateAction('accounts.optionsSheet.open', () =>
-      showActionSheet({
+      showAccountsActionSheet({
         title: t('Settings'),
         detent: 'auto',
         instantOpen: true,
@@ -998,7 +998,7 @@ export function AccountsScreen() {
         visible={actionSheet !== null}
         title={actionSheet?.title}
         actions={actionSheet?.actions ?? []}
-        onClose={hideActionSheet}
+        onClose={hideAccountsActionSheet}
         searchable={actionSheet?.searchable}
         detent={actionSheet?.detent}
         minimumTopInset={actionSheet?.minimumTopInset}

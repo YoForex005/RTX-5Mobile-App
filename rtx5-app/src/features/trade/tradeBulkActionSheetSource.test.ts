@@ -14,7 +14,7 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   const summarySource = readTradeSummarySource();
 
   assert.match(source, /import \{ runImmediateAction \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
-  assert.match(source, /const bulkActionSheetConfig = useMemo<Parameters<typeof showActionSheet>\[0\]>/);
+  assert.match(source, /const bulkActionSheetConfig = useMemo<Parameters<typeof showTradeActionSheet>\[0\]>/);
   assert.match(source, /title: t\('Bulk Operations'\)/);
   assert.match(source, /detent: 'auto'/);
   assert.match(source, /instantOpen: true/);
@@ -27,7 +27,7 @@ test('trade bulk launcher opens through the shared Quotes-style action sheet pat
   assert.doesNotMatch(source, /navigateToBulkMode\(`symbol:\$\{symbol\}`\)/);
   assert.match(
     source,
-    /const showBulkSheet = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('trade\.bulkSheet\.open', \(\) => showActionSheet\(bulkActionSheetConfig\)\)/,
+    /const showBulkSheet = useCallback\(\(\) => \{[\s\S]*runImmediateAction\('trade\.bulkSheet\.open', \(\) => showTradeActionSheet\(bulkActionSheetConfig\)\)/,
   );
   assert.match(summarySource, /latencyLabel="trade\.bulk\.open"[\s\S]*activateOnTouchStart/);
   assert.match(source, /requestAnimationFrame\(showBulkSheet\)/);

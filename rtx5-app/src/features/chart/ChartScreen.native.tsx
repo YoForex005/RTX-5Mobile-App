@@ -612,7 +612,7 @@ export function ChartScreen() {
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const setChartInlineInputActive = useUIState((s) => s.setChartInlineInputActive);
   const setChartTabBarKeyboardLift = useUIState((s) => s.setChartTabBarKeyboardLift);
-  const showActionSheet = useUIState((s) => s.showActionSheet);
+  const showChartActionSheet = useUIState((s) => s.showChartActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const safeInsets = useSafeAreaInsets();
@@ -1568,7 +1568,7 @@ export function ChartScreen() {
       setFooterLotPickerMode(null);
       setChartTradeCommentFocused(false);
       Keyboard.dismiss();
-      showActionSheet({
+      showChartActionSheet({
         title: t('Expiration'),
         detent: 'auto',
         instantOpen: true,
@@ -1576,7 +1576,7 @@ export function ChartScreen() {
         actions: chartTradeExpirationActions,
       });
     });
-  }, [chartTradeExpirationActions, showActionSheet, t]);
+  }, [chartTradeExpirationActions, showChartActionSheet, t]);
   const handleFocusChartTradeComment = useCallback(() => {
     runImmediateAction('chart.tradeSheet.comment.focus', () => {
       if (chartTradeSheetMode !== 'expanded') {
@@ -2644,7 +2644,7 @@ export function ChartScreen() {
 
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
-      showActionSheet({
+      showChartActionSheet({
         title: t('Select Symbol'),
         searchable: true,
         detent: 'large',
@@ -2653,11 +2653,11 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [scheduleChartActionSheetContextReset, showActionSheet, t, symbolPickerActions]);
+  }, [scheduleChartActionSheetContextReset, showChartActionSheet, t, symbolPickerActions]);
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
-      showActionSheet({
+      showChartActionSheet({
         title: t('Timeframes'),
         detent: 'adaptive',
         instantOpen: true,
@@ -2666,7 +2666,7 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [scheduleChartActionSheetContextReset, showActionSheet, t, timeframePickerActions]);
+  }, [scheduleChartActionSheetContextReset, showChartActionSheet, t, timeframePickerActions]);
 
   const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
@@ -2697,7 +2697,7 @@ export function ChartScreen() {
 
   const handleOpenChartTypePicker = useCallback(() => {
     runImmediateAction('chart.chartType.open', () => {
-      showActionSheet({
+      showChartActionSheet({
         title: t('Chart Type'),
         detent: 'adaptive',
         instantOpen: true,
@@ -2705,7 +2705,7 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [chartTypePickerActions, scheduleChartActionSheetContextReset, showActionSheet, t]);
+  }, [chartTypePickerActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
   const handleOpenObjectsScreen = useCallback(() => {
     runImmediateAction('chart.objects.open', () => {
@@ -2752,7 +2752,7 @@ export function ChartScreen() {
 
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
-      showActionSheet({
+      showChartActionSheet({
         title: t('Drawing Tools'),
         minimumTopInset: drawingToolsSheetTopInset,
         detent: 'adaptive',
@@ -2761,7 +2761,7 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showActionSheet, t]);
+  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
@@ -2881,7 +2881,7 @@ export function ChartScreen() {
 
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
-      showActionSheet({
+      showChartActionSheet({
         title: t('Options'),
         detent: 'adaptive',
         instantOpen: true,
@@ -2889,7 +2889,7 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [chartMoreActions, scheduleChartActionSheetContextReset, showActionSheet, t]);
+  }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
   const chartOptions = useMemo(() => ({
     layout: {

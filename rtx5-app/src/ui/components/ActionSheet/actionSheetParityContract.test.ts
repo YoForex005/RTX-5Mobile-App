@@ -35,10 +35,12 @@ const readAllSource = () =>
 test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', () => {
   const allSource = readAllSource();
   const actionSheetMounts = [...allSource.matchAll(/<ActionSheet\b[\s\S]*?\/>/g)];
-  const showActionSheetCalls = [...allSource.matchAll(/\bshowActionSheet\(/g)];
+  const scopedActionSheetCalls = [
+    ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|News|Accounts|BrokerDetail)ActionSheet\(/g),
+  ];
 
   assert.equal(actionSheetMounts.length, 15);
-  assert.equal(showActionSheetCalls.length, 14);
+  assert.equal(scopedActionSheetCalls.length, 14);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -53,7 +55,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: \{ \.\.\.config, instantOpen: true \} \}\)/);
 });
 
-test('high-traffic global action sheets open through immediate action wrappers', () => {
+test('high-traffic scoped action sheets open through immediate action wrappers', () => {
   const quotesSource = readSource('src/features/quotes/QuotesScreen.tsx');
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
   const historySource = readSource('src/features/history/HistoryScreen.tsx');
@@ -62,16 +64,16 @@ test('high-traffic global action sheets open through immediate action wrappers',
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const brokerDetailSource = readSource('src/features/settings/BrokerDetailScreen.tsx');
 
-  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showActionSheet\(config\)/);
-  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showActionSheet\(config\)/);
-  assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showActionSheet\(bulkActionSheetConfig\)/);
-  assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(historySource, /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(newsSource, /runImmediateAction\('news\.filterSheet\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showActionSheet\(\{/);
-  assert.match(chartSource, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showActionSheet\(\{/);
+  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.tap\.open'[\s\S]*showQuotesActionSheet\(config\)/);
+  assert.match(quotesSource, /runImmediateAction\('quotes\.symbolSheet\.longPress\.open'[\s\S]*showQuotesActionSheet\(config\)/);
+  assert.match(tradeSource, /runImmediateAction\('trade\.bulkSheet\.open'[\s\S]*showTradeActionSheet\(bulkActionSheetConfig\)/);
+  assert.match(tradeSource, /runImmediateAction\('trade\.positionSheet\.open'[\s\S]*showTradeActionSheet\(\{/);
+  assert.match(historySource, /runImmediateAction\('history\.sortSheet\.open'[\s\S]*showHistoryActionSheet\(\{/);
+  assert.match(newsSource, /runImmediateAction\('news\.filterSheet\.open'[\s\S]*showNewsActionSheet\(\{/);
+  assert.match(accountsSource, /runImmediateAction\('accounts\.optionsSheet\.open'[\s\S]*showAccountsActionSheet\(\{/);
+  assert.match(brokerDetailSource, /runImmediateAction\('brokerDetail\.serverSheet\.open'[\s\S]*showBrokerDetailActionSheet\(\{/);
+  assert.match(chartSource, /runImmediateAction\('chart\.symbolPicker\.open'[\s\S]*showChartActionSheet\(\{/);
+  assert.match(chartSource, /runImmediateAction\('chart\.timeframePicker\.open'[\s\S]*showChartActionSheet\(\{/);
+  assert.match(chartSource, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(\{/);
+  assert.match(chartSource, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showChartActionSheet\(\{/);
 });

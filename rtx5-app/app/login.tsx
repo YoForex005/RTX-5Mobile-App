@@ -3,7 +3,7 @@ import { Stack, router } from 'expo-router';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
-  ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeSyntheticEvent,
   type TextInputEndEditingEventData,
 } from 'react-native';
@@ -55,6 +55,12 @@ const DEV_DEFAULT_LOGIN = {
   password: process.env.EXPO_PUBLIC_TEST_PASSWORD || 'TestPass1234',
 };
 
+const KNOWN_LOGIN_BROKER_DOMAINS: Record<string, string> = {
+  flexymarkets: 'flexymarkets.com',
+  metaquotes: 'metaquotes.net',
+  alphatrading: 'alphatrading.com',
+};
+
 type LoginBrokerOption = {
   key: string;
   brokerId: string;
@@ -63,9 +69,28 @@ type LoginBrokerOption = {
   logoUrl: string;
   region: string;
   protocol: string;
+  domain?: string;
 };
 
 const normalizeBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
+
+const resolveLoginBrokerDomain = (name: string): string | undefined => {
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const [needle, domain] of Object.entries(KNOWN_LOGIN_BROKER_DOMAINS)) {
+    if (key.includes(needle)) return domain;
+  }
+  return undefined;
+};
+
+const formatLoginBrokerInitials = (name: string) => {
+  const words = name
+    .replace(/\([^)]*\)/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
+  return initials || 'BR';
+};
 
 const formatBrokerOptionSubtitle = (option: LoginBrokerOption) => (
   [option.brokerId, option.region, option.protocol.toUpperCase()].filter(Boolean).join(' / ')
@@ -125,6 +150,7 @@ export function AccountLoginScreen() {
   const [brokerId, setBrokerId] = useState('');
   const [brokerServerUrl, setBrokerServerUrl] = useState('');
   const [brokerLogoUrl, setBrokerLogoUrl] = useState('');
+  const [brokerLogoFailed, setBrokerLogoFailed] = useState<Record<string, boolean>>({});
   const [brokerPickerOpen, setBrokerPickerOpen] = useState(false);
   const [brokerHealthWarning, setBrokerHealthWarning] = useState('');
   const [isBrokerHealthChecking, setIsBrokerHealthChecking] = useState(false);
@@ -318,6 +344,7 @@ export function AccountLoginScreen() {
         logoUrl: broker.logo_url?.trim() || '',
         region: broker.region?.trim() || '',
         protocol: broker.protocol?.trim() || '',
+        domain: resolveLoginBrokerDomain(broker.broker_name) ?? resolveLoginBrokerDomain(broker.broker_id),
       });
     }
     return options;
@@ -330,6 +357,13 @@ export function AccountLoginScreen() {
   }, [brokerId, brokerOptions]);
   const selectedBrokerServerUrl = brokerServerUrl || selectedBrokerOption?.serverUrl || '';
   const selectedBrokerLogoUrl = brokerLogoUrl || selectedBrokerOption?.logoUrl || '';
+  const selectedBrokerLogoUri = selectedBrokerLogoUrl || (
+    selectedBrokerOption?.domain ? `https://logo.clearbit.com/${selectedBrokerOption.domain}` : ''
+  );
+  const selectedBrokerLogoFailed = selectedBrokerLogoUri ? Boolean(brokerLogoFailed[selectedBrokerLogoUri]) : false;
+  const selectedBrokerInitials = formatLoginBrokerInitials(
+    selectedBrokerOption?.brokerName || brokerId || t('Broker'),
+  );
 
   useEffect(() => {
     if (
@@ -356,6 +390,7 @@ export function AccountLoginScreen() {
       logoUrl: directoryOption?.logoUrl || '',
       region: directoryOption?.region || 'Demo',
       protocol: directoryOption?.protocol || 'https',
+      domain: directoryOption?.domain ?? resolveLoginBrokerDomain(DEV_DEFAULT_LOGIN.brokerName),
     };
 
     selectBrokerOption(defaultOption);
@@ -739,7 +774,26 @@ export function AccountLoginScreen() {
               <View style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Trading Server')}</Text>
                 <View style={[styles.inputRow, styles.brokerInputRow]}>
-                  <Ionicons name="server-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
+                  <View
+                    style={[
+                      styles.brokerAvatar,
+                      (!selectedBrokerLogoUri || selectedBrokerLogoFailed) && styles.brokerAvatarFallback,
+                    ]}
+                  >
+                    {selectedBrokerLogoUri && !selectedBrokerLogoFailed ? (
+                      <Image
+                        source={{ uri: selectedBrokerLogoUri }}
+                        style={styles.brokerAvatarImage}
+                        resizeMode="contain"
+                        onError={() => setBrokerLogoFailed((prev) => ({
+                          ...prev,
+                          [selectedBrokerLogoUri]: true,
+                        }))}
+                      />
+                    ) : (
+                      <Text style={styles.brokerAvatarInitials}>{selectedBrokerInitials}</Text>
+                    )}
+                  </View>
                   <View style={styles.fieldValueColumn}>
                     <TextInput
                       style={[styles.input, styles.brokerInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
@@ -991,9 +1045,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     headerTitle: {
       color: T.text,
-      fontSize: 18,
-      fontWeight: '600',
-      letterSpacing: 0.3,
+      fontSize: 22,
+      fontWeight: '800',
+      letterSpacing: 0,
     },
 
     scrollContent: {
@@ -1145,6 +1199,29 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     inputLeadingIcon: {
       marginRight: 10,
+    },
+    brokerAvatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 10,
+      overflow: 'hidden',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC',
+    },
+    brokerAvatarFallback: {
+      backgroundColor: T.trading.buy.primary,
+    },
+    brokerAvatarImage: {
+      width: 24,
+      height: 24,
+    },
+    brokerAvatarInitials: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '900',
+      letterSpacing: 0,
     },
 
     /* Checkbox */

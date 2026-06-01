@@ -91,7 +91,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.doesNotMatch(source, /showChartTypeMenu\s*\?/);
   assert.doesNotMatch(source, /setShowChartTypeMenu/);
   assert.doesNotMatch(source, /styles\.chartTypeMenuCard/);
-  assert.match(source, /showActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
+  assert.match(source, /showChartActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
   assert.match(
     source,
     /const warmChartContextAndCommit = useCallback\([\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,

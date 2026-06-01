@@ -362,7 +362,7 @@ export function HistoryScreen() {
   );
   const historySummaryDetailsVisible = useUserPreferences((state) => state.historySummaryDetailsVisible);
   const setHistorySummaryDetailsVisible = useUserPreferences((state) => state.setHistorySummaryDetailsVisible);
-  const showActionSheet = useUIState((s) => s.showActionSheet);
+  const showHistoryActionSheet = useUIState((s) => s.showHistoryActionSheet);
 
   const T = useTheme();
   const { t } = useTranslation();
@@ -598,7 +598,7 @@ export function HistoryScreen() {
                   style={styles.iconButton}
                   onPress={() =>
                     runImmediateAction('history.sortSheet.open', () =>
-                      showActionSheet({
+                      showHistoryActionSheet({
                         title: t('Sort By'),
                         detent: 'adaptive',
                         instantOpen: true,

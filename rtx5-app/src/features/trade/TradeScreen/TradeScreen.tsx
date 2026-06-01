@@ -64,7 +64,7 @@ export function TradeScreen() {
   const s = useMemo(() => makeTradeScreenStyles(T, isDark), [T, isDark]);
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
-  const showActionSheet = useUIState((st) => st.showActionSheet);
+  const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
 
   // ── Position Hydration & Live Fetch ─────────────────────────────────────
   const { positions, refreshPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
@@ -127,8 +127,8 @@ export function TradeScreen() {
     router.push({ pathname: '/trade/bulk', params: { mode } });
   }, []);
 
-  const bulkActionSheetConfig = useMemo<Parameters<typeof showActionSheet>[0]>(() => {
-    const actions: Parameters<typeof showActionSheet>[0]['actions'] = [
+  const bulkActionSheetConfig = useMemo<Parameters<typeof showTradeActionSheet>[0]>(() => {
+    const actions: Parameters<typeof showTradeActionSheet>[0]['actions'] = [
       { label: t('Close All Positions'), danger: true, onPress: () => navigateToBulkMode('all') },
       { label: t('Close Profitable Positions'), danger: true, onPress: () => navigateToBulkMode('profitable') },
       { label: t('Close Losing Positions'), danger: true, onPress: () => navigateToBulkMode('losing') },
@@ -141,15 +141,15 @@ export function TradeScreen() {
       instantOpen: true,
       actions,
     };
-  }, [navigateToBulkMode, showActionSheet, t]);
+  }, [navigateToBulkMode, showTradeActionSheet, t]);
 
   const showBulkSheet = useCallback(() => {
-    runImmediateAction('trade.bulkSheet.open', () => showActionSheet(bulkActionSheetConfig));
-  }, [bulkActionSheetConfig, showActionSheet]);
+    runImmediateAction('trade.bulkSheet.open', () => showTradeActionSheet(bulkActionSheetConfig));
+  }, [bulkActionSheetConfig, showTradeActionSheet]);
 
   const showPositionSheet = useCallback((item: PositionItem) => {
     runImmediateAction('trade.positionSheet.open', () =>
-      showActionSheet({
+      showTradeActionSheet({
         title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
         detent: 'adaptive',
         instantOpen: true,
@@ -163,7 +163,7 @@ export function TradeScreen() {
         ],
       }),
     );
-  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showActionSheet, showBulkSheet, t]);
+  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, showBulkSheet, t]);
 
   const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (
     <TradePositionRow

@@ -23,7 +23,7 @@ type ActionSheetAction = {
 };
 
 /** Configuration object for triggering the global ActionSheet component */
-type ActionSheetConfig = {
+export type ActionSheetConfig = {
   /** Optional title to display at the top of the sheet */
   title?: string;
   /** List of buttons to render */
@@ -40,6 +40,74 @@ type ActionSheetConfig = {
   instantOpen?: boolean;
   /** If true, defers action execution until after sheet dismiss animation */
   runActionAfterClose?: boolean;
+};
+
+export type ActionSheetScope =
+  | 'quotes'
+  | 'chart'
+  | 'trade'
+  | 'history'
+  | 'settingsNews'
+  | 'settingsAccounts'
+  | 'settingsBrokerDetail';
+type ScopedActionSheetState = Record<ActionSheetScope, ActionSheetConfig | null>;
+
+const ACTION_SHEET_SCOPES: ActionSheetScope[] = [
+  'quotes',
+  'chart',
+  'trade',
+  'history',
+  'settingsNews',
+  'settingsAccounts',
+  'settingsBrokerDetail',
+];
+
+const createEmptyScopedActionSheets = (): ScopedActionSheetState => ({
+  quotes: null,
+  chart: null,
+  trade: null,
+  history: null,
+  settingsNews: null,
+  settingsAccounts: null,
+  settingsBrokerDetail: null,
+});
+
+const hasScopedActionSheet = (sheets: ScopedActionSheetState) =>
+  ACTION_SHEET_SCOPES.some((scope) => sheets[scope] !== null);
+
+const openScopedActionSheet = (
+  sheets: ScopedActionSheetState,
+  scope: ActionSheetScope,
+  config: ActionSheetConfig,
+): ScopedActionSheetState => ({
+  ...sheets,
+  [scope]: { ...config, instantOpen: true },
+});
+
+const hideScopedActionSheetState = (
+  sheets: ScopedActionSheetState,
+  scope: ActionSheetScope,
+): ScopedActionSheetState => (
+  sheets[scope] === null ? sheets : { ...sheets, [scope]: null }
+);
+
+const closeScopedActionSheet = (
+  state: {
+    actionSheetScope: ActionSheetScope | null;
+    scopedActionSheets: ScopedActionSheetState;
+  },
+  scope: ActionSheetScope,
+) => {
+  const nextSheets = hideScopedActionSheetState(state.scopedActionSheets, scope);
+  const nextScope = state.actionSheetScope === scope ? null : state.actionSheetScope;
+  if (nextSheets === state.scopedActionSheets && nextScope === state.actionSheetScope) {
+    return state;
+  }
+
+  return {
+    actionSheetScope: nextScope,
+    scopedActionSheets: nextSheets,
+  };
 };
 
 /**
@@ -75,12 +143,36 @@ type UIState = {
   actionSheet: ActionSheetConfig | null;
   /** Action sheet config to render invisibly in the background to pre-warm the layout engine */
   preloadedActionSheet: ActionSheetConfig | null;
+  /** Independent action sheet configs for feature-owned dropdowns. */
+  scopedActionSheets: ScopedActionSheetState;
+  /** Feature-owned preloaded configs for local dropdown warmup. */
+  preloadedScopedActionSheets: ScopedActionSheetState;
+  /** Scope currently rendered by the shared host. */
+  actionSheetScope: ActionSheetScope | null;
   /** Opens the global action sheet with the provided config */
   showActionSheet: (config: ActionSheetConfig) => void;
   /** Pre-loads a config into the hidden action sheet to trigger Native UI measurement */
   preloadActionSheet: (config: ActionSheetConfig) => void;
   /** Closes/hides the active action sheet */
   hideActionSheet: () => void;
+  showScopedActionSheet: (scope: ActionSheetScope, config: ActionSheetConfig) => void;
+  preloadScopedActionSheet: (scope: ActionSheetScope, config: ActionSheetConfig) => void;
+  hideScopedActionSheet: (scope: ActionSheetScope) => void;
+  showQuotesActionSheet: (config: ActionSheetConfig) => void;
+  preloadQuotesActionSheet: (config: ActionSheetConfig) => void;
+  hideQuotesActionSheet: () => void;
+  showChartActionSheet: (config: ActionSheetConfig) => void;
+  hideChartActionSheet: () => void;
+  showTradeActionSheet: (config: ActionSheetConfig) => void;
+  hideTradeActionSheet: () => void;
+  showHistoryActionSheet: (config: ActionSheetConfig) => void;
+  hideHistoryActionSheet: () => void;
+  showNewsActionSheet: (config: ActionSheetConfig) => void;
+  hideNewsActionSheet: () => void;
+  showAccountsActionSheet: (config: ActionSheetConfig) => void;
+  hideAccountsActionSheet: () => void;
+  showBrokerDetailActionSheet: (config: ActionSheetConfig) => void;
+  hideBrokerDetailActionSheet: () => void;
 };
 
 /**
@@ -109,7 +201,88 @@ export const useUIState = create<UIState>((set) => ({
 
   actionSheet: null,
   preloadedActionSheet: null,
+  scopedActionSheets: createEmptyScopedActionSheets(),
+  preloadedScopedActionSheets: createEmptyScopedActionSheets(),
+  actionSheetScope: null,
   showActionSheet: (config) => set({ actionSheet: { ...config, instantOpen: true } }),
   preloadActionSheet: (config) => set({ preloadedActionSheet: { ...config, instantOpen: true } }),
-  hideActionSheet: () => set((state) => (state.actionSheet === null ? state : { actionSheet: null })),
+  hideActionSheet: () => set((state) => {
+    if (
+      state.actionSheet === null &&
+      state.actionSheetScope === null &&
+      !hasScopedActionSheet(state.scopedActionSheets)
+    ) {
+      return state;
+    }
+
+    return {
+      actionSheet: null,
+      actionSheetScope: null,
+      scopedActionSheets: createEmptyScopedActionSheets(),
+    };
+  }),
+  showScopedActionSheet: (scope, config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: scope,
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, scope, config),
+  })),
+  preloadScopedActionSheet: (scope, config) => set((state) => ({
+    actionSheetScope: state.actionSheetScope ?? scope,
+    preloadedScopedActionSheets: openScopedActionSheet(
+      state.preloadedScopedActionSheets,
+      scope,
+      config,
+    ),
+  })),
+  hideScopedActionSheet: (scope) => set((state) => closeScopedActionSheet(state, scope)),
+  showQuotesActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'quotes',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'quotes', config),
+  })),
+  preloadQuotesActionSheet: (config) => set((state) => ({
+    actionSheetScope: state.actionSheetScope ?? 'quotes',
+    preloadedScopedActionSheets: openScopedActionSheet(
+      state.preloadedScopedActionSheets,
+      'quotes',
+      config,
+    ),
+  })),
+  hideQuotesActionSheet: () => set((state) => closeScopedActionSheet(state, 'quotes')),
+  showChartActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'chart',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'chart', config),
+  })),
+  hideChartActionSheet: () => set((state) => closeScopedActionSheet(state, 'chart')),
+  showTradeActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'trade',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'trade', config),
+  })),
+  hideTradeActionSheet: () => set((state) => closeScopedActionSheet(state, 'trade')),
+  showHistoryActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'history',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'history', config),
+  })),
+  hideHistoryActionSheet: () => set((state) => closeScopedActionSheet(state, 'history')),
+  showNewsActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'settingsNews',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'settingsNews', config),
+  })),
+  hideNewsActionSheet: () => set((state) => closeScopedActionSheet(state, 'settingsNews')),
+  showAccountsActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'settingsAccounts',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'settingsAccounts', config),
+  })),
+  hideAccountsActionSheet: () => set((state) => closeScopedActionSheet(state, 'settingsAccounts')),
+  showBrokerDetailActionSheet: (config) => set((state) => ({
+    actionSheet: null,
+    actionSheetScope: 'settingsBrokerDetail',
+    scopedActionSheets: openScopedActionSheet(state.scopedActionSheets, 'settingsBrokerDetail', config),
+  })),
+  hideBrokerDetailActionSheet: () => set((state) => closeScopedActionSheet(state, 'settingsBrokerDetail')),
 }));
