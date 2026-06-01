@@ -3,7 +3,7 @@ import { Stack, router } from 'expo-router';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSecureItemAsync, setSecureItemAsync, removeSecureItemAsync } from '../src/utils/secureStorage';
 import {
-  ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeSyntheticEvent,
   type TextInputEndEditingEventData,
 } from 'react-native';
@@ -33,7 +33,7 @@ import { bootstrapApp } from '../src/services/bootstrapApp';
 
 const LOGIN_SCREEN_COPY = {
   headerTitle: 'Login Account',
-  sectionTitle: 'Login to an existing account',
+  sectionTitle: 'Sign in to your trading account',
   savedLoginKey: 'rtx5_saved_login',
 };
 const LOGIN_TOUCH_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
@@ -721,122 +721,141 @@ export function AccountLoginScreen() {
 
             {/* ── Section Title ── */}
             <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>{t(screenCopy.sectionTitle)}</Text>
+              <Text
+                style={styles.sectionTitle}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.72}
+              >
+                {t(screenCopy.sectionTitle)}
+              </Text>
+              <Text style={styles.sectionSubtitle}>{t('Secure access to your broker workspace')}</Text>
             </View>
 
             {/* ── Form Body ── */}
             <View style={styles.formContainer}>
 
               {/* Broker ID Field */}
-              <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>{t('Broker ID')}</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
-                  value={brokerId}
-                  onChangeText={updateBrokerId}
-                  onEndEditing={updateBrokerIdFromEndEditing}
-                  autoCapitalize="none"
-                  selectionColor={T.accent}
-                  cursorColor={T.accent}
-                  underlineColorAndroid="transparent"
-                  importantForAutofill={"no" as any}
-                  autoComplete="off"
-                  textContentType="none"
-                  spellCheck={false}
-                  autoCorrect={false}
-                  disableFullscreenUI={true}
-                />
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.brokerPickerBtn,
-                    pressed && styles.brokerPickerBtnPressed,
-                  ]}
-                  onPress={handleBrokerPickerPress}
-                  activateOnPressIn
-                  activateOnTouchStart
-                  hitSlop={LOGIN_TOUCH_HIT_SLOP}
-                  latencyLabel="login.brokerPicker.open"
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Select broker')}
-                  accessibilityState={{
-                    expanded: brokerPickerOpen,
-                    busy: isBrokerServersLoading || isBrokerServersFetching,
-                  }}
-                  testID="login-broker-picker-button"
-                >
-                  {isBrokerServersLoading || isBrokerServersFetching ? (
-                    <ActivityIndicator size="small" color={T.accent} />
-                  ) : (
-                    <Ionicons name="chevron-down" size={20} color={T.accent} />
-                  )}
-                </Pressable>
+              <View style={styles.fieldBlock}>
+                <Text style={styles.inputLabel}>{t('Trading Server')}</Text>
+                <View style={[styles.inputRow, styles.brokerInputRow]}>
+                  <Ionicons name="server-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
+                  <View style={styles.fieldValueColumn}>
+                    <TextInput
+                      style={[styles.input, styles.brokerInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
+                      value={brokerId}
+                      onChangeText={updateBrokerId}
+                      onEndEditing={updateBrokerIdFromEndEditing}
+                      autoCapitalize="none"
+                      selectionColor={T.accent}
+                      cursorColor={T.accent}
+                      underlineColorAndroid="transparent"
+                      importantForAutofill={"no" as any}
+                      autoComplete="off"
+                      textContentType="none"
+                      spellCheck={false}
+                      autoCorrect={false}
+                      disableFullscreenUI={true}
+                    />
+                    {selectedBrokerOption ? (
+                      <Text style={styles.brokerInlineHint} numberOfLines={1}>
+                        {formatSelectedBrokerHint(selectedBrokerOption)}
+                      </Text>
+                    ) : isBrokerServersError ? (
+                      <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
+                        {t('Broker list unavailable. You can type the Broker ID manually.')}
+                      </Text>
+                    ) : null}
+                    {isBrokerHealthChecking ? (
+                      <Text style={styles.brokerInlineHint} numberOfLines={1}>
+                        {t('Checking broker server...')}
+                      </Text>
+                    ) : brokerHealthWarning ? (
+                      <Text style={[styles.brokerInlineHint, styles.brokerInlineHintError]} numberOfLines={2}>
+                        {brokerHealthWarning}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.brokerPickerBtn,
+                      pressed && styles.brokerPickerBtnPressed,
+                    ]}
+                    onPress={handleBrokerPickerPress}
+                    activateOnPressIn
+                    activateOnTouchStart
+                    hitSlop={LOGIN_TOUCH_HIT_SLOP}
+                    latencyLabel="login.brokerPicker.open"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Select broker')}
+                    accessibilityState={{
+                      expanded: brokerPickerOpen,
+                      busy: isBrokerServersLoading || isBrokerServersFetching,
+                    }}
+                    testID="login-broker-picker-button"
+                  >
+                    {isBrokerServersLoading || isBrokerServersFetching ? (
+                      <ActivityIndicator size="small" color={T.accent} />
+                    ) : (
+                      <Ionicons name="chevron-down" size={19} color={T.accent} />
+                    )}
+                  </Pressable>
+                </View>
               </View>
-              {selectedBrokerOption ? (
-                <Text style={styles.brokerSelectedHint} numberOfLines={1}>
-                  {formatSelectedBrokerHint(selectedBrokerOption)}
-                </Text>
-              ) : isBrokerServersError ? (
-                <Text style={[styles.brokerSelectedHint, styles.brokerSelectedHintError]} numberOfLines={2}>
-                  {t('Broker list unavailable. You can type the Broker ID manually.')}
-                </Text>
-              ) : null}
-              {isBrokerHealthChecking ? (
-                <Text style={styles.brokerSelectedHint} numberOfLines={1}>
-                  {t('Checking broker server...')}
-                </Text>
-              ) : brokerHealthWarning ? (
-                <Text style={[styles.brokerSelectedHint, styles.brokerSelectedHintError]} numberOfLines={2}>
-                  {brokerHealthWarning}
-                </Text>
-              ) : null}
               <View style={styles.fieldDivider} />
 
               {/* Login ID Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Login ID')}</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
-                  value={accountId}
-                  onChangeText={updateAccountId}
-                  onEndEditing={updateAccountIdFromEndEditing}
-                  autoCapitalize="none"
-                  keyboardType="numeric"
-                  selectionColor={T.accent}
-                  cursorColor={T.accent}
-                  underlineColorAndroid="transparent"
-                  importantForAutofill={"no" as any}
-                  autoComplete="off"
-                  textContentType="none"
-                  spellCheck={false}
-                  autoCorrect={false}
-                  disableFullscreenUI={true}
-                />
+                <View style={styles.inputRow}>
+                  <Ionicons name="person-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
+                  <TextInput
+                    style={[styles.input, styles.stackedInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
+                    value={accountId}
+                    onChangeText={updateAccountId}
+                    onEndEditing={updateAccountIdFromEndEditing}
+                    autoCapitalize="none"
+                    keyboardType="numeric"
+                    selectionColor={T.accent}
+                    cursorColor={T.accent}
+                    underlineColorAndroid="transparent"
+                    importantForAutofill={"no" as any}
+                    autoComplete="off"
+                    textContentType="none"
+                    spellCheck={false}
+                    autoCorrect={false}
+                    disableFullscreenUI={true}
+                  />
+                </View>
               </View>
               <View style={styles.fieldDivider} />
 
               {/* Password Field */}
-              <View style={styles.inputRow}>
+              <View style={styles.fieldBlock}>
                 <Text style={styles.inputLabel}>{t('Password')}</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
-                  value={password}
-                  onChangeText={updatePassword}
-                  onEndEditing={updatePasswordFromEndEditing}
-                  autoCapitalize="none"
-                  secureTextEntry={!showPassword}
-                  selectionColor={T.accent}
-                  cursorColor={T.accent}
-                  underlineColorAndroid="transparent"
-                  importantForAutofill={"no" as any}
-                  autoComplete="off"
-                  textContentType="none"
-                  spellCheck={false}
-                  autoCorrect={false}
-                  disableFullscreenUI={true}
-                />
-                <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={15} style={styles.eyeIconBtn}>
-                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textSub} />
-                </Pressable>
+                <View style={styles.inputRow}>
+                  <Ionicons name="lock-closed-outline" size={21} color={T.textSub} style={styles.inputLeadingIcon} />
+                  <TextInput
+                    style={[styles.input, styles.stackedInput, { backgroundColor: 'transparent', outlineStyle: 'none', outlineWidth: 0, borderWidth: 0 }] as any}
+                    value={password}
+                    onChangeText={updatePassword}
+                    onEndEditing={updatePasswordFromEndEditing}
+                    autoCapitalize="none"
+                    secureTextEntry={!showPassword}
+                    selectionColor={T.accent}
+                    cursorColor={T.accent}
+                    underlineColorAndroid="transparent"
+                    importantForAutofill={"no" as any}
+                    autoComplete="off"
+                    textContentType="none"
+                    spellCheck={false}
+                    autoCorrect={false}
+                    disableFullscreenUI={true}
+                  />
+                  <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={15} style={styles.eyeIconBtn}>
+                    <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color={T.textSub} />
+                  </Pressable>
+                </View>
               </View>
               <View style={styles.fieldDivider} />
 
@@ -849,10 +868,10 @@ export function AccountLoginScreen() {
               >
                 <Ionicons
                   name={savePassword ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={savePassword ? T.accent : T.textSub}
+                  size={24}
+                  color={savePassword ? T.trading.buy.primary : T.textSub}
                 />
-                <Text style={styles.checkboxText}>{t('Save password')}</Text>
+                <Text style={styles.checkboxText}>{t('Remember me')}</Text>
               </Pressable>
 
               <Pressable
@@ -878,23 +897,25 @@ export function AccountLoginScreen() {
                 )}
               </Pressable>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.registerAccountBtn,
-                  pressed && styles.registerAccountBtnPressed,
-                ]}
-                onPress={handleRegisterAccountPress}
-                hitSlop={LOGIN_BUTTON_HIT_SLOP}
-                pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
-                latencyLabel="login.register.open"
-                unstable_pressDelay={0}
-                accessibilityRole="button"
-                accessibilityLabel={t('Register account')}
-                testID="login-register-account-button"
-              >
-                <Ionicons name="person-add-outline" size={18} color="#ffffff" />
-                <Text style={styles.registerAccountText}>{t('Register account')}</Text>
-              </Pressable>
+              <View style={styles.registerPromptRow}>
+                <Text style={styles.registerPromptText}>{t("Don't have an account?")}</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.registerAccountBtn,
+                    pressed && styles.registerAccountBtnPressed,
+                  ]}
+                  onPress={handleRegisterAccountPress}
+                  hitSlop={LOGIN_BUTTON_HIT_SLOP}
+                  pressRetentionOffset={LOGIN_BUTTON_PRESS_RETENTION_OFFSET}
+                  latencyLabel="login.register.open"
+                  unstable_pressDelay={0}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Register account')}
+                  testID="login-register-account-button"
+                >
+                  <Text style={styles.registerAccountText}>{t('Register an account')}</Text>
+                </Pressable>
+              </View>
             </View>
 
           </ScrollView>
@@ -936,18 +957,21 @@ export default function LoginScreen() {
 }
 
 function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
+  const pageBg = isDark ? T.bg : '#F2F4F8';
+  const fieldBg = isDark ? T.glass1 : '#FFFFFF';
+  const fieldBorder = isDark ? T.border : '#DFE7F1';
+  const shadowColor = isDark ? '#000000' : T.textDark;
+  const secondaryText = isDark ? '#93C5FD' : T.trading.buy.primary;
+
   return StyleSheet.create({
     bg: {
       flex: 1,
-      backgroundColor: T.bg, // Dynamic theme background
-      // Respect the device's actual safe-area inset (status bar / notch)
-      // instead of a hardcoded 56/24, which clipped the back button on
-      // tall-status-bar Android devices and floated the header awkwardly
-      // on iPhones without notches.
+      backgroundColor: T.bg,
       paddingTop: safeTop + 8,
     },
     container: {
       flex: 1,
+      backgroundColor: pageBg,
     },
     /* Header */
     headerRow: {
@@ -963,7 +987,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 8,
-      backgroundColor: T.glass1, // Subtle glass touch target
+      backgroundColor: T.glass1,
     },
     headerTitle: {
       color: T.text,
@@ -973,49 +997,85 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
 
     scrollContent: {
-      paddingBottom: 40,
+      paddingTop: 20,
+      paddingBottom: 36,
     },
 
-    /* Section Title Bar (Minimalist) */
+    /* Section Title */
     sectionTitleContainer: {
-      paddingVertical: 8,
-      marginTop: 4,
-      marginBottom: 4,
+      width: '100%',
+      maxWidth: 760,
+      alignSelf: 'center',
+      paddingHorizontal: 34,
+      paddingTop: 0,
+      paddingBottom: 30,
     },
     sectionTitle: {
+      color: T.text,
+      fontSize: 25,
+      lineHeight: 31,
+      fontWeight: '900',
+      textAlign: 'left',
+      letterSpacing: 0,
+    },
+    sectionSubtitle: {
       color: T.textSub,
       fontSize: 15,
-      fontWeight: '700',
-      textAlign: 'center',
-      letterSpacing: 0.2,
+      lineHeight: 21,
+      fontWeight: '500',
+      marginTop: 12,
     },
 
 
     formContainer: {
-      paddingHorizontal: 20,
-      marginTop: 8,
+      width: '100%',
+      maxWidth: 760,
+      alignSelf: 'center',
+      paddingHorizontal: 34,
+      marginTop: 0,
     },
 
-    /* Input Rows (Ultra-Minimalist) */
+    /* Input Rows */
+    fieldBlock: {
+      marginBottom: 14,
+    },
     inputRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      minHeight: 56,
-      paddingVertical: 12,
-      backgroundColor: 'transparent',
+      minHeight: 58,
+      paddingVertical: 0,
+      paddingLeft: 14,
+      paddingRight: 12,
+      marginBottom: 0,
+      borderWidth: 1,
+      borderColor: fieldBorder,
+      borderRadius: 8,
+      backgroundColor: fieldBg,
+      shadowColor,
+      shadowOpacity: isDark ? 0 : 0.035,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: isDark ? 0 : 1,
+    },
+    brokerInputRow: {
+      minHeight: 74,
+      paddingVertical: 8,
+      alignItems: 'center',
     },
     inputLabel: {
       color: T.text,
-      fontSize: 15,
-      fontWeight: '500',
-      width: 125,
+      fontSize: 14,
+      lineHeight: 18,
+      fontWeight: '700',
+      marginBottom: 8,
       backgroundColor: 'transparent',
     },
     input: {
       flex: 1,
       color: T.text,
       fontSize: 16,
-      fontWeight: '600',
+      lineHeight: 22,
+      fontWeight: '700',
       padding: 0,
       paddingHorizontal: 0,
       margin: 0,
@@ -1027,6 +1087,21 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       shadowOpacity: 0,
       elevation: 0,
     },
+    fieldValueColumn: {
+      flex: 1,
+      minWidth: 0,
+      justifyContent: 'center',
+    },
+    stackedInput: {
+      height: 40,
+      minHeight: 40,
+      marginTop: 0,
+    },
+    brokerInput: {
+      height: 25,
+      minHeight: 25,
+      marginTop: 0,
+    },
     brokerPickerBtn: {
       width: 36,
       height: 36,
@@ -1034,66 +1109,72 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       alignItems: 'center',
       justifyContent: 'center',
       marginLeft: 8,
-      borderWidth: 1,
-      borderColor: isDark ? T.border : T.borderMedium,
-      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.10)' : 'rgba(59, 130, 246, 0.07)',
+      borderWidth: 0,
+      backgroundColor: 'transparent',
     },
     brokerPickerBtnPressed: {
       opacity: 0.78,
     },
-    brokerSelectedHint: {
+    brokerInlineHint: {
       color: T.textSub,
       fontSize: 12,
       fontWeight: '500',
       lineHeight: 16,
-      marginLeft: 125,
-      marginTop: -6,
-      marginBottom: 8,
+      marginTop: 1,
     },
-    brokerSelectedHintError: {
+    brokerInlineHintError: {
       color: T.trading.sell.primary,
     },
 
     /* Divider between fields */
     fieldDivider: {
-      height: 1,
-      backgroundColor: isDark ? T.border : T.borderMedium,
+      height: 0,
+      backgroundColor: 'transparent',
       marginLeft: 0,
     },
 
     /* Eye Icon */
     eyeIconBtn: {
-      padding: 8,
-      marginRight: -8,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
       backgroundColor: 'transparent',
+    },
+    inputLeadingIcon: {
+      marginRight: 10,
     },
 
     /* Checkbox */
     checkboxRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginTop: 20,
-      marginBottom: 24,
+      alignSelf: 'flex-start',
+      marginTop: 2,
+      marginBottom: 14,
+      paddingVertical: 2,
     },
     checkboxText: {
-      color: T.text,
+      color: T.textSub,
       fontSize: 14,
       fontWeight: '500',
-      marginLeft: 10,
+      marginLeft: 12,
     },
 
     /* Solid Login Button */
     loginBtn: {
-      backgroundColor: '#2563EB',
-      minHeight: 56,
-      borderRadius: 16,
+      backgroundColor: T.trading.buy.primary,
+      minHeight: 54,
+      borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 20,
-      shadowColor: '#2563EB',
+      marginTop: 0,
+      shadowColor: T.trading.buy.primary,
       shadowOpacity: 0.3,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
       elevation: 6,
     },
     loginBtnPressed: {
@@ -1102,29 +1183,38 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     loginBtnText: {
       color: '#ffffff',
       fontSize: 16,
-      fontWeight: '700',
-      letterSpacing: 0.5,
+      fontWeight: '800',
+      letterSpacing: 0,
     },
 
+    registerPromptRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 16,
+    },
+    registerPromptText: {
+      color: T.textSub,
+      fontSize: 13,
+      lineHeight: 20,
+      fontWeight: '500',
+    },
     registerAccountBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
-      minHeight: 50,
-      marginTop: 16,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: '#2563EB',
-      backgroundColor: '#2563EB',
+      minHeight: 32,
+      paddingHorizontal: 6,
+      marginLeft: 4,
+      backgroundColor: 'transparent',
     },
     registerAccountBtnPressed: {
       opacity: 0.82,
     },
     registerAccountText: {
-      color: '#ffffff',
-      fontSize: 15,
-      fontWeight: '600',
+      color: secondaryText,
+      fontSize: 13,
+      fontWeight: '700',
     },
 
     /* Success / Error Modal */
