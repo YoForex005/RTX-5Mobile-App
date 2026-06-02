@@ -134,7 +134,6 @@ import { makeStyles } from "./ChartScreen.styles";
 import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart";
 import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
-import { DraggableChartMetaOverlay } from "./components/DraggableChartMetaOverlay";
 import { TvLayers } from "./components/ChartToolbarIcons";
 import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
@@ -4369,40 +4368,24 @@ export function ChartScreen() {
                         <View style={styles.symbolMetaRow}>
                           <Text style={[styles.symbolSubText, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{symbolName}</Text>
                         </View>
-                        {overlayCandles.length > 0 && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', marginTop: 6 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>O:</Text>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open)}</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>H:</Text>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).high)}</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>L:</Text>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).low)}</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, fontWeight: '700', textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2, marginRight: 2 }]}>C:</Text>
-                              <Text style={[styles.symbolSubText, { fontSize: 10, color: (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close >= (chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).open ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>{formatChartValue((chartMetaLastCandle || overlayCandles[overlayCandles.length - 1]).close)}</Text>
-                            </View>
+                        {showChartMetaRow && (
+                          <View style={styles.symbolOhlcRow}>
+                            {chartMetaItems.map((item) => (
+                              <View key={item.label} style={styles.symbolOhlcPair}>
+                                <Text style={[styles.symbolOhlcLabel, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+                                  {item.label}:
+                                </Text>
+                                <Text style={[styles.symbolOhlcValue, { color: chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+                                  {item.value}
+                                </Text>
+                              </View>
+                            ))}
                           </View>
                         )}
                       </View>
                     </Pressable>
                   </View>
                 </View>
-                <DraggableChartMetaOverlay
-                  visible={showChartMetaRow}
-                  bounds={chartTapMenuBounds}
-                  viewport={chartTapMenuViewport}
-                  items={chartMetaItems}
-                  isUp={chartMetaIsUp}
-                  upColor={resolvedChartColors.candlesUptrend}
-                  downColor={resolvedChartColors.candlesDowntrend}
-                  styles={styles}
-                />
                 {chartTapMenuAnchor ? (
                   <ChartTapRadialMenu
                     anchor={chartTapMenuAnchor}

@@ -63,6 +63,27 @@ test('native compact symbol header opens immediately from the full header tap ta
   assert.match(styles, /paddingLeft: COMPACT_SYMBOL_DROPDOWN_LEFT_INSET/);
 });
 
+test('native OHLC row renders below the full symbol name', () => {
+  const source = readSource('src/features/chart/ChartScreen.native.tsx');
+  const styles = readSource('src/features/chart/ChartScreen.styles.ts');
+  const symbolNameRowIndex = source.indexOf('<View style={styles.symbolMetaRow}>');
+  const ohlcRowIndex = source.indexOf('{showChartMetaRow && (', symbolNameRowIndex);
+  const symbolPressableEndIndex = source.indexOf('</Pressable>', symbolNameRowIndex);
+
+  assert.notEqual(symbolNameRowIndex, -1);
+  assert.notEqual(ohlcRowIndex, -1);
+  assert.ok(symbolNameRowIndex < ohlcRowIndex, 'OHLC row must render after the full symbol name row');
+  assert.ok(ohlcRowIndex < symbolPressableEndIndex, 'OHLC row must stay inside the symbol header tap target');
+  assert.doesNotMatch(source, /<DraggableChartMetaOverlay/);
+  assert.match(source, /chartMetaItems\.map\(\(item\) => \(/);
+  assert.match(styles, /symbolOhlcRow:/);
+  assert.match(styles, /symbolOhlcPair:/);
+  assert.match(styles, /symbolOhlcLabel:/);
+  assert.match(styles, /symbolOhlcValue:/);
+  assert.match(styles, /symbolSectionContent:\s*\{[\s\S]*backgroundColor: CHART_CANVAS_BG/);
+  assert.match(styles, /symbolOhlcRow:\s*\{[\s\S]*marginTop: 1/);
+});
+
 test('native chart toolbar keeps fast action openers on reliable press surfaces', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');

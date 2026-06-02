@@ -119,6 +119,12 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     symbolSectionContent: {
       minWidth: 0,
       flexShrink: 1,
+      alignSelf: 'flex-start',
+      backgroundColor: CHART_CANVAS_BG,
+      marginLeft: -4,
+      paddingLeft: 4,
+      paddingRight: 6,
+      paddingBottom: 2,
     },
     flagCircle: {
       width: 30,
@@ -172,6 +178,32 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '500',
       flexShrink: 1,
       minWidth: 0,
+    },
+    symbolOhlcRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      columnGap: 8,
+      rowGap: 2,
+      marginTop: 1,
+      minWidth: 0,
+    },
+    symbolOhlcPair: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    symbolOhlcLabel: {
+      color: isDark ? '#64748B' : '#64748B',
+      fontSize: 10,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    symbolOhlcValue: {
+      fontSize: 10,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+      marginLeft: 2,
     },
     compactHeaderActionsViewport: {
       flex: 1,
