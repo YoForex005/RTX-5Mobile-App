@@ -34,8 +34,8 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   );
   assert.match(
     constantsSource,
-    /export const CHART_GRID_HORIZONTAL_LINE_COUNT = 7;/,
-    'native WebView grid must keep MT5-style horizontal density',
+    /export const CHART_GRID_HORIZONTAL_LINE_COUNT = 13;/,
+    'native WebView grid must add midpoint horizontal guides between the original rows',
   );
   assert.match(
     constantsSource,
@@ -44,8 +44,8 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   );
   assert.match(
     constantsSource,
-    /export const CHART_GRID_HORIZONTAL_SPACING = 150;/,
-    'native WebView grid must keep the measured MT5 horizontal spacing',
+    /export const CHART_GRID_HORIZONTAL_SPACING = 75;/,
+    'native WebView grid must keep the midpoint horizontal guide cadence',
   );
   assert.match(
     constantsSource,
@@ -84,8 +84,8 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   );
   assert.match(
     nativeChartSource,
-    /grid:\s*chartDisplay\.showGrid\s*\?\s*resolvedChartColors\.grid\s*:\s*'transparent'/,
-    'native chart must pass grid visibility into the WebView moving time-grid layer',
+    /grid:\s*chartDisplay\.showGrid\s*\?\s*chartGridColor\s*:\s*'transparent'/,
+    'native chart must pass MT5-matched grid visibility into the WebView moving time-grid layer',
   );
   assert.match(
     nativeChartSource,
@@ -188,7 +188,7 @@ test('WebView chart grid combines fixed horizontal guides with moving vertical g
   assert.match(
     chartWebViewHtmlSource,
     /var firstInteriorLine = MOVING_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET;[\s\S]*var y = firstInteriorLine \+ index \* spacing/,
-    'horizontal grid must keep the measured 118px first offset and 150px cadence',
+    'horizontal grid must keep the measured 118px first offset and midpoint cadence',
   );
 });
 

@@ -233,6 +233,7 @@ const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesS
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 650;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
+const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
 
 export function ChartScreen() {
   const T = useTheme();
@@ -334,6 +335,10 @@ export function ChartScreen() {
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
+  );
+  const chartGridColor = useMemo(
+    () => (isDark ? resolvedChartColors.grid : MT5_LIGHT_GRID_COLOR),
+    [isDark, resolvedChartColors.grid],
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const chartDrawingBucketKey = useMemo(() => getChartDrawingBucketKey(chartSymbol), [chartSymbol]);
@@ -2914,7 +2919,7 @@ export function ChartScreen() {
       horzLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
     },
     timeScale: {
-      borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+      borderColor: chartDisplay.showGrid ? chartGridColor : 'transparent',
       timeVisible: true,
       secondsVisible: false,
       rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET,
@@ -2936,7 +2941,7 @@ export function ChartScreen() {
       axisPressedMouseMove: true,
     },
     rightPriceScale: {
-      borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+      borderColor: chartDisplay.showGrid ? chartGridColor : 'transparent',
       autoScale: true,
       entireTextOnly: false,
       scaleMargins: {
@@ -2951,9 +2956,9 @@ export function ChartScreen() {
       barsUptrend: resolvedChartColors.barsUptrend,
       barsDowntrend: resolvedChartColors.barsDowntrend,
       lineBody: resolvedChartColors.lineBody,
-      grid: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
+      grid: chartDisplay.showGrid ? chartGridColor : 'transparent',
     }
-  }), [chartDisplay.showGrid, chartType, resolvedChartColors, showChartVolumePane]);
+  }), [chartDisplay.showGrid, chartGridColor, chartType, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms

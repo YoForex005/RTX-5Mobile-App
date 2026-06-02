@@ -52,9 +52,9 @@ export const CHART_TIME_SCALE_FIX_RIGHT_EDGE = false;
 // The custom native WebView grid is drawn as faint MT5-mobile guides behind
 // candles, matching the measured 720x1640 reference recording.
 export const CHART_GRID_LINE_STYLE = 4;
-export const CHART_GRID_HORIZONTAL_LINE_COUNT = 7;
+export const CHART_GRID_HORIZONTAL_LINE_COUNT = 13;
 export const CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET = 118;
-export const CHART_GRID_HORIZONTAL_SPACING = 150;
+export const CHART_GRID_HORIZONTAL_SPACING = 75;
 // WebView vertical guides keep this measured visual spacing while anchoring
 // their phase to LightweightCharts logical coordinates, so they pan with candles.
 export const CHART_GRID_VERTICAL_SPACING = 56;
