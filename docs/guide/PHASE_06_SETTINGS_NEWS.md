@@ -51,10 +51,12 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [x] Typecheck: Accounts screen other-account cards expand into the same balance/metric detail layout as the current account.
 - [x] Typecheck: selected-broker login surface keeps the existing login/navigation press path after the professional UI refresh.
 - [x] Typecheck: Brokers directory keeps the same broker selection/navigation flow after the professional card-list refresh.
+- [x] Typecheck: Settings hub metric, section, and logout cards share the account-card dark surface color.
 - [ ] Integration: navigation from settings to all sub-screens.
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
+- 2026-06-02: Unified the Settings hub dark card surface below the account card. The Quotes, Drawings, One-Click metric cards, Trading & Account single-row card, grouped settings sections, Support & Help, and Logout card now share the same dark navy surface token instead of mixing lighter slate card backgrounds.
 - 2026-05-29: Reworked the Register a demo account screen to match the supplied dark trading-account reference while retaining the original demo-registration fields: native chart-style historical candles clipped to the hero/heading area with thin faint volume bars using the current Chart screen candle colors, icon-only above-heading back button, stacked glass inputs for first/last name, email, phone, country, master/investor passwords, currency, leverage, initial balance, origin broker, group selection, terms acceptance, and a `Register a demo account` CTA without the trailing arrow while preserving the Orrnn public demo registration contract and frontend-only flow.
 - 2026-05-29: Refined the Brokers directory into a professional search-and-selection surface with a search-only top bar, broker cards focused on company identity and broker ID, logo/initial fallbacks, and a calmer custom-broker footer while preserving the existing API-driven selection and broker-detail navigation flow. Backend server URLs and protocols stay hidden from the visible card UI.
 - 2026-05-29: Refined the selected-broker login screen into a professional account access surface with a compact broker summary header, demo/live command rows, grouped credential fields, server picker, secure status, save-password control, and a stronger login CTA while preserving the existing frontend-only login, registration, and server-selection flows.

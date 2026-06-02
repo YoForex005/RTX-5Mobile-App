@@ -35,12 +35,13 @@ export const OrderTickExecutionGraph = React.memo(function OrderTickExecutionGra
   askColor = '#E53935',
   priceDecimals = 5,
   isDark = false,
+  backgroundColor,
 }: OrderTickExecutionGraphProps) {
   const [layoutWidth, setLayoutWidth] = useState(0);
   // Keep the embedded execution graph visually attached to the parent order
   // sheet. Without these theme-aware drawing colors, dark mode still showed a
   // light graph card at the bottom of the SL/TP flow.
-  const surfaceColor = isDark ? '#080B11' : '#FFFFFF';
+  const surfaceColor = backgroundColor ?? (isDark ? '#080B11' : '#FFFFFF');
   const gridColor = isDark ? 'rgba(148,163,184,0.2)' : '#D3D8E0';
   const labelColor = isDark ? '#94A3B8' : '#7B8794';
 
@@ -245,6 +246,7 @@ export function LiveOrderTickExecutionGraph(props: LiveOrderTickExecutionGraphPr
       askColor={props.askColor}
       priceDecimals={props.priceDecimals}
       isDark={props.isDark}
+      backgroundColor={props.backgroundColor}
     />
   );
 }

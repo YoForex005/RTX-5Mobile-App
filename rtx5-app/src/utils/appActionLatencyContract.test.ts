@@ -516,11 +516,18 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
   assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
   assert.match(settingsStyles, /const resolveSettingsBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_BACKGROUND : T\.bg/);
+  assert.match(settingsStyles, /const resolveSettingsCardBackground = \(T: ThemeColors, themeMode: 'light' \| 'dark'\) =>\s*themeMode === 'dark' \? SETTINGS_DARK_CARD_BACKGROUND : T\.glass2/);
   assert.match(settingsStyles, /const settingsBackground = resolveSettingsBackground\(T, themeMode\)/);
+  assert.match(settingsStyles, /const settingsCardBackground = resolveSettingsCardBackground\(T, themeMode\)/);
   assert.match(settingsStyles, /screen: \{ flex: 1, backgroundColor: settingsBackground \}/);
   assert.match(settingsStyles, /container: \{ flex: 1, backgroundColor: settingsBackground \}/);
   assert.match(settingsStyles, /headerWrap: \{[\s\S]*backgroundColor: settingsBackground/);
+  assert.match(settingsStyles, /metricBlock: \{[\s\S]*backgroundColor: settingsCardBackground/);
+  assert.match(settingsStyles, /singleRowCard: \{[\s\S]*backgroundColor: settingsCardBackground/);
+  assert.match(settingsStyles, /singleRowCardLogout: \{[\s\S]*backgroundColor: settingsCardBackground/);
+  assert.match(settingsStyles, /groupCard: \{ backgroundColor: settingsCardBackground/);
   assert.match(orderTicketSource, /function makeStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(orderTicketSource, /root: \{ flex: 1, backgroundColor: BG \}/);
   assert.match(sidebarSource, /const themeMode = useThemeMode\(\)/);

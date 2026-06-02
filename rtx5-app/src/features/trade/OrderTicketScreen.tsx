@@ -46,7 +46,7 @@ import {
   resolveDefaultStopLimitPrice,
   type ChartOrderType,
 } from '../chart/chartTradeOrderUtils';
-import { resolveChartSymbolFullName } from '../chart/chartSymbolMetadata';
+import { DEFAULT_CHART_SYMBOLS, resolveChartSymbolFullName } from '../chart/chartSymbolMetadata';
 import { LiveOrderTickExecutionGraph } from './OrderTickExecutionGraph';
 import {
   resolveOrderTicketDefaultPendingPrice,
@@ -76,7 +76,9 @@ export function OrderTicketScreen() {
   // Route params let chart and quote screens open the ticket with a specific
   // symbol, initial trade side, or order comment.
   const { symbol: routeSymbol, comment: routeComment, side: routeSideParam } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string }>();
-  const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const routeInitialSymbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const [symbol, setSymbol] = useState(routeInitialSymbol);
+  const routeSymbolRef = useRef(routeInitialSymbol);
   const routeSide = normalizeTradeSide(routeSideParam);
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -93,6 +95,15 @@ export function OrderTicketScreen() {
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
   const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(isScreenFocused || symbolPickerOpen);
+
+  useEffect(() => {
+    if (routeSymbolRef.current === routeInitialSymbol) {
+      return;
+    }
+
+    routeSymbolRef.current = routeInitialSymbol;
+    setSymbol(routeInitialSymbol);
+  }, [routeInitialSymbol]);
 
   const SELL_C = T.trading.sell.primary;
   const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
@@ -140,6 +151,7 @@ export function OrderTicketScreen() {
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b))
       .forEach(addSymbol);
+    DEFAULT_CHART_SYMBOLS.forEach(addSymbol);
 
     return options;
   }, [marketSymbols, symbol]);
@@ -151,19 +163,15 @@ export function OrderTicketScreen() {
   }, []);
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
-    if (nextSymbol === symbol) {
+    const normalizedNextSymbol = normalizeSymbol(nextSymbol);
+    setSymbolPickerOpen(false);
+
+    if (!normalizedNextSymbol || normalizedNextSymbol === symbol) {
       return;
     }
 
-    router.replace({
-      pathname: '/trade/order-ticket',
-      params: {
-        symbol: nextSymbol,
-        ...(routeComment ? { comment: routeComment } : {}),
-        ...(routeSideParam ? { side: routeSideParam } : {}),
-      },
-    });
-  }, [routeComment, routeSideParam, router, symbol]);
+    setSymbol(normalizedNextSymbol);
+  }, [symbol]);
 
   const symbolPickerActions = useMemo(() => {
     if (!availableSymbols.length) {
@@ -330,6 +338,22 @@ export function OrderTicketScreen() {
   const lastConfiguredPendingOrderTypeRef = useRef<ChartOrderType | null>(null);
   const isPendingOrderType = isPendingChartOrderType(orderType);
   const isStopLimitOrderType = isStopLimitChartOrderType(orderType);
+
+  const previousSymbolRef = useRef(symbol);
+  useEffect(() => {
+    if (previousSymbolRef.current === symbol) {
+      return;
+    }
+
+    previousSymbolRef.current = symbol;
+    setSlEnabled(false);
+    setSlPrice(0);
+    setTpEnabled(false);
+    setTpPrice(0);
+    setPendingEntryPrice(0);
+    setPendingStopLimitPrice(0);
+    lastConfiguredPendingOrderTypeRef.current = null;
+  }, [symbol]);
 
   // When the user switches into a pending order type, seed the trigger and
   // stop-limit prices once. User edits are preserved until the type changes.
@@ -1064,6 +1088,7 @@ export function OrderTicketScreen() {
             askColor="#EF4444"
             height={300}
             isDark={isDark}
+            backgroundColor={T.bg}
           />
         </View>
 
@@ -1363,11 +1388,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
     executionGraphWrap: {
       marginTop: 12,
-      borderRadius: 12,
-      overflow: 'hidden',
-      backgroundColor: isDark ? '#080B11' : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: T.border,
+      backgroundColor: BG,
+      borderWidth: 0,
+      borderColor: 'transparent',
     },
     pendingSubmitPlaceholder: {
       flexDirection: 'row',

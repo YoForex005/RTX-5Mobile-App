@@ -232,6 +232,8 @@ const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesS
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 650;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
+const CHART_WATCHDOG_INTERVAL_MS = 3000;
+const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
 
 export function ChartScreen() {
@@ -3101,10 +3103,10 @@ export function ChartScreen() {
   //   Professional-grade: the chart ALWAYS renders. Period.
   //
   //   • sendInit() is the single function that pushes chart data to
-  //     the WebView. It can be called any number of times safely.
+  //     the WebView. It is idempotent, with throttled in-flight retries.
   //   • A watchdog timer re-sends initChart if CHART_READY hasn't
-  //     arrived within 2 seconds. Repeats every 3s until success.
-  //   • On data arrival: always sends initChart (WebView is idempotent).
+  //     arrived. It checks every 3s and avoids flooding slow WebViews.
+  //   • On data arrival: requests initChart with the latest retained candles.
   //   • On WebView reload: READY resets state, next data push re-inits.
   // ─────────────────────────────────────────────────────────────────
   const candlesRef = useRef(sanitizedCandles);
@@ -3112,6 +3114,7 @@ export function ChartScreen() {
   const watchdogRef = useRef<NodeJS.Timeout | null>(null);
   const lastInitSigRef = useRef('');
   const lastInitAttemptSigRef = useRef('');
+  const lastInitDispatchRef = useRef({ signature: '', configSig: '', at: 0 });
   const pendingInitSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const renderedSeriesSnapshotRef = useRef(EMPTY_CHART_SERIES_SNAPSHOT);
   const lastInjectedLiveQuoteSignatureRef = useRef('');
@@ -3218,6 +3221,7 @@ export function ChartScreen() {
     chartInitializedRef.current = false;
     lastInitSigRef.current = '';
     lastInitAttemptSigRef.current = '';
+    lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
     pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
     lastInjectedLiveQuoteSignatureRef.current = '';
@@ -3323,6 +3327,7 @@ export function ChartScreen() {
     if (lastInitSigRef.current !== currentSig) {
       chartInitializedRef.current = false;
       lastInitAttemptSigRef.current = '';
+      lastInitDispatchRef.current = { signature: '', configSig: '', at: 0 };
       pendingInitSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
       lastInjectedLiveQuoteSignatureRef.current = '';
@@ -3345,6 +3350,12 @@ export function ChartScreen() {
     const data = candlesRef.current;
     const initSnapshot = buildChartSeriesSnapshot(data);
     const initAttemptSig = `${currentSig}:${getChartSnapshotSignature(initSnapshot)}`;
+    const now = Date.now();
+    const recentInitInFlight =
+      !chartInitializedRef.current &&
+      lastInitDispatchRef.current.configSig === currentSig &&
+      now - lastInitDispatchRef.current.at < CHART_INIT_RETRY_MIN_MS;
+    if (recentInitInFlight) return;
     if (!force && initAttemptSig === lastInitAttemptSigRef.current) return;
 
     const mapped = data.length > 0 ? buildMappedData(data) : [];
@@ -3356,11 +3367,12 @@ export function ChartScreen() {
     try {
       webViewRef.current.injectJavaScript(js);
       lastInitAttemptSigRef.current = initAttemptSig;
+      lastInitDispatchRef.current = { signature: initAttemptSig, configSig: currentSig, at: now };
       pendingInitSnapshotRef.current = initSnapshot;
     } catch (_e) { /* WebView may have been disposed */ }
   }, [webViewReady, currentSig, chartOptions, chartType, displayDecimals, buildMappedData, showChartVolumePane]);
 
-  // Effect 1 — send initChart whenever data or config changes.
+  // Effect 1 — request initChart whenever data or config changes.
   useEffect(() => {
     sendInit();
   }, [sanitizedCandles, sendInit]);
@@ -3499,7 +3511,7 @@ export function ChartScreen() {
         }
         sendInit(true);
       }
-    }, 1000);
+    }, CHART_WATCHDOG_INTERVAL_MS);
 
     return () => {
       if (watchdogRef.current) clearInterval(watchdogRef.current);

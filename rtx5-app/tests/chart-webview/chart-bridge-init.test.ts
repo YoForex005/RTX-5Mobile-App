@@ -49,6 +49,34 @@ test('watchdog retries init while valid candles exist but CHART_READY has not ar
     /watchdogRef\.current = setInterval\(\(\) => \{[\s\S]*!chartInitializedRef\.current[\s\S]*webViewReady[\s\S]*sendInit\(true\)/,
     'watchdog must resend initChart until the chart is confirmed',
   );
+  assertSourceContains(
+    source,
+    /\}, CHART_WATCHDOG_INTERVAL_MS\);/,
+    'watchdog retry cadence must come from the shared startup interval constant',
+  );
+});
+
+test('pending init retries are throttled before remapping full history', () => {
+  assertSourceContains(
+    source,
+    /const CHART_WATCHDOG_INTERVAL_MS = 3000;[\s\S]*const CHART_INIT_RETRY_MIN_MS = 5000;/,
+    'chart startup retry cadence must stay long enough for slower iOS WebViews to finish first init',
+  );
+  assertSourceContains(
+    source,
+    /const lastInitDispatchRef = useRef\(\{ signature: '', configSig: '', at: 0 \}\)/,
+    'native chart must remember the last init dispatch while CHART_READY is pending',
+  );
+  assertSourceContains(
+    source,
+    /const recentInitInFlight =[\s\S]*!chartInitializedRef\.current &&[\s\S]*lastInitDispatchRef\.current\.configSig === currentSig &&[\s\S]*now - lastInitDispatchRef\.current\.at < CHART_INIT_RETRY_MIN_MS;[\s\S]*if \(recentInitInFlight\) return;[\s\S]*if \(!force && initAttemptSig === lastInitAttemptSigRef\.current\) return;[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\];/,
+    'pending init throttling must happen before expensive full-history mapping and injection',
+  );
+  assertSourceContains(
+    source,
+    /lastInitDispatchRef\.current = \{ signature: initAttemptSig, configSig: currentSig, at: now \}/,
+    'successful init injection must update the pending dispatch throttle',
+  );
 });
 
 test('WebView process loss resets bridge and reloads on both iOS and Android paths', () => {

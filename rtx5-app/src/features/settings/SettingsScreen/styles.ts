@@ -2,12 +2,17 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
 
 const resolveSettingsBackground = (T: ThemeColors, themeMode: 'light' | 'dark') =>
   themeMode === 'dark' ? SETTINGS_DARK_BACKGROUND : T.bg;
 
+const resolveSettingsCardBackground = (T: ThemeColors, themeMode: 'light' | 'dark') =>
+  themeMode === 'dark' ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2;
+
 export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') => {
   const settingsBackground = resolveSettingsBackground(T, themeMode);
+  const settingsCardBackground = resolveSettingsCardBackground(T, themeMode);
 
   return StyleSheet.create({
   screen: { flex: 1, backgroundColor: settingsBackground },
@@ -117,14 +122,14 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
   // Metrics Row
   metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 14 },
   metricBlock: {
-    flex: 1, backgroundColor: T.glass2, borderRadius: 16,
+    flex: 1, backgroundColor: settingsCardBackground, borderRadius: 16,
     paddingVertical: 4, paddingHorizontal: 5,
     borderWidth: 1, borderColor: T.border, overflow: 'hidden',
     position: 'relative', gap: -5,
   },
   metricTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metricBlockActive: {
-    borderColor: T.trading.buy.primary, backgroundColor: T.glass2,
+    borderColor: T.trading.buy.primary, backgroundColor: settingsCardBackground,
     shadowColor: T.trading.buy.primary, shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.15, shadowRadius: 16, elevation: themeMode === 'light' ? 0 : 6,
   },
@@ -147,11 +152,11 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
 
   // Sections
   sectionTitle: { color: T.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
-  singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.glass1, marginHorizontal: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
-  singleRowCardLogout: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.glass1, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
+  singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, marginHorizontal: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
+  singleRowCardLogout: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
   rowTitleSingle: { flex: 1, color: T.text, fontSize: 15, fontWeight: '600', marginLeft: 16, zIndex: 1 },
 
-  groupCard: { backgroundColor: T.glass1, marginHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
+  groupCard: { backgroundColor: settingsCardBackground, marginHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, zIndex: 1 },
   dividerInner: { height: 1, backgroundColor: T.borderMedium, marginLeft: 72, zIndex: 1 },
 
