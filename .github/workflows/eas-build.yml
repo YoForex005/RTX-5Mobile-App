@@ -1,35 +1,54 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# RTX5 — EAS Build & Deploy Pipeline
-# ═══════════════════════════════════════════════════════════════════════════════
-# Triggers:
-#   - Push to main    → Validates + builds preview
-#   - Push to staging → Validates + builds staging
-#   - Push to release → Validates + builds production
-#   - Pull request    → Validates only (no build)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-name: RTX5 Build Pipeline
+name: RTX5 EAS Build
 
 on:
-  push:
-    branches: [main, staging, release]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - development
+          - preview
+          - staging
+          - production
+          - production-apk
+      platform:
+        description: "Build platform"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
   pull_request:
-    branches: [main, staging, release]
+    branches:
+      - main
+      - staging
+      - release
+    paths:
+      - "rtx5-app/**"
+      - ".github/workflows/eas-build.yml"
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: eas-build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
   WORKING_DIR: rtx5-app
 
 jobs:
-  # ── Stage 1: Validate ─────────────────────────────────────────────────────
   validate:
     name: Validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,23 +60,25 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
 
-      - name: Install Dependencies
-        run: cd ${{ env.WORKING_DIR }} && npm ci
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.WORKING_DIR }}
 
-      - name: TypeScript Check
-        run: cd ${{ env.WORKING_DIR }} && npx tsc --noEmit
+      - name: TypeScript check
+        run: npm run typecheck
+        working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Security Audit
-        run: cd ${{ env.WORKING_DIR }} && npm audit --audit-level=high
-        continue-on-error: true
+      - name: Expo doctor
+        run: npx --yes expo-doctor
+        working-directory: ${{ env.WORKING_DIR }}
 
-  # ── Stage 2: Build Preview ────────────────────────────────────────────────
-  build-preview:
-    name: Build Preview
+  build:
+    name: EAS Build (${{ inputs.profile }} / ${{ inputs.platform }})
     needs: validate
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,74 +90,20 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
 
-      - name: Setup EAS
+      - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Install Dependencies
-        run: cd ${{ env.WORKING_DIR }} && npm ci
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Build (All Platforms)
-        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile preview --non-interactive
-
-  # ── Stage 3: Build Staging ────────────────────────────────────────────────
-  build-staging:
-    name: Build Staging
-    needs: validate
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install Dependencies
-        run: cd ${{ env.WORKING_DIR }} && npm ci
-
-      - name: Build (All Platforms)
-        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile staging --non-interactive
-
-  # ── Stage 4: Build Production ─────────────────────────────────────────────
-  build-production:
-    name: Build Production
-    needs: validate
-    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install Dependencies
-        run: cd ${{ env.WORKING_DIR }} && npm ci
-
-      - name: Build (All Platforms)
-        run: cd ${{ env.WORKING_DIR }} && eas build --platform all --profile production --non-interactive
+      - name: Build
+        run: >
+          eas build
+          --platform "${{ inputs.platform }}"
+          --profile "${{ inputs.profile }}"
+          --non-interactive
+        working-directory: ${{ env.WORKING_DIR }}

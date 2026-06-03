@@ -39,7 +39,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
     ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|News|Accounts|BrokerDetail)ActionSheet\(/g),
   ];
 
-  assert.equal(actionSheetMounts.length, 15);
+  assert.equal(actionSheetMounts.length, 20);
   assert.equal(scopedActionSheetCalls.length, 14);
 
   for (const mount of actionSheetMounts) {
@@ -50,7 +50,7 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
   const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
   const uiStateSource = readSource('src/state/uiState.ts');
 
-  assert.match(actionSheetSource, /instantOpen = true/);
+  assert.match(actionSheetSource, /activeConfig\.instantOpen \?\? true/);
   assert.match(actionSheetSource, /activateOnPressIn/);
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: \{ \.\.\.config, instantOpen: true \} \}\)/);
 });

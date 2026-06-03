@@ -62,6 +62,7 @@ Pass criteria:
 A beta/public release is blocked if any mandatory control above is not green.
 
 ## Release Status Notes
+- 2026-06-03: Production EAS store builds were created with existing remote signing credentials, but production OTA publish and store submission remain blocked. Mandatory secure storage, certificate pinning, integrity checks, app lock, and redaction controls are still not green.
 - 2026-05-22: Expo/EAS project ownership was relinked to `@chinese-hedger/rtx5-app` using an existing authenticated Expo session with owner access. No Expo tokens, passwords, service account keys, or signing credentials were added to the repository; release remains blocked until the mandatory security controls above are green.
 - 2026-05-06: Candle `/ws/v2` connections now read the active access token at connect time and reconnect on token changes so authenticated candle channels are not left on stale anonymous sockets. No token logging was added, and release remains blocked until the mandatory secure-storage, pinning, integrity, app-lock, and redaction controls above are green.
 - 2026-05-05: Play Store production build profile was switched to store app-bundle output only. No security gates were bypassed; mandatory controls above still block public release until green.

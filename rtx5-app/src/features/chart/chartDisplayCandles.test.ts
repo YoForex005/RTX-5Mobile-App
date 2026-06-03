@@ -347,6 +347,39 @@ test('keeps backend-provenance flat tails even when the live quote has the same 
   assert.deepEqual(result, candles);
 });
 
+test('drops substantial but time-disconnected stale history when the live session resumes far later', () => {
+  // 25 contiguous mid-May history bars at ~$79.6k, then the live session resumes
+  // ~20 days later at ~$67.3k. Stitching them would crush the live bars off-scale,
+  // so only the coherent live tail should survive.
+  const history: Candle[] = Array.from({ length: 25 }, (_, index) => ({
+    time: 1_778_700_000 + index * 60,
+    open: 79600 + index,
+    high: 79620 + index,
+    low: 79580 + index,
+    close: 79605 + index,
+    volume: 10,
+  }));
+  const lastHistoryTime = 1_778_700_000 + 24 * 60;
+  const liveTailTime = lastHistoryTime + 20 * 24 * 60 * 60;
+  const liveTail: Candle = {
+    time: liveTailTime,
+    open: 67300,
+    high: 67320,
+    low: 67280,
+    close: 67305,
+    volume: 5,
+  };
+
+  const result = resolveLivePriceCoherentCandles([...history, liveTail], 'M1', {
+    price: 67305,
+    time: liveTailTime,
+    nowSeconds: liveTailTime,
+  });
+
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0], liveTail);
+});
+
 test('does not synthesize candles without a positive finite live price', () => {
   const result = resolveLivePriceCoherentCandles(staleGoldHistory, 'M1', {
     price: null,

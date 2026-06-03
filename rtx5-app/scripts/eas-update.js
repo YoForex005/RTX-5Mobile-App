@@ -24,6 +24,7 @@ const result = spawnSync(
   {
     env,
     stdio: "inherit",
+    shell: process.platform === "win32",
   },
 );
 

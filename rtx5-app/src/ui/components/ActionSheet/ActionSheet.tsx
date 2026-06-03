@@ -12,6 +12,7 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  type GestureResponderEvent,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -19,6 +20,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -75,6 +77,31 @@ const ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS = 50;
 const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50;
 const ACTION_SHEET_INLINE_ACTION_LIMIT = 12;
 const ACTION_SHEET_KEEP_HOST_MOUNTED = true;
+const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10;
+
+type ActionSheetPressPoint = {
+  x: number;
+  y: number;
+};
+
+type ActionSheetPressGesture = {
+  start: ActionSheetPressPoint | null;
+  cancelled: boolean;
+};
+
+const getActionSheetPressPoint = (event: GestureResponderEvent): ActionSheetPressPoint => ({
+  x: event.nativeEvent.pageX,
+  y: event.nativeEvent.pageY,
+});
+
+const hasActionSheetPressMovedBeyondThreshold = (
+  start: ActionSheetPressPoint,
+  end: ActionSheetPressPoint,
+) => {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  return (dx * dx + dy * dy) > ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX * ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX;
+};
 
 // Comfortable tap-to-dismiss zone above the sheet, beyond the safe-area inset.
 // Without this, a tall sheet can extend to within a few pixels of the status
@@ -103,15 +130,19 @@ export function ActionSheet({
   const styles = useMemo(() => makeActionSheetStyles(T, isDark), [T, isDark]);
   const { t } = useTranslation();
   const screenHeight = Dimensions.get('screen').height;
-  const windowHeight = Dimensions.get('window').height;
+  const { height: windowHeight } = useWindowDimensions();
+  const initialMeasuredHeight = resolveActionSheetInitialMeasuredHeight({
+    instantOpen,
+    screenHeight,
+    windowHeight,
+  });
   const [mounted, setMounted] = useState(ACTION_SHEET_KEEP_HOST_MOUNTED || visible);
   const [query, setQuery] = useState('');
+  const [currentOverlayHeight, setCurrentOverlayHeight] = useState(initialMeasuredHeight);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   // Measured height from the host layout. Start from the visible window height
   // so the first frame already has the final sheet geometry.
-  const [measuredHeight, setMeasuredHeight] = useState(() =>
-    resolveActionSheetInitialMeasuredHeight({ instantOpen, screenHeight, windowHeight }),
-  );
+  const [measuredHeight, setMeasuredHeight] = useState(initialMeasuredHeight);
   const overlayOpacity = useRef(new Animated.Value(visible && instantOpen ? 1 : 0)).current;
   const sheetTranslateY = useRef(new Animated.Value(visible && instantOpen ? 0 : 28)).current;
   const openedAtRef = useRef(visible ? Date.now() : 0);
@@ -174,6 +205,10 @@ export function ActionSheet({
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingActionCancelRef = useRef<(() => void) | null>(null);
   const hasMeasuredOverlayRef = useRef(false);
+  const actionPressGestureRef = useRef<ActionSheetPressGesture>({
+    start: null,
+    cancelled: false,
+  });
 
   const filteredActions = activeSearchable && query.trim()
     ? activeActions.filter((action) => {
@@ -186,7 +221,6 @@ export function ActionSheet({
         rawSubtitle.includes(normalizedQuery);
     })
     : activeActions;
-  const keyboardLift = Platform.OS === 'android' && activeSearchable ? Math.max(0, keyboardHeight) : 0;
   // Reserve a tappable dismiss strip above the sheet that sits clear of any
   // OS edge-gesture region. `minimumTopInset` (when explicitly passed by a
   // caller) still wins if it asks for more.
@@ -195,8 +229,30 @@ export function ActionSheet({
     activeMinimumTopInset ?? 0,
   );
   const bottomInset = resolveActionSheetBottomInset(insets.bottom, Platform.OS);
+  // Android keyboard behavior varies between resize and overlay modes. Use
+  // whichever source reports the largest keyboard lift, then only add a bottom
+  // spacer for the part that was not already handled by a smaller overlay or
+  // window height. That keeps searchable sheets above the IME without the
+  // double-lift jump on resize-mode devices.
+  const androidSearchableSheet = Platform.OS === 'android' && activeSearchable;
+  const overlayKeyboardLift = androidSearchableSheet
+    ? Math.max(0, measuredHeight - (currentOverlayHeight || measuredHeight))
+    : 0;
+  const windowKeyboardLift = androidSearchableSheet
+    ? Math.max(0, measuredHeight - (windowHeight || measuredHeight))
+    : 0;
+  const eventKeyboardLift = androidSearchableSheet
+    ? Math.max(0, keyboardHeight)
+    : 0;
+  const resizeKeyboardLift = Math.max(overlayKeyboardLift, windowKeyboardLift);
+  const effectiveKeyboardLift = Math.max(resizeKeyboardLift, eventKeyboardLift);
+  const unhandledKeyboardLift = Math.max(0, eventKeyboardLift - resizeKeyboardLift);
+  const measuredVisibleHeight = androidSearchableSheet
+    ? measuredHeight - effectiveKeyboardLift
+    : measuredHeight;
+  const bottomSpacerHeight = bottomInset + unhandledKeyboardLift;
   // Use the measured layout height from the in-tree overlay host.
-  const availableWindowHeight = Math.max(260, measuredHeight - keyboardLift);
+  const availableWindowHeight = Math.max(260, measuredVisibleHeight);
   const maxVisibleHeight = Math.max(
     260,
     availableWindowHeight - topInset - bottomInset - 12,
@@ -260,6 +316,7 @@ export function ActionSheet({
   const handleOverlayLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
     const h = event.nativeEvent.layout.height;
     if (h > 0) {
+      setCurrentOverlayHeight(h);
       const hasMeasuredLayout = hasMeasuredOverlayRef.current;
       setMeasuredHeight((prev) =>
         resolveActionSheetMeasuredHeight({
@@ -282,6 +339,7 @@ export function ActionSheet({
         Keyboard.dismiss();
       }
       setQuery('');
+      setCurrentOverlayHeight(Dimensions.get('window').height || Dimensions.get('screen').height);
       setMeasuredHeight((prev) =>
         resolveActionSheetOpenMeasuredHeight({
           previousHeight: prev,
@@ -292,6 +350,26 @@ export function ActionSheet({
       );
     }
   }, [activeInstantOpen, visible]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const handleKeyboardShow = (event: { endCoordinates?: { height?: number } }) => {
+      const nextKeyboardHeight = Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom);
+      setKeyboardHeight(nextKeyboardHeight);
+    };
+    const handleKeyboardHide = () => setKeyboardHeight(0);
+
+    const showSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+    const hideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [insets.bottom]);
 
   useEffect(() => {
     return () => {
@@ -315,26 +393,6 @@ export function ActionSheet({
 
     return () => subscription.remove();
   }, [onClose, visible]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    const handleKeyboardShow = (event: { endCoordinates?: { height?: number } }) => {
-      const nextKeyboardHeight = Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom);
-      setKeyboardHeight(nextKeyboardHeight);
-    };
-    const handleKeyboardHide = () => setKeyboardHeight(0);
-
-    const showSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
-    const hideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [insets.bottom]);
 
   useEffect(() => {
     if (!visible) {
@@ -414,6 +472,48 @@ export function ActionSheet({
     onClose();
   }, [activeRunActionAfterClose, onClose]);
 
+  const recordActionRowPressStart = useCallback((event: GestureResponderEvent) => {
+    actionPressGestureRef.current = {
+      start: getActionSheetPressPoint(event),
+      cancelled: false,
+    };
+  }, []);
+
+  const cancelActionRowPressForScroll = useCallback(() => {
+    actionPressGestureRef.current = {
+      ...actionPressGestureRef.current,
+      cancelled: true,
+    };
+  }, []);
+
+  const recordActionRowPressMove = useCallback((event: GestureResponderEvent) => {
+    const gesture = actionPressGestureRef.current;
+    if (!gesture.start || gesture.cancelled) {
+      return;
+    }
+
+    if (hasActionSheetPressMovedBeyondThreshold(gesture.start, getActionSheetPressPoint(event))) {
+      actionPressGestureRef.current = {
+        ...gesture,
+        cancelled: true,
+      };
+    }
+  }, []);
+
+  const handleActionRowPress = useCallback((actionPress?: () => void) => {
+    const gesture = actionPressGestureRef.current;
+    actionPressGestureRef.current = {
+      start: null,
+      cancelled: false,
+    };
+
+    if (gesture.cancelled) {
+      return;
+    }
+
+    handleActionPress(actionPress);
+  }, [handleActionPress]);
+
   const handleBackdropPress = useCallback(() => {
     if (Date.now() - openedAtRef.current < ACTION_SHEET_BACKDROP_OPEN_GUARD_MS) {
       return;
@@ -431,8 +531,9 @@ export function ActionSheet({
     return (
       <FastPressable
         latencyLabel={`actionSheet.${action.label}`}
-        onPress={action.disabled ? undefined : () => handleActionPress(action.onPress)}
-        activateOnPressIn
+        onPressIn={recordActionRowPressStart}
+        onTouchMove={recordActionRowPressMove}
+        onPress={action.disabled ? undefined : () => handleActionRowPress(action.onPress)}
         disabled={action.disabled}
         style={({ pressed }) => [
           styles.action,
@@ -472,7 +573,14 @@ export function ActionSheet({
         {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
       </FastPressable>
     );
-  }, [filteredActions.length, handleActionPress, styles, t]);
+  }, [
+    filteredActions.length,
+    handleActionRowPress,
+    recordActionRowPressMove,
+    recordActionRowPressStart,
+    styles,
+    t,
+  ]);
 
   const renderAction = useCallback(
     ({ item: action, index }: { item: ActionSheetAction; index: number }) =>
@@ -581,6 +689,8 @@ export function ActionSheet({
             canCancelContentTouches={Platform.OS === 'ios'}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             nestedScrollEnabled
+            onScrollBeginDrag={cancelActionRowPressForScroll}
+            onMomentumScrollBegin={cancelActionRowPressForScroll}
             removeClippedSubviews={Platform.OS === 'android'}
             initialNumToRender={initialActionRowsToRender}
             maxToRenderPerBatch={12}
@@ -603,7 +713,7 @@ export function ActionSheet({
       <View
         style={{
           width: '100%',
-          height: bottomInset + keyboardLift,
+          height: bottomSpacerHeight,
           backgroundColor: isDark ? '#0E141F' : T.glass2,
         }}
       />

@@ -1,71 +1,147 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# RTX5 — OTA Update Pipeline
-# ═══════════════════════════════════════════════════════════════════════════════
-# Push JavaScript/asset changes to devices without a new binary build.
-# Manually triggered with channel selection.
-# ═══════════════════════════════════════════════════════════════════════════════
-
 name: RTX5 OTA Update
 
 on:
+  push:
+    branches:
+      - main
+      - staging
+      - release
+    paths:
+      - "rtx5-app/**"
+      - ".github/workflows/eas-update.yml"
+      - "!rtx5-app/android/**"
+      - "!rtx5-app/ios/**"
   workflow_dispatch:
     inputs:
       channel:
-        description: 'Update channel'
+        description: "EAS Update channel"
         required: true
         type: choice
         options:
           - preview
           - staging
           - production
+      platform:
+        description: "Platform"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
       message:
-        description: 'Update message (visible in EAS dashboard)'
+        description: "Update message shown in EAS"
         required: true
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: eas-update-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
   WORKING_DIR: rtx5-app
 
 jobs:
-  validate:
-    name: Pre-Update Validation
+  publish:
+    name: Publish OTA Update
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve update target
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            channel="${{ inputs.channel }}"
+            platform="${{ inputs.platform }}"
+            message="${{ inputs.message }}"
+          else
+            platform="all"
+            case "${GITHUB_REF_NAME}" in
+              main)
+                channel="preview"
+                ;;
+              staging)
+                channel="staging"
+                ;;
+              release)
+                channel="production"
+                ;;
+              *)
+                echo "Unsupported OTA branch: ${GITHUB_REF_NAME}" >&2
+                exit 1
+                ;;
+            esac
+            short_sha="${GITHUB_SHA:0:7}"
+            message="OTA ${channel}: ${short_sha}"
+          fi
+
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "platform=${platform}" >> "$GITHUB_OUTPUT"
+          echo "message=${message}" >> "$GITHUB_OUTPUT"
+
+      - name: Block native-sensitive push updates
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+
+          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            changed_files="$(git diff --name-only HEAD~1 HEAD || true)"
+          else
+            changed_files="$(git diff --name-only "$before" "$after")"
+          fi
+
+          echo "$changed_files"
+
+          native_sensitive='^rtx5-app/(android/|ios/|app\.json|eas\.json|package\.json|package-lock\.json|with.*\.js|metro\.config\.js|babel\.config\.js)'
+          if echo "$changed_files" | grep -E "$native_sensitive"; then
+            echo "This push changes native-sensitive files. Create a new EAS build instead of OTA." >&2
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
-      - run: cd ${{ env.WORKING_DIR }} && npm ci
-      - run: cd ${{ env.WORKING_DIR }} && npx tsc --noEmit
 
-  publish-update:
-    name: Publish OTA Update (${{ inputs.channel }})
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
-
-      - uses: expo/expo-github-action@v8
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - run: cd ${{ env.WORKING_DIR }} && npm ci
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Publish Update
-        run: |
-          cd ${{ env.WORKING_DIR }} && eas update \
-            --channel ${{ inputs.channel }} \
-            --message "${{ inputs.message }}" \
-            --non-interactive
+      - name: TypeScript check
+        run: npm run typecheck
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Expo doctor
+        run: npx --yes expo-doctor
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Publish OTA update
+        run: >
+          eas update
+          --channel "${{ steps.target.outputs.channel }}"
+          --platform "${{ steps.target.outputs.platform }}"
+          --message "${{ steps.target.outputs.message }}"
+          --non-interactive
+        working-directory: ${{ env.WORKING_DIR }}

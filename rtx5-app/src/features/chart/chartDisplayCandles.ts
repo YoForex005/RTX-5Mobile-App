@@ -1,6 +1,7 @@
 import type { Candle } from '../../domain/candles/core/candleTypes';
 import {
   getBucketStart,
+  getTimeframeSeconds,
   normalizeTimestampToSeconds,
 } from '../../domain/candles/core/timeframeUtils';
 import {
@@ -19,6 +20,14 @@ const isFinitePositivePrice = (value: unknown): value is number =>
 
 const MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP = 20;
 const MAX_UNCONFIRMED_FLAT_TAIL_CANDLES = 5;
+// When the newest REST history bar is separated from the live session by more
+// than this many seconds, the history block is treated as stale/disconnected.
+// Stitching it directly onto the live bars produces an unreadable cliff at the
+// join (e.g. a 20-day, ~$12k jump where mid-May history meets a current live
+// price) and pushes every live bar off-scale. In that case we render only the
+// coherent live tail. The threshold is comfortably above normal market closes
+// (forex weekends ~2.7 days) so genuine, time-contiguous history is preserved.
+const STALE_HISTORY_MERGE_GAP_SECONDS = 4 * 24 * 60 * 60;
 
 const isFlatQuoteOnlyCandle = (candle: Candle): boolean => {
   const values = [candle.open, candle.high, candle.low, candle.close];
@@ -146,6 +155,19 @@ export const resolveLivePriceCoherentCandles = (
 
     if (coherentStartIndex > 0) {
       if (coherentStartIndex >= MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP) {
+        // A long price-incoherent prefix is only worth keeping when it is
+        // time-contiguous with the live tail (e.g. a genuine flash move). If a
+        // large time gap separates the two, the prefix is stale, disconnected
+        // history — drop it so the live session renders cleanly instead of
+        // being crushed off-scale by the merge cliff.
+        const boundaryGapSeconds =
+          displayCandles[coherentStartIndex].time - displayCandles[coherentStartIndex - 1].time;
+        const timeframeSeconds = getTimeframeSeconds(timeframe);
+        const staleGapThreshold = Math.max(timeframeSeconds * 3, STALE_HISTORY_MERGE_GAP_SECONDS);
+        if (boundaryGapSeconds > staleGapThreshold) {
+          return displayCandles.slice(coherentStartIndex) as Candle[];
+        }
+
         return displayCandles as Candle[];
       }
 

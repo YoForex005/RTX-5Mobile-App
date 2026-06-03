@@ -8,8 +8,18 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View, Platform } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  type GestureResponderEvent,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../../ui/components/Screen';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -26,6 +36,7 @@ import { formatServerFromName } from './brokerData';
 // Always show this broker at the top when the search field is empty so the
 // screen matches the MT5 default state (MetaQuotes-Demo entry point).
 const PINNED_BROKER_NAMES = ['MetaQuotes Ltd.'];
+const BROKER_ROW_PRESS_CANCEL_MOVE_PX = 14;
 
 type BrokerRow = {
   id: string;
@@ -37,6 +48,17 @@ type BrokerRow = {
   region: string;
   protocol: string;
   domain?: string;
+};
+
+type BrokerPressPoint = {
+  pageX: number;
+  pageY: number;
+};
+
+type BrokerPressGesture = {
+  start: BrokerPressPoint | null;
+  handled: boolean;
+  cancelled: boolean;
 };
 
 // Map a broker name to a logo domain when one is recognisable. This is
@@ -87,6 +109,23 @@ function formatVisibleServerName(broker: BrokerServer) {
   return server;
 }
 
+function getBrokerPressPoint(event: GestureResponderEvent): BrokerPressPoint | null {
+  const { pageX, pageY } = event.nativeEvent;
+  if (!Number.isFinite(pageX) || !Number.isFinite(pageY)) {
+    return null;
+  }
+  return { pageX, pageY };
+}
+
+function hasBrokerPressMovedBeyondThreshold(start: BrokerPressPoint, end: BrokerPressPoint) {
+  const deltaX = end.pageX - start.pageX;
+  const deltaY = end.pageY - start.pageY;
+  return (
+    deltaX * deltaX + deltaY * deltaY >
+    BROKER_ROW_PRESS_CANCEL_MOVE_PX * BROKER_ROW_PRESS_CANCEL_MOVE_PX
+  );
+}
+
 export function BrokersScreen() {
   const [search, setSearch] = useState('');
   const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
@@ -96,6 +135,11 @@ export function BrokersScreen() {
   const insets = useSafeAreaInsets();
   const routerInstance = useRouter();
   const setBrokerConnection = useUserPreferences((s) => s.setBrokerConnection);
+  const brokerPressGestureRef = useRef<BrokerPressGesture>({
+    start: null,
+    handled: false,
+    cancelled: false,
+  });
   const styles = useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
 
   // ── GET /broker/servers — live broker directory ──────────────────────────
@@ -176,6 +220,70 @@ export function BrokersScreen() {
         brokerDomain: broker.domain ?? '',
       },
     });
+  };
+
+  const recordBrokerRowPressStart = (event: GestureResponderEvent) => {
+    brokerPressGestureRef.current = {
+      start: getBrokerPressPoint(event),
+      handled: false,
+      cancelled: false,
+    };
+  };
+
+  const cancelBrokerRowPressForScroll = () => {
+    const gesture = brokerPressGestureRef.current;
+    if (!gesture.start && gesture.cancelled) {
+      return;
+    }
+
+    brokerPressGestureRef.current = {
+      start: null,
+      handled: false,
+      cancelled: true,
+    };
+  };
+
+  const recordBrokerRowPressMove = (event: GestureResponderEvent) => {
+    const gesture = brokerPressGestureRef.current;
+    const current = getBrokerPressPoint(event);
+    if (!gesture.start || !current) {
+      return;
+    }
+
+    if (hasBrokerPressMovedBeyondThreshold(gesture.start, current)) {
+      cancelBrokerRowPressForScroll();
+    }
+  };
+
+  const shouldIgnoreBrokerRowPress = (event: GestureResponderEvent) => {
+    const gesture = brokerPressGestureRef.current;
+    if (gesture.cancelled || gesture.handled) {
+      return true;
+    }
+
+    const end = getBrokerPressPoint(event);
+    if (gesture.start && end && hasBrokerPressMovedBeyondThreshold(gesture.start, end)) {
+      brokerPressGestureRef.current = {
+        start: null,
+        handled: false,
+        cancelled: true,
+      };
+      return true;
+    }
+
+    brokerPressGestureRef.current = {
+      start: null,
+      handled: true,
+      cancelled: false,
+    };
+    return false;
+  };
+
+  const handleBrokerRowPress = (broker: BrokerRow, event: GestureResponderEvent) => {
+    if (shouldIgnoreBrokerRowPress(event)) {
+      return;
+    }
+    handleSelectBroker(broker);
   };
 
   const handleScanQR = () => {
@@ -261,6 +369,8 @@ export function BrokersScreen() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          onScrollBeginDrag={cancelBrokerRowPressForScroll}
+          onMomentumScrollBegin={cancelBrokerRowPressForScroll}
           ItemSeparatorComponent={() => <View style={styles.cardGap} />}
           renderItem={({ item }) => (
             <Pressable
@@ -268,8 +378,9 @@ export function BrokersScreen() {
                 styles.brokerRow,
                 pressed && styles.brokerRowPressed,
               ]}
-              onPress={() => handleSelectBroker(item)}
-              activateOnPressIn
+              onPressIn={recordBrokerRowPressStart}
+              onTouchMove={recordBrokerRowPressMove}
+              onPress={(event) => handleBrokerRowPress(item, event)}
               latencyLabel={`brokers.row.${item.brokerId}`}
               unstable_pressDelay={0}
             >
@@ -285,16 +396,12 @@ export function BrokersScreen() {
                   <Text style={styles.brokerIdLabel} numberOfLines={1}>{item.brokerId}</Text>
                 </View>
               </View>
-              <Pressable
+              <View
                 style={styles.selectBtn}
-                hitSlop={10}
-                onPress={() => handleSelectBroker(item)}
-                activateOnPressIn
-                latencyLabel={`brokers.info.${item.brokerId}`}
-                unstable_pressDelay={0}
+                pointerEvents="none"
               >
                 <Ionicons name="chevron-forward" size={20} color={T.textSub} />
-              </Pressable>
+              </View>
             </Pressable>
           )}
           ListEmptyComponent={

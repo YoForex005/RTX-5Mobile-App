@@ -114,7 +114,7 @@ export interface CreateOrrnnDemoAccountRequest {
   master_pass: string;
   investor_pass: string;
   first_name: string;
-  last_name: string;
+  last_name?: string;
   phone?: string;
   country?: string;
   currency?: string;

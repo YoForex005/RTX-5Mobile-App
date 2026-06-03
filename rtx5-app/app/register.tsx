@@ -22,11 +22,11 @@ import { useUserPreferences } from '../src/state/userPreferences';
 import { useThemeMode } from '../src/state/themeMode';
 import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAccounts';
 import { loginAPI } from '../src/api/auth';
-import { getBrokerConfig } from '../src/api/broker';
+import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
-import { BROKER_CONFIG_KEY } from '../src/query/broker';
+import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
 import {
   ORRNN_DEMO_BROKER_ID,
@@ -58,35 +58,89 @@ const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
 const DEMO_COUNTRY_OPTIONS = [
-  { label: 'United States', code: 'US' },
-  { label: 'India', code: 'IN' },
-  { label: 'United Kingdom', code: 'GB' },
-  { label: 'United Arab Emirates', code: 'AE' },
-  { label: 'Canada', code: 'CA' },
-  { label: 'Australia', code: 'AU' },
-  { label: 'Germany', code: 'DE' },
-  { label: 'France', code: 'FR' },
-  { label: 'Italy', code: 'IT' },
-  { label: 'Spain', code: 'ES' },
-  { label: 'Netherlands', code: 'NL' },
-  { label: 'Switzerland', code: 'CH' },
-  { label: 'Singapore', code: 'SG' },
-  { label: 'Malaysia', code: 'MY' },
-  { label: 'Indonesia', code: 'ID' },
-  { label: 'Thailand', code: 'TH' },
-  { label: 'Vietnam', code: 'VN' },
-  { label: 'Philippines', code: 'PH' },
-  { label: 'Japan', code: 'JP' },
-  { label: 'South Korea', code: 'KR' },
-  { label: 'China', code: 'CN' },
-  { label: 'Hong Kong', code: 'HK' },
-  { label: 'South Africa', code: 'ZA' },
-  { label: 'Nigeria', code: 'NG' },
-  { label: 'Brazil', code: 'BR' },
-  { label: 'Mexico', code: 'MX' },
-  { label: 'Turkey', code: 'TR' },
-  { label: 'Saudi Arabia', code: 'SA' },
+  { label: 'United States', code: 'US', dialCode: '+1' },
+  { label: 'India', code: 'IN', dialCode: '+91' },
+  { label: 'United Kingdom', code: 'GB', dialCode: '+44' },
+  { label: 'United Arab Emirates', code: 'AE', dialCode: '+971' },
+  { label: 'Canada', code: 'CA', dialCode: '+1' },
+  { label: 'Australia', code: 'AU', dialCode: '+61' },
+  { label: 'Germany', code: 'DE', dialCode: '+49' },
+  { label: 'France', code: 'FR', dialCode: '+33' },
+  { label: 'Italy', code: 'IT', dialCode: '+39' },
+  { label: 'Spain', code: 'ES', dialCode: '+34' },
+  { label: 'Netherlands', code: 'NL', dialCode: '+31' },
+  { label: 'Switzerland', code: 'CH', dialCode: '+41' },
+  { label: 'Singapore', code: 'SG', dialCode: '+65' },
+  { label: 'Malaysia', code: 'MY', dialCode: '+60' },
+  { label: 'Indonesia', code: 'ID', dialCode: '+62' },
+  { label: 'Thailand', code: 'TH', dialCode: '+66' },
+  { label: 'Vietnam', code: 'VN', dialCode: '+84' },
+  { label: 'Philippines', code: 'PH', dialCode: '+63' },
+  { label: 'Japan', code: 'JP', dialCode: '+81' },
+  { label: 'South Korea', code: 'KR', dialCode: '+82' },
+  { label: 'China', code: 'CN', dialCode: '+86' },
+  { label: 'Hong Kong', code: 'HK', dialCode: '+852' },
+  { label: 'South Africa', code: 'ZA', dialCode: '+27' },
+  { label: 'Nigeria', code: 'NG', dialCode: '+234' },
+  { label: 'Brazil', code: 'BR', dialCode: '+55' },
+  { label: 'Mexico', code: 'MX', dialCode: '+52' },
+  { label: 'Turkey', code: 'TR', dialCode: '+90' },
+  { label: 'Saudi Arabia', code: 'SA', dialCode: '+966' },
 ] as const;
+const DEFAULT_DEMO_COUNTRY = DEMO_COUNTRY_OPTIONS[0];
+type DemoCountryCode = (typeof DEMO_COUNTRY_OPTIONS)[number]['code'];
+
+const DEMO_LEVERAGE_MIN = 100;
+const DEMO_LEVERAGE_MAX = 20000;
+const DEMO_LEVERAGE_STEP = 100;
+
+type DemoLeverageOption = {
+  value: number;
+  label: `1:${number}`;
+};
+
+type RegisterBrokerOption = {
+  key: string;
+  brokerId: string;
+  brokerName: string;
+  region: string;
+  protocol: string;
+};
+
+const DEMO_LEVERAGE_OPTIONS: readonly DemoLeverageOption[] = Array.from(
+  { length: (DEMO_LEVERAGE_MAX - DEMO_LEVERAGE_MIN) / DEMO_LEVERAGE_STEP + 1 },
+  (_, index) => {
+    const value = DEMO_LEVERAGE_MIN + index * DEMO_LEVERAGE_STEP;
+    return { value, label: `1:${value}` as const };
+  },
+);
+
+const normalizeRegisterBrokerKey = (brokerId: string) => brokerId.trim().toLowerCase();
+
+const formatRegisterBrokerOptionSubtitle = (option: RegisterBrokerOption) => (
+  [option.brokerId, option.region, option.protocol.toUpperCase()].filter(Boolean).join(' / ')
+);
+
+const isDemoLeverageValue = (value: number | null | undefined): value is number => (
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= DEMO_LEVERAGE_MIN &&
+  value <= DEMO_LEVERAGE_MAX &&
+  value % DEMO_LEVERAGE_STEP === 0
+);
+
+const getDefaultDemoLeverage = (groupLeverage: number | null | undefined) => (
+  isDemoLeverageValue(groupLeverage) ? groupLeverage : DEMO_LEVERAGE_MIN
+);
+
+const formatDemoPhoneForSubmission = (dialCode: string, phoneNumber: string) => {
+  const trimmedPhone = phoneNumber.trim();
+  if (!trimmedPhone) {
+    return undefined;
+  }
+
+  return trimmedPhone.startsWith('+') ? trimmedPhone : `${dialCode}${trimmedPhone}`;
+};
 
 export default function RegisterScreen() {
   const login = useUserPreferences((s) => s.login);
@@ -109,6 +163,12 @@ export default function RegisterScreen() {
     error: demoGroupsError,
     refetch: refetchDemoGroups,
   } = useOrrnnDemoGroups(isScreenFocused && isDemoServiceReady);
+  const {
+    data: brokerServers = [],
+    isLoading: isBrokerServersLoading,
+    isFetching: isBrokerServersFetching,
+    refetch: refetchBrokerServers,
+  } = useBrokerServers(isScreenFocused);
   const createDemoAccount = useCreateOrrnnDemoAccount();
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const demoGroupOptions = demoGroups?.groups ?? [];
@@ -138,8 +198,8 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('United States');
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
-  const [selectedCurrencyCode, setSelectedCurrencyCode] = useState('');
-  const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
+  const [phoneCountryCode, setPhoneCountryCode] = useState<DemoCountryCode>(DEFAULT_DEMO_COUNTRY.code);
+  const [phoneCountryPickerOpen, setPhoneCountryPickerOpen] = useState(false);
   const [selectedLeverageValue, setSelectedLeverageValue] = useState<number | null>(null);
   const [leveragePickerOpen, setLeveragePickerOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
@@ -147,6 +207,7 @@ export default function RegisterScreen() {
   const [investorPassword, setInvestorPassword] = useState('');
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
   const [originBroker, setOriginBroker] = useState(ORRNN_DEMO_ORIGIN_BROKER ?? '');
+  const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
@@ -222,13 +283,16 @@ export default function RegisterScreen() {
     const trimmedEmail = email.trim();
     const trimmedPhone = phone.trim();
     const selectedCountry = DEMO_COUNTRY_OPTIONS.find((option) => option.label === country);
+    const selectedPhoneCountry =
+      DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
     const trimmedCountry = selectedCountry?.code ?? country.trim().toUpperCase();
     const trimmedOriginBroker = originBroker.trim();
     const parsedInitialBalance = Number(initialBalance);
-    const effectiveCurrency = selectedCurrencyCode || selectedDemoGroup.currency;
-    const effectiveLeverage = selectedLeverageValue ?? selectedDemoGroup.leverage;
+    const submissionPhone = formatDemoPhoneForSubmission(selectedPhoneCountry.dialCode, trimmedPhone);
+    const effectiveCurrency = selectedDemoGroup.currency;
+    const effectiveLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup.leverage);
 
-    if (!trimmedFirstName || !trimmedLastName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
+    if (!trimmedFirstName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
       Alert.alert(t('Error'), t('Please fill in all required fields'));
       return;
     }
@@ -263,8 +327,8 @@ export default function RegisterScreen() {
         master_pass: password,
         investor_pass: investorPassword,
         first_name: trimmedFirstName,
-        last_name: trimmedLastName,
-        phone: trimmedPhone || undefined,
+        last_name: trimmedLastName || undefined,
+        phone: submissionPhone,
         country: trimmedCountry,
         currency: effectiveCurrency,
         leverage: effectiveLeverage,
@@ -375,13 +439,68 @@ export default function RegisterScreen() {
     : passwordStrengthScore >= 2
       ? '#F59E0B'
       : '#64748B';
-  const selectedCurrency = selectedCurrencyCode || selectedDemoGroup?.currency || 'USD';
-  const selectedLeverage = selectedLeverageValue ?? selectedDemoGroup?.leverage ?? 0;
+  const selectedCurrency = selectedDemoGroup?.currency || 'USD';
+  const selectedLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup?.leverage);
+  const selectedPhoneCountry =
+    DEMO_COUNTRY_OPTIONS.find((option) => option.code === phoneCountryCode) ?? DEFAULT_DEMO_COUNTRY;
+  const originBrokerOptions = React.useMemo<RegisterBrokerOption[]>(() => {
+    const rows = [...brokerServers]
+      .filter((broker: BrokerServer) => broker.enabled !== false && !!broker.broker_id?.trim())
+      .sort((a, b) => {
+        const aName = a.broker_name?.trim() || a.broker_id;
+        const bName = b.broker_name?.trim() || b.broker_id;
+        const byName = aName.localeCompare(bName);
+        if (byName !== 0) return byName;
+        return a.id - b.id;
+      });
+    const seen = new Set<string>();
+    const options: RegisterBrokerOption[] = [];
+
+    for (const broker of rows) {
+      const brokerId = broker.broker_id.trim();
+      const key = normalizeRegisterBrokerKey(brokerId);
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      options.push({
+        key,
+        brokerId,
+        brokerName: broker.broker_name?.trim() || brokerId,
+        region: broker.region?.trim() || '',
+        protocol: broker.protocol?.trim() || '',
+      });
+    }
+
+    return options;
+  }, [brokerServers]);
+  const selectedOriginBrokerOption = React.useMemo(() => {
+    const selectedKey = normalizeRegisterBrokerKey(originBroker);
+    if (!selectedKey) {
+      return undefined;
+    }
+
+    return originBrokerOptions.find((option) => option.key === selectedKey);
+  }, [originBroker, originBrokerOptions]);
+  const originBrokerDisplayValue =
+    selectedOriginBrokerOption?.brokerName || originBroker || t('Select broker');
   const countryPickerActions = React.useMemo(
     () => DEMO_COUNTRY_OPTIONS.map((option) => ({
       label: t(option.label),
+      subtitle: `${option.code} ${option.dialCode}`,
+      onPress: () => {
+        setCountry(option.label);
+        setPhoneCountryCode(option.code);
+      },
+    })),
+    [t],
+  );
+  const phoneCountryPickerActions = React.useMemo(
+    () => DEMO_COUNTRY_OPTIONS.map((option) => ({
+      label: `${option.dialCode} ${t(option.label)}`,
       subtitle: option.code,
-      onPress: () => setCountry(option.label),
+      onPress: () => setPhoneCountryCode(option.code),
     })),
     [t],
   );
@@ -390,60 +509,75 @@ export default function RegisterScreen() {
     handleFieldFocus('country');
     setCountryPickerOpen(true);
   }, [handleFieldFocus]);
-  const currencyOptions = React.useMemo(() => {
-    const codes = demoGroupOptions
-      .map((group) => group.currency)
-      .filter((code): code is string => Boolean(code));
-    const uniqueCodes = Array.from(new Set(codes));
-
-    return uniqueCodes.length > 0 ? uniqueCodes : [selectedCurrency];
-  }, [demoGroupOptions, selectedCurrency]);
-  const leverageOptions = React.useMemo(() => {
-    const leverages = demoGroupOptions
-      .map((group) => group.leverage)
-      .filter((leverage): leverage is number => Number.isFinite(leverage) && leverage > 0);
-    const uniqueLeverages = Array.from(new Set(leverages)).sort((left, right) => left - right);
-
-    return uniqueLeverages.length > 0 || selectedLeverage <= 0
-      ? uniqueLeverages
-      : [selectedLeverage];
-  }, [demoGroupOptions, selectedLeverage]);
-  const currencyPickerActions = React.useMemo(
-    () => currencyOptions.map((code) => ({
-      label: code,
-      subtitle: code === selectedDemoGroup?.currency ? t('Group default') : undefined,
-      onPress: () => setSelectedCurrencyCode(code),
-    })),
-    [currencyOptions, selectedDemoGroup?.currency, t],
-  );
+  const handleOpenPhoneCountryPicker = React.useCallback(() => {
+    Keyboard.dismiss();
+    handleFieldFocus('phone');
+    setPhoneCountryPickerOpen(true);
+  }, [handleFieldFocus]);
   const leveragePickerActions = React.useMemo(
-    () => leverageOptions.map((leverage) => ({
-      label: `1:${leverage}`,
-      subtitle: leverage === selectedDemoGroup?.leverage ? t('Group default') : undefined,
-      onPress: () => setSelectedLeverageValue(leverage),
+    () => DEMO_LEVERAGE_OPTIONS.map((option) => ({
+      label: option.label,
+      subtitle: option.value === selectedDemoGroup?.leverage ? t('Group default') : undefined,
+      onPress: () => setSelectedLeverageValue(option.value),
     })),
-    [leverageOptions, selectedDemoGroup?.leverage, t],
+    [selectedDemoGroup?.leverage, t],
   );
+  const originBrokerPickerActions = React.useMemo(() => {
+    if (originBrokerOptions.length === 0) {
+      const isBusy = isBrokerServersLoading || isBrokerServersFetching;
+      return [{
+        label: isBusy ? t('Loading brokers...') : t('Retry broker list'),
+        subtitle: isBusy
+          ? t('Please wait while the broker list loads.')
+          : t('Broker list is unavailable. Try loading it again.'),
+        disabled: isBusy,
+        onPress: () => {
+          void refetchBrokerServers();
+        },
+      }];
+    }
+
+    return originBrokerOptions.map((option) => ({
+      label: option.brokerName,
+      subtitle: formatRegisterBrokerOptionSubtitle(option),
+      onPress: () => setOriginBroker(option.brokerId),
+    }));
+  }, [
+    isBrokerServersFetching,
+    isBrokerServersLoading,
+    originBrokerOptions,
+    refetchBrokerServers,
+    t,
+  ]);
   const groupPickerActions = React.useMemo(
     () => demoGroupOptions.map((group) => ({
       label: group.name,
       subtitle: `${group.currency} / 1:${group.leverage}`,
       onPress: () => {
         setSelectedGroupName(group.name);
-        setSelectedCurrencyCode(group.currency);
-        setSelectedLeverageValue(group.leverage);
+        setSelectedLeverageValue(getDefaultDemoLeverage(group.leverage));
       },
     })),
     [demoGroupOptions],
   );
-  const handleOpenCurrencyPicker = React.useCallback(() => {
-    Keyboard.dismiss();
-    setCurrencyPickerOpen(true);
-  }, []);
   const handleOpenLeveragePicker = React.useCallback(() => {
     Keyboard.dismiss();
     setLeveragePickerOpen(true);
   }, []);
+  const handleOpenOriginBrokerPicker = React.useCallback(() => {
+    Keyboard.dismiss();
+    handleFieldFocus('originBroker');
+    if (originBrokerOptions.length === 0 && !isBrokerServersLoading && !isBrokerServersFetching) {
+      void refetchBrokerServers();
+    }
+    setOriginBrokerPickerOpen(true);
+  }, [
+    handleFieldFocus,
+    isBrokerServersFetching,
+    isBrokerServersLoading,
+    originBrokerOptions.length,
+    refetchBrokerServers,
+  ]);
   const handleOpenGroupPicker = React.useCallback(() => {
     if (demoGroupOptions.length === 0) {
       return;
@@ -626,12 +760,30 @@ export default function RegisterScreen() {
                 <Text style={styles.inputLabel}>{t('Phone')}</Text>
                 <View style={styles.inputShell}>
                   <Ionicons name="call-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.phoneCodeButton,
+                      pressed && styles.inputShellPressed,
+                    ]}
+                    onPress={handleOpenPhoneCountryPicker}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    latencyLabel="register.phoneCountry.open"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Phone country code')}
+                    accessibilityState={{ expanded: phoneCountryPickerOpen }}
+                  >
+                    <Text style={styles.phoneCodeText} numberOfLines={1}>
+                      {selectedPhoneCountry.dialCode}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color={fieldIconColor} />
+                  </Pressable>
+                  <View style={styles.phoneCodeDivider} />
                   <TextInput
                     style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
                     value={phone}
                     onChangeText={setPhone}
                     onFocus={() => handleFieldFocus('phone')}
-                    placeholder="+1 (555) 123-4567"
+                    placeholder="(555) 123-4567"
                     placeholderTextColor={fieldPlaceholderColor}
                     keyboardType="phone-pad"
                     selectionColor={fieldAccentColor}
@@ -744,22 +896,10 @@ export default function RegisterScreen() {
               <View style={styles.twoColumnRow}>
                 <View style={styles.twoColumnCell}>
                   <Text style={styles.inputLabel}>{t('Currency')}</Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.inputShell,
-                      pressed && styles.inputShellPressed,
-                    ]}
-                    onPress={handleOpenCurrencyPicker}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    latencyLabel="register.currency.open"
-                    accessibilityRole="button"
-                    accessibilityLabel={t('Currency')}
-                    accessibilityState={{ expanded: currencyPickerOpen }}
-                  >
+                  <View style={styles.inputShell}>
                     <Ionicons name="cash-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                     <Text style={styles.selectValue} numberOfLines={1}>{selectedCurrency}</Text>
-                    <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
-                  </Pressable>
+                  </View>
                 </View>
 
                 <View style={styles.twoColumnCell}>
@@ -812,27 +952,24 @@ export default function RegisterScreen() {
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('originBroker')}>
                 <Text style={styles.inputLabel}>{t('Origin broker')}</Text>
-                <View style={styles.inputShell}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.inputShell,
+                    pressed && styles.inputShellPressed,
+                  ]}
+                  onPress={handleOpenOriginBrokerPicker}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  latencyLabel="register.originBroker.open"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Origin broker')}
+                  accessibilityState={{ expanded: originBrokerPickerOpen }}
+                >
                   <Ionicons name="business-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
-                  <TextInput
-                    style={[styles.input, { outlineStyle: 'none', outlineWidth: 0 }] as any}
-                    value={originBroker}
-                    onChangeText={setOriginBroker}
-                    onFocus={() => handleFieldFocus('originBroker')}
-                    placeholder={t('Origin broker')}
-                    placeholderTextColor={fieldPlaceholderColor}
-                    autoCapitalize="none"
-                    selectionColor={fieldAccentColor}
-                    cursorColor={fieldAccentColor}
-                    underlineColorAndroid="transparent"
-                    importantForAutofill={"no" as any}
-                    autoComplete="off"
-                    textContentType="none"
-                    spellCheck={false}
-                    autoCorrect={false}
-                    disableFullscreenUI={true}
-                  />
-                </View>
+                  <Text style={styles.selectValue} numberOfLines={1}>
+                    {originBrokerDisplayValue}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={fieldIconColor} />
+                </Pressable>
               </View>
 
               <View style={styles.inputRow}>
@@ -912,12 +1049,12 @@ export default function RegisterScreen() {
           runActionAfterClose={false}
         />
         <ActionSheet
-          visible={currencyPickerOpen}
-          title={t('Currency')}
-          actions={currencyPickerActions}
-          onClose={() => setCurrencyPickerOpen(false)}
+          visible={phoneCountryPickerOpen}
+          title={t('Phone country code')}
+          actions={phoneCountryPickerActions}
+          onClose={() => setPhoneCountryPickerOpen(false)}
           searchable
-          searchPlaceholder={t('Search currencies...')}
+          searchPlaceholder={t('Search country codes...')}
           detent="large"
           instantOpen
           runActionAfterClose={false}
@@ -929,6 +1066,17 @@ export default function RegisterScreen() {
           onClose={() => setLeveragePickerOpen(false)}
           searchable
           searchPlaceholder={t('Search leverage...')}
+          detent="large"
+          instantOpen
+          runActionAfterClose={false}
+        />
+        <ActionSheet
+          visible={originBrokerPickerOpen}
+          title={t('Origin broker')}
+          actions={originBrokerPickerActions}
+          onClose={() => setOriginBrokerPickerOpen(false)}
+          searchable={originBrokerOptions.length > 0}
+          searchPlaceholder={t('Search brokers...')}
           detent="large"
           instantOpen
           runActionAfterClose={false}
@@ -1392,6 +1540,28 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     inputShellPressed: {
       opacity: 0.86,
+    },
+    phoneCodeButton: {
+      minWidth: 54,
+      height: 36,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 3,
+      paddingHorizontal: 5,
+      borderRadius: 7,
+      backgroundColor: isDark ? 'rgba(148,163,184,0.08)' : 'rgba(15,23,42,0.04)',
+    },
+    phoneCodeText: {
+      color: fieldText,
+      fontSize: 14,
+      fontWeight: '800',
+      includeFontPadding: false,
+    },
+    phoneCodeDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: border,
     },
     input: {
       flex: 1,

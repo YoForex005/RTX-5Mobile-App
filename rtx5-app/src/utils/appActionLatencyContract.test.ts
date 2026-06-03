@@ -259,7 +259,7 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.doesNotMatch(tabsSource, /lazy: true/);
 });
 
-test('global action sheet actions use the immediate fast press path', () => {
+test('global action sheet actions avoid selecting rows while scrolling', () => {
   const source = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
   const dismissSource = readSource('src/ui/components/ActionSheet/dismissTimer.ts');
   const uiStateSource = readSource('src/state/uiState.ts');
@@ -268,7 +268,7 @@ test('global action sheet actions use the immediate fast press path', () => {
   assert.match(source, /BackHandler/);
   assert.match(source, /FlatList/);
   assert.match(source, /latencyLabel=\{`actionSheet\.\$\{action\.label\}`\}/);
-  assert.match(source, /runActionAfterClose = false/);
+  assert.match(source, /runActionAfterClose = true/);
   assert.match(source, /activeConfig\.runActionAfterClose \?\? false/);
   assert.match(source, /const ACTION_SHEET_OPEN_OVERLAY_DURATION_MS = 50/);
   assert.match(source, /const ACTION_SHEET_OPEN_SHEET_DURATION_MS = 50/);
@@ -278,11 +278,28 @@ test('global action sheet actions use the immediate fast press path', () => {
   assert.match(source, /const shouldRenderInlineActions =[\s\S]*!activeSearchable[\s\S]*filteredActions\.length <= ACTION_SHEET_INLINE_ACTION_LIMIT[\s\S]*estimatedActionsHeight <= actionsMaxHeight/);
   assert.match(source, /const inlineActionRows = useMemo/);
   assert.match(source, /shouldRenderInlineActions \? \(/);
-  assert.match(source, /if \(isFast\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);[\s\S]*return;/);
-  assert.match(source, /if \(activeInstantOpen\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);/);
+  assert.match(source, /const isFast = mode === 'fast'/);
+  assert.match(source, /duration: isFast \? 60 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS/);
+  assert.match(source, /duration: isFast \? 80 : ACTION_SHEET_OPEN_SHEET_DURATION_MS/);
+  assert.match(source, /if \(activeInstantOpen\) \{[\s\S]*sheetTranslateY\.setValue\(80\);/);
   assert.match(source, /const ACTION_SHEET_CLOSE_OVERLAY_DURATION_MS = 50/);
   assert.match(source, /const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50/);
-  assert.match(source, /onPress=\{action\.disabled \? undefined : \(\) => handleActionPress\(action\.onPress\)\}/);
+  assert.match(source, /const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10/);
+  assert.match(source, /type ActionSheetPressGesture = \{[\s\S]*start: ActionSheetPressPoint \| null;[\s\S]*cancelled: boolean;[\s\S]*\}/);
+  assert.match(source, /const actionPressGestureRef = useRef<ActionSheetPressGesture>\(\{[\s\S]*start: null,[\s\S]*cancelled: false,[\s\S]*\}\)/);
+  assert.match(source, /const recordActionRowPressStart = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*start: getActionSheetPressPoint\(event\),[\s\S]*cancelled: false/);
+  assert.match(source, /const cancelActionRowPressForScroll = useCallback\(\(\) => \{[\s\S]*cancelled: true/);
+  assert.match(source, /const recordActionRowPressMove = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*hasActionSheetPressMovedBeyondThreshold\(gesture\.start, getActionSheetPressPoint\(event\)\)[\s\S]*cancelled: true/);
+  assert.match(source, /const handleActionRowPress = useCallback\(\(actionPress\?: \(\) => void\) => \{[\s\S]*if \(gesture\.cancelled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*handleActionPress\(actionPress\)/);
+  assert.match(source, /onPressIn=\{recordActionRowPressStart\}/);
+  assert.match(source, /onTouchMove=\{recordActionRowPressMove\}/);
+  assert.match(source, /onPress=\{action\.disabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
+  assert.match(source, /onScrollBeginDrag=\{cancelActionRowPressForScroll\}/);
+  assert.match(source, /onMomentumScrollBegin=\{cancelActionRowPressForScroll\}/);
+  const rowSourceStart = source.indexOf('const renderActionRow = useCallback');
+  const rowSourceEnd = source.indexOf('const renderAction = useCallback', rowSourceStart);
+  const rowSource = source.slice(rowSourceStart, rowSourceEnd);
+  assert.doesNotMatch(rowSource, /activateOnPressIn/);
   assert.match(source, /latencyLabel="actionSheet\.cancel"/);
   assert.match(source, /latencyLabel="actionSheet\.dismissOverlay"/);
   assert.match(source, /style=\{\[StyleSheet\.absoluteFillObject, styles\.backdrop\]\}/);
@@ -401,12 +418,35 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
   assert.match(brokersSource, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(brokersSource, /pointerEvents="box-none"/);
+  assert.match(brokersSource, /const BROKER_ROW_PRESS_CANCEL_MOVE_PX = 14/);
+  assert.match(brokersSource, /type BrokerPressGesture = \{[\s\S]*start: BrokerPressPoint \| null;[\s\S]*handled: boolean;[\s\S]*cancelled: boolean;[\s\S]*\}/);
+  assert.match(brokersSource, /const brokerPressGestureRef = useRef<BrokerPressGesture>\(\{[\s\S]*start: null,[\s\S]*handled: false,[\s\S]*cancelled: false,[\s\S]*\}\)/);
+  assert.match(brokersSource, /function hasBrokerPressMovedBeyondThreshold\(start: BrokerPressPoint, end: BrokerPressPoint\)[\s\S]*BROKER_ROW_PRESS_CANCEL_MOVE_PX \* BROKER_ROW_PRESS_CANCEL_MOVE_PX/);
+  assert.match(brokersSource, /const recordBrokerRowPressStart = \(event: GestureResponderEvent\) => \{[\s\S]*start: getBrokerPressPoint\(event\),[\s\S]*handled: false,[\s\S]*cancelled: false/);
+  assert.match(brokersSource, /const cancelBrokerRowPressForScroll = \(\) => \{[\s\S]*cancelled: true/);
+  assert.match(brokersSource, /const recordBrokerRowPressMove = \(event: GestureResponderEvent\) => \{[\s\S]*hasBrokerPressMovedBeyondThreshold\(gesture\.start, current\)[\s\S]*cancelBrokerRowPressForScroll\(\)/);
+  assert.match(brokersSource, /const handleBrokerRowPress = \(broker: BrokerRow, event: GestureResponderEvent\) => \{[\s\S]*shouldIgnoreBrokerRowPress\(event\)[\s\S]*handleSelectBroker\(broker\)/);
+  assert.match(brokersSource, /onScrollBeginDrag=\{cancelBrokerRowPressForScroll\}/);
+  assert.match(brokersSource, /onMomentumScrollBegin=\{cancelBrokerRowPressForScroll\}/);
+  const brokerRowsStart = brokersSource.indexOf('renderItem={({ item }) => (');
+  const brokerRowsEnd = brokersSource.indexOf('ListEmptyComponent=', brokerRowsStart);
+  assert.notEqual(brokerRowsStart, -1);
+  assert.notEqual(brokerRowsEnd, -1);
+  const brokerRowsSource = brokersSource.slice(brokerRowsStart, brokerRowsEnd);
+  assert.equal((brokerRowsSource.match(/onPressIn=\{recordBrokerRowPressStart\}/g) ?? []).length, 1);
+  assert.equal((brokerRowsSource.match(/onTouchMove=\{recordBrokerRowPressMove\}/g) ?? []).length, 1);
+  assert.equal((brokerRowsSource.match(/onPress=\{\(event\) => handleBrokerRowPress\(item, event\)\}/g) ?? []).length, 1);
+  assert.doesNotMatch(brokerRowsSource, /onPress=\{\(\) => handleSelectBroker\(item\)\}/);
+  assert.match(brokerRowsSource, /latencyLabel=\{`brokers\.row\.\$\{item\.brokerId\}`\}/);
+  assert.match(brokerRowsSource, /<View[\s\S]*style=\{styles\.selectBtn\}[\s\S]*pointerEvents="none"[\s\S]*<Ionicons name="chevron-forward"/);
+  assert.doesNotMatch(brokerRowsSource, /latencyLabel=\{`brokers\.info\.\$\{item\.brokerId\}`\}/);
+  assert.doesNotMatch(brokerRowsSource, /activateOnPressIn|activateOnTouchStart/);
   assert.doesNotMatch(brokersSource, /traceUiInteraction/);
   assert.match(brokerDetailSource, /paddingLeft: 16/);
   assert.match(brokerDetailSource, /gap: 8/);
   // Accent buttons accept either the theme token (T.accent) or the brand
   // blue (#2563EB) so the global color refresh doesn't break the contract.
-  const accentColorPattern = `(?:T\\.accent|['"]#2563EB['"])`;
+  const accentColorPattern = `(?:T\\.accent|primaryBlue|['"]#2563EB['"])`;
   assert.match(registerSource, new RegExp(`registerBtn: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}[\\s\\S]*shadowColor: ${accentColorPattern}`));
   assert.match(brokerDetailSource, new RegExp(`optionIconDemo: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));
   assert.match(brokerDetailSource, new RegExp(`optionIconReal: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}`));

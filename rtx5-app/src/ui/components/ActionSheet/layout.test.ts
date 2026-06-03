@@ -190,11 +190,11 @@ test('android instant action sheets animate in-tree without modal geometry settl
 
   assert.match(
     source,
-    /instantOpen = true/,
+    /activeConfig\.instantOpen \?\? true/,
   );
   assert.match(
     source,
-    /Start from the visible window height/,
+    /instant sheets start from the visible window/,
   );
   assert.match(
     source,
@@ -206,11 +206,19 @@ test('android instant action sheets animate in-tree without modal geometry settl
   );
   assert.match(
     source,
-    /if \(isFast\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);[\s\S]*return;/,
+    /const isFast = mode === 'fast'/,
   );
   assert.match(
     source,
-    /if \(activeInstantOpen\) \{[\s\S]*overlayOpacity\.setValue\(1\);[\s\S]*sheetTranslateY\.setValue\(0\);/,
+    /duration: isFast \? 60 : ACTION_SHEET_OPEN_OVERLAY_DURATION_MS/,
+  );
+  assert.match(
+    source,
+    /duration: isFast \? 80 : ACTION_SHEET_OPEN_SHEET_DURATION_MS/,
+  );
+  assert.match(
+    source,
+    /if \(activeInstantOpen\) \{[\s\S]*sheetTranslateY\.setValue\(80\);/,
   );
   assert.match(
     source,
@@ -236,6 +244,36 @@ test('android instant action sheets animate in-tree without modal geometry settl
   assert.doesNotMatch(source, /canPaintSheet/);
   assert.doesNotMatch(source, /shouldHideSheetForInitialLayout/);
   assert.doesNotMatch(source, /instantLayoutReady/);
+});
+
+test('android searchable sheets clamp to live overlay height during keyboard focus', () => {
+  const source = readActionSheetSource();
+
+  assert.match(source, /useWindowDimensions/);
+  assert.match(source, /const \[currentOverlayHeight, setCurrentOverlayHeight\] = useState\(initialMeasuredHeight\)/);
+  assert.match(source, /const \[keyboardHeight, setKeyboardHeight\] = useState\(0\)/);
+  assert.match(source, /const androidSearchableSheet = Platform\.OS === 'android' && activeSearchable/);
+  assert.match(
+    source,
+    /const overlayKeyboardLift = androidSearchableSheet[\s\S]*measuredHeight - \(currentOverlayHeight \|\| measuredHeight\)/,
+  );
+  assert.match(
+    source,
+    /const windowKeyboardLift = androidSearchableSheet[\s\S]*measuredHeight - \(windowHeight \|\| measuredHeight\)/,
+  );
+  assert.match(source, /const eventKeyboardLift = androidSearchableSheet[\s\S]*Math\.max\(0, keyboardHeight\)/);
+  assert.match(source, /const resizeKeyboardLift = Math\.max\(overlayKeyboardLift, windowKeyboardLift\)/);
+  assert.match(source, /const effectiveKeyboardLift = Math\.max\(resizeKeyboardLift, eventKeyboardLift\)/);
+  assert.match(source, /const unhandledKeyboardLift = Math\.max\(0, eventKeyboardLift - resizeKeyboardLift\)/);
+  assert.match(
+    source,
+    /const measuredVisibleHeight = androidSearchableSheet[\s\S]*measuredHeight - effectiveKeyboardLift/,
+  );
+  assert.match(source, /const bottomSpacerHeight = bottomInset \+ unhandledKeyboardLift/);
+  assert.match(source, /setCurrentOverlayHeight\(h\)/);
+  assert.match(source, /const availableWindowHeight = Math\.max\(260, measuredVisibleHeight\)/);
+  assert.match(source, /height: bottomSpacerHeight/);
+  assert.doesNotMatch(source, /height: bottomInset \+ keyboardLift/);
 });
 
 test('backdrop ignores the opening tap that created the action sheet', () => {

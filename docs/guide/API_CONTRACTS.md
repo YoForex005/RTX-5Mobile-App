@@ -178,7 +178,7 @@ export type OrrnnDemoAccountRequest = {
   master_pass: string;
   investor_pass: string;
   first_name: string;
-  last_name: string;
+  last_name?: string; // optional; blank values are omitted before POST
   phone?: string;
   country?: string;
   currency?: string;
