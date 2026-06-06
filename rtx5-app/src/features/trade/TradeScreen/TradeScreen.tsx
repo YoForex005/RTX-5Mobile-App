@@ -159,11 +159,10 @@ export function TradeScreen() {
           { label: t('Modify position'), onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
           { label: t('Trade'), onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
           { label: t('Chart'), onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
-          { label: t('Bulk Operations...'), onPress: () => requestAnimationFrame(showBulkSheet) },
         ],
       }),
     );
-  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, showBulkSheet, t]);
+  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
 
   const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (
     <TradePositionRow

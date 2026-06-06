@@ -35,6 +35,7 @@ const withNetworkSecurityConfig = (config) => {
       // includes one HTTP-only broker backend, so allow cleartext only for
       // that explicit host instead of weakening the whole app.
       const productionXml = `<?xml version="1.0" encoding="utf-8"?>
+<!-- Network security config for Android production builds. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">

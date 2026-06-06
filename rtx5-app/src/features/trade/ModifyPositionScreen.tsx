@@ -43,9 +43,9 @@ import {
 function formatModifyPrice(val: number) {
   const str = val.toFixed(2);
   // Splitting off the exact last two digits that the user circled
-  return { 
-    main: str.slice(0, -2), 
-    huge: str.slice(-2) 
+  return {
+    main: str.slice(0, -2),
+    huge: str.slice(-2)
   };
 }
 
@@ -76,6 +76,7 @@ export function ModifyPositionScreen() {
   const [takeProfit, setTakeProfit] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
   const resolvedLogin = resolveTradingLoginString();
 
   // Fetch position if not natively loaded in cache (e.g. direct deep link or cold start)
@@ -88,7 +89,7 @@ export function ModifyPositionScreen() {
   // Tick History State for Chart
   const latestTick = useLiveTick(position?.symbol || 'EURUSD', undefined, isScreenFocused);
   const latestClose = latestTick?.close || position?.currentPrice || 0;
-  
+
   const isJpy = position?.symbol.includes('JPY') ?? false;
   // Fallbacks if bid/ask not provided directly
   const { candles } = useLiveCandles(position?.symbol || '', '1', isScreenFocused); // Fetch REAL 1M histories!
@@ -109,21 +110,21 @@ export function ModifyPositionScreen() {
         const slice = candles.slice(-40);
         const spread = ASK - BID;
         const histPath = slice.map(c => ({ bid: c.close, ask: c.close + spread }));
-        
+
         // Pad to ensure full chart width if we don't have exactly 40 minutes of history yet
         while (histPath.length < 40) {
           histPath.unshift({ bid: histPath[0].bid, ask: histPath[0].ask });
         }
-        
+
         // Ensure the absolute final active tick is precisely the live, sub-minute WebSocket tick!
         histPath[histPath.length - 1] = { bid: BID, ask: ASK };
-        
+
         setTicks(histPath);
       } else {
         // Fallback tick accumulator if history hasn't loaded yet
         setTicks((prev) => {
           if (prev.length === 0) return Array(40).fill({ bid: BID, ask: ASK });
-          
+
           const next = [...prev, { bid: BID, ask: ASK }];
           if (next.length > 40) next.shift();
           return next;
@@ -139,8 +140,7 @@ export function ModifyPositionScreen() {
     setTakeProfit(position.tp && position.tp > 0 ? position.tp : null);
   }, [position?.id, position?.sl, position?.tp]);
 
-  // Chart Layout State (MUST be before any early returns!)
-  const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
+
   const screenHeight = Dimensions.get('window').height;
   const sheetMaxHeight = Math.max(360, screenHeight - Math.max(insets.top, 16) - 12);
   const sheetMinHeight = Math.min(sheetMaxHeight, Math.max(280, screenHeight * 0.34));
@@ -223,8 +223,8 @@ export function ModifyPositionScreen() {
       const livePrice = position.side === 'buy' ? BID : ASK;
       let base = prev;
       if (!base) {
-         // Auto offset properly based on side
-         base = position.side === 'buy' ? livePrice - (pipSize * 100) : livePrice + (pipSize * 100);
+        // Auto offset properly based on side
+        base = position.side === 'buy' ? livePrice - (pipSize * 100) : livePrice + (pipSize * 100);
       }
       const val = (base as number) + delta;
       return parseFloat(val.toFixed(decimals));
@@ -237,8 +237,8 @@ export function ModifyPositionScreen() {
       const livePrice = position.side === 'buy' ? BID : ASK;
       let base = prev;
       if (!base) {
-         // Auto offset properly based on side
-         base = position.side === 'buy' ? livePrice + (pipSize * 100) : livePrice - (pipSize * 100);
+        // Auto offset properly based on side
+        base = position.side === 'buy' ? livePrice + (pipSize * 100) : livePrice - (pipSize * 100);
       }
       const val = (base as number) + delta;
       return parseFloat(val.toFixed(decimals));
@@ -357,7 +357,7 @@ export function ModifyPositionScreen() {
   // Chart Rendering calculations
   const w = chartLayout.width;
   const h = chartLayout.height;
-  
+
   // Find min and max values to dynamically scale tick chart
   let minPrice = Math.min(BID, ASK);
   let maxPrice = Math.max(BID, ASK);
@@ -365,7 +365,7 @@ export function ModifyPositionScreen() {
     minPrice = Math.min(minPrice, t.bid, t.ask);
     maxPrice = Math.max(maxPrice, t.bid, t.ask);
   });
-  
+
   // Stretch bounds gently so active stop constraints visibly sit on the chart
   if (stopLoss) {
     minPrice = Math.min(minPrice, stopLoss);
@@ -375,7 +375,7 @@ export function ModifyPositionScreen() {
     minPrice = Math.min(minPrice, takeProfit);
     maxPrice = Math.max(maxPrice, takeProfit);
   }
-  
+
   // padding
   const padding = (maxPrice - minPrice) * 0.2;
   const chartMin = minPrice - padding;
@@ -390,7 +390,7 @@ export function ModifyPositionScreen() {
   const xPos = (idx: number, total: number) => {
     if (w === 0 || total <= 1) return 0;
     // Map points across width minus 50 right padding for labels
-    return (idx / (total - 1)) * (w - 70); 
+    return (idx / (total - 1)) * (w - 70);
   };
 
   let bidPath = '';
@@ -398,7 +398,7 @@ export function ModifyPositionScreen() {
   if (ticks.length > 0 && w > 0 && h > 0) {
     bidPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.bid)}`).join(' ');
     askPath = ticks.map((t, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i, ticks.length)} ${yPos(t.ask)}`).join(' ');
-    
+
     // Mathematically anchor the end of the history path directly to the live nanosecond Bid/Ask box coordinates
     // This perfectly closes the frame gap and guarantees the stroke touches the bounding box!
     bidPath += ` L ${w - 60} ${yPos(BID)}`;
@@ -455,259 +455,258 @@ export function ModifyPositionScreen() {
           </GestureDetector>
 
           <ScrollView
-            canCancelContentTouches={Platform.OS === 'ios'}
-            style={styles.scrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              { paddingBottom: Math.max(insets.bottom, 20) + 8 },
-            ]}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="always"
-            bounces={false}
-            alwaysBounceVertical={false}
-            overScrollMode="never"
-            contentInsetAdjustmentBehavior="never"
-          >
-
-      {/* Big Prices */}
-      <View style={styles.priceHero}>
-        <View style={styles.priceCard}>
-          <Text style={styles.priceLabel}>BID</Text>
-          <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
-            {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
-          </Text>
-        </View>
-        <View style={styles.priceCardDivider} />
-        <View style={styles.priceCard}>
-          <Text style={styles.priceLabel}>ASK</Text>
-          <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
-            {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
-          </Text>
-        </View>
-      </View>
-
-      {/* SL / TP Adjusters — enterprise premium card design */}
-      {(() => {
-        const PRESET_PIPS = [10, 25, 50, 100];
-        const SL_COLOR = isDark ? '#22D3EE' : '#06B6D4';
-        const TP_COLOR = '#22C55E';
-        const contractSize = isJpy ? 1000 : 100000;
-        const lots = position.volume || 0;
-
-        const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
-          if (!target) return null;
-          const distance = Math.abs(target - position.openPrice);
-          const pips = Math.round(distance / pipSize);
-          const usd = distance * contractSize * lots;
-          const sign = kind === 'sl' ? '−' : '+';
-          return { pips, usd, sign };
-        };
-        const slImpact = computeImpact(stopLoss, 'sl');
-        const tpImpact = computeImpact(takeProfit, 'tp');
-
-        const splitPrice = (val: number | null) => {
-          if (val === null) return { main: '—', huge: '' };
-          const str = val.toFixed(decimals);
-          return { main: str.slice(0, -2), huge: str.slice(-2) };
-        };
-        const slParts = splitPrice(stopLoss);
-        const tpParts = splitPrice(takeProfit);
-
-        const renderCard = (
-          kind: 'sl' | 'tp',
-          color: string,
-          title: string,
-          parts: { main: string; huge: string },
-          impact: { pips: number; usd: number; sign: string } | null,
-          onStep: (delta: number) => void,
-          onChangeText: (text: string) => void,
-          onClear: () => void,
-          rawValue: number | null,
-        ) => (
-          <View style={[styles.stepperCard, { borderColor: T.border }]}>
-            <View style={[styles.stepperAccent, { backgroundColor: color }]} />
-
-            {/* Header */}
-            <View style={styles.stepperHead}>
-              <View style={styles.stepperHeadLeft}>
-                <View style={[styles.stepperBadge, { backgroundColor: color }]}>
-                  <Text style={styles.stepperBadgeText}>{kind.toUpperCase()}</Text>
-                </View>
-                <Text style={styles.stepperLabel}>{title}</Text>
-              </View>
-              {rawValue !== null ? (
-                <Pressable onPress={onClear} hitSlop={10} style={styles.stepperClear}>
-                  <Ionicons name="close-circle" size={16} color={T.textMuted} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            {/* Hero Price Row */}
-            <View style={styles.stepperPriceRow}>
-              <Pressable onPress={() => onStep(-pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
-                <Ionicons name="remove" size={18} color={color} />
-              </Pressable>
-
-              <View style={styles.stepperPriceWrap}>
-                {rawValue !== null ? (
-                  <Text style={styles.stepperPriceMain} numberOfLines={1} adjustsFontSizeToFit>
-                    {parts.main}
-                    <Text style={[styles.stepperPriceHuge, { color }]}>{parts.huge}</Text>
-                  </Text>
-                ) : (
-                  <Text style={styles.stepperPriceEmpty}>Not set</Text>
-                )}
-                <TextInput
-                  style={styles.stepperHiddenInput}
-                  keyboardType="numeric"
-                  value={rawValue !== null ? rawValue.toString() : ''}
-                  onChangeText={onChangeText}
-                  placeholder="0"
-                  placeholderTextColor="transparent"
-                />
-              </View>
-
-              <Pressable onPress={() => onStep(pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
-                <Ionicons name="add" size={18} color={color} />
-              </Pressable>
-            </View>
-
-            {/* Quick preset chips */}
-            <View style={styles.stepperChipRow}>
-              {PRESET_PIPS.map((p) => (
-                <Pressable
-                  key={p}
-                  onPress={() => onStep(pipSize * p * (kind === 'sl' ? -1 : 1))}
-                  style={[styles.stepperChip, { borderColor: T.border }]}
-                  hitSlop={6}
-                >
-                  <Text style={[styles.stepperChipText, { color }]}>
-                    {kind === 'sl' ? '−' : '+'}{p}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Footer: pip distance + $ impact */}
-            <View style={styles.stepperFootRow}>
-              <Text style={styles.stepperFootLabel}>Distance</Text>
-              <Text style={[styles.stepperFootValue, impact && { color: T.text }]}>
-                {impact ? `${impact.pips} pts` : '—'}
-              </Text>
-            </View>
-            <View style={styles.stepperFootRow}>
-              <Text style={styles.stepperFootLabel}>Est. {kind === 'sl' ? 'Loss' : 'Profit'}</Text>
-              <Text style={[styles.stepperFootValue, impact && { color }]}>
-                {impact ? `${impact.sign}$${impact.usd.toFixed(2)}` : '—'}
-              </Text>
-            </View>
-          </View>
-        );
-
-        return (
-          <View style={styles.stepperRow}>
-            {renderCard('sl', SL_COLOR, 'Stop Loss', slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
-            {renderCard('tp', TP_COLOR, 'Take Profit', tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
-          </View>
-        );
-      })()}
-
-      {/* SVG Tick Chart Area */}
-      <View 
-        style={[styles.chartContainer, { height: chartHeight }]} 
-        onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+        canCancelContentTouches={Platform.OS === 'ios'}
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 20) + 8 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+        bounces={false}
+        alwaysBounceVertical={false}
+        overScrollMode="never"
+        contentInsetAdjustmentBehavior="never"
       >
-        {w > 0 && h > 0 && (
-          <Svg width={w} height={h}>
-            {/* Horizontal Grid lines */}
-            <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
-            <Line x1="0" y1={yPos((maxPrice + minPrice) / 2)} x2={w} y2={yPos((maxPrice + minPrice) / 2)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
-            <Line x1="0" y1={yPos(minPrice)} x2={w} y2={yPos(minPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
 
-            {/* Historical Point Paths (The actual Signal) */}
-            {bidPath ? <Path d={bidPath} stroke={T.trading.buy.primary} strokeWidth="1.5" fill="none" /> : null}
-            {askPath ? <Path d={askPath} stroke={T.trading.sell.primary} strokeWidth="1.5" fill="none" /> : null}
-
-            {/* Stop Loss & Take Profit Visual Overlays */}
-            {stopLoss ? (
-              <G>
-                <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={isDark ? '#22D3EE' : '#06B6D4'} strokeDasharray="6 6" strokeWidth="1" />
-                <G x={w - 60} y={yPos(stopLoss) - 10}>
-                  <Rect width={60} height={20} fill={isDark ? '#22D3EE' : '#06B6D4'} />
-                  <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
-                    SL
-                  </SvgText>
-                </G>
-              </G>
-            ) : null}
-
-            {takeProfit ? (
-              <G>
-                <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke="#388E3C" strokeDasharray="6 6" strokeWidth="1" />
-                <G x={w - 60} y={yPos(takeProfit) - 10}>
-                  <Rect width={60} height={20} fill="#388E3C" />
-                  <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
-                    TP
-                  </SvgText>
-                </G>
-              </G>
-            ) : null}
-
-            {/* Active Live Price Lines */}
-            <Line x1="0" y1={yPos(ASK)} x2={w - 60} y2={yPos(ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
-            <Line x1="0" y1={yPos(BID)} x2={w - 60} y2={yPos(BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
-
-            {/* Price Tags on Right Axis */}
-            <G x={w - 60} y={yPos(ASK) - 10}>
-              <Rect width={60} height={20} fill={T.trading.sell.primary} />
-              <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
-                {ASK.toFixed(decimals)}
-              </SvgText>
-            </G>
-            
-            <G x={w - 60} y={yPos(BID) - 10}>
-              <Rect width={60} height={20} fill={T.trading.buy.primary} />
-              <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
-                {BID.toFixed(decimals)}
-              </SvgText>
-            </G>
-          </Svg>
-        )}
-      </View>
-
-      {/* Footer / Controls */}
-      <View style={styles.footer}>
-        <View style={styles.disclaimerBox}>
-          <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
-          <Text style={styles.disclaimer}>
-            SL/TP must be at least 10 points away from the market price. Orders are executed by the broker.
-          </Text>
+        {/* Big Prices */}
+        <View style={styles.priceHero}>
+          <View style={styles.priceCard}>
+            <Text style={styles.priceLabel}>BID</Text>
+            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.sell.primary : T.trading.buy.primary }]}>
+              {bidFmt.main}<Text style={styles.priceHuge}>{bidFmt.huge}</Text>
+            </Text>
+          </View>
+          <View style={styles.priceCardDivider} />
+          <View style={styles.priceCard}>
+            <Text style={styles.priceLabel}>ASK</Text>
+            <Text style={[styles.priceNormal, { color: isBuy ? T.trading.buy.primary : T.trading.sell.primary }]}>
+              {askFmt.main}<Text style={styles.priceHuge}>{askFmt.huge}</Text>
+            </Text>
+          </View>
         </View>
-        
-        {submitMessage && (
-          <Text style={styles.validationText}>{submitMessage}</Text>
-        )}
-        {!submitMessage && !positionsApi && (
-          <Text style={styles.validationText}>No connection</Text>
-        )}
 
-        <Pressable 
-          style={({ pressed }) => [
-            styles.modifyBtn,
-            { backgroundColor: T.accent },
-            pressed && { opacity: 0.8 },
-            isSubmitting && { opacity: 0.5 }
-          ]}
-          disabled={isSubmitting}
-          onPress={handleModify}
+        {/* SL / TP Adjusters — enterprise premium card design */}
+        {(() => {
+          const PRESET_PIPS = [10, 25, 50, 100];
+          const SL_COLOR = isDark ? '#22D3EE' : '#06B6D4';
+          const TP_COLOR = '#22C55E';
+          const contractSize = isJpy ? 1000 : 100000;
+          const lots = position.volume || 0;
+
+          const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
+            if (!target) return null;
+            const distance = Math.abs(target - position.openPrice);
+            const pips = Math.round(distance / pipSize);
+            const usd = distance * contractSize * lots;
+            const sign = kind === 'sl' ? '−' : '+';
+            return { pips, usd, sign };
+          };
+          const slImpact = computeImpact(stopLoss, 'sl');
+          const tpImpact = computeImpact(takeProfit, 'tp');
+
+          const splitPrice = (val: number | null) => {
+            if (val === null) return { main: '—', huge: '' };
+            const str = val.toFixed(decimals);
+            return { main: str.slice(0, -2), huge: str.slice(-2) };
+          };
+          const slParts = splitPrice(stopLoss);
+          const tpParts = splitPrice(takeProfit);
+
+          const renderCard = (
+            kind: 'sl' | 'tp',
+            color: string,
+            title: string,
+            parts: { main: string; huge: string },
+            impact: { pips: number; usd: number; sign: string } | null,
+            onStep: (delta: number) => void,
+            onChangeText: (text: string) => void,
+            onClear: () => void,
+            rawValue: number | null,
+          ) => (
+            <View style={[styles.stepperCard, { borderColor: T.border }]}>
+              <View style={[styles.stepperAccent, { backgroundColor: color }]} />
+
+              {/* Header */}
+              <View style={styles.stepperHead}>
+                <View style={styles.stepperHeadLeft}>
+                  <View style={[styles.stepperBadge, { backgroundColor: color }]}>
+                    <Text style={styles.stepperBadgeText}>{kind.toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.stepperLabel}>{title}</Text>
+                </View>
+                {rawValue !== null ? (
+                  <Pressable onPress={onClear} hitSlop={10} style={styles.stepperClear}>
+                    <Ionicons name="close-circle" size={16} color={T.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {/* Hero Price Row */}
+              <View style={styles.stepperPriceRow}>
+                <Pressable onPress={() => onStep(-pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                  <Ionicons name="remove" size={18} color={color} />
+                </Pressable>
+
+                <View style={styles.stepperPriceWrap}>
+                  {rawValue !== null ? (
+                    <Text style={styles.stepperPriceMain} numberOfLines={1} adjustsFontSizeToFit>
+                      {parts.main}
+                      <Text style={[styles.stepperPriceHuge, { color }]}>{parts.huge}</Text>
+                    </Text>
+                  ) : (
+                    <Text style={styles.stepperPriceEmpty}>Not set</Text>
+                  )}
+                  <TextInput
+                    style={styles.stepperHiddenInput}
+                    keyboardType="numeric"
+                    value={rawValue !== null ? rawValue.toString() : ''}
+                    onChangeText={onChangeText}
+                    placeholder="0"
+                    placeholderTextColor="transparent"
+                  />
+                </View>
+
+                <Pressable onPress={() => onStep(pipSize * 10)} hitSlop={12} style={[styles.stepperSquareBtn, { borderColor: T.border }]}>
+                  <Ionicons name="add" size={18} color={color} />
+                </Pressable>
+              </View>
+
+              {/* Quick preset chips */}
+              <View style={styles.stepperChipRow}>
+                {PRESET_PIPS.map((p) => (
+                  <Pressable
+                    key={p}
+                    onPress={() => onStep(pipSize * p * (kind === 'sl' ? -1 : 1))}
+                    style={[styles.stepperChip, { borderColor: T.border }]}
+                    hitSlop={6}
+                  >
+                    <Text style={[styles.stepperChipText, { color }]}>
+                      {kind === 'sl' ? '−' : '+'}{p}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Footer: pip distance + $ impact */}
+              <View style={styles.stepperFootRow}>
+                <Text style={styles.stepperFootLabel}>Distance</Text>
+                <Text style={[styles.stepperFootValue, impact && { color: T.text }]}>
+                  {impact ? `${impact.pips} pts` : '—'}
+                </Text>
+              </View>
+              <View style={styles.stepperFootRow}>
+                <Text style={styles.stepperFootLabel}>Est. {kind === 'sl' ? 'Loss' : 'Profit'}</Text>
+                <Text style={[styles.stepperFootValue, impact && { color }]}>
+                  {impact ? `${impact.sign}$${impact.usd.toFixed(2)}` : '—'}
+                </Text>
+              </View>
+            </View>
+          );
+
+          return (
+            <View style={styles.stepperRow}>
+              {renderCard('sl', SL_COLOR, 'Stop Loss', slParts, slImpact, handleStepSl, handleSlChange, () => setStopLoss(null), stopLoss)}
+              {renderCard('tp', TP_COLOR, 'Take Profit', tpParts, tpImpact, handleStepTp, handleTpChange, () => setTakeProfit(null), takeProfit)}
+            </View>
+          );
+        })()}
+
+        {/* SVG Tick Chart Area */}
+        <View
+          style={[styles.chartContainer, { height: chartHeight }]}
+          onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
         >
-          {isSubmitting ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.modifyText}>MODIFY POSITION</Text>
+          {w > 0 && h > 0 && (
+            <Svg width={w} height={h}>
+              {/* Horizontal Grid lines */}
+              <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+              <Line x1="0" y1={yPos((maxPrice + minPrice) / 2)} x2={w} y2={yPos((maxPrice + minPrice) / 2)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+              <Line x1="0" y1={yPos(minPrice)} x2={w} y2={yPos(minPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
+
+              {/* Historical Point Paths (The actual Signal) */}
+              {bidPath ? <Path d={bidPath} stroke={T.trading.buy.primary} strokeWidth="1.5" fill="none" /> : null}
+              {askPath ? <Path d={askPath} stroke={T.trading.sell.primary} strokeWidth="1.5" fill="none" /> : null}
+
+              {/* Stop Loss & Take Profit Visual Overlays */}
+              {stopLoss ? (
+                <G>
+                  <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={isDark ? '#22D3EE' : '#06B6D4'} strokeDasharray="6 6" strokeWidth="1" />
+                  <G x={w - 60} y={yPos(stopLoss) - 10}>
+                    <Rect width={60} height={20} fill={isDark ? '#22D3EE' : '#06B6D4'} />
+                    <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                      SL
+                    </SvgText>
+                  </G>
+                </G>
+              ) : null}
+
+              {takeProfit ? (
+                <G>
+                  <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke="#388E3C" strokeDasharray="6 6" strokeWidth="1" />
+                  <G x={w - 60} y={yPos(takeProfit) - 10}>
+                    <Rect width={60} height={20} fill="#388E3C" />
+                    <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
+                      TP
+                    </SvgText>
+                  </G>
+                </G>
+              ) : null}
+
+              {/* Active Live Price Lines */}
+              <Line x1="0" y1={yPos(ASK)} x2={w - 60} y2={yPos(ASK)} stroke={T.trading.sell.primary} strokeWidth="1" />
+              <Line x1="0" y1={yPos(BID)} x2={w - 60} y2={yPos(BID)} stroke={T.trading.buy.primary} strokeWidth="1" />
+
+              {/* Price Tags on Right Axis */}
+              <G x={w - 60} y={yPos(ASK) - 10}>
+                <Rect width={60} height={20} fill={T.trading.sell.primary} />
+                <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+                  {ASK.toFixed(decimals)}
+                </SvgText>
+              </G>
+
+              <G x={w - 60} y={yPos(BID) - 10}>
+                <Rect width={60} height={20} fill={T.trading.buy.primary} />
+                <SvgText x={30} y={14} fill="#FFF" fontSize="11" fontWeight="bold" textAnchor="middle">
+                  {BID.toFixed(decimals)}
+                </SvgText>
+              </G>
+            </Svg>
           )}
-        </Pressable>
-      </View>
+        </View>
+
+        {/* Footer / Controls */}
+        <View style={styles.footer}>
+          <View style={styles.disclaimerBox}>
+            <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
+            <Text style={styles.disclaimer}>
+              SL/TP must be at least 10 points away from the market price. Orders are executed by the broker.
+            </Text>
+          </View>
+
+          {submitMessage && (
+            <Text style={styles.validationText}>{submitMessage}</Text>
+          )}
+          {!submitMessage && !positionsApi && (
+            <Text style={styles.validationText}>No connection</Text>
+          )}
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.modifyBtn,
+              pressed && { opacity: 0.8 },
+              isSubmitting && { opacity: 0.5 }
+            ]}
+            disabled={isSubmitting}
+            onPress={handleModify}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text style={styles.modifyText}>MODIFY POSITION</Text>
+            )}
+          </Pressable>
+        </View>
           </ScrollView>
         </View>
       </Animated.View>
@@ -756,6 +755,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     width: 42,
     height: 4,
     borderRadius: 999,
+  },
+  screen: {
+    flex: 1,
+    backgroundColor: isDark ? '#06080D' : '#FFFFFF',
   },
   loaderWrap: {
     flex: 1,
@@ -1085,11 +1088,12 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
-    shadowColor: isDark ? '#22D3EE' : '#0F172A',
+    backgroundColor: '#2563EB',
+    shadowColor: '#2563EB',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 6,
   },
   modifyText: {
     color: '#FFF',

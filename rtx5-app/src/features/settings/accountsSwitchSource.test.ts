@@ -65,6 +65,45 @@ test('saved account switch removes stale entries when the broker reports a missi
   );
 });
 
+test('accounts screen uses broker branding and opens long-press delete for other accounts', () => {
+  const source = readSource('src/features/settings/AccountsScreen.tsx');
+
+  assert.doesNotMatch(source, /AppLogo/);
+  assert.match(source, /import \{ ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, View \} from 'react-native'/);
+  assert.match(source, /const activeBrokerLogoUrl = brokerConfig\?\.logo_url \|\| brokerLogoUrl \|\| ''/);
+  assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*\? activeBrokerLogoUrl \|\| sa\.logoUrl \|\| ''[\s\S]*: sa\.logoUrl \|\| ''/);
+  assert.match(source, /function BrokerLogoAvatar\(/);
+  assert.match(source, /source=\{\{ uri: logoUri \}\}/);
+
+  const activeCardStart = source.indexOf('{/* Top: Avatar + Name + Connected badge */}');
+  const activeCardEnd = source.indexOf('{/* Balance', activeCardStart);
+  const activeCard = source.slice(activeCardStart, activeCardEnd);
+  assert.match(activeCard, /<BrokerLogoAvatar[\s\S]*logoUri=\{activeBrokerLogoUrl\}/);
+
+  const otherRowStart = source.indexOf('{otherRows.map((row) => {');
+  const otherRowEnd = source.indexOf('{isExpanded && (', otherRowStart);
+  const otherRow = source.slice(otherRowStart, otherRowEnd);
+  assert.match(otherRow, /<BrokerLogoAvatar[\s\S]*logoUri=\{row\.logoUrl\}/);
+  assert.match(otherRow, /onLongPress=\{\(\) => openOtherAccountOptions\(row\)\}/);
+  assert.doesNotMatch(otherRow, /secondaryDeleteButton/);
+
+  const optionsStart = source.indexOf('const openOtherAccountOptions = (row: OtherAccountRow) => {');
+  const optionsEnd = source.indexOf('const openQRSheet = (loginId: string) => {', optionsStart);
+  const optionsBody = source.slice(optionsStart, optionsEnd);
+  assert.match(optionsBody, /showAccountsActionSheet\(\{/);
+  assert.match(optionsBody, /title,/);
+  assert.match(optionsBody, /\{ label: t\('Delete account'\), danger: true, onPress: \(\) => handleRemoveSavedAccount\(row\) \}/);
+
+  assert.match(source, /const handleRemoveSavedAccount = \(row: OtherAccountRow\) => \{\s*setDeleteTarget\(\{ type: 'saved', row \}\);/);
+  assert.match(source, /deleteTarget && \(/);
+  assert.match(source, /styles\.deleteHeaderRow/);
+  assert.match(source, /styles\.deleteHeaderLeft/);
+  assert.match(source, /styles\.deleteCloseButton/);
+  assert.match(source, /styles\.deleteAccountCard/);
+  assert.doesNotMatch(source, /styles\.deleteDeviceNote/);
+  assert.doesNotMatch(source, /Only this device is changed/);
+});
+
 test('auth login errors preserve HTTP status for account switch decisions', () => {
   const source = readSource('src/api/auth.ts');
 

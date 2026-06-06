@@ -1,6 +1,12 @@
 import type { Ionicons } from '@expo/vector-icons';
+import { DEFAULT_APP_LEGAL_LINKS } from '../../config/legalLinks';
 
-export type AboutActionId = 'rate-experience' | 'user-guide' | 'contact-developer';
+export type AboutActionId =
+  | 'rate-experience'
+  | 'user-guide'
+  | 'privacy-policy'
+  | 'account-deletion'
+  | 'contact-developer';
 
 export type AboutAction = {
   id: AboutActionId;
@@ -20,6 +26,7 @@ export type AboutExternalLinks = {
   iosAppStoreId?: string | null;
   iosSearchTerm: string;
   userGuideUrl: string;
+  termsUrl: string;
   privacyPolicyUrl: string;
   developerEmail: string;
 };
@@ -46,8 +53,9 @@ export const ABOUT_EXTERNAL_LINKS: AboutExternalLinks = {
   androidPackageName: 'com.rtx5.app',
   iosSearchTerm: 'RTX5',
   userGuideUrl: 'https://rtx5.app/user-guide',
-  privacyPolicyUrl: 'https://rtx5.app/privacy-policy',
-  developerEmail: 'support@rtx5.app',
+  termsUrl: DEFAULT_APP_LEGAL_LINKS.termsUrl,
+  privacyPolicyUrl: DEFAULT_APP_LEGAL_LINKS.privacyPolicyUrl,
+  developerEmail: DEFAULT_APP_LEGAL_LINKS.developerEmail,
 };
 
 export const ABOUT_ACTIONS: AboutAction[] = [
@@ -60,6 +68,16 @@ export const ABOUT_ACTIONS: AboutAction[] = [
     id: 'user-guide',
     title: 'User guide',
     icon: 'book-outline',
+  },
+  {
+    id: 'privacy-policy',
+    title: 'Privacy Policy',
+    icon: 'shield-checkmark-outline',
+  },
+  {
+    id: 'account-deletion',
+    title: 'Request Account Deletion',
+    icon: 'person-remove-outline',
   },
   {
     id: 'contact-developer',
@@ -88,6 +106,12 @@ export const ABOUT_CONTACT_CATEGORIES: AboutContactCategory[] = [
     icon: 'flash-outline',
   },
   {
+    id: 'account-deletion',
+    label: 'Account Deletion',
+    subtitle: 'Request deletion of your app account and related personal data.',
+    icon: 'person-remove-outline',
+  },
+  {
     id: 'other',
     label: 'Other',
     subtitle: 'Send another developer support request.',
@@ -109,22 +133,11 @@ export function formatAboutPlatform(platform: string): string {
 }
 
 export function resolveAboutBuildLabel({
-  platform,
   appVersion,
-  androidVersionCode,
-  iosBuildNumber,
 }: {
-  platform: string;
   appVersion: string;
-  androidVersionCode?: number | string | null;
-  iosBuildNumber?: number | string | null;
 }): string {
-  const nativeBuild = platform === 'android'
-    ? androidVersionCode
-    : platform === 'ios'
-      ? iosBuildNumber
-      : null;
-  const normalizedBuild = String(nativeBuild ?? '').trim() || appVersion.trim() || 'Local';
+  const normalizedBuild = appVersion.trim() || 'Local';
 
   return `Build ${normalizedBuild}`;
 }
@@ -164,6 +177,31 @@ export function getAboutStoreTarget(
     fallbackUrl: `https://apps.apple.com/us/search?term=${encodedSearchTerm}`,
     storeLabel: 'App store',
   };
+}
+
+export function getAboutContactCategory(categoryId: string): AboutContactCategory | null {
+  return ABOUT_CONTACT_CATEGORIES.find((category) => category.id === categoryId) ?? null;
+}
+
+export function buildAccountDeletionRequestMessage({
+  accountId,
+  server,
+}: {
+  accountId?: string | number | null;
+  server?: string | null;
+}): string {
+  const normalizedAccountId = String(accountId ?? '').trim() || 'Not provided';
+  const normalizedServer = server?.trim() || 'Not provided';
+
+  return [
+    'Please delete my RTX5 app account and related personal data.',
+    '',
+    'Account details:',
+    `Account login: ${normalizedAccountId}`,
+    `Server: ${normalizedServer}`,
+    '',
+    'I understand that some records may need to be retained where required by law or financial-service obligations.',
+  ].join('\n');
 }
 
 export function buildDeveloperMailto({

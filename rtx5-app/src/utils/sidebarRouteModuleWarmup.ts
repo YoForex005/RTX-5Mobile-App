@@ -13,8 +13,6 @@ const SIDEBAR_ROUTE_MODULE_LOADERS = [
   { key: 'settings/mailbox', load: () => import('../features/settings/MailboxScreen').then((module) => module.MailboxScreen) },
   { key: 'settings/journal', load: () => import('../features/settings/JournalScreen').then((module) => module.JournalScreen) },
   { key: 'settings/economic-calendar', load: () => import('../features/settings/EconomicCalendarScreen').then((module) => module.EconomicCalendarScreen) },
-  { key: 'settings/traders-community', load: () => import('../features/settings/TradersCommunityScreen').then((module) => module.TradersCommunityScreen) },
-  { key: 'settings/mql5-algo-trading', load: () => import('../features/settings/Mql5AlgoTradingScreen').then((module) => module.Mql5AlgoTradingScreen) },
   { key: 'settings/accounts', load: () => import('../features/settings/AccountsScreen').then((module) => module.AccountsScreen) },
   { key: 'settings/interface', load: () => import('../features/settings/InterfaceScreen').then((module) => module.InterfaceScreen) },
 ] as const;

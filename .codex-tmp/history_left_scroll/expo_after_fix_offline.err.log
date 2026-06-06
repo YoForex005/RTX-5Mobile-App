@@ -1,1 +1,0 @@
-CommandError: Specify at most one of: --offline, --host, --tunnel, --lan, --localhost

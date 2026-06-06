@@ -58,10 +58,12 @@ export class CandlesWebSocketService {
   }
 
   private resolveSocketUrl(): string {
-    return resolveCandlesWsUrl(
-      process.env.EXPO_PUBLIC_CANDLES_WS_URL,
-      useUserPreferences.getState().brokerServerUrl,
-    );
+    const configuredUrl = resolveCandlesWsUrl(process.env.EXPO_PUBLIC_CANDLES_WS_URL);
+    const hasConfiguredUrl = Boolean(process.env.EXPO_PUBLIC_CANDLES_WS_URL?.trim());
+    if (hasConfiguredUrl) {
+      return configuredUrl;
+    }
+    return resolveCandlesWsUrl(undefined, useUserPreferences.getState().brokerServerUrl);
   }
 
   /**
@@ -516,8 +518,10 @@ export class CandlesWebSocketService {
         const prev = prevState.accountDetails?.credentials?.accessToken ?? null;
         const nextServerUrl = state.brokerServerUrl;
         const prevServerUrl = prevState.brokerServerUrl;
-        if (next === prev && nextServerUrl === prevServerUrl) {
-          return;
+        if (next === prev) {
+          if (nextServerUrl === prevServerUrl) {
+            return;
+          }
         }
         this.anonymousFallbackToken = null;
         if (this.subscriptions.size === 0) {
@@ -526,7 +530,7 @@ export class CandlesWebSocketService {
         // Tear down and reconnect under the new token. `connect()` will
         // re-establish the socket, then `sendSubscriptions()` will re-subscribe
         // every active (symbol, timeframe) channel.
-        this.teardownSocket();
+        this.tearDownSocketSafe();
         this.clearReconnectTimer();
         this.reconnectAttempts = 0;
         this.connect();

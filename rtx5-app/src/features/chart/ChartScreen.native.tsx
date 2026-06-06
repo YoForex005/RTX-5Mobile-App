@@ -257,6 +257,7 @@ export function ChartScreen() {
     pathname.startsWith('/chart/') ||
     pathname === '/(tabs)/chart' ||
     pathname.startsWith('/(tabs)/chart/');
+  const isScreenFocused = isChartRouteActive;
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
   const chartSurfaceReady = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
   // Derive login reactively from Zustand so the positions fetch re-triggers
@@ -2262,7 +2263,12 @@ export function ChartScreen() {
     Platform.OS === 'android' &&
     showChartTradeSheet &&
     (chartTradeCommentFocused || footerLotEditorFocused || keyboardVisibleHeight > 0);
-  const shouldFreezeChartViewportResize = shouldFreezeChartTradeSheetHostHeight;
+  const shouldFreezeFooterLotChartViewport =
+    Platform.OS === 'android' &&
+    !showChartTradeSheet &&
+    (footerLotEditorFocused || footerLotEditorOpening || keyboardVisibleHeight > 0);
+  const shouldFreezeChartViewportResize =
+    shouldFreezeChartTradeSheetHostHeight || shouldFreezeFooterLotChartViewport;
   // When the keyboard is visible and the freeze is active, give the overlay
   // layer an explicit fixed height equal to the frozen host height. This
   // makes the layer independent of parent bounds (which shrink due to
@@ -2299,7 +2305,10 @@ export function ChartScreen() {
   const floatingFooterTradeReserveAnimatedStyle = useAnimatedStyle(() => ({
     minHeight: floatingFooterTradeReserveHeight.value,
   }));
-  const frozenFooterLotChartViewportStyle = null;
+  const frozenFooterLotChartViewportStyle =
+    shouldFreezeFooterLotChartViewport && chartTapMenuBounds.height > 0
+      ? { minHeight: chartTapMenuBounds.height }
+      : null;
   const accountCurrency = accountSummary?.currency || 'USD';
   const isChartTradeMarginMode = chartTradeVolumeDisplayMode === 'margin';
   const chartTradeVolumePrimaryDisplay = isChartTradeMarginMode
@@ -2725,6 +2734,11 @@ export function ChartScreen() {
 
   const handleOpenTimeframePicker = useCallback(() => {
     runImmediateAction('chart.timeframePicker.open', () => {
+      timeframes.forEach((tf) => {
+        if (tf !== chartTimeframe) {
+          void prefetchChartTimeframeHistory(chartSymbol, tf);
+        }
+      });
       showChartActionSheet({
         title: t('Timeframes'),
         detent: 'adaptive',
@@ -2734,7 +2748,15 @@ export function ChartScreen() {
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [scheduleChartActionSheetContextReset, showChartActionSheet, t, timeframePickerActions]);
+  }, [
+    chartSymbol,
+    chartTimeframe,
+    prefetchChartTimeframeHistory,
+    scheduleChartActionSheetContextReset,
+    showChartActionSheet,
+    t,
+    timeframePickerActions,
+  ]);
 
   const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
@@ -2959,6 +2981,37 @@ export function ChartScreen() {
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
+  const handleOpenChartViewportMenu = useCallback(() => {
+    runImmediateAction('chart.viewport.menu.open', () => {
+      showChartActionSheet({
+        title: t('Chart'),
+        detent: 'adaptive',
+        instantOpen: true,
+        actions: [
+          {
+            label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
+            icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
+            onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
+          },
+          {
+            label: t('Reset'),
+            icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
+            onPress: handleResetChartViewport,
+          },
+        ],
+      });
+      scheduleChartActionSheetContextReset();
+    });
+  }, [
+    TEXT_MUTED,
+    handleResetChartViewport,
+    scheduleChartActionSheetContextReset,
+    setChartViewportShowVolumePane,
+    showChartActionSheet,
+    showChartVolumePane,
+    t,
+  ]);
+
   const chartOptions = useMemo(() => ({
     layout: {
       background: { color: resolvedChartColors.background },
@@ -3121,14 +3174,14 @@ export function ChartScreen() {
   );
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && chartRuntimeActive) {
+      if (state === 'active' && isScreenFocused) {
         refreshShowOnChartSources();
         requestChartViewportRecovery(3);
       }
     });
 
     return () => subscription.remove();
-  }, [chartRuntimeActive, refreshShowOnChartSources, requestChartViewportRecovery]);
+  }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
   const isLoading = (!chartCanvasReady || !candlesAvailable) && loadingDelayPassed && !loadingFallback;
   const isError = false;
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
@@ -3794,8 +3847,7 @@ export function ChartScreen() {
           accessibilityRole="button"
           accessibilityLabel="Toggle Fullscreen"
           style={styles.toolbarIconButton}
-          onPress={handleToggleChartExpanded}
-          activateOnPressIn
+          onPressIn={handleToggleChartExpanded}
           hitSlop={8}
           unstable_pressDelay={0}
         >
@@ -4497,6 +4549,16 @@ export function ChartScreen() {
                     }}
                   />
                 ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Chart')}
+                  style={styles.chartViewportMenuButton}
+                  onPressIn={handleOpenChartViewportMenu}
+                  hitSlop={8}
+                  unstable_pressDelay={0}
+                >
+                  <Ionicons name="ellipsis-horizontal" size={18} color={TEXT_MUTED} />
+                </Pressable>
                 {chartTradeConfirmations.length > 0 ? (
                   <View
                     pointerEvents="none"

@@ -167,7 +167,9 @@ export function BrokersScreen() {
       name: b.broker_name,
       server: formatVisibleServerName(b),
       serverUrl: normalizeBrokerServerUrl(
-        b.server_url || (b.protocol && b.server ? `${b.protocol}://${b.server}` : ''),
+        (b.protocol && b.server_ip ? `${b.protocol}://${b.server_ip}${b.server_port ? `:${b.server_port}` : ''}` : '') ||
+        b.server_url ||
+        (b.protocol && b.server ? `${b.protocol}://${b.server}` : ''),
       ),
       logoUrl: b.logo_url?.trim() || '',
       region: b.region,

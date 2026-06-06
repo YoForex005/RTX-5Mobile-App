@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -317,6 +318,7 @@ export function BrokerDetailScreen() {
     setIsLoading(true);
     let didStartSuccessNavigation = false;
     try {
+      console.log('--- LOGIN API URL ---', effectiveServerUrl);
       const response: any = await loginAPI({
         username: trimmedLogin,
         password: trimmedPassword,
@@ -443,6 +445,7 @@ export function BrokerDetailScreen() {
           .catch(() => undefined);
       });
     } catch (error: any) {
+      console.error('--- LOGIN ERROR ---', error);
       setModalState({
         visible: true,
         type: 'error',
@@ -494,7 +497,16 @@ export function BrokerDetailScreen() {
             <View style={styles.brokerSummaryCard}>
               <View style={styles.brokerSummaryTop}>
                 <View style={styles.brokerLogoMark}>
-                  <Text style={styles.brokerLogoText}>{brokerInitials}</Text>
+                  {initialLogoUrl ? (
+                    <Image
+                      source={{ uri: initialLogoUrl }}
+                      style={styles.brokerLogoImage}
+                      resizeMode="contain"
+                      accessibilityIgnoresInvertColors
+                    />
+                  ) : (
+                    <Text style={styles.brokerLogoText}>{brokerInitials}</Text>
+                  )}
                 </View>
                 <View style={styles.brokerSummaryBody}>
                   <View style={styles.brokerKickerRow}>
@@ -535,7 +547,6 @@ export function BrokerDetailScreen() {
                     {t('To learn trading and to test your strategies')}
                   </Text>
                 </View>
-                <Text style={styles.optionModePill}>{t('Demo')}</Text>
                 <Ionicons name="chevron-forward" size={18} color={T.textSub} />
               </Pressable>
 
@@ -578,14 +589,6 @@ export function BrokerDetailScreen() {
                     {t('For live trading, additional identification is required')}
                   </Text>
                 </View>
-                <Text
-                  style={[
-                    styles.optionModePill,
-                    hasActiveRealAccount && styles.optionModePillDisabled,
-                  ]}
-                >
-                  {t('Real')}
-                </Text>
                 {!hasActiveRealAccount && (
                   <Ionicons name="chevron-forward" size={18} color={T.textSub} />
                 )}
@@ -674,7 +677,16 @@ export function BrokerDetailScreen() {
                     latencyLabel="brokerDetail.server.open"
                     unstable_pressDelay={0}
                   >
-                    <Ionicons name="server-outline" size={19} color={T.textMuted} />
+                    {initialLogoUrl ? (
+                      <Image
+                        source={{ uri: initialLogoUrl }}
+                        style={styles.serverLogoIcon}
+                        resizeMode="contain"
+                        accessibilityIgnoresInvertColors
+                      />
+                    ) : (
+                      <Ionicons name="server-outline" size={19} color={T.textMuted} />
+                    )}
                     <Text style={styles.serverValue} numberOfLines={1}>
                       {selectedServer.label || '---'}
                     </Text>
@@ -880,6 +892,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       fontSize: 17,
       fontWeight: '900',
       letterSpacing: 0,
+    },
+    brokerLogoImage: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
     },
     brokerSummaryBody: {
       flex: 1,
@@ -1156,6 +1173,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       color: T.text,
       fontSize: 15,
       fontWeight: '700',
+    },
+    serverLogoIcon: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
     },
     formMetaRow: {
       flexDirection: 'row',

@@ -2,7 +2,7 @@
   "expo": {
     "name": "RTX5",
     "slug": "rtx5-app",
-    "version": "1.0.0",
+    "version": "1.0",
     "platforms": [
       "ios",
       "android"
@@ -58,9 +58,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "INTERNET",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "INTERNET"
       ]
     },
     "plugins": [
@@ -73,12 +71,6 @@
             "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf",
             "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"
           ]
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow RTX-5 to access your camera to scan QR codes."
         }
       ],
       [

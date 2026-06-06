@@ -261,6 +261,7 @@ test('action destination routes are warmed in non-blocking batches', () => {
   assert.match(warmupSource, /\/settings/);
   assert.match(warmupSource, /\/settings\/news/);
   assert.match(warmupSource, /\/settings\/user-guide/);
+  assert.match(warmupSource, /\/settings\/help/);
   assert.match(warmupSource, /\/settings\/about/);
   assert.match(warmupSource, /\/trade\/order-ticket/);
   assert.match(warmupSource, /\/history\/filter/);
@@ -402,9 +403,13 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.doesNotMatch(settingsSource.slice(registerRowStart, lowerSettingsStart), /activateOnPressIn|activateOnTouchStart/);
   assert.match(backBarSource, /<FastPressable[\s\S]*router\.replace\('\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel="settings\.back"/);
   assert.match(settingsSource, /const SETTINGS_LOWER_CONTENT_DELAY_MS = 80/);
-  assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/mailbox'[\s\S]*'\/settings\/user-guide'[\s\S]*\] as const/);
+  assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/economic-calendar'[\s\S]*'\/settings\/journal'[\s\S]*'\/settings\/help'[\s\S]*\] as const/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/user-guide'/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/otp'/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/support'/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/traders-community'/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/mailbox'/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/news'/);
   assert.match(settingsSource, /const openReadySettingsRoute = useCallback/);
   assert.match(settingsSource, /router\.replace\(routePath as any\)/);
   assert.match(settingsSource, /router\.push\(routePath as any\)/);
@@ -413,7 +418,11 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(settingsSource, /latencyLabel="settings\.register\.open"/);
   assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/settings\/accounts'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.accounts\.open"/);
   assert.match(settingsSource, /onPress=\{\(\) => openReadySettingsRoute\('\/register'\)\}[\s\S]*unstable_pressDelay=\{0\}[\s\S]*latencyLabel="settings\.register\.open"/);
-  assert.match(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/mailbox'\)\}/);
+  assert.doesNotMatch(settingsSource, /title=\{t\('Mailbox'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/mailbox'\)\}/);
+  assert.doesNotMatch(settingsSource, /title=\{t\('News'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/news'\)\}/);
+  assert.match(settingsSource, /title=\{t\('Economic Calender'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/economic-calendar'\)\}/);
+  assert.match(settingsSource, /title=\{t\('Support'\)\}[\s\S]*sub=\{supportEmail\}[\s\S]*onPress=\{handleEmailSupport\}/);
+  assert.match(settingsSource, /title=\{t\('Help'\)\}[\s\S]*onPress=\{\(\) => openReadySettingsRoute\('\/settings\/help'\)\}/);
   assert.match(settingsSource, /latencyLabel="settings\.logout\.prompt"/);
   assert.doesNotMatch(settingsSource, /traceUiInteraction/);
   assert.match(accountsSource, /paddingLeft: 16/);
@@ -563,7 +572,8 @@ test('fast action surfaces keep light and dark theme styling wired', () => {
   const sidebarSource = readSource('src/ui/components/SidebarDrawer.tsx');
 
   assert.match(tabsSource, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
-  assert.match(tabsSource, /useDeferredThemeMode\(\)/);
+  assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
+  assert.doesNotMatch(tabsSource, /useDeferredThemeMode\(\)/);
   assert.match(actionSheetStyles, /makeActionSheetStyles\(T: ThemeColors, isDark: boolean\)/);
   assert.match(actionSheetStyles, /backgroundColor: isDark \? 'rgba\(0,0,0,0\.72\)' : 'rgba\(0,0,0,0\.3\)'/);
   assert.match(settingsStyles, /makeSettingsStyles = \(T: ThemeColors, themeMode: 'light' \| 'dark'\)/);
@@ -619,8 +629,10 @@ test('theme toggles acknowledge before persisted preference writes', () => {
   assert.match(rootSource, /function AppStatusBar\(\)[\s\S]*const isDark = useIsDarkTheme\(\)/);
   assert.match(rootSource, /const navigationThemeMode = useDeferredThemeMode\(\)/);
   assert.doesNotMatch(rootSource, /function InnerLayout\(\) \{\s*const T = useTheme\(\)/);
-  assert.match(tabsSource, /const navigationThemeMode = useDeferredThemeMode\(\)/);
-  assert.doesNotMatch(tabsSource, /const isDark = useIsDarkTheme\(\)/);
+  assert.match(tabsSource, /const themeMode = useThemeMode\(\)/);
+  assert.match(tabsSource, /const isDark = themeMode === 'dark'/);
+  assert.match(tabsSource, /const T = themeMode === 'light' \? GLight : GDark/);
+  assert.doesNotMatch(tabsSource, /useDeferredThemeMode\(\)/);
   assert.doesNotMatch(tabsSource, /const T = useTheme\(\)/);
   assert.doesNotMatch(sidebarSource, /SIDEBAR_THEME_COMMIT_DELAY_MS/);
   assert.match(sidebarSource, /function SidebarThemeSelector\(\{ ds, T \}: SidebarThemeSelectorProps\)/);

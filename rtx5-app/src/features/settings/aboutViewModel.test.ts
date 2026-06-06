@@ -18,6 +18,8 @@ test('about actions match the reference screen order and labels', () => {
   assert.deepEqual(ABOUT_ACTIONS.map((action) => [action.id, action.title]), [
     ['rate-experience', 'Rate your experience'],
     ['user-guide', 'User guide'],
+    ['privacy-policy', 'Privacy Policy'],
+    ['account-deletion', 'Request Account Deletion'],
     ['contact-developer', 'Contact Developer'],
   ]);
   assert.equal(new Set(ABOUT_ACTIONS.map((action) => action.id)).size, ABOUT_ACTIONS.length);
@@ -30,6 +32,7 @@ test('about contact categories cover supportable app areas with deterministic id
     'bug-report',
     'feature-request',
     'trading-account-problem',
+    'account-deletion',
     'other',
   ]);
   assert.equal(new Set(ids).size, ids.length);
@@ -55,16 +58,10 @@ test('about store targets route android and ios to native store first with brows
   assert.equal(iosExact.fallbackUrl, 'https://apps.apple.com/app/id1234567890');
 });
 
-test('about build labels prefer native build numbers with app version fallback', () => {
-  assert.equal(
-    resolveAboutBuildLabel({ platform: 'android', appVersion: '1.0.0', androidVersionCode: 5660 }),
-    'Build 5660',
-  );
-  assert.equal(
-    resolveAboutBuildLabel({ platform: 'ios', appVersion: '1.0.0', iosBuildNumber: '42' }),
-    'Build 42',
-  );
-  assert.equal(resolveAboutBuildLabel({ platform: 'android', appVersion: '1.0.0' }), 'Build 1.0.0');
+test('about build label shows the OTA display version instead of native build numbers', () => {
+  assert.equal(resolveAboutBuildLabel({ appVersion: '1.0' }), 'Build 1.0');
+  assert.equal(resolveAboutBuildLabel({ appVersion: '1.1' }), 'Build 1.1');
+  assert.equal(resolveAboutBuildLabel({ appVersion: '' }), 'Build Local');
 });
 
 test('about developer mailto includes selected category and device context', () => {
@@ -92,6 +89,18 @@ test('about developer mailto includes selected category and device context', () 
   assert.match(decoded, /Name: Alex/);
   assert.match(decoded, /Email: alex@example.com/);
   assert.match(decoded, /Chart freezes after symbol change\./);
+});
+
+test('about account deletion request is available as an in-app contact category', () => {
+  const category = ABOUT_CONTACT_CATEGORIES.find((item) => item.id === 'account-deletion');
+  assert.ok(category);
+  assert.equal(category.label, 'Account Deletion');
+
+  const screenSource = readSource('src/features/settings/AboutScreen.tsx');
+  assert.match(screenSource, /case 'account-deletion':/);
+  assert.match(screenSource, /setContactTitle\('Account deletion request'\)/);
+  assert.match(screenSource, /buildAccountDeletionRequestMessage\(\{/);
+  assert.match(screenSource, /getConfiguredPrivacyPolicyUrl\(\)/);
 });
 
 test('about platform labels are presentation safe', () => {

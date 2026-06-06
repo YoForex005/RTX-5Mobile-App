@@ -10,6 +10,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       elevation: 9999,
       backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.3)',
       justifyContent: 'flex-end',
+      overflow: 'hidden',
     },
     backdrop: {
       zIndex: 0,
@@ -34,6 +35,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopWidth: 1,
       borderColor: T.border,
       backgroundColor: isDark ? '#0E141F' : T.glass2,
+      overflow: 'hidden',
     },
     handle: {
       alignSelf: 'center',
@@ -84,6 +86,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     },
     actionsScroll: {
       flexGrow: 0,
+      flexShrink: 1,
     },
     actionsContent: {
       paddingBottom: 0,
@@ -139,7 +142,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       color: T.textMuted,
     },
     actionTextNormal: {
-      color: T.text,
+      color: '#2563EB',
     },
     actionTextDanger: {
       color: T.trading.sell.primary,

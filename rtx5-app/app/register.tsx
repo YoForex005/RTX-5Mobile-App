@@ -208,7 +208,7 @@ export default function RegisterScreen() {
   const [initialBalance, setInitialBalance] = useState(String(ORRNN_DEMO_INITIAL_BALANCE));
   const [originBroker, setOriginBroker] = useState(ORRNN_DEMO_ORIGIN_BROKER ?? '');
   const [originBrokerPickerOpen, setOriginBrokerPickerOpen] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(true);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showInvestorPassword, setShowInvestorPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -426,19 +426,21 @@ export default function RegisterScreen() {
     /\d/.test(password),
     /[^A-Za-z0-9]/.test(password),
   ].filter(Boolean).length;
-  const visiblePasswordStrengthScore = password ? passwordStrengthScore : 3;
+  const visiblePasswordStrengthScore = password ? passwordStrengthScore : 0;
   const passwordStrengthLabel = !password
-    ? t('Strong')
+    ? ''
     : passwordStrengthScore >= 3
     ? t('Strong')
     : passwordStrengthScore >= 2
       ? t('Medium')
       : t('Weak');
-  const passwordStrengthColor = !password || passwordStrengthScore >= 3
-    ? '#22C55E'
-    : passwordStrengthScore >= 2
-      ? '#F59E0B'
-      : '#64748B';
+  const passwordStrengthColor = !password
+    ? '#64748B'
+    : passwordStrengthScore >= 3
+      ? '#22C55E'
+      : passwordStrengthScore >= 2
+        ? '#F59E0B'
+        : '#EF4444';
   const selectedCurrency = selectedDemoGroup?.currency || 'USD';
   const selectedLeverage = selectedLeverageValue ?? getDefaultDemoLeverage(selectedDemoGroup?.leverage);
   const selectedPhoneCountry =
@@ -998,17 +1000,33 @@ export default function RegisterScreen() {
                 </Pressable>
               </View>
 
-              <Pressable
-                style={styles.termsRow}
-                onPress={() => setTermsAccepted((value) => !value)}
-              >
-                <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
-                  {termsAccepted && <Ionicons name="checkmark" size={17} color="#ffffff" />}
-                </View>
+              <View style={styles.termsRow}>
+                <Pressable
+                  onPress={() => setTermsAccepted((value) => !value)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
+                    {termsAccepted && <Ionicons name="checkmark" size={17} color="#ffffff" />}
+                  </View>
+                </Pressable>
                 <Text style={styles.termsText}>
-                  {t('I agree to the')} <Text style={styles.linkText}>{t('Terms and Conditions')}</Text> {t('and')} <Text style={styles.linkText}>{t('Privacy Policy')}.</Text>
+                  {t('I agree to the')}{' '}
+                  <Text
+                    style={styles.linkText}
+                    onPress={() => router.push({ pathname: '/settings/legal', params: { document: 'terms' } })}
+                  >
+                    {t('Terms and Conditions')}
+                  </Text>
+                  {' '}{t('and')}{' '}
+                  <Text
+                    style={styles.linkText}
+                    onPress={() => router.push({ pathname: '/settings/legal', params: { document: 'privacy' } })}
+                  >
+                    {t('Privacy Policy')}
+                  </Text>
+                  .
                 </Text>
-              </Pressable>
+              </View>
 
               <Pressable
                 style={({ pressed }) => [

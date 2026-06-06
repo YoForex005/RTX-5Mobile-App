@@ -1,6 +1,0 @@
-05-27 16:23:04.066 I/ReactNativeJS(16544): [API warn] GET /candles/BTCUSD?timeframe=M1&limit=500&from=1778323620&to=1778503620 200 1241ms (apiClient.GET)
-05-27 16:23:05.515 I/ReactNativeJS(16544): [API warn] GET /quotes?symbols=BTCUSD 200 1488ms (apiClient.GET)
-05-27 16:23:06.189 I/ReactNativeJS(16544): '[ClosedHistory] Response json:', '[]'
-05-27 16:23:06.190 I/ReactNativeJS(16544): '[ClosedHistory] Parsed rows length:', 0
-05-27 16:23:23.518 W/ReactNativeJS(16544): [Quotes WS] Silent TCP drop detected (39s). Healing invisibly...
-05-27 16:23:25.329 I/ReactNativeJS(16544): '[Quotes WS] Connected to', 'wss://backend.orrnn.com/ws/feed'

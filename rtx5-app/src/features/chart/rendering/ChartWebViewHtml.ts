@@ -162,6 +162,7 @@ export const CH_HTML = `
       var OVERLAY_LABEL_LINE_GAP = 1;
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
+      var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var CHART_DEBUG_LOGS = false;
       var PRICE_SCALE_HEALTH_SPAN_MULTIPLE = 30;
       var PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO = 0.2;
@@ -4037,26 +4038,26 @@ export const CH_HTML = `
         askPriceLine = null;
       }
 
-      function makeMarketPriceLineOptions(price, color, axisLabelVisible) {
+      function makeMarketPriceLineOptions(price, color) {
         return {
           price: price,
           color: color,
           lineWidth: 1,
           lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
           lineVisible: true,
-          axisLabelVisible: axisLabelVisible !== false,
+          axisLabelVisible: false,
           axisLabelColor: color,
           axisLabelTextColor: '#FFFFFF',
           title: '',
         };
       }
 
-      function createMarketPriceLine(price, color, axisLabelVisible) {
+      function createMarketPriceLine(price, color) {
         if (!series) return null;
-        return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color, axisLabelVisible)));
+        return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color)));
       }
 
-      function setBidPriceLine(price, shouldScheduleRefresh, axisLabelVisible) {
+      function setBidPriceLine(price, shouldScheduleRefresh) {
         try {
           if (shouldScheduleRefresh !== false) {
             lastBidPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
@@ -4072,7 +4073,7 @@ export const CH_HTML = `
           }
           if (bidPriceLine) {
             try {
-              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor, axisLabelVisible));
+              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -4080,14 +4081,14 @@ export const CH_HTML = `
             }
           }
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
-          bidPriceLine = createMarketPriceLine(price, marketBidColor, axisLabelVisible);
+          bidPriceLine = createMarketPriceLine(price, marketBidColor);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setBidPriceLine', e);
         }
       }
 
-      function setAskPriceLine(price, shouldScheduleRefresh, axisLabelVisible) {
+      function setAskPriceLine(price, shouldScheduleRefresh) {
         try {
           if (shouldScheduleRefresh !== false) {
             lastAskPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
@@ -4103,7 +4104,7 @@ export const CH_HTML = `
           }
           if (askPriceLine) {
             try {
-              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor, axisLabelVisible));
+              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -4111,7 +4112,7 @@ export const CH_HTML = `
             }
           }
           askPriceLine = removeMarketPriceLine(askPriceLine);
-          askPriceLine = createMarketPriceLine(price, marketAskColor, axisLabelVisible);
+          askPriceLine = createMarketPriceLine(price, marketAskColor);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setAskPriceLine', e);
@@ -4130,12 +4131,12 @@ export const CH_HTML = `
         }
         clearMarketPriceLineRefs();
         if (hasBid) {
-          setBidPriceLine(bid, false, true);
+          setBidPriceLine(bid, false);
         } else {
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
         }
         if (hasAsk) {
-          setAskPriceLine(ask, false, true);
+          setAskPriceLine(ask, false);
         } else {
           askPriceLine = removeMarketPriceLine(askPriceLine);
         }
@@ -4154,7 +4155,7 @@ export const CH_HTML = `
           bidPriceLine.applyOptions({
             color: marketBidColor,
             axisLabelColor: marketBidColor,
-            axisLabelVisible: true,
+            axisLabelVisible: false,
           });
         } catch (_e) {}
       }
@@ -4440,7 +4441,7 @@ export const CH_HTML = `
         try {
           entry.api.applyOptions({
             price: price,
-            axisLabelVisible: entry.line && entry.line.axisLabelVisible === true,
+            axisLabelVisible: false,
             title: '',
           });
         } catch (_e) {}
@@ -4481,12 +4482,64 @@ export const CH_HTML = `
         };
       }
 
+      function clearMarketPriceScaleExtensions(layer) {
+        if (!layer || typeof layer.querySelectorAll !== 'function') {
+          return;
+        }
+        var extensions = layer.querySelectorAll('.rtx5-market-price-scale-extension');
+        for (var i = 0; i < extensions.length; i++) {
+          var extension = extensions[i];
+          if (extension && extension.parentNode) {
+            extension.parentNode.removeChild(extension);
+          }
+        }
+      }
+
+      function renderMarketPriceScaleExtension(layer, price, color) {
+        if (!layer || !series || typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return;
+        }
+        if (typeof series.priceToCoordinate !== 'function') {
+          return;
+        }
+        var y = series.priceToCoordinate(price);
+        if (typeof y !== 'number' || !isFinite(y)) {
+          return;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        var axisLeft = Math.round((metrics.leftAxisWidth || 0) + (metrics.paneWidth || 0));
+        var axisWidth = Math.max(0, Math.round(metrics.rightAxisWidth || 0));
+        var chartWidth = Math.max(0, Math.round(metrics.chartWidth || layer.clientWidth || 0));
+        if (axisWidth <= 0 || chartWidth <= axisLeft) {
+          return;
+        }
+
+        var extension = document.createElement('div');
+        extension.className = 'rtx5-market-price-scale-extension';
+        extension.style.position = 'absolute';
+        extension.style.left = axisLeft + 'px';
+        extension.style.top = Math.round(y) + 'px';
+        extension.style.width = Math.min(axisWidth, Math.max(0, chartWidth - axisLeft)) + 'px';
+        extension.style.height = MARKET_PRICE_SCALE_EXTENSION_HEIGHT + 'px';
+        extension.style.background = color || '#2962FF';
+        extension.style.pointerEvents = 'none';
+        extension.style.zIndex = '8';
+        layer.appendChild(extension);
+      }
+
+      function renderMarketPriceScaleExtensions(layer) {
+        clearMarketPriceScaleExtensions(layer);
+        renderMarketPriceScaleExtension(layer, lastBidPrice, marketBidColor);
+        renderMarketPriceScaleExtension(layer, lastAskPrice, marketAskColor);
+      }
+
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
           if (!series) return;
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
+          renderMarketPriceScaleExtensions(layer);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
@@ -4571,9 +4624,9 @@ export const CH_HTML = `
           }
 
           // MT5-parity: render OUTLINED right-axis price box for each
-          // position / pending order / SL / TP line. Only the live bid/ask
-          // labels stay FILLED (those are drawn by lightweight-charts via
-          // axisLabelVisible: true on the market price lines). Position
+          // position / pending order / SL / TP line. Live bid/ask native
+          // axis labels stay hidden; their thin filled right-scale accents
+          // are painted by renderMarketPriceScaleExtensions above. Position
           // labels are drawn as DOM divs here so we can style them with a
           // white background + colored border + colored text — matching the
           // MT5 box style. One box per price level (dedup by tolerance) so
@@ -4658,7 +4711,7 @@ export const CH_HTML = `
                 color: ln.color || '#2962FF',
                 lineWidth: ln.lineWidth || 1,
                 lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : (LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0),
-                axisLabelVisible: ln.axisLabelVisible === true,
+                axisLabelVisible: false,
                 title: '',
               });
               _positionLinesArr.push(priceLine);

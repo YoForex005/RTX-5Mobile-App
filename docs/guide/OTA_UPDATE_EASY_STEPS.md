@@ -154,6 +154,47 @@ Publish a production OTA update:
 npm run update:prod -- --message "Production OTA update"
 ```
 
+## Direct Expo Production OTA
+
+Use this path when you want to publish from your local terminal instead of GitHub.
+
+1. Open terminal in the real app folder.
+
+   ```bash
+   cd C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+   ```
+
+2. Confirm Expo login.
+
+   ```bash
+   npx eas-cli@latest whoami
+   ```
+
+   Current verified login on this machine:
+
+   ```text
+   yoforex
+   ```
+
+3. Run release checks.
+
+   ```bash
+   npm run typecheck
+   npx expo-doctor
+   ```
+
+4. Publish the production OTA.
+
+   ```bash
+   npx eas-cli@latest update --channel production --platform all --message "Production OTA update"
+   ```
+
+Credentials needed for direct Expo OTA:
+
+- If `whoami` shows the Expo account, no password is needed.
+- If `whoami` says you are not logged in, run `npx eas-cli@latest login` and enter the Expo account email/password.
+- If GitHub should publish OTA automatically, create an Expo access token and add it to GitHub as `EXPO_TOKEN`.
+
 ## RTX5 GitHub Auto OTA
 
 GitHub can publish OTA updates automatically after code is pushed.

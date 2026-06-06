@@ -180,7 +180,7 @@ export function ActionSheet({
 
   const activeTitle = activeConfig.title;
   const activeActions = activeConfig.actions;
-  const activeSearchable = activeConfig.searchable;
+  const activeSearchable = activeConfig.searchable ?? false;
   const activeSearchPlaceholder = activeConfig.searchPlaceholder;
   const activeDetent = activeConfig.detent ?? 'adaptive';
   const activeMinimumTopInset = activeConfig.minimumTopInset;
@@ -277,6 +277,10 @@ export function ActionSheet({
     ? Math.min(sheetMaxHeight, adaptiveSheetFloor)
     : undefined;
   const sheetMinHeight = sheetFloorMinHeight;
+  const shouldLockSheetHeight = activeDetent === 'large';
+  const sheetHeightStyle = shouldLockSheetHeight
+    ? { height: sheetMaxHeight }
+    : { maxHeight: sheetMaxHeight };
   const actionsMaxHeight = Math.max(140, sheetMaxHeight - reservedChromeHeight);
   const actionsMinHeight = sheetFloorMinHeight
     ? Math.max(180, sheetFloorMinHeight - reservedChromeHeight)
@@ -352,15 +356,31 @@ export function ActionSheet({
   }, [activeInstantOpen, visible]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android') {
+    if (Platform.OS !== 'android' || !activeSearchable) {
+      setKeyboardHeight(0);
       return;
     }
 
+    const syncOverlayHeightFromWindow = () => {
+      const nextWindowHeight = Dimensions.get('window').height;
+      if (nextWindowHeight > 0) {
+        setCurrentOverlayHeight(nextWindowHeight);
+      }
+    };
+
     const handleKeyboardShow = (event: { endCoordinates?: { height?: number } }) => {
       const nextKeyboardHeight = Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom);
+      // Keep the resize-based lift in the same render as the keyboard event.
+      // Expo Go can report keyboardDidShow before useWindowDimensions/onLayout
+      // publishes the shorter window height; without this seed, the sheet adds
+      // a full keyboard spacer against an already resized native window.
+      syncOverlayHeightFromWindow();
       setKeyboardHeight(nextKeyboardHeight);
     };
-    const handleKeyboardHide = () => setKeyboardHeight(0);
+    const handleKeyboardHide = () => {
+      syncOverlayHeightFromWindow();
+      setKeyboardHeight(0);
+    };
 
     const showSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
     const hideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
@@ -369,7 +389,7 @@ export function ActionSheet({
       showSub.remove();
       hideSub.remove();
     };
-  }, [insets.bottom]);
+  }, [activeSearchable, insets.bottom]);
 
   useEffect(() => {
     return () => {
@@ -621,8 +641,8 @@ export function ActionSheet({
       <View
         style={[
           styles.sheet,
-          { maxHeight: sheetMaxHeight },
-          sheetMinHeight ? { minHeight: sheetMinHeight } : null,
+          sheetHeightStyle,
+          !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
         ]}
       >
         <View style={styles.handle} />

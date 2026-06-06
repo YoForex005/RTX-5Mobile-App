@@ -56,10 +56,9 @@ export const CHART_COLOR_SCHEME_PRESETS: Record<Exclude<ChartColorScheme, 'custo
 export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
   background: '#080B11',
   foreground: '#94A3B8',
-  // 0.15 — matches MT5 desktop's default dark-theme grid opacity. The
-  // Solid grid lines are drawn behind the WebView candle canvas, so this
-  // opacity needs to stay visible without crossing over candle bodies.
-  grid: 'rgba(255,255,255,0.18)',
+  // Keep app-managed dark grid values visible in the chart while
+  // preserving explicit user-selected grid colors.
+  grid: 'rgba(255,255,255,0.26)',
   candlesUptrend: '#2962FF',
   candlesDowntrend: '#EF5350',
   hollowBody: '#1E293B',
@@ -72,6 +71,31 @@ export const DEFAULT_CHART_COLORS: ChartColorsConfig = {
 };
 
 type StructuralChartColors = Pick<ChartColorsConfig, 'background' | 'foreground' | 'grid' | 'hollowBody'>;
+
+const normalizeStructuralChartColor = (color: string): string =>
+  color.trim().toLowerCase().replace(/\s+/g, '');
+
+const createStructuralColorSet = (values: readonly string[]): Set<string> =>
+  new Set(values.map(normalizeStructuralChartColor));
+
+const isNearBlackChartColor = (color: string): boolean => {
+  const normalized = normalizeStructuralChartColor(color);
+  if (normalized === '#000' || normalized === '#000000' || normalized === 'black') {
+    return true;
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([0-9.]+))?\)$/);
+  if (!rgbMatch) {
+    return false;
+  }
+
+  const [, red, green, blue, alpha] = rgbMatch;
+  if (alpha !== undefined && Number(alpha) <= 0) {
+    return false;
+  }
+
+  return Number(red) <= 16 && Number(green) <= 16 && Number(blue) <= 16;
+};
 
 const LIGHT_THEME_CHART_FALLBACKS: StructuralChartColors = {
   background: CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
@@ -88,7 +112,7 @@ const DARK_THEME_CHART_FALLBACKS: StructuralChartColors = {
 };
 
 const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>> = {
-  background: new Set([
+  background: createStructuralColorSet([
     '#000000', // legacy default — ensures persisted values get migrated
     '#0E141F', // previous card default
     DEFAULT_CHART_COLORS.background,
@@ -96,14 +120,17 @@ const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.background,
     CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.background,
   ]),
-  foreground: new Set([
+  foreground: createStructuralColorSet([
     DEFAULT_CHART_COLORS.foreground,
     CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.foreground,
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.foreground,
     CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.foreground,
   ]),
-  grid: new Set([
+  grid: createStructuralColorSet([
+    'rgba(255,255,255,0.04)',
+    'rgba(255,255,255,0.06)',
     'rgba(255,255,255,0.15)',
+    'rgba(255,255,255,0.18)',
     'rgba(15,23,42,0.12)',
     'rgba(15,23,42,0.16)',
     DEFAULT_CHART_COLORS.grid,
@@ -111,7 +138,7 @@ const BUILTIN_STRUCTURAL_VALUES: Record<keyof StructuralChartColors, Set<string>
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.grid,
     CHART_COLOR_SCHEME_PRESETS.yellow_on_black.colors.grid,
   ]),
-  hollowBody: new Set([
+  hollowBody: createStructuralColorSet([
     DEFAULT_CHART_COLORS.hollowBody,
     CHART_COLOR_SCHEME_PRESETS.green_on_black.colors.hollowBody,
     CHART_COLOR_SCHEME_PRESETS.black_on_white.colors.hollowBody,
@@ -134,7 +161,9 @@ export function resolveChartColorsForTheme(
   const forceThemeStructure = Boolean(chartColorScheme && chartColorScheme !== 'custom');
 
   (Object.keys(themeStructuralColors) as Array<keyof StructuralChartColors>).forEach((key) => {
-    if (forceThemeStructure || BUILTIN_STRUCTURAL_VALUES[key].has(mergedColors[key])) {
+    const normalizedValue = normalizeStructuralChartColor(mergedColors[key]);
+    const isInvisibleDarkGrid = key === 'grid' && isDark && isNearBlackChartColor(mergedColors[key]);
+    if (forceThemeStructure || isInvisibleDarkGrid || BUILTIN_STRUCTURAL_VALUES[key].has(normalizedValue)) {
       resolvedColors[key] = themeStructuralColors[key];
     }
   });

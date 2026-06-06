@@ -158,9 +158,9 @@ function InnerLayout() {
           <Stack.Screen name='settings/economic-calendar' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/interface' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/journal' options={sidebarDetailScreenOptions} />
-          <Stack.Screen name='settings/traders-community' options={sidebarDetailScreenOptions} />
-          <Stack.Screen name='settings/mql5-algo-trading' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/user-guide' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/help' options={sidebarDetailScreenOptions} />
+          <Stack.Screen name='settings/legal' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/about' options={sidebarDetailScreenOptions} />
         </Stack>
         </ThemeProvider>

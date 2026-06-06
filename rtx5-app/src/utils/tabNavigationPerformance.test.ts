@@ -64,7 +64,8 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /previousPathRef/);
   assert.match(source, /const GlobalActionSheetHost = memo/);
   assert.match(source, /<GlobalActionSheetHost \/>/);
-  assert.match(source, /previousPathRef\.current !== pathname && useUIState\.getState\(\)\.actionSheet !== null/);
+  assert.match(source, /if \(previousPathRef\.current !== pathname\) \{[\s\S]*const uiState = useUIState\.getState\(\)/);
+  assert.match(source, /uiState\.actionSheet !== null \|\| visibleScopedActionSheet/);
   assert.match(source, /taps never wait on cold route construction/);
   assert.match(source, /inactive native views keep the active frame tree MT-style lean/);
   assert.doesNotMatch(source, /screenListeners=/);
@@ -88,7 +89,11 @@ test('bottom tab navigation has a strict one-frame latency budget', () => {
 test('bottom tab navigation fast path preserves light and dark tab bar themes', () => {
   const source = readSource('app/(tabs)/_layout.tsx');
 
-  assert.match(source, /const isDark = useIsDarkTheme\(\)/);
+  assert.match(source, /import \{ useThemeMode \} from '\.\.\/\.\.\/src\/state\/themeMode'/);
+  assert.match(source, /const themeMode = useThemeMode\(\)/);
+  assert.match(source, /const isDark = themeMode === 'dark'/);
+  assert.match(source, /const T = themeMode === 'light' \? GLight : GDark/);
+  assert.doesNotMatch(source, /useDeferredThemeMode\(\)/);
   assert.match(source, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
   assert.match(source, /borderTopColor: isDark \? '#131722' : 'rgba\(0,0,0,0\.05\)'/);
   assert.match(source, /const inactiveTabColor = isDark \? '#5A6B87' : T\.textDimmed/);

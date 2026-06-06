@@ -1,2 +1,0 @@
-  mCurrentFocus=Window{e6bb7d8 u0 host.exp.exponent/host.exp.exponent.experience.ExperienceActivity}
-  mFocusedApp=ActivityRecord{7739248 u0 host.exp.exponent/.experience.ExperienceActivity t1237}

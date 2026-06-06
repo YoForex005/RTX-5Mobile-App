@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
 import { SidebarDrawer } from '../../src/ui/components/SidebarDrawer';
-import { useDeferredThemeMode } from '../../src/state/themeMode';
+import { useThemeMode } from '../../src/state/themeMode';
 import { GDark, GLight } from '../../src/ui/theme/glass';
 import { useTranslation } from '../../src/i18n/useTranslation';
 import { warmActionRoutes } from '../../src/utils/actionRouteWarmup';
@@ -184,9 +184,9 @@ export default function TabsLayout() {
   const isSearchActive = useUIState((s) => s.isSearchActive);
   const isChartInlineInputActive = useUIState((s) => s.isChartInlineInputActive);
   const chartTabBarKeyboardLift = useUIState((s) => s.chartTabBarKeyboardLift);
-  const navigationThemeMode = useDeferredThemeMode();
-  const isDark = navigationThemeMode === 'dark';
-  const T = navigationThemeMode === 'light' ? GLight : GDark;
+  const themeMode = useThemeMode();
+  const isDark = themeMode === 'dark';
+  const T = themeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
@@ -298,11 +298,11 @@ export default function TabsLayout() {
                 bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
               },
             ],
-          tabBarActiveTintColor: '#2563EB',
+          tabBarActiveTintColor: T.accent,
           tabBarInactiveTintColor: inactiveTabColor,
           tabBarIcon: ({ size }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? '#2563EB' : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
             if (route.name === 'chart') {
               return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
             }
@@ -311,7 +311,7 @@ export default function TabsLayout() {
           },
           tabBarLabel: ({ children }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? '#2563EB' : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
             return (
               <Text allowFontScaling={false} numberOfLines={1} style={[styles.tabLabel, { color }]}>
                 {children}

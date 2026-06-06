@@ -13,7 +13,7 @@ test('login submit uses the shared stable fast press path', () => {
   assert.match(source, /Keyboard/);
   assert.doesNotMatch(source, /import\s*\{[^}]*\bPressable\b[^}]*\}\s*from 'react-native'/);
   assert.match(source, /keyboardShouldPersistTaps="always"/);
-  assert.match(source, /canCancelContentTouches=\{false\}/);
+  assert.match(source, /canCancelContentTouches=\{Platform\.OS === 'ios'\}/);
   assert.match(source, /const handleLoginPress = \(\) => \{/);
   assert.match(source, /if \(loginRequestInFlightRef\.current \|\| loginSubmitPressGuardRef\.current\) \{/);
   assert.match(source, /loginSubmitPressGuardRef\.current = true/);

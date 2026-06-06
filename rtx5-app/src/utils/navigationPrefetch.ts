@@ -9,6 +9,7 @@ import {
 } from '../domain/candles/core/candles';
 import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../state/providers/AppProviders';
+import { useUserPreferences } from '../state/userPreferences';
 import { ACCOUNT_SUMMARY_KEY } from '../query/account';
 import { candleKeys } from '../domain/candles/query/candles';
 import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
@@ -25,14 +26,18 @@ export function prefetchAccountSummary(login?: string) {
 
 export function prefetchInstrument(symbol: string) {
   const normalizedSymbol = normalizeSymbol(symbol);
+  const preferences = useUserPreferences.getState();
+  const brokerId = preferences.brokerId;
+  const accountId = preferences.accountDetails?.id ?? '';
+  const cacheScope = `${brokerId}:${accountId}`;
 
   if (!normalizedSymbol) {
     return Promise.resolve();
   }
 
   return appQueryClient.prefetchQuery({
-    queryKey: ['instrument', normalizedSymbol],
-    queryFn: () => fetchInstrumentMeta(normalizedSymbol),
+    queryKey: ['instrument', normalizedSymbol, brokerId, accountId],
+    queryFn: () => fetchInstrumentMeta(normalizedSymbol, cacheScope),
     staleTime: 60 * 60_000,
   }).catch(() => {});
 }

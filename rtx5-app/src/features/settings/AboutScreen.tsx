@@ -19,7 +19,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
+import { getConfiguredDeveloperEmail, getConfiguredPrivacyPolicyUrl, resolveLegalUrl } from '../../config/legalLinks';
 import { useIsDarkTheme } from '../../state/themeMode';
+import { useUserPreferences } from '../../state/userPreferences';
 import { useUIState } from '../../state/uiState';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
@@ -35,8 +38,10 @@ import {
   ABOUT_ACTIONS,
   ABOUT_CONTACT_CATEGORIES,
   ABOUT_EXTERNAL_LINKS,
+  buildAccountDeletionRequestMessage,
   buildDeveloperMailto,
   formatAboutPlatform,
+  getAboutContactCategory,
   getAboutStoreTarget,
   resolveAboutBuildLabel,
   type AboutAction,
@@ -45,11 +50,6 @@ import {
 
 type ExpoAndroidConfig = {
   package?: string;
-  versionCode?: number | string;
-};
-
-type ExpoIosConfig = {
-  buildNumber?: number | string;
 };
 
 const RATING_STARS = [0, 1, 2, 3, 4] as const;
@@ -64,15 +64,13 @@ export function AboutScreen() {
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
   const androidConfig = Constants.expoConfig?.android as ExpoAndroidConfig | undefined;
-  const iosConfig = Constants.expoConfig?.ios as ExpoIosConfig | undefined;
   const appName = Constants.expoConfig?.name ?? 'RTX5';
-  const appVersion = Constants.expoConfig?.version ?? 'Local';
+  const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
+  const appVersion = resolveAppDisplayVersion(nativeAppVersion);
+  const accountDetails = useUserPreferences((s) => s.accountDetails);
   const androidPackageName = androidConfig?.package ?? ABOUT_EXTERNAL_LINKS.androidPackageName;
   const buildLabel = resolveAboutBuildLabel({
-    platform: Platform.OS,
     appVersion,
-    androidVersionCode: androidConfig?.versionCode,
-    iosBuildNumber: iosConfig?.buildNumber,
   });
   const platformLabel = formatAboutPlatform(Platform.OS);
   const [contactOpen, setContactOpen] = useState(false);
@@ -115,6 +113,26 @@ export function AboutScreen() {
     }
   };
 
+  const handleOpenPrivacyPolicy = () => {
+    const privacyPolicyUrl = resolveLegalUrl(undefined, getConfiguredPrivacyPolicyUrl());
+    if (privacyPolicyUrl) {
+      void openExternalUrl(privacyPolicyUrl, 'Open Privacy Policy');
+      return;
+    }
+
+    router.push({ pathname: '/settings/legal', params: { document: 'privacy' } });
+  };
+
+  const handleOpenAccountDeletionRequest = () => {
+    setSelectedContactCategory(getAboutContactCategory('account-deletion'));
+    setContactTitle('Account deletion request');
+    setContactMessage(buildAccountDeletionRequestMessage({
+      accountId: accountDetails?.id,
+      server: accountDetails?.server,
+    }));
+    setContactOpen(true);
+  };
+
   const handleAboutAction = (action: AboutAction) => {
     switch (action.id) {
       case 'rate-experience':
@@ -122,6 +140,12 @@ export function AboutScreen() {
         return;
       case 'user-guide':
         router.push('/settings/user-guide');
+        return;
+      case 'privacy-policy':
+        handleOpenPrivacyPolicy();
+        return;
+      case 'account-deletion':
+        handleOpenAccountDeletionRequest();
         return;
       case 'contact-developer':
         setContactOpen(true);
@@ -139,7 +163,7 @@ export function AboutScreen() {
       requesterEmail: contactEmail,
       title: contactTitle,
       message: contactMessage,
-      developerEmail: process.env.EXPO_PUBLIC_DEVELOPER_EMAIL ?? ABOUT_EXTERNAL_LINKS.developerEmail,
+      developerEmail: getConfiguredDeveloperEmail(),
     });
 
     void openExternalUrl(mailtoUrl, 'Contact Developer');
@@ -172,10 +196,7 @@ export function AboutScreen() {
           setCategorySheetOpen(false);
         }}
         onOpenPrivacyPolicy={() => {
-          void openExternalUrl(
-            process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ?? ABOUT_EXTERNAL_LINKS.privacyPolicyUrl,
-            'Open Privacy Policy',
-          );
+          handleOpenPrivacyPolicy();
         }}
         onClose={() => {
           setCategorySheetOpen(false);

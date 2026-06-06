@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
+import { useIsDarkTheme } from '../../state/themeMode';
 import { useMemo, useState } from 'react';
 import { changePasswordAPI } from '../../api/auth';
 
@@ -47,7 +48,8 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
 
   const [isPending, setIsPending] = useState(false);
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const isDark = useIsDarkTheme();
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const insets = useSafeAreaInsets();
@@ -164,16 +166,16 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
   );
 }
 
-const makeStyles = (T: ThemeColors) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   container: {
-    backgroundColor: T.glass2,
+    backgroundColor: isDark ? '#111827' : '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: spacing.md,
     paddingTop: 8,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)',
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -210,9 +212,9 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: T.glass1,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F2F6FC',
     borderWidth: 1,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? 'rgba(148,163,184,0.18)' : '#D1D5DB',
     borderRadius: 12,
   },
   input: {

@@ -34,8 +34,6 @@ const MENU_ITEMS: MenuItem[] = [
   { label: 'Journal', icon: 'book-outline', route: '/settings/journal' },
   { label: 'Settings', icon: 'settings-outline', route: '/settings' },
   { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
-  { label: 'Traders Community', icon: 'people-outline', route: '/settings/traders-community' },
-  { label: 'MQL5 Algo Trading', icon: 'code-slash-outline', route: '/settings/mql5-algo-trading' },
   { label: 'User Guide', icon: 'help-circle-outline', route: '/settings/user-guide' },
   { label: 'About', icon: 'information-circle-outline', route: '/settings/about' },
 ];

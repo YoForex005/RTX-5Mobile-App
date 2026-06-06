@@ -1243,7 +1243,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     /* Solid Login Button */
     loginBtn: {
       backgroundColor: T.trading.buy.primary,
-      minHeight: 54,
+      minHeight: 56,
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',

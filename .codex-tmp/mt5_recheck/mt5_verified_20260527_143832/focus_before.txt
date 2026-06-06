@@ -1,2 +1,0 @@
-  mCurrentFocus=null
-  mFocusedApp=ActivityRecord{fddc7e9 u0 net.metaquotes.metatrader5/.ui.MainActivity t1210}

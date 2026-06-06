@@ -119,23 +119,28 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
   assert.doesNotMatch(tickFormatterBody, /getDate\(\)|getMonth\(\)|getHours\(\)|getMinutes\(\)|getFullYear\(\)/);
 });
 
-test('webview bridge: setMarketPriceLines updates only bid and ask right-axis market badges without mutating candle geometry', () => {
+test('webview bridge: setMarketPriceLines hides native market badges and paints custom price-scale extensions', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
   const marketLineOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMarketPriceLineOptions');
   const visibleRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'resolvePriceRangeFromVisibleData');
   const healPriceScaleBody = extractFunctionBody(chartWebViewHtmlSource, 'healCollapsedPriceScaleRange');
+  const renderMarketPriceScaleExtensionBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtension');
+  const renderMarketPriceScaleExtensionsBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtensions');
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
 
   assertSourceContains(body, /lastBidPrice = hasBid \? bid : null/, 'market line state must be cached for recovery');
   assertSourceContains(body, /clearMarketPriceLineRefs\(\)/, 'market line updates must clear stale right-axis price-line refs before repainting');
-  assertSourceContains(body, /setBidPriceLine\(bid, false, true\)/, 'bid line must update through price-line API and paint a visible axis badge');
-  assertSourceContains(body, /setAskPriceLine\(ask, false, true\)/, 'ask line must update through price-line API and paint a visible axis badge');
+  assertSourceContains(body, /setBidPriceLine\(bid, false\)/, 'bid guide line must update through the price-line API with native axis badge hidden');
+  assertSourceContains(body, /setAskPriceLine\(ask, false\)/, 'ask guide line must update through the price-line API with native axis badge hidden');
   assertSourceContains(body, /ensureMarketPriceBadgesVisible\(\)/, 'market line updates must keep both bid and ask badges inside the visible price scale');
   assertSourceContains(marketLineOptionsBody, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: axisLabelVisible !== false/, 'market price line options must support hiding secondary right-axis badges');
+  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: false/, 'market price lines must keep lightweight-charts native right-axis badges hidden');
   assertSourceContains(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask price badges must match their line color');
   assertSourceContains(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask price badges must keep readable text');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
+  assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1/, 'custom market price-scale extensions must stay a one-pixel MT5-like accent');
+  assertSourceContains(renderMarketPriceScaleExtensionBody, /className = 'rtx5-market-price-scale-extension'[\s\S]*style\.left = axisLeft \+ 'px'[\s\S]*style\.width = Math\.min\(axisWidth/, 'custom market price-scale extension must render only over the right price scale');
+  assertSourceContains(renderMarketPriceScaleExtensionsBody, /clearMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastBidPrice, marketBidColor\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastAskPrice, marketAskColor\)/, 'overlay refresh must repaint custom bid and ask price-scale extensions');
   assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore far live bid/ask badges during horizontal navigation');
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -143,8 +148,8 @@ test('webview bridge: setMarketPriceLines updates only bid and ask right-axis ma
     'market bid/ask badge expansion must stay local to the visible candle range',
   );
   assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near bid/ask badges outside the visible axis range');
-  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask labels must come from the chart price-scale renderer');
-  assert.doesNotMatch(chartWebViewHtmlSource, /renderMarketPriceScaleExtensions|MARKET_PRICE_SCALE_EXTENSION/, 'market bid/ask price badges must not have a second DOM line over the price scale');
+  assertSourceContains(refreshBody, /renderMarketPriceScaleExtensions\(layer\)/, 'overlay refresh must render custom market price-scale extensions');
+  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask must not use the old full DOM badge renderer');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
 });
 

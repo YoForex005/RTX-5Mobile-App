@@ -75,7 +75,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /for \(const route of LOGGED_OUT_PREFETCH_ROUTES\)/);
   assert.doesNotMatch(source, /scheduleNextFrame\(afterClose\)/);
   assert.match(source, /keyboardShouldPersistTaps="always"/);
-  assert.match(source, /canCancelContentTouches=\{false\}/);
+  assert.match(source, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(source, /const navigateSidebarRoute = useCallback/);
   assert.match(source, /navigationLockedRef\.current = true/);
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
@@ -112,7 +112,6 @@ test('sidebar detail back buttons do not walk through old sidebar history', () =
     'src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx',
     'src/features/settings/InterfaceScreen.tsx',
     'src/features/settings/TradersCommunityScreen.tsx',
-    'src/features/settings/Mql5AlgoTradingScreen.tsx',
     'src/features/settings/SettingsBackBar.tsx',
   ];
 
@@ -159,8 +158,6 @@ test('sidebar keeps the main option routes warm and available', () => {
     'app/settings/mailbox.tsx',
     'app/settings/journal.tsx',
     'app/settings/economic-calendar.tsx',
-    'app/settings/traders-community.tsx',
-    'app/settings/mql5-algo-trading.tsx',
     'app/settings/user-guide.tsx',
     'app/settings/about.tsx',
   ];
@@ -171,10 +168,9 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(source, /label: 'Journal'.*route: '\/settings\/journal'/);
   assert.match(source, /label: 'Settings'.*route: '\/settings'/);
   assert.match(source, /label: 'Economic Calendar'.*route: '\/settings\/economic-calendar'/);
-  assert.match(source, /label: 'Traders Community'.*route: '\/settings\/traders-community'/);
-  assert.match(source, /label: 'MQL5 Algo Trading'.*route: '\/settings\/mql5-algo-trading'/);
   assert.match(source, /label: 'User Guide'.*route: '\/settings\/user-guide'/);
   assert.match(source, /label: 'About'.*route: '\/settings\/about'/);
+  assert.doesNotMatch(source, /MQL5 Algo Trading|\/settings\/mql5-algo-trading|Traders Community|\/settings\/traders-community/);
   assert.match(source, /'\/settings\/accounts'/);
   assert.match(source, /'\/login'/);
   assert.match(rootLayoutSource, /const sidebarDetailScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none'/);
@@ -182,10 +178,10 @@ test('sidebar keeps the main option routes warm and available', () => {
   assert.match(rootLayoutSource, /name='settings\/mailbox' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/journal' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/economic-calendar' options=\{sidebarDetailScreenOptions\}/);
-  assert.match(rootLayoutSource, /name='settings\/traders-community' options=\{sidebarDetailScreenOptions\}/);
-  assert.match(rootLayoutSource, /name='settings\/mql5-algo-trading' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/user-guide' options=\{sidebarDetailScreenOptions\}/);
+  assert.match(rootLayoutSource, /name='settings\/help' options=\{sidebarDetailScreenOptions\}/);
   assert.match(rootLayoutSource, /name='settings\/about' options=\{sidebarDetailScreenOptions\}/);
+  assert.doesNotMatch(rootLayoutSource, /settings\/mql5-algo-trading|settings\/traders-community/);
   assert.doesNotMatch(tabsLayoutSource, /warmSidebarRouteModules/);
   assert.doesNotMatch(tabsLayoutSource, /SidebarRouteTransitionOverlay/);
   assert.match(deferredMountSource, /requestAnimationFrame/);

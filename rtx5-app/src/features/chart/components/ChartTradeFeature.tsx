@@ -7,8 +7,9 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { CHART_ORDER_TYPES, type ChartOrderType, isPendingChartOrderType } from '../chartTradeOrderUtils';
 import {
+  ANDROID_FOCUSED_LOT_EDITOR_BOTTOM_GAP as FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP,
+  IOS_FOCUSED_LOT_EDITOR_EDIT_GAP as FOOTER_TRADE_DOCK_EDIT_GAP,
   resolveChartTradeSheetFrameHeight,
-  resolveFooterTradeDockBottom,
   shouldRenderChartTradeSheetBody,
   shouldShowChartTradeSheetHandle,
   shouldShowChartTradeSheetMarketExecutionButtons,
@@ -1267,16 +1268,22 @@ export function ChartTradeOverlayLayer({
   });
   const showTradeFooterDock = showInlineFooterDock || footer.showFloatingFooterTradeRow;
   const tradeFooterDockVisible = showInlineFooterDock || footer.floatingFooterTradeRowVisible;
-  const tradeFooterDockBottom = resolveFooterTradeDockBottom({
-    platform: Platform.OS,
-    footerLotEditorFocused: footer.footerLotEditorFocused,
-    showFloatingFooterTradeRow: footer.showFloatingFooterTradeRow,
-    showInlineFooterDock,
-    footerTradeRowKeyboardOffset: footer.footerTradeRowKeyboardOffset,
-    keyboardVisibleHeight: footer.keyboardVisibleHeight,
-    keyboardResizesHost: footer.keyboardResizesHost,
-    footerKeyboardAvoidanceOffset: footer.footerKeyboardAvoidanceOffset,
-  });
+  const isAndroidFloatingFooterLotEditor =
+    Platform.OS === 'android' &&
+    footer.footerLotEditorFocused &&
+    footer.showFloatingFooterTradeRow;
+  const tradeFooterDockEditGap =
+    Platform.OS === 'ios' &&
+    footer.footerLotEditorFocused &&
+    footer.footerTradeRowKeyboardOffset > 0
+      ? FOOTER_TRADE_DOCK_EDIT_GAP
+      : 0;
+  const tradeFooterDockBottom =
+    !footer.showFloatingFooterTradeRow || showInlineFooterDock
+      ? 0
+      : isAndroidFloatingFooterLotEditor
+        ? FOOTER_TRADE_DOCK_ANDROID_BOTTOM_SAFE_GAP
+        : footer.footerTradeRowKeyboardOffset + tradeFooterDockEditGap;
   const tradeSheetBottomInset =
     Number.isFinite(sheet.chartTradeSheetBottomInset) && sheet.chartTradeSheetBottomInset > 0
       ? sheet.chartTradeSheetBottomInset

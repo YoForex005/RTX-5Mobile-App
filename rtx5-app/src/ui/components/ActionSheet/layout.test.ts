@@ -253,6 +253,8 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   assert.match(source, /const \[currentOverlayHeight, setCurrentOverlayHeight\] = useState\(initialMeasuredHeight\)/);
   assert.match(source, /const \[keyboardHeight, setKeyboardHeight\] = useState\(0\)/);
   assert.match(source, /const androidSearchableSheet = Platform\.OS === 'android' && activeSearchable/);
+  assert.match(source, /const shouldLockSheetHeight = activeDetent === 'large'/);
+  assert.match(source, /\? \{ height: sheetMaxHeight \}/);
   assert.match(
     source,
     /const overlayKeyboardLift = androidSearchableSheet[\s\S]*measuredHeight - \(currentOverlayHeight \|\| measuredHeight\)/,
@@ -265,6 +267,14 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   assert.match(source, /const resizeKeyboardLift = Math\.max\(overlayKeyboardLift, windowKeyboardLift\)/);
   assert.match(source, /const effectiveKeyboardLift = Math\.max\(resizeKeyboardLift, eventKeyboardLift\)/);
   assert.match(source, /const unhandledKeyboardLift = Math\.max\(0, eventKeyboardLift - resizeKeyboardLift\)/);
+  assert.match(source, /Keyboard\.addListener\('keyboardDidShow', handleKeyboardShow\)/);
+  assert.match(source, /Keyboard\.addListener\('keyboardDidHide', handleKeyboardHide\)/);
+  assert.match(
+    source,
+    /const syncOverlayHeightFromWindow = \(\) => \{[\s\S]*Dimensions\.get\('window'\)\.height[\s\S]*setCurrentOverlayHeight\(nextWindowHeight\)/,
+  );
+  assert.match(source, /syncOverlayHeightFromWindow\(\);\s*setKeyboardHeight\(nextKeyboardHeight\)/);
+  assert.match(source, /setKeyboardHeight\(nextKeyboardHeight\)/);
   assert.match(
     source,
     /const measuredVisibleHeight = androidSearchableSheet[\s\S]*measuredHeight - effectiveKeyboardLift/,
@@ -272,6 +282,7 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   assert.match(source, /const bottomSpacerHeight = bottomInset \+ unhandledKeyboardLift/);
   assert.match(source, /setCurrentOverlayHeight\(h\)/);
   assert.match(source, /const availableWindowHeight = Math\.max\(260, measuredVisibleHeight\)/);
+  assert.match(source, /sheetHeightStyle/);
   assert.match(source, /height: bottomSpacerHeight/);
   assert.doesNotMatch(source, /height: bottomInset \+ keyboardLift/);
 });

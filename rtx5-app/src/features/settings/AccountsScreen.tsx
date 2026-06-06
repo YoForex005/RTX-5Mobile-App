@@ -11,10 +11,9 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View, ScrollView, Alert, Platform } from 'react-native';
+import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
-import { AppLogo } from '../../ui/components/AppLogo';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 
@@ -106,6 +105,20 @@ const normalizeSwitchLogin = (login: string) => {
   return Number.isFinite(numeric) ? String(numeric) : login.trim();
 };
 
+const formatBrokerInitials = (name: string) => {
+  const words = name
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return 'BR';
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('')
+    .slice(0, 2) || 'BR';
+};
+
 const isMissingSavedAccountSwitchError = (error: unknown) => {
   const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
     ? Number((error as { statusCode?: unknown }).statusCode)
@@ -143,6 +156,10 @@ type OtherAccountRow = {
   snapshot: SavedAccountSnapshot | null;
   liveAccount: TradingAccount | null;
 };
+
+type DeleteAccountTarget =
+  | { type: 'current' }
+  | { type: 'saved'; row: OtherAccountRow };
 
 const buildSavedAccountSnapshot = (account: TradingAccount): SavedAccountSnapshot => ({
   balance: account.balance,
@@ -201,6 +218,7 @@ export function AccountsScreen() {
   const brokerServerUrl = useUserPreferences((s) => s.brokerServerUrl);
   const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
   const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
+  const activeBrokerLogoUrl = brokerConfig?.logo_url || brokerLogoUrl || '';
 
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
@@ -231,6 +249,9 @@ export function AccountsScreen() {
     for (const sa of savedAccounts) {
       const key = `${sa.brokerId}:${sa.login}`;
       if (key === activeKey) continue;
+      const savedLogoUrl = sa.brokerId === activeBrokerId
+        ? activeBrokerLogoUrl || sa.logoUrl || ''
+        : sa.logoUrl || '';
       map.set(key, {
         key,
         login: sa.login,
@@ -238,7 +259,7 @@ export function AccountsScreen() {
         brokerId: sa.brokerId,
         server: sa.server,
         serverUrl: sa.serverUrl ?? '',
-        logoUrl: sa.logoUrl ?? '',
+        logoUrl: savedLogoUrl,
         accountType: sa.accountType,
         hasSavedCredentials: sa.hasCredentials,
         snapshot: sa.snapshot ?? null,
@@ -259,7 +280,7 @@ export function AccountsScreen() {
         brokerId: activeBrokerId,
         server: existing?.server || brokerConfig?.server_name || '',
         serverUrl: existing?.serverUrl || brokerServerUrl,
-        logoUrl: existing?.logoUrl || brokerLogoUrl,
+        logoUrl: activeBrokerLogoUrl || existing?.logoUrl || '',
         accountType,
         hasSavedCredentials: existing?.hasSavedCredentials ?? false,
         snapshot: buildSavedAccountSnapshot(a),
@@ -272,7 +293,7 @@ export function AccountsScreen() {
       if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [accounts, activeBrokerId, activeKey, brokerConfig?.server_name, brokerLogoUrl, brokerServerUrl, savedAccounts]);
+  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.server_name, brokerServerUrl, savedAccounts]);
 
   // Backfill the active session into the directory so accounts that were
   // logged in before this feature shipped (or pre-existing sessions on first
@@ -293,7 +314,7 @@ export function AccountsScreen() {
       && existing.name === nextName
       && existing.server === nextServer
       && existing.serverUrl === brokerServerUrl
-      && existing.logoUrl === brokerLogoUrl
+      && existing.logoUrl === activeBrokerLogoUrl
       && existing.accountType === nextType
       && areSavedAccountSnapshotsEqual(existing.snapshot, snapshot)
     ) {
@@ -305,7 +326,7 @@ export function AccountsScreen() {
       brokerId: activeBrokerId,
       server: nextServer,
       serverUrl: brokerServerUrl,
-      logoUrl: brokerLogoUrl,
+      logoUrl: activeBrokerLogoUrl,
       accountType: nextType,
       lastUsedAt: existing?.lastUsedAt ?? Date.now(),
       hasCredentials: existing?.hasCredentials ?? false,
@@ -316,7 +337,7 @@ export function AccountsScreen() {
     activeBrokerId,
     activeLoginStr,
     brokerConfig?.server_name,
-    brokerLogoUrl,
+    activeBrokerLogoUrl,
     brokerServerUrl,
     isScreenFocused,
     isLoggedIn,
@@ -365,8 +386,15 @@ export function AccountsScreen() {
   const [successMessage, setSuccessMessage] = React.useState('');
   const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
   const [qrData, setQRData] = React.useState('');
-  const [deleteConfirmVisible, setDeleteConfirmVisible] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<DeleteAccountTarget | null>(null);
   const [tradeNotificationsSheetVisible, setTradeNotificationsSheetVisible] = React.useState(false);
+  const [brokerLogoFailed, setBrokerLogoFailed] = React.useState<Record<string, boolean>>({});
+
+  const handleBrokerLogoError = React.useCallback((logoUri: string) => {
+    setBrokerLogoFailed((current) => (
+      current[logoUri] ? current : { ...current, [logoUri]: true }
+    ));
+  }, []);
 
   const tradeNotificationKey = brokerId && displayLogin !== '---'
     ? buildTradeNotificationKey(brokerId, displayLogin)
@@ -479,20 +507,20 @@ export function AccountsScreen() {
   };
 
   const handleRemoveSavedAccount = (row: OtherAccountRow) => {
-    Alert.alert(
-      t('Remove account?'),
-      t('This will remove this account from the list on this device. You can sign in again to add it back.'),
-      [
-        { text: t('Cancel'), style: 'cancel' },
-        {
-          text: t('Remove'),
-          style: 'destructive',
-          onPress: () => {
-            removeSavedAccount(row.login, row.brokerId);
-            removeSavedAccountPassword(row.brokerId, row.login).catch(() => undefined);
-          },
-        },
-      ],
+    setDeleteTarget({ type: 'saved', row });
+  };
+
+  const openOtherAccountOptions = (row: OtherAccountRow) => {
+    const title = translateAccountCardName(row.name || `Account ${row.login}`, t);
+    runImmediateAction('accounts.saved.optionsSheet.open', () =>
+      showAccountsActionSheet({
+        title,
+        detent: 'auto',
+        instantOpen: true,
+        actions: [
+          { label: t('Delete account'), danger: true, onPress: () => handleRemoveSavedAccount(row) },
+        ],
+      }),
     );
   };
 
@@ -506,8 +534,19 @@ export function AccountsScreen() {
     setPasswordSheetVisible(true);
   };
 
+  const handleDismissDeleteAccount = () => {
+    setDeleteTarget(null);
+  };
+
   const handleConfirmDeleteAccount = () => {
-    setDeleteConfirmVisible(false);
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    if (target?.type === 'saved') {
+      removeSavedAccount(target.row.login, target.row.brokerId);
+      removeSavedAccountPassword(target.row.brokerId, target.row.login).catch(() => undefined);
+      return;
+    }
+    if (target?.type !== 'current') return;
     if (displayLogin && displayLogin !== '---' && brokerId) {
       removeSavedAccount(displayLogin, brokerId);
       removeSavedAccountPassword(brokerId, displayLogin).catch(() => undefined);
@@ -538,11 +577,25 @@ export function AccountsScreen() {
           { label: t('Change master password'), onPress: () => openPasswordSheet('master') },
           { label: t('Change investor password'), onPress: () => openPasswordSheet('investor') },
           { label: t('Clear saved password') },
-          { label: t('Delete account'), danger: true, onPress: () => setDeleteConfirmVisible(true) },
+          { label: t('Delete account'), danger: true, onPress: () => setDeleteTarget({ type: 'current' }) },
         ],
       }),
     );
   };
+
+  const deleteAccountName = deleteTarget?.type === 'saved'
+    ? translateAccountCardName(deleteTarget.row.name || `Account ${deleteTarget.row.login}`, t)
+    : displayName;
+  const deleteAccountLogin = deleteTarget?.type === 'saved'
+    ? deleteTarget.row.login
+    : displayLogin;
+  const deleteAccountServer = deleteTarget?.type === 'saved'
+    ? deleteTarget.row.server || deleteTarget.row.brokerId
+    : displayServerName;
+  const deleteAccountLogoUri = deleteTarget?.type === 'saved'
+    ? deleteTarget.row.logoUrl
+    : activeBrokerLogoUrl;
+  const deleteAccountIsCurrent = deleteTarget?.type === 'current';
 
   return (
     <Screen>
@@ -608,7 +661,14 @@ export function AccountsScreen() {
             {/* Top: Avatar + Name + Connected badge */}
             <View style={styles.activeTopRow}>
               <View style={styles.avatarWrap}>
-                <AppLogo style={styles.avatarImage} />
+                <BrokerLogoAvatar
+                  logoUri={activeBrokerLogoUrl}
+                  label={displayBrokerName}
+                  failed={activeBrokerLogoUrl ? !!brokerLogoFailed[activeBrokerLogoUrl] : false}
+                  onError={handleBrokerLogoError}
+                  variant="active"
+                  styles={styles}
+                />
               </View>
               <View style={styles.activeInfoCol}>
                 <View style={styles.nameAndBadges}>
@@ -775,7 +835,7 @@ export function AccountsScreen() {
                 key={row.key}
                 style={[styles.secondaryCard, isExpanded && styles.secondaryCardExpanded]}
                 onPress={() => setExpandedAccountKey(isExpanded ? null : row.key)}
-                onLongPress={() => handleRemoveSavedAccount(row)}
+                onLongPress={() => openOtherAccountOptions(row)}
                 delayLongPress={400}
               >
                 {/* Diagonal ribbon */}
@@ -787,7 +847,14 @@ export function AccountsScreen() {
                 <View style={styles.secondaryTopRow}>
                   <View style={styles.secondaryLeft}>
                     <View style={styles.secondaryAvatar}>
-                      <AppLogo style={styles.secondaryAvatarImage} />
+                      <BrokerLogoAvatar
+                        logoUri={row.logoUrl}
+                        label={serverLabel || row.brokerId}
+                        failed={row.logoUrl ? !!brokerLogoFailed[row.logoUrl] : false}
+                        onError={handleBrokerLogoError}
+                        variant="secondary"
+                        styles={styles}
+                      />
                     </View>
                     <View style={styles.secondaryInfo}>
                       <View style={styles.nameAndBadges}>
@@ -803,11 +870,13 @@ export function AccountsScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Ionicons
-                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={18}
-                    color={T.textDimmed}
-                  />
+                  <View style={styles.secondaryActions}>
+                    <Ionicons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={T.textDimmed}
+                    />
+                  </View>
                 </View>
 
                 {isExpanded && (
@@ -949,28 +1018,70 @@ export function AccountsScreen() {
       )}
 
       {/* Delete Account Confirmation Modal */}
-      {deleteConfirmVisible && (
+      {deleteTarget && (
         <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 24 }]} pointerEvents="box-none">
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setDeleteConfirmVisible(false)} />
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={handleDismissDeleteAccount} />
           <View style={styles.deleteModal}>
-            <Text style={styles.deleteTitle}>{t('Delete account')}</Text>
-            <View style={styles.deleteDivider} />
-            <Text style={styles.deleteMessage}>
-              {t('Do you really want to delete account')} {displayLogin}?
-            </Text>
-            <View style={styles.deleteActions}>
-              <Pressable
-                style={[styles.deleteBtn, styles.deleteBtnSecondary]}
-                onPress={() => setDeleteConfirmVisible(false)}
-              >
-                <Text style={styles.deleteBtnSecondaryText}>{t('No')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.deleteBtn, styles.deleteBtnPrimary]}
-                onPress={handleConfirmDeleteAccount}
-              >
-                <Text style={styles.deleteBtnPrimaryText}>{t('Yes')}</Text>
-              </Pressable>
+            <View style={styles.deleteModalBody}>
+              <View style={styles.deleteHeaderRow}>
+                <View style={styles.deleteHeaderLeft}>
+                  <View style={styles.deleteIconWrap}>
+                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                  </View>
+                  <Text style={styles.deleteEyebrow}>
+                    {deleteAccountIsCurrent ? t('Current account') : t('Saved account')}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Cancel')}
+                  style={styles.deleteCloseButton}
+                  onPress={handleDismissDeleteAccount}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={20} color={T.textMuted} />
+                </Pressable>
+              </View>
+              <Text style={styles.deleteTitle}>
+                {deleteAccountIsCurrent ? t('Delete current account?') : t('Delete saved account?')}
+              </Text>
+              <Text style={styles.deleteMessage}>
+                {deleteAccountIsCurrent
+                  ? t('This signs out the active session and clears saved credentials from this device.')
+                  : t('This removes the saved account and password from this device.')}
+              </Text>
+              <View style={styles.deleteAccountCard}>
+                <View style={styles.deleteAccountAvatar}>
+                  <BrokerLogoAvatar
+                    logoUri={deleteAccountLogoUri}
+                    label={deleteAccountServer}
+                    failed={deleteAccountLogoUri ? !!brokerLogoFailed[deleteAccountLogoUri] : false}
+                    onError={handleBrokerLogoError}
+                    variant="secondary"
+                    styles={styles}
+                  />
+                </View>
+                <View style={styles.deleteAccountInfo}>
+                  <Text style={styles.deleteAccountName} numberOfLines={1}>{deleteAccountName}</Text>
+                  <Text style={styles.deleteAccountMeta} numberOfLines={1}>
+                    {deleteAccountLogin} · {deleteAccountServer}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.deleteActions}>
+                <Pressable
+                  style={[styles.deleteBtn, styles.deleteBtnSecondary]}
+                  onPress={handleDismissDeleteAccount}
+                >
+                  <Text style={styles.deleteBtnSecondaryText}>{t('Cancel')}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.deleteBtn, styles.deleteBtnPrimary]}
+                  onPress={handleConfirmDeleteAccount}
+                >
+                  <Text style={styles.deleteBtnPrimaryText}>{t('Delete account')}</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -1006,6 +1117,42 @@ export function AccountsScreen() {
         runActionAfterClose={actionSheet?.runActionAfterClose}
       />
     </Screen>
+  );
+}
+
+function BrokerLogoAvatar({
+  logoUri,
+  label,
+  failed,
+  onError,
+  variant,
+  styles,
+}: {
+  logoUri: string;
+  label: string;
+  failed: boolean;
+  onError: (logoUri: string) => void;
+  variant: 'active' | 'secondary';
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const imageStyle = variant === 'active' ? styles.avatarImage : styles.secondaryAvatarImage;
+  const initialsStyle = variant === 'active' ? styles.avatarText : styles.secondaryAvatarText;
+
+  if (!logoUri || failed) {
+    return (
+      <Text style={initialsStyle}>{formatBrokerInitials(label)}</Text>
+    );
+  }
+
+  return (
+    <Image
+      accessibilityIgnoresInvertColors
+      accessibilityLabel={`${label} broker logo`}
+      source={{ uri: logoUri }}
+      style={imageStyle}
+      resizeMode="contain"
+      onError={() => onError(logoUri)}
+    />
   );
 }
 
@@ -1070,64 +1217,137 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     fontWeight: '600',
   },
   deleteModal: {
-    width: '85%',
-    maxWidth: 340,
-    backgroundColor: T.glass2,
-    borderRadius: 16,
-    padding: 20,
+    width: '88%',
+    maxWidth: 360,
+    backgroundColor: isDark ? '#111827' : '#FFFFFF',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.2,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowRadius: 28,
+    elevation: 16,
+    overflow: 'hidden',
+  },
+  deleteModalBody: {
+    padding: 18,
+  },
+  deleteHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  deleteHeaderLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: isDark ? 'rgba(239,68,68,0.18)' : 'rgba(239,68,68,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  deleteEyebrow: {
+    flexShrink: 1,
+    color: T.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   deleteTitle: {
     color: T.text,
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 12,
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 25,
+    marginBottom: 8,
   },
-  deleteDivider: {
-    height: 1,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-    marginBottom: 16,
+  deleteCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
+    marginLeft: 10,
   },
   deleteMessage: {
     color: T.textSub,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 24,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  deleteAccountCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.045)' : '#F8FAFC',
+    borderRadius: 14,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)',
+    marginBottom: 10,
+  },
+  deleteAccountAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFFFFF',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  deleteAccountInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  deleteAccountName: {
+    color: T.text,
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  deleteAccountMeta: {
+    color: T.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   deleteActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   deleteBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    minHeight: 46,
+    paddingVertical: 11,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteBtnSecondary: {
     borderWidth: 1,
-    borderColor: T.borderMedium,
-    backgroundColor: 'transparent',
+    borderColor: isDark ? 'rgba(148,163,184,0.28)' : 'rgba(15,23,42,0.16)',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF',
   },
   deleteBtnSecondaryText: {
     color: T.text,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '800',
   },
   deleteBtnPrimary: {
-    backgroundColor: '#2563EB',
+    backgroundColor: '#EF4444',
   },
   deleteBtnPrimaryText: {
     color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
   },
   tradeNotifModal: {
     width: '85%',
@@ -1286,10 +1506,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
   avatarText: {
     color: T.accent,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
   },
   avatarImage: {
@@ -1547,6 +1768,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
   secondaryAvatarText: {
     color: T.textMuted,
@@ -1560,6 +1782,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   secondaryInfo: {
     flex: 1,
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   secondaryNameRow: {
     flexDirection: 'row',

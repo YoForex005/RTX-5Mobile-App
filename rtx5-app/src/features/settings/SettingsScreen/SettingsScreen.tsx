@@ -6,10 +6,12 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import {
   Alert,
   Keyboard,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -32,14 +34,16 @@ import { clearAuthSessionTokens } from '../../../state/brokerSessionStorage';
 import { useUIState } from '../../../state/uiState';
 import { fmt } from '../../../utils/format';
 import { useTheme } from '../../../ui/theme/useTheme';
-import { QRScannerModal } from '../../../ui/components/QRScannerModal';
 import { useTranslation } from '../../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES, translateAccountCardName } from '../../../i18n/translations';
 import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useBrokerConfig } from '../../../query/broker';
 import { useAccountDetails, useAccounts } from '../../../query/accounts';
+import { resolveAppDisplayVersion } from '../../../config/appDisplayVersion';
+import { getConfiguredSupportEmail } from '../../../config/legalLinks';
 import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
+import { buildHelpMailto } from '../helpViewModel';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 
@@ -49,25 +53,17 @@ const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 80;
 const SETTINGS_READY_ROUTE_PATHS = [
   '/settings/accounts',
   '/register',
-  '/settings/mailbox',
-  '/settings/news',
   '/settings/economic-calendar',
-  '/settings/traders-community',
-  '/settings/mql5-algo-trading',
   '/settings/interface',
   '/settings/journal',
-  '/settings/user-guide',
+  '/settings/help',
 ] as const;
 const SETTINGS_DETAIL_REPLACE_ROUTES = new Set<string>([
   '/settings/accounts',
-  '/settings/mailbox',
-  '/settings/news',
   '/settings/economic-calendar',
-  '/settings/traders-community',
-  '/settings/mql5-algo-trading',
   '/settings/interface',
   '/settings/journal',
-  '/settings/user-guide',
+  '/settings/help',
 ]);
 
 type SettingsReadyRoute = (typeof SETTINGS_READY_ROUTE_PATHS)[number];
@@ -79,7 +75,7 @@ type SearchableSettingsItem = {
   sub: string;
   icon: string;
   routePath?: SettingsReadyRoute;
-  action?: 'qr-scanner';
+  action?: 'support-email';
 };
 
 export function SettingsScreen() {
@@ -123,6 +119,10 @@ export function SettingsScreen() {
   const { t, language } = useTranslation();
   const displayAccountName = translateAccountCardName(rawAccountName, t);
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
+  const supportEmail = getConfiguredSupportEmail();
+  const appName = Constants.expoConfig?.name ?? 'RTX5';
+  const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
+  const appVersion = resolveAppDisplayVersion(nativeAppVersion);
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
   const lowerSettingsReady = useDeferredRouteContentReady(SETTINGS_LOWER_CONTENT_DELAY_MS);
   const toggleThemeMode = useCallback(() => {
@@ -135,7 +135,6 @@ export function SettingsScreen() {
   const logout = useUserPreferences((s) => s.logout);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showScanner, setShowScanner] = useState(false);
   const routeLockRef = useRef(false);
   const routeUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -259,23 +258,31 @@ export function SettingsScreen() {
     Keyboard.dismiss();
   };
 
+  const handleEmailSupport = useCallback(async () => {
+    const mailtoUrl = buildHelpMailto({
+      appName,
+      appVersion,
+      platform: Platform.OS,
+      supportEmail,
+    });
+
+    try {
+      await Linking.openURL(mailtoUrl);
+    } catch {
+      Alert.alert('Email support', `Please email ${supportEmail} from your mail app.`);
+    }
+  }, [appName, appVersion, supportEmail]);
+
   const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => [
     { title: 'Accounts', sub: 'Manage trading accounts', icon: 'server-outline', routePath: '/settings/accounts' },
     { title: 'New Account', sub: '', icon: 'person-outline', routePath: '/register' },
-    { title: 'Mailbox', sub: 'High Importance News', icon: 'mail-outline', routePath: '/settings/mailbox' },
-    { title: 'News', sub: 'WTI, US-Iran Talks, OPEC+', icon: 'newspaper-outline', routePath: '/settings/news' },
     { title: 'Economic Calender', sub: '', icon: 'calendar-outline', routePath: '/settings/economic-calendar' },
-    { title: 'Chat & Messages', sub: 'Sign in to MQL5.community', icon: 'chatbubble-outline' },
-    { title: 'Traders Community', sub: '', icon: 'people-outline', routePath: '/settings/traders-community' },
-    { title: 'MQL5 Algo Trading', sub: '', icon: 'flash-outline', routePath: '/settings/mql5-algo-trading' },
     { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' },
-    { title: 'OTP', sub: 'Passcode Generator', icon: 'shield-checkmark-outline' },
-    { title: 'QR Scanner', sub: 'Scan to connect or log in', icon: 'qr-code-outline', action: 'qr-scanner' },
     { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline', routePath: '/settings/interface' },
     { title: 'Journal', sub: '', icon: 'reader-outline', routePath: '/settings/journal' },
-    { title: 'Support', sub: 'Contact our dedicated team', icon: 'help-buoy-outline' },
-    { title: 'Help', sub: 'FAQs & Documentation', icon: 'information-circle-outline', routePath: '/settings/user-guide' },
-  ], [currentLanguageNative, themeMode]);
+    { title: 'Support', sub: supportEmail, icon: 'help-buoy-outline', action: 'support-email' },
+    { title: 'Help', sub: 'FAQ', icon: 'information-circle-outline', routePath: '/settings/help' },
+  ], [currentLanguageNative, supportEmail, themeMode]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery) return SEARCHABLE_ITEMS;
@@ -298,15 +305,15 @@ export function SettingsScreen() {
     setSearchQuery('');
     Keyboard.dismiss();
 
-    if (item.action === 'qr-scanner') {
-      setShowScanner(true);
+    if (item.action === 'support-email') {
+      void handleEmailSupport();
       return;
     }
 
     if (item.routePath) {
       openReadySettingsRoute(item.routePath);
     }
-  }, [openReadySettingsRoute, setSearchActive]);
+  }, [handleEmailSupport, openReadySettingsRoute, setSearchActive]);
 
   const searchBarStyle: any = themeMode === 'dark' ? {
     backgroundColor: 'rgba(30, 41, 59, 0.55)',
@@ -539,22 +546,9 @@ export function SettingsScreen() {
 
             {lowerSettingsReady ? (
               <>
-                <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
+                <Text style={styles.sectionTitle}>{t('MARKET UPDATES')}</Text>
                 <View style={[styles.groupCard, styles.cardShadow]}>
-                  <SettingRow T={T} styles={styles} icon="mail-outline" color="#1D4ED8" title={t('Mailbox')} sub={t('High Importance News')} onPress={() => openReadySettingsRoute('/settings/mailbox')} />
-                  <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="newspaper-outline" color="#1D4ED8" title={t('News')} sub="WTI, US-Iran Talks, OPEC+" onPress={() => openReadySettingsRoute('/settings/news')} />
-                  <View style={styles.dividerInner} />
                   <SettingRow T={T} styles={styles} icon="calendar-outline" color="#1D4ED8" title={t('Economic Calender')} sub="" onPress={() => openReadySettingsRoute('/settings/economic-calendar')} />
-                </View>
-
-                <Text style={styles.sectionTitle}>{t('SOCIAL & ALGO')}</Text>
-                <View style={[styles.groupCard, styles.cardShadow]}>
-                  <SettingRow T={T} styles={styles} icon="chatbubble-outline" color="#1D4ED8" title={t('Chat & Messages')} sub={t('Sign in to MQL5.community')} />
-                  <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="people-outline" color="#1D4ED8" title={t('Traders Community')} onPress={() => openReadySettingsRoute('/settings/traders-community')} />
-                  <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="flash-outline" color="#1D4ED8" title={t('MQL5 Algo Trading')} onPress={() => openReadySettingsRoute('/settings/mql5-algo-trading')} />
                 </View>
 
                 <Text style={styles.sectionTitle}>{t('PREFERENCES & TOOLS')}</Text>
@@ -582,10 +576,6 @@ export function SettingsScreen() {
                     }
                   />
                   <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="shield-checkmark-outline" color="#1D4ED8" title={t('OTP')} sub={t('Passcode Generator')} />
-                  <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="qr-code-outline" color="#1D4ED8" title={t('QR Scanner')} sub={t('Scan code to connect')} onPress={() => setShowScanner(true)} />
-                  <View style={styles.dividerInner} />
                   <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
                   <View style={styles.dividerInner} />
                   <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} onPress={() => openReadySettingsRoute('/settings/journal')} />
@@ -593,9 +583,9 @@ export function SettingsScreen() {
 
                 <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>
                 <View style={[styles.groupCard, styles.cardShadow]}>
-                  <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={t('Contact our dedicated team')} />
+                  <SettingRow T={T} styles={styles} icon="help-buoy-outline" color="#1D4ED8" title={t('Support')} sub={supportEmail} onPress={handleEmailSupport} />
                   <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQs & Documentation')} onPress={() => openReadySettingsRoute('/settings/user-guide')} />
+                  <SettingRow T={T} styles={styles} icon="information-circle-outline" color="#1D4ED8" title={t('Help')} sub={t('FAQ')} onPress={() => openReadySettingsRoute('/settings/help')} />
                 </View>
 
                 <View style={styles.logoutContainer}>
@@ -615,16 +605,6 @@ export function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <QRScannerModal
-        visible={showScanner}
-        onClose={() => setShowScanner(false)}
-        onScan={(data) => {
-          setShowScanner(false);
-          setTimeout(() => {
-            Alert.alert(t('Scanned Success'), data);
-          }, 300);
-        }}
-      />
     </Screen>
   );
 }
