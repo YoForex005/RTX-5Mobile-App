@@ -28,6 +28,7 @@ export type ChartOverlayPriceLine = {
   lineStyle: number;
   axisLabelVisible: boolean;
   title: string;
+  labelPlacement?: 'floating' | 'line';
   dragKey?: 'entry' | 'stopLimit' | 'sl' | 'tp';
 };
 

@@ -93,6 +93,40 @@ test('applyLiveQuoteTickToSnapshot tracks previous bid ask on real price movemen
   assert.equal(moved.lastPriceChangedAt, 1777410003000);
 });
 
+test('applyLiveQuoteTickToSnapshot derives spread from displayed bid ask instead of feed spread', () => {
+  const eurusd = applyLiveQuoteTickToSnapshot(
+    'EURUSD',
+    undefined,
+    {
+      symbol: 'EURUSD',
+      bid: 1.16345,
+      ask: 1.16365,
+      spread: 0,
+      digits: 5,
+      timestamp: 1777410001,
+      receivedAt: 1777410003000,
+    },
+    1,
+  );
+  const xauusd = applyLiveQuoteTickToSnapshot(
+    'XAUUSD',
+    undefined,
+    {
+      symbol: 'XAUUSD',
+      bid: 4475.11,
+      ask: 4475.34,
+      spread: 0.2,
+      digits: 2,
+      timestamp: 1777410001,
+      receivedAt: 1777410003000,
+    },
+    2,
+  );
+
+  assert.equal(eurusd?.spread, 20);
+  assert.equal(xauusd?.spread, 23);
+});
+
 test('hasDisplayableLiveQuotePrice keeps stale snapshots renderable when prices exist', () => {
   const staleNow = 1777410100000;
   const staleSnapshot = {

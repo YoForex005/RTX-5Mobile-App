@@ -195,6 +195,11 @@ test('buy and sell actions use the stricter critical trade budget', () => {
 test('chart trade one-click and ticket paths keep heavy work out of the tap paint', () => {
   const ordersSource = readSource('src/query/orders.ts');
   const chartTradeHandlerSource = readSource('src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts');
+  const oneClickStart = chartTradeHandlerSource.indexOf('if (oneClickAccepted) {');
+  const ticketPathStart = chartTradeHandlerSource.indexOf("logChartTradeDiagnostic('[Trade] navigate path", oneClickStart);
+  assert.notEqual(oneClickStart, -1);
+  assert.notEqual(ticketPathStart, -1);
+  const oneClickSource = chartTradeHandlerSource.slice(oneClickStart, ticketPathStart);
 
   assert.match(ordersSource, /const TRADE_POST_SUCCESS_REFRESH_DELAY_MS = 250/);
   assert.match(ordersSource, /export const usePlaceOrderExecutor = \(\) => \{/);
@@ -206,8 +211,16 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   );
   assert.match(chartTradeHandlerSource, /const chartTradeActionDisabled = !isCurrentChartSymbol;/);
   assert.match(chartTradeHandlerSource, /import \{ usePlaceOrderExecutor \} from '..\/..\/..\/..\/query\/orders'/);
+  assert.match(chartTradeHandlerSource, /import \{ getApiLatencyNow \} from '..\/..\/..\/..\/utils\/apiLatency'/);
   assert.match(chartTradeHandlerSource, /const placeOrder = usePlaceOrderExecutor\(\);/);
-  assert.match(chartTradeHandlerSource, /if \(oneClickAccepted\) \{[\s\S]*placeOrder\(payload,/);
+  assert.match(chartTradeHandlerSource, /const CHART_TRADE_QUEUE_LIMIT = 10/);
+  assert.match(chartTradeHandlerSource, /type QueuedChartTrade = \{/);
+  assert.match(chartTradeHandlerSource, /const tradeQueueRef = React\.useRef<QueuedChartTrade\[\]>\(\[\]\);/);
+  assert.match(chartTradeHandlerSource, /function processNextQueuedTrade\(\) \{[\s\S]*placeOrder\(payload,/);
+  assert.match(chartTradeHandlerSource, /queueWaitMs/);
+  assert.match(chartTradeHandlerSource, /backendMs/);
+  assert.match(chartTradeHandlerSource, /title: 'Trade Queue Full'/);
+  assert.match(oneClickSource, /tradeQueueRef\.current\.push\(queuedTrade\);[\s\S]*processNextQueuedTrade\(\);/);
   assert.match(chartTradeHandlerSource, /const isChartTradeActionBusy = \(side: TradeSide\) => activeSide === side && tradeTapLockRef\.current;/);
   assert.match(
     chartTradeHandlerSource,
@@ -217,10 +230,9 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
     chartTradeHandlerSource,
     /\} else \{[\s\S]*runAfterChartTradeTapPaint\(\(\) => \{[\s\S]*router\.push\(\{[\s\S]*pathname: '\/trade\/order-ticket'/,
   );
-  assert.match(
-    chartTradeHandlerSource,
-    /placeOrder\(payload,[\s\S]*?\}\);\s*releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\);/,
-  );
+  assert.doesNotMatch(chartTradeHandlerSource, /if \(tradeTapLockRef\.current \|\| sharedLockSide !== null\)/);
+  assert.doesNotMatch(oneClickSource, /placeOrder\(payload,/);
+  assert.doesNotMatch(oneClickSource, /releaseTradeTapLock\(CHART_TRADE_TAP_RELEASE_DELAY_MS\)/);
   assert.doesNotMatch(chartTradeHandlerSource, /isPending/);
   assert.doesNotMatch(chartTradeHandlerSource, /usePlaceOrderMutation/);
 });

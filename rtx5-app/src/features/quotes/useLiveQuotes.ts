@@ -22,6 +22,7 @@ let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16;
 const QUOTE_REST_SNAPSHOT_POLL_MS = 500;
+const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000;
 
 const getTickSymbolKey = (tick: QuoteTickEvent): string =>
   normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
@@ -212,11 +213,18 @@ const asQuoteSnapshotArray = (payload: unknown): unknown[] => {
   return [];
 };
 
+const needsRestQuoteSnapshot = (symbol: string, now = Date.now()): boolean => {
+  const snapshot = resolveSnapshot(symbol);
+  const freshnessAnchor = getQuoteFreshnessAnchor(snapshot);
+  return freshnessAnchor === undefined || now - freshnessAnchor > QUOTE_REST_SNAPSHOT_STALE_MS;
+};
+
 const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
   if (symbols.length === 0) {
     return;
   }
 
+  const requestedKeys = new Set(symbols.flatMap(getSnapshotKeys));
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
   const response = await apiClient(`/quotes?symbols=${symbolsQuery}`);
   if (!response.ok) {
@@ -230,6 +238,10 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
       : null;
     const symbol = String(record?.symbol ?? record?.Symbol ?? record?.s ?? '');
     if (symbol) {
+      const matchesRequestedSymbol = getSnapshotKeys(symbol).some((key) => requestedKeys.has(key));
+      if (!matchesRequestedSymbol || !needsRestQuoteSnapshot(symbol)) {
+        return;
+      }
       ingestRestQuoteSnapshot(symbol, snapshot);
     }
   });
@@ -251,9 +263,14 @@ const useRestQuoteSnapshotFallback = (symbols: string[], active: boolean): void 
         return;
       }
 
+      const symbolsNeedingFallback = symbols.filter((symbol) => needsRestQuoteSnapshot(symbol));
+      if (symbolsNeedingFallback.length === 0) {
+        return;
+      }
+
       inFlight = true;
       try {
-        await fetchRestQuoteSnapshots(symbols);
+        await fetchRestQuoteSnapshots(symbolsNeedingFallback);
       } catch (error) {
         if (!cancelled) {
           console.warn('[Quotes REST] Snapshot poll failed', error);

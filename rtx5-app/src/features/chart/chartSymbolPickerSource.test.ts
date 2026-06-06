@@ -34,6 +34,7 @@ test('market symbol API cache is broker scoped and parses full instrument payloa
   assert.match(querySource, /useUserPreferences\(\(state\) => state\.accountDetails\?\.id \?\? ''\)/);
   assert.match(querySource, /queryKey:\s*\['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId\]/);
   assert.match(querySource, /staleTime:\s*1000 \* 60 \* 5/);
+  assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, cacheScope\)/);
   assert.match(extractorSource, /'instruments'[\s\S]*'symbols'[\s\S]*'data'[\s\S]*'items'[\s\S]*'results'[\s\S]*'records'/);
   assert.match(extractorSource, /'symbol'[\s\S]*'Symbol'[\s\S]*'instrumentSymbol'[\s\S]*'code'[\s\S]*'ticker'/);
 });
@@ -80,8 +81,9 @@ test('native OHLC row renders below the full symbol name', () => {
   assert.match(styles, /symbolOhlcPair:/);
   assert.match(styles, /symbolOhlcLabel:/);
   assert.match(styles, /symbolOhlcValue:/);
-  assert.match(styles, /symbolSectionContent:\s*\{[\s\S]*backgroundColor: CHART_CANVAS_BG/);
+  assert.match(styles, /symbolSectionContent:\s*\{[\s\S]*backgroundColor: 'transparent'/);
   assert.match(styles, /symbolOhlcRow:\s*\{[\s\S]*marginTop: 1/);
+  assert.doesNotMatch(source, /styles\.fxBadge,\s*\{\s*backgroundColor:/);
 });
 
 test('native chart toolbar keeps fast action openers on reliable press surfaces', () => {

@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -27,11 +27,23 @@ export const CH_HTML = `
         overflow: visible;
         z-index: 0;
       }
+      #rtx5-axis-dividers {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        overflow: visible;
+        z-index: 2;
+        shape-rendering: crispEdges;
+      }
     </style>
 </head>
 <body>
     <div id="chart"></div>
     <svg id="rtx5-moving-vertical-grid" aria-hidden="true"></svg>
+    <svg id="rtx5-axis-dividers" aria-hidden="true"></svg>
     <script>
       // ─────────────────────────────────────────────────────────────────
       //   Minimal, fresh candle pipeline
@@ -129,12 +141,17 @@ export const CH_HTML = `
       var movingGridLayerSignature = '';
       var movingGridVerticalSignature = '';
       var movingGridHorizontalSignature = '';
+      var chartAxisDividerRaf = 0;
+      var chartAxisDividerColor = 'transparent';
+      var chartAxisDividerVisible = false;
+      var chartAxisDividerSignature = '';
       var MOVING_GRID_HORIZONTAL_LINE_COUNT = ${CHART_GRID_HORIZONTAL_LINE_COUNT};
       var MOVING_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET = ${CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET};
       var MOVING_GRID_HORIZONTAL_SPACING = ${CHART_GRID_HORIZONTAL_SPACING};
       var MOVING_GRID_STROKE_WIDTH = ${CHART_GRID_STROKE_WIDTH};
       var MOVING_VERTICAL_GRID_SPACING = ${CHART_GRID_VERTICAL_SPACING};
       var MOVING_VERTICAL_GRID_DASH_PATTERN = '${CHART_GRID_DASH_PATTERN}';
+      var AXIS_DIVIDER_STROKE_WIDTH = ${CHART_AXIS_DIVIDER_STROKE_WIDTH};
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
       var chartTouchInteractionSuspendDepth = 0;
@@ -238,8 +255,10 @@ export const CH_HTML = `
         var plotBottom = Math.max(plotTop + 1, Math.round(paneHeight * (1 - bottomMargin)));
 
         return {
+          chartWidth: chartElement && chartElement.clientWidth ? chartElement.clientWidth : leftAxisWidth + paneWidth + rightAxisWidth,
           chartHeight: chartElement && chartElement.clientHeight ? chartElement.clientHeight : paneHeight + timeScaleHeight,
           leftAxisWidth: leftAxisWidth,
+          rightAxisWidth: rightAxisWidth,
           paneWidth: paneWidth,
           paneHeight: paneHeight,
           plotTop: plotTop,
@@ -287,6 +306,128 @@ export const CH_HTML = `
         movingGridLayerSignature = '';
         movingGridVerticalSignature = '';
         movingGridHorizontalSignature = '';
+      }
+
+      function getChartAxisDividerLayer() {
+        return document.getElementById('rtx5-axis-dividers');
+      }
+
+      function clearChartAxisDividers() {
+        if (chartAxisDividerRaf) {
+          try { cancelAnimationFrame(chartAxisDividerRaf); } catch (_e) {}
+          chartAxisDividerRaf = 0;
+        }
+        var layer = getChartAxisDividerLayer();
+        if (!layer) {
+          return;
+        }
+        layer.textContent = '';
+        layer.style.display = 'none';
+        chartAxisDividerSignature = '';
+      }
+
+      function applyChartAxisDividerColor(color) {
+        chartAxisDividerColor = typeof color === 'string' ? color : 'transparent';
+        chartAxisDividerVisible = !isTransparentChartColor(chartAxisDividerColor);
+        if (!chartAxisDividerVisible) {
+          clearChartAxisDividers();
+          return;
+        }
+        scheduleChartAxisDividersUpdate();
+      }
+
+      function scheduleChartAxisDividersUpdate() {
+        if (chartAxisDividerRaf) {
+          return;
+        }
+        chartAxisDividerRaf = requestAnimationFrame(function() {
+          chartAxisDividerRaf = 0;
+          updateChartAxisDividers();
+        });
+      }
+
+      function createAxisDividerLine(layer, namespace, id) {
+        var line = document.getElementById(id);
+        if (!line || line.parentNode !== layer) {
+          line = document.createElementNS(namespace, 'line');
+          line.setAttribute('id', id);
+          layer.appendChild(line);
+        }
+        line.setAttribute('stroke', chartAxisDividerColor);
+        line.setAttribute('stroke-width', String(AXIS_DIVIDER_STROKE_WIDTH));
+        line.setAttribute('stroke-linecap', 'square');
+        line.setAttribute('vector-effect', 'non-scaling-stroke');
+        line.style.display = 'block';
+        return line;
+      }
+
+      function updateChartAxisDividers() {
+        var layer = getChartAxisDividerLayer();
+        if (!layer || !chart || !chartAxisDividerVisible) {
+          clearChartAxisDividers();
+          return;
+        }
+
+        try {
+          var metrics = resolvePrimaryPaneMetrics();
+          if (!(metrics.chartWidth > 0) || !(metrics.chartHeight > 0) || !(metrics.paneWidth > 0) || !(metrics.paneHeight > 0)) {
+            clearChartAxisDividers();
+            return;
+          }
+
+          var left = Math.round(metrics.leftAxisWidth);
+          var paneRight = Math.round(metrics.leftAxisWidth + metrics.paneWidth);
+          var paneBottom = Math.round(metrics.paneHeight);
+          var dividerInset = Math.max(1, AXIS_DIVIDER_STROKE_WIDTH);
+          var topDividerY = dividerInset;
+          var bottomDividerY = Math.max(topDividerY, paneBottom - dividerInset);
+          var layerSignature = [
+            metrics.chartWidth,
+            metrics.chartHeight,
+            left,
+            paneRight,
+            paneBottom,
+            topDividerY,
+            bottomDividerY,
+            AXIS_DIVIDER_STROKE_WIDTH,
+            chartAxisDividerColor
+          ].join('|');
+          if (layerSignature === chartAxisDividerSignature) {
+            return;
+          }
+
+          layer.style.display = 'block';
+          layer.style.left = '0px';
+          layer.style.top = '0px';
+          layer.style.width = metrics.chartWidth + 'px';
+          layer.style.height = metrics.chartHeight + 'px';
+          layer.setAttribute('width', String(metrics.chartWidth));
+          layer.setAttribute('height', String(metrics.chartHeight));
+          layer.setAttribute('viewBox', '0 0 ' + metrics.chartWidth + ' ' + metrics.chartHeight);
+
+          var namespace = 'http://www.w3.org/2000/svg';
+          var verticalLine = createAxisDividerLine(layer, namespace, 'rtx5-axis-divider-right');
+          verticalLine.setAttribute('x1', String(paneRight));
+          verticalLine.setAttribute('y1', String(topDividerY));
+          verticalLine.setAttribute('x2', String(paneRight));
+          verticalLine.setAttribute('y2', String(bottomDividerY));
+
+          var topLine = createAxisDividerLine(layer, namespace, 'rtx5-axis-divider-top');
+          topLine.setAttribute('x1', String(left));
+          topLine.setAttribute('y1', String(topDividerY));
+          topLine.setAttribute('x2', String(paneRight));
+          topLine.setAttribute('y2', String(topDividerY));
+
+          var bottomLine = createAxisDividerLine(layer, namespace, 'rtx5-axis-divider-bottom');
+          bottomLine.setAttribute('x1', String(left));
+          bottomLine.setAttribute('y1', String(bottomDividerY));
+          bottomLine.setAttribute('x2', String(paneRight));
+          bottomLine.setAttribute('y2', String(bottomDividerY));
+
+          chartAxisDividerSignature = layerSignature;
+        } catch (_e) {
+          clearChartAxisDividers();
+        }
       }
 
       function applyMovingVerticalGridColor(color) {
@@ -1318,6 +1459,7 @@ export const CH_HTML = `
             },
           }));
           scheduleMovingVerticalGridUpdate();
+          scheduleChartAxisDividersUpdate();
         } catch (_e) {}
       }
 
@@ -2592,6 +2734,40 @@ export const CH_HTML = `
         return opts;
       }
 
+      function getHiddenCrosshairOptions() {
+        var hiddenMode = 2;
+        try {
+          if (
+            typeof LightweightCharts !== 'undefined' &&
+            LightweightCharts.CrosshairMode &&
+            typeof LightweightCharts.CrosshairMode.Hidden === 'number'
+          ) {
+            hiddenMode = LightweightCharts.CrosshairMode.Hidden;
+          }
+        } catch (_e) {}
+
+        return {
+          mode: hiddenMode,
+          vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+          horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+        };
+      }
+
+      function hideChartCrosshairOptions(opts) {
+        if (!opts) {
+          opts = {};
+        }
+
+        var hidden = getHiddenCrosshairOptions();
+        var current = opts.crosshair || {};
+        opts.crosshair = {
+          mode: hidden.mode,
+          vertLine: Object.assign({}, current.vertLine || {}, hidden.vertLine),
+          horzLine: Object.assign({}, current.horzLine || {}, hidden.horzLine),
+        };
+        return opts;
+      }
+
       function cloneSerializableValue(value, fallback) {
         try {
           return JSON.parse(JSON.stringify(value));
@@ -2654,6 +2830,7 @@ export const CH_HTML = `
         chartTouchInteractionSuspendDepth = 0;
         lastPostedChartTouchActive = false;
         clearMovingVerticalGrid();
+        clearChartAxisDividers();
         if (chart) {
           try { chart.remove(); } catch (_e) {}
           chart = null;
@@ -2711,9 +2888,10 @@ export const CH_HTML = `
           document.body.style.background = chartBackgroundColor;
           el.style.background = 'transparent';
         } catch (_bgErr) {}
-        safeOpts = makeChartCanvasBackgroundTransparent(safeOpts);
+        safeOpts = hideChartCrosshairOptions(makeChartCanvasBackgroundTransparent(safeOpts));
         var customCols = safeOpts.customColors;
         applyMovingVerticalGridColor(customCols && customCols.grid);
+        applyChartAxisDividerColor(customCols && customCols.axisDivider);
         if (safeOpts.customColors) { delete safeOpts.customColors; }
         if (!safeOpts.timeScale) {
           safeOpts.timeScale = {};
@@ -2745,6 +2923,9 @@ export const CH_HTML = `
         safeOpts.height = h;
 
         chart = LightweightCharts.createChart(el, safeOpts);
+        try {
+          chart.applyOptions({ crosshair: getHiddenCrosshairOptions() });
+        } catch (_hideCrosshairErr) {}
         bindChartTapListeners(el);
         try {
           if (
@@ -2793,6 +2974,7 @@ export const CH_HTML = `
             color: (customCols && customCols.lineBody) || colors.up,
             lineWidth: 2,
             priceFormat: priceFormat,
+            crosshairMarkerVisible: false,
             lastValueVisible: false,
             priceLineVisible: false,
           });
@@ -4321,7 +4503,7 @@ export const CH_HTML = `
               text: String(ln.title),
               y: y,
             };
-            if (typeof ln.dragKey === 'string' && ln.dragKey) {
+            if ((typeof ln.dragKey === 'string' && ln.dragKey) || ln.labelPlacement === 'line') {
               anchoredLabels.push(labelRecord);
             } else {
               floatingLabels.push(labelRecord);

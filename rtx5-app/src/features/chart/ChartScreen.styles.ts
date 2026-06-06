@@ -10,6 +10,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     const APP_HEADER_MENU_VISUAL_LEFT = MENU_BUTTON_VISUAL_LEFT;
     const COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT = 26;
     const COMPACT_SYMBOL_DROPDOWN_LEFT_INSET = Math.max(0, APP_HEADER_MENU_VISUAL_LEFT - COMPACT_SYMBOL_DROPDOWN_LEFT_SHIFT);
+    const SYMBOL_OVERLAY_ROW_GAP = 1;
 
     const APP_BG = isDark ? '#030508' : T.bg;
     const CHART_CANVAS_BG = isDark ? '#080B11' : '#FFFFFF';
@@ -88,8 +89,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingBottom: 7,
       minHeight: 58,
       backgroundColor: isDark ? '#080B11' : T.glass2,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB',
+      borderBottomWidth: 0,
+      borderBottomColor: 'transparent',
     },
     chartHeaderMenuButton: {
       width: MENU_BTN_GUTTER,
@@ -120,7 +121,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       flexShrink: 1,
       alignSelf: 'flex-start',
-      backgroundColor: CHART_CANVAS_BG,
+      backgroundColor: 'transparent',
       marginLeft: -4,
       paddingLeft: 4,
       paddingRight: 6,
@@ -170,7 +171,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       gap: 4,
       minWidth: 0,
-      marginTop: 4,
+      marginTop: SYMBOL_OVERLAY_ROW_GAP,
     },
     symbolSubText: {
       color: isDark ? '#94A3B8' : '#64748B',
@@ -183,9 +184,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       flexWrap: 'wrap',
-      columnGap: 8,
-      rowGap: 2,
-      marginTop: 1,
+      columnGap: 4,
+      rowGap: 1,
+      marginTop: SYMBOL_OVERLAY_ROW_GAP,
       minWidth: 0,
     },
     symbolOhlcPair: {
@@ -203,7 +204,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 10,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
-      marginLeft: 2,
+      marginLeft: 1,
     },
     compactHeaderActionsViewport: {
       flex: 1,
@@ -440,8 +441,8 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingVertical: 3,
       marginTop: 8,
       backgroundColor: isDark ? '#080B11' : '#F8FAFC',
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
+      borderBottomWidth: 0,
+      borderBottomColor: 'transparent',
       borderTopWidth: 1,
       borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB',
     },
@@ -458,6 +459,63 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       left: 8,
       zIndex: 20,
       elevation: 10,
+    },
+    chartTradeConfirmationStack: {
+      position: 'absolute' as any,
+      left: '30%',
+      right: 54,
+      bottom: 16,
+      zIndex: 24,
+      elevation: 24,
+      gap: 6,
+    },
+    chartTradeConfirmationCard: {
+      minHeight: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FFFFFF',
+      borderLeftWidth: 3,
+      borderRadius: 2,
+      paddingHorizontal: 12,
+      shadowColor: '#000000',
+      shadowOpacity: isDark ? 0.18 : 0.12,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 6,
+      gap: 12,
+    },
+    chartTradeConfirmationSymbol: {
+      flex: 1.2,
+      minWidth: 0,
+      color: '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+    },
+    chartTradeConfirmationSide: {
+      flex: 0.8,
+      minWidth: 0,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0,
+    },
+    chartTradeConfirmationVolume: {
+      flex: 0.6,
+      minWidth: 0,
+      color: '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'center',
+    },
+    chartTradeConfirmationDone: {
+      flex: 0.8,
+      minWidth: 0,
+      color: BLUE,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'right',
     },
     chartMetaOhlc: {
       flexDirection: 'row',

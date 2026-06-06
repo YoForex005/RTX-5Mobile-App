@@ -12,7 +12,10 @@ type WebViewMessage = {
 
 type Listener<T> = (payload: T) => void;
 
-function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {}) {
+function createFakeChartEnvironment({
+  nullCoordinateTimeFromX = Number.POSITIVE_INFINITY,
+  touch = false,
+}: { nullCoordinateTimeFromX?: number; touch?: boolean } = {}) {
   const clickListeners: Array<Listener<ChartClickParam>> = [];
   const moveListeners: Array<Listener<ChartClickParam>> = [];
   const messages: WebViewMessage[] = [];
@@ -22,7 +25,28 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
   const attachedPrimitives: unknown[] = [];
   const detachedPrimitives: unknown[] = [];
   const hostListeners: Record<string, Array<Listener<any>>> = {};
-  const host = {
+  const createElement = () => {
+    const element: any = {
+      children: [] as any[],
+      parentNode: null as any,
+      style: {} as Record<string, string>,
+      textContent: '',
+      appendChild: (child: any) => {
+        child.parentNode = element;
+        element.children.push(child);
+      },
+      removeChild: (child: any) => {
+        element.children = element.children.filter((item: any) => item !== child);
+        child.parentNode = null;
+      },
+      setAttribute: (name: string, value: string) => {
+        element[name] = value;
+      },
+    };
+    return element;
+  };
+  const host = createElement();
+  Object.assign(host, {
     addEventListener: (name: string, listener: Listener<any>) => {
       hostListeners[name] = [...(hostListeners[name] ?? []), listener];
     },
@@ -30,14 +54,22 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
     removeEventListener: (name: string, listener: Listener<any>) => {
       hostListeners[name] = (hostListeners[name] ?? []).filter((item) => item !== listener);
     },
-    style: {},
-  };
+  });
 
+  const seriesData = Array.from({ length: 30 }, (_, index) => ({
+    close: 4,
+    high: 5,
+    low: 1,
+    open: 2,
+    time: index + 1,
+  }));
   const timeScale = {
-    coordinateToTime: (x: number) => Math.max(1, Math.round(x / 10)),
+    coordinateToLogical: (x: number) => x / 10,
+    coordinateToTime: (x: number) => (x >= nullCoordinateTimeFromX ? null : Math.max(1, Math.round(x / 10))),
     fitContent: () => timeScaleActions.push('fitContent'),
+    logicalToCoordinate: (logical: number) => logical * 10,
     scrollToRealTime: () => timeScaleActions.push('scrollToRealTime'),
-    timeToCoordinate: (time: number) => time * 10,
+    timeToCoordinate: (time: number) => (time > seriesData[seriesData.length - 1].time ? null : time * 10),
     timeToIndex: (time: number) => time,
   };
   const chart = {
@@ -69,6 +101,7 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
       }
     },
     coordinateToPrice: (y: number) => 100 - y / 10,
+    data: () => seriesData,
     dataByIndex: (index: number) => ({
       close: 4,
       high: 5,
@@ -84,6 +117,7 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
         primitive.detached();
       }
     },
+    options: () => ({ priceFormat: { precision: 5 } }),
     priceToCoordinate: (price: number) => (100 - price) * 10,
   };
 
@@ -110,7 +144,7 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
   });
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
-    value: touch ? { getElementById: () => host } : undefined,
+    value: touch ? { createElement, getElementById: () => host } : undefined,
   });
 
   new Function(ENHANCED_DRAWING_TOOLS_JS)();
@@ -136,26 +170,35 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
   const move = (x: number, y: number, time = Math.max(1, Math.round(x / 10))) => {
     moveListeners.slice().forEach((listener) => listener({ point: { x, y }, time }));
   };
-  const touchEvent = (x: number, y: number, identifier = 1) => {
+  const touchEvent = (x: number, y: number, identifier = 1, emptyChangedTouches = false) => {
     const touchPoint = { clientX: x, clientY: y, identifier };
-    return {
-      changedTouches: [touchPoint],
-      preventDefault: () => undefined,
-      stopImmediatePropagation: () => undefined,
-      stopPropagation: () => undefined,
+    const event: any = {
+      preventDefaultCalls: 0,
+      stopImmediatePropagationCalls: 0,
+      stopPropagationCalls: 0,
+      changedTouches: emptyChangedTouches ? [] : [touchPoint],
       touches: [touchPoint],
     };
+    event.preventDefault = () => { event.preventDefaultCalls += 1; };
+    event.stopImmediatePropagation = () => { event.stopImmediatePropagationCalls += 1; };
+    event.stopPropagation = () => { event.stopPropagationCalls += 1; };
+    return event;
   };
   const touchStart = (x: number, y: number) => {
-    (hostListeners.touchstart ?? []).slice().forEach((listener) => listener(touchEvent(x, y)));
+    const event = touchEvent(x, y);
+    (hostListeners.touchstart ?? []).slice().forEach((listener) => listener(event));
+    return event;
   };
   const touchMove = (x: number, y: number) => {
-    (hostListeners.touchmove ?? []).slice().forEach((listener) => listener(touchEvent(x, y)));
-  };
-  const touchEnd = (x: number, y: number) => {
     const event = touchEvent(x, y);
+    (hostListeners.touchmove ?? []).slice().forEach((listener) => listener(event));
+    return event;
+  };
+  const touchEnd = (x: number, y: number, options: { emptyChangedTouches?: boolean } = {}) => {
+    const event = touchEvent(x, y, 1, options.emptyChangedTouches === true);
     event.touches = [];
     (hostListeners.touchend ?? []).slice().forEach((listener) => listener(event));
+    return event;
   };
 
   return {
@@ -163,6 +206,7 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
     attachedPrimitives,
     click,
     detachedPrimitives,
+    host,
     latestDrawings,
     listenerCounts,
     manager,
@@ -176,6 +220,39 @@ function createFakeChartEnvironment({ touch = false }: { touch?: boolean } = {})
   };
 }
 
+function createFakeBitmapTarget() {
+  const roundRects: Array<{ height: number; width: number; x: number; y: number }> = [];
+  const lines: Array<{ x: number; y: number }> = [];
+  const context = {
+    arc: () => undefined,
+    beginPath: () => undefined,
+    fill: () => undefined,
+    fillText: () => undefined,
+    lineTo: (x: number, y: number) => lines.push({ x, y }),
+    measureText: (text: string) => ({ width: text.length * 7 }),
+    moveTo: () => undefined,
+    restore: () => undefined,
+    roundRect: (x: number, y: number, width: number, height: number) => {
+      roundRects.push({ height, width, x, y });
+    },
+    save: () => undefined,
+    stroke: () => undefined,
+  };
+
+  return {
+    lines,
+    roundRects,
+    target: {
+      useBitmapCoordinateSpace: (callback: (scope: any) => void) => callback({
+        bitmapSize: { height: 320, width: 360 },
+        context,
+        horizontalPixelRatio: 1,
+        verticalPixelRatio: 1,
+      }),
+    },
+  };
+}
+
 test('Crosshair stays passive and does not create drawing records', () => {
   const harness = createFakeChartEnvironment();
 
@@ -184,6 +261,23 @@ test('Crosshair stays passive and does not create drawing records', () => {
   harness.click(20, 90);
 
   assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Crosshair touch mode keeps cursor overlay hidden without drawing records', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('crosshair');
+  const startEvent = harness.touchStart(120, 140);
+  const moveEvent = harness.touchMove(180, 140);
+  const endEvent = harness.touchEnd(180, 140);
+
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.equal(overlay, undefined);
+  assert.equal(harness.host.style.touchAction, 'manipulation');
+  assert.equal(startEvent.preventDefaultCalls, 0);
+  assert.equal(moveEvent.preventDefaultCalls, 0);
+  assert.equal(endEvent.preventDefaultCalls, 0);
   assert.deepEqual(harness.latestDrawings(), []);
 });
 
@@ -206,15 +300,43 @@ test('Trend Line supports direct mobile drag input without chart pan interferenc
   const harness = createFakeChartEnvironment({ touch: true });
 
   harness.manager.setActiveTool('trendline');
-  harness.touchStart(10, 100);
-  harness.touchMove(40, 80);
-  harness.touchEnd(40, 80);
+  const startEvent = harness.touchStart(10, 100);
+  const moveEvent = harness.touchMove(40, 80);
+  const endEvent = harness.touchEnd(40, 80);
 
   const drawings = harness.latestDrawings();
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'trendline');
   assert.equal(drawings[0].points.length, 2);
   assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(startEvent.preventDefaultCalls, 1);
+  assert.equal(moveEvent.preventDefaultCalls, 1);
+  assert.equal(endEvent.preventDefaultCalls, 1);
+  assert.equal(harness.host.style.touchAction, 'manipulation');
+});
+
+test('Direct touch box tools commit in empty chart space even when touchend has no changed touch', () => {
+  const harness = createFakeChartEnvironment({ nullCoordinateTimeFromX: 250, touch: true });
+
+  harness.manager.setActiveTool('measure');
+  harness.touchStart(20, 120);
+  harness.touchEnd(20, 120, { emptyChangedTouches: true });
+  harness.touchStart(320, 80);
+  harness.touchEnd(320, 80, { emptyChangedTouches: true });
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].kind, 'measure');
+  assert.equal(drawings[0].points.length, 2);
+  assert.ok(drawings[0].points[1].time > drawings[0].points[0].time);
+  assert.notEqual(drawings[0].points[1].price, drawings[0].points[0].price);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const renderer = primitive.paneViews()[0].renderer();
+  const drawTarget = createFakeBitmapTarget();
+  renderer.draw(drawTarget.target);
+  assert.ok(drawTarget.roundRects.some((rect) => rect.width > 250 && rect.height > 30));
 });
 
 test('Fib Zone creates a two-point box drawing', () => {
@@ -267,6 +389,31 @@ test('Pattern Path creates a three-point polyline drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'patterns');
   assert.equal(drawings[0].points.length, 3);
+});
+
+test('Pitchfork direct touch commits three anchors in empty chart space', () => {
+  const harness = createFakeChartEnvironment({ nullCoordinateTimeFromX: 250, touch: true });
+
+  harness.manager.setActiveTool('pitchfork');
+  harness.touchStart(20, 120);
+  harness.touchEnd(20, 120, { emptyChangedTouches: true });
+  harness.touchStart(160, 90);
+  harness.touchEnd(160, 90, { emptyChangedTouches: true });
+  harness.touchStart(320, 110);
+  harness.touchEnd(320, 110, { emptyChangedTouches: true });
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].kind, 'pitchfork');
+  assert.equal(drawings[0].points.length, 3);
+  assert.ok(drawings[0].points[2].time > drawings[0].points[1].time);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const renderer = primitive.paneViews()[0].renderer();
+  const drawTarget = createFakeBitmapTarget();
+  renderer.draw(drawTarget.target);
+  assert.ok(drawTarget.lines.length >= 3);
 });
 
 test('Long Position creates a two-point position box drawing', () => {
@@ -379,15 +526,23 @@ test('Zoom To Fit delegates to chart time and price scale APIs', () => {
   assert.deepEqual(harness.priceScaleActions, [{ id: 'right', options: { autoScale: true } }]);
 });
 
-test('Magnet Mode toggles the chart crosshair mode', () => {
+test('Magnet Mode keeps the visible chart crosshair hidden', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setMagnetMode(true);
   harness.manager.setMagnetMode(false);
 
+  const hiddenCrosshairOptions = {
+    crosshair: {
+      mode: 2,
+      vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+      horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+    },
+  };
+
   assert.deepEqual(harness.appliedOptions.slice(-2), [
-    { crosshair: { mode: 3 } },
-    { crosshair: { mode: 0 } },
+    hiddenCrosshairOptions,
+    hiddenCrosshairOptions,
   ]);
 });
 

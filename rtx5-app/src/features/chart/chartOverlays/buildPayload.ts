@@ -23,7 +23,11 @@ import {
   buildTradingSignalMarkers,
   sanitizeCandles,
 } from './markerCollections';
-import { formatPositionVolumeLabel, formatTpSlOverlayLabel } from './orderHelpers';
+import {
+  calculateOpenPositionLivePnl,
+  formatOpenPositionOverlayLabel,
+  formatTpSlOverlayLabel,
+} from './orderHelpers';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
 import {
   CHART_LINE_STYLE,
@@ -46,6 +50,8 @@ type BuildChartOverlayPayloadInput = {
   alerts?: PriceAlert[];
   colors: ChartColorsConfig;
   sellColor: string;
+  liveBid?: number | null;
+  liveAsk?: number | null;
   liveAccount?: ChartOverlayLiveAccount | null;
   showOnChart: ChartShowOnChartSettings;
   activeTool?: string;
@@ -60,45 +66,17 @@ const hasEnabledOverlayFeatures = (showOnChart: ChartShowOnChartSettings): boole
   showOnChart.priceAlerts ||
   showOnChart.potentialStopOut;
 
-// MT5-parity: open-position lines show a colored box on the right price scale
-// (axisLabelVisible: true) so the trader can see the entry price at a glance.
-// Non-positional lines (alerts, pattern overlays, stop-out warning) keep the
-// box suppressed so they don't crowd the axis.
+// MT5-parity: open-position lines stay as individual dotted lines so the
+// trader can see each entry, even when entries are clustered.
+// Overlay axis labels stay disabled here because the WebView draws custom
+// outlined price boxes for position/order levels.
 //
 // Multiple positions at the same price level (within 100 ppm — covers
 // float-noise from tick-by-tick drift between trades opened in quick
-// succession) collapse to a SINGLE line + single right-axis box so the chart
-// never renders a stack of identical labels on top of each other. Exact
-// equality alone wouldn't catch this because back-to-back fills capture
-// slightly different mid-prices even though they all display the same.
-const LINES_KEEPING_RIGHT_AXIS_LABEL = /^(open-|order-entry-|order-sl-|order-tp-|sl-|tp-)/;
-const SAME_PRICE_LEVEL_RELATIVE_TOLERANCE = 1e-4;
-const isSamePriceLevel = (a: number, b: number): boolean => {
-  const scale = Math.max(Math.abs(a), Math.abs(b), 1);
-  return Math.abs(a - b) <= scale * SAME_PRICE_LEVEL_RELATIVE_TOLERANCE;
-};
+// succession) remain visible, producing the dense clustered look MT5 shows.
+// The WebView still handles right-axis boxes separately.
 const applyRightAxisLabelVisibility = (lines: ChartOverlayPriceLine[]): ChartOverlayPriceLine[] => {
-  // MT5-parity: position / order / SL / TP lines get axisLabelVisible: false
-  // here so the WebView's custom DOM renderer (in ChartWebViewHtml.ts) can
-  // draw an OUTLINED box (white background, colored border + text) instead
-  // of the lightweight-charts default FILLED box. Only live bid/ask labels
-  // stay filled. Same-price duplicates collapse to one line so the chart
-  // doesn't render overlapping horizontal lines at the same level.
-  const labeledLevels: number[] = [];
-  const out: ChartOverlayPriceLine[] = [];
-  for (const line of lines) {
-    const eligible = LINES_KEEPING_RIGHT_AXIS_LABEL.test(line.id);
-    if (!eligible) {
-      out.push({ ...line, axisLabelVisible: false });
-      continue;
-    }
-    if (labeledLevels.some((existing) => isSamePriceLevel(existing, line.price))) {
-      continue;
-    }
-    labeledLevels.push(line.price);
-    out.push({ ...line, axisLabelVisible: false });
-  }
-  return out;
+  return lines.map((line) => ({ ...line, axisLabelVisible: false }));
 };
 
 export const buildChartOverlayPayload = ({
@@ -110,6 +88,8 @@ export const buildChartOverlayPayload = ({
   alerts = [],
   colors,
   sellColor,
+  liveBid,
+  liveAsk,
   liveAccount,
   showOnChart,
   activeTool,
@@ -164,14 +144,27 @@ export const buildChartOverlayPayload = ({
       if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
 
       if (showOnChart.openPositions) {
+        const livePnl =
+          calculateOpenPositionLivePnl({
+            symbol: position.symbol,
+            side: position.side,
+            volume: Number(position.volume),
+            openPrice: parsedPrice,
+            bid: liveBid,
+            ask: liveAsk,
+            swap: Number(position.swap),
+            commission: Number(position.commission),
+          }) ?? Number(position.pnl);
+
         addUniquePriceLine(priceLines, {
           id: `open-${position.id}`,
           price: parsedPrice,
           color: position.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor,
           lineWidth: 1,
-          lineStyle: CHART_LINE_STYLE.Dashed,
+          lineStyle: CHART_LINE_STYLE.Dotted,
           axisLabelVisible: true,
-          title: `${position.side === 'buy' ? 'BUY' : 'SELL'} ${formatPositionVolumeLabel(Number(position.volume))}`,
+          title: formatOpenPositionOverlayLabel(position.side, Number(position.volume), livePnl),
+          labelPlacement: 'line',
         });
       }
 

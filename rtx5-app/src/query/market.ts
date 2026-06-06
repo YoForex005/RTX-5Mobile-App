@@ -4,6 +4,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/apiClient';
+import { primeInstrumentMetaCacheFromCatalogPayload } from '../api/instruments';
 import { extractMarketSymbols } from '../domain/marketSymbols';
 import { useUserPreferences } from '../state/userPreferences';
 
@@ -12,6 +13,7 @@ export function useMarketSymbols(enabled = true) {
   const brokerId = useUserPreferences((state) => state.brokerId);
   const accountId = useUserPreferences((state) => state.accountDetails?.id ?? '');
   const isEnabled = enabled && isLoggedIn;
+  const cacheScope = `${brokerId}:${accountId}`;
 
   return useQuery({
     queryKey: ['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId],
@@ -23,6 +25,7 @@ export function useMarketSymbols(enabled = true) {
       const res = await apiClient('/instruments');
       if (!res.ok) throw new Error('Failed to fetch symbols');
       const data = await res.json();
+      primeInstrumentMetaCacheFromCatalogPayload(data, cacheScope);
       return extractMarketSymbols(data);
     },
     enabled: isEnabled,

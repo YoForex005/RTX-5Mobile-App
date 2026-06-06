@@ -42,6 +42,13 @@ import type { GlobalTickListener, SymbolTickListener } from './types';
 const shouldLogCandleDiagnostics = (): boolean =>
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CANDLE_FEED === 'true';
 
+const QUOTE_WS_MAX_RECONNECT_ATTEMPTS = 20;
+const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750;
+const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000;
+const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
+const QUOTE_WS_SILENT_STALE_MS = 8_000;
+const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
+
 const resolveQuoteListenerKeys = (symbol: string): string[] => {
   const rawKey = normalizeQuoteSymbolKey(symbol);
   const baseKey = normalizeSymbol(symbol);
@@ -53,9 +60,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private ws: WebSocket | null = null;
   private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 2000;
-  private reconnectCooldownMs = 60000;
+  private maxReconnectAttempts = QUOTE_WS_MAX_RECONNECT_ATTEMPTS;
+  private reconnectDelay = QUOTE_WS_RECONNECT_BASE_DELAY_MS;
+  private reconnectCooldownMs = QUOTE_WS_RECONNECT_COOLDOWN_MS;
   private isConnected = false;
   private shouldReconnect = false;
   private isResolvingSocketUrl = false;
@@ -358,11 +365,11 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       if (this.activeSymbols.size === 0) return;
 
       const staleFor = Date.now() - this.lastMessageAt;
-      if (staleFor > 35000) {
+      if (staleFor > QUOTE_WS_SILENT_STALE_MS) {
         console.warn(`[Quotes WS] Silent TCP drop detected (${Math.round(staleFor / 1000)}s). Healing invisibly...`);
         this.triggerInvisibleReconnect();
       }
-    }, 10000);
+    }, QUOTE_WS_WATCHDOG_INTERVAL_MS);
   }
 
   private stopWatchdog(): void {
@@ -490,7 +497,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
         }
 
         this.reconnectAttempts += 1;
-        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 45000);
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
+          QUOTE_WS_RECONNECT_MAX_DELAY_MS,
+        );
         console.log(`[Quotes WS] Reconnecting in ${Math.round(delay)}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
         this.scheduleReconnect(delay);
       })
@@ -499,7 +509,10 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
           return;
         }
 
-        const fallbackDelay = Math.min(this.reconnectDelay * Math.pow(1.5, Math.max(this.reconnectAttempts, 1) - 1), 15000);
+        const fallbackDelay = Math.min(
+          this.reconnectDelay * Math.pow(1.5, Math.max(this.reconnectAttempts, 1) - 1),
+          QUOTE_WS_RECONNECT_MAX_DELAY_MS,
+        );
         console.warn(`[Quotes WS] Network status check failed. Retrying in ${Math.round(fallbackDelay)}ms.`);
         this.scheduleReconnect(fallbackDelay);
       });

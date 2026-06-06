@@ -149,10 +149,65 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
     payload.priceLines.map((line: any) => line.id).sort(),
     ['sl-1', 'open-1', 'tp-1', 'alert-7', 'potential-stop-out'].sort(),
   );
-  assert.equal(payload.priceLines.find((line: any) => line.id === 'open-1')?.lineStyle, CHART_LINE_STYLE.Dashed);
+  const openLine = payload.priceLines.find((line: any) => line.id === 'open-1');
+  assert.equal(openLine?.lineStyle, CHART_LINE_STYLE.Dotted);
+  assert.equal(openLine?.title, 'BUY 0.20, +42.00 USD');
+  assert.equal(openLine?.labelPlacement, 'line');
   assert.equal(payload.priceLines.find((line: any) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
   assert.equal(payload.markers.length, 1);
   assert.equal(payload.markers[0].id, 'closed-99');
+});
+
+test('buildChartOverlayPayload updates open position labels from live bid and ask prices', () => {
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'BTCUSD',
+    candles,
+    positions: [
+      {
+        id: 'buy-live',
+        symbol: 'BTCUSD',
+        side: 'buy',
+        volume: 0.01,
+        openPrice: 61000,
+        currentPrice: 61000,
+        pnl: -999,
+        swap: -0.01,
+        commission: -0.02,
+        openTime: new Date(candles[5].time * 1000).toISOString(),
+      },
+      {
+        id: 'sell-live',
+        symbol: 'BTCUSDm',
+        side: 'sell',
+        volume: 0.02,
+        openPrice: 61020,
+        currentPrice: 61020,
+        pnl: -999,
+        swap: 0,
+        commission: 0,
+        openTime: new Date(candles[6].time * 1000).toISOString(),
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveBid: 61025.3,
+    liveAsk: 60950,
+    liveAccount: null,
+    showOnChart: {
+      openPositions: true,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
+  });
+
+  const titleById = new Map(payload.priceLines.map((line: any) => [line.id, line.title]));
+
+  assert.equal(titleById.get('open-buy-live'), 'BUY 0.01, +0.22 USD');
+  assert.equal(titleById.get('open-sell-live'), 'SELL 0.02, +1.40 USD');
 });
 
 test('buildChartOverlayPayload adds active pending stop and limit orders to TP/SL/Stop/Limit overlays', () => {
@@ -424,7 +479,7 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
   );
 });
 
-test('buildChartOverlayPayload shows one right-axis label per price for stacked open positions', () => {
+test('buildChartOverlayPayload keeps each stacked open position line visible', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'GBPUSD',
     candles,
@@ -467,11 +522,13 @@ test('buildChartOverlayPayload shows one right-axis label per price for stacked 
   });
 
   const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);
-  // MT5-parity: stacked open positions at the same price level collapse to a
-  // single line so the chart never renders overlapping horizontal lines at
-  // the same level. The right-axis OUTLINED box is drawn by the WebView's
-  // custom DOM layer, so axisLabelVisible stays false here (it would render
-  // a FILLED box otherwise, which we only want for live bid/ask).
-  assert.equal(stackedLines.length, 1);
-  assert.equal(stackedLines[0].axisLabelVisible, false);
+  // MT5-parity: rapid same-price entries remain visible as concentrated
+  // labels/lines instead of being hidden by de-duping.
+  assert.equal(stackedLines.length, 2);
+  assert.deepEqual(
+    stackedLines.map((line: any) => line.title).sort(),
+    ['BUY 0.10, +10.00 USD', 'BUY 0.20, +20.00 USD'].sort(),
+  );
+  assert.ok(stackedLines.every((line: any) => line.axisLabelVisible === false));
+  assert.ok(stackedLines.every((line: any) => line.labelPlacement === 'line'));
 });

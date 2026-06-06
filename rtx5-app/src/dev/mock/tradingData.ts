@@ -19,6 +19,7 @@ export type QuoteItem = {
   close?: number;
   volume?: number;
   digits?: number;
+  digitsSource?: 'backend';
   contractSize: number;
   minVolume?: number;
   maxVolume?: number;

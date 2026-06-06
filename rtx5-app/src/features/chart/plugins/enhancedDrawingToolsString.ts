@@ -16,6 +16,242 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return typeof value === 'number' && isFinite(value) ? value : fallback;
   }
 
+  function isFiniteNumber(value) {
+    return typeof value === 'number' && isFinite(value);
+  }
+
+  function getSeriesData(series) {
+    try {
+      return series && typeof series.data === 'function' ? series.data() : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function getPointTimeValue(point) {
+    return point && isFiniteNumber(point.time) ? point.time : null;
+  }
+
+  function estimateNumericTimeStep(data) {
+    if (!Array.isArray(data) || data.length < 2) {
+      return 60;
+    }
+
+    for (var i = data.length - 1; i > 0; i -= 1) {
+      var current = getPointTimeValue(data[i]);
+      var previous = getPointTimeValue(data[i - 1]);
+      if (current !== null && previous !== null && current > previous) {
+        return current - previous;
+      }
+    }
+
+    return 60;
+  }
+
+  function resolveTimeScaleIndex(timeScale, time, fallback) {
+    if (!timeScale || typeof timeScale.timeToIndex !== 'function') {
+      return fallback;
+    }
+
+    try {
+      var index = timeScale.timeToIndex(time, true);
+      return isFiniteNumber(index) ? index : fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function resolveLogicalFromTime(timeScale, series, time) {
+    if (!timeScale) {
+      return null;
+    }
+
+    var directIndex = resolveTimeScaleIndex(timeScale, time, null);
+    var data = getSeriesData(series);
+    if (!Array.isArray(data) || data.length === 0) {
+      return directIndex;
+    }
+
+    var first = data[0];
+    var last = data[data.length - 1];
+    var firstTime = getPointTimeValue(first);
+    var lastTime = getPointTimeValue(last);
+    if (firstTime === null || lastTime === null || !isFiniteNumber(time)) {
+      return directIndex;
+    }
+
+    var firstLogical = resolveTimeScaleIndex(timeScale, first.time, 0);
+    var lastLogical = resolveTimeScaleIndex(timeScale, last.time, firstLogical + data.length - 1);
+    var step = estimateNumericTimeStep(data);
+    if (!isFiniteNumber(step) || step <= 0) {
+      step = 60;
+    }
+
+    if (time <= firstTime) {
+      return firstLogical + ((time - firstTime) / step);
+    }
+
+    if (time >= lastTime) {
+      return lastLogical + ((time - lastTime) / step);
+    }
+
+    for (var i = 1; i < data.length; i += 1) {
+      var previous = data[i - 1];
+      var current = data[i];
+      var previousTime = getPointTimeValue(previous);
+      var currentTime = getPointTimeValue(current);
+      if (previousTime === null || currentTime === null || currentTime <= previousTime) {
+        continue;
+      }
+      if (time >= previousTime && time <= currentTime) {
+        var previousLogical = resolveTimeScaleIndex(timeScale, previous.time, firstLogical + i - 1);
+        var currentLogical = resolveTimeScaleIndex(timeScale, current.time, previousLogical + 1);
+        var ratio = (time - previousTime) / (currentTime - previousTime);
+        return previousLogical + ((currentLogical - previousLogical) * ratio);
+      }
+    }
+
+    return directIndex;
+  }
+
+  function resolveCoordinateFromTime(chart, series, time) {
+    if (!chart || typeof chart.timeScale !== 'function') {
+      return null;
+    }
+
+    var timeScale = chart.timeScale();
+    if (!timeScale) {
+      return null;
+    }
+
+    if (typeof timeScale.timeToCoordinate === 'function') {
+      try {
+        var direct = timeScale.timeToCoordinate(time);
+        if (isFiniteNumber(direct)) {
+          return direct;
+        }
+      } catch (_error) {}
+    }
+
+    if (typeof timeScale.logicalToCoordinate === 'function') {
+      var logical = resolveLogicalFromTime(timeScale, series, time);
+      if (isFiniteNumber(logical)) {
+        try {
+          var fallback = timeScale.logicalToCoordinate(logical);
+          if (isFiniteNumber(fallback)) {
+            return fallback;
+          }
+        } catch (_error) {}
+      }
+    }
+
+    return null;
+  }
+
+  function resolveTimeFromCoordinate(timeScale, series, x) {
+    if (!timeScale) {
+      return null;
+    }
+
+    if (typeof timeScale.coordinateToTime === 'function') {
+      try {
+        var direct = timeScale.coordinateToTime(x);
+        if (direct !== null && direct !== undefined) {
+          return direct;
+        }
+      } catch (_error) {}
+    }
+
+    if (typeof timeScale.coordinateToLogical !== 'function') {
+      return null;
+    }
+
+    var logical = null;
+    try {
+      logical = timeScale.coordinateToLogical(x);
+    } catch (_logicalError) {
+      logical = null;
+    }
+
+    if (!isFiniteNumber(logical)) {
+      return null;
+    }
+
+    var data = getSeriesData(series);
+    if (!Array.isArray(data) || data.length === 0) {
+      return null;
+    }
+
+    var first = data[0];
+    var last = data[data.length - 1];
+    var firstTime = getPointTimeValue(first);
+    var lastTime = getPointTimeValue(last);
+    if (firstTime === null || lastTime === null) {
+      var nearestIndex = Math.max(0, Math.min(data.length - 1, Math.round(logical)));
+      return data[nearestIndex] ? data[nearestIndex].time : null;
+    }
+
+    var firstLogical = resolveTimeScaleIndex(timeScale, first.time, 0);
+    var lastLogical = resolveTimeScaleIndex(timeScale, last.time, firstLogical + data.length - 1);
+    var step = estimateNumericTimeStep(data);
+    if (!isFiniteNumber(step) || step <= 0) {
+      step = 60;
+    }
+
+    if (logical <= firstLogical) {
+      return Math.round(firstTime + ((logical - firstLogical) * step));
+    }
+
+    if (logical >= lastLogical) {
+      return Math.round(lastTime + ((logical - lastLogical) * step));
+    }
+
+    var offset = logical - firstLogical;
+    var lowerIndex = Math.max(0, Math.min(data.length - 1, Math.floor(offset)));
+    var upperIndex = Math.max(0, Math.min(data.length - 1, Math.ceil(offset)));
+    var lower = data[lowerIndex];
+    var upper = data[upperIndex];
+    var lowerTime = getPointTimeValue(lower);
+    var upperTime = getPointTimeValue(upper);
+    if (lowerTime === null || upperTime === null) {
+      return lower ? lower.time : null;
+    }
+
+    var ratio = offset - lowerIndex;
+    return Math.round(lowerTime + ((upperTime - lowerTime) * ratio));
+  }
+
+  function formatCrosshairPrice(series, price) {
+    var precision = 5;
+    try {
+      var options = series && typeof series.options === 'function' ? series.options() : null;
+      var nextPrecision = options && options.priceFormat && options.priceFormat.precision;
+      if (typeof nextPrecision === 'number' && isFinite(nextPrecision) && nextPrecision >= 0) {
+        precision = Math.min(8, Math.round(nextPrecision));
+      }
+    } catch (_error) {}
+    return isFiniteNumber(price) ? price.toFixed(precision) : '';
+  }
+
+  function formatCrosshairTime(time) {
+    if (isFiniteNumber(time)) {
+      var date = new Date(time * 1000);
+      if (isFinite(date.getTime())) {
+        var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        var day = String(date.getUTCDate()).padStart(2, '0');
+        var hour = String(date.getUTCHours()).padStart(2, '0');
+        var minute = String(date.getUTCMinutes()).padStart(2, '0');
+        return day + ' ' + months[date.getUTCMonth()] + ' ' + hour + ':' + minute;
+      }
+    }
+
+    if (time && typeof time === 'object' && time.year && time.month && time.day) {
+      return String(time.year) + '-' + String(time.month).padStart(2, '0') + '-' + String(time.day).padStart(2, '0');
+    }
+
+    return String(time || '');
+  }
+
   function roundRectPath(ctx, x, y, width, height, radius) {
     var r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
     ctx.beginPath();
@@ -176,13 +412,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     LinePaneView.prototype.update = function () {
       var series = this._source.series;
-      var timeScale = this._source.chart.timeScale();
       this._points.p1 = {
-        x: timeScale.timeToCoordinate(this._source._p1.time),
+        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p1.time),
         y: series.priceToCoordinate(this._source._p1.price)
       };
       this._points.p2 = {
-        x: timeScale.timeToCoordinate(this._source._p2.time),
+        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p2.time),
         y: series.priceToCoordinate(this._source._p2.price)
       };
     };
@@ -303,13 +538,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     PolylinePaneView.prototype.update = function () {
       var series = this._source.series;
-      var timeScale = this._source.chart.timeScale();
       this._coords = this._source._points.map(function (point) {
         return {
-          x: timeScale.timeToCoordinate(point.time),
+          x: resolveCoordinateFromTime(this._source.chart, series, point.time),
           y: series.priceToCoordinate(point.price)
         };
-      });
+      }, this);
     };
 
     PolylinePaneView.prototype.renderer = function () {
@@ -395,13 +629,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     BoxPaneView.prototype.update = function () {
       var series = this._source.series;
-      var timeScale = this._source.chart.timeScale();
       this._points.p1 = {
-        x: timeScale.timeToCoordinate(this._source._p1.time),
+        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p1.time),
         y: series.priceToCoordinate(this._source._p1.price)
       };
       this._points.p2 = {
-        x: timeScale.timeToCoordinate(this._source._p2.time),
+        x: resolveCoordinateFromTime(this._source.chart, series, this._source._p2.time),
         y: series.priceToCoordinate(this._source._p2.price)
       };
     };
@@ -489,9 +722,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     LabelPaneView.prototype.update = function () {
       var series = this._source.series;
-      var timeScale = this._source.chart.timeScale();
       this._coords = {
-        x: timeScale.timeToCoordinate(this._source._point.time),
+        x: resolveCoordinateFromTime(this._source.chart, series, this._source._point.time),
         y: series.priceToCoordinate(this._source._point.price)
       };
       this._source._coords = this._coords;
@@ -585,10 +817,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     PitchforkPaneView.prototype.update = function () {
       var series = this._source.series;
-      var timeScale = this._source.chart.timeScale();
-      this._coords.p1 = { x: timeScale.timeToCoordinate(this._source._p1.time), y: series.priceToCoordinate(this._source._p1.price) };
-      this._coords.p2 = { x: timeScale.timeToCoordinate(this._source._p2.time), y: series.priceToCoordinate(this._source._p2.price) };
-      this._coords.p3 = { x: timeScale.timeToCoordinate(this._source._p3.time), y: series.priceToCoordinate(this._source._p3.price) };
+      this._coords.p1 = { x: resolveCoordinateFromTime(this._source.chart, series, this._source._p1.time), y: series.priceToCoordinate(this._source._p1.price) };
+      this._coords.p2 = { x: resolveCoordinateFromTime(this._source.chart, series, this._source._p2.time), y: series.priceToCoordinate(this._source._p2.price) };
+      this._coords.p3 = { x: resolveCoordinateFromTime(this._source.chart, series, this._source._p3.time), y: series.priceToCoordinate(this._source._p3.price) };
     };
 
     PitchforkPaneView.prototype.renderer = function () {
@@ -793,8 +1024,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._records = [];
     this._chartHost = null;
     this._activeTouchId = null;
+    this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
+    this._crosshairOverlay = null;
     this._handleTouchStart = this._handleTouchStart.bind(this);
     this._handleTouchMove = this._handleTouchMove.bind(this);
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
@@ -870,8 +1103,135 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     this._chartHost = null;
     this._activeTouchId = null;
+    this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
+  };
+
+  AdvancedDrawingToolsManager.prototype._applyElementStyles = function (element, styles) {
+    if (!element || !element.style || !styles) {
+      return;
+    }
+
+    Object.keys(styles).forEach(function (key) {
+      element.style[key] = styles[key];
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._ensureCrosshairOverlay = function () {
+    if (!this._chartHost) {
+      this._bindTouchBridge();
+    }
+    if (!this._chartHost || typeof document === 'undefined') {
+      return null;
+    }
+    if (this._crosshairOverlay && this._crosshairOverlay.root) {
+      return this._crosshairOverlay;
+    }
+
+    var root = document.createElement('div');
+    var vertical = document.createElement('div');
+    var horizontal = document.createElement('div');
+    var priceLabel = document.createElement('div');
+    var timeLabel = document.createElement('div');
+    var center = document.createElement('div');
+
+    root.setAttribute('data-rtx5-crosshair-overlay', 'true');
+    this._applyElementStyles(root, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      overflow: 'hidden',
+      display: 'none',
+      zIndex: '5'
+    });
+    this._applyElementStyles(vertical, {
+      position: 'absolute',
+      top: '0',
+      bottom: '0',
+      width: '0',
+      borderLeft: '1px dashed rgba(15, 23, 42, 0.68)'
+    });
+    this._applyElementStyles(horizontal, {
+      position: 'absolute',
+      left: '0',
+      right: '0',
+      height: '0',
+      borderTop: '1px dashed rgba(15, 23, 42, 0.68)'
+    });
+    this._applyElementStyles(priceLabel, {
+      position: 'absolute',
+      right: '0',
+      minWidth: '58px',
+      padding: '2px 6px',
+      borderRadius: '2px',
+      background: 'rgba(15, 23, 42, 0.95)',
+      color: '#FFFFFF',
+      font: '700 11px Arial, sans-serif',
+      lineHeight: '14px',
+      textAlign: 'center',
+      whiteSpace: 'nowrap',
+      transform: 'translateY(-50%)'
+    });
+    this._applyElementStyles(timeLabel, {
+      position: 'absolute',
+      bottom: '0',
+      padding: '2px 7px',
+      borderRadius: '2px',
+      background: 'rgba(15, 23, 42, 0.95)',
+      color: '#FFFFFF',
+      font: '700 11px Arial, sans-serif',
+      lineHeight: '14px',
+      whiteSpace: 'nowrap',
+      transform: 'translateX(-50%)'
+    });
+    this._applyElementStyles(center, {
+      position: 'absolute',
+      width: '7px',
+      height: '7px',
+      marginLeft: '-3px',
+      marginTop: '-3px',
+      borderRadius: '999px',
+      border: '1px solid rgba(15, 23, 42, 0.85)',
+      background: '#FFFFFF'
+    });
+
+    root.appendChild(vertical);
+    root.appendChild(horizontal);
+    root.appendChild(priceLabel);
+    root.appendChild(timeLabel);
+    root.appendChild(center);
+    this._chartHost.appendChild(root);
+    this._crosshairOverlay = {
+      root: root,
+      vertical: vertical,
+      horizontal: horizontal,
+      priceLabel: priceLabel,
+      timeLabel: timeLabel,
+      center: center
+    };
+
+    return this._crosshairOverlay;
+  };
+
+  AdvancedDrawingToolsManager.prototype._hideCrosshairOverlay = function () {
+    if (this._crosshairOverlay && this._crosshairOverlay.root) {
+      this._crosshairOverlay.root.style.display = 'none';
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._destroyCrosshairOverlay = function () {
+    if (this._crosshairOverlay && this._crosshairOverlay.root && this._crosshairOverlay.root.parentNode) {
+      try { this._crosshairOverlay.root.parentNode.removeChild(this._crosshairOverlay.root); } catch (_error) {}
+    }
+    this._crosshairOverlay = null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._updateCrosshairOverlay = function (_param) {
+    this._hideCrosshairOverlay();
   };
 
   AdvancedDrawingToolsManager.prototype._getActiveTouchTool = function () {
@@ -977,7 +1337,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return null;
     }
 
-    var time = timeScale.coordinateToTime(x);
+    var time = resolveTimeFromCoordinate(timeScale, this._series, x);
     if (time === null || time === undefined) {
       return null;
     }
@@ -1023,6 +1383,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchStart = function (event) {
+    if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
+      this._hideCrosshairOverlay();
+      return;
+    }
+
     var tool = this._getActiveTouchTool();
     if (!tool || !this.shouldUseDirectTouchInput()) {
       return;
@@ -1052,6 +1417,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
 
     if (param) {
+      this._lastTouchParam = param;
       if (this._touchGestureMode === 'drag-from-first-anchor') {
         if (typeof tool._handleClick === 'function') {
           tool._handleClick(param);
@@ -1066,6 +1432,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchMove = function (event) {
+    if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
+      this._hideCrosshairOverlay();
+      return;
+    }
+
     var tool = this._getActiveTouchTool();
     if (!tool || !this.shouldUseDirectTouchInput()) {
       return;
@@ -1078,6 +1449,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     var param = this._buildSyntheticPointerParam(touch);
     if (param && typeof tool._handleMove === 'function') {
+      this._lastTouchParam = param;
       this._touchDidMove = true;
       tool._handleMove(param);
     }
@@ -1085,21 +1457,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchEnd = function (event) {
+    if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
+      this._activeTouchId = null;
+      this._lastTouchParam = null;
+      this._hideCrosshairOverlay();
+      return;
+    }
+
     var tool = this._getActiveTouchTool();
     if (!tool || !this.shouldUseDirectTouchInput()) {
       this._touchGestureMode = 'idle';
       this._touchDidMove = false;
       this._activeTouchId = null;
+      this._lastTouchParam = null;
       return;
     }
 
     var touch = this._findTrackedTouch(event.changedTouches || event.touches);
-    if (!touch) {
+    var param = touch ? this._buildSyntheticPointerParam(touch) : this._lastTouchParam;
+    if (!param) {
       this._activeTouchId = null;
       return;
     }
 
-    var param = this._buildSyntheticPointerParam(touch);
     var shouldCommitOnRelease = (
       this._touchGestureMode === 'commit-second-anchor' ||
       (this._touchGestureMode === 'drag-from-first-anchor' && this._touchDidMove)
@@ -1111,6 +1491,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
     this._activeTouchId = null;
+    this._lastTouchParam = null;
     this._consumeTouchEvent(event);
   };
 
@@ -1118,6 +1499,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
     this._activeTouchId = null;
+    this._lastTouchParam = null;
+    if (this._activeTool === 'crosshair') {
+      this._hideCrosshairOverlay();
+      return;
+    }
     this._consumeTouchEvent(event);
   };
 
@@ -1131,9 +1517,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     if (this._chartHost) {
       try {
-        this._chartHost.style.touchAction = drawingMode ? 'none' : 'manipulation';
-        this._chartHost.style.userSelect = drawingMode ? 'none' : '';
-        this._chartHost.style.webkitUserSelect = drawingMode ? 'none' : '';
+        var lockedTouchMode = drawingMode;
+        this._chartHost.style.touchAction = lockedTouchMode ? 'none' : 'manipulation';
+        this._chartHost.style.userSelect = lockedTouchMode ? 'none' : '';
+        this._chartHost.style.webkitUserSelect = lockedTouchMode ? 'none' : '';
       } catch (_error) {}
     }
 
@@ -1285,6 +1672,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     } else {
       this._activeTool = 'crosshair';
     }
+    if (this._activeTool !== 'crosshair') {
+      this._hideCrosshairOverlay();
+    }
     this._applyChartInteractionMode();
     if (!silent) {
       safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool });
@@ -1321,9 +1711,15 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.setMagnetMode = function (enabled) {
     this._magnetEnabled = !!enabled;
     if (this._chart && typeof this._chart.applyOptions === 'function') {
+      var hiddenCrosshairMode =
+        LightweightCharts.CrosshairMode && typeof LightweightCharts.CrosshairMode.Hidden === 'number'
+          ? LightweightCharts.CrosshairMode.Hidden
+          : 2;
       this._chart.applyOptions({
         crosshair: {
-          mode: enabled ? LightweightCharts.CrosshairMode.MagnetOHLC : LightweightCharts.CrosshairMode.Normal
+          mode: hiddenCrosshairMode,
+          vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+          horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 }
         }
       });
     }
@@ -1383,6 +1779,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.remove = function () {
     this.removeAllDrawings();
     this._unbindTouchBridge();
+    this._destroyCrosshairOverlay();
     Object.keys(this._tools).forEach(function (key) {
       var tool = this._tools[key];
       if (tool && typeof tool.remove === 'function') {

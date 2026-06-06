@@ -71,6 +71,7 @@ import {
   getChartSeriesUpdateMode,
 } from './liveChartSync';
 import { buildChartOverlayPayload } from './chartOverlays';
+import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import {
   filterCandlesForChartTimeRange,
   getChartTimeRangeLabel,
@@ -620,17 +621,16 @@ export function ChartScreen() {
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
   const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : [], isScreenFocused);
   const chartLiveQuote = chartLiveQuotes[chartSymbol];
-  const displayDecimals = useMemo(() => {
-    const liveDigits =
-      typeof chartLiveQuote?.digits === 'number' && Number.isFinite(chartLiveQuote.digits)
-        ? Math.floor(chartLiveQuote.digits)
-        : null;
-    if (liveDigits !== null) {
-      return Math.min(Math.max(liveDigits, 0), 8);
-    }
-    return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
-  }, [baseSymbol, chartLiveQuote?.digits]);
+  const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: chartInstrumentMeta?.digits,
+      liveQuoteDigits: chartLiveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+    });
+  }, [chartInstrumentMeta?.digits, chartLiveQuote?.digits, chartLiveQuoteDigitsSource, hasLiveChartQuote]);
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;
@@ -649,6 +649,20 @@ export function ChartScreen() {
       ? ask ?? bid
       : bid ?? ask;
   }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
+  const overlayLiveBid = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null,
+    [chartLiveQuote?.bid, hasLiveChartQuote],
+  );
+  const overlayLiveAsk = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null,
+    [chartLiveQuote?.ask, hasLiveChartQuote],
+  );
   const liveChartTimestamp = useMemo(() => {
     const candidates = [
       chartLiveQuote?.lastReceivedAt,
@@ -721,7 +735,6 @@ export function ChartScreen() {
     () => buildAvailableChartSymbols(chartSymbol, apiSymbols),
     [apiSymbols, chartSymbol],
   );
-  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const tradeVolumeBounds = useMemo(
     () => ({
       minVolume: chartInstrumentMeta?.minVolume,
@@ -928,18 +941,18 @@ export function ChartScreen() {
         horzLines: { color: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent', style: LineStyle.SparseDotted },
       },
       crosshair: {
-        mode: CrosshairMode.Normal,
+        mode: CrosshairMode.Hidden,
         vertLine: {
-          color: resolvedChartColors.foreground,
+          visible: false,
+          labelVisible: false,
+          color: 'transparent',
           width: 1,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: resolvedChartColors.foreground,
         },
         horzLine: {
-          color: resolvedChartColors.foreground,
+          visible: false,
+          labelVisible: false,
+          color: 'transparent',
           width: 1,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: resolvedChartColors.foreground,
         },
       },
       localization: {
@@ -968,6 +981,7 @@ export function ChartScreen() {
           top: 0.08,
           bottom: 0.25,
         },
+        minimumWidth: 62,
       },
     });
 
@@ -1056,7 +1070,7 @@ export function ChartScreen() {
       series = chart.addSeries(LineSeries, {
         color: LINE_COLOR,
         lineWidth: 2,
-        crosshairMarkerVisible: true,
+        crosshairMarkerVisible: false,
         lastValueVisible: true,
         priceLineVisible: true,
         priceFormat: priceFormatInfo,
@@ -1262,6 +1276,8 @@ export function ChartScreen() {
         alerts,
         colors: resolvedChartColors,
         sellColor: RED,
+        liveBid: overlayLiveBid,
+        liveAsk: overlayLiveAsk,
         liveAccount: overlayAccountMetrics,
         showOnChart: chartShowOnChart,
         activeTool,
@@ -1277,6 +1293,8 @@ export function ChartScreen() {
       alerts,
       resolvedChartColors,
       RED,
+      overlayLiveBid,
+      overlayLiveAsk,
       overlayAccountMetrics,
       chartShowOnChart,
       activeTool,
@@ -1486,6 +1504,16 @@ export function ChartScreen() {
                 </Pressable>
               </View>
             </ScrollView>
+            <View
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 62,
+                height: 1,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
+              }}
+            />
           </View>
           <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
@@ -2059,8 +2087,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 10,
       height: 32,
       backgroundColor: isDark ? '#000000' : '#F8FAFC',
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
       zIndex: 10,
     },
     chartMetaOverlay: {
@@ -2445,12 +2471,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-
-
-
-
-
-
 
 
 

@@ -10,6 +10,67 @@ export const toUpper = (value: string): string => value.trim().toUpperCase();
 export const formatPositionVolumeLabel = (value: number): string =>
   Number.isFinite(value) ? value.toFixed(2) : '0.00';
 
+export const formatSignedUsdOverlayLabel = (value: number): string => {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const normalizedValue = Object.is(safeValue, -0) ? 0 : safeValue;
+  const sign = normalizedValue > 0 ? '+' : normalizedValue < 0 ? '-' : '';
+
+  return `${sign}${Math.abs(normalizedValue).toFixed(2)} USD`;
+};
+
+export const formatOpenPositionOverlayLabel = (
+  side: 'buy' | 'sell',
+  volume: number,
+  pnl: number,
+): string =>
+  `${side === 'sell' ? 'SELL' : 'BUY'} ${formatPositionVolumeLabel(volume)}, ${formatSignedUsdOverlayLabel(pnl)}`;
+
+type OpenPositionLivePnlInput = {
+  symbol: string;
+  side: 'buy' | 'sell';
+  volume: number;
+  openPrice: number;
+  bid?: number | null;
+  ask?: number | null;
+  swap?: number | null;
+  commission?: number | null;
+};
+
+const toFiniteOrZero = (value: number | null | undefined): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+export const calculateOpenPositionLivePnl = ({
+  symbol,
+  side,
+  volume,
+  openPrice,
+  bid,
+  ask,
+  swap,
+  commission,
+}: OpenPositionLivePnlInput): number | null => {
+  const safeOpenPrice = Number(openPrice);
+  const safeVolume = Number(volume);
+  const closePrice = Number(side === 'sell' ? ask : bid);
+
+  if (
+    !Number.isFinite(safeOpenPrice) ||
+    safeOpenPrice <= 0 ||
+    !Number.isFinite(safeVolume) ||
+    safeVolume <= 0 ||
+    !Number.isFinite(closePrice) ||
+    closePrice <= 0
+  ) {
+    return null;
+  }
+
+  const contractSize = inferContractSize(symbol);
+  const directionMultiplier = side === 'sell' ? -1 : 1;
+  const grossPnl = (closePrice - safeOpenPrice) * directionMultiplier * contractSize * safeVolume;
+
+  return grossPnl + toFiniteOrZero(swap) + toFiniteOrZero(commission);
+};
+
 export const formatTpSlOverlayLabel = (
   kind: 'tp' | 'sl',
   symbol: string,

@@ -15,6 +15,7 @@ const readProjectFile = (relativePath: string): string => {
 
 const constantsSource = readProjectFile('src/features/chart/ChartScreen.constants.ts');
 const nativeChartSource = readProjectFile('src/features/chart/ChartScreen.native.tsx');
+const nativeChartStylesSource = readProjectFile('src/features/chart/ChartScreen.styles.ts');
 const webChartSource = readProjectFile('src/features/chart/ChartScreen.web.tsx');
 const chartWebViewHtmlSource = readProjectFile('src/features/chart/rendering/ChartWebViewHtml.ts');
 const fixedGridOverlaySource = readProjectFile(
@@ -63,6 +64,11 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
     'native grid stroke must stay thinner than a full WebView CSS pixel',
   );
   assert.match(
+    constantsSource,
+    /export const CHART_AXIS_DIVIDER_STROKE_WIDTH = 1;/,
+    'native chart axis dividers must use a shared stroke width for top, right, and bottom boundaries',
+  );
+  assert.match(
     nativeChartSource,
     /vertLines:\s*\{[\s\S]*style:\s*CHART_GRID_LINE_STYLE/,
     'native vertical grid lines must use the shared MT5-style grid constant',
@@ -70,7 +76,7 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   assert.match(
     nativeChartSource,
     /vertLines:\s*\{\s*color:\s*'transparent'[\s\S]*style:\s*CHART_GRID_LINE_STYLE/,
-    'native LightweightCharts vertical tick grid must stay hidden behind the MT5-style grid overlay',
+    'native LightweightCharts vertical tick grid must stay hidden so the WebView custom grid is the only visible grid layer',
   );
   assert.match(
     nativeChartSource,
@@ -80,7 +86,12 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   assert.match(
     nativeChartSource,
     /horzLines:\s*\{\s*color:\s*'transparent'[\s\S]*style:\s*CHART_GRID_LINE_STYLE/,
-    'native LightweightCharts horizontal tick grid must stay hidden behind the MT5-style grid overlay',
+    'native LightweightCharts horizontal tick grid must stay hidden so dark theme does not draw duplicate dotted lines',
+  );
+  assert.doesNotMatch(
+    nativeChartSource,
+    /chartNativeGridColor/,
+    'native chart must not draw a second grid layer on top of the WebView custom grid',
   );
   assert.match(
     nativeChartSource,
@@ -89,8 +100,43 @@ test('native chart grid uses dotted MT5 guides behind candles', () => {
   );
   assert.match(
     nativeChartSource,
+    /timeScale:\s*\{[\s\S]*borderVisible:\s*false[\s\S]*borderColor:\s*'transparent'/,
+    'native LightweightCharts time-axis border must stay hidden so the WebView divider can stop at the price-scale boundary',
+  );
+  assert.match(
+    nativeChartSource,
+    /rightPriceScale:\s*\{[\s\S]*borderVisible:\s*false[\s\S]*borderColor:\s*'transparent'/,
+    'native LightweightCharts price-scale border must stay hidden so the WebView divider owns the right boundary',
+  );
+  assert.match(
+    nativeChartSource,
+    /crosshair:\s*\{[\s\S]*mode:\s*2[\s\S]*vertLine:\s*\{[^}]*visible:\s*false[^}]*labelVisible:\s*false[^}]*color:\s*'transparent'[^}]*width:\s*0[^}]*\}[\s\S]*horzLine:\s*\{[^}]*visible:\s*false[^}]*labelVisible:\s*false[^}]*color:\s*'transparent'[^}]*width:\s*0[^}]*\}/,
+    'native chart must hide the full crosshair decoration, including horizontal guide, vertical guide, axis labels, and intersection dot',
+  );
+  assert.match(
+    nativeChartSource,
+    /axisDivider:\s*chartAxisBorderColor/,
+    'native chart must pass the clear axis divider color into the WebView-owned divider overlay',
+  );
+  assert.match(
+    nativeChartSource,
     /chartDisplay\.showGrid\s*\?\s*'grid'\s*:\s*'nogrid'/,
     'native chart config signature must rebuild when grid visibility changes',
+  );
+  assert.match(
+    nativeChartSource,
+    /chartDisplay\.showGrid\s*\?\s*'grid'\s*:\s*'nogrid'\}-\$\{chartGridColor\}-\$\{chartAxisBorderColor\}-\$\{chartColorsSignature\}/,
+    'native chart config signature must rebuild when derived grid or axis divider colors change',
+  );
+  assert.match(
+    nativeChartSource,
+    /const MT5_DARK_AXIS_BORDER_COLOR = 'rgba\(148,163,184,0\.38\)';[\s\S]*const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';/,
+    'native chart axis divider colors must use the clear theme-specific separator color',
+  );
+  assert.match(
+    nativeChartStylesSource,
+    /compactHeader:\s*\{[\s\S]*borderBottomWidth:\s*0[\s\S]*borderBottomColor:\s*'transparent'/,
+    'native chart header must not draw a full-width bottom border over the right price scale',
   );
   assert.doesNotMatch(
     nativeChartSource,
@@ -109,6 +155,11 @@ test('WebView chart grid combines fixed horizontal guides with moving vertical g
     chartWebViewHtmlSource,
     /rtx5-moving-vertical-grid/,
     'native WebView must own the vertical time-grid layer',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /rtx5-axis-dividers/,
+    'native WebView must own the chart axis divider layer',
   );
   assert.match(
     chartWebViewHtmlSource,
@@ -137,8 +188,58 @@ test('WebView chart grid combines fixed horizontal guides with moving vertical g
   );
   assert.match(
     chartWebViewHtmlSource,
+    /function getHiddenCrosshairOptions\(\)[\s\S]*CrosshairMode\.Hidden[\s\S]*vertLine:\s*\{ visible: false, labelVisible: false, color: 'transparent', width: 0 \}[\s\S]*horzLine:\s*\{ visible: false, labelVisible: false, color: 'transparent', width: 0 \}/,
+    'WebView chart options must fully hide crosshair lines, labels, and the pointer intersection marker',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /safeOpts = hideChartCrosshairOptions\(makeChartCanvasBackgroundTransparent\(safeOpts\)\)/,
+    'WebView chart creation must sanitize host options so default crosshair decoration cannot reappear',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /chart\.applyOptions\(\{ crosshair: getHiddenCrosshairOptions\(\) \}\)/,
+    'WebView chart creation must reapply hidden crosshair options after LightweightCharts initialization',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /crosshairMarkerVisible:\s*false/,
+    'native WebView line series must not draw the round crosshair marker at the pointer intersection',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
     /setMovingGridAttribute\(horizontalLine, 'x1', 0\)[\s\S]*setMovingGridAttribute\(horizontalLine, 'x2', metrics\.paneWidth\)/,
     'horizontal grid guides must stay fixed across the full plot width',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /topDividerY = dividerInset[\s\S]*bottomDividerY = Math\.max\(topDividerY, paneBottom - dividerInset\)/,
+    'axis divider bottom line must use the same pane-edge inset as the top line',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /topLine\.setAttribute\('x1', String\(left\)\)[\s\S]*topLine\.setAttribute\('y1', String\(topDividerY\)\)[\s\S]*topLine\.setAttribute\('x2', String\(paneRight\)\)/,
+    'axis divider top line must end at the price-scale boundary without drawing a tail under price labels',
+  );
+  assert.match(
+    nativeChartStylesSource,
+    /chartTopToolbar:\s*\{[\s\S]*borderBottomWidth:\s*0[\s\S]*borderBottomColor:\s*'transparent'/,
+    'native chart toolbar must not draw a full-width bottom border over the right price scale',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /bottomLine\.setAttribute\('x1', String\(left\)\)[\s\S]*bottomLine\.setAttribute\('y1', String\(bottomDividerY\)\)[\s\S]*bottomLine\.setAttribute\('x2', String\(paneRight\)\)[\s\S]*bottomLine\.setAttribute\('y2', String\(bottomDividerY\)\)/,
+    'axis divider bottom line must end at the price-scale boundary without drawing a tail under price labels',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /verticalLine\.setAttribute\('x1', String\(paneRight\)\)[\s\S]*verticalLine\.setAttribute\('y1', String\(topDividerY\)\)[\s\S]*verticalLine\.setAttribute\('y2', String\(bottomDividerY\)\)/,
+    'axis divider right line must start below the header divider and stop at the chart pane bottom',
+  );
+  assert.match(
+    chartWebViewHtmlSource,
+    /applyChartAxisDividerColor\(customCols && customCols\.axisDivider\)/,
+    'WebView chart creation must read the host axis divider color before removing customColors',
   );
   assert.match(
     chartWebViewHtmlSource,
@@ -202,6 +303,16 @@ test('web chart and fixed horizontal overlay keep the same visible dotted grid s
     webChartSource,
     /horzLines:\s*\{[^}]*style:\s*LineStyle\.SparseDotted/,
     'web horizontal grid lines must match the native dotted cadence',
+  );
+  assert.match(
+    webChartSource,
+    /crosshair:\s*\{[\s\S]*mode:\s*CrosshairMode\.Hidden[\s\S]*vertLine:\s*\{[^}]*visible:\s*false[^}]*labelVisible:\s*false[^}]*color:\s*'transparent'[^}]*width:\s*1[^}]*\}[\s\S]*horzLine:\s*\{[^}]*visible:\s*false[^}]*labelVisible:\s*false[^}]*color:\s*'transparent'[^}]*width:\s*1[^}]*\}/,
+    'web chart must hide the full crosshair decoration, including horizontal guide, vertical guide, axis labels, and intersection dot',
+  );
+  assert.match(
+    webChartSource,
+    /crosshairMarkerVisible:\s*false/,
+    'web line series must not draw the round crosshair marker at the pointer intersection',
   );
   assert.match(
     fixedGridOverlaySource,

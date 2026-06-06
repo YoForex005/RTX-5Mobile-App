@@ -3,6 +3,7 @@ import type { QuoteTickEvent } from '../../api/ws/quoteTickNormalizer';
 import { normalizeSymbol } from '../../domain/symbols';
 import { quotes as mockQuotes, type QuoteItem } from '../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
+import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
 
 export const LIVE_QUOTE_STALE_MS = 45_000;
 
@@ -116,10 +117,16 @@ export const buildInitialLiveQuoteSnapshot = (
     return undefined;
   }
 
-  return {
+  const merged = {
     ...(spec || {}),
     ...(liveQuote || {}),
     symbol,
+  };
+  const spread = calculateQuoteSpreadPoints(merged.bid, merged.ask, merged.digits);
+
+  return {
+    ...merged,
+    ...(spread === undefined ? {} : { spread }),
   };
 };
 
@@ -158,8 +165,7 @@ export const applyLiveQuoteTickToSnapshot = (
   const high = toFiniteNumber(tick.high) ?? base?.high ?? spec?.high;
   const low = toFiniteNumber(tick.low) ?? base?.low ?? spec?.low;
   const volume = toFiniteNumber(tick.volume) ?? base?.volume ?? spec?.volume;
-  const explicitSpread = toFiniteNumber(tick.spread);
-  const spread = explicitSpread ?? (ask - bid) * Math.pow(10, digits);
+  const spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? base?.spread ?? spec?.spread ?? 0;
 
   return {
     ...(spec || {}),

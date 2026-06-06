@@ -15,6 +15,7 @@ import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { liveCandleStream } from '../domain/candles/stream/liveCandleStream';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
+import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 import { buildRestQuoteTickEvent } from './restQuoteTick';
 
 const LIVE_QUOTE_STALE_MS = 45_000;
@@ -86,6 +87,7 @@ const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
     ...(tick.spread !== undefined ? { spread: tick.spread } : {}),
     ...(tick.volume !== undefined ? { volume: tick.volume } : {}),
     ...(tick.digits !== undefined ? { digits: tick.digits } : {}),
+    ...(tick.digits !== undefined ? { digitsSource: 'backend' as const } : {}),
   });
 
   const price = Number.isFinite(tick.bid) && tick.bid > 0
@@ -327,6 +329,7 @@ const areQuoteSnapshotsEqual = (
     left.bid === right.bid &&
     left.ask === right.ask &&
     left.digits === right.digits &&
+    left.digitsSource === right.digitsSource &&
     left.feedTickAt === right.feedTickAt &&
     left.lastTickAt === right.lastTickAt &&
     left.lastReceivedAt === right.lastReceivedAt &&
@@ -340,7 +343,7 @@ const areQuoteSnapshotsEqual = (
 const mergeQuoteTickIntoSnapshot = (
   requestedSymbol: string,
   currentSnapshot: Partial<QuoteItem> | undefined,
-  tick: { bid: number; ask: number; timestamp: number; feedTickAt?: number; receivedAt?: number },
+  tick: { bid: number; ask: number; timestamp: number; feedTickAt?: number; receivedAt?: number; digits?: number },
 ): Partial<QuoteItem> | undefined => {
   const normalizedSymbol = normalizeSymbol(requestedSymbol);
   if (!normalizedSymbol) {
@@ -358,23 +361,29 @@ const mergeQuoteTickIntoSnapshot = (
     ? lastReceivedAt
     : currentSnapshot?.lastPriceChangedAt;
 
-  const digits =
-    typeof currentSnapshot?.digits === 'number' && Number.isFinite(currentSnapshot.digits)
-      ? currentSnapshot.digits
+  const backendDigits =
+    typeof tick.digits === 'number' && Number.isFinite(tick.digits)
+      ? tick.digits
       : undefined;
+  const digits =
+    backendDigits ??
+    (typeof currentSnapshot?.digits === 'number' && Number.isFinite(currentSnapshot.digits)
+      ? currentSnapshot.digits
+      : undefined);
 
   return resolveMergedQuoteSnapshot(requestedSymbol, {
     ...(currentSnapshot || {}),
     symbol: normalizedSymbol,
     bid: tick.bid,
     ask: tick.ask,
+    ...(backendDigits !== undefined ? { digits: backendDigits, digitsSource: 'backend' as const } : {}),
     feedTickAt: feedTickAt ?? undefined,
     lastTickAt,
     lastReceivedAt,
     lastPriceChangedAt,
     spread:
       digits !== undefined
-        ? (tick.ask - tick.bid) * Math.pow(10, digits)
+        ? calculateQuoteSpreadPoints(tick.bid, tick.ask, digits)
         : currentSnapshot?.spread,
   });
 };
@@ -457,6 +466,7 @@ export function useLiveSymbolQuote(
       timestamp: number;
       feedTickAt?: number;
       receivedAt?: number;
+      digits?: number;
     }) => {
       if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
         return;

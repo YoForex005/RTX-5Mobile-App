@@ -13,6 +13,7 @@
 import { useTradingState } from '../../../state/tradingState';
 import { quotes as mockQuotes } from '../../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
+import { calculateQuoteSpreadPoints } from '../../../utils/quoteSpread';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
@@ -100,6 +101,7 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         const entry: any = {
           symbol,
           digits,
+          ...(data.digits !== undefined ? { digitsSource: 'backend' } : {}),
           volume,
           feedTickAt,
           lastTickAt,
@@ -115,7 +117,7 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         entry.lastTickAt = lastTickAt;
         entry.lastReceivedAt = lastReceivedAt;
         entry.lastPriceChangedAt = lastPriceChangedAt;
-        entry.spread = (ask - bid) * Math.pow(10, digits);
+        entry.spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? entry.spread;
         newQuotes[symbol] = entry;
       } else {
         const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
@@ -132,12 +134,15 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         updated.bid = bid;
         updated.ask = ask;
         updated.digits = digits;
+        if (data.digits !== undefined) {
+          updated.digitsSource = 'backend';
+        }
         updated.volume = volume;
         updated.feedTickAt = feedTickAt ?? undefined;
         updated.lastTickAt = lastTickAt;
         updated.lastReceivedAt = lastReceivedAt;
         updated.lastPriceChangedAt = lastPriceChangedAt;
-        updated.spread = (ask - bid) * Math.pow(10, digits);
+        updated.spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? updated.spread;
         updated.prevBid = bid !== existing.bid ? existing.bid : existing.prevBid;
         updated.prevAsk = ask !== existing.ask ? existing.ask : existing.prevAsk;
         newQuotes[symbol] = updated;

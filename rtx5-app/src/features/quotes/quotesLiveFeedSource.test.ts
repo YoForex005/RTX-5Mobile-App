@@ -20,6 +20,13 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /getSecureItemAsync\(ACTIVE_BROKER_SERVER_URL_KEY\)/);
   assert.match(serviceSource, /private async resolveSocketUrlAsync\(\): Promise<string>/);
   assert.match(serviceSource, /this\.openResolvedSocket\(nextUrl\)/);
+  assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
+  assert.match(serviceSource, /const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000/);
+  assert.match(serviceSource, /const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000/);
+  assert.match(serviceSource, /const QUOTE_WS_SILENT_STALE_MS = 8_000/);
+  assert.match(serviceSource, /const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000/);
+  assert.match(serviceSource, /Math\.min\([\s\S]*QUOTE_WS_RECONNECT_MAX_DELAY_MS[\s\S]*\)/);
+  assert.match(serviceSource, /staleFor > QUOTE_WS_SILENT_STALE_MS/);
 
   const subscribeToSymbolSource = serviceSource.slice(subscribeToSymbolStart, unsubscribeStart);
   assert.match(
@@ -44,10 +51,14 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.doesNotMatch(watchlistHookSource, /subscribeToSymbol/);
   assert.match(liveQuotesSource, /apiClient\(`\/quotes\?symbols=\$\{symbolsQuery\}`\)/);
   assert.match(liveQuotesSource, /asQuoteSnapshotArray\(payload\)\.forEach/);
-  assert.match(liveQuotesSource, /await fetchRestQuoteSnapshots\(symbols\)/);
+  assert.match(liveQuotesSource, /const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000/);
+  assert.match(liveQuotesSource, /const needsRestQuoteSnapshot = \(symbol: string, now = Date\.now\(\)\): boolean =>/);
+  assert.match(liveQuotesSource, /const freshnessAnchor = getQuoteFreshnessAnchor\(snapshot\)/);
+  assert.match(liveQuotesSource, /const symbolsNeedingFallback = symbols\.filter\(\(symbol\) => needsRestQuoteSnapshot\(symbol\)\)/);
+  assert.match(liveQuotesSource, /await fetchRestQuoteSnapshots\(symbolsNeedingFallback\)/);
+  assert.match(liveQuotesSource, /if \(!matchesRequestedSymbol \|\| !needsRestQuoteSnapshot\(symbol\)\)/);
   assert.match(liveQuotesSource, /QUOTE_REST_SNAPSHOT_POLL_MS = 500/);
   assert.match(liveQuotesSource, /WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16/);
-  assert.doesNotMatch(liveQuotesSource, /hasFreshLiveQuote\(resolveSnapshot\(symbol\)\)/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteRouteActive/);
   assert.match(quotesScreenSource, /const quoteFeedActive = quoteStickyFeedActive/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);

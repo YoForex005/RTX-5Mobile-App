@@ -49,7 +49,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(marketSymbolsSource, /const isLoggedIn = useUserPreferences\(\(state\) => state\.isLoggedIn\)/);
   assert.match(marketSymbolsSource, /const isEnabled = enabled && isLoggedIn/);
   assert.match(marketSymbolsSource, /enabled: isEnabled/);
-  assert.match(instrumentsSource, /const isEnabled = enabled && isLoggedIn && !!symbol/);
+  assert.match(instrumentsSource, /const isEnabled = enabled && isLoggedIn && !!normalizedSymbol/);
   assert.match(instrumentsSource, /enabled: isEnabled/);
   assert.match(alertsSource, /const enabled = \(options\.enabled \?\? true\) && isLoggedIn/);
   assert.match(marketStatusSource, /const isEnabled = enabled && isLoggedIn && !!symbol/);

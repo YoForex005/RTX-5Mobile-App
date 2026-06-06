@@ -9,6 +9,7 @@ import { usePlaceOrderExecutor } from '../../../../query/orders';
 import { resolveTradingLogin } from '../../../../state/tradingLogin';
 import { useUserPreferences } from '../../../../state/userPreferences';
 import { runCriticalTradeAction } from '../../../../utils/actionLatency';
+import { getApiLatencyNow } from '../../../../utils/apiLatency';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from '../../chartTradeActions';
 import {
@@ -20,6 +21,8 @@ import {
 
 const CHART_TRADE_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_CHART_TRADE === 'true';
+const CHART_TRADE_QUEUE_LIMIT = 10;
+const CHART_TRADE_QUEUE_RETRY_MS = 50;
 
 const logChartTradeDiagnostic = (...args: Parameters<typeof console.log>) => {
   if (CHART_TRADE_DIAGNOSTICS_ENABLED) {
@@ -57,6 +60,18 @@ type TradeFeedback = {
   executedAt?: string;
 };
 
+type QueuedChartTrade = {
+  id: number;
+  side: TradeSide;
+  symbol: string;
+  tradingLogin: string | number;
+  volume: number;
+  comment: string;
+  latestBid: number;
+  latestAsk: number;
+  queuedAtMs: number;
+};
+
 export type TradeHandlerOptions = {
   symbol: string;
   variant?: 'compact' | 'mt5-market';
@@ -83,6 +98,9 @@ export function useTradeHandler({
   const activeSideResetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const tradeTapLockRef = React.useRef(false);
   const tradeTapLockSideRef = React.useRef<TradeSide | null>(null);
+  const tradeQueueRef = React.useRef<QueuedChartTrade[]>([]);
+  const tradeQueueDrainTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextTradeQueueIdRef = React.useRef(1);
   const isCurrentChartSymbol = currentChartSymbol === symbol;
 
   React.useEffect(() => () => {
@@ -94,6 +112,11 @@ export function useTradeHandler({
     if (tradeTapLockSideRef.current) {
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
+    }
+    tradeQueueRef.current = [];
+    if (tradeQueueDrainTimerRef.current) {
+      clearTimeout(tradeQueueDrainTimerRef.current);
+      tradeQueueDrainTimerRef.current = null;
     }
   }, []);
 
@@ -107,6 +130,11 @@ export function useTradeHandler({
     if (tradeTapLockSideRef.current) {
       releaseChartTradeButtonSharedLock(tradeTapLockSideRef.current);
       tradeTapLockSideRef.current = null;
+    }
+    tradeQueueRef.current = [];
+    if (tradeQueueDrainTimerRef.current) {
+      clearTimeout(tradeQueueDrainTimerRef.current);
+      tradeQueueDrainTimerRef.current = null;
     }
   }, [symbol]);
 
@@ -137,6 +165,139 @@ export function useTradeHandler({
     setActiveSide(side);
   };
 
+  const releaseTradeTapLock = (delayMs = 0) => {
+    const lockedSide = tradeTapLockSideRef.current;
+    tradeTapLockRef.current = false;
+    tradeTapLockSideRef.current = null;
+    if (lockedSide) {
+      releaseChartTradeButtonSharedLock(lockedSide, delayMs);
+      clearActiveTradeSide(lockedSide, delayMs);
+    }
+  };
+
+  const scheduleProcessNextQueuedTrade = (delayMs = 0) => {
+    if (tradeQueueDrainTimerRef.current) {
+      return;
+    }
+
+    tradeQueueDrainTimerRef.current = setTimeout(() => {
+      tradeQueueDrainTimerRef.current = null;
+      processNextQueuedTrade();
+    }, delayMs);
+  };
+
+  function processNextQueuedTrade() {
+    if (tradeTapLockRef.current || tradeQueueRef.current.length === 0) {
+      return;
+    }
+
+    const queuedTrade = tradeQueueRef.current.shift();
+    if (!queuedTrade) {
+      return;
+    }
+
+    const action = getChartTradeAction(queuedTrade.side);
+    if (!acquireChartTradeButtonSharedLock(action.side)) {
+      tradeQueueRef.current.unshift(queuedTrade);
+      scheduleProcessNextQueuedTrade(CHART_TRADE_QUEUE_RETRY_MS);
+      return;
+    }
+
+    tradeTapLockRef.current = true;
+    tradeTapLockSideRef.current = action.side;
+    markActiveTradeSide(action.side);
+
+    const payload = buildChartMarketOrderPayload({
+      accountLogin: queuedTrade.tradingLogin,
+      symbol: queuedTrade.symbol,
+      side: action.side,
+      volume: queuedTrade.volume,
+      comment: queuedTrade.comment,
+    });
+    const requestStartedAtMs = getApiLatencyNow();
+    const queueWaitMs = Math.max(0, Math.round(requestStartedAtMs - queuedTrade.queuedAtMs));
+
+    logChartTradeDiagnostic('[TRADE-QUEUE-START]', {
+      queueId: queuedTrade.id,
+      side: action.side,
+      symbol: queuedTrade.symbol,
+      volume: queuedTrade.volume,
+      queueWaitMs,
+      remainingQueue: tradeQueueRef.current.length,
+      timestamp: new Date().toISOString(),
+    });
+    logChartTradeDiagnostic('[TRADE-PAYLOAD]', {
+      queueId: queuedTrade.id,
+      symbol: payload.symbol,
+      side: payload.side,
+      action: payload.side,
+      orderType: action.orderType,
+      command: payload.side,
+      tradeType: action.orderType,
+      volume: queuedTrade.volume,
+      priceSource: action.priceSource,
+      rawPayload: payload,
+    });
+
+    placeOrder(payload, {
+      onSuccess: (data: any) => {
+        const backendMs = Math.max(0, Math.round(getApiLatencyNow() - requestStartedAtMs));
+        logChartTradeDiagnostic('[TRADE-RESPONSE]', {
+          queueId: queuedTrade.id,
+          requestSide: action.side,
+          result: data?.status ?? 'success',
+          backendSide: data?.side ?? null,
+          queueWaitMs,
+          backendMs,
+          remainingQueue: tradeQueueRef.current.length,
+          rawResponse: data,
+        });
+        const ticket = data?.position_ticket || data?.order_ticket || data?.ticket || 'Confirmed';
+        const execPrice = action.side === 'buy' ? queuedTrade.latestAsk : queuedTrade.latestBid;
+        onTradeResult?.({
+          visible: true,
+          type: 'success',
+          side: action.side,
+          symbol: queuedTrade.symbol,
+          ticket: String(ticket),
+          price: execPrice,
+          volume: queuedTrade.volume,
+          executedAt: new Date().toLocaleTimeString(),
+        });
+        releaseTradeTapLock();
+        scheduleProcessNextQueuedTrade();
+      },
+      onError: (err: any) => {
+        const backendMs = Math.max(0, Math.round(getApiLatencyNow() - requestStartedAtMs));
+        const feedback = classifyTradingError(err, { action: 'place-order' });
+        warnChartTradeDiagnostic('[TRADE-RESPONSE]', {
+          queueId: queuedTrade.id,
+          requestSide: action.side,
+          result: 'error',
+          backendSide: err?.response?.data?.side ?? err?.data?.side ?? null,
+          queueWaitMs,
+          backendMs,
+          remainingQueue: tradeQueueRef.current.length,
+          rawResponse: err?.response?.data ?? err?.data ?? err,
+        });
+        warnChartTradeDiagnostic('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: feedback.title,
+          message: feedback.message,
+          side: action.side,
+        });
+        releaseTradeTapLock();
+        if (feedback.kind === 'session-expired' || feedback.kind === 'rate-limit' || feedback.kind === 'backend-unavailable') {
+          tradeQueueRef.current = [];
+          return;
+        }
+        scheduleProcessNextQueuedTrade();
+      },
+    });
+  }
+
   const executeTrade = (side: TradeSide) => {
     const action = getChartTradeAction(side);
     const stateChartSymbol = useUserPreferences.getState().chartSymbol;
@@ -155,7 +316,7 @@ export function useTradeHandler({
       return;
     }
     const sharedLockSide = getChartTradeButtonSharedLockSide();
-    if (tradeTapLockRef.current || sharedLockSide !== null) {
+    if (!oneClickAccepted && (tradeTapLockRef.current || sharedLockSide !== null)) {
       logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
@@ -169,7 +330,7 @@ export function useTradeHandler({
       });
       return;
     }
-    if (!acquireChartTradeButtonSharedLock(action.side)) {
+    if (!oneClickAccepted && !acquireChartTradeButtonSharedLock(action.side)) {
       logChartTradeDiagnostic('[TRADE-BUTTON-PRESS]', {
         side,
         buttonPressed: action.buttonPressed,
@@ -183,18 +344,11 @@ export function useTradeHandler({
       });
       return;
     }
-    tradeTapLockRef.current = true;
-    tradeTapLockSideRef.current = action.side;
-    const releaseTradeTapLock = (delayMs = 0) => {
-      const lockedSide = tradeTapLockSideRef.current;
-      tradeTapLockRef.current = false;
-      tradeTapLockSideRef.current = null;
-      if (lockedSide) {
-        releaseChartTradeButtonSharedLock(lockedSide, delayMs);
-        clearActiveTradeSide(lockedSide, delayMs);
-      }
-    };
-    markActiveTradeSide(action.side);
+    if (!oneClickAccepted) {
+      tradeTapLockRef.current = true;
+      tradeTapLockSideRef.current = action.side;
+      markActiveTradeSide(action.side);
+    }
     const volume = Number(lotSize);
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
     const authState = useUserPreferences.getState();
@@ -245,63 +399,48 @@ export function useTradeHandler({
 
     if (oneClickAccepted) {
       logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
-      const payload = buildChartMarketOrderPayload({
-        accountLogin: tradingLogin,
-        symbol,
+      const queuedTrade: QueuedChartTrade = {
+        id: nextTradeQueueIdRef.current,
         side: action.side,
+        symbol,
+        tradingLogin,
         volume,
         comment: trimmedComment,
-      });
-      logChartTradeDiagnostic('[TRADE-PAYLOAD]', {
-        symbol: payload.symbol,
-        side: payload.side,
-        action: payload.side,
-        orderType: action.orderType,
-        command: payload.side,
-        tradeType: action.orderType,
+        latestBid,
+        latestAsk,
+        queuedAtMs: getApiLatencyNow(),
+      };
+      const pendingTradeCount = tradeQueueRef.current.length + (tradeTapLockRef.current ? 1 : 0);
+      if (pendingTradeCount >= CHART_TRADE_QUEUE_LIMIT) {
+        warnChartTradeDiagnostic('[TRADE-QUEUE-FULL]', {
+          side: action.side,
+          symbol,
+          pendingTradeCount,
+          limit: CHART_TRADE_QUEUE_LIMIT,
+          timestamp: new Date().toISOString(),
+        });
+        onTradeResult?.({
+          visible: true,
+          type: 'error',
+          title: 'Trade Queue Full',
+          message: `Wait for the current orders to finish before sending more than ${CHART_TRADE_QUEUE_LIMIT} rapid trades.`,
+          side: action.side,
+        });
+        return;
+      }
+      nextTradeQueueIdRef.current += 1;
+      tradeQueueRef.current.push(queuedTrade);
+      logChartTradeDiagnostic('[TRADE-QUEUE-ENQUEUE]', {
+        queueId: queuedTrade.id,
+        side: action.side,
+        symbol,
         volume,
-        priceSource: action.priceSource,
-        rawPayload: payload,
+        queueLength: tradeQueueRef.current.length,
+        activeInFlight: tradeTapLockRef.current,
+        sharedLockSide,
+        timestamp: new Date().toISOString(),
       });
-
-      placeOrder(payload, {
-        onSuccess: (data: any) => {
-          logChartTradeDiagnostic('[TRADE-RESPONSE]', {
-            requestSide: action.side,
-            result: data?.status ?? 'success',
-            backendSide: data?.side ?? null,
-            rawResponse: data,
-          });
-          const ticket = data?.position_ticket || data?.order_ticket || data?.ticket || 'Confirmed';
-          const execPrice = action.side === 'buy' ? latestAsk : latestBid;
-          onTradeResult?.({
-            visible: true, type: 'success',
-            side: action.side, symbol,
-            ticket: String(ticket),
-            price: execPrice, volume,
-            executedAt: new Date().toLocaleTimeString(),
-          });
-          releaseTradeTapLock();
-        },
-        onError: (err: any) => {
-          const feedback = classifyTradingError(err, { action: 'place-order' });
-          warnChartTradeDiagnostic('[TRADE-RESPONSE]', {
-            requestSide: action.side,
-            result: 'error',
-            backendSide: err?.response?.data?.side ?? err?.data?.side ?? null,
-            rawResponse: err?.response?.data ?? err?.data ?? err,
-          });
-          warnChartTradeDiagnostic('[Trade] error', feedback.kind, feedback.title, '|', feedback.detail ?? feedback.message);
-          onTradeResult?.({
-            visible: true, type: 'error',
-            title: feedback.title,
-            message: feedback.message,
-            side: action.side,
-          });
-          releaseTradeTapLock();
-        },
-      });
-      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+      processNextQueuedTrade();
     } else {
       logChartTradeDiagnostic('[Trade] navigate path → /trade/order-ticket');
       runAfterChartTradeTapPaint(() => {

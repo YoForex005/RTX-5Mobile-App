@@ -75,6 +75,7 @@ import {
   getExpectedNextCandleTime,
 } from '../../domain/candles/core/timeframeUtils';
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
+import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
 import {
   getChartDrawingBucketKey,
@@ -235,6 +236,17 @@ const CHART_SURFACE_MOUNT_DELAY_MS = 650;
 const CHART_WATCHDOG_INTERVAL_MS = 3000;
 const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
+const MT5_DARK_AXIS_BORDER_COLOR = 'rgba(148,163,184,0.38)';
+const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';
+const CHART_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
+const CHART_TRADE_CONFIRMATION_MAX_ITEMS = 6;
+
+type ChartTradeConfirmation = {
+  id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  volumeLabel: string;
+};
 
 export function ChartScreen() {
   const T = useTheme();
@@ -341,6 +353,10 @@ export function ChartScreen() {
     () => (isDark ? resolvedChartColors.grid : MT5_LIGHT_GRID_COLOR),
     [isDark, resolvedChartColors.grid],
   );
+  const chartAxisBorderColor = useMemo(
+    () => (isDark ? MT5_DARK_AXIS_BORDER_COLOR : MT5_LIGHT_AXIS_BORDER_COLOR),
+    [isDark],
+  );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const chartDrawingBucketKey = useMemo(() => getChartDrawingBucketKey(chartSymbol), [chartSymbol]);
   const chartDrawingRecords = useMemo(
@@ -386,17 +402,15 @@ export function ChartScreen() {
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
   const chartLiveQuote = useLiveSymbolQuote(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS);
   const chartLiveQuoteTickFields = chartLiveQuote as ChartLiveQuoteTickFields | undefined;
-  const displayDecimals = useMemo(() => {
-    const liveDigits =
-      typeof chartLiveQuote?.digits === 'number' && Number.isFinite(chartLiveQuote.digits)
-        ? Math.floor(chartLiveQuote.digits)
-        : null;
-    if (liveDigits !== null) {
-      return Math.min(Math.max(liveDigits, 0), 8);
-    }
-    return baseSymbol.includes('JPY') ? 3 : baseSymbol.includes('XAU') ? 2 : baseSymbol.includes('BTC') ? 2 : 5;
-  }, [baseSymbol, chartLiveQuote?.digits]);
+  const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: chartInstrumentMeta?.digits,
+      liveQuoteDigits: chartLiveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+    });
+  }, [chartInstrumentMeta?.digits, chartLiveQuote?.digits, chartLiveQuoteDigitsSource, hasLiveChartQuote]);
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;
@@ -588,6 +602,40 @@ export function ChartScreen() {
 
   const [tradeFeedback, setTradeFeedback] = useState<TradeFeedbackState>(TRADE_MODAL_INITIAL);
   const handleTradeFeedbackClose = useCallback(() => setTradeFeedback(TRADE_MODAL_INITIAL), []);
+  const [chartTradeConfirmations, setChartTradeConfirmations] = useState<ChartTradeConfirmation[]>([]);
+  const chartTradeConfirmationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const handleChartTradeResult = useCallback((feedback: TradeFeedbackState) => {
+    if (feedback.type !== 'success') {
+      setTradeFeedback(feedback);
+      return;
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const volumeLabel =
+      typeof feedback.volume === 'number'
+        ? formatTradeVolume(feedback.volume, tradeVolumeBounds)
+        : String(feedback.volume ?? passiveLotDisplay);
+    const confirmation: ChartTradeConfirmation = {
+      id,
+      symbol: String(feedback.symbol || chartSymbol).replace(/\//g, ''),
+      side: feedback.side === 'sell' ? 'sell' : 'buy',
+      volumeLabel,
+    };
+
+    setChartTradeConfirmations((current) =>
+      [confirmation, ...current].slice(0, CHART_TRADE_CONFIRMATION_MAX_ITEMS),
+    );
+
+    const timer = setTimeout(() => {
+      setChartTradeConfirmations((current) => current.filter((item) => item.id !== id));
+    }, CHART_TRADE_CONFIRMATION_VISIBLE_MS);
+    chartTradeConfirmationTimersRef.current.push(timer);
+  }, [chartSymbol, passiveLotDisplay, tradeVolumeBounds]);
+
+  useEffect(() => () => {
+    chartTradeConfirmationTimersRef.current.forEach((timer) => clearTimeout(timer));
+    chartTradeConfirmationTimersRef.current = [];
+  }, []);
   const [showSignalDetails, setShowSignalDetails] = useState(false);
   const [showChartTradeSheet, setShowChartTradeSheet] = useState(false);
   const [chartTradeOrderType, setChartTradeOrderType] = useState<ChartOrderType>('Market Execution');
@@ -1188,6 +1236,20 @@ export function ChartScreen() {
         : null;
     return liveAsk ?? (chartBid > 0 ? chartBid + quoteFallbackSpread : 0);
   }, [chartBid, chartLiveQuote?.ask, hasLiveChartQuote, quoteFallbackSpread]);
+  const overlayLiveBid = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null,
+    [chartLiveQuote?.bid, hasLiveChartQuote],
+  );
+  const overlayLiveAsk = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null,
+    [chartLiveQuote?.ask, hasLiveChartQuote],
+  );
   const chartPointSize = useMemo(() => {
     if (displayDecimals <= 0) return 1;
     return Math.pow(10, -displayDecimals);
@@ -2915,12 +2977,13 @@ export function ChartScreen() {
       },
     },
     crosshair: {
-      mode: 0,
-      vertLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
-      horzLine: { color: resolvedChartColors.foreground, width: 1, labelBackgroundColor: resolvedChartColors.foreground },
+      mode: 2,
+      vertLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
+      horzLine: { visible: false, labelVisible: false, color: 'transparent', width: 0 },
     },
     timeScale: {
-      borderColor: chartDisplay.showGrid ? chartGridColor : 'transparent',
+      borderVisible: false,
+      borderColor: 'transparent',
       timeVisible: true,
       secondsVisible: false,
       rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET,
@@ -2942,7 +3005,8 @@ export function ChartScreen() {
       axisPressedMouseMove: true,
     },
     rightPriceScale: {
-      borderColor: chartDisplay.showGrid ? chartGridColor : 'transparent',
+      borderVisible: false,
+      borderColor: 'transparent',
       autoScale: true,
       entireTextOnly: false,
       scaleMargins: {
@@ -2958,8 +3022,9 @@ export function ChartScreen() {
       barsDowntrend: resolvedChartColors.barsDowntrend,
       lineBody: resolvedChartColors.lineBody,
       grid: chartDisplay.showGrid ? chartGridColor : 'transparent',
+      axisDivider: chartAxisBorderColor,
     }
-  }), [chartDisplay.showGrid, chartGridColor, chartType, resolvedChartColors, showChartVolumePane]);
+  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartType, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -3298,10 +3363,9 @@ export function ChartScreen() {
   // not-initialized so the watchdog knows to retry for the new config.
   const currentSig = useMemo(
     () =>
-      `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${
-        showChartVolumePane ? 'vol' : 'novol'
-      }-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartColorsSignature}`,
-    [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane, chartDisplay.showGrid],
+      `${chartSymbol}-${normalizeTimeframe(chartTimeframe)}-${chartType}-${showChartVolumePane ? 'vol' : 'novol'
+      }-p${displayDecimals}-${chartDisplay.showGrid ? 'grid' : 'nogrid'}-${chartGridColor}-${chartAxisBorderColor}-${chartColorsSignature}`,
+    [chartSymbol, chartTimeframe, chartType, chartColorsSignature, showChartVolumePane, displayDecimals, chartDisplay.showGrid, chartGridColor, chartAxisBorderColor],
   );
   useEffect(() => {
     const lastCandle = sanitizedCandles[sanitizedCandles.length - 1];
@@ -3533,6 +3597,8 @@ export function ChartScreen() {
         alerts,
         colors: resolvedChartColors,
         sellColor: T.trading.sell.primary,
+        liveBid: overlayLiveBid,
+        liveAsk: overlayLiveAsk,
         liveAccount: overlayAccountMetrics,
         showOnChart: chartShowOnChart,
         activeTool,
@@ -3557,6 +3623,8 @@ export function ChartScreen() {
       alerts,
       resolvedChartColors,
       T.trading.sell.primary,
+      overlayLiveBid,
+      overlayLiveAsk,
       overlayAccountMetrics,
       chartShowOnChart,
       activeTool,
@@ -3676,7 +3744,6 @@ export function ChartScreen() {
           <Text style={styles.compactHeaderTimeframeText} numberOfLines={1} allowFontScaling={false}>
             {chartTimeframe}
           </Text>
-          <Ionicons name="chevron-down" size={12} color={BLUE} />
         </Pressable>
       </View>
 
@@ -3937,7 +4004,7 @@ export function ChartScreen() {
         chartBid,
         chartAsk,
         chartTradeTickTimestamp,
-        onTradeResult: setTradeFeedback,
+        onTradeResult: handleChartTradeResult,
       }}
       footer={{
         showFloatingFooterTradeRow: shouldMountFloatingFooterTradeRow,
@@ -4167,83 +4234,83 @@ export function ChartScreen() {
                     cacheEnabled={!__DEV__}
                     forceDarkOn={false}
                     onContentProcessDidTerminate={() => {
-                    console.warn('[CHART WEBVIEW] iOS background process terminated. Reloading chart strictly.');
-                    resetChartBridgeState();
-                    setWebViewReady(false);
-                    webViewRef.current?.reload();
-                  }}
-                  onRenderProcessGone={() => {
-                    console.warn('[CHART WEBVIEW] Android render process gone. Reloading chart strictly.');
-                    resetChartBridgeState();
-                    setWebViewReady(false);
-                    webViewRef.current?.reload();
-                  }}
-                  onMessage={(event) => {
-                    try {
-                      const msg = JSON.parse(event.nativeEvent.data);
-                      if (msg.type === 'READY') {
-                        // WebView loaded — reset state and mark ready.
-                        // The watchdog + Effect 1 will push initChart as soon as data exists.
-                        resetChartBridgeState();
-                        lastWebViewDrawingSignatureRef.current = '';
-                        lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
-                        setWebViewReady(true);
-                      } else if (msg.type === 'CHART_READY') {
-                        // Chart successfully rendered in WebView.
-                        chartInitializedRef.current = true;
-                        lastInitSigRef.current = currentSig;
-                        setChartCanvasReady(true);
-                        lastInjectedLiveQuoteSignatureRef.current = '';
-                        // Fast path: if initChart already seeded this exact
-                        // sanitized series, skip the duplicate full reload.
-                        // Otherwise paint retained candles for the READY race.
-                        try {
-                          const readyCandles = candlesRef.current;
-                          const readySnapshot = buildChartSeriesSnapshot(readyCandles);
-                          if (readyCandles.length > 0 && webViewRef.current) {
-                            if (getChartSnapshotSignature(pendingInitSnapshotRef.current) === getChartSnapshotSignature(readySnapshot)) {
-                              renderedSeriesSnapshotRef.current = readySnapshot;
-                            } else {
-                              const mapped = buildMappedData(readyCandles);
-                              webViewRef.current.injectJavaScript(`
+                      console.warn('[CHART WEBVIEW] iOS background process terminated. Reloading chart strictly.');
+                      resetChartBridgeState();
+                      setWebViewReady(false);
+                      webViewRef.current?.reload();
+                    }}
+                    onRenderProcessGone={() => {
+                      console.warn('[CHART WEBVIEW] Android render process gone. Reloading chart strictly.');
+                      resetChartBridgeState();
+                      setWebViewReady(false);
+                      webViewRef.current?.reload();
+                    }}
+                    onMessage={(event) => {
+                      try {
+                        const msg = JSON.parse(event.nativeEvent.data);
+                        if (msg.type === 'READY') {
+                          // WebView loaded — reset state and mark ready.
+                          // The watchdog + Effect 1 will push initChart as soon as data exists.
+                          resetChartBridgeState();
+                          lastWebViewDrawingSignatureRef.current = '';
+                          lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+                          setWebViewReady(true);
+                        } else if (msg.type === 'CHART_READY') {
+                          // Chart successfully rendered in WebView.
+                          chartInitializedRef.current = true;
+                          lastInitSigRef.current = currentSig;
+                          setChartCanvasReady(true);
+                          lastInjectedLiveQuoteSignatureRef.current = '';
+                          // Fast path: if initChart already seeded this exact
+                          // sanitized series, skip the duplicate full reload.
+                          // Otherwise paint retained candles for the READY race.
+                          try {
+                            const readyCandles = candlesRef.current;
+                            const readySnapshot = buildChartSeriesSnapshot(readyCandles);
+                            if (readyCandles.length > 0 && webViewRef.current) {
+                              if (getChartSnapshotSignature(pendingInitSnapshotRef.current) === getChartSnapshotSignature(readySnapshot)) {
+                                renderedSeriesSnapshotRef.current = readySnapshot;
+                              } else {
+                                const mapped = buildMappedData(readyCandles);
+                                webViewRef.current.injectJavaScript(`
                               updateChartData(${JSON.stringify(mapped)});
                               true;
                             `);
-                              renderedSeriesSnapshotRef.current = readySnapshot;
+                                renderedSeriesSnapshotRef.current = readySnapshot;
+                              }
                             }
-                          }
-                        } catch (_) { }
-                        const frontendPaint = chartCandleFrontendPaintRef.current;
-                        if (frontendPaint) {
-                          const frontendMs = Date.now() - frontendPaint.availableAt;
-                          recordUiFeedGap(
-                            'chart.candles.frontend.paint',
-                            frontendMs,
-                            `${chartSymbol} ${chartTimeframe} ${frontendPaint.length} candle(s)`,
-                          );
-                          if (typeof __DEV__ !== 'undefined' && __DEV__ && frontendMs > 3000) {
-                            console.warn(
-                              `[CHART] Frontend candle paint exceeded 3s after data was available: ${frontendMs}ms for ${chartSymbol} ${chartTimeframe}`,
+                          } catch (_) { }
+                          const frontendPaint = chartCandleFrontendPaintRef.current;
+                          if (frontendPaint) {
+                            const frontendMs = Date.now() - frontendPaint.availableAt;
+                            recordUiFeedGap(
+                              'chart.candles.frontend.paint',
+                              frontendMs,
+                              `${chartSymbol} ${chartTimeframe} ${frontendPaint.length} candle(s)`,
                             );
+                            if (typeof __DEV__ !== 'undefined' && __DEV__ && frontendMs > 3000) {
+                              console.warn(
+                                `[CHART] Frontend candle paint exceeded 3s after data was available: ${frontendMs}ms for ${chartSymbol} ${chartTimeframe}`,
+                              );
+                            }
+                            chartCandleFrontendPaintRef.current = null;
                           }
-                          chartCandleFrontendPaintRef.current = null;
-                        }
-                        // Bump epoch so the overlay effect always re-fires
-                        // after every (re-)initialization, even when the
-                        // payload itself hasn't changed.
-                        setChartReadyEpoch((c) => c + 1);
-                        // Immediately push the latest overlay so lines appear
-                        // without waiting for the next React effect cycle.
-                        try {
-                          const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
-                          const hasBid = Number.isFinite(chartBid) && chartBid > 0;
-                          const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
-                          const nextMarketLineSignature = [
-                            hasBid ? chartBid.toFixed(displayDecimals) : 'na',
-                            hasAsk ? chartAsk.toFixed(displayDecimals) : 'na',
-                          ].join('|');
-                          if (webViewRef.current) {
-                            webViewRef.current.injectJavaScript(`
+                          // Bump epoch so the overlay effect always re-fires
+                          // after every (re-)initialization, even when the
+                          // payload itself hasn't changed.
+                          setChartReadyEpoch((c) => c + 1);
+                          // Immediately push the latest overlay so lines appear
+                          // without waiting for the next React effect cycle.
+                          try {
+                            const latestOverlay = overlayPayloadRef.current ?? { priceLines: [], markers: [] };
+                            const hasBid = Number.isFinite(chartBid) && chartBid > 0;
+                            const hasAsk = Number.isFinite(chartAsk) && chartAsk > 0;
+                            const nextMarketLineSignature = [
+                              hasBid ? chartBid.toFixed(displayDecimals) : 'na',
+                              hasAsk ? chartAsk.toFixed(displayDecimals) : 'na',
+                            ].join('|');
+                            if (webViewRef.current) {
+                              webViewRef.current.injectJavaScript(`
                             if (typeof setChartOverlays === 'function') {
                               setChartOverlays(${JSON.stringify(latestOverlay)});
                             }
@@ -4252,104 +4319,104 @@ export function ChartScreen() {
                             }
                             true;
                           `);
-                            lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
-                            lastMarketPriceLineFlushAtRef.current = Date.now();
-                            pendingMarketPriceLinesRef.current = null;
-                          }
-                        } catch (_) { }
-                      } else if (msg.type === 'DRAWINGS_CHANGED') {
-                        const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
-                        const nextSignature = JSON.stringify(nextDrawings);
-                        lastWebViewDrawingSignatureRef.current = nextSignature;
-
-                        if (nextSignature !== drawingSignatureRef.current) {
-                          setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
-                        }
-                      } else if (msg.type === 'CHART_TOUCH_STATE') {
-                        if (msg.active) {
-                          handleChartViewportTouchStart();
-                        } else {
-                          handleChartViewportTouchEnd();
-                        }
-                      } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
-                        setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
-                      } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
-                        handleChartTradePreviewDragMessage(msg);
-                      } else if (msg.type === 'ON_PAGINATE_HISTORY') {
-                        paginate();
-                      } else if (msg.type === 'CHART_TAP') {
-                        if (shouldSuppressChartTapMenu({
-                          activeTool,
-                          footerLotEditorFocused,
-                          footerLotEditorOpening,
-                          footerLotPickerOpen: footerLotPickerMode !== null,
-                          suppressUntil: chartTapMenuSuppressUntilRef.current,
-                        })) {
-                          setChartTapMenuAnchor(null);
-                          return;
-                        }
-                        const x = typeof msg.x === 'number' ? msg.x : NaN;
-                        const y = typeof msg.y === 'number' ? msg.y : NaN;
-                        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                          return;
-                        }
-                        const nextAnchor = {
-                          x,
-                          y,
-                          price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
-                        };
-                        syncChartViewportFrame(() => {
-                          setChartTapMenuAnchor(nextAnchor);
-                        });
-                      } else if (msg.type === 'CHART_GEOMETRY') {
-                        const nextPlotArea =
-                          msg.plotArea
-                            && typeof msg.plotArea.left === 'number'
-                            && Number.isFinite(msg.plotArea.left)
-                            && typeof msg.plotArea.top === 'number'
-                            && Number.isFinite(msg.plotArea.top)
-                            && typeof msg.plotArea.width === 'number'
-                            && Number.isFinite(msg.plotArea.width)
-                            && msg.plotArea.width > 0
-                            && typeof msg.plotArea.height === 'number'
-                            && Number.isFinite(msg.plotArea.height)
-                            && msg.plotArea.height > 0
-                            ? {
-                              left: msg.plotArea.left,
-                              top: msg.plotArea.top,
-                              width: msg.plotArea.width,
-                              height: msg.plotArea.height,
+                              lastInjectedLiveQuoteSignatureRef.current = nextMarketLineSignature;
+                              lastMarketPriceLineFlushAtRef.current = Date.now();
+                              pendingMarketPriceLinesRef.current = null;
                             }
-                            : null;
+                          } catch (_) { }
+                        } else if (msg.type === 'DRAWINGS_CHANGED') {
+                          const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
+                          const nextSignature = JSON.stringify(nextDrawings);
+                          lastWebViewDrawingSignatureRef.current = nextSignature;
 
-                        setChartPlotArea((current) => {
-                          if (
-                            current
-                            && nextPlotArea
-                            && current.left === nextPlotArea.left
-                            && current.top === nextPlotArea.top
-                            && current.width === nextPlotArea.width
-                            && current.height === nextPlotArea.height
-                          ) {
-                            return current;
+                          if (nextSignature !== drawingSignatureRef.current) {
+                            setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
                           }
-                          return nextPlotArea;
-                        });
-                      } else if (msg.type === 'ERROR') {
-                        // Log but don't alert — the watchdog will auto-retry.
-                        console.warn('[CHART WEBVIEW ERROR]', msg.message);
-                        const bridgeErrorMessage = typeof msg.message === 'string' ? msg.message : '';
-                        if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
-                          chartInitializedRef.current = false;
-                          lastInitSigRef.current = '';
-                          renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
-                          setChartCanvasReady(false);
-                          requestChartViewportRecovery(2);
-                          sendInit(true);
+                        } else if (msg.type === 'CHART_TOUCH_STATE') {
+                          if (msg.active) {
+                            handleChartViewportTouchStart();
+                          } else {
+                            handleChartViewportTouchEnd();
+                          }
+                        } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
+                          setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
+                        } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
+                          handleChartTradePreviewDragMessage(msg);
+                        } else if (msg.type === 'ON_PAGINATE_HISTORY') {
+                          paginate();
+                        } else if (msg.type === 'CHART_TAP') {
+                          if (shouldSuppressChartTapMenu({
+                            activeTool,
+                            footerLotEditorFocused,
+                            footerLotEditorOpening,
+                            footerLotPickerOpen: footerLotPickerMode !== null,
+                            suppressUntil: chartTapMenuSuppressUntilRef.current,
+                          })) {
+                            setChartTapMenuAnchor(null);
+                            return;
+                          }
+                          const x = typeof msg.x === 'number' ? msg.x : NaN;
+                          const y = typeof msg.y === 'number' ? msg.y : NaN;
+                          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                            return;
+                          }
+                          const nextAnchor = {
+                            x,
+                            y,
+                            price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
+                          };
+                          syncChartViewportFrame(() => {
+                            setChartTapMenuAnchor(nextAnchor);
+                          });
+                        } else if (msg.type === 'CHART_GEOMETRY') {
+                          const nextPlotArea =
+                            msg.plotArea
+                              && typeof msg.plotArea.left === 'number'
+                              && Number.isFinite(msg.plotArea.left)
+                              && typeof msg.plotArea.top === 'number'
+                              && Number.isFinite(msg.plotArea.top)
+                              && typeof msg.plotArea.width === 'number'
+                              && Number.isFinite(msg.plotArea.width)
+                              && msg.plotArea.width > 0
+                              && typeof msg.plotArea.height === 'number'
+                              && Number.isFinite(msg.plotArea.height)
+                              && msg.plotArea.height > 0
+                              ? {
+                                left: msg.plotArea.left,
+                                top: msg.plotArea.top,
+                                width: msg.plotArea.width,
+                                height: msg.plotArea.height,
+                              }
+                              : null;
+
+                          setChartPlotArea((current) => {
+                            if (
+                              current
+                              && nextPlotArea
+                              && current.left === nextPlotArea.left
+                              && current.top === nextPlotArea.top
+                              && current.width === nextPlotArea.width
+                              && current.height === nextPlotArea.height
+                            ) {
+                              return current;
+                            }
+                            return nextPlotArea;
+                          });
+                        } else if (msg.type === 'ERROR') {
+                          // Log but don't alert — the watchdog will auto-retry.
+                          console.warn('[CHART WEBVIEW ERROR]', msg.message);
+                          const bridgeErrorMessage = typeof msg.message === 'string' ? msg.message : '';
+                          if (/initChart|updateChartData|flushPendingTick|series not initialized|recoverChartSurface/.test(bridgeErrorMessage)) {
+                            chartInitializedRef.current = false;
+                            lastInitSigRef.current = '';
+                            renderedSeriesSnapshotRef.current = EMPTY_CHART_SERIES_SNAPSHOT;
+                            setChartCanvasReady(false);
+                            requestChartViewportRecovery(2);
+                            sendInit(true);
+                          }
                         }
-                      }
-                    } catch (_e) { }
-                  }}
+                      } catch (_e) { }
+                    }}
                   />
                 ) : null}
                 <View style={styles.chartOverlaySymbolSection}>
@@ -4370,7 +4437,7 @@ export function ChartScreen() {
                             <Text style={[styles.symbolText, { opacity: 0.9, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]} numberOfLines={1} adjustsFontSizeToFit>{displaySymbol}</Text>
                             <Ionicons name="chevron-down" size={10} color={T.text} />
                             {symbolCategory ? (
-                              <View style={[styles.fxBadge, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', marginLeft: 4 }]}>
+                              <View style={[styles.fxBadge, { marginLeft: 4 }]}>
                                 <Text style={styles.fxBadgeText} numberOfLines={1}>{symbolCategory}</Text>
                               </View>
                             ) : null}
@@ -4429,6 +4496,45 @@ export function ChartScreen() {
                       handleOpenSymbolPicker();
                     }}
                   />
+                ) : null}
+                {chartTradeConfirmations.length > 0 ? (
+                  <View
+                    pointerEvents="none"
+                    style={styles.chartTradeConfirmationStack}
+                  >
+                    {chartTradeConfirmations.map((confirmation) => {
+                      const isBuyConfirmation = confirmation.side === 'buy';
+                      const accentColor = isBuyConfirmation ? BLUE : T.trading.sell.primary;
+                      return (
+                        <View
+                          key={confirmation.id}
+                          style={[
+                            styles.chartTradeConfirmationCard,
+                            { borderLeftColor: accentColor },
+                          ]}
+                        >
+                          <Text style={styles.chartTradeConfirmationSymbol} numberOfLines={1}>
+                            {confirmation.symbol}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.chartTradeConfirmationSide,
+                              { color: accentColor },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {isBuyConfirmation ? 'Buy' : 'Sell'}
+                          </Text>
+                          <Text style={styles.chartTradeConfirmationVolume} numberOfLines={1}>
+                            {confirmation.volumeLabel}
+                          </Text>
+                          <Text style={styles.chartTradeConfirmationDone} numberOfLines={1}>
+                            done
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -4909,7 +5015,7 @@ export function ChartScreen() {
                           active={chartRuntimeActive}
                           fallbackBid={chartBid}
                           fallbackAsk={chartAsk}
-                          onTradeResult={setTradeFeedback}
+                          onTradeResult={handleChartTradeResult}
                           isDark={isDark}
                           buyColor={BLUE}
                           sellColor={T.trading.sell.primary}
@@ -4971,7 +5077,7 @@ export function ChartScreen() {
               displayDecimals={displayDecimals}
               tradeVolume={tradeVolume}
               tradeVolumeBounds={tradeVolumeBounds}
-              onTradeResult={setTradeFeedback}
+              onTradeResult={handleChartTradeResult}
               onEditLot={handleFocusFooterLotEditor}
               onOpenLotEditor={handleOpenFooterLotPicker}
               isLotEditing={footerLotEditorFocused}
@@ -5009,7 +5115,7 @@ export function ChartScreen() {
               displayDecimals={displayDecimals}
               tradeVolume={tradeVolume}
               tradeVolumeBounds={tradeVolumeBounds}
-              onTradeResult={setTradeFeedback}
+              onTradeResult={handleChartTradeResult}
               onEditLot={handleFocusFooterLotEditor}
               onOpenLotEditor={handleOpenFooterLotPicker}
               isLotEditing={footerLotEditorFocused}

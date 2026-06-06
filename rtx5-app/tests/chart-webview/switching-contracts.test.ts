@@ -1,7 +1,9 @@
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
   assertSourceContains,
+  assertSourceOmits,
   readChartScreenSource,
 } from '../support/chartSourceTestUtils';
 
@@ -76,10 +78,21 @@ test('symbol-specific drawings use a normalized drawing bucket', () => {
 });
 
 test('symbol change recalculates decimals and spread fallback from active symbol metadata', () => {
+  const displayDecimalsStart = source.indexOf('const displayDecimals = useMemo');
+  const displayDecimalsEnd = source.indexOf('const liveChartPrice', displayDecimalsStart);
+  assert.notEqual(displayDecimalsStart, -1);
+  assert.notEqual(displayDecimalsEnd, -1);
+  const displayDecimalsSource = source.slice(displayDecimalsStart, displayDecimalsEnd);
+
   assertSourceContains(
-    source,
-    /const displayDecimals = useMemo\([\s\S]*chartLiveQuote\?\.digits[\s\S]*baseSymbol\.includes\('JPY'\)[\s\S]*baseSymbol\.includes\('XAU'\)[\s\S]*baseSymbol\.includes\('BTC'\)/,
-    'display decimals must react to live quote digits and active base symbol',
+    displayDecimalsSource,
+    /const displayDecimals = useMemo\([\s\S]*resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits[\s\S]*liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
+    'display decimals must react to backend instrument digits and trusted backend quote digits',
+  );
+  assertSourceOmits(
+    displayDecimalsSource,
+    /const displayDecimals = useMemo\([\s\S]*baseSymbol\.includes\('BTC'\)/,
+    'display decimals must not use frontend symbol-family precision guesses',
   );
   assertSourceContains(
     source,

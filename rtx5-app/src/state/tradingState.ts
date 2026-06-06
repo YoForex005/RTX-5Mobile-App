@@ -12,6 +12,7 @@ import {
 import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } from '../domain/candles/core/timeframeUtils';
 import { sanitizeCandlesForChart } from '../domain/candles/normalization/chartAdapter';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
+import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -134,8 +135,9 @@ export const useTradingState = create<TradingState>((set) => ({
           lastPriceChangedAt,
         } as QuoteItem;
         
-        if (newQuote.ask && newQuote.bid) {
-          newQuote.spread = (newQuote.ask - newQuote.bid) * Math.pow(10, digits);
+        const spread = calculateQuoteSpreadPoints(newQuote.bid, newQuote.ask, digits);
+        if (spread !== undefined) {
+          newQuote.spread = spread;
         }
 
         return {
@@ -159,6 +161,9 @@ export const useTradingState = create<TradingState>((set) => ({
       const lastTickAt =
         feedTickAt ??
         (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing.lastTickAt);
+      const spread =
+        calculateQuoteSpreadPoints(data.bid ?? existing.bid, data.ask ?? existing.ask, digits) ??
+        existing.spread;
 
       return {
         quotes: {
@@ -174,8 +179,7 @@ export const useTradingState = create<TradingState>((set) => ({
             lastTickAt,
             lastReceivedAt,
             lastPriceChangedAt,
-            // Automatically calculate spread if bid/ask provided
-            spread: (data.ask && data.bid) ? (data.ask - data.bid) * Math.pow(10, digits) : existing.spread,
+            spread,
             // Track previous prices
             prevBid: prevBidState,
             prevAsk: prevAskState,
