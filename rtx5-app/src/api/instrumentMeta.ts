@@ -1,4 +1,5 @@
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../domain/symbols';
+import { normalizePriceDigits, resolveDecimalsFromPriceStep } from '../utils/pricePrecision';
 
 export interface InstrumentMetaDTO {
   symbol: string;
@@ -13,6 +14,7 @@ export interface InstrumentMetaDTO {
   minVolume?: number;
   maxVolume?: number;
   stepVolume?: number;
+  point?: number;
   tickSize?: number;
   tickValue?: number;
   digits?: number;
@@ -57,6 +59,41 @@ const DIGITS_FIELD_KEYS = [
   'decimalPlaces',
 ] as const;
 
+const POINT_FIELD_KEYS = [
+  'point',
+  'Point',
+  'POINT',
+  'pricePoint',
+  'price_point',
+] as const;
+
+const TICK_SIZE_FIELD_KEYS = [
+  'tick_size',
+  'tickSize',
+  'TickSize',
+  'TICK_SIZE',
+  'tick-size',
+  'priceTickSize',
+  'price_tick_size',
+  'minimumPriceIncrement',
+  'minimum_price_increment',
+] as const;
+
+const TICK_VALUE_FIELD_KEYS = [
+  'tickValue',
+  'TickValue',
+  'TICK_VALUE',
+  'tick_value',
+] as const;
+
+const CONTRACT_SIZE_FIELD_KEYS = [
+  'contractSize',
+  'ContractSize',
+  'CONTRACT_SIZE',
+  'contract_size',
+  'contract',
+] as const;
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -76,8 +113,12 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 };
 
 const normalizeDigits = (value: unknown): number | undefined => {
+  return normalizePriceDigits(value);
+};
+
+const normalizePositiveNumber = (value: unknown): number | undefined => {
   const parsed = toFiniteNumber(value);
-  return parsed === undefined ? undefined : Math.min(Math.max(Math.floor(parsed), 0), 8);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
 };
 
 const pickStringField = (record: Record<string, unknown>, keys: readonly string[]): string | undefined => {
@@ -94,6 +135,35 @@ const pickStringField = (record: Record<string, unknown>, keys: readonly string[
 const pickDigits = (record: Record<string, unknown>): number | undefined => {
   for (const key of DIGITS_FIELD_KEYS) {
     const digits = normalizeDigits(record[key]);
+    if (digits !== undefined) {
+      return digits;
+    }
+  }
+
+  return undefined;
+};
+
+const pickPositiveNumber = (record: Record<string, unknown>, keys: readonly string[]): number | undefined => {
+  for (const key of keys) {
+    const value = normalizePositiveNumber(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const pickStepDerivedDigits = (record: Record<string, unknown>): number | undefined => {
+  for (const key of POINT_FIELD_KEYS) {
+    const digits = resolveDecimalsFromPriceStep(record[key]);
+    if (digits !== undefined) {
+      return digits;
+    }
+  }
+
+  for (const key of TICK_SIZE_FIELD_KEYS) {
+    const digits = resolveDecimalsFromPriceStep(record[key]);
     if (digits !== undefined) {
       return digits;
     }
@@ -148,13 +218,34 @@ export const normalizeInstrumentMetaPayload = (
   const record = unwrapInstrumentRecord(payload) ?? {};
   const symbol = pickStringField(record, INSTRUMENT_FIELD_KEYS) ?? fallbackSymbol ?? '';
   const digits = pickDigits(record);
+  const point = pickPositiveNumber(record, POINT_FIELD_KEYS);
+  const tickSize = pickPositiveNumber(record, TICK_SIZE_FIELD_KEYS) ?? point;
+  const tickValue = pickPositiveNumber(record, TICK_VALUE_FIELD_KEYS);
+  const contractSize = pickPositiveNumber(record, CONTRACT_SIZE_FIELD_KEYS);
   const meta: InstrumentMetaDTO = {
     ...(record as Partial<InstrumentMetaDTO>),
     symbol,
   };
 
-  if (digits !== undefined) {
-    meta.digits = digits;
+  if (point !== undefined) {
+    meta.point = point;
+  }
+
+  if (tickSize !== undefined) {
+    meta.tickSize = tickSize;
+  }
+
+  if (tickValue !== undefined) {
+    meta.tickValue = tickValue;
+  }
+
+  if (contractSize !== undefined) {
+    meta.contractSize = contractSize;
+  }
+
+  const resolvedDigits = digits ?? pickStepDerivedDigits(record);
+  if (resolvedDigits !== undefined) {
+    meta.digits = resolvedDigits;
   }
 
   return meta;

@@ -77,7 +77,7 @@ test('symbol-specific drawings use a normalized drawing bucket', () => {
   );
 });
 
-test('symbol change recalculates decimals and spread fallback from active symbol metadata', () => {
+test('symbol change recalculates decimals and quote fallback from backend metadata without synthetic spreads', () => {
   const displayDecimalsStart = source.indexOf('const displayDecimals = useMemo');
   const displayDecimalsEnd = source.indexOf('const liveChartPrice', displayDecimalsStart);
   assert.notEqual(displayDecimalsStart, -1);
@@ -86,8 +86,8 @@ test('symbol change recalculates decimals and spread fallback from active symbol
 
   assertSourceContains(
     displayDecimalsSource,
-    /const displayDecimals = useMemo\([\s\S]*resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits[\s\S]*liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
-    'display decimals must react to backend instrument digits and trusted backend quote digits',
+    /const displayDecimals = useMemo\([\s\S]*resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits[\s\S]*instrumentPoint: chartInstrumentMeta\?\.point[\s\S]*instrumentTickSize: chartInstrumentMeta\?\.tickSize[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits[\s\S]*liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
+    'display decimals must react to backend instrument precision metadata and trusted backend quote digits',
   );
   assertSourceOmits(
     displayDecimalsSource,
@@ -96,7 +96,12 @@ test('symbol change recalculates decimals and spread fallback from active symbol
   );
   assertSourceContains(
     source,
-    /const quoteFallbackSpread =[\s\S]*baseSymbol\.includes\('BTC'\)[\s\S]*baseSymbol\.includes\('XAU'\)/,
-    'fallback spread must react to active base symbol',
+    /const \{ bid: chartBid, ask: chartAsk \} = useMemo\([\s\S]*resolveChartTradeButtonQuote\(\{[\s\S]*fallbackBid: latestChartClose,[\s\S]*fallbackAsk: latestChartClose/,
+    'chart quote fallback must come from the latest backend chart price when live bid/ask is unavailable',
+  );
+  assertSourceOmits(
+    source,
+    /const quoteFallbackSpread =/,
+    'chart quote fallback must not invent symbol-family spreads for native bid/ask lines',
   );
 });

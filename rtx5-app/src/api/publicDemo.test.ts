@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import {
   OrrnnDemoApiError,
+  PUBLIC_DEMO_API_BASE_URL,
   createOrrnnDemoAccount,
+  getOrrnnDemoGroups,
+  getOrrnnDemoStatus,
   type CreateOrrnnDemoAccountRequest,
 } from './publicDemo';
 
@@ -61,6 +64,7 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   });
 
   assert.match(capturedUrl, /\/api\/v1\/public\/demo-account$/);
+  assert.equal(capturedUrl, `${PUBLIC_DEMO_API_BASE_URL}/public/demo-account`);
   assert.equal(capturedBody.group, 'orrnn/demo-std');
   assert.equal(capturedBody.email, 'trader@example.com');
   assert.equal(capturedBody.last_name, 'Doe');
@@ -73,6 +77,45 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   assert.equal(capturedBody.comment, undefined);
   assert.equal(response.login, 900000001);
   assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+});
+
+test('public demo status and groups use the dedicated public demo API base URL', async (t) => {
+  const capturedUrls: string[] = [];
+
+  mockFetch(t, (async (input) => {
+    capturedUrls.push(String(input));
+    const body = capturedUrls.length === 1
+      ? {
+        service: 'orrnn-demo',
+        status: 'ok',
+        broker: 'active',
+        demo_groups_available: 1,
+        total_demo_accounts: 28,
+        database: 'connected',
+      }
+      : {
+        count: 1,
+        groups: [{
+          name: 'orrnn/demo-std',
+          description: 'Orrnn Standard Demo',
+          currency: 'USD',
+          leverage: 100,
+        }],
+      };
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch);
+
+  await getOrrnnDemoStatus();
+  await getOrrnnDemoGroups();
+
+  assert.deepEqual(capturedUrls, [
+    `${PUBLIC_DEMO_API_BASE_URL}/public/demo-status`,
+    `${PUBLIC_DEMO_API_BASE_URL}/public/demo-groups`,
+  ]);
 });
 
 test('createOrrnnDemoAccount omits blank optional strings from compact body', async (t) => {

@@ -7,6 +7,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   type LayoutChangeEvent,
   Platform,
   ScrollView,
@@ -28,6 +29,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
 import { useTranslation } from '../src/i18n/useTranslation';
+import { getConfiguredPrivacyPolicyUrl, getConfiguredTermsUrl, resolveLegalUrl } from '../src/config/legalLinks';
 import {
   ORRNN_DEMO_BROKER_ID,
   ORRNN_DEMO_INITIAL_BALANCE,
@@ -221,6 +223,14 @@ export default function RegisterScreen() {
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = makeStyles(T, isDark, insets.top);
+  const privacyPolicyUrl = resolveLegalUrl(
+    getConfiguredPrivacyPolicyUrl(),
+    'https://rtx5.orrnn.com/privacy-policy',
+  );
+  const termsConditionsUrl = resolveLegalUrl(
+    getConfiguredTermsUrl(),
+    'https://rtx5.orrnn.com/terms-conditions',
+  );
 
   React.useEffect(() => () => {
     if (fieldFocusTimerRef.current) {
@@ -252,6 +262,18 @@ export default function RegisterScreen() {
       scrollFieldAboveKeyboard(field);
     }, REGISTER_FIELD_FOCUS_DELAY_MS);
   }, [scrollFieldAboveKeyboard]);
+
+  const handleOpenPrivacyPolicy = React.useCallback(() => {
+    void Linking.openURL(privacyPolicyUrl).catch(() => {
+      Alert.alert(t('Privacy Policy'), privacyPolicyUrl);
+    });
+  }, [privacyPolicyUrl, t]);
+
+  const handleOpenTermsAndConditions = React.useCallback(() => {
+    void Linking.openURL(termsConditionsUrl).catch(() => {
+      Alert.alert(t('Terms and Conditions'), termsConditionsUrl);
+    });
+  }, [termsConditionsUrl, t]);
 
   const handleRegister = async () => {
     if (isPreparingDemoAccount) {
@@ -1013,14 +1035,14 @@ export default function RegisterScreen() {
                   {t('I agree to the')}{' '}
                   <Text
                     style={styles.linkText}
-                    onPress={() => router.push({ pathname: '/settings/legal', params: { document: 'terms' } })}
+                    onPress={handleOpenTermsAndConditions}
                   >
                     {t('Terms and Conditions')}
                   </Text>
                   {' '}{t('and')}{' '}
                   <Text
                     style={styles.linkText}
-                    onPress={() => router.push({ pathname: '/settings/legal', params: { document: 'privacy' } })}
+                    onPress={handleOpenPrivacyPolicy}
                   >
                     {t('Privacy Policy')}
                   </Text>
@@ -1065,6 +1087,7 @@ export default function RegisterScreen() {
           detent="large"
           instantOpen
           runActionAfterClose={false}
+          androidKeyboardAvoidance="resize"
         />
         <ActionSheet
           visible={phoneCountryPickerOpen}
@@ -1076,6 +1099,7 @@ export default function RegisterScreen() {
           detent="large"
           instantOpen
           runActionAfterClose={false}
+          androidKeyboardAvoidance="resize"
         />
         <ActionSheet
           visible={leveragePickerOpen}
@@ -1087,6 +1111,7 @@ export default function RegisterScreen() {
           detent="large"
           instantOpen
           runActionAfterClose={false}
+          androidKeyboardAvoidance="resize"
         />
         <ActionSheet
           visible={originBrokerPickerOpen}
@@ -1098,6 +1123,7 @@ export default function RegisterScreen() {
           detent="large"
           instantOpen
           runActionAfterClose={false}
+          androidKeyboardAvoidance="resize"
         />
         <ActionSheet
           visible={groupPickerOpen}
@@ -1109,6 +1135,7 @@ export default function RegisterScreen() {
           detent="large"
           instantOpen
           runActionAfterClose={false}
+          androidKeyboardAvoidance="resize"
         />
       </View>
     </>

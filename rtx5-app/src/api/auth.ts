@@ -1,5 +1,9 @@
 import { apiClient, API_BASE_URL } from './apiClient';
-import { buildBrokerApiBaseUrl } from './brokerRouting';
+import {
+  AUTH_PROXY_API_BASE_URL,
+  buildBrokerApiBaseUrl,
+  normalizeBrokerProxyServerAddress,
+} from './brokerRouting';
 import { timedFetch } from '../utils/apiLatency';
 
 const AUTH_LOGIN_TIMEOUT_MS = 8000;
@@ -36,6 +40,7 @@ export interface LoginRequest {
 
 export type LoginRequestOptions = {
   serverUrl?: string;
+  proxyServer?: string;
 };
 
 /** POST /auth/register — request body */
@@ -111,14 +116,21 @@ export const loginAPI = async (
 
   let response: Response;
   try {
-    const apiBaseUrl = buildBrokerApiBaseUrl(options.serverUrl);
+    const proxyServer = normalizeBrokerProxyServerAddress(options.proxyServer);
+    const apiBaseUrl = proxyServer && !options.serverUrl
+      ? AUTH_PROXY_API_BASE_URL
+      : buildBrokerApiBaseUrl(options.serverUrl);
+    const requestBody: LoginRequest & { server?: string } = proxyServer
+      ? { ...credentials, server: proxyServer }
+      : credentials;
+
     response = await timedFetch(`${apiBaseUrl}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     }, {
       label: 'auth.login',

@@ -252,6 +252,7 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
   assert.match(source, /useWindowDimensions/);
   assert.match(source, /const \[currentOverlayHeight, setCurrentOverlayHeight\] = useState\(initialMeasuredHeight\)/);
   assert.match(source, /const \[keyboardHeight, setKeyboardHeight\] = useState\(0\)/);
+  assert.match(source, /const activeAndroidKeyboardAvoidance = activeConfig\.androidKeyboardAvoidance \?\? 'event'/);
   assert.match(source, /const androidSearchableSheet = Platform\.OS === 'android' && activeSearchable/);
   assert.match(source, /const shouldLockSheetHeight = activeDetent === 'large'/);
   assert.match(source, /\? \{ height: sheetMaxHeight \}/);
@@ -263,7 +264,7 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
     source,
     /const windowKeyboardLift = androidSearchableSheet[\s\S]*measuredHeight - \(windowHeight \|\| measuredHeight\)/,
   );
-  assert.match(source, /const eventKeyboardLift = androidSearchableSheet[\s\S]*Math\.max\(0, keyboardHeight\)/);
+  assert.match(source, /const eventKeyboardLift = androidSearchableSheet[\s\S]*activeAndroidKeyboardAvoidance === 'resize' \? 0 : Math\.max\(0, keyboardHeight\)/);
   assert.match(source, /const resizeKeyboardLift = Math\.max\(overlayKeyboardLift, windowKeyboardLift\)/);
   assert.match(source, /const effectiveKeyboardLift = Math\.max\(resizeKeyboardLift, eventKeyboardLift\)/);
   assert.match(source, /const unhandledKeyboardLift = Math\.max\(0, eventKeyboardLift - resizeKeyboardLift\)/);

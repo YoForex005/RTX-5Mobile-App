@@ -96,3 +96,19 @@ test('register demo form uses broker dropdown, read-only currency, and searchabl
   assert.doesNotMatch(source, /currencyPickerActions/);
   assert.doesNotMatch(source, /handleOpenCurrencyPicker/);
 });
+
+test('register demo searchable action sheets use Android resize keyboard avoidance', () => {
+  const source = readSource('app/register.tsx');
+  const actionSheets = [...source.matchAll(/<ActionSheet\b[\s\S]*?\/>/g)].map((match) => match[0]);
+  const searchableSheets = actionSheets.filter((sheet) =>
+    /searchable(?:=\{originBrokerOptions\.length > 0\})?/.test(sheet),
+  );
+
+  assert.equal(searchableSheets.length, 5);
+
+  for (const sheet of searchableSheets) {
+    assert.match(sheet, /detent="large"/);
+    assert.match(sheet, /runActionAfterClose=\{false\}/);
+    assert.match(sheet, /androidKeyboardAvoidance="resize"/);
+  }
+});

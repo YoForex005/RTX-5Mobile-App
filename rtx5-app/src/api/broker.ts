@@ -91,6 +91,25 @@ export interface BrokerServer {
   broker_id: string;
   broker_name: string;
   server_url?: string;
+  market_api_url?: string;
+  domain_name?: string;
+  server_domain?: string;
+  services_domain?: string;
+  feed_status_https_url?: string;
+  feed_status_url?: string;
+  feed_url?: string;
+  feed_ws_url?: string;
+  feed_wss_url?: string;
+  ws_url?: string;
+  wss_url?: string;
+  domains?: {
+    admin?: string;
+    domain_name?: string;
+    manager?: string;
+    server?: string;
+    services?: string;
+    webterminal?: string;
+  };
   logo_url?: string;
   protocol: string;     // 'http' | 'https' | 'mt5' | ...
   region: string;

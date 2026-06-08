@@ -3,17 +3,17 @@ import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useLiveCandles } from '../../../domain/candles/hooks/useLiveCandles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
-import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
-import { useMarketData } from '../../../query/websocket';
+import { useInstrumentMeta } from '../../../query/instruments';
+import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { getDevRefreshKey, hashDevRefreshSource } from '../../../dev/devRefreshKey';
 import {
   buildVolumeDatum,
   getLastPreviewCandleSignature,
-  getPreviewDisplayDecimals,
   mapPreviewCandles,
   PreviewChartType,
   sanitizePreviewCandles,
 } from './chartPreviewShared';
+import { resolveChartDisplayDecimals } from '../chartPricePrecision';
 
 
 const CH_HTML = `
@@ -314,13 +314,37 @@ export default function LiveChartPreviewNative({
   const { candles } = useLiveCandles(symbol, timeframe, active);
   const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol];
+  const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
+  const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
+  const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
 
   const chartSignatureRef = useRef('');
   const lastCandleLengthRef = useRef(0);
   const lastRenderedCandleSignatureRef = useRef('');
   const previewCandlesRef = useRef<ReturnType<typeof sanitizePreviewCandles>>([]);
 
-  const displayDecimals = getPreviewDisplayDecimals(symbol);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: instrumentMeta?.digits,
+      instrumentPoint: instrumentMeta?.point,
+      instrumentTickSize: instrumentMeta?.tickSize,
+      liveQuoteDigits: liveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLivePreviewQuote && liveQuoteDigitsSource === 'backend',
+      liveQuoteBid: liveQuote?.bid,
+      liveQuoteAsk: liveQuote?.ask,
+      liveQuoteLast: liveQuote?.close,
+    });
+  }, [
+    hasLivePreviewQuote,
+    instrumentMeta?.digits,
+    instrumentMeta?.point,
+    instrumentMeta?.tickSize,
+    liveQuote?.ask,
+    liveQuote?.bid,
+    liveQuote?.close,
+    liveQuote?.digits,
+    liveQuoteDigitsSource,
+  ]);
 
   const chartOptions = useMemo(() => ({
     layout: {

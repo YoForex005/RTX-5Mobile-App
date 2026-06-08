@@ -142,15 +142,13 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       color: T.textMuted,
     },
     actionTextNormal: {
-      color: '#2563EB',
+      color: isDark ? T.text : '#111827',
+    },
+    actionTextSelected: {
+      color: T.trading.buy.primary,
     },
     actionTextDanger: {
       color: T.trading.sell.primary,
-    },
-    chevron: {
-      fontSize: 21,
-      lineHeight: 21,
-      color: T.textSub,
     },
     actionDisabled: {
       opacity: 0.4,

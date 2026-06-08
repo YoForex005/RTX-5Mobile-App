@@ -1,6 +1,6 @@
 import { Image, type ImageProps } from 'react-native';
 
-export const APP_LOGO_SOURCE = require('../../../assets/rtx5-app-icon.png');
+export const APP_LOGO_SOURCE = require('../../../assets/adaptive-icon.png');
 
 type AppLogoProps = Omit<ImageProps, 'source'>;
 

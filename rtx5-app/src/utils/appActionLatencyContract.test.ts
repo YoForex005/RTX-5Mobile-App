@@ -435,7 +435,8 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(brokersSource, /paddingLeft: 16/);
   assert.match(brokersSource, /gap: 8/);
   assert.match(brokersSource, /latencyLabel="brokers\.back"/);
-  assert.match(brokersSource, /latencyLabel="brokers\.qr"/);
+  assert.doesNotMatch(brokersSource, /latencyLabel="brokers\.qr"/);
+  assert.doesNotMatch(brokersSource, /qr-code-outline/);
   assert.match(brokersSource, /latencyLabel="brokers\.custom"/);
   assert.match(brokersSource, /canCancelContentTouches=\{(?:false|Platform\.OS\s*===\s*['"]ios['"])\}/);
   assert.match(brokersSource, /pointerEvents="box-none"/);

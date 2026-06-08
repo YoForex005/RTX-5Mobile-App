@@ -108,6 +108,11 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
     return;
   }
 
+  const liveQuote = useTradingState.getState().quotes[entry.symbol];
+  if (isFreshLiveQuote(liveQuote)) {
+    return;
+  }
+
   entry.inFlight = true;
   const receivedAt = Date.now();
   try {

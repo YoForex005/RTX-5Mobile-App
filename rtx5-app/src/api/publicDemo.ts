@@ -1,6 +1,7 @@
 import { timedFetch } from '../utils/apiLatency';
 
 const DEFAULT_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
+const DEFAULT_PUBLIC_DEMO_API_BASE_URL = 'https://backend.orrnn.com/api/v1';
 const CONFIGURED_API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 function configuredPositiveNumber(value: string | undefined, fallback: number): number {
@@ -20,6 +21,10 @@ export const ORRNN_DEMO_ORIGIN_BROKER =
 export const PUBLIC_API_V1_BASE_URL =
   process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
   CONFIGURED_API_BASE_URL.replace(/\/api\/v\d+\/?$/, '/api/v1');
+export const PUBLIC_DEMO_API_BASE_URL =
+  process.env.EXPO_PUBLIC_DEMO_API_BASE_URL ||
+  process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
+  DEFAULT_PUBLIC_DEMO_API_BASE_URL;
 
 export interface OrrnnDemoStatusResponse {
   service: string;
@@ -54,7 +59,7 @@ export async function getOrrnnDemoStatus(): Promise<OrrnnDemoStatusResponse> {
   let response: Response;
 
   try {
-    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-status`, {
+    response = await timedFetch(`${PUBLIC_DEMO_API_BASE_URL}/public/demo-status`, {
       method: 'GET',
       headers: {
         accept: 'application/json',
@@ -149,7 +154,7 @@ export async function getOrrnnDemoGroups(): Promise<OrrnnDemoGroupsResponse> {
   let response: Response;
 
   try {
-    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-groups`, {
+    response = await timedFetch(`${PUBLIC_DEMO_API_BASE_URL}/public/demo-groups`, {
       method: 'GET',
       headers: {
         accept: 'application/json',
@@ -239,7 +244,7 @@ export async function createOrrnnDemoAccount(
   let response: Response;
 
   try {
-    response = await timedFetch(`${PUBLIC_API_V1_BASE_URL}/public/demo-account`, {
+    response = await timedFetch(`${PUBLIC_DEMO_API_BASE_URL}/public/demo-account`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

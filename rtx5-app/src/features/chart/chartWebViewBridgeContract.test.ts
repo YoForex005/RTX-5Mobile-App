@@ -10,17 +10,20 @@ import {
 } from './testing/chartStabilityTestUtils';
 
 const source = readChartScreenSource();
-const chartWebViewHtmlSource = (() => {
+const readProjectSource = (relativePath: string): string => {
   const candidates = [
-    resolve(process.cwd(), 'src/features/chart/rendering/ChartWebViewHtml.ts'),
-    resolve(process.cwd(), 'rtx5-app/src/features/chart/rendering/ChartWebViewHtml.ts'),
+    resolve(process.cwd(), relativePath),
+    resolve(process.cwd(), 'rtx5-app', relativePath),
   ];
   const filePath = candidates.find((candidate) => existsSync(candidate));
   if (!filePath) {
-    throw new Error('ChartWebViewHtml.ts was not found from the test working directory');
+    throw new Error(`${relativePath} was not found from the test working directory`);
   }
   return readFileSync(filePath, 'utf8');
-})();
+};
+const chartWebViewHtmlSource = readProjectSource('src/features/chart/rendering/ChartWebViewHtml.ts');
+const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
+const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
@@ -44,6 +47,7 @@ test('webview bridge: zero-size WebView init is deferred and retried from rAF an
 
   assertSourceContains(initBody, /requestAnimationFrame\(function\(\)/, 'initChart must wait for layout frame before measuring');
   assertSourceContains(doInitBody, /_pendingInit = \{[\s\S]*opts:[\s\S]*chartType:[\s\S]*data:/, 'zero-size init must preserve pending payload');
+  assertSourceContains(doInitBody, /_pendingInit = \{[\s\S]*initSignature: resolvedInitSignature,[\s\S]*configSig: resolvedConfigSig/, 'zero-size init must preserve host init signatures');
   assertSourceContains(chartWebViewHtmlSource, /new ResizeObserver\(function\(entries\)[\s\S]*if \(_pendingInit\)[\s\S]*_doInitChart\(/, 'ResizeObserver must replay pending init');
 });
 
@@ -119,7 +123,7 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
   assert.doesNotMatch(tickFormatterBody, /getDate\(\)|getMonth\(\)|getHours\(\)|getMinutes\(\)|getFullYear\(\)/);
 });
 
-test('webview bridge: setMarketPriceLines hides native market badges and paints custom price-scale extensions', () => {
+test('webview bridge: setMarketPriceLines shows native market badges and paints custom price-scale extensions', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
   const marketLineOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMarketPriceLineOptions');
   const visibleRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'resolvePriceRangeFromVisibleData');
@@ -127,14 +131,18 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
   const renderMarketPriceScaleExtensionBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtension');
   const renderMarketPriceScaleExtensionsBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtensions');
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+  const marketPriceRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'rangeContainsMarketPriceBadges');
+  const marketPriceNormalizerBody = extractFunctionBody(chartWebViewHtmlSource, 'normalizeMarketPriceLinePrice');
 
-  assertSourceContains(body, /lastBidPrice = hasBid \? bid : null/, 'market line state must be cached for recovery');
+  assertSourceContains(body, /var normalizedBid = normalizeMarketPriceLinePrice\(bid\)[\s\S]*var normalizedAsk = normalizeMarketPriceLinePrice\(ask\)/, 'market line updates must normalize bid and ask before repainting');
+  assertSourceContains(body, /lastBidPrice = normalizedBid[\s\S]*lastAskPrice = normalizedAsk/, 'market line state must cache normalized bid/ask values for recovery');
   assertSourceContains(body, /clearMarketPriceLineRefs\(\)/, 'market line updates must clear stale right-axis price-line refs before repainting');
-  assertSourceContains(body, /setBidPriceLine\(bid, false\)/, 'bid guide line must update through the price-line API with native axis badge hidden');
-  assertSourceContains(body, /setAskPriceLine\(ask, false\)/, 'ask guide line must update through the price-line API with native axis badge hidden');
+  assertSourceContains(body, /setBidPriceLine\(normalizedBid, false\)/, 'bid guide line must update through the price-line API');
+  assertSourceContains(body, /setAskPriceLine\(normalizedAsk, false\)/, 'ask guide line must update through the price-line API');
   assertSourceContains(body, /ensureMarketPriceBadgesVisible\(\)/, 'market line updates must keep both bid and ask badges inside the visible price scale');
+  assertSourceContains(marketPriceNormalizerBody, /resolveRightPriceScaleFallbackConfiguredDecimals\(\)[\s\S]*resolveOverlayDisplayDecimals\(\)[\s\S]*toFixed\(safeDecimals\)/, 'market bid/ask lines must snap to configured display precision before rendering');
   assertSourceContains(marketLineOptionsBody, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: false/, 'market price lines must keep lightweight-charts native right-axis badges hidden');
+  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: true/, 'market price lines must show lightweight-charts native right-axis badges');
   assertSourceContains(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask price badges must match their line color');
   assertSourceContains(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask price badges must keep readable text');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
@@ -147,10 +155,281 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
     /function expandPriceRangeForMarketPriceBadges\(range\)[\s\S]*var maxQuoteDistance = span \* 4[\s\S]*return expanded \? makePaddedPriceRange/,
     'market bid/ask badge expansion must stay local to the visible candle range',
   );
+  assertSourceContains(marketPriceRangeBody, /resolveMarketPriceBadgeRecoveryBuffer\(reference \|\| normalized\)/, 'market badge containment must keep a small stability buffer before forcing axis recovery');
   assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near bid/ask badges outside the visible axis range');
   assertSourceContains(refreshBody, /renderMarketPriceScaleExtensions\(layer\)/, 'overlay refresh must render custom market price-scale extensions');
   assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask must not use the old full DOM badge renderer');
   assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
+});
+
+test('webview bridge: native web and WebView creation reserve the right price scale', () => {
+  const applyLayoutBody = extractFunctionBody(chartWebViewHtmlSource, 'applyChartLayout');
+  const setScaleMarginsBody = extractFunctionBody(chartWebViewHtmlSource, 'setPrimaryPriceScaleMargins');
+
+  assertSourceContains(
+    chartConstantsSource,
+    /export const CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH = 62;/,
+    'right price-scale minimum width must be centralized',
+  );
+  assertSourceContains(
+    source,
+    /rightPriceScale: \{[\s\S]*visible: true,[\s\S]*minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH/,
+    'native host chart options must explicitly reserve and show the right price scale',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /rightPriceScale: \{[\s\S]*visible: true,[\s\S]*minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH/,
+    'web chart creation must use the shared right price-scale reservation',
+  );
+  assertSourceContains(
+    applyLayoutBody,
+    /opts\.rightPriceScale = Object\.assign\(\{\}, opts\.rightPriceScale \|\| \{\}, \{[\s\S]*visible: true,[\s\S]*entireTextOnly: false,[\s\S]*minimumWidth: \$\{CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH\}/,
+    'WebView chart creation must enforce the visible right price-scale reservation with Android-safe label layout',
+  );
+  assertSourceContains(
+    setScaleMarginsBody,
+    /chart\.priceScale\('right'\)\.applyOptions\(\{[\s\S]*visible: true,[\s\S]*minimumWidth: \$\{CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH\}/,
+    'WebView price-scale margin updates must preserve the right price-scale reservation',
+  );
+  assertSourceContains(
+    setScaleMarginsBody,
+    /entireTextOnly: false/,
+    'WebView price-scale margin updates must not collapse Android axis labels to entire-text-only layout',
+  );
+  assert.doesNotMatch(
+    setScaleMarginsBody,
+    /entireTextOnly: true/,
+    'primary right price-scale margin updates must preserve entireTextOnly=false',
+  );
+});
+
+test('native chart status overlays do not block symbol recovery controls', () => {
+  assertSourceContains(
+    source,
+    /\{\(!chartSurfaceReady \|\| isLoading\) && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    'loading overlay must not block the symbol picker or toolbar while chart data is pending',
+  );
+  assertSourceContains(
+    source,
+    /\{chartSurfaceReady && isError && !isLoading && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    'error overlay must not block the symbol picker or toolbar while users recover',
+  );
+  assertSourceContains(
+    source,
+    /\{chartSurfaceReady && isNoMarketData && !isError && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    'no-data overlay must not block the symbol picker so unavailable symbols can be skipped',
+  );
+});
+
+test('webview bridge: right price-scale layout recovery gates chart ready and resize/data updates', () => {
+  const layoutOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'applyRightPriceScaleLayoutOptions');
+  const layoutHealthyBody = extractFunctionBody(chartWebViewHtmlSource, 'isRightPriceScaleLayoutHealthy');
+  const recoverLayoutBody = extractFunctionBody(chartWebViewHtmlSource, 'recoverRightPriceScaleLayout');
+  const readyGateBody = extractFunctionBody(chartWebViewHtmlSource, 'postChartReadyWhenPriceScaleHealthy');
+  const doInitBody = extractFunctionBody(chartWebViewHtmlSource, '_doInitChart');
+  const resizeBody = extractFunctionBody(chartWebViewHtmlSource, 'resizeChartViewport');
+  const recoverSurfaceBody = extractFunctionBody(chartWebViewHtmlSource, 'recoverChartSurface');
+  const updateDataBody = extractFunctionBody(chartWebViewHtmlSource, 'updateChartData');
+
+  assertSourceContains(
+    layoutOptionsBody,
+    /visible: true,[\s\S]*entireTextOnly: false,[\s\S]*minimumWidth: \$\{CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH\}/,
+    'right-axis recovery must force visible reserved layout with entireTextOnly disabled',
+  );
+  assertSourceContains(
+    layoutOptionsBody,
+    /chart\.applyOptions\(\{ rightPriceScale: layoutOptions \}\)[\s\S]*priceScaleApi\.applyOptions\(layoutOptions\)/,
+    'right-axis recovery must apply options through chart and price-scale APIs',
+  );
+  assertSourceContains(
+    layoutHealthyBody,
+    /metrics\.rightAxisWidth < \$\{CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH\} - 2[\s\S]*priceScaleOptions && priceScaleOptions\.entireTextOnly === true[\s\S]*return true/,
+    'right-axis health must reject invalid geometry/options while leaving label painting to the custom axis layer',
+  );
+  assertSourceContains(
+    recoverLayoutBody,
+    /applyRightPriceScaleLayoutOptions\(\)[\s\S]*chart\.resize\(size\.width, size\.height\)[\s\S]*postChartGeometry\(\)/,
+    'right-axis recovery must force options, resize the current container, and repost geometry',
+  );
+  assertSourceContains(
+    readyGateBody,
+    /if \(isRightPriceScaleLayoutHealthy\(\)\)[\s\S]*lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*recoverRightPriceScaleLayout\(reason \|\| 'chart_ready'\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleRightPriceScaleLayoutRecovery\(reason \|\| 'chart_ready', 2\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*requestAnimationFrame\(function\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\(reason, currentAttempt \+ 1, generation, initSignature, configSig\)/,
+    'CHART_READY must prefer valid right-axis geometry plus custom labels but stay bounded on slow iOS WebView layout',
+  );
+  assertSourceContains(
+    doInitBody,
+    /chartReadyPostGeneration \+= 1[\s\S]*var readyGeneration = chartReadyPostGeneration[\s\S]*var readyInitSignature = lastInitSignature[\s\S]*var readyConfigSig = lastInitConfigSig[\s\S]*postChartGeometry\(\)[\s\S]*postChartReadyWhenPriceScaleHealthy\('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig\)/,
+    'initial chart ready must be gated by right-axis recovery and stale-generation protection',
+  );
+  assertSourceContains(
+    resizeBody,
+    /scheduleRightPriceScaleLayoutRecovery\('resize', 4\)/,
+    'explicit native viewport resize must retry right-axis layout recovery',
+  );
+  assertSourceContains(
+    recoverSurfaceBody,
+    /scheduleRightPriceScaleLayoutRecovery\('recover_surface', RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS\)/,
+    'surface recovery must also retry right-axis layout recovery',
+  );
+  assertSourceContains(
+    updateDataBody,
+    /scheduleRightPriceScaleLayoutRecovery\([\s\S]*priceScaleReason,[\s\S]*RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS/,
+    'data reloads must retry right-axis layout recovery with the same replacement/prepend reason',
+  );
+});
+
+test('webview bridge: right price-scale DOM health ignores RTX5 numeric overlays', () => {
+  const customOverlayPredicateBody = extractFunctionBody(chartWebViewHtmlSource, 'isCustomRightPriceScaleOverlayNode');
+  const nativeLabelStatusBody = extractFunctionBody(chartWebViewHtmlSource, 'getRightPriceScaleNativeDomLabelStatus');
+  const collapsedLabelBody = extractFunctionBody(chartWebViewHtmlSource, 'hasCollapsedRightPriceScaleDomLabels');
+  const layoutHealthyBody = extractFunctionBody(chartWebViewHtmlSource, 'isRightPriceScaleLayoutHealthy');
+
+  assertSourceContains(
+    customOverlayPredicateBody,
+    /_overlayLabelLayer[\s\S]*rightPriceScaleFallbackLayer[\s\S]*node\.closest\('\.rtx5-overlay-label-layer'\)[\s\S]*node\.closest\('\.rtx5-position-price-scale-box'\)[\s\S]*node\.closest\('\.rtx5-market-price-scale-extension'\)[\s\S]*node\.closest\('\.rtx5-right-price-scale-fallback'\)/,
+    'right-axis DOM probe must explicitly exclude custom RTX5 overlay and fallback nodes',
+  );
+  assertSourceContains(
+    nativeLabelStatusBody,
+    /chartElement\.querySelectorAll\('span, div'\)[\s\S]*isCustomRightPriceScaleOverlayNode\(node\)[\s\S]*labelCount \+= 1/,
+    'native right-axis label status must not count generic numeric overlay descendants as axis labels',
+  );
+  assertSourceContains(
+    collapsedLabelBody,
+    /var nativeLabelStatus = getRightPriceScaleNativeDomLabelStatus\(metrics\)[\s\S]*nativeLabelStatus\.labelCount >= 2[\s\S]*nativeLabelStatus\.healthyCount === 0[\s\S]*nativeLabelStatus\.collapsedCount >= nativeLabelStatus\.labelCount/,
+    'collapsed right-axis detection must be driven by native-label status only',
+  );
+  assert.doesNotMatch(
+    layoutHealthyBody,
+    /getRightPriceScaleNativeDomLabelStatus|getRightPriceScaleNativeCanvasLabelStatus|hasCollapsedRightPriceScaleDomLabels/,
+    'layout health must not suppress the custom right-axis layer based on transient native label probes',
+  );
+});
+
+test('webview bridge: custom right price-scale labels do not depend on native label health', () => {
+  const renderBody = extractFunctionBody(chartWebViewHtmlSource, 'renderFallbackRightPriceScaleLabels');
+  const readyGateBody = extractFunctionBody(chartWebViewHtmlSource, 'postChartReadyWhenPriceScaleHealthy');
+  const recoveryBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleRightPriceScaleLayoutRecovery');
+
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
+    'custom right-axis labels must use standard nice price steps',
+  );
+  assertSourceContains(
+    renderBody,
+    /!series \|\| !lastRawSeriesData \|\| lastRawSeriesData\.length === 0[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*axisBackground\.className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*axisBackground\.style\.background = lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'/,
+    'custom labels must render an owned right-axis strip whenever backend candle data is present',
+  );
+  assert.doesNotMatch(
+    renderBody,
+    /resolveRightPriceScaleFallbackDecision|hasHealthyRightPriceScaleNativeLabels|getRightPriceScaleNativeLabelHealth/,
+    'custom label rendering must not clear itself because transient native-label probes look healthy',
+  );
+  assertSourceContains(
+    readyGateBody,
+    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartReady\(initSignature, configSig\)[\s\S]*currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS[\s\S]*scheduleRightPriceScaleFallbackRefresh\(\)[\s\S]*postChartReady\(initSignature, configSig\)/,
+    'CHART_READY must allow no-data symbols, prefer custom labels when backend candles exist, and stay bounded on transient label-render misses',
+  );
+  assert.doesNotMatch(
+    readyGateBody,
+    /hasHealthyRightPriceScaleNativeLabels|getRightPriceScaleNativeLabelHealth/,
+    'CHART_READY must not bypass custom label rendering because native labels briefly look healthy',
+  );
+  assertSourceContains(
+    recoveryBody,
+    /if \(isRightPriceScaleLayoutHealthy\(\)\) \{[\s\S]*renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartGeometry\(\)/,
+    'layout recovery completion must refresh the owned custom right-axis layer',
+  );
+});
+
+test('webview bridge: custom right price-scale labels are backend-data-driven and ready-gated', () => {
+  const rangeBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveRightPriceScaleFallbackRange');
+  const ticksBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveRightPriceScaleFallbackTicks');
+  const renderBody = extractFunctionBody(chartWebViewHtmlSource, 'renderFallbackRightPriceScaleLabels');
+  const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+  const readyGateBody = extractFunctionBody(chartWebViewHtmlSource, 'postChartReadyWhenPriceScaleHealthy');
+  const doInitBody = extractFunctionBody(chartWebViewHtmlSource, '_doInitChart');
+
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 3[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
+    'custom right-axis label density and step choices must be bounded for phone/tablet chart heights',
+  );
+  assertSourceContains(
+    rangeBody,
+    /resolvePriceRangeFromVisibleData\(true\)[\s\S]*isValidPriceRange\(visibleDataRange\)[\s\S]*getVisibleRange\(\)/,
+    'custom axis labels must prefer visible backend candle high/low data before falling back to the chart range',
+  );
+  assertSourceContains(
+    ticksBody,
+    /lastRawSeriesData[\s\S]*resolveRightPriceScaleFallbackLabelCount\(metrics\)[\s\S]*resolveRightPriceScaleFallbackNiceStep\(span, Math\.max\(1, labelCount - 1\)\)[\s\S]*resolveRightPriceScaleFallbackStepDecimals\(step\)[\s\S]*roundRightPriceScaleFallbackPrice\(priceTick, decimals\)[\s\S]*series\.priceToCoordinate\(price\)[\s\S]*formatRightPriceScaleFallbackLabel\(price, decimals\)/,
+    'custom axis ticks must be derived from backend data, nice step spacing, chart coordinates, and configured symbol precision',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resolveRightPriceScaleFallbackDecimals\(minimumDecimals\)[\s\S]*resolveRightPriceScaleFallbackConfiguredDecimals\(\)[\s\S]*if \(configuredDecimals !== null\) \{[\s\S]*return configuredDecimals[\s\S]*resolveRightPriceScaleFallbackDataDecimals\(\)/,
+    'custom right-axis precision must not let raw OHLC decimal noise override configured display metadata',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resolveRightPriceScaleFallbackStepDecimals\(step\)[\s\S]*resolveRightPriceScaleFallbackConfiguredDecimals\(\)[\s\S]*if \(configuredDecimals !== null\) \{[\s\S]*return configuredDecimals[\s\S]*countRightPriceScaleFallbackDecimalPlaces\(step\)/,
+    'custom right-axis tick spacing precision must also stay locked to configured display metadata when present',
+  );
+  assertSourceContains(
+    renderBody,
+    /clearRightPriceScaleFallbackLabels\(\)[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*resolveRightPriceScaleFallbackAxisMetrics\(metrics\)[\s\S]*className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'[\s\S]*label\.textContent = tick\.text/,
+    'custom labels must render inside an owned reserved right price-scale strip',
+  );
+  assertSourceContains(
+    renderBody,
+    /label\.style\.textAlign = 'right'[\s\S]*label\.style\.fontVariantNumeric = 'tabular-nums'[\s\S]*label\.style\.fontFeatureSettings = '"tnum" 1, "lnum" 1'/,
+    'custom right-axis labels must keep right-aligned tabular numerals for stable price reading',
+  );
+  assertSourceContains(
+    refreshBody,
+    /renderFallbackRightPriceScaleLabels\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)/,
+    'overlay refresh must repaint fallback axis labels before custom market/position overlays',
+  );
+  assertSourceContains(
+    readyGateBody,
+    /lastRawSeriesData\.length === 0 \|\| renderFallbackRightPriceScaleLabels\(\)[\s\S]*postChartGeometry\(\)[\s\S]*postChartReady\(initSignature, configSig\)/,
+    'CHART_READY must not post before custom right-axis labels are rendered when backend candles exist',
+  );
+  assertSourceContains(
+    doInitBody,
+    /clearRightPriceScaleFallbackLayer\(\)[\s\S]*lastChartTextColor = resolveChartTextColor\(safeOpts\)/,
+    'symbol/timeframe re-init must clear stale fallback DOM and refresh label theme colors',
+  );
+  assert.doesNotMatch(
+    renderBody,
+    /postMessage/,
+    'custom right-axis labels must not add a new public WebView bridge message',
+  );
+});
+
+test('web chart: precision overlays and crosshair stay parity-safe', () => {
+  assertSourceContains(
+    chartWebSource,
+    /resolveChartDisplayDecimals\(\{[\s\S]*instrumentDigits: chartInstrumentMeta\?\.digits,[\s\S]*instrumentPoint: chartInstrumentMeta\?\.point,[\s\S]*instrumentTickSize: chartInstrumentMeta\?\.tickSize,[\s\S]*liveQuoteDigits: chartLiveQuote\?\.digits,[\s\S]*liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
+    'web display precision must use instrument precision metadata and backend-gated quote digits',
+  );
+  assert.doesNotMatch(
+    chartWebSource,
+    /baseSymbol\.includes\('JPY'\) \? 3/,
+    'web display precision must not fall back to symbol-family hardcoding',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /const overlayLiveBid = useMemo\([\s\S]*const overlayLiveAsk = useMemo\([\s\S]*liveBid: overlayLiveBid,[\s\S]*liveAsk: overlayLiveAsk/,
+    'web overlays must pass quote-driven bid and ask prices for live open-position PnL',
+  );
+  assertSourceContains(
+    chartWebSource,
+    /crosshair: \{[\s\S]*mode: CrosshairMode\.Hidden,[\s\S]*visible: false,[\s\S]*labelVisible: false,[\s\S]*color: 'transparent',[\s\S]*labelBackgroundColor: 'transparent'/,
+    'web chart crosshair must stay hidden with invisible labels',
+  );
+  assertSourceContains(chartWebSource, /crosshairMarkerVisible: false/, 'web line chart crosshair marker must stay hidden');
 });
 
 test('webview bridge: resizeChartViewport replays pending init and updates geometry', () => {
@@ -164,7 +443,7 @@ test('webview bridge: resizeChartViewport replays pending init and updates geome
 test('webview bridge: recoverChartSurface restores data overlays market lines and geometry', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'recoverChartSurface');
 
-  assertSourceContains(chartWebViewHtmlSource, /lastInitHostOptions = cloneSerializableValue\(opts \|\| \{\}, \{\}\)/, 'init must cache an immutable copy of host chart options');
+  assertSourceContains(chartWebViewHtmlSource, /var requestHostOptions = cloneSerializableValue\(opts \|\| \{\}, \{\}\)[\s\S]*lastInitHostOptions = requestHostOptions/, 'init must cache an immutable copy of host chart options');
   assertSourceContains(chartWebViewHtmlSource, /var safeOpts = applyChartLayout\(cloneSerializableValue\(opts \|\| \{\}, \{\}\)\)/, 'WebView chart creation must mutate only a throwaway options copy');
   assertSourceContains(chartWebViewHtmlSource, /var customCols = safeOpts\.customColors[\s\S]*applyMovingVerticalGridColor\(customCols && customCols\.grid\)[\s\S]*delete safeOpts\.customColors/, 'chart creation must read grid colors before removing customColors from LightweightCharts options');
   assertSourceContains(body, /lastRawSeriesData[\s\S]*series\.setData\(mapped\)/, 'surface recovery must restore the last raw series');
@@ -176,6 +455,9 @@ test('webview bridge: recoverChartSurface restores data overlays market lines an
 });
 
 test('webview bridge: native handler accepts CHART_READY geometry drag and errors', () => {
+  assertSourceContains(source, /const initAttemptSig = `\$\{currentSig\}:\$\{getChartSnapshotSignature\(initSnapshot\)\}`;[\s\S]*initChart\([\s\S]*JSON\.stringify\(initAttemptSig\)[\s\S]*JSON\.stringify\(currentSig\)/, 'native init must tag WebView init with latest attempt and config signatures');
+  assertSourceContains(chartWebViewHtmlSource, /function postChartReady\(initSignature, configSig\)[\s\S]*type: 'CHART_READY'[\s\S]*initSignature: initSignature \|\| ''[\s\S]*configSig: configSig \|\| ''/, 'WebView CHART_READY must echo the init signatures');
+  assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyInitSignature = typeof msg\.initSignature === 'string' \? msg\.initSignature : ''[\s\S]*readyInitSignature !== latestInitDispatch\.signature[\s\S]*readyConfigSig !== currentSig[\s\S]*return/, 'native handler must ignore stale CHART_READY signatures');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must read the retained sanitized candles');
   assertSourceContains(source, /getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*renderedSeriesSnapshotRef\.current = readySnapshot[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must skip duplicate full-history paint when init already seeded the same series');

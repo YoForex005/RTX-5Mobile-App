@@ -48,29 +48,41 @@ export const PRIVACY_POLICY_DOCUMENT: LegalDocument = {
 
 export const TERMS_DOCUMENT: LegalDocument = {
   title: 'Terms and Conditions',
-  subtitle: 'Key conditions for using the RTX5 mobile trading app.',
+  subtitle: 'Terms for account access, market data, trading decisions, and platform use.',
   icon: 'document-text-outline',
   updatedLabel: 'Updated June 4, 2026',
   sections: [
     {
-      title: 'Trading app use',
-      body: 'RTX5 is a frontend mobile application for connecting to supported trading account services. Account creation, authentication, pricing, order execution, and account records are handled by the configured broker or trading platform endpoint.',
+      title: 'Acceptance of Terms',
+      body: 'By using RTX5, creating an account, signing in, or submitting a trade request, you agree to these Terms and to any additional broker, platform, exchange, or market rules that apply to your selected account.',
     },
     {
-      title: 'Demo accounts',
-      body: 'Demo accounts are for practice and platform evaluation. Demo balances, prices, execution, leverage, and account settings may differ from live trading conditions.',
+      title: 'Trading Risk Disclaimer',
+      body: 'Trading financial instruments involves risk and may result in losses. Prices, spreads, liquidity, leverage, margin requirements, and execution can change quickly. RTX5 does not guarantee profit, execution, availability, or data accuracy.',
     },
     {
-      title: 'No investment advice',
-      body: 'RTX5 does not provide financial, investment, legal, tax, brokerage, or trading advice. Any market decision remains your responsibility.',
+      title: 'Account Usage',
+      body: 'You are responsible for keeping login credentials secure, confirming account type and broker details, reviewing orders before submission, and using one-click trading only after accepting the related terms. Demo accounts are for practice and may not match live conditions.',
     },
     {
-      title: 'Account credentials',
-      body: 'You are responsible for keeping account credentials secure and for reviewing all order details before submitting a trade or enabling one-click trading.',
+      title: 'Market Data',
+      body: 'Quotes, candles, charts, symbols, news, account balances, and trading history are displayed from configured broker or platform data sources. Data may be delayed, interrupted, corrected, or unavailable during market, network, or service events.',
     },
     {
-      title: 'Service availability',
-      body: 'Network, broker, market, exchange, device, or platform conditions may affect availability, data freshness, and order handling. Review broker terms and policies for service-specific obligations.',
+      title: 'Platform Availability',
+      body: 'Network conditions, broker infrastructure, device state, maintenance, updates, or third-party service issues may affect access to RTX5 features. You remain responsible for monitoring open positions through your broker or other available channels.',
+    },
+    {
+      title: 'User Responsibilities',
+      body: 'You agree not to misuse the app, attempt unauthorized access, interfere with trading services, submit false account information, or use RTX5 where trading is restricted. You are responsible for complying with laws and broker requirements in your region.',
+    },
+    {
+      title: 'Privacy and Data',
+      body: 'RTX5 stores device preferences locally and may send registration, login, account, and trading data to the selected broker or configured platform endpoint. Review the Privacy Policy for details about data handling and deletion requests.',
+    },
+    {
+      title: 'Updates to Terms',
+      body: 'RTX5 may update these Terms as app features, broker integrations, legal requirements, or platform policies change. Continued use after an update means you accept the revised Terms.',
     },
   ],
 };

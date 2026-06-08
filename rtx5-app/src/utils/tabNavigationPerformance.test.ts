@@ -47,7 +47,7 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /const markTabNavigationStarted = useCallback/);
   assert.match(source, /setOptimisticTabName\(routeName\)/);
   assert.match(source, /setOptimisticTabName\(\(current\) => \(current === routeName \? null : current\)\)/);
-  assert.match(source, /visualActiveTabName === tabName \? T\.accent : inactiveTabColor/);
+  assert.match(source, /visualActiveTabName === tabName \? bottomTabActiveColor : inactiveTabColor/);
   assert.match(source, /tabBarLabel: \(\{ children \}\) => \{/);
   assert.match(source, /allowFontScaling=\{false\}/);
   assert.match(source, /numberOfLines=\{1\}/);
@@ -97,7 +97,8 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   assert.match(source, /backgroundColor: isDark \? '#040609' : '#ffffff'/);
   assert.match(source, /borderTopColor: isDark \? '#131722' : 'rgba\(0,0,0,0\.05\)'/);
   assert.match(source, /const inactiveTabColor = isDark \? '#5A6B87' : T\.textDimmed/);
-  assert.match(source, /tabBarActiveTintColor: T\.accent/);
+  assert.match(source, /const bottomTabActiveColor = T\.trading\.buy\.primary/);
+  assert.match(source, /tabBarActiveTintColor: bottomTabActiveColor/);
   assert.match(source, /tabBarInactiveTintColor: inactiveTabColor/);
   assert.match(source, /style=\{\[styles\.tabLabel, \{ color \}\]\}/);
   assert.match(source, /\[insets\.bottom, isDark, tabBarHeight\]/);

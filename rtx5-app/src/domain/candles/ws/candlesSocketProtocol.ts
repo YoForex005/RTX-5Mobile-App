@@ -1,4 +1,5 @@
 import { normalizeSymbol, normalizeTimeframeStrict } from '../core/candles';
+import { buildBrokerWsUrl } from '../../../api/brokerRouting';
 import {
   asRecord,
   CANDLE_CLOSE_KEYS,
@@ -13,20 +14,8 @@ import {
 
 export const DEFAULT_CANDLES_WS_URL = 'wss://backend.orrnn.com/ws/v2';
 
-const normalizeBrokerServerUrl = (serverUrl?: string | null): string =>
-  String(serverUrl ?? '')
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api\/v\d+$/i, '');
-
-const buildBrokerCandlesWsUrl = (serverUrl?: string | null): string => {
-  const normalized = normalizeBrokerServerUrl(serverUrl);
-  if (!normalized) {
-    return DEFAULT_CANDLES_WS_URL;
-  }
-
-  return `${normalized.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:')}/ws/v2`;
-};
+const buildBrokerCandlesWsUrl = (serverUrl?: string | null): string =>
+  buildBrokerWsUrl(serverUrl, '/ws/v2', DEFAULT_CANDLES_WS_URL);
 
 /**
  * Normalizes the backend WebSocket URL for candle subscriptions.

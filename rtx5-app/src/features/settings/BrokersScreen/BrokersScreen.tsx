@@ -29,7 +29,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 import { safeRouterBack } from '../../../utils/navigation';
 import { useBrokerServers } from '../../../query/broker';
 import type { BrokerServer } from '../../../api/broker';
-import { normalizeBrokerServerUrl } from '../../../api/brokerRouting';
+import { resolveBrokerServiceBaseUrl } from '../../../api/brokerRouting';
 import { persistSelectedBrokerSession } from '../../../state/brokerSessionStorage';
 import { formatServerFromName } from './brokerData';
 
@@ -152,8 +152,8 @@ export function BrokersScreen() {
     const rows = (brokerServers ?? []).filter((b: BrokerServer) => b.enabled !== false);
     // Deduplicate broker_id entries — the API exposes one row per server, but
     // the user only needs to pick a broker. We keep the first (lowest id)
-    // occurrence and the remaining server hosts become BrokerDetailScreen
-    // alternates via its built-in Demo/Live variant generator.
+    // occurrence; BrokerDetailScreen fetches the same directory and exposes
+    // the full broker/server list in its searchable picker.
     const seen = new Set<string>();
     const deduped: BrokerServer[] = [];
     for (const r of rows) {
@@ -166,11 +166,7 @@ export function BrokersScreen() {
       brokerId: b.broker_id,
       name: b.broker_name,
       server: formatVisibleServerName(b),
-      serverUrl: normalizeBrokerServerUrl(
-        (b.protocol && b.server_ip ? `${b.protocol}://${b.server_ip}${b.server_port ? `:${b.server_port}` : ''}` : '') ||
-        b.server_url ||
-        (b.protocol && b.server ? `${b.protocol}://${b.server}` : ''),
-      ),
+      serverUrl: resolveBrokerServiceBaseUrl(b),
       logoUrl: b.logo_url?.trim() || '',
       region: b.region,
       protocol: b.protocol,
@@ -288,22 +284,6 @@ export function BrokersScreen() {
     handleSelectBroker(broker);
   };
 
-  const handleScanQR = () => {
-    // QR-driven broker selection is not yet supported; surface a friendly
-    // hint instead of leaving the icon as a dead control.
-    routerInstance.push({
-      pathname: '/settings/broker-detail',
-      params: {
-        brokerId: 'qr',
-        brokerName: t('Scan QR Code'),
-        brokerServer: '',
-        brokerServerUrl: '',
-        brokerLogoUrl: '',
-        brokerDomain: '',
-      },
-    });
-  };
-
   const handleBack = () => safeRouterBack(routerInstance, '/settings/accounts');
 
   return (
@@ -322,16 +302,7 @@ export function BrokersScreen() {
             <Ionicons name="arrow-back" size={26} color={T.text} />
           </Pressable>
           <Text style={styles.headerTitle}>{t('Brokers')}</Text>
-          <Pressable
-            style={styles.iconBtn}
-            hitSlop={15}
-            onPress={handleScanQR}
-            activateOnPressIn
-            latencyLabel="brokers.qr"
-            unstable_pressDelay={0}
-          >
-            <Ionicons name="qr-code-outline" size={22} color={T.text} />
-          </Pressable>
+          <View style={styles.iconBtn} />
         </View>
 
         {/* ── Search ── */}

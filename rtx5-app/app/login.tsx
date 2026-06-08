@@ -15,7 +15,12 @@ import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAcc
 import { loginAPI } from '../src/api/auth';
 // Broker config API — validates broker_id before login and provides server_name
 import { checkBrokerServerHealth, getBrokerConfig, type BrokerServer } from '../src/api/broker';
-import { normalizeBrokerServerUrl } from '../src/api/brokerRouting';
+import {
+  AUTH_PROXY_SERVER_URL,
+  normalizeBrokerServerUrl,
+  resolveBrokerProxyServerAddress,
+  resolveBrokerServiceBaseUrl,
+} from '../src/api/brokerRouting';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
@@ -48,9 +53,7 @@ const DEV_LOGIN_PREFILL_ENABLED =
 const DEV_DEFAULT_LOGIN = {
   brokerId: process.env.EXPO_PUBLIC_TEST_BROKER_ID || 'testorrnn',
   brokerName: process.env.EXPO_PUBLIC_TEST_BROKER_NAME || 'Test Orrnn Broker (Demo)',
-  serverUrl: normalizeBrokerServerUrl(
-    process.env.EXPO_PUBLIC_TEST_BROKER_SERVER_URL || 'http://69.197.178.27:8090',
-  ),
+  serverUrl: normalizeBrokerServerUrl(process.env.EXPO_PUBLIC_TEST_BROKER_SERVER_URL || ''),
   username: process.env.EXPO_PUBLIC_TEST_USERNAME || '900001',
   password: process.env.EXPO_PUBLIC_TEST_PASSWORD || 'TestPass1234',
 };
@@ -69,6 +72,7 @@ type LoginBrokerOption = {
   logoUrl: string;
   region: string;
   protocol: string;
+  proxyServer: string;
   domain?: string;
 };
 
@@ -127,6 +131,7 @@ const scheduleLoginKeyboardDismiss = () => {
 type LoginCredentialsSnapshot = {
   brokerId: string;
   serverUrl: string;
+  proxyServer: string;
   logoUrl: string;
   accountId: string;
   password: string;
@@ -199,8 +204,10 @@ export function AccountLoginScreen() {
           }
           if (savedServerUrl) {
             const normalizedServerUrl = normalizeBrokerServerUrl(savedServerUrl);
-            brokerServerUrlValueRef.current = normalizedServerUrl;
-            setBrokerServerUrl(normalizedServerUrl);
+            brokerServerUrlValueRef.current = normalizedServerUrl || null;
+            if (normalizedServerUrl) {
+              setBrokerServerUrl(normalizedServerUrl);
+            }
           }
           if (savedLogoUrl) {
             brokerLogoUrlValueRef.current = savedLogoUrl;
@@ -338,9 +345,8 @@ export function AccountLoginScreen() {
         key,
         brokerId: brokerIdValue,
         brokerName: broker.broker_name?.trim() || brokerIdValue,
-        serverUrl: normalizeBrokerServerUrl(
-          broker.server_url || (broker.protocol && broker.server ? `${broker.protocol}://${broker.server}` : ''),
-        ),
+        serverUrl: resolveBrokerServiceBaseUrl(broker),
+        proxyServer: resolveBrokerProxyServerAddress(broker),
         logoUrl: broker.logo_url?.trim() || '',
         region: broker.region?.trim() || '',
         protocol: broker.protocol?.trim() || '',
@@ -366,6 +372,32 @@ export function AccountLoginScreen() {
   );
 
   useEffect(() => {
+    if (!selectedBrokerOption?.serverUrl) {
+      return;
+    }
+
+    const currentServerUrl = normalizeBrokerServerUrl(brokerServerUrlValueRef.current || brokerServerUrl);
+    const nextServerUrl = selectedBrokerOption.serverUrl;
+    const nextLogoUrl = selectedBrokerOption.logoUrl;
+
+    if (currentServerUrl === nextServerUrl && brokerLogoUrlValueRef.current === nextLogoUrl) {
+      return;
+    }
+
+    brokerIdValueRef.current = selectedBrokerOption.brokerId;
+    brokerServerUrlValueRef.current = nextServerUrl;
+    brokerLogoUrlValueRef.current = nextLogoUrl;
+    setBrokerServerUrl(nextServerUrl);
+    setBrokerLogoUrl(nextLogoUrl);
+    setBrokerConnection(selectedBrokerOption.brokerId, nextServerUrl, nextLogoUrl);
+    void persistSelectedBrokerSession({
+      brokerId: selectedBrokerOption.brokerId,
+      serverUrl: nextServerUrl,
+      logoUrl: nextLogoUrl,
+    });
+  }, [brokerLogoUrl, brokerServerUrl, selectedBrokerOption, setBrokerConnection]);
+
+  useEffect(() => {
     if (
       !DEV_LOGIN_PREFILL_ENABLED ||
       !savedCredentialsChecked ||
@@ -387,6 +419,7 @@ export function AccountLoginScreen() {
       brokerId: DEV_DEFAULT_LOGIN.brokerId,
       brokerName: directoryOption?.brokerName || DEV_DEFAULT_LOGIN.brokerName,
       serverUrl: directoryOption?.serverUrl || DEV_DEFAULT_LOGIN.serverUrl,
+      proxyServer: directoryOption?.proxyServer || '',
       logoUrl: directoryOption?.logoUrl || '',
       region: directoryOption?.region || 'Demo',
       protocol: directoryOption?.protocol || 'https',
@@ -436,15 +469,24 @@ export function AccountLoginScreen() {
     selectBrokerOption,
   ]);
 
-  const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => ({
-    brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
-    serverUrl: normalizeBrokerServerUrl(
-      brokerServerUrlValueRef.current ?? selectedBrokerServerUrl,
-    ),
-    logoUrl: brokerLogoUrlValueRef.current ?? selectedBrokerLogoUrl,
-    accountId: (accountIdValueRef.current ?? accountId).trim(),
-    password: passwordValueRef.current ?? password,
-  });
+  const getLoginCredentialsSnapshot = (): LoginCredentialsSnapshot => {
+    const selectedProxyServer = selectedBrokerOption?.serverUrl
+      ? ''
+      : selectedBrokerOption?.proxyServer || '';
+
+    return {
+      brokerId: (brokerIdValueRef.current ?? brokerId).trim(),
+      serverUrl: selectedProxyServer
+        ? AUTH_PROXY_SERVER_URL
+        : normalizeBrokerServerUrl(
+          brokerServerUrlValueRef.current || selectedBrokerServerUrl,
+        ),
+      proxyServer: selectedProxyServer,
+      logoUrl: brokerLogoUrlValueRef.current ?? selectedBrokerLogoUrl,
+      accountId: (accountIdValueRef.current ?? accountId).trim(),
+      password: passwordValueRef.current ?? password,
+    };
+  };
 
   const handleModalClose = () => {
     if (modalState.type === 'success') {
@@ -459,6 +501,7 @@ export function AccountLoginScreen() {
     }
     const normalizedBrokerId = snapshot.brokerId;
     const normalizedServerUrl = snapshot.serverUrl;
+    const proxyServer = snapshot.proxyServer;
     const selectedLogoUrl = snapshot.logoUrl;
     const normalizedAccountId = snapshot.accountId;
     const currentPassword = snapshot.password;
@@ -492,7 +535,7 @@ export function AccountLoginScreen() {
         username: normalizedAccountId,
         password: currentPassword,
         broker_id: normalizedBrokerId,
-      }, { serverUrl: normalizedServerUrl });
+      }, { serverUrl: normalizedServerUrl, proxyServer });
 
       // ── Defensive response parsing ──
       // The V2 server's spec (AuthTokenResponse) returns `token` + nested
@@ -551,7 +594,7 @@ export function AccountLoginScreen() {
       // the user-typed value if the response doesn't include it.
       const canonicalBrokerId = response.broker_id || response.brokerId || normalizedBrokerId;
       const accountType = getTradingAccountTypeFromBackend(response);
-      const immediateServerName = serverName || canonicalBrokerId;
+      const immediateServerName = serverName || proxyServer || canonicalBrokerId;
       const savedLogin = String(accountLogin);
 
       // brokerId is persisted atomically inside login() to prevent race

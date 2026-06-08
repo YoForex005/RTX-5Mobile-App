@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import { buildRestQuoteTickEvent } from './restQuoteTick';
+
+const readSource = (relativePath: string) =>
+  readFileSync(resolve(process.cwd(), relativePath), 'utf8');
 
 test('buildRestQuoteTickEvent normalizes a REST quote snapshot for live chart use', () => {
   const receivedAt = 1_764_059_100_000;
@@ -32,5 +37,14 @@ test('buildRestQuoteTickEvent rejects snapshots without a usable bid/ask pair', 
   assert.equal(
     buildRestQuoteTickEvent('BTCUSD', { symbol: 'BTCUSD', bid: 77522.17 }, 1_764_059_100_000),
     null,
+  );
+});
+
+test('live symbol REST fallback skips polling while a fresh websocket quote is already in state', () => {
+  const source = readSource('src/query/websocket.ts');
+
+  assert.match(
+    source,
+    /const liveQuote = useTradingState\.getState\(\)\.quotes\[entry\.symbol\];[\s\S]*if \(isFreshLiveQuote\(liveQuote\)\) \{\s*return;\s*\}/,
   );
 });

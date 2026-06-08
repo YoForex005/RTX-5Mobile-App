@@ -14,8 +14,16 @@ test('demo registration requires explicit legal acceptance and opens legal docum
   assert.match(source, /useOrrnnDemoGroups\(isScreenFocused && isDemoServiceReady\)/);
   assert.match(source, /useBrokerServers\(isScreenFocused\)/);
   assert.match(source, /if \(!termsAccepted\)/);
-  assert.match(source, /router\.push\(\{ pathname: '\/settings\/legal', params: \{ document: 'terms' \} \}\)/);
-  assert.match(source, /router\.push\(\{ pathname: '\/settings\/legal', params: \{ document: 'privacy' \} \}\)/);
+  assert.match(source, /getConfiguredTermsUrl\(\)/);
+  assert.match(source, /'https:\/\/rtx5\.orrnn\.com\/terms-conditions'/);
+  assert.match(source, /Linking\.openURL\(termsConditionsUrl\)/);
+  assert.match(source, /onPress=\{handleOpenTermsAndConditions\}/);
+  assert.match(source, /getConfiguredPrivacyPolicyUrl\(\)/);
+  assert.match(source, /'https:\/\/rtx5\.orrnn\.com\/privacy-policy'/);
+  assert.match(source, /Linking\.openURL\(privacyPolicyUrl\)/);
+  assert.match(source, /onPress=\{handleOpenPrivacyPolicy\}/);
+  assert.doesNotMatch(source, /document: 'terms'/);
+  assert.doesNotMatch(source, /document: 'privacy'/);
   assert.match(source, /disabled=\{isLoading \|\| !canSubmitDemoAccount \|\| !termsAccepted\}/);
 });
 

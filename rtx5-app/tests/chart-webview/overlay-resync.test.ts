@@ -41,8 +41,8 @@ test('market price lines do not render native right-axis price badges', () => {
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
 
   assertSourceContains(optionsBody, /axisLabelVisible: false/, 'bid/ask price lines must hide native right-axis price badges');
-  assertSourceContains(setBidBody, /makeMarketPriceLineOptions\(price, marketBidColor\)/, 'bid price line updates must keep the clean axis option');
-  assertSourceContains(setAskBody, /makeMarketPriceLineOptions\(price, marketAskColor\)/, 'ask price line updates must keep the clean axis option');
+  assertSourceContains(setBidBody, /makeMarketPriceLineOptions\(normalizedPrice, marketBidColor\)/, 'bid price line updates must keep the clean axis option after precision snapping');
+  assertSourceContains(setAskBody, /makeMarketPriceLineOptions\(normalizedPrice, marketAskColor\)/, 'ask price line updates must keep the clean axis option after precision snapping');
   assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'DOM refresh must not render filled bid/ask price badges');
 });
 

@@ -216,6 +216,12 @@ export type OrrnnDemoAccount = {
 | `/api/v1/public/demo-groups` | GET | OrrnnDemoGroupsDTO | Demo group source for `OrrnnDemoAccountRequest.group` |
 | `/api/v1/public/demo-account` | POST | OrrnnDemoAccountDTO | Creates Orrnn demo account; app uses returned `api_key` when present or falls back to V2 login with the created login/master password |
 
+### Auth Login Routing
+- Domain-backed broker directory entries use direct broker auth at `{server_url}/api/v2/auth/login`.
+- Broker directory entries may publish domain aliases through `server_url`, `market_api_url`, `server_domain`, `services_domain`, `domain_name`, `domains.server`, `domains.services`, or websocket/feed URLs. The frontend resolves those domain fields before considering the legacy `server` value.
+- Raw `server_ip` values must not be used as direct HTTPS origins or gateway login server addresses. If a gateway proxy payload is needed, `server` must be the broker domain host or `host:port`, not the IP address.
+- `EXPO_PUBLIC_AUTH_PROXY_API_BASE_URL` may override the shared gateway origin for proxy auth. When unset, the frontend uses `https://backend.orrnn.com/api/v2`.
+
 ## Temporary Chart History Integration Note
 - Chart history is currently hydrated from `GET /api/v2/candles/{symbol}?timeframe={tf}&limit=2500`, matching the frontend chart's rolling 2500-candle buffer so M1 history includes previous-date candles when the backend provides them.
 - Chart history pagination uses Unix timestamp seconds for `from` and `to`, matching the candle `time` values returned by the backend. The frontend must not send millisecond bounds, because that asks the backend for a far-future window and returns no older history during left-scroll.

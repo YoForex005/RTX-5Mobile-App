@@ -12,13 +12,12 @@ import {
   CrosshairMode,
 } from 'lightweight-charts';
 import { useLiveCandles } from '../../../domain/candles/hooks/useLiveCandles';
-import { isStructurallyValidCandle } from '../../../domain/candles/core/candles';
 import { ChartColorsConfig, ChartDisplaySettings } from '../../../state/userPreferences';
-import { useMarketData } from '../../../query/websocket';
+import { useInstrumentMeta } from '../../../query/instruments';
+import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import {
   buildVolumeDatum,
   getLastPreviewCandleSignature,
-  getPreviewDisplayDecimals,
   mapPreviewCandles,
   PreviewChartType,
   sanitizePreviewCandles,
@@ -27,6 +26,7 @@ import {
   buildRTX5CustomCandlestickSeriesOptions,
   createRTX5CustomCandlestickPaneView,
 } from '../../../domain/candles/rendering/customCandlestickSeries';
+import { resolveChartDisplayDecimals } from '../chartPricePrecision';
 
 const getSafePreviewDimensions = (width: number, height: number) => ({
   width: Math.max(1, Math.floor(width)),
@@ -65,8 +65,32 @@ export default function LiveChartPreviewWeb({
   const { candles } = useLiveCandles(symbol, timeframe, active);
   const liveQuotes = useMarketData([symbol], active);
   const liveQuote = liveQuotes[symbol];
+  const { data: instrumentMeta } = useInstrumentMeta(symbol, active);
+  const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
+  const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
 
-  const displayDecimals = getPreviewDisplayDecimals(symbol);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: instrumentMeta?.digits,
+      instrumentPoint: instrumentMeta?.point,
+      instrumentTickSize: instrumentMeta?.tickSize,
+      liveQuoteDigits: liveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLivePreviewQuote && liveQuoteDigitsSource === 'backend',
+      liveQuoteBid: liveQuote?.bid,
+      liveQuoteAsk: liveQuote?.ask,
+      liveQuoteLast: liveQuote?.close,
+    });
+  }, [
+    hasLivePreviewQuote,
+    instrumentMeta?.digits,
+    instrumentMeta?.point,
+    instrumentMeta?.tickSize,
+    liveQuote?.ask,
+    liveQuote?.bid,
+    liveQuote?.close,
+    liveQuote?.digits,
+    liveQuoteDigitsSource,
+  ]);
 
   const chartOptions = useMemo(() => ({
     layout: {

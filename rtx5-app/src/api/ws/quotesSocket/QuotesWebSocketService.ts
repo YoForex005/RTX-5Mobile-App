@@ -10,7 +10,10 @@
 import { AppState, NativeEventSubscription } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
-import { buildBrokerWsUrl } from '../../brokerRouting';
+import {
+  buildBrokerWsUrl,
+  shouldUseBrokerHostedQuoteFeed,
+} from '../../brokerRouting';
 import {
   ACTIVE_BROKER_ID_KEY,
   ACTIVE_BROKER_LOGO_URL_KEY,
@@ -48,6 +51,7 @@ const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000;
 const QUOTE_WS_RECONNECT_COOLDOWN_MS = 10_000;
 const QUOTE_WS_SILENT_STALE_MS = 8_000;
 const QUOTE_WS_WATCHDOG_INTERVAL_MS = 3_000;
+const DEFAULT_QUOTES_WS_URL = 'wss://backend.orrnn.com/ws/feed';
 
 const resolveQuoteListenerKeys = (symbol: string): string[] => {
   const rawKey = normalizeQuoteSymbolKey(symbol);
@@ -127,8 +131,14 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   }
 
   private resolveSocketUrl(): string {
-    return process.env.EXPO_PUBLIC_QUOTES_WS_URL ||
-      buildBrokerWsUrl(useUserPreferences.getState().brokerServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+    if (process.env.EXPO_PUBLIC_QUOTES_WS_URL) {
+      return process.env.EXPO_PUBLIC_QUOTES_WS_URL;
+    }
+
+    const brokerServerUrl = useUserPreferences.getState().brokerServerUrl;
+    return shouldUseBrokerHostedQuoteFeed(brokerServerUrl)
+      ? buildBrokerWsUrl(brokerServerUrl, '/ws/feed', DEFAULT_QUOTES_WS_URL)
+      : DEFAULT_QUOTES_WS_URL;
   }
 
   private async resolveSocketUrlAsync(): Promise<string> {
@@ -138,7 +148,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
     const state = useUserPreferences.getState();
     if (state.brokerServerUrl) {
-      return buildBrokerWsUrl(state.brokerServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+      return shouldUseBrokerHostedQuoteFeed(state.brokerServerUrl)
+        ? buildBrokerWsUrl(state.brokerServerUrl, '/ws/feed', DEFAULT_QUOTES_WS_URL)
+        : DEFAULT_QUOTES_WS_URL;
     }
 
     const [storedBrokerId, storedServerUrl, storedLogoUrl] = await Promise.all([
@@ -148,7 +160,7 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
     ]);
 
     if (!storedServerUrl) {
-      return buildBrokerWsUrl('', '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+      return DEFAULT_QUOTES_WS_URL;
     }
 
     const latestState = useUserPreferences.getState();
@@ -160,7 +172,9 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
       );
     }
 
-    return buildBrokerWsUrl(storedServerUrl, '/ws/feed', 'wss://backend.orrnn.com/ws/feed');
+    return shouldUseBrokerHostedQuoteFeed(storedServerUrl)
+      ? buildBrokerWsUrl(storedServerUrl, '/ws/feed', DEFAULT_QUOTES_WS_URL)
+      : DEFAULT_QUOTES_WS_URL;
   }
 
   public addTickListener(listener: GlobalTickListener): void {

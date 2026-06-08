@@ -22,6 +22,17 @@ test('resolveCandlesWsUrl upgrades stale quote-feed candle config to channel web
   );
 });
 
+test('resolveCandlesWsUrl derives broker candle sockets from secure service domains only', () => {
+  assert.equal(
+    resolveCandlesWsUrl(undefined, 'https://testbrokerbackend.orrnn.com:443/api/v2'),
+    'wss://testbrokerbackend.orrnn.com:443/ws/v2',
+  );
+  assert.equal(
+    resolveCandlesWsUrl(undefined, 'http://69.197.178.27:8090'),
+    'wss://backend.orrnn.com/ws/v2',
+  );
+});
+
 test('appendCandleWsToken keeps the URL anonymous when no token is available', () => {
   assert.equal(
     appendCandleWsToken('wss://backend.orrnn.com/ws/v2', null),

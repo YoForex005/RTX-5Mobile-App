@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo } from 'react';
+import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getConfiguredPrivacyPolicyUrl, resolveLegalUrl } from '../../config/legalLinks';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
@@ -17,8 +18,25 @@ export function LegalDocumentScreen({ document }: { document: LegalDocumentKind 
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeStyles(isDark), [isDark]);
   const legalDocument = useMemo(() => getLegalDocument(document), [document]);
+  const privacyPolicyUrl = useMemo(
+    () => resolveLegalUrl(getConfiguredPrivacyPolicyUrl(), 'https://rtx5.orrnn.com/privacy-policy'),
+    [],
+  );
   const iconColor = isDark ? '#60A5FA' : '#1D4ED8';
   const backIconColor = isDark ? '#F8FAFC' : '#050505';
+  const isTermsDocument = document === 'terms';
+
+  const openPrivacyPolicy = useCallback(async () => {
+    if (!privacyPolicyUrl) {
+      return;
+    }
+
+    try {
+      await Linking.openURL(privacyPolicyUrl);
+    } catch {
+      Alert.alert('Privacy Policy', privacyPolicyUrl);
+    }
+  }, [privacyPolicyUrl]);
 
   return (
     <Screen noBottomInset style={styles.screen}>
@@ -44,14 +62,44 @@ export function LegalDocumentScreen({ document }: { document: LegalDocumentKind 
         showsVerticalScrollIndicator={false}
       >
         <LegalHero document={legalDocument} iconColor={iconColor} styles={styles} />
+        {isTermsDocument ? (
+          <View style={styles.noticePanel}>
+            <View style={styles.noticeIcon}>
+              <Ionicons name="warning-outline" size={18} color={isDark ? '#FBBF24' : '#B45309'} />
+            </View>
+            <View style={styles.noticeCopy}>
+              <Text style={styles.noticeTitle}>Trading Risk Notice</Text>
+              <Text style={styles.noticeText}>
+                Trading involves risk. Demo and live account outcomes can differ, and every order decision remains your responsibility.
+              </Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.sectionList}>
-          {legalDocument.sections.map((section) => (
+          {legalDocument.sections.map((section, index) => (
             <View key={section.title} style={styles.section}>
+              <View style={styles.sectionNumber}>
+                <Text style={styles.sectionNumberText}>{String(index + 1).padStart(2, '0')}</Text>
+              </View>
               <Text style={styles.sectionTitle}>{section.title}</Text>
               <Text style={styles.sectionBody}>{section.body}</Text>
             </View>
           ))}
         </View>
+        {isTermsDocument && privacyPolicyUrl ? (
+          <FastPressable
+            style={styles.privacyLink}
+            onPress={openPrivacyPolicy}
+            latencyLabel="legal.privacyPolicy.open"
+            hitSlop={8}
+            accessibilityRole="link"
+            accessibilityLabel="Privacy Policy"
+          >
+            <Ionicons name="shield-checkmark-outline" size={18} color={iconColor} />
+            <Text style={styles.privacyLinkText}>Privacy Policy</Text>
+            <Ionicons name="open-outline" size={16} color={iconColor} />
+          </FastPressable>
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -89,6 +137,9 @@ const makeStyles = (isDark: boolean) => {
     soft: isDark ? '#CBD5E1' : '#344054',
     border: isDark ? 'rgba(148,163,184,0.18)' : '#E4E7EC',
     accentSoft: isDark ? 'rgba(96,165,250,0.14)' : '#EEF4FF',
+    accent: isDark ? '#60A5FA' : '#1D4ED8',
+    warningBg: isDark ? 'rgba(251,191,36,0.12)' : '#FFFBEB',
+    warningBorder: isDark ? 'rgba(251,191,36,0.24)' : '#FDE68A',
   };
 
   return StyleSheet.create({
@@ -138,6 +189,11 @@ const makeStyles = (isDark: boolean) => {
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: palette.surface,
+      shadowColor: isDark ? '#000000' : '#101828',
+      shadowOpacity: isDark ? 0.2 : 0.06,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: isDark ? 2 : 1,
     },
     heroIcon: {
       width: 52,
@@ -175,18 +231,72 @@ const makeStyles = (isDark: boolean) => {
       marginTop: 7,
       textTransform: 'uppercase',
     },
+    noticePanel: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 12,
+      marginTop: 14,
+      padding: 14,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: palette.warningBorder,
+      backgroundColor: palette.warningBg,
+    },
+    noticeIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(251,191,36,0.12)' : '#FEF3C7',
+    },
+    noticeCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    noticeTitle: {
+      color: palette.text,
+      fontSize: 14,
+      lineHeight: 19,
+      fontWeight: '800',
+      letterSpacing: 0,
+    },
+    noticeText: {
+      color: palette.soft,
+      fontSize: 13,
+      lineHeight: 19,
+      fontWeight: '600',
+      letterSpacing: 0,
+      marginTop: 3,
+    },
     sectionList: {
       marginTop: 14,
-      borderRadius: 12,
-      overflow: 'hidden',
+      gap: 10,
+    },
+    section: {
+      padding: 15,
+      borderRadius: 10,
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: palette.surface,
     },
-    section: {
-      padding: 15,
-      borderBottomWidth: 1,
-      borderBottomColor: palette.border,
+    sectionNumber: {
+      alignSelf: 'flex-start',
+      minWidth: 32,
+      height: 22,
+      paddingHorizontal: 7,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 9,
+      backgroundColor: palette.accentSoft,
+    },
+    sectionNumberText: {
+      color: palette.accent,
+      fontSize: 11,
+      lineHeight: 14,
+      fontWeight: '900',
+      letterSpacing: 0,
     },
     sectionTitle: {
       color: palette.text,
@@ -201,6 +311,25 @@ const makeStyles = (isDark: boolean) => {
       fontSize: 14,
       lineHeight: 21,
       fontWeight: '500',
+      letterSpacing: 0,
+    },
+    privacyLink: {
+      marginTop: 14,
+      minHeight: 50,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 9,
+    },
+    privacyLinkText: {
+      color: palette.accent,
+      fontSize: 15,
+      lineHeight: 20,
+      fontWeight: '800',
       letterSpacing: 0,
     },
   });

@@ -12,12 +12,12 @@
       "policy": "appVersion"
     },
     "orientation": "default",
-    "icon": "./assets/rtx5-app-icon.png",
+    "icon": "./assets/adaptive-icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "scheme": "rtx5",
     "splash": {
-      "image": "./assets/rtx5-splash.png",
+      "image": "./assets/adaptive-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#2d2c31"
     },
@@ -34,15 +34,7 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "fetch"
-        ],
-        "NSAppTransportSecurity": {
-          "NSExceptionDomains": {
-            "69.197.178.27": {
-              "NSExceptionAllowsInsecureHTTPLoads": true,
-              "NSIncludesSubdomains": false
-            }
-          }
-        }
+        ]
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -50,8 +42,9 @@
     },
     "android": {
       "package": "com.rtx5.app",
+      "icon": "./assets/adaptive-icon.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/rtx5-adaptive-icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2d2c31"
       },
       "softwareKeyboardLayoutMode": "resize",

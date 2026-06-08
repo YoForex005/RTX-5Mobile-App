@@ -41,6 +41,7 @@ import { makeActionSheetStyles } from './styles';
 type ActionSheetAction = {
   label: string;
   subtitle?: string;
+  selected?: boolean;
   danger?: boolean;
   disabled?: boolean;
   onPress?: () => void;
@@ -58,11 +59,12 @@ type ActionSheetProps = {
   minimumTopInset?: number;
   instantOpen?: boolean;
   runActionAfterClose?: boolean;
+  androidKeyboardAvoidance?: 'event' | 'resize';
 };
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose'
+  'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
@@ -122,6 +124,7 @@ export function ActionSheet({
   minimumTopInset = 100,
   instantOpen = false,
   runActionAfterClose = true,
+  androidKeyboardAvoidance = 'event',
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
@@ -155,6 +158,7 @@ export function ActionSheet({
     minimumTopInset,
     instantOpen,
     runActionAfterClose,
+    androidKeyboardAvoidance,
   });
   const incomingConfig: CachedActionSheetConfig = {
     title,
@@ -165,6 +169,7 @@ export function ActionSheet({
     minimumTopInset,
     instantOpen,
     runActionAfterClose,
+    androidKeyboardAvoidance,
   };
   const hasIncomingConfig =
     actions.length > 0 ||
@@ -186,6 +191,7 @@ export function ActionSheet({
   const activeMinimumTopInset = activeConfig.minimumTopInset;
   const activeInstantOpen = activeConfig.instantOpen ?? true;
   const activeRunActionAfterClose = activeConfig.runActionAfterClose ?? false;
+  const activeAndroidKeyboardAvoidance = activeConfig.androidKeyboardAvoidance ?? 'event';
 
   const prevVisibleRef = useRef(visible);
   if (visible !== prevVisibleRef.current) {
@@ -242,7 +248,7 @@ export function ActionSheet({
     ? Math.max(0, measuredHeight - (windowHeight || measuredHeight))
     : 0;
   const eventKeyboardLift = androidSearchableSheet
-    ? Math.max(0, keyboardHeight)
+    ? (activeAndroidKeyboardAvoidance === 'resize' ? 0 : Math.max(0, keyboardHeight))
     : 0;
   const resizeKeyboardLift = Math.max(overlayKeyboardLift, windowKeyboardLift);
   const effectiveKeyboardLift = Math.max(resizeKeyboardLift, eventKeyboardLift);
@@ -571,6 +577,7 @@ export function ActionSheet({
               style={[
                 styles.actionText,
                 action.danger ? styles.actionTextDanger : styles.actionTextNormal,
+                action.selected && !action.danger && styles.actionTextSelected,
                 action.disabled && styles.actionTextDisabled,
               ]}
               numberOfLines={1}
@@ -590,7 +597,6 @@ export function ActionSheet({
             ) : null}
           </View>
         </View>
-        {!action.icon ? <Text style={styles.chevron}>›</Text> : null}
       </FastPressable>
     );
   }, [

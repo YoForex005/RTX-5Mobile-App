@@ -117,6 +117,10 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /showChartActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
   assert.match(
     source,
+    /title: t\('Select Symbol'\)[\s\S]*searchable:\s*true[\s\S]*androidKeyboardAvoidance:\s*'resize'[\s\S]*actions: symbolPickerActions/,
+  );
+  assert.match(
+    source,
     /const warmChartContextAndCommit = useCallback\([\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
   );
   assert.match(

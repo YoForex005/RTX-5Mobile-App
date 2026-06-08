@@ -135,8 +135,9 @@ import { makeStyles } from "./ChartScreen.styles";
 import { PendingOrderPreviewChart } from "./components/PendingOrderPreviewChart";
 import { LiveQuotePairHeader } from "./components/ChartLiveHeaders";
 import { ChartStepperModal, ChartFooterLotPicker, ChartTradeVolumeSlider } from "./components/ChartTradeControls";
+import { resolveChartTradeButtonQuote } from "./components/ChartTradeButtonsFeature/quoteFallback";
 import { TvLayers } from "./components/ChartToolbarIcons";
-import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
+import { ChartTapMenuViewport, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_LINE_STYLE, CHART_MARKET_PRICE_LINE_SYNC_INTERVAL_MS, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TAP_MENU_LOT_INPUT_SUPPRESSION_MS, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE, CHART_TRADE_COMPACT_SHEET_TOP_GAP, CHART_TRADE_INLINE_FOOTER_FALLBACK_HEIGHT, CHART_TRADE_SHEET_TOP_GAP, CHART_VIEWPORT_TOUCH_FAILSAFE_MS, formatLooseTradeVolumeLabel, resolveMaxTradeVolumeForMargin, getChartTradeContractSize, resolveTradeStopPreviewPrice, timeframes, ChartTradeTypeTabLayout, ChartTradePreviewDragKey, TextInputCommitEvent } from "./ChartScreen.constants";
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -408,10 +409,25 @@ export function ChartScreen() {
   const displayDecimals = useMemo(() => {
     return resolveChartDisplayDecimals({
       instrumentDigits: chartInstrumentMeta?.digits,
+      instrumentPoint: chartInstrumentMeta?.point,
+      instrumentTickSize: chartInstrumentMeta?.tickSize,
       liveQuoteDigits: chartLiveQuote?.digits,
       liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+      liveQuoteBid: chartLiveQuote?.bid,
+      liveQuoteAsk: chartLiveQuote?.ask,
+      liveQuoteLast: chartLiveQuote?.close,
     });
-  }, [chartInstrumentMeta?.digits, chartLiveQuote?.digits, chartLiveQuoteDigitsSource, hasLiveChartQuote]);
+  }, [
+    chartInstrumentMeta?.digits,
+    chartInstrumentMeta?.point,
+    chartInstrumentMeta?.tickSize,
+    chartLiveQuote?.ask,
+    chartLiveQuote?.bid,
+    chartLiveQuote?.close,
+    chartLiveQuote?.digits,
+    chartLiveQuoteDigitsSource,
+    hasLiveChartQuote,
+  ]);
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;
@@ -1221,22 +1237,16 @@ export function ChartScreen() {
     () => sanitizedCandles[sanitizedCandles.length - 1]?.close ?? 0,
     [sanitizedCandles],
   );
-  const quoteFallbackSpread =
-    baseSymbol.includes('BTC') ? 25 : baseSymbol.includes('XAU') || baseSymbol.includes('XAG') ? 0.3 : 0.00015;
-  const chartBid = useMemo(() => {
-    const liveBid =
-      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
-        : null;
-    return liveBid ?? latestChartClose;
-  }, [chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose]);
-  const chartAsk = useMemo(() => {
-    const liveAsk =
-      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
-        : null;
-    return liveAsk ?? (chartBid > 0 ? chartBid + quoteFallbackSpread : 0);
-  }, [chartBid, chartLiveQuote?.ask, hasLiveChartQuote, quoteFallbackSpread]);
+  const { bid: chartBid, ask: chartAsk } = useMemo(
+    () =>
+      resolveChartTradeButtonQuote({
+        liveBid: hasLiveChartQuote ? chartLiveQuote?.bid : undefined,
+        liveAsk: hasLiveChartQuote ? chartLiveQuote?.ask : undefined,
+        fallbackBid: latestChartClose,
+        fallbackAsk: latestChartClose,
+      }),
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
+  );
   const overlayLiveBid = useMemo(
     () =>
       hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
@@ -1280,7 +1290,7 @@ export function ChartScreen() {
   const resolveDefaultPendingPrice = useCallback(
     (orderType: ChartOrderType) => {
       const bid = chartBid > 0 ? chartBid : latestChartClose;
-      const ask = chartAsk > 0 ? chartAsk : bid + quoteFallbackSpread;
+      const ask = chartAsk > 0 ? chartAsk : bid;
       switch (orderType) {
         case 'Buy Limit':
           return roundTradePrice(ask - chartPendingOffset);
@@ -1296,7 +1306,7 @@ export function ChartScreen() {
           return roundTradePrice(ask);
       }
     },
-    [chartAsk, chartBid, chartPendingOffset, latestChartClose, quoteFallbackSpread, roundTradePrice],
+    [chartAsk, chartBid, chartPendingOffset, latestChartClose, roundTradePrice],
   );
 
   const injectChartScript = (script: string) => {
@@ -2714,9 +2724,10 @@ export function ChartScreen() {
   const timeframePickerActions = useMemo(
     () => timeframes.map((tf) => ({
       label: tf,
+      selected: tf === chartTimeframe,
       onPress: () => handleTimeframeSelect(tf),
     })),
-    [handleTimeframeSelect],
+    [chartTimeframe, handleTimeframeSelect],
   );
 
   const handleOpenSymbolPicker = useCallback(() => {
@@ -2726,6 +2737,7 @@ export function ChartScreen() {
         searchable: true,
         detent: 'large',
         instantOpen: true,
+        androidKeyboardAvoidance: 'resize',
         actions: symbolPickerActions,
       });
       scheduleChartActionSheetContextReset();
@@ -3058,10 +3070,12 @@ export function ChartScreen() {
       axisPressedMouseMove: true,
     },
     rightPriceScale: {
+      visible: true,
       borderVisible: false,
       borderColor: 'transparent',
       autoScale: true,
       entireTextOnly: false,
+      minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
         top: 0.08,
         bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0.08,
@@ -3478,7 +3492,7 @@ export function ChartScreen() {
     const mapped = data.length > 0 ? buildMappedData(data) : [];
 
     const js = `
-      initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane});
+      initChart(${JSON.stringify(chartOptions)}, ${JSON.stringify(chartType)}, ${JSON.stringify(mapped)}, ${displayDecimals}, ${showChartVolumePane}, ${JSON.stringify(initAttemptSig)}, ${JSON.stringify(currentSig)});
       true;
     `;
     try {
@@ -4249,14 +4263,14 @@ export function ChartScreen() {
                 }}
               >
                 {(!chartSurfaceReady || isLoading) && (
-                  <View style={styles.chartOverlay}>
+                  <View pointerEvents="none" style={styles.chartOverlay}>
                     <ActivityIndicator size="large" color={BLUE} />
                     <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
                   </View>
                 )}
 
                 {chartSurfaceReady && isError && !isLoading && (
-                  <View style={styles.chartOverlay}>
+                  <View pointerEvents="none" style={styles.chartOverlay}>
                     <Ionicons name="cloud-offline-outline" size={36} color={TEXT_MUTED} />
                     <Text style={styles.overlayText}>{t('Unable to load chart')}</Text>
                     <Text style={styles.overlaySubText}>{t('Waiting for market data connection...')}</Text>
@@ -4264,7 +4278,7 @@ export function ChartScreen() {
                 )}
 
                 {chartSurfaceReady && isNoMarketData && !isError && (
-                  <View style={styles.chartOverlay}>
+                  <View pointerEvents="none" style={styles.chartOverlay}>
                     <Ionicons name="analytics-outline" size={36} color={TEXT_MUTED} />
                     <Text style={styles.overlayText}>{t('No market data available')}</Text>
                     <Text style={styles.overlaySubText}>{t('Waiting for backend candle data...')}</Text>
@@ -4308,6 +4322,25 @@ export function ChartScreen() {
                           lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
                           setWebViewReady(true);
                         } else if (msg.type === 'CHART_READY') {
+                          const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
+                          const readyConfigSig = typeof msg.configSig === 'string' ? msg.configSig : '';
+                          const latestInitDispatch = lastInitDispatchRef.current;
+                          if (
+                            readyInitSignature !== latestInitDispatch.signature ||
+                            readyConfigSig !== latestInitDispatch.configSig ||
+                            readyConfigSig !== currentSig
+                          ) {
+                            if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+                              console.log('[CHART-BRIDGE] ignore_stale_chart_ready', {
+                                readyInitSignature,
+                                readyConfigSig,
+                                latestInitSignature: latestInitDispatch.signature,
+                                latestConfigSig: latestInitDispatch.configSig,
+                                currentSig,
+                              });
+                            }
+                            return;
+                          }
                           // Chart successfully rendered in WebView.
                           chartInitializedRef.current = true;
                           lastInitSigRef.current = currentSig;

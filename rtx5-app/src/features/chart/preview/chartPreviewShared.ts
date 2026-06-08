@@ -13,13 +13,6 @@ export type PreviewSourceCandle = {
   volume?: number;
 };
 
-export const getPreviewDisplayDecimals = (symbol: string) => {
-  const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
-  if (baseSymbol.includes('JPY')) return 3;
-  if (baseSymbol.includes('XAU') || baseSymbol.includes('BTC')) return 2;
-  return 5;
-};
-
 export const withAlpha = (color: string | undefined, alpha: number): string => {
   if (!color) {
     return `rgba(148, 163, 184, ${alpha})`;

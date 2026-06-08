@@ -34,12 +34,13 @@ import { useUIState } from '../../state/uiState';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSavedAccounts, setSavedAccountPassword } from '../../state/savedAccounts';
 import { loginAPI } from '../../api/auth';
-import { getBrokerConfig } from '../../api/broker';
-import { normalizeBrokerServerUrl } from '../../api/brokerRouting';
+import { getBrokerConfig, type BrokerServer } from '../../api/broker';
+import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api/brokerRouting';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../../query/accounts';
-import { BROKER_CONFIG_KEY } from '../../query/broker';
+import { BROKER_CONFIG_KEY, useBrokerServers } from '../../query/broker';
 import { getTradingAccountTypeFromBackend } from '../../domain/accountType';
 import { safeRouterBack } from '../../utils/navigation';
+import { ActionSheet } from '../../ui/components/ActionSheet';
 import {
   setSecureItemAsync,
   removeSecureItemAsync,
@@ -50,9 +51,10 @@ import {
   persistSelectedBrokerSession,
 } from '../../state/brokerSessionStorage';
 import { runImmediateAction } from '../../utils/actionLatency';
-import { BROKER_OVERRIDES, formatServerFromName } from './BrokersScreen/brokerData';
+import { formatServerFromName } from './BrokersScreen/brokerData';
 
 const SAVED_LOGIN_KEY = 'rtx5_saved_login';
+const primaryBlue = '#2563EB';
 
 const scheduleBrokerDetailPostLoginWork = (task: () => void) => {
   const runAfterFrame = () => {
@@ -81,8 +83,52 @@ const scheduleBrokerDetailKeyboardDismiss = () => {
 type ServerOption = {
   label: string;
   brokerId: string;
+  brokerName: string;
+  brokerSymbol: string;
   serverUrl: string;
   logoUrl: string;
+};
+
+const RESERVED_BROKER_IDS = new Set(['qr', 'custom']);
+
+const normalizeOptionKey = (option: ServerOption) => (
+  [
+    option.brokerId.trim().toLowerCase(),
+    option.label.trim().toLowerCase(),
+    option.serverUrl.trim().toLowerCase(),
+  ].join('|')
+);
+
+const formatBrokerOptionName = (brokerSymbol: string, brokerName: string) => {
+  const symbol = brokerSymbol.trim();
+  const name = brokerName.trim();
+  if (!symbol) return name;
+  if (!name) return symbol;
+  return name.toLowerCase().includes(symbol.toLowerCase()) ? name : `${symbol} ${name}`;
+};
+
+const buildServerOptionFromBrokerServer = (broker: BrokerServer): ServerOption | null => {
+  if (broker.enabled === false) {
+    return null;
+  }
+
+  const brokerId = String(broker.broker_id ?? '').trim();
+  const brokerName = String(broker.broker_name ?? '').trim() || brokerId;
+  const serverLabel = String(broker.server ?? '').trim() || formatServerFromName(brokerName);
+  const serverUrl = resolveBrokerServiceBaseUrl(broker);
+
+  if (!brokerId || !serverLabel) {
+    return null;
+  }
+
+  return {
+    label: serverLabel,
+    brokerId,
+    brokerName,
+    brokerSymbol: brokerId,
+    serverUrl,
+    logoUrl: String(broker.logo_url ?? '').trim(),
+  };
 };
 
 export function BrokerDetailScreen() {
@@ -108,6 +154,9 @@ export function BrokerDetailScreen() {
   const upsertSavedAccount = useSavedAccounts((s) => s.upsertAccount);
   const queryClient = useQueryClient();
   const showBrokerDetailActionSheet = useUIState((s) => s.showBrokerDetailActionSheet);
+  const actionSheet = useUIState((s) => s.scopedActionSheets.settingsBrokerDetail);
+  const hideBrokerDetailActionSheet = useUIState((s) => s.hideBrokerDetailActionSheet);
+  const { data: brokerServers } = useBrokerServers(true);
 
   // Real-account option is disabled while the active session is a real
   // account, matching MT5: it shows as muted so the user knows they already
@@ -126,75 +175,71 @@ export function BrokerDetailScreen() {
 
   // The broker_id we send to the API. Default to the broker slug from the
   // BrokersScreen list; fall back to the server name when no slug is given.
-  const apiBrokerId = brokerIdSlug && brokerIdSlug !== 'qr' && brokerIdSlug !== 'custom'
+  const apiBrokerId = brokerIdSlug && !RESERVED_BROKER_IDS.has(brokerIdSlug)
     ? brokerIdSlug
     : initialServer;
+
+  const initialServerOption = useMemo<ServerOption>(() => ({
+    label: initialServer,
+    brokerId: apiBrokerId,
+    brokerName,
+    brokerSymbol: apiBrokerId,
+    serverUrl: initialServerUrl,
+    logoUrl: initialLogoUrl,
+  }), [apiBrokerId, brokerName, initialLogoUrl, initialServer, initialServerUrl]);
 
   const serverOptions = useMemo<ServerOption[]>(() => {
     const seen = new Set<string>();
     const out: ServerOption[] = [];
-    // Always offer the server we navigated in with first.
-    if (initialServer) {
-      seen.add(initialServer);
-      out.push({
-        label: initialServer,
-        brokerId: apiBrokerId,
-        serverUrl: initialServerUrl,
-        logoUrl: initialLogoUrl,
-      });
+
+    const pushOption = (option: ServerOption | null) => {
+      if (!option) return;
+      const key = normalizeOptionKey(option);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(option);
+    };
+
+    if (initialServerOption.label || initialServerOption.brokerId) {
+      pushOption(initialServerOption);
     }
-    const override = BROKER_OVERRIDES[brokerName];
-    if (override?.server && !seen.has(override.server)) {
-      seen.add(override.server);
-      out.push({
-        label: override.server,
-        brokerId: apiBrokerId,
-        serverUrl: initialServerUrl,
-        logoUrl: initialLogoUrl,
-      });
+
+    const directoryOptions = (brokerServers ?? [])
+      .map(buildServerOptionFromBrokerServer)
+      .filter((option): option is ServerOption => option !== null)
+      .sort((a, b) => (
+        a.brokerName.localeCompare(b.brokerName) ||
+        a.label.localeCompare(b.label) ||
+        a.brokerId.localeCompare(b.brokerId)
+      ));
+
+    for (const option of directoryOptions) {
+      pushOption(option);
     }
-    // MT5 commonly exposes a parallel Demo + Live server. Surface them as
-    // alternatives so the user can flip between them inside the same broker.
-    const baseLive = (override?.server ?? formatServerFromName(brokerName)).replace(
-      /-(Demo|Live)\d*$/i,
-      '',
-    );
-    const alternates = [`${baseLive}-Demo`, `${baseLive}-Live`];
-    for (const alt of alternates) {
-      if (!seen.has(alt)) {
-        seen.add(alt);
-        out.push({
-          label: alt,
-          brokerId: apiBrokerId,
-          serverUrl: initialServerUrl,
-          logoUrl: initialLogoUrl,
-        });
-      }
-    }
+
     return out;
-  }, [apiBrokerId, brokerName, initialLogoUrl, initialServer, initialServerUrl]);
+  }, [brokerServers, initialServerOption]);
 
   const [loginValue, setLoginValue] = useState('');
   const [passwordValue, setPasswordValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [savePassword, setSavePassword] = useState(true);
   const [selectedServer, setSelectedServer] = useState<ServerOption>(
-    serverOptions[0] ?? {
-      label: initialServer,
-      brokerId: apiBrokerId,
-      serverUrl: initialServerUrl,
-      logoUrl: initialLogoUrl,
-    },
+    serverOptions[0] ?? initialServerOption,
   );
+  const selectedBrokerName = selectedServer.brokerName || brokerName;
+  const selectedBrokerSymbol = selectedServer.brokerSymbol || selectedServer.brokerId || apiBrokerId;
+  const selectedBrokerDisplayName = formatBrokerOptionName(selectedBrokerSymbol, selectedBrokerName) || t('Broker');
+  const selectedBrokerLogoUrl = selectedServer.logoUrl || initialLogoUrl;
   const brokerInitials = useMemo(() => {
-    const words = brokerName
+    const words = selectedBrokerDisplayName
       .replace(/\([^)]*\)/g, '')
       .trim()
       .split(/\s+/)
       .filter(Boolean);
     const initials = words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
     return initials || 'BR';
-  }, [brokerName]);
+  }, [selectedBrokerDisplayName]);
   const brokerServerLabel = selectedServer.label || apiBrokerId || t('Server');
   const [isLoading, setIsLoading] = useState(false);
   const [modalState, setModalState] = useState<{
@@ -206,18 +251,48 @@ export function BrokerDetailScreen() {
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const requestInFlightRef = useRef(false);
 
+  useEffect(() => {
+    setSelectedServer((current) => {
+      const currentKey = normalizeOptionKey(current);
+      const matchingOption = serverOptions.find((option) => (
+        normalizeOptionKey(option) === currentKey ||
+        (
+          option.brokerId === current.brokerId &&
+          option.label === current.label &&
+          (!current.serverUrl || option.serverUrl === current.serverUrl)
+        )
+      ));
+
+      return matchingOption ?? current;
+    });
+  }, [serverOptions]);
+
+  // Keep the globally selected broker connection aligned with the current
+  // server picker row before the user logs in or opens registration.
+  useEffect(() => {
+    const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
+    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
+    const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
+
+    if (!effectiveBrokerId || !effectiveServerUrl) return;
+    setBrokerConnection(effectiveBrokerId, effectiveServerUrl, effectiveLogoUrl);
+    void persistSelectedBrokerSession({
+      brokerId: effectiveBrokerId,
+      serverUrl: effectiveServerUrl,
+      logoUrl: effectiveLogoUrl,
+    });
+  }, [
+    apiBrokerId,
+    initialLogoUrl,
+    initialServerUrl,
+    selectedServer.brokerId,
+    selectedServer.logoUrl,
+    selectedServer.serverUrl,
+    setBrokerConnection,
+  ]);
+
   // Lazy-load any previously saved login on first focus so returning users
   // see their credentials pre-filled (mirrors the standalone /login screen).
-  useEffect(() => {
-    if (!apiBrokerId || !initialServerUrl) return;
-    setBrokerConnection(apiBrokerId, initialServerUrl, initialLogoUrl);
-    void persistSelectedBrokerSession({
-      brokerId: apiBrokerId,
-      serverUrl: initialServerUrl,
-      logoUrl: initialLogoUrl,
-    });
-  }, [apiBrokerId, initialLogoUrl, initialServerUrl, setBrokerConnection]);
-
   useEffect(() => {
     let cancelled = false;
     getSecureItemAsync(SAVED_LOGIN_KEY).then((val) => {
@@ -249,14 +324,19 @@ export function BrokerDetailScreen() {
       );
       return;
     }
+    const effectiveBrokerId = selectedServer.brokerId || apiBrokerId;
+    const effectiveBrokerName = selectedServer.brokerName || brokerName;
+    const effectiveServerUrl = selectedServer.serverUrl || initialServerUrl;
+    const effectiveLogoUrl = selectedServer.logoUrl || initialLogoUrl;
+
     router.push({
       pathname: '/register',
       params: {
-        brokerId: apiBrokerId,
-        brokerName,
+        brokerId: effectiveBrokerId,
+        brokerName: effectiveBrokerName,
         server: selectedServer.label,
-        serverUrl: selectedServer.serverUrl,
-        logoUrl: selectedServer.logoUrl,
+        serverUrl: effectiveServerUrl,
+        logoUrl: effectiveLogoUrl,
       },
     });
   };
@@ -266,10 +346,15 @@ export function BrokerDetailScreen() {
     runImmediateAction('brokerDetail.serverSheet.open', () =>
       showBrokerDetailActionSheet({
         title: t('Choose server'),
-        detent: 'adaptive',
+        searchable: true,
+        searchPlaceholder: t('Search brokers'),
+        detent: 'large',
         instantOpen: true,
+        androidKeyboardAvoidance: 'resize',
         actions: serverOptions.map((opt) => ({
-          label: opt.label,
+          label: formatBrokerOptionName(opt.brokerSymbol, opt.brokerName),
+          subtitle: opt.label,
+          selected: normalizeOptionKey(opt) === normalizeOptionKey(selectedServer),
           onPress: () => setSelectedServer(opt),
         })),
       }),
@@ -481,7 +566,7 @@ export function BrokerDetailScreen() {
           >
             <Ionicons name="arrow-back" size={26} color={T.text} />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{brokerName}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{selectedBrokerName}</Text>
         </View>
 
         <KeyboardAvoidingView
@@ -497,9 +582,9 @@ export function BrokerDetailScreen() {
             <View style={styles.brokerSummaryCard}>
               <View style={styles.brokerSummaryTop}>
                 <View style={styles.brokerLogoMark}>
-                  {initialLogoUrl ? (
+                  {selectedBrokerLogoUrl ? (
                     <Image
-                      source={{ uri: initialLogoUrl }}
+                      source={{ uri: selectedBrokerLogoUrl }}
                       style={styles.brokerLogoImage}
                       resizeMode="contain"
                       accessibilityIgnoresInvertColors
@@ -516,7 +601,7 @@ export function BrokerDetailScreen() {
                       <Text style={styles.readyText}>{t('Ready')}</Text>
                     </View>
                   </View>
-                  <Text style={styles.brokerName} numberOfLines={1}>{brokerName}</Text>
+                  <Text style={styles.brokerName} numberOfLines={1}>{selectedBrokerDisplayName}</Text>
                   <View style={styles.brokerServerPill}>
                     <Ionicons name="server-outline" size={15} color={T.textSub} />
                     <Text style={styles.brokerServerLine} numberOfLines={1}>
@@ -677,9 +762,9 @@ export function BrokerDetailScreen() {
                     latencyLabel="brokerDetail.server.open"
                     unstable_pressDelay={0}
                   >
-                    {initialLogoUrl ? (
+                    {selectedBrokerLogoUrl ? (
                       <Image
-                        source={{ uri: initialLogoUrl }}
+                        source={{ uri: selectedBrokerLogoUrl }}
                         style={styles.serverLogoIcon}
                         resizeMode="contain"
                         accessibilityIgnoresInvertColors
@@ -709,7 +794,7 @@ export function BrokerDetailScreen() {
                   <Ionicons
                     name={savePassword ? 'checkbox' : 'square-outline'}
                     size={22}
-                    color={savePassword ? T.accent : T.textSub}
+                    color={savePassword ? primaryBlue : T.textSub}
                   />
                   <Text style={styles.checkboxText}>{t('Save password')}</Text>
                 </Pressable>
@@ -809,6 +894,21 @@ export function BrokerDetailScreen() {
             </View>
           </View>
         )}
+
+        {/* ActionSheet rendered locally because this broker-detail route is outside the tab host. */}
+        <ActionSheet
+          visible={actionSheet !== null}
+          title={actionSheet?.title}
+          actions={actionSheet?.actions ?? []}
+          onClose={hideBrokerDetailActionSheet}
+          searchable={actionSheet?.searchable}
+          searchPlaceholder={actionSheet?.searchPlaceholder}
+          detent={actionSheet?.detent}
+          minimumTopInset={actionSheet?.minimumTopInset}
+          instantOpen={actionSheet?.instantOpen}
+          runActionAfterClose={actionSheet?.runActionAfterClose}
+          androidKeyboardAvoidance={actionSheet?.androidKeyboardAvoidance}
+        />
       </View>
     </Screen>
   );
@@ -1204,7 +1304,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       flexShrink: 0,
     },
     forgotText: {
-      color: '#2563EB',
+      color: primaryBlue,
       fontSize: 13,
       fontWeight: '800',
     },
@@ -1213,10 +1313,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
-      backgroundColor: '#2563EB',
+      backgroundColor: primaryBlue,
       minHeight: 54,
       borderRadius: 16,
-      shadowColor: '#2563EB',
+      shadowColor: primaryBlue,
       shadowOpacity: 0.3,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },

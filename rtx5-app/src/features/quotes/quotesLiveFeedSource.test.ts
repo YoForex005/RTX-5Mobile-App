@@ -19,6 +19,9 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
 
   assert.match(serviceSource, /getSecureItemAsync\(ACTIVE_BROKER_SERVER_URL_KEY\)/);
   assert.match(serviceSource, /private async resolveSocketUrlAsync\(\): Promise<string>/);
+  assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(state\.brokerServerUrl\)/);
+  assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(storedServerUrl\)/);
+  assert.match(serviceSource, /DEFAULT_QUOTES_WS_URL = 'wss:\/\/backend\.orrnn\.com\/ws\/feed'/);
   assert.match(serviceSource, /this\.openResolvedSocket\(nextUrl\)/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_MAX_DELAY_MS = 5_000/);

@@ -175,6 +175,7 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
       minimumTopInset={activeConfig?.minimumTopInset}
       instantOpen={activeConfig?.instantOpen}
       runActionAfterClose={activeConfig?.runActionAfterClose}
+      androidKeyboardAvoidance={activeConfig?.androidKeyboardAvoidance}
     />
   );
 });
@@ -226,6 +227,7 @@ export default function TabsLayout() {
     [insets.bottom, isDark, tabBarHeight],
   );
   const inactiveTabColor = isDark ? '#5A6B87' : T.textDimmed;
+  const bottomTabActiveColor = T.trading.buy.primary;
 
   const markTabNavigationStarted = useCallback((routeName: string) => {
     if (!isBottomTabName(routeName)) {
@@ -298,11 +300,11 @@ export default function TabsLayout() {
                 bottom: chartTabBarKeyboardLift + Math.max(insets.bottom, 0),
               },
             ],
-          tabBarActiveTintColor: T.accent,
+          tabBarActiveTintColor: bottomTabActiveColor,
           tabBarInactiveTintColor: inactiveTabColor,
           tabBarIcon: ({ size }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? bottomTabActiveColor : inactiveTabColor;
             if (route.name === 'chart') {
               return <MaterialIcons name="candlestick-chart" size={size + 2} color={color} />;
             }
@@ -311,7 +313,7 @@ export default function TabsLayout() {
           },
           tabBarLabel: ({ children }) => {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
-            const color = visualActiveTabName === tabName ? T.accent : inactiveTabColor;
+            const color = visualActiveTabName === tabName ? bottomTabActiveColor : inactiveTabColor;
             return (
               <Text allowFontScaling={false} numberOfLines={1} style={[styles.tabLabel, { color }]}>
                 {children}

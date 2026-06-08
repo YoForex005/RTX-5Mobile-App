@@ -1,7 +1,7 @@
 import { LIGHTWEIGHT_CHARTS_JS } from "./lightweightChartsBundle";
 import { RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS } from "../../../domain/candles/rendering/customCandlestickSeriesWebView";
 import { ENHANCED_DRAWING_TOOLS_JS } from "../plugins/enhancedDrawingToolsString";
-import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
+import { CHART_AXIS_DIVIDER_STROKE_WIDTH, CHART_DEFAULT_VISIBLE_BAR_MAX, CHART_DEFAULT_VISIBLE_BAR_TARGET_PX, CHART_DEFAULT_VISIBLE_BAR_MIN, CHART_DEFAULT_TIME_SCALE_BAR_SPACING, CHART_DEFAULT_RESET_BAR_SPACING_MAX, CHART_DEFAULT_RESET_BAR_SPACING_MIN, CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET, CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING, CHART_GRID_DASH_PATTERN, CHART_GRID_FIRST_INTERIOR_HORIZONTAL_OFFSET, CHART_GRID_HORIZONTAL_LINE_COUNT, CHART_GRID_HORIZONTAL_SPACING, CHART_GRID_STROKE_WIDTH, CHART_GRID_VERTICAL_SPACING, CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH, CHART_TIME_SCALE_FIX_LEFT_EDGE, CHART_TIME_SCALE_FIX_RIGHT_EDGE } from "../ChartScreen.constants";
 
 export const CH_HTML = `
 <!DOCTYPE html>
@@ -17,6 +17,34 @@ export const CH_HTML = `
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; position: relative; }
       #chart { width: 100%; height: 100%; position: relative; z-index: 1; background: transparent; }
+      .rtx5-right-price-scale-fallback {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+        z-index: 6;
+      }
+      .rtx5-right-price-scale-fallback-axis {
+        position: absolute;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .rtx5-right-price-scale-fallback-label {
+        position: absolute;
+        box-sizing: border-box;
+        height: 16px;
+        line-height: 16px;
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: clip;
+        padding: 0 6px 0 2px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum' 1, 'lnum' 1;
+        z-index: 2;
+      }
       #rtx5-moving-vertical-grid {
         position: absolute;
         left: 0;
@@ -101,6 +129,8 @@ export const CH_HTML = `
       var lastInitHostOptions = null;
       var lastInitChartType = 'candles';
       var lastInitShowLowerPane = true;
+      var lastInitSignature = '';
+      var lastInitConfigSig = '';
       var lastRequestedDisplayDecimals = 2;
       var lastBidPrice = null;
       var lastAskPrice = null;
@@ -125,6 +155,12 @@ export const CH_HTML = `
       var overlayPriceScaleLockRaf = 0;
       var overlayPriceScaleLockForceAutoScale = false;
       var priceScaleHealthRaf = 0;
+      var rightPriceScaleLayoutRecoveryRaf = 0;
+      var rightPriceScaleFallbackLayer = null;
+      var rightPriceScaleFallbackRaf = 0;
+      var chartReadyPostGeneration = 0;
+      var lastChartBackgroundColor = '#FFFFFF';
+      var lastChartTextColor = '#131722';
       var activeScrollPriceScaleRaf = 0;
       var lastActiveScrollPriceScaleCheckAt = 0;
       var activeHorizontalScrollGesture = false;
@@ -163,6 +199,13 @@ export const CH_HTML = `
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
+      var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
+      var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 3;
+      var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 7;
+      var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = [1, 2, 2.5, 5, 10];
+      var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS = 2;
+      var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS = 24;
       var CHART_DEBUG_LOGS = false;
       var PRICE_SCALE_HEALTH_SPAN_MULTIPLE = 30;
       var PRICE_SCALE_HEALTH_MIN_DATA_OVERLAP_RATIO = 0.2;
@@ -178,6 +221,7 @@ export const CH_HTML = `
       var PRICE_SCALE_ROBUST_TRIM_MIN_VALUES = 12;
       var PRICE_SCALE_ROBUST_TRIM_RATIO = 0.08;
       var PRICE_SCALE_ROBUST_TRIM_SPAN_MULTIPLE = 5;
+      var RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS = 6;
       var ACTIVE_SCROLL_PRICE_SCALE_CHECK_INTERVAL_MS = 48;
       var ACTIVE_SCROLL_PRICE_SCALE_SPAN_MULTIPLE = 8;
       var ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS = 160;
@@ -265,6 +309,967 @@ export const CH_HTML = `
           plotTop: plotTop,
           plotHeight: Math.max(0, plotBottom - plotTop),
         };
+      }
+
+      function resolveChartElementSize() {
+        var chartElement = document.getElementById('chart');
+        if (!chartElement) {
+          return { width: 0, height: 0 };
+        }
+        var rect = null;
+        try {
+          rect = typeof chartElement.getBoundingClientRect === 'function'
+            ? chartElement.getBoundingClientRect()
+            : null;
+        } catch (_e) {}
+        var width = Math.round(
+          chartElement.clientWidth ||
+          (rect && typeof rect.width === 'number' ? rect.width : 0)
+        );
+        var height = Math.round(
+          chartElement.clientHeight ||
+          (rect && typeof rect.height === 'number' ? rect.height : 0)
+        );
+        return {
+          width: isFinite(width) && width > 0 ? width : 0,
+          height: isFinite(height) && height > 0 ? height : 0,
+        };
+      }
+
+      function applyRightPriceScaleLayoutOptions() {
+        var layoutOptions = {
+          visible: true,
+          entireTextOnly: false,
+          minimumWidth: ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
+        };
+        var priceScaleApi = getRightPriceScaleApi();
+        try {
+          if (chart && typeof chart.applyOptions === 'function') {
+            chart.applyOptions({ rightPriceScale: layoutOptions });
+          }
+        } catch (_chartOptionsErr) {}
+        try {
+          if (priceScaleApi && typeof priceScaleApi.applyOptions === 'function') {
+            priceScaleApi.applyOptions(layoutOptions);
+          }
+        } catch (_scaleOptionsErr) {}
+      }
+
+      function isCustomRightPriceScaleOverlayNode(node) {
+        try {
+          if (!node) {
+            return false;
+          }
+          if (
+            (_overlayLabelLayer && typeof _overlayLabelLayer.contains === 'function' && _overlayLabelLayer.contains(node)) ||
+            (rightPriceScaleFallbackLayer && typeof rightPriceScaleFallbackLayer.contains === 'function' && rightPriceScaleFallbackLayer.contains(node))
+          ) {
+            return true;
+          }
+          if (typeof node.closest !== 'function') {
+            return false;
+          }
+          return Boolean(
+            node.closest('.rtx5-overlay-label-layer') ||
+            node.closest('.rtx5-position-price-scale-box') ||
+            node.closest('.rtx5-market-price-scale-extension') ||
+            node.closest('.rtx5-right-price-scale-fallback')
+          );
+        } catch (_e) {
+          return false;
+        }
+      }
+
+      function getRightPriceScaleNativeDomLabelStatus(metrics) {
+        var emptyStatus = {
+          labelCount: 0,
+          collapsedCount: 0,
+          healthyCount: 0,
+        };
+        try {
+          var chartElement = document.getElementById('chart');
+          if (!chartElement || typeof chartElement.querySelectorAll !== 'function') {
+            return emptyStatus;
+          }
+          var chartRect = typeof chartElement.getBoundingClientRect === 'function'
+            ? chartElement.getBoundingClientRect()
+            : null;
+          if (!chartRect || !(chartRect.width > 0) || !(chartRect.height > 0)) {
+            return emptyStatus;
+          }
+          var axisLeft = chartRect.left + Math.round((metrics.leftAxisWidth || 0) + (metrics.paneWidth || 0));
+          var axisRight = Math.min(
+            chartRect.right,
+            axisLeft + Math.max(0, Math.round(metrics.rightAxisWidth || 0))
+          );
+          var plotTop = chartRect.top + Math.max(0, Math.round(metrics.plotTop || 0));
+          var plotBottom = plotTop + Math.max(0, Math.round(metrics.plotHeight || metrics.paneHeight || 0));
+          var nodes = chartElement.querySelectorAll('span, div');
+          var labelCount = 0;
+          var collapsedCount = 0;
+          var healthyCount = 0;
+          for (var i = 0; i < nodes.length; i += 1) {
+            var node = nodes[i];
+            if (node === chartElement || isCustomRightPriceScaleOverlayNode(node)) {
+              continue;
+            }
+            var text = node && typeof node.textContent === 'string' ? node.textContent.trim() : '';
+            if (!/^[\\u2212-]?\\d+(?:\\.\\d+)?$/.test(text) && !/^[\\u2212-]?\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?$/.test(text)) {
+              continue;
+            }
+            var rect = typeof node.getBoundingClientRect === 'function'
+              ? node.getBoundingClientRect()
+              : null;
+            if (!rect || rect.right < axisLeft - 3 || rect.left > axisRight + 3) {
+              continue;
+            }
+            labelCount += 1;
+            if (
+              rect.width < 1 ||
+              rect.height < 1 ||
+              rect.bottom <= plotTop + 2 ||
+              rect.top >= plotBottom - 2 ||
+              rect.bottom <= chartRect.top + 2 ||
+              rect.top <= chartRect.top + 2
+            ) {
+              collapsedCount += 1;
+            } else {
+              healthyCount += 1;
+            }
+          }
+          return {
+            labelCount: labelCount,
+            collapsedCount: collapsedCount,
+            healthyCount: healthyCount,
+          };
+        } catch (_e) {
+          return emptyStatus;
+        }
+      }
+
+      function hasCollapsedRightPriceScaleDomLabels(metrics) {
+        var nativeLabelStatus = getRightPriceScaleNativeDomLabelStatus(metrics);
+        return nativeLabelStatus.labelCount >= 2 &&
+          nativeLabelStatus.healthyCount === 0 &&
+          nativeLabelStatus.collapsedCount >= nativeLabelStatus.labelCount;
+      }
+
+      function isRightPriceScaleNativeDomLabelStatusHealthy(nativeLabelStatus) {
+        return Boolean(
+          nativeLabelStatus &&
+          nativeLabelStatus.healthyCount >= 2 &&
+          nativeLabelStatus.healthyCount >= Math.min(nativeLabelStatus.labelCount, 2)
+        );
+      }
+
+      function parseCanvasRgbColor(color) {
+        if (typeof color !== 'string' || color.length === 0) {
+          return null;
+        }
+        var normalized = color.toLowerCase().split(' ').join('');
+        try {
+          if (normalized.charAt(0) === '#') {
+            var hex = normalized.slice(1);
+            if (hex.length === 3) {
+              hex = hex.charAt(0) + hex.charAt(0) + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2);
+            }
+            if (hex.length !== 6) {
+              return null;
+            }
+            var r = parseInt(hex.slice(0, 2), 16);
+            var g = parseInt(hex.slice(2, 4), 16);
+            var b = parseInt(hex.slice(4, 6), 16);
+            return isFinite(r) && isFinite(g) && isFinite(b) ? { r: r, g: g, b: b } : null;
+          }
+          var rgbMatch = normalized.match(/^rgba?\\((\\d+),(\\d+),(\\d+)(?:,[^)]+)?\\)$/);
+          if (rgbMatch) {
+            return {
+              r: Math.max(0, Math.min(255, Number(rgbMatch[1]))),
+              g: Math.max(0, Math.min(255, Number(rgbMatch[2]))),
+              b: Math.max(0, Math.min(255, Number(rgbMatch[3]))),
+            };
+          }
+        } catch (_e) {}
+        return null;
+      }
+
+      function getCanvasColorDistance(left, right) {
+        if (!left || !right) {
+          return Number.POSITIVE_INFINITY;
+        }
+        var dr = left.r - right.r;
+        var dg = left.g - right.g;
+        var db = left.b - right.b;
+        return Math.sqrt(dr * dr + dg * dg + db * db);
+      }
+
+      function getCanvasColorLuma(color) {
+        if (!color) {
+          return 0;
+        }
+        return color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+      }
+
+      function isRightPriceScaleCanvasPixelForegroundLike(r, g, b, a, textRgb, backgroundRgb) {
+        if (!(a > 20)) {
+          return false;
+        }
+        var pixelRgb = { r: r, g: g, b: b };
+        if (backgroundRgb && getCanvasColorDistance(pixelRgb, backgroundRgb) < 30) {
+          return false;
+        }
+        if (textRgb && getCanvasColorDistance(pixelRgb, textRgb) < 145) {
+          return true;
+        }
+        var pixelLuma = getCanvasColorLuma(pixelRgb);
+        if (backgroundRgb) {
+          return Math.abs(pixelLuma - getCanvasColorLuma(backgroundRgb)) > 45;
+        }
+        return pixelLuma < 115 || pixelLuma > 170;
+      }
+
+      function getRightPriceScaleNativeCanvasLabelStatus(metrics) {
+        var emptyStatus = {
+          sampled: false,
+          canvasCount: 0,
+          foregroundPixelCount: 0,
+          clusterCount: 0,
+          healthy: false,
+        };
+        try {
+          var resolvedMetrics = metrics || resolvePrimaryPaneMetrics();
+          var chartElement = document.getElementById('chart');
+          if (!chartElement || typeof chartElement.querySelectorAll !== 'function' || !resolvedMetrics) {
+            return emptyStatus;
+          }
+          var chartRect = typeof chartElement.getBoundingClientRect === 'function'
+            ? chartElement.getBoundingClientRect()
+            : null;
+          if (!chartRect || !(chartRect.width > 0) || !(chartRect.height > 0)) {
+            return emptyStatus;
+          }
+          var axisWidth = Math.max(0, Math.round(resolvedMetrics.rightAxisWidth || 0));
+          var axisLeft = chartRect.left + Math.round((resolvedMetrics.leftAxisWidth || 0) + (resolvedMetrics.paneWidth || 0));
+          var axisRight = Math.min(chartRect.right, axisLeft + axisWidth);
+          var plotTop = chartRect.top + Math.max(0, Math.round(resolvedMetrics.plotTop || 0));
+          var plotBottom = Math.min(
+            chartRect.bottom,
+            plotTop + Math.max(0, Math.round(resolvedMetrics.plotHeight || resolvedMetrics.paneHeight || 0))
+          );
+          if (!(axisWidth > 0) || !(axisRight - axisLeft > 8) || !(plotBottom - plotTop > 16)) {
+            return emptyStatus;
+          }
+
+          var canvases = chartElement.querySelectorAll('canvas');
+          var textRgb = parseCanvasRgbColor(resolveRightPriceScaleFallbackTextColor());
+          var backgroundRgb = parseCanvasRgbColor(lastChartBackgroundColor || '#FFFFFF');
+          var sampled = false;
+          var canvasCount = 0;
+          var totalForegroundPixelCount = 0;
+          var bestClusterCount = 0;
+
+          for (var canvasIndex = 0; canvasIndex < canvases.length; canvasIndex += 1) {
+            var canvas = canvases[canvasIndex];
+            if (!canvas || isCustomRightPriceScaleOverlayNode(canvas)) {
+              continue;
+            }
+            var canvasRect = typeof canvas.getBoundingClientRect === 'function'
+              ? canvas.getBoundingClientRect()
+              : null;
+            if (!canvasRect || !(canvasRect.width > 0) || !(canvasRect.height > 0)) {
+              continue;
+            }
+            var cssLeft = Math.max(axisLeft, canvasRect.left);
+            var cssRight = Math.min(axisRight, canvasRect.right);
+            var cssTop = Math.max(plotTop, canvasRect.top);
+            var cssBottom = Math.min(plotBottom, canvasRect.bottom);
+            if (!(cssRight - cssLeft > 8) || !(cssBottom - cssTop > 16)) {
+              continue;
+            }
+            var scaleX = canvas.width / canvasRect.width;
+            var scaleY = canvas.height / canvasRect.height;
+            if (!(scaleX > 0) || !(scaleY > 0)) {
+              continue;
+            }
+            var sampleX = Math.max(0, Math.floor((cssLeft - canvasRect.left) * scaleX));
+            var sampleY = Math.max(0, Math.floor((cssTop - canvasRect.top) * scaleY));
+            var sampleW = Math.min(canvas.width - sampleX, Math.ceil((cssRight - cssLeft) * scaleX));
+            var sampleH = Math.min(canvas.height - sampleY, Math.ceil((cssBottom - cssTop) * scaleY));
+            if (!(sampleW > 8) || !(sampleH > 16)) {
+              continue;
+            }
+            var context = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+            if (!context || typeof context.getImageData !== 'function') {
+              continue;
+            }
+            var imageData = null;
+            try {
+              imageData = context.getImageData(sampleX, sampleY, sampleW, sampleH);
+            } catch (_imageErr) {
+              continue;
+            }
+            if (!imageData || !imageData.data) {
+              continue;
+            }
+
+            sampled = true;
+            canvasCount += 1;
+            var data = imageData.data;
+            var step = Math.max(1, Math.floor(Math.max(sampleW, sampleH) / 700));
+            var minRowForegroundPixels = Math.max(2, Math.floor(sampleW / (step * 22)));
+            var minClusterRows = 2;
+            var minClusterWidth = Math.max(5, Math.floor(sampleW * 0.08));
+            var maxClusterWidth = Math.max(minClusterWidth + 1, Math.floor(sampleW * 0.94));
+            var foregroundPixelCount = 0;
+            var clusterCount = 0;
+            var clusterRows = 0;
+            var clusterMinCol = sampleW;
+            var clusterMaxCol = 0;
+            var clusterMaxRowCount = 0;
+            var finishCluster = function() {
+              if (clusterRows > 0) {
+                var clusterWidth = clusterMaxCol - clusterMinCol + 1;
+                if (
+                  clusterRows >= minClusterRows &&
+                  clusterWidth >= minClusterWidth &&
+                  clusterWidth <= maxClusterWidth &&
+                  clusterMaxRowCount >= minRowForegroundPixels
+                ) {
+                  clusterCount += 1;
+                }
+              }
+              clusterRows = 0;
+              clusterMinCol = sampleW;
+              clusterMaxCol = 0;
+              clusterMaxRowCount = 0;
+            };
+
+            for (var y = 0; y < sampleH; y += step) {
+              var rowForegroundCount = 0;
+              var rowMinCol = sampleW;
+              var rowMaxCol = 0;
+              for (var x = 0; x < sampleW; x += step) {
+                var pixelIndex = ((y * sampleW) + x) * 4;
+                if (
+                  isRightPriceScaleCanvasPixelForegroundLike(
+                    data[pixelIndex],
+                    data[pixelIndex + 1],
+                    data[pixelIndex + 2],
+                    data[pixelIndex + 3],
+                    textRgb,
+                    backgroundRgb
+                  )
+                ) {
+                  rowForegroundCount += 1;
+                  foregroundPixelCount += 1;
+                  if (x < rowMinCol) rowMinCol = x;
+                  if (x > rowMaxCol) rowMaxCol = x;
+                }
+              }
+              if (rowForegroundCount >= minRowForegroundPixels) {
+                clusterRows += 1;
+                clusterMinCol = Math.min(clusterMinCol, rowMinCol);
+                clusterMaxCol = Math.max(clusterMaxCol, rowMaxCol);
+                clusterMaxRowCount = Math.max(clusterMaxRowCount, rowForegroundCount);
+              } else {
+                finishCluster();
+              }
+            }
+            finishCluster();
+
+            totalForegroundPixelCount += foregroundPixelCount;
+            bestClusterCount = Math.max(bestClusterCount, clusterCount);
+            if (
+              clusterCount >= RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS &&
+              foregroundPixelCount >= RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS
+            ) {
+              return {
+                sampled: true,
+                canvasCount: canvasCount,
+                foregroundPixelCount: totalForegroundPixelCount,
+                clusterCount: clusterCount,
+                healthy: true,
+              };
+            }
+          }
+
+          return {
+            sampled: sampled,
+            canvasCount: canvasCount,
+            foregroundPixelCount: totalForegroundPixelCount,
+            clusterCount: bestClusterCount,
+            healthy: false,
+          };
+        } catch (_e) {
+          return emptyStatus;
+        }
+      }
+
+      function isRightPriceScaleNativeCanvasLabelStatusHealthy(nativeCanvasStatus) {
+        return Boolean(
+          nativeCanvasStatus &&
+          nativeCanvasStatus.sampled === true &&
+          nativeCanvasStatus.healthy === true &&
+          nativeCanvasStatus.clusterCount >= RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS &&
+          nativeCanvasStatus.foregroundPixelCount >= RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS
+        );
+      }
+
+      function hasHealthyRightPriceScaleNativeCanvasLabels(metrics) {
+        var nativeCanvasStatus = getRightPriceScaleNativeCanvasLabelStatus(metrics || resolvePrimaryPaneMetrics());
+        return isRightPriceScaleNativeCanvasLabelStatusHealthy(nativeCanvasStatus);
+      }
+
+      function getRightPriceScaleNativeLabelHealth(metrics) {
+        var resolvedMetrics = metrics || resolvePrimaryPaneMetrics();
+        var nativeLabelStatus = getRightPriceScaleNativeDomLabelStatus(resolvedMetrics);
+        if (isRightPriceScaleNativeDomLabelStatusHealthy(nativeLabelStatus)) {
+          return {
+            healthy: true,
+            source: 'dom',
+            domStatus: nativeLabelStatus,
+            canvasStatus: null,
+          };
+        }
+        var nativeCanvasStatus = getRightPriceScaleNativeCanvasLabelStatus(resolvedMetrics);
+        if (isRightPriceScaleNativeCanvasLabelStatusHealthy(nativeCanvasStatus)) {
+          return {
+            healthy: true,
+            source: 'canvas',
+            domStatus: nativeLabelStatus,
+            canvasStatus: nativeCanvasStatus,
+          };
+        }
+        return {
+          healthy: false,
+          source: 'missing',
+          domStatus: nativeLabelStatus,
+          canvasStatus: nativeCanvasStatus,
+        };
+      }
+
+      function hasHealthyRightPriceScaleNativeDomLabels(metrics) {
+        var nativeLabelStatus = getRightPriceScaleNativeDomLabelStatus(metrics || resolvePrimaryPaneMetrics());
+        return isRightPriceScaleNativeDomLabelStatusHealthy(nativeLabelStatus);
+      }
+
+      function hasHealthyRightPriceScaleNativeLabels(metrics) {
+        return getRightPriceScaleNativeLabelHealth(metrics || resolvePrimaryPaneMetrics()).healthy === true;
+      }
+
+      function isRightPriceScaleLayoutHealthy() {
+        if (!chart) {
+          return false;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        if (
+          !metrics ||
+          !(metrics.chartWidth > 0) ||
+          !(metrics.chartHeight > 0) ||
+          !(metrics.paneWidth > 0) ||
+          !(metrics.paneHeight > 0) ||
+          metrics.rightAxisWidth < ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH} - 2
+        ) {
+          return false;
+        }
+        if (metrics.leftAxisWidth + metrics.paneWidth + metrics.rightAxisWidth > metrics.chartWidth + 2) {
+          return false;
+        }
+        var priceScaleApi = getRightPriceScaleApi();
+        var priceScaleOptions =
+          priceScaleApi && typeof priceScaleApi.options === 'function'
+            ? priceScaleApi.options()
+            : null;
+        if (priceScaleOptions && priceScaleOptions.visible === false) {
+          return false;
+        }
+        if (priceScaleOptions && priceScaleOptions.entireTextOnly === true) {
+          return false;
+        }
+        return true;
+      }
+
+      function clearRightPriceScaleFallbackLabels() {
+        if (!rightPriceScaleFallbackLayer) {
+          return;
+        }
+        try { rightPriceScaleFallbackLayer.style.display = 'none'; } catch (_styleErr) {}
+        while (rightPriceScaleFallbackLayer.firstChild) {
+          rightPriceScaleFallbackLayer.removeChild(rightPriceScaleFallbackLayer.firstChild);
+        }
+      }
+
+      function clearRightPriceScaleFallbackLayer() {
+        if (rightPriceScaleFallbackRaf) {
+          try { cancelAnimationFrame(rightPriceScaleFallbackRaf); } catch (_e) {}
+          rightPriceScaleFallbackRaf = 0;
+        }
+        if (rightPriceScaleFallbackLayer && rightPriceScaleFallbackLayer.parentNode) {
+          try { rightPriceScaleFallbackLayer.parentNode.removeChild(rightPriceScaleFallbackLayer); } catch (_removeErr) {}
+        }
+        rightPriceScaleFallbackLayer = null;
+      }
+
+      function ensureRightPriceScaleFallbackLayer() {
+        var chartElement = document.getElementById('chart');
+        if (!chartElement) {
+          return null;
+        }
+        if (rightPriceScaleFallbackLayer && rightPriceScaleFallbackLayer.parentNode === chartElement) {
+          return rightPriceScaleFallbackLayer;
+        }
+        rightPriceScaleFallbackLayer = document.createElement('div');
+        rightPriceScaleFallbackLayer.className = 'rtx5-right-price-scale-fallback';
+        rightPriceScaleFallbackLayer.setAttribute('aria-hidden', 'true');
+        chartElement.style.position = 'relative';
+        chartElement.appendChild(rightPriceScaleFallbackLayer);
+        return rightPriceScaleFallbackLayer;
+      }
+
+      function resolveChartTextColor(opts) {
+        try {
+          var textColor = opts && opts.layout ? opts.layout.textColor : null;
+          if (typeof textColor === 'string' && textColor.length > 0) {
+            return textColor;
+          }
+        } catch (_e) {}
+        return '#131722';
+      }
+
+      function resolveRightPriceScaleFallbackTextColor() {
+        try {
+          var options = chart && typeof chart.options === 'function' ? chart.options() : null;
+          var textColor = options && options.layout ? options.layout.textColor : null;
+          if (typeof textColor === 'string' && textColor.length > 0) {
+            return textColor;
+          }
+        } catch (_e) {}
+        return lastChartTextColor || '#131722';
+      }
+
+      function resolveRightPriceScaleFallbackFontFamily() {
+        try {
+          var options = chart && typeof chart.options === 'function' ? chart.options() : null;
+          var fontFamily = options && options.layout ? options.layout.fontFamily : null;
+          if (typeof fontFamily === 'string' && fontFamily.length > 0) {
+            return fontFamily;
+          }
+        } catch (_e) {}
+        return "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+      }
+
+      function resolveRightPriceScaleFallbackRange() {
+        var visibleDataRange = resolvePriceRangeFromVisibleData(true);
+        if (isValidPriceRange(visibleDataRange)) {
+          return normalizePriceRange(visibleDataRange);
+        }
+        try {
+          var priceScaleApi = getRightPriceScaleApi();
+          var visibleRange =
+            priceScaleApi && typeof priceScaleApi.getVisibleRange === 'function'
+              ? priceScaleApi.getVisibleRange()
+              : null;
+          if (isValidPriceRange(visibleRange)) {
+            return normalizePriceRange(visibleRange);
+          }
+        } catch (_visibleRangeErr) {}
+        return null;
+      }
+
+      function countRightPriceScaleFallbackDecimalPlaces(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+          return 0;
+        }
+        var text = String(value).toLowerCase();
+        var exponentIndex = text.indexOf('e');
+        if (exponentIndex >= 0) {
+          var mantissa = text.slice(0, exponentIndex);
+          var exponent = Number(text.slice(exponentIndex + 1));
+          var mantissaDecimalIndex = mantissa.indexOf('.');
+          var mantissaDecimals = mantissaDecimalIndex >= 0 ? mantissa.length - mantissaDecimalIndex - 1 : 0;
+          return Math.max(0, mantissaDecimals - (isFinite(exponent) ? exponent : 0));
+        }
+        var decimalIndex = text.indexOf('.');
+        return decimalIndex >= 0 ? Math.max(0, text.length - decimalIndex - 1) : 0;
+      }
+
+      function resolveRightPriceScaleFallbackDataDecimals() {
+        if (!lastRawSeriesData || lastRawSeriesData.length === 0) {
+          return 0;
+        }
+        var maxDecimals = 0;
+        var startIndex = Math.max(0, lastRawSeriesData.length - 260);
+        for (var i = startIndex; i < lastRawSeriesData.length; i += 1) {
+          var bar = lastRawSeriesData[i];
+          if (!bar) {
+            continue;
+          }
+          var candidates = [bar.open, bar.high, bar.low, bar.close, bar.value];
+          for (var p = 0; p < candidates.length; p += 1) {
+            maxDecimals = Math.max(maxDecimals, countRightPriceScaleFallbackDecimalPlaces(candidates[p]));
+            if (maxDecimals >= 8) {
+              return 8;
+            }
+          }
+        }
+        return Math.max(0, Math.min(8, maxDecimals));
+      }
+
+      function resolveRightPriceScaleFallbackConfiguredDecimals() {
+        return typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0
+          ? Math.max(0, Math.min(8, Math.round(lastDisplayDecimals)))
+          : null;
+      }
+
+      function resolveRightPriceScaleFallbackDecimals(minimumDecimals) {
+        var configuredDecimals =
+          resolveRightPriceScaleFallbackConfiguredDecimals();
+        if (configuredDecimals !== null) {
+          return configuredDecimals;
+        }
+
+        var safeMinimum =
+          typeof minimumDecimals === 'number' && isFinite(minimumDecimals)
+            ? Math.max(0, Math.min(8, Math.round(minimumDecimals)))
+            : 0;
+        return Math.max(2, resolveRightPriceScaleFallbackDataDecimals(), safeMinimum);
+      }
+
+      function roundRightPriceScaleFallbackPrice(price, decimals) {
+        if (typeof price !== 'number' || !isFinite(price)) {
+          return NaN;
+        }
+        var safeDecimals =
+          typeof decimals === 'number' && isFinite(decimals)
+            ? Math.max(0, Math.min(8, Math.round(decimals)))
+            : resolveRightPriceScaleFallbackDecimals();
+        var factor = Math.pow(10, safeDecimals);
+        return Math.round(price * factor) / factor;
+      }
+
+      function formatRightPriceScaleFallbackLabel(price, decimals) {
+        var resolvedDecimals = resolveRightPriceScaleFallbackDecimals(decimals);
+        return Number(price).toFixed(resolvedDecimals);
+      }
+
+      function resolveRightPriceScaleFallbackStepDecimals(step) {
+        var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
+        if (configuredDecimals !== null) {
+          return configuredDecimals;
+        }
+
+        return Math.max(
+          resolveRightPriceScaleFallbackDecimals(),
+          countRightPriceScaleFallbackDecimalPlaces(step)
+        );
+      }
+
+      function resolveRightPriceScaleFallbackLabelCount(metrics) {
+        var plotHeight = metrics && typeof metrics.plotHeight === 'number' ? metrics.plotHeight : 0;
+        var estimated = Math.floor(plotHeight / 56) + 1;
+        return Math.max(
+          RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS,
+          Math.min(RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS, estimated)
+        );
+      }
+
+      function resolveRightPriceScaleFallbackAxisMetrics(metrics) {
+        var chartWidth = Math.max(0, Math.round(metrics.chartWidth || 0));
+        var reportedAxisWidth = Math.max(0, Math.round(metrics.rightAxisWidth || 0));
+        var axisWidth = Math.max(reportedAxisWidth, ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH});
+        axisWidth = Math.min(axisWidth, chartWidth);
+        var axisLeft = reportedAxisWidth > 0
+          ? Math.round((metrics.leftAxisWidth || 0) + (metrics.paneWidth || 0))
+          : Math.max(0, chartWidth - axisWidth);
+        if (chartWidth > 0 && axisLeft + axisWidth > chartWidth) {
+          axisWidth = Math.max(0, chartWidth - axisLeft);
+        }
+        return {
+          axisLeft: axisLeft,
+          axisWidth: axisWidth,
+          chartWidth: chartWidth,
+        };
+      }
+
+      function resolveRightPriceScaleFallbackNiceStep(span, targetIntervals) {
+        if (!(span > 0)) {
+          return 0;
+        }
+        var intervals =
+          typeof targetIntervals === 'number' && isFinite(targetIntervals)
+            ? Math.max(1, Math.round(targetIntervals))
+            : RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS;
+        var rawStep = span / intervals;
+        if (!(rawStep > 0)) {
+          return 0;
+        }
+        var exponent = Math.floor(Math.log(rawStep) / Math.LN10);
+        var magnitude = Math.pow(10, exponent);
+        var fraction = rawStep / magnitude;
+        var niceFraction = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length - 1];
+        for (var i = 0; i < RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length; i += 1) {
+          if (fraction <= RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i]) {
+            niceFraction = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i];
+            break;
+          }
+        }
+        var step = niceFraction * magnitude;
+        var decimals = resolveRightPriceScaleFallbackStepDecimals(step);
+        var minimumStep = decimals > 0 ? Math.pow(10, -decimals) : 1;
+        return Math.max(step, minimumStep);
+      }
+
+      function resolveRightPriceScaleFallbackTicks() {
+        if (!series || !lastRawSeriesData || lastRawSeriesData.length === 0) {
+          return [];
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        if (
+          !metrics ||
+          !(metrics.chartWidth > 0) ||
+          !(metrics.paneWidth > 0) ||
+          !(metrics.plotHeight > 0)
+        ) {
+          return [];
+        }
+        var range = resolveRightPriceScaleFallbackRange();
+        if (!isValidPriceRange(range)) {
+          return [];
+        }
+        range = normalizePriceRange(range);
+        var span = getPriceRangeSpan(range);
+        if (!(span > 0)) {
+          return [];
+        }
+        var labelCount = resolveRightPriceScaleFallbackLabelCount(metrics);
+        var step = resolveRightPriceScaleFallbackNiceStep(span, Math.max(1, labelCount - 1));
+        if (!(step > 0)) {
+          return [];
+        }
+        var priceScaleApi = getRightPriceScaleApi();
+        var priceScaleOptions =
+          priceScaleApi && typeof priceScaleApi.options === 'function'
+            ? priceScaleApi.options()
+            : null;
+        var invertScale = priceScaleOptions && priceScaleOptions.invertScale === true;
+        var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
+        var plotBottom = plotTop + Math.max(0, Math.round(metrics.plotHeight || 0));
+        var ticks = [];
+        var seenLabels = Object.create(null);
+        var decimals = resolveRightPriceScaleFallbackStepDecimals(step);
+        var startPrice = Math.ceil(range.from / step) * step;
+        var endPrice = Math.floor(range.to / step) * step;
+        var epsilon = Math.max(step * 0.000001, Math.pow(10, -Math.max(decimals, 1)) * 0.000001);
+        if (endPrice < startPrice) {
+          startPrice = range.from;
+          endPrice = range.to;
+        }
+        var prices = [];
+        for (var priceTick = endPrice; priceTick >= startPrice - epsilon; priceTick -= step) {
+          prices.push(roundRightPriceScaleFallbackPrice(priceTick, decimals));
+          if (prices.length > RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS * 3) {
+            break;
+          }
+        }
+        if (prices.length === 0) {
+          prices = [
+            roundRightPriceScaleFallbackPrice(range.to, decimals),
+            roundRightPriceScaleFallbackPrice(range.from + span / 2, decimals),
+            roundRightPriceScaleFallbackPrice(range.from, decimals),
+          ];
+        }
+        if (invertScale) {
+          prices.reverse();
+        }
+        for (var i = 0; i < prices.length && ticks.length < RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS; i += 1) {
+          var price = prices[i];
+          if (typeof price !== 'number' || !isFinite(price)) {
+            continue;
+          }
+          var y = null;
+          try {
+            y = typeof series.priceToCoordinate === 'function' ? series.priceToCoordinate(price) : null;
+          } catch (_coordErr) {
+            y = null;
+          }
+          if (typeof y !== 'number' || !isFinite(y)) {
+            var ratio = span > 0
+              ? (invertScale ? (price - range.from) / span : (range.to - price) / span)
+              : 0.5;
+            y = plotTop + ratio * Math.max(1, metrics.plotHeight || 1);
+          }
+          y = Math.max(
+            plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
+            Math.min(plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2, y)
+          );
+          var text = formatRightPriceScaleFallbackLabel(price, decimals);
+          if (seenLabels[text]) {
+            continue;
+          }
+          if (
+            ticks.length > 0 &&
+            Math.abs(ticks[ticks.length - 1].y - y) < RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT + 4
+          ) {
+            continue;
+          }
+          seenLabels[text] = true;
+          ticks.push({
+            price: price,
+            text: text,
+            y: y,
+          });
+        }
+        return ticks;
+      }
+
+      function renderFallbackRightPriceScaleLabels() {
+        try {
+          if (!series || !lastRawSeriesData || lastRawSeriesData.length === 0) {
+            clearRightPriceScaleFallbackLabels();
+            return false;
+          }
+          var metrics = resolvePrimaryPaneMetrics();
+          var layer = ensureRightPriceScaleFallbackLayer();
+          if (!layer) {
+            return false;
+          }
+          clearRightPriceScaleFallbackLabels();
+          var axisMetrics = resolveRightPriceScaleFallbackAxisMetrics(metrics);
+          if (!(axisMetrics.chartWidth > 0) || !(axisMetrics.axisWidth > 0)) {
+            return false;
+          }
+          var ticks = resolveRightPriceScaleFallbackTicks();
+          if (ticks.length === 0) {
+            return false;
+          }
+          var textColor = resolveRightPriceScaleFallbackTextColor();
+          var fontFamily = resolveRightPriceScaleFallbackFontFamily();
+          var labelLeft = Math.max(0, Math.round(axisMetrics.axisLeft + 3));
+          var labelWidth = Math.max(0, Math.round(Math.min(axisMetrics.axisWidth - 4, axisMetrics.chartWidth - labelLeft - 1)));
+          layer.style.display = 'block';
+          var axisBackground = document.createElement('div');
+          axisBackground.className = 'rtx5-right-price-scale-fallback-axis';
+          axisBackground.style.left = Math.max(0, Math.round(axisMetrics.axisLeft)) + 'px';
+          axisBackground.style.top = '0px';
+          axisBackground.style.width = Math.max(0, Math.round(axisMetrics.axisWidth)) + 'px';
+          axisBackground.style.height = Math.max(0, Math.round(metrics.chartHeight || 0)) + 'px';
+          axisBackground.style.background = lastChartBackgroundColor || '#FFFFFF';
+          layer.appendChild(axisBackground);
+          for (var i = 0; i < ticks.length; i += 1) {
+            var tick = ticks[i];
+            var label = document.createElement('div');
+            label.className = 'rtx5-right-price-scale-fallback-label';
+            label.setAttribute('data-rtx5-role', 'right-price-scale-fallback-label');
+            label.textContent = tick.text;
+            label.style.left = labelLeft + 'px';
+            label.style.top = Math.round(tick.y - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2) + 'px';
+            label.style.width = labelWidth + 'px';
+            label.style.color = textColor;
+            label.style.fontFamily = fontFamily;
+            label.style.textAlign = 'right';
+            label.style.fontWeight = '600';
+            label.style.letterSpacing = '0px';
+            label.style.fontVariantNumeric = 'tabular-nums';
+            label.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
+            label.style.opacity = '0.96';
+            label.style.textShadow = '0 1px 0 ' + (lastChartBackgroundColor || 'transparent');
+            layer.appendChild(label);
+          }
+          return true;
+        } catch (fallbackErr) {
+          postError('renderFallbackRightPriceScaleLabels', fallbackErr);
+          return false;
+        }
+      }
+
+      function scheduleRightPriceScaleFallbackRefresh() {
+        if (rightPriceScaleFallbackRaf) {
+          return;
+        }
+        rightPriceScaleFallbackRaf = requestAnimationFrame(function() {
+          rightPriceScaleFallbackRaf = 0;
+          renderFallbackRightPriceScaleLabels();
+        });
+      }
+
+      function recoverRightPriceScaleLayout(reason) {
+        try {
+          if (!chart) {
+            return;
+          }
+          applyRightPriceScaleLayoutOptions();
+          var size = resolveChartElementSize();
+          if (
+            size.width > 0 &&
+            size.height > 0 &&
+            typeof chart.resize === 'function'
+          ) {
+            chart.resize(size.width, size.height);
+          }
+          scheduleOverlayDomRefresh();
+          scheduleRightPriceScaleFallbackRefresh();
+          postChartGeometry();
+          chartDebugLog('[WEBVIEW-CANDLE] recover_right_price_scale_layout', {
+            reason: reason || 'unknown',
+            width: size.width,
+            height: size.height,
+          });
+        } catch (_e) {}
+      }
+
+      function scheduleRightPriceScaleLayoutRecovery(reason, attempts) {
+        if (rightPriceScaleLayoutRecoveryRaf) {
+          cancelAnimationFrame(rightPriceScaleLayoutRecoveryRaf);
+        }
+        var remainingAttempts =
+          typeof attempts === 'number' && isFinite(attempts)
+            ? Math.max(1, Math.round(attempts))
+            : RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS;
+        rightPriceScaleLayoutRecoveryRaf = requestAnimationFrame(function() {
+          rightPriceScaleLayoutRecoveryRaf = 0;
+          if (isRightPriceScaleLayoutHealthy()) {
+            renderFallbackRightPriceScaleLabels();
+            postChartGeometry();
+            return;
+          }
+          recoverRightPriceScaleLayout(reason);
+          if (remainingAttempts > 1 && !isRightPriceScaleLayoutHealthy()) {
+            scheduleRightPriceScaleLayoutRecovery(reason, remainingAttempts - 1);
+          }
+        });
+      }
+
+      function postChartReadyWhenPriceScaleHealthy(reason, attempt, generation, initSignature, configSig) {
+        if (typeof generation === 'number' && generation !== chartReadyPostGeneration) {
+          return;
+        }
+        var currentAttempt =
+          typeof attempt === 'number' && isFinite(attempt)
+            ? Math.max(0, Math.round(attempt))
+            : 0;
+        if (isRightPriceScaleLayoutHealthy()) {
+          if (!lastRawSeriesData || lastRawSeriesData.length === 0 || renderFallbackRightPriceScaleLabels()) {
+            postChartGeometry();
+            postChartReady(initSignature, configSig);
+            return;
+          }
+        }
+        recoverRightPriceScaleLayout(reason || 'chart_ready');
+        if (!lastRawSeriesData || lastRawSeriesData.length === 0 || renderFallbackRightPriceScaleLabels()) {
+          postChartGeometry();
+          postChartReady(initSignature, configSig);
+          return;
+        }
+        if (currentAttempt >= RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS) {
+          scheduleRightPriceScaleFallbackRefresh();
+          scheduleRightPriceScaleLayoutRecovery(reason || 'chart_ready', 2);
+          postChartGeometry();
+          postChartReady(initSignature, configSig);
+          return;
+        }
+        requestAnimationFrame(function() {
+          postChartReadyWhenPriceScaleHealthy(reason, currentAttempt + 1, generation, initSignature, configSig);
+        });
       }
 
       function isTransparentChartColor(color) {
@@ -921,6 +1926,23 @@ export const CH_HTML = `
         return expanded ? makePaddedPriceRange(minPrice, maxPrice) : normalized;
       }
 
+      function resolveMarketPriceBadgeRecoveryBuffer(range) {
+        var normalized = normalizePriceRange(range);
+        if (!normalized) {
+          return 0;
+        }
+        var span = getPriceRangeSpan(normalized);
+        if (!(span > 0)) {
+          return 0;
+        }
+        var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
+        var minimumStep =
+          typeof configuredDecimals === 'number' && isFinite(configuredDecimals)
+            ? (configuredDecimals > 0 ? Math.pow(10, -configuredDecimals) : 1)
+            : 0;
+        return Math.max(minimumStep * 2, span * MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO);
+      }
+
       function rangeContainsMarketPriceBadges(range, referenceRange) {
         var normalized = normalizePriceRange(range);
         if (!normalized) {
@@ -928,12 +1950,13 @@ export const CH_HTML = `
         }
         var reference = normalizePriceRange(referenceRange);
         var marketPrices = getMarketPriceBadgeValues();
+        var recoveryBuffer = resolveMarketPriceBadgeRecoveryBuffer(reference || normalized);
         for (var i = 0; i < marketPrices.length; i += 1) {
           var price = marketPrices[i];
           if (reference && !isMarketPriceNearRange(price, reference)) {
             continue;
           }
-          if (price < normalized.from || price > normalized.to) {
+          if (price < normalized.from - recoveryBuffer || price > normalized.to + recoveryBuffer) {
             return false;
           }
         }
@@ -1141,6 +2164,7 @@ export const CH_HTML = `
         if (!priceScaleApi) {
           return;
         }
+        applyRightPriceScaleLayoutOptions();
         try {
           if (typeof priceScaleApi.applyOptions === 'function') {
             priceScaleApi.applyOptions({ autoScale: true });
@@ -1172,7 +2196,13 @@ export const CH_HTML = `
 
       function healCollapsedPriceScaleRange(reason, allowManualReset) {
         try {
-          if (verticalPricePanGestureActive || activeTradeLineDrag) {
+          if (activeTradeLineDrag) {
+            return;
+          }
+          if (!isRightPriceScaleLayoutHealthy()) {
+            recoverRightPriceScaleLayout(reason || 'price_scale_health');
+          }
+          if (verticalPricePanGestureActive) {
             return;
           }
           if (manualPriceScaleRangeActive && allowManualReset !== true) {
@@ -1438,9 +2468,13 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
-      function postChartReady() {
+      function postChartReady(initSignature, configSig) {
         try {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CHART_READY' }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'CHART_READY',
+            initSignature: initSignature || '',
+            configSig: configSig || '',
+          }));
         } catch (_e) {}
       }
 
@@ -2708,6 +3742,14 @@ export const CH_HTML = `
             opts.layout.background = { type: 'solid', color: opts.layout.background.color };
           }
         } catch (_e) {}
+        if (!opts) {
+          opts = {};
+        }
+        opts.rightPriceScale = Object.assign({}, opts.rightPriceScale || {}, {
+          visible: true,
+          entireTextOnly: false,
+          minimumWidth: ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
+        });
         return opts || {};
       }
 
@@ -2793,7 +3835,9 @@ export const CH_HTML = `
       // on the first attempt (common on Android light theme first load).
       var _pendingInit = null;
 
-      function _doInitChart(opts, chartType, data, displayDecimals, showLowerPane) {
+      function _doInitChart(opts, chartType, data, displayDecimals, showLowerPane, initSignature, configSig) {
+        var resolvedInitSignature = typeof initSignature === 'string' ? initSignature : '';
+        var resolvedConfigSig = typeof configSig === 'string' ? configSig : '';
         var el = document.getElementById('chart');
         var w = el.clientWidth;
         var h = el.clientHeight;
@@ -2808,6 +3852,8 @@ export const CH_HTML = `
             data: data,
             displayDecimals: displayDecimals,
             showLowerPane: showLowerPane,
+            initSignature: resolvedInitSignature,
+            configSig: resolvedConfigSig,
           };
           requestAnimationFrame(function() {
             if (_pendingInit) {
@@ -2816,7 +3862,9 @@ export const CH_HTML = `
                 _pendingInit.chartType,
                 _pendingInit.data,
                 _pendingInit.displayDecimals,
-                _pendingInit.showLowerPane
+                _pendingInit.showLowerPane,
+                _pendingInit.initSignature,
+                _pendingInit.configSig
               );
             }
           });
@@ -2866,6 +3914,11 @@ export const CH_HTML = `
           try { cancelAnimationFrame(priceScaleHealthRaf); } catch (_) {}
           priceScaleHealthRaf = 0;
         }
+        if (rightPriceScaleLayoutRecoveryRaf) {
+          try { cancelAnimationFrame(rightPriceScaleLayoutRecoveryRaf); } catch (_) {}
+          rightPriceScaleLayoutRecoveryRaf = 0;
+        }
+        clearRightPriceScaleFallbackLayer();
         clearActiveScrollPriceScaleRecovery();
         if (visibleRangeIdleTimer !== null) {
           try { clearTimeout(visibleRangeIdleTimer); } catch (_) {}
@@ -2877,14 +3930,22 @@ export const CH_HTML = `
         _liveBarHasObservedRealtimeUpdate = false;
         seriesType = chartType || 'candles';
         shouldShowLowerPane = showLowerPane !== false;
+        lastInitSignature = resolvedInitSignature;
+        lastInitConfigSig = resolvedConfigSig;
         lastDisplayDecimals =
           typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0
             ? displayDecimals
             : 2;
         lastRawSeriesData = sanitizeSeriesData(data);
+        chartReadyPostGeneration += 1;
+        var readyGeneration = chartReadyPostGeneration;
+        var readyInitSignature = lastInitSignature;
+        var readyConfigSig = lastInitConfigSig;
 
         var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
         var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
+        lastChartBackgroundColor = chartBackgroundColor;
+        lastChartTextColor = resolveChartTextColor(safeOpts);
         try {
           document.body.style.background = chartBackgroundColor;
           el.style.background = 'transparent';
@@ -3060,15 +4121,24 @@ export const CH_HTML = `
         applyOverlayPayload(_overlayPayload);
         setMarketPriceLines(lastBidPrice, lastAskPrice);
         postChartGeometry();
-        postChartReady();
+        postChartReadyWhenPriceScaleHealthy('init_ready', 0, readyGeneration, readyInitSignature, readyConfigSig);
       }
 
-      function initChart(opts, chartType, data, displayDecimals, showLowerPane) {
+      function initChart(opts, chartType, data, displayDecimals, showLowerPane, initSignature, configSig) {
         try {
-          lastInitHostOptions = cloneSerializableValue(opts || {}, {});
-          lastInitChartType = chartType || 'candles';
-          lastInitShowLowerPane = showLowerPane !== false;
+          var requestHostOptions = cloneSerializableValue(opts || {}, {});
+          var requestChartType = chartType || 'candles';
+          var requestShowLowerPane = showLowerPane !== false;
+          var requestDisplayDecimals = lastRequestedDisplayDecimals;
+          var requestInitSignature = typeof initSignature === 'string' ? initSignature : '';
+          var requestConfigSig = typeof configSig === 'string' ? configSig : '';
+          lastInitHostOptions = requestHostOptions;
+          lastInitChartType = requestChartType;
+          lastInitShowLowerPane = requestShowLowerPane;
+          lastInitSignature = requestInitSignature;
+          lastInitConfigSig = requestConfigSig;
           if (typeof displayDecimals === 'number' && isFinite(displayDecimals) && displayDecimals >= 0) {
+            requestDisplayDecimals = displayDecimals;
             lastRequestedDisplayDecimals = displayDecimals;
           }
 
@@ -3087,11 +4157,13 @@ export const CH_HTML = `
           requestAnimationFrame(function() {
             try {
               _doInitChart(
-                lastInitHostOptions,
-                lastInitChartType,
+                requestHostOptions,
+                requestChartType,
                 Array.isArray(data) ? data.slice() : [],
-                lastRequestedDisplayDecimals,
-                lastInitShowLowerPane
+                requestDisplayDecimals,
+                requestShowLowerPane,
+                requestInitSignature,
+                requestConfigSig
               );
             } catch(e) {
               postError('initChart', e);
@@ -3125,7 +4197,9 @@ export const CH_HTML = `
               _pendingInit.chartType,
               _pendingInit.data,
               _pendingInit.displayDecimals,
-              _pendingInit.showLowerPane
+              _pendingInit.showLowerPane,
+              _pendingInit.initSignature,
+              _pendingInit.configSig
             );
             return;
           }
@@ -3134,6 +4208,7 @@ export const CH_HTML = `
             chart.resize(w, h);
             ensureMoveBarsSeries(lastDisplayDecimals);
             schedulePriceScaleHealthCheck('resize', false);
+            scheduleRightPriceScaleLayoutRecovery('resize', 4);
             refreshOverlayDomLabels(_overlayPayload);
             postChartGeometry();
           }
@@ -3167,7 +4242,9 @@ export const CH_HTML = `
               _pendingInit.chartType,
               _pendingInit.data,
               _pendingInit.displayDecimals,
-              _pendingInit.showLowerPane
+              _pendingInit.showLowerPane,
+              _pendingInit.initSignature,
+              _pendingInit.configSig
             );
             return;
           }
@@ -3179,7 +4256,9 @@ export const CH_HTML = `
                 lastInitChartType,
                 lastRawSeriesData.slice(),
                 lastRequestedDisplayDecimals,
-                lastInitShowLowerPane
+                lastInitShowLowerPane,
+                lastInitSignature,
+                lastInitConfigSig
               );
             }
             return;
@@ -3224,6 +4303,7 @@ export const CH_HTML = `
           ensureMoveDirectionPriceLine();
           refreshMoveDirectionPriceLine();
           scheduleOverlayPriceScaleLock(true);
+          scheduleRightPriceScaleLayoutRecovery('recover_surface', RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS);
           postChartGeometry();
         } catch (e) {
           postError('recoverChartSurface', e);
@@ -3247,7 +4327,9 @@ export const CH_HTML = `
                 _pendingInit.chartType,
                 _pendingInit.data,
                 _pendingInit.displayDecimals,
-                _pendingInit.showLowerPane
+                _pendingInit.showLowerPane,
+                _pendingInit.initSignature,
+                _pendingInit.configSig
               );
             } else if (chart) {
               // Chart exists — just resize it to match.
@@ -3255,6 +4337,7 @@ export const CH_HTML = `
                 chart.resize(w, h);
                 ensureMoveBarsSeries(lastDisplayDecimals);
                 schedulePriceScaleHealthCheck('resize_observer', false);
+                scheduleRightPriceScaleLayoutRecovery('resize_observer', 4);
                 refreshOverlayDomLabels(_overlayPayload);
                 postChartGeometry();
               } catch(_) {}
@@ -3289,7 +4372,9 @@ export const CH_HTML = `
         if (!chart || typeof chart.priceScale !== 'function') return;
         try {
           chart.priceScale('right').applyOptions({
-            entireTextOnly: true,
+            visible: true,
+            entireTextOnly: false,
+            minimumWidth: ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
             scaleMargins: {
               top: 0.08,
               bottom: hasLowerPane ? 0.34 : 0.12,
@@ -3757,6 +4842,10 @@ export const CH_HTML = `
             didPrependHistory || didReplaceVisibleSeries,
             didPrependHistory || didReplaceVisibleSeries ? 5 : 1
           );
+          scheduleRightPriceScaleLayoutRecovery(
+            priceScaleReason,
+            didPrependHistory || didReplaceVisibleSeries ? RIGHT_PRICE_SCALE_LAYOUT_RECOVERY_MAX_ATTEMPTS : 3
+          );
           ensureMoveBarsSeries(lastDisplayDecimals);
           if (moveBarsSeries) {
             try { moveBarsSeries.setData(mapMoveBarsData(lastRawSeriesData)); } catch (_mb) {}
@@ -4045,7 +5134,7 @@ export const CH_HTML = `
           lineWidth: 1,
           lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
           lineVisible: true,
-          axisLabelVisible: false,
+          axisLabelVisible: true,
           axisLabelColor: color,
           axisLabelTextColor: '#FFFFFF',
           title: '',
@@ -4057,23 +5146,36 @@ export const CH_HTML = `
         return trackMarketPriceLine(series.createPriceLine(makeMarketPriceLineOptions(price, color)));
       }
 
+      function normalizeMarketPriceLinePrice(price) {
+        if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return null;
+        }
+        var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
+        var safeDecimals =
+          typeof configuredDecimals === 'number' && isFinite(configuredDecimals)
+            ? Math.max(0, Math.min(10, Math.round(configuredDecimals)))
+            : resolveOverlayDisplayDecimals();
+        return Number(price.toFixed(safeDecimals));
+      }
+
       function setBidPriceLine(price, shouldScheduleRefresh) {
         try {
+          var normalizedPrice = normalizeMarketPriceLinePrice(price);
           if (shouldScheduleRefresh !== false) {
-            lastBidPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
+            lastBidPrice = normalizedPrice;
             marketPriceLinesVisible =
               lastBidPrice !== null ||
               (typeof lastAskPrice === 'number' && isFinite(lastAskPrice) && lastAskPrice > 0);
           }
           if (!series) return;
-          if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          if (normalizedPrice === null) {
             bidPriceLine = removeMarketPriceLine(bidPriceLine);
             if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
             return;
           }
           if (bidPriceLine) {
             try {
-              bidPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketBidColor));
+              bidPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, marketBidColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -4081,7 +5183,7 @@ export const CH_HTML = `
             }
           }
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
-          bidPriceLine = createMarketPriceLine(price, marketBidColor);
+          bidPriceLine = createMarketPriceLine(normalizedPrice, marketBidColor);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setBidPriceLine', e);
@@ -4090,21 +5192,22 @@ export const CH_HTML = `
 
       function setAskPriceLine(price, shouldScheduleRefresh) {
         try {
+          var normalizedPrice = normalizeMarketPriceLinePrice(price);
           if (shouldScheduleRefresh !== false) {
-            lastAskPrice = typeof price === 'number' && isFinite(price) && price > 0 ? price : null;
+            lastAskPrice = normalizedPrice;
             marketPriceLinesVisible =
               (typeof lastBidPrice === 'number' && isFinite(lastBidPrice) && lastBidPrice > 0) ||
               lastAskPrice !== null;
           }
           if (!series) return;
-          if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          if (normalizedPrice === null) {
             askPriceLine = removeMarketPriceLine(askPriceLine);
             if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
             return;
           }
           if (askPriceLine) {
             try {
-              askPriceLine.applyOptions(makeMarketPriceLineOptions(price, marketAskColor));
+              askPriceLine.applyOptions(makeMarketPriceLineOptions(normalizedPrice, marketAskColor));
               if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
               return;
             } catch (_e) {
@@ -4112,7 +5215,7 @@ export const CH_HTML = `
             }
           }
           askPriceLine = removeMarketPriceLine(askPriceLine);
-          askPriceLine = createMarketPriceLine(price, marketAskColor);
+          askPriceLine = createMarketPriceLine(normalizedPrice, marketAskColor);
           if (shouldScheduleRefresh !== false) scheduleOverlayDomRefresh();
         } catch (e) {
           postError('setAskPriceLine', e);
@@ -4120,10 +5223,12 @@ export const CH_HTML = `
       }
 
       function setMarketPriceLines(bid, ask) {
-        var hasBid = typeof bid === 'number' && isFinite(bid) && bid > 0;
-        var hasAsk = typeof ask === 'number' && isFinite(ask) && ask > 0;
-        lastBidPrice = hasBid ? bid : null;
-        lastAskPrice = hasAsk ? ask : null;
+        var normalizedBid = normalizeMarketPriceLinePrice(bid);
+        var normalizedAsk = normalizeMarketPriceLinePrice(ask);
+        var hasBid = normalizedBid !== null;
+        var hasAsk = normalizedAsk !== null;
+        lastBidPrice = normalizedBid;
+        lastAskPrice = normalizedAsk;
         marketPriceLinesVisible = hasBid || hasAsk;
         if (marketPriceLinesVisible && directionPriceLine && series) {
           try { series.removePriceLine(directionPriceLine); } catch (_e) {}
@@ -4131,12 +5236,12 @@ export const CH_HTML = `
         }
         clearMarketPriceLineRefs();
         if (hasBid) {
-          setBidPriceLine(bid, false);
+          setBidPriceLine(normalizedBid, false);
         } else {
           bidPriceLine = removeMarketPriceLine(bidPriceLine);
         }
         if (hasAsk) {
-          setAskPriceLine(ask, false);
+          setAskPriceLine(normalizedAsk, false);
         } else {
           askPriceLine = removeMarketPriceLine(askPriceLine);
         }
@@ -4243,6 +5348,7 @@ export const CH_HTML = `
         }
         el.style.position = 'relative';
         _overlayLabelLayer = document.createElement('div');
+        _overlayLabelLayer.className = 'rtx5-overlay-label-layer';
         _overlayLabelLayer.style.position = 'absolute';
         _overlayLabelLayer.style.left = '0';
         _overlayLabelLayer.style.top = '0';
@@ -4261,14 +5367,17 @@ export const CH_HTML = `
         }
       }
 
+      function resolveOverlayDisplayDecimals() {
+        return typeof lastRequestedDisplayDecimals === 'number' && isFinite(lastRequestedDisplayDecimals)
+          ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
+          : resolveRightPriceScaleFallbackDecimals();
+      }
+
       function roundOverlayDragPrice(price) {
         if (typeof price !== 'number' || !isFinite(price) || price <= 0) {
           return null;
         }
-        var decimals =
-          typeof lastRequestedDisplayDecimals === 'number' && isFinite(lastRequestedDisplayDecimals)
-            ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
-            : 5;
+        var decimals = resolveOverlayDisplayDecimals();
         return Number(price.toFixed(decimals));
       }
 
@@ -4280,10 +5389,7 @@ export const CH_HTML = `
       }
 
       function getOverlayAxisLabelPriceKey(price) {
-        var decimals =
-          typeof lastRequestedDisplayDecimals === 'number' && isFinite(lastRequestedDisplayDecimals)
-            ? Math.max(0, Math.min(10, Math.round(lastRequestedDisplayDecimals)))
-            : 5;
+        var decimals = resolveOverlayDisplayDecimals();
         return Number(price).toFixed(decimals);
       }
 
@@ -4536,7 +5642,11 @@ export const CH_HTML = `
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
-          if (!series) return;
+          if (!series) {
+            clearRightPriceScaleFallbackLabels();
+            return;
+          }
+          renderFallbackRightPriceScaleLabels();
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
           renderMarketPriceScaleExtensions(layer);
@@ -4660,6 +5770,7 @@ export const CH_HTML = `
           for (var bi = 0; bi < positionBoxes.length; bi++) {
             var box = positionBoxes[bi];
             var boxEl = document.createElement('div');
+            boxEl.className = 'rtx5-position-price-scale-box';
             boxEl.textContent = box.price.toFixed(boxDecimals);
             boxEl.style.position = 'absolute';
             boxEl.style.right = '2px';
@@ -4675,6 +5786,8 @@ export const CH_HTML = `
             boxEl.style.lineHeight = '14px';
             boxEl.style.boxSizing = 'border-box';
             boxEl.style.whiteSpace = 'nowrap';
+            boxEl.style.fontVariantNumeric = 'tabular-nums';
+            boxEl.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
             layer.appendChild(boxEl);
           }
         } catch (labelErr) {

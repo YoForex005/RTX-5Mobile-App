@@ -476,7 +476,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? '#0a0a0a' : T.glass1,
       borderRightWidth: 1,
       borderRightColor: T.border,
-      paddingTop: 48,
+      paddingTop: 58,
     },
 
     /* Profile */

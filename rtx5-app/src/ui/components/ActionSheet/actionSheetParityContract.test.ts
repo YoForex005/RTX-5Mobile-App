@@ -39,8 +39,8 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
     ...allSource.matchAll(/\bshow(?:Quotes|Chart|Trade|History|News|Accounts|BrokerDetail)ActionSheet\(/g),
   ];
 
-  assert.equal(actionSheetMounts.length, 20);
-  assert.equal(scopedActionSheetCalls.length, 14);
+  assert.equal(actionSheetMounts.length, 21);
+  assert.equal(scopedActionSheetCalls.length, 16);
 
   for (const mount of actionSheetMounts) {
     assert.match(mount[0], /instantOpen/, 'ActionSheet mount must opt into instant open path');
@@ -49,9 +49,11 @@ test('ActionSheet surfaces use the shared instant Quotes-style sheet contract', 
 
   const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
   const uiStateSource = readSource('src/state/uiState.ts');
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
 
   assert.match(actionSheetSource, /activeConfig\.instantOpen \?\? true/);
   assert.match(actionSheetSource, /activateOnPressIn/);
+  assert.match(tabsLayoutSource, /androidKeyboardAvoidance=\{activeConfig\?\.androidKeyboardAvoidance\}/);
   assert.match(uiStateSource, /showActionSheet: \(config\) => set\(\{ actionSheet: \{ \.\.\.config, instantOpen: true \} \}\)/);
 });
 

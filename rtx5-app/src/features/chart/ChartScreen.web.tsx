@@ -102,6 +102,7 @@ import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
 import {
   CHART_DEFAULT_TIME_SCALE_BAR_SPACING,
   CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING,
+  CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
   CHART_TIME_SCALE_FIX_LEFT_EDGE,
   CHART_TIME_SCALE_FIX_RIGHT_EDGE,
 } from './ChartScreen.constants';
@@ -239,9 +240,11 @@ const LivePriceHeader = React.memo(({ symbol, styles, displayDecimals, priceSour
 // Micro-component: isolated 4fps render cycle, 0 DOM depth
 const LiveTradeButtons = React.memo(({ symbol, styles, displayDecimals, lotSize, active = true }: any) => {
   const latestTick = useLiveTick(symbol, undefined, active);
+  const liveQuotes = useMarketData([symbol], active);
+  const q = liveQuotes[symbol] || {};
   const latestClose = latestTick?.close ?? 0;
-  const latestBid = latestClose;
-  const latestAsk = latestClose + (symbol.includes('XAU') ? 0.30 : symbol.includes('BTC') ? 25 : 0.00015);
+  const latestBid = typeof q.bid === 'number' && q.bid > 0 ? q.bid : latestClose;
+  const latestAsk = typeof q.ask === 'number' && q.ask > 0 ? q.ask : latestClose;
 
   const oneClickAccepted = useUserPreferences((s) => s.oneClickAccepted);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
@@ -372,14 +375,19 @@ const LiveTvLegend = React.memo(({ symbol, styles, displayDecimals, candles, act
   if (!latestTick || candles.length < 2) return null;
 
   const latestBid = latestTick.close;
-  const isUp = latestBid >= candles[candles.length - 2]?.close;
+  const previousClose = candles[candles.length - 2]?.close;
+  const change = typeof previousClose === 'number' && Number.isFinite(previousClose)
+    ? latestBid - previousClose
+    : 0;
+  const changePct = previousClose ? (change / previousClose) * 100 : 0;
+  const isUp = change >= 0;
 
   return (
     <View style={styles.tvLegendContainer} pointerEvents="box-none">
       <View>
         <View style={styles.tvLegendRow}>
           <Text style={[styles.tvLegendPriceChange, { fontWeight: '500', color: isUp ? '#089981' : '#F23645' }]}>
-            {(latestBid || 0).toFixed(displayDecimals)} {isUp ? '+' : '-'}192.90 (-0.98%)
+            {(latestBid || 0).toFixed(displayDecimals)} {change > 0 ? '+' : ''}{change.toFixed(displayDecimals)} ({changePct > 0 ? '+' : ''}{changePct.toFixed(2)}%)
           </Text>
         </View>
       </View>
@@ -621,16 +629,31 @@ export function ChartScreen() {
   const baseSymbol = useMemo(() => resolveChartSymbolKey(chartSymbol), [chartSymbol]);
   const chartLiveQuotes = useMarketData(chartSymbol ? [chartSymbol] : [], isScreenFocused);
   const chartLiveQuote = chartLiveQuotes[chartSymbol];
+  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
-  const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const displayDecimals = useMemo(() => {
     return resolveChartDisplayDecimals({
       instrumentDigits: chartInstrumentMeta?.digits,
+      instrumentPoint: chartInstrumentMeta?.point,
+      instrumentTickSize: chartInstrumentMeta?.tickSize,
       liveQuoteDigits: chartLiveQuote?.digits,
       liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+      liveQuoteBid: chartLiveQuote?.bid,
+      liveQuoteAsk: chartLiveQuote?.ask,
+      liveQuoteLast: chartLiveQuote?.close,
     });
-  }, [chartInstrumentMeta?.digits, chartLiveQuote?.digits, chartLiveQuoteDigitsSource, hasLiveChartQuote]);
+  }, [
+    chartInstrumentMeta?.digits,
+    chartInstrumentMeta?.point,
+    chartInstrumentMeta?.tickSize,
+    chartLiveQuote?.ask,
+    chartLiveQuote?.bid,
+    chartLiveQuote?.close,
+    chartLiveQuote?.digits,
+    chartLiveQuoteDigitsSource,
+    hasLiveChartQuote,
+  ]);
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;
@@ -649,20 +672,6 @@ export function ChartScreen() {
       ? ask ?? bid
       : bid ?? ask;
   }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
-  const overlayLiveBid = useMemo(
-    () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
-        : null,
-    [chartLiveQuote?.bid, hasLiveChartQuote],
-  );
-  const overlayLiveAsk = useMemo(
-    () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
-        : null,
-    [chartLiveQuote?.ask, hasLiveChartQuote],
-  );
   const liveChartTimestamp = useMemo(() => {
     const candidates = [
       chartLiveQuote?.lastReceivedAt,
@@ -830,11 +839,11 @@ export function ChartScreen() {
     () =>
       chartMetaLastCandle
         ? [
-            { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
-            { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
-            { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
-            { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
-          ]
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
+          { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
+          { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
+        ]
         : [],
     [chartMetaLastCandle, formatChartValue],
   );
@@ -947,12 +956,16 @@ export function ChartScreen() {
           labelVisible: false,
           color: 'transparent',
           width: 1,
+          style: LineStyle.Solid,
+          labelBackgroundColor: 'transparent',
         },
         horzLine: {
           visible: false,
           labelVisible: false,
           color: 'transparent',
           width: 1,
+          style: LineStyle.Solid,
+          labelBackgroundColor: 'transparent',
         },
       },
       localization: {
@@ -975,13 +988,16 @@ export function ChartScreen() {
         fixRightEdge: CHART_TIME_SCALE_FIX_RIGHT_EDGE,
       },
       rightPriceScale: {
+        visible: true,
+        borderVisible: false,
         borderColor: chartDisplay.showGrid ? resolvedChartColors.grid : 'transparent',
         autoScale: true,
+        entireTextOnly: false,
+        minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
         scaleMargins: {
           top: 0.08,
           bottom: 0.25,
         },
-        minimumWidth: 62,
       },
     });
 
@@ -1261,6 +1277,20 @@ export function ChartScreen() {
 
   const positions = usePositionsState((s) => s.positions);
   const positionLinesRef = useRef<any[]>([]);
+  const overlayLiveBid = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null,
+    [chartLiveQuote?.bid, hasLiveChartQuote],
+  );
+  const overlayLiveAsk = useMemo(
+    () =>
+      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null,
+    [chartLiveQuote?.ask, hasLiveChartQuote],
+  );
   const overlayPayload = useMemo(
     () => {
       if (!preferencesHydrated) {
@@ -1504,16 +1534,6 @@ export function ChartScreen() {
                 </Pressable>
               </View>
             </ScrollView>
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 62,
-                height: 1,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
-              }}
-            />
           </View>
           <View style={{ flex: 1, flexDirection: 'row' }}>
             {(isChartExpanded || showDrawingToolbar) && (
@@ -1739,7 +1759,7 @@ export function ChartScreen() {
         title='Timeframes'
         detent="adaptive"
         instantOpen
-        actions={timeframes.map((tf) => ({ label: tf, onPress: () => handleTimeframeSelect(tf) }))}
+        actions={timeframes.map((tf) => ({ label: tf, selected: tf === chartTimeframe, onPress: () => handleTimeframeSelect(tf) }))}
       />
 
       <ActionSheet
@@ -2087,6 +2107,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 10,
       height: 32,
       backgroundColor: isDark ? '#000000' : '#F8FAFC',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
       zIndex: 10,
     },
     chartMetaOverlay: {
@@ -2471,21 +2493,3 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -12,6 +12,8 @@ type ActionSheetAction = {
   label: string;
   /** Optional secondary line below the main label */
   subtitle?: string;
+  /** If true, styles the current choice with the active brand color */
+  selected?: boolean;
   /** If true, styles the button as a destructive/danger action */
   danger?: boolean;
   /** If true, the action appears greyed-out and is not interactive */
@@ -40,6 +42,8 @@ export type ActionSheetConfig = {
   instantOpen?: boolean;
   /** If true, defers action execution until after sheet dismiss animation */
   runActionAfterClose?: boolean;
+  /** Android keyboard avoidance mode for searchable sheets */
+  androidKeyboardAvoidance?: 'event' | 'resize';
 };
 
 export type ActionSheetScope =
