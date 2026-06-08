@@ -50,6 +50,7 @@ import { hasDisplayableLiveQuotePrice, hasFreshLiveQuote } from './liveQuoteSnap
 import {
   buildDefaultQuoteWatchlist,
   DEFAULT_QUOTE_WATCHLIST,
+  isMarketSymbolCatalogScopedToWatchlist,
   resolveQuoteFeedSymbols,
 } from './quoteWatchlistDefaults';
 import { buildAddSymbolCatalog } from './addSymbolCatalog';
@@ -273,7 +274,8 @@ const QuoteCard = React.memo(function QuoteCard({
             justifyContent: 'center',
             borderColor: cardBorder,
           },
-          pressed ? (suppressPressFeedback ? sc.cardPressedNoShrink : sc.cardPressed) : null,
+          pressed && !suppressPressFeedback && sc.cardPressed,
+          pressed && suppressPressFeedback && sc.cardPressedNoShrink,
         ]}
         unstable_pressDelay={0}
         onPressIn={onPressIn}
@@ -400,7 +402,8 @@ const QuoteCard = React.memo(function QuoteCard({
         { borderColor: cardBorder },
         !isDark && sc.cardShadowLight,
         isDark && sc.cardShadowDark,
-        pressed ? (suppressPressFeedback ? sc.cardPressedNoShrink : sc.cardPressed) : null,
+        pressed && !suppressPressFeedback && sc.cardPressed,
+        pressed && suppressPressFeedback && sc.cardPressedNoShrink,
       ]}
       unstable_pressDelay={0}
       onPressIn={onPressIn}
@@ -1605,6 +1608,9 @@ export function QuotesScreen() {
       const bloated = currentSymbols.length >= Math.max(20, Math.floor(apiSymbols.length * 0.8));
       if (bloated) {
         setQuoteSymbols(buildDefaultQuoteWatchlist(apiSymbols));
+        return;
+      }
+      if (isMarketSymbolCatalogScopedToWatchlist(apiSymbols, currentSymbols)) {
         return;
       }
       // Strip any symbols the broker has since delisted and migrate legacy

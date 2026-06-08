@@ -10,6 +10,15 @@ test('buildAddSymbolCatalog uses broker symbols when the instrument catalog is a
   );
 });
 
+test('buildAddSymbolCatalog appends fallback choices when the broker catalog only echoes the watchlist', () => {
+  const catalog = buildAddSymbolCatalog(['GBPUSD', 'XAUUSD', 'BTCUSD'], ['GBPUSD', 'XAUUSD', 'BTCUSD']);
+
+  assert.deepEqual(catalog.slice(0, 3), ['GBPUSD', 'XAUUSD', 'BTCUSD']);
+  assert.ok(catalog.includes('EURUSD'));
+  assert.ok(catalog.includes('USDJPY'));
+  assert.ok(catalog.includes('WTIUSD'));
+});
+
 test('buildAddSymbolCatalog falls back to existing and curated symbols when broker catalog is empty', () => {
   const catalog = buildAddSymbolCatalog([], ['GBPUSD.c']);
 

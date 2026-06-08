@@ -1,4 +1,7 @@
-import { DEFAULT_QUOTE_WATCHLIST } from './quoteWatchlistDefaults';
+import {
+  DEFAULT_QUOTE_WATCHLIST,
+  isMarketSymbolCatalogScopedToWatchlist,
+} from './quoteWatchlistDefaults';
 
 export const DEFAULT_ADD_SYMBOL_CATALOG: readonly string[] = Object.freeze([
   ...DEFAULT_QUOTE_WATCHLIST,
@@ -48,9 +51,13 @@ export const buildAddSymbolCatalog = (
   const ordered: string[] = [];
   const seen = new Set<string>();
   const brokerSymbols = apiSymbols ?? [];
+  const shouldAppendFallbackCatalog =
+    brokerSymbols.length === 0 ||
+    isMarketSymbolCatalogScopedToWatchlist(brokerSymbols, existingSymbols);
 
-  if (brokerSymbols.length > 0) {
-    brokerSymbols.forEach((symbol) => pushUniqueSymbol(ordered, seen, symbol));
+  brokerSymbols.forEach((symbol) => pushUniqueSymbol(ordered, seen, symbol));
+
+  if (!shouldAppendFallbackCatalog) {
     return ordered;
   }
 

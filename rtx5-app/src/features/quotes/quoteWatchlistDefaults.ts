@@ -50,6 +50,35 @@ const buildAvailableSymbolKeyLookup = (availableSymbols: readonly string[]): Map
   return byKey;
 };
 
+export const isMarketSymbolCatalogScopedToWatchlist = (
+  availableSymbols: readonly string[] = [],
+  watchlistSymbols: readonly string[] = [],
+): boolean => {
+  if (availableSymbols.length === 0 || watchlistSymbols.length === 0) {
+    return false;
+  }
+
+  const watchlistKeys = new Set(
+    watchlistSymbols
+      .map((symbol) => normalizeQuoteSymbolKey(symbol))
+      .filter(Boolean),
+  );
+  if (watchlistKeys.size === 0) {
+    return false;
+  }
+
+  const availableKeys = Array.from(new Set(
+    availableSymbols
+      .map((symbol) => normalizeQuoteSymbolKey(symbol))
+      .filter(Boolean),
+  ));
+  if (availableKeys.length === 0 || availableKeys.length > watchlistKeys.size) {
+    return false;
+  }
+
+  return availableKeys.every((key) => watchlistKeys.has(key));
+};
+
 export const resolveQuoteFeedSymbols = (
   requestedSymbols: readonly string[],
   availableSymbols: readonly string[] = [],

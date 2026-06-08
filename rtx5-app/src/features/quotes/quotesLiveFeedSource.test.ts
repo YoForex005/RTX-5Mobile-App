@@ -19,8 +19,14 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
 
   assert.match(serviceSource, /getSecureItemAsync\(ACTIVE_BROKER_SERVER_URL_KEY\)/);
   assert.match(serviceSource, /private async resolveSocketUrlAsync\(\): Promise<string>/);
-  assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(state\.brokerServerUrl\)/);
-  assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(storedServerUrl\)/);
+  assert.match(serviceSource, /private failedBrokerSocketUrls: Set<string> = new Set\(\)/);
+  assert.match(serviceSource, /private resolveBrokerSocketUrl\(serverUrl\?: string \| null\): string/);
+  assert.match(serviceSource, /private markBrokerSocketUnavailable\(socketUrl: string, reason: string\): boolean/);
+  assert.match(serviceSource, /Falling back to shared feed/);
+  assert.match(serviceSource, /this\.scheduleReconnect\(250\)/);
+  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(state\.brokerServerUrl\)/);
+  assert.match(serviceSource, /this\.resolveBrokerSocketUrl\(storedServerUrl\)/);
+  assert.match(serviceSource, /shouldUseBrokerHostedQuoteFeed\(serverUrl\)/);
   assert.match(serviceSource, /DEFAULT_QUOTES_WS_URL = 'wss:\/\/backend\.orrnn\.com\/ws\/feed'/);
   assert.match(serviceSource, /this\.openResolvedSocket\(nextUrl\)/);
   assert.match(serviceSource, /const QUOTE_WS_RECONNECT_BASE_DELAY_MS = 750/);
