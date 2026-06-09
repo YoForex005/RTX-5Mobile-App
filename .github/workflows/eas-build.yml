@@ -26,8 +26,6 @@ on:
   pull_request:
     branches:
       - main
-      - staging
-      - release
     paths:
       - "rtx5-app/**"
       - ".github/workflows/eas-build.yml"
