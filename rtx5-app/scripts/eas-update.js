@@ -12,21 +12,31 @@ if (!CHANNELS.has(channel)) {
 }
 
 const easBin = process.platform === "win32" ? "eas.cmd" : "eas";
+const updateArgs = ["update", "--channel", channel, "--platform", "all", ...process.argv.slice(3)];
 const env = {
   ...process.env,
   CI: process.env.CI || "1",
   EAS_SKIP_AUTO_FINGERPRINT: process.env.EAS_SKIP_AUTO_FINGERPRINT || "1",
 };
 
-const result = spawnSync(
-  easBin,
-  ["update", "--channel", channel, "--platform", "all", ...process.argv.slice(3)],
-  {
-    env,
-    stdio: "inherit",
-    shell: process.platform === "win32",
-  },
-);
+const quoteWindowsShellArg = (value) => {
+  const arg = String(value);
+  if (!arg) return '""';
+  if (!/[\s&()<>^|"]/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+};
+
+const result =
+  process.platform === "win32"
+    ? spawnSync([easBin, ...updateArgs].map(quoteWindowsShellArg).join(" "), {
+        env,
+        stdio: "inherit",
+        shell: true,
+      })
+    : spawnSync(easBin, updateArgs, {
+        env,
+        stdio: "inherit",
+      });
 
 if (result.error) {
   console.error(result.error.message);
