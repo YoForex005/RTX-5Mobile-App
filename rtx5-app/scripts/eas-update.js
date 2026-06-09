@@ -16,7 +16,6 @@ const updateArgs = ["update", "--channel", channel, "--platform", "all", ...proc
 const env = {
   ...process.env,
   CI: process.env.CI || "1",
-  EAS_SKIP_AUTO_FINGERPRINT: process.env.EAS_SKIP_AUTO_FINGERPRINT || "1",
 };
 
 const quoteWindowsShellArg = (value) => {
