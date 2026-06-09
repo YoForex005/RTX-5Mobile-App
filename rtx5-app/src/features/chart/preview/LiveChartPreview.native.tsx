@@ -323,29 +323,6 @@ export default function LiveChartPreviewNative({
   const lastRenderedCandleSignatureRef = useRef('');
   const previewCandlesRef = useRef<ReturnType<typeof sanitizePreviewCandles>>([]);
 
-  const displayDecimals = useMemo(() => {
-    return resolveChartDisplayDecimals({
-      instrumentDigits: instrumentMeta?.digits,
-      instrumentPoint: instrumentMeta?.point,
-      instrumentTickSize: instrumentMeta?.tickSize,
-      liveQuoteDigits: liveQuote?.digits,
-      liveQuoteDigitsFromBackend: hasLivePreviewQuote && liveQuoteDigitsSource === 'backend',
-      liveQuoteBid: liveQuote?.bid,
-      liveQuoteAsk: liveQuote?.ask,
-      liveQuoteLast: liveQuote?.close,
-    });
-  }, [
-    hasLivePreviewQuote,
-    instrumentMeta?.digits,
-    instrumentMeta?.point,
-    instrumentMeta?.tickSize,
-    liveQuote?.ask,
-    liveQuote?.bid,
-    liveQuote?.close,
-    liveQuote?.digits,
-    liveQuoteDigitsSource,
-  ]);
-
   const chartOptions = useMemo(() => ({
     layout: {
       background: { color: colors.background },
@@ -396,6 +373,38 @@ export default function LiveChartPreviewNative({
     () => sanitizePreviewCandles(candles),
     [candles],
   );
+  const latestPreviewPrecisionPrices = useMemo(() => {
+    const latest = previewCandles[previewCandles.length - 1];
+    return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
+  }, [previewCandles]);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: instrumentMeta?.digits,
+      instrumentPoint: instrumentMeta?.point,
+      instrumentTickSize: instrumentMeta?.tickSize,
+      liveQuoteDigits: liveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLivePreviewQuote && liveQuoteDigitsSource === 'backend',
+      liveQuotePoint: liveQuote?.point,
+      liveQuoteTickSize: liveQuote?.tickSize,
+      liveQuoteBid: liveQuote?.bid,
+      liveQuoteAsk: liveQuote?.ask,
+      liveQuoteLast: liveQuote?.close,
+      candlePrices: latestPreviewPrecisionPrices,
+    });
+  }, [
+    hasLivePreviewQuote,
+    instrumentMeta?.digits,
+    instrumentMeta?.point,
+    instrumentMeta?.tickSize,
+    liveQuote?.ask,
+    liveQuote?.bid,
+    liveQuote?.close,
+    liveQuote?.digits,
+    liveQuote?.point,
+    liveQuote?.tickSize,
+    liveQuoteDigitsSource,
+    latestPreviewPrecisionPrices,
+  ]);
   const mappedPreviewData = useMemo(
     () => mapPreviewCandles(previewCandles, chartType, colors),
     [previewCandles, chartType, colors],

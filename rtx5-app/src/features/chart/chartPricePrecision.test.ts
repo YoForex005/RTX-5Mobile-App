@@ -19,6 +19,25 @@ test('chart display decimals prefer backend instrument digits', () => {
   );
 });
 
+test('chart display decimals trim over-precise metadata to observed backend prices', () => {
+  assert.equal(
+    resolveChartDisplayDecimals({
+      instrumentDigits: 8,
+      liveQuoteBid: 1.33628,
+      liveQuoteAsk: 1.3364,
+    }),
+    5,
+  );
+
+  assert.equal(
+    resolveChartDisplayDecimals({
+      instrumentPoint: '0.00000001',
+      candlePrices: [1.33629, 1.33633, 1.33626, 1.33628],
+    }),
+    5,
+  );
+});
+
 test('chart display decimals prefer backend quote digits before inferred or fallback digits', () => {
   assert.equal(
     resolveChartDisplayDecimals({
@@ -78,6 +97,13 @@ test('chart display decimals derive from backend point and tick size before live
       liveQuoteDigitsFromBackend: true,
     }),
     5,
+  );
+  assert.equal(
+    resolveChartDisplayDecimals({
+      instrumentPoint: 0.01,
+      liveQuoteBid: 2350.5,
+    }),
+    2,
   );
 });
 

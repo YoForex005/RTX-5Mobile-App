@@ -24,6 +24,7 @@ export type QuoteItem = {
   minVolume?: number;
   maxVolume?: number;
   stepVolume?: number;
+  point?: number;
   tickSize?: number;
   tickValue?: number;
   swapLong: number;

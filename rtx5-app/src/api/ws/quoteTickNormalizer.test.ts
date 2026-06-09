@@ -131,6 +131,25 @@ test('normalizeQuoteTickPayload maps verified live feed session fields', () => {
   assert.equal(result.update.timestamp, 1777409940);
 });
 
+test('normalizeQuoteTickPayload maps backend precision aliases', () => {
+  const result = normalizeQuoteTickPayload({
+    symbol: 'GBPUSD',
+    bid: 1.33628,
+    ask: 1.3364,
+    symbol_digits: '5',
+    point: '0.00001',
+    tick_size: '0.00001',
+    time: 1777409940,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.update.digits, 5);
+  assert.equal(result.update.point, 0.00001);
+  assert.equal(result.update.tickSize, 0.00001);
+});
+
 test('normalizeQuoteTickPayload keeps raw broker variants distinct from the base symbol', () => {
   const result = normalizeQuoteTickPayload({
     symbol: 'EURUSD.X1782',

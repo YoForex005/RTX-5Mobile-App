@@ -406,46 +406,6 @@ export function ChartScreen() {
   const chartLiveQuoteTickFields = chartLiveQuote as ChartLiveQuoteTickFields | undefined;
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
-  const displayDecimals = useMemo(() => {
-    return resolveChartDisplayDecimals({
-      instrumentDigits: chartInstrumentMeta?.digits,
-      instrumentPoint: chartInstrumentMeta?.point,
-      instrumentTickSize: chartInstrumentMeta?.tickSize,
-      liveQuoteDigits: chartLiveQuote?.digits,
-      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
-      liveQuoteBid: chartLiveQuote?.bid,
-      liveQuoteAsk: chartLiveQuote?.ask,
-      liveQuoteLast: chartLiveQuote?.close,
-    });
-  }, [
-    chartInstrumentMeta?.digits,
-    chartInstrumentMeta?.point,
-    chartInstrumentMeta?.tickSize,
-    chartLiveQuote?.ask,
-    chartLiveQuote?.bid,
-    chartLiveQuote?.close,
-    chartLiveQuote?.digits,
-    chartLiveQuoteDigitsSource,
-    hasLiveChartQuote,
-  ]);
-  const liveChartPrice = useMemo(() => {
-    if (!hasLiveChartQuote) {
-      return null;
-    }
-
-    const bid =
-      typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
-        : null;
-    const ask =
-      typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
-        : null;
-
-    return priceSource === 'ask'
-      ? ask ?? bid
-      : bid ?? ask;
-  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
   const chartTradeTickTimestamp = useMemo(() => {
     const candidates = [
       chartLiveQuote?.lastReceivedAt,
@@ -1225,6 +1185,56 @@ export function ChartScreen() {
     () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
     [candles, chartTimeframe],
   );
+  const latestChartPrecisionPrices = useMemo(() => {
+    const latest = sanitizedBackendCandles[sanitizedBackendCandles.length - 1];
+    return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
+  }, [sanitizedBackendCandles]);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: chartInstrumentMeta?.digits,
+      instrumentPoint: chartInstrumentMeta?.point,
+      instrumentTickSize: chartInstrumentMeta?.tickSize,
+      liveQuoteDigits: chartLiveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+      liveQuotePoint: chartLiveQuote?.point,
+      liveQuoteTickSize: chartLiveQuote?.tickSize,
+      liveQuoteBid: chartLiveQuote?.bid,
+      liveQuoteAsk: chartLiveQuote?.ask,
+      liveQuoteLast: chartLiveQuote?.close,
+      candlePrices: latestChartPrecisionPrices,
+    });
+  }, [
+    chartInstrumentMeta?.digits,
+    chartInstrumentMeta?.point,
+    chartInstrumentMeta?.tickSize,
+    chartLiveQuote?.ask,
+    chartLiveQuote?.bid,
+    chartLiveQuote?.close,
+    chartLiveQuote?.digits,
+    chartLiveQuote?.point,
+    chartLiveQuote?.tickSize,
+    chartLiveQuoteDigitsSource,
+    hasLiveChartQuote,
+    latestChartPrecisionPrices,
+  ]);
+  const liveChartPrice = useMemo(() => {
+    if (!hasLiveChartQuote) {
+      return null;
+    }
+
+    const bid =
+      typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
+        ? chartLiveQuote.bid
+        : null;
+    const ask =
+      typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
+        ? chartLiveQuote.ask
+        : null;
+
+    return priceSource === 'ask'
+      ? ask ?? bid
+      : bid ?? ask;
+  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
   const sanitizedCandles = useMemo(
     () =>
       resolveLivePriceCoherentCandles(sanitizedBackendCandles, chartTimeframe, {
@@ -2993,6 +3003,37 @@ export function ChartScreen() {
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
+  const handleOpenChartViewportMenu = useCallback(() => {
+    runImmediateAction('chart.viewport.menu.open', () => {
+      showChartActionSheet({
+        title: t('Chart'),
+        detent: 'adaptive',
+        instantOpen: true,
+        actions: [
+          {
+            label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
+            icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
+            onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
+          },
+          {
+            label: t('Reset'),
+            icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
+            onPress: handleResetChartViewport,
+          },
+        ],
+      });
+      scheduleChartActionSheetContextReset();
+    });
+  }, [
+    TEXT_MUTED,
+    handleResetChartViewport,
+    scheduleChartActionSheetContextReset,
+    setChartViewportShowVolumePane,
+    showChartActionSheet,
+    showChartVolumePane,
+    t,
+  ]);
+
   const chartOptions = useMemo(() => ({
     layout: {
       background: { color: resolvedChartColors.background },
@@ -3046,8 +3087,8 @@ export function ChartScreen() {
       entireTextOnly: false,
       minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
-        top: 0.08,
-        bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0.08,
+        top: 0.02,
+        bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0.02,
       },
     },
     customColors: {
@@ -4473,6 +4514,16 @@ export function ChartScreen() {
                     }}
                   />
                 ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Chart')}
+                  style={styles.chartViewportMenuButton}
+                  onPressIn={handleOpenChartViewportMenu}
+                  hitSlop={8}
+                  unstable_pressDelay={0}
+                >
+                  <Ionicons name="ellipsis-horizontal" size={18} color={TEXT_MUTED} />
+                </Pressable>
                 <View style={styles.chartOverlaySymbolSection}>
                   <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
                     <Pressable

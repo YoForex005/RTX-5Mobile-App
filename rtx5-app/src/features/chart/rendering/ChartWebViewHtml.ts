@@ -22,7 +22,7 @@ export const CH_HTML = `
         inset: 0;
         pointer-events: none;
         overflow: hidden;
-        z-index: 6;
+        z-index: 30;
       }
       .rtx5-right-price-scale-fallback-axis {
         position: absolute;
@@ -201,8 +201,9 @@ export const CH_HTML = `
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
-      var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 3;
-      var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 7;
+      var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
+      var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 20;
+      var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 32;
       var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = [1, 2, 2.5, 5, 10];
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS = 2;
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS = 24;
@@ -966,7 +967,11 @@ export const CH_HTML = `
 
       function resolveRightPriceScaleFallbackLabelCount(metrics) {
         var plotHeight = metrics && typeof metrics.plotHeight === 'number' ? metrics.plotHeight : 0;
-        var estimated = Math.floor(plotHeight / 56) + 1;
+        var targetGap =
+          RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX > 0
+            ? RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX
+            : 56;
+        var estimated = Math.floor(plotHeight / targetGap) + 1;
         return Math.max(
           RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS,
           Math.min(RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS, estimated)
@@ -991,7 +996,42 @@ export const CH_HTML = `
         };
       }
 
-      function resolveRightPriceScaleFallbackNiceStep(span, targetIntervals) {
+      function resolveRightPriceScaleFallbackTargetLabelGap() {
+        return RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX > 0
+          ? RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX
+            : 56;
+      }
+
+      function resolveRightPriceScaleFallbackNiceStepFromRaw(rawStep, preferDense) {
+        if (!(rawStep > 0)) {
+          return 0;
+        }
+        var exponent = Math.floor(Math.log(rawStep) / Math.LN10);
+        var magnitude = Math.pow(10, exponent);
+        var fraction = rawStep / magnitude;
+        var niceFraction = preferDense
+          ? RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[0]
+          : RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length - 1];
+        for (var i = 0; i < RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length; i += 1) {
+          var candidate = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i];
+          if (preferDense) {
+            if (fraction >= candidate) {
+              niceFraction = candidate;
+            } else {
+              break;
+            }
+          } else if (fraction <= candidate) {
+            niceFraction = candidate;
+            break;
+          }
+        }
+        var step = niceFraction * magnitude;
+        var decimals = resolveRightPriceScaleFallbackStepDecimals(step);
+        var minimumStep = decimals > 0 ? Math.pow(10, -decimals) : 1;
+        return Math.max(step, minimumStep);
+      }
+
+      function resolveRightPriceScaleFallbackNiceStep(span, targetIntervals, preferDense) {
         if (!(span > 0)) {
           return 0;
         }
@@ -1000,23 +1040,7 @@ export const CH_HTML = `
             ? Math.max(1, Math.round(targetIntervals))
             : RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS;
         var rawStep = span / intervals;
-        if (!(rawStep > 0)) {
-          return 0;
-        }
-        var exponent = Math.floor(Math.log(rawStep) / Math.LN10);
-        var magnitude = Math.pow(10, exponent);
-        var fraction = rawStep / magnitude;
-        var niceFraction = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length - 1];
-        for (var i = 0; i < RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length; i += 1) {
-          if (fraction <= RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i]) {
-            niceFraction = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i];
-            break;
-          }
-        }
-        var step = niceFraction * magnitude;
-        var decimals = resolveRightPriceScaleFallbackStepDecimals(step);
-        var minimumStep = decimals > 0 ? Math.pow(10, -decimals) : 1;
-        return Math.max(step, minimumStep);
+        return resolveRightPriceScaleFallbackNiceStepFromRaw(rawStep, preferDense === true);
       }
 
       function resolveRightPriceScaleFallbackTicks() {
@@ -1045,6 +1069,18 @@ export const CH_HTML = `
         var step = resolveRightPriceScaleFallbackNiceStep(span, Math.max(1, labelCount - 1));
         if (!(step > 0)) {
           return [];
+        }
+        var targetLabelGap = resolveRightPriceScaleFallbackTargetLabelGap();
+        var projectedStepGap = (step / span) * Math.max(1, metrics.plotHeight || 1);
+        if (projectedStepGap > targetLabelGap * 1.25) {
+          var denseIntervals = Math.max(
+            Math.max(1, labelCount - 1),
+            Math.floor(Math.max(1, metrics.plotHeight || 1) / targetLabelGap)
+          );
+          var denseStep = resolveRightPriceScaleFallbackNiceStep(span, denseIntervals, true);
+          if (denseStep > 0 && denseStep < step) {
+            step = denseStep;
+          }
         }
         var priceScaleApi = getRightPriceScaleApi();
         var priceScaleOptions =
@@ -1167,12 +1203,12 @@ export const CH_HTML = `
             label.style.color = textColor;
             label.style.fontFamily = fontFamily;
             label.style.textAlign = 'right';
-            label.style.fontWeight = '600';
+            label.style.fontWeight = '500';
             label.style.letterSpacing = '0px';
             label.style.fontVariantNumeric = 'tabular-nums';
             label.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
-            label.style.opacity = '0.96';
-            label.style.textShadow = '0 1px 0 ' + (lastChartBackgroundColor || 'transparent');
+            label.style.opacity = '0.86';
+            label.style.textShadow = 'none';
             layer.appendChild(label);
           }
           return true;
@@ -5134,9 +5170,7 @@ export const CH_HTML = `
           lineWidth: 1,
           lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
           lineVisible: true,
-          axisLabelVisible: true,
-          axisLabelColor: color,
-          axisLabelTextColor: '#FFFFFF',
+          axisLabelVisible: false,
           title: '',
         };
       }
@@ -5355,7 +5389,7 @@ export const CH_HTML = `
         _overlayLabelLayer.style.right = '0';
         _overlayLabelLayer.style.bottom = '0';
         _overlayLabelLayer.style.pointerEvents = 'none';
-        _overlayLabelLayer.style.zIndex = '7';
+        _overlayLabelLayer.style.zIndex = '40';
         el.appendChild(_overlayLabelLayer);
         return _overlayLabelLayer;
       }

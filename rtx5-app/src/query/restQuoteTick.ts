@@ -36,6 +36,8 @@ export const buildRestQuoteTickEvent = (
     spread: update.spread,
     volume: update.volume,
     digits: update.digits,
+    point: update.point,
+    tickSize: update.tickSize,
     feedTickAt,
     receivedAt,
     timestamp,

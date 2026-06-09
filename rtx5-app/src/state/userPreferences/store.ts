@@ -31,6 +31,8 @@ import { setImmediateThemeMode } from '../themeMode';
 import type {
   ChartColorsConfig,
   ChartDisplaySettings,
+  ChartTradeVolumeDisplayMode,
+  ChartVisualType,
   LanguageCode,
   ThemeMode,
   UserPreferencesState,
@@ -88,6 +90,182 @@ const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPrefer
 let preferenceWriteScheduled = false;
 let pendingThemeModeCommit: ThemeMode | null = null;
 let themeModeCommitScheduled = false;
+const PREFERENCES_STORAGE_VERSION = 17;
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const asString = (value: unknown, fallback = ''): string => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const asBoolean = (value: unknown, fallback = false): boolean =>
+  typeof value === 'boolean' ? value : fallback;
+
+const asFiniteNumber = (value: unknown, fallback: number | null): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+    : [];
+
+const isThemeMode = (value: unknown): value is ThemeMode => value === 'light' || value === 'dark';
+const isQuoteViewMode = (value: unknown): value is UserPreferencesState['quoteViewMode'] =>
+  value === 'list' || value === 'table' || value === 'edit';
+const isChartTradeVolumeDisplayMode = (value: unknown): value is ChartTradeVolumeDisplayMode =>
+  value === 'lots' || value === 'margin';
+const isChartVisualType = (value: unknown): value is ChartVisualType =>
+  value === 'candles' || value === 'bars' || value === 'line' || value === 'hollow';
+const isPriceSource = (value: unknown): value is UserPreferencesState['priceSource'] =>
+  value === 'bid' || value === 'ask';
+const isOpenOrderMode = (value: unknown): value is UserPreferencesState['openOrderMode'] =>
+  value === 'Regular' || value === 'Risk calculator' || value === 'One-click';
+const isChartColorScheme = (value: unknown): value is UserPreferencesState['chartColorScheme'] =>
+  value === 'green_on_black' || value === 'black_on_white' || value === 'yellow_on_black' || value === 'custom';
+
+const normalizeChartColors = (value: unknown): ChartColorsConfig => {
+  const record = asRecord(value);
+  const next: ChartColorsConfig = { ...DEFAULT_CHART_COLORS };
+  (Object.keys(next) as Array<keyof ChartColorsConfig>).forEach((key) => {
+    const color = asString(record[key]);
+    if (color) {
+      next[key] = color;
+    }
+  });
+  return next;
+};
+
+const normalizeChartDisplay = (value: unknown): ChartDisplaySettings => {
+  const record = asRecord(value);
+  const next: ChartDisplaySettings = { ...DEFAULT_CHART_DISPLAY_SETTINGS };
+  (Object.keys(next) as Array<keyof ChartDisplaySettings>).forEach((key) => {
+    next[key] = asBoolean(record[key], next[key]);
+  });
+  return next;
+};
+
+const normalizeAccountDetails = (value: unknown): UserPreferencesState['accountDetails'] => {
+  const record = asRecord(value);
+  const id = asString(record.id);
+  if (!id) return null;
+
+  const credentials = asRecord(record.credentials);
+  const accessToken = asString(credentials.accessToken);
+  const refreshToken = asString(credentials.refreshToken);
+  const expiresAt = asString(credentials.expiresAt);
+
+  return {
+    id,
+    name: asString(record.name, `Account ${id}`),
+    server: asString(record.server),
+    ...(accessToken || refreshToken || expiresAt
+      ? {
+          credentials: {
+            accessToken,
+            refreshToken,
+            expiresAt,
+          },
+        }
+      : {}),
+  };
+};
+
+const normalizeDrawingRecordsBySymbol = (value: unknown): PersistedChartDrawingsBySymbol => {
+  const record = asRecord(value);
+  return Object.fromEntries(
+    Object.entries(record).map(([symbol, drawings]) => [
+      getChartDrawingBucketKey(symbol),
+      sanitizePersistedChartDrawings(drawings),
+    ]),
+  );
+};
+
+export function normalizePersistedUserPreferencesState(
+  persistedState: unknown,
+  version = PREFERENCES_STORAGE_VERSION,
+): PersistedUserPreferencesState {
+  const state = asRecord(persistedState);
+  const legacyShowOnChartState = {
+    showOpenPositions: typeof state.showOpenPositions === 'boolean' ? state.showOpenPositions : undefined,
+    showTpSlStopLimit: typeof state.showTpSlStopLimit === 'boolean' ? state.showTpSlStopLimit : undefined,
+    showClosedPositions: typeof state.showClosedPositions === 'boolean' ? state.showClosedPositions : undefined,
+    showTradingSignals: typeof state.showTradingSignals === 'boolean' ? state.showTradingSignals : undefined,
+    showHmrPeriods: typeof state.showHmrPeriods === 'boolean' ? state.showHmrPeriods : undefined,
+    showPriceAlerts: typeof state.showPriceAlerts === 'boolean' ? state.showPriceAlerts : undefined,
+    showPotentialStopOut: typeof state.showPotentialStopOut === 'boolean' ? state.showPotentialStopOut : undefined,
+  };
+  const shouldResetLegacyShowOnChartFlags =
+    (version ?? 0) < 4 && hasLegacyChartShowOnChartDefaults(legacyShowOnChartState);
+  const nextChartShowOnChart = shouldResetLegacyShowOnChartFlags
+    ? { ...DEFAULT_CHART_SHOW_ON_CHART }
+    : normalizeChartShowOnChartSettings(
+        state.chartShowOnChart ?? buildChartShowOnChartSettingsFromLegacy(legacyShowOnChartState),
+      );
+  const nextDrawingRecordsBySymbol = normalizeDrawingRecordsBySymbol(state.chartDrawingRecordsBySymbol);
+  const chartSymbol = asString(state.chartSymbol, 'GBPUSD');
+  const activeDrawingLabels = getChartDrawingLabels(
+    nextDrawingRecordsBySymbol[getChartDrawingBucketKey(chartSymbol)] ?? [],
+  );
+  const accountDetails = normalizeAccountDetails(state.accountDetails);
+  const isLoggedIn = asBoolean(state.isLoggedIn, false) && accountDetails !== null;
+  const nextHistoryRange =
+    (version ?? 0) < 11 &&
+    state.historyRange === 'Last 6 months' &&
+    state.historyFromMs == null &&
+    state.historyToMs == null
+      ? 'All time'
+      : asString(state.historyRange, 'All time');
+
+  return {
+    themeMode: isThemeMode(state.themeMode) ? state.themeMode : 'dark',
+    quoteSymbols: asStringArray(state.quoteSymbols),
+    quoteViewMode: isQuoteViewMode(state.quoteViewMode) ? state.quoteViewMode : 'list',
+    chartSymbol,
+    chartTimeframe: normalizeCandleHistoryTimeframe(state.chartTimeframe),
+    tradeVolume: normalizeTradeVolume(state.tradeVolume ?? DEFAULT_TRADE_VOLUME),
+    chartTradeVolumeDisplayMode: isChartTradeVolumeDisplayMode(state.chartTradeVolumeDisplayMode)
+      ? state.chartTradeVolumeDisplayMode
+      : 'lots',
+    chartVisualType: isChartVisualType(state.chartVisualType) ? state.chartVisualType : 'candles',
+    chartViewportShowVolumePane: asBoolean(state.chartViewportShowVolumePane, false),
+    chartViewportShowDrawingToolbar: asBoolean(state.chartViewportShowDrawingToolbar, false),
+    chartDrawings: activeDrawingLabels.length > 0 ? activeDrawingLabels : asStringArray(state.chartDrawings),
+    chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
+    chartLockAll: asBoolean(state.chartLockAll, false),
+    chartHideAll: asBoolean(state.chartHideAll, false),
+    chartShowOnChart: nextChartShowOnChart,
+    historySummaryDetailsVisible:
+      typeof state.historySummaryDetailsVisible === 'boolean'
+        ? state.historySummaryDetailsVisible
+        : typeof state.tradeSummaryDetailsVisible === 'boolean'
+          ? state.tradeSummaryDetailsVisible
+          : true,
+    tradeSummaryDetailsVisible: asBoolean(state.tradeSummaryDetailsVisible, true),
+    priceSource: isPriceSource(state.priceSource) ? state.priceSource : 'bid',
+    openOrderMode: isOpenOrderMode(state.openOrderMode) ? state.openOrderMode : 'Regular',
+    oneClickAccepted: asBoolean(state.oneClickAccepted, false),
+    historyRange: nextHistoryRange,
+    marketNewsSavedIds: Array.from(new Set(asStringArray(state.marketNewsSavedIds))),
+    historyFromMs: asFiniteNumber(state.historyFromMs, null),
+    historyToMs: asFiniteNumber(state.historyToMs, null),
+    isDemoAccount: asBoolean(state.isDemoAccount, true),
+    isLoggedIn,
+    hasSetInitialSymbols: asBoolean(state.hasSetInitialSymbols, false),
+    brokerId: asString(state.brokerId),
+    brokerServerUrl: asString(state.brokerServerUrl),
+    brokerLogoUrl: asString(state.brokerLogoUrl),
+    accountDetails,
+    chartColorScheme: isChartColorScheme(state.chartColorScheme) ? state.chartColorScheme : 'custom',
+    chartColors: normalizeChartColors(state.chartColors),
+    chartDisplay: normalizeChartDisplay(state.chartDisplay),
+    language: normalizeLanguageCode(state.language),
+  };
+}
 
 function flushPendingPreferenceWrites() {
   preferenceWriteScheduled = false;
@@ -134,8 +312,16 @@ function scheduleThemeModePreferenceCommit(commit: () => void) {
 
 const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void> = {
   getItem: async (name) => {
-    const value = await AsyncStorage.getItem(name);
-    return value ? (JSON.parse(value) as StorageValue<PersistedUserPreferencesState>) : null;
+    try {
+      const value = await AsyncStorage.getItem(name);
+      return value ? (JSON.parse(value) as StorageValue<PersistedUserPreferencesState>) : null;
+    } catch (error) {
+      console.warn('[UserPreferences] Ignoring invalid persisted preferences', error);
+      void AsyncStorage.removeItem(name).catch((removeError) => {
+        console.warn('[UserPreferences] Failed to clear invalid persisted preferences', removeError);
+      });
+      return null;
+    }
   },
   setItem: (name, value) => {
     pendingPreferenceWrites.set(name, value);
@@ -444,93 +630,14 @@ export const useUserPreferences = create<UserPreferencesState>()(
     }),
     {
       name: 'rtx5-user-preferences-v2',
-      version: 16,
+      version: PREFERENCES_STORAGE_VERSION,
       storage: userPreferencesStorage,
       partialize: partializeUserPreferences,
-      migrate: (persistedState, version) => {
-        const state = (persistedState ?? {}) as Partial<UserPreferencesState> & {
-          chartColors?: Partial<ChartColorsConfig>;
-          chartDisplay?: Partial<ChartDisplaySettings>;
-          chartDrawingRecordsBySymbol?: PersistedChartDrawingsBySymbol;
-          chartShowOnChart?: Partial<ChartShowOnChartSettings>;
-          historySummaryDetailsVisible?: boolean;
-          tradeSummaryDetailsVisible?: boolean;
-        };
-        const legacyShowOnChartState = {
-          showOpenPositions: (state as any).showOpenPositions,
-          showTpSlStopLimit: (state as any).showTpSlStopLimit,
-          showClosedPositions: (state as any).showClosedPositions,
-          showTradingSignals: (state as any).showTradingSignals,
-          showHmrPeriods: (state as any).showHmrPeriods,
-          showPriceAlerts: (state as any).showPriceAlerts,
-          showPotentialStopOut: (state as any).showPotentialStopOut,
-        };
-        const shouldResetLegacyShowOnChartFlags =
-          (version ?? 0) < 4 && hasLegacyChartShowOnChartDefaults(legacyShowOnChartState);
-        const nextChartShowOnChart = shouldResetLegacyShowOnChartFlags
-          ? { ...DEFAULT_CHART_SHOW_ON_CHART }
-          : normalizeChartShowOnChartSettings(
-              state.chartShowOnChart ?? buildChartShowOnChartSettingsFromLegacy(legacyShowOnChartState),
-            );
-        const nextDrawingRecordsBySymbol: PersistedChartDrawingsBySymbol = Object.fromEntries(
-          Object.entries(state.chartDrawingRecordsBySymbol ?? {}).map(([symbol, drawings]) => [
-            getChartDrawingBucketKey(symbol),
-            sanitizePersistedChartDrawings(drawings),
-          ]),
-        );
-        const activeDrawingLabels = getChartDrawingLabels(
-          nextDrawingRecordsBySymbol[getChartDrawingBucketKey(state.chartSymbol ?? 'GBPUSD')] ?? [],
-        );
-
-        const nextHistoryRange =
-          (version ?? 0) < 11 &&
-          state.historyRange === 'Last 6 months' &&
-          state.historyFromMs == null &&
-          state.historyToMs == null
-            ? 'All time'
-            : (state.historyRange ?? 'All time');
-
-        return {
-          ...state,
-          hasHydrated: false,
-          historyRange: nextHistoryRange,
-          marketNewsSavedIds: Array.isArray(state.marketNewsSavedIds)
-            ? Array.from(new Set(state.marketNewsSavedIds.map((id) => id.trim()).filter(Boolean)))
-            : [],
-          historyFromMs: state.historyFromMs ?? null,
-          historyToMs: state.historyToMs ?? null,
-          chartShowOnChart: nextChartShowOnChart,
-          historySummaryDetailsVisible:
-            state.historySummaryDetailsVisible ??
-            ((version ?? 0) < 11 ? state.tradeSummaryDetailsVisible : undefined) ??
-            true,
-          tradeSummaryDetailsVisible:
-            state.tradeSummaryDetailsVisible ??
-            true,
-          brokerServerUrl: state.brokerServerUrl ?? '',
-          brokerLogoUrl: state.brokerLogoUrl ?? '',
-          chartDrawings: activeDrawingLabels.length > 0
-            ? activeDrawingLabels
-            : (state.chartDrawings ?? []),
-          chartDrawingRecordsBySymbol: nextDrawingRecordsBySymbol,
-          chartVisualType: state.chartVisualType ?? 'candles',
-          chartViewportShowVolumePane: state.chartViewportShowVolumePane ?? false,
-          chartViewportShowDrawingToolbar: state.chartViewportShowDrawingToolbar ?? false,
-          chartTimeframe: normalizeCandleHistoryTimeframe(state.chartTimeframe),
-          tradeVolume: normalizeTradeVolume((state as Partial<UserPreferencesState>).tradeVolume ?? DEFAULT_TRADE_VOLUME),
-          chartTradeVolumeDisplayMode: state.chartTradeVolumeDisplayMode === 'margin' ? 'margin' : 'lots',
-          chartColorScheme: state.chartColorScheme ?? 'custom',
-          chartColors: {
-            ...DEFAULT_CHART_COLORS,
-            ...(state.chartColors ?? {}),
-          },
-          chartDisplay: {
-            ...DEFAULT_CHART_DISPLAY_SETTINGS,
-            ...(state.chartDisplay ?? {}),
-          },
-          language: normalizeLanguageCode(state.language),
-        } as UserPreferencesState;
-      },
+      migrate: (persistedState, version) => normalizePersistedUserPreferencesState(persistedState, version),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...normalizePersistedUserPreferencesState(persistedState),
+      }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.warn('[UserPreferences] Failed to rehydrate persisted preferences', error);

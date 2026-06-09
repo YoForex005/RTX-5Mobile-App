@@ -137,9 +137,9 @@ export function resolveAboutBuildLabel({
 }: {
   appVersion: string;
 }): string {
-  const normalizedBuild = appVersion.trim() || 'Local';
+  const normalizedVersion = appVersion.trim() || 'Local';
 
-  return `Build ${normalizedBuild}`;
+  return `Version ${normalizedVersion}`;
 }
 
 export function getAboutStoreTarget(

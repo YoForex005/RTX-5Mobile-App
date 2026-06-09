@@ -88,6 +88,8 @@ const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
     ...(tick.volume !== undefined ? { volume: tick.volume } : {}),
     ...(tick.digits !== undefined ? { digits: tick.digits } : {}),
     ...(tick.digits !== undefined ? { digitsSource: 'backend' as const } : {}),
+    ...(tick.point !== undefined ? { point: tick.point } : {}),
+    ...(tick.tickSize !== undefined ? { tickSize: tick.tickSize } : {}),
   });
 
   const price = Number.isFinite(tick.bid) && tick.bid > 0
@@ -335,6 +337,8 @@ const areQuoteSnapshotsEqual = (
     left.ask === right.ask &&
     left.digits === right.digits &&
     left.digitsSource === right.digitsSource &&
+    left.point === right.point &&
+    left.tickSize === right.tickSize &&
     left.feedTickAt === right.feedTickAt &&
     left.lastTickAt === right.lastTickAt &&
     left.lastReceivedAt === right.lastReceivedAt &&
@@ -348,7 +352,16 @@ const areQuoteSnapshotsEqual = (
 const mergeQuoteTickIntoSnapshot = (
   requestedSymbol: string,
   currentSnapshot: Partial<QuoteItem> | undefined,
-  tick: { bid: number; ask: number; timestamp: number; feedTickAt?: number; receivedAt?: number; digits?: number },
+  tick: {
+    bid: number;
+    ask: number;
+    timestamp: number;
+    feedTickAt?: number;
+    receivedAt?: number;
+    digits?: number;
+    point?: number;
+    tickSize?: number;
+  },
 ): Partial<QuoteItem> | undefined => {
   const normalizedSymbol = normalizeSymbol(requestedSymbol);
   if (!normalizedSymbol) {
@@ -382,6 +395,8 @@ const mergeQuoteTickIntoSnapshot = (
     bid: tick.bid,
     ask: tick.ask,
     ...(backendDigits !== undefined ? { digits: backendDigits, digitsSource: 'backend' as const } : {}),
+    ...(tick.point !== undefined ? { point: tick.point } : {}),
+    ...(tick.tickSize !== undefined ? { tickSize: tick.tickSize } : {}),
     feedTickAt: feedTickAt ?? undefined,
     lastTickAt,
     lastReceivedAt,
@@ -472,6 +487,8 @@ export function useLiveSymbolQuote(
       feedTickAt?: number;
       receivedAt?: number;
       digits?: number;
+      point?: number;
+      tickSize?: number;
     }) => {
       if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
         return;

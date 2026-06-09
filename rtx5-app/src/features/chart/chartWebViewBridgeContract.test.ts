@@ -123,7 +123,7 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
   assert.doesNotMatch(tickFormatterBody, /getDate\(\)|getMonth\(\)|getHours\(\)|getMinutes\(\)|getFullYear\(\)/);
 });
 
-test('webview bridge: setMarketPriceLines shows native market badges and paints custom price-scale extensions', () => {
+test('webview bridge: setMarketPriceLines hides native market badges and paints custom price-scale extensions', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
   const marketLineOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMarketPriceLineOptions');
   const visibleRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'resolvePriceRangeFromVisibleData');
@@ -139,12 +139,12 @@ test('webview bridge: setMarketPriceLines shows native market badges and paints 
   assertSourceContains(body, /clearMarketPriceLineRefs\(\)/, 'market line updates must clear stale right-axis price-line refs before repainting');
   assertSourceContains(body, /setBidPriceLine\(normalizedBid, false\)/, 'bid guide line must update through the price-line API');
   assertSourceContains(body, /setAskPriceLine\(normalizedAsk, false\)/, 'ask guide line must update through the price-line API');
-  assertSourceContains(body, /ensureMarketPriceBadgesVisible\(\)/, 'market line updates must keep both bid and ask badges inside the visible price scale');
+  assertSourceContains(body, /ensureMarketPriceBadgesVisible\(\)/, 'market line updates must keep both bid and ask guide lines inside the visible price scale');
   assertSourceContains(marketPriceNormalizerBody, /resolveRightPriceScaleFallbackConfiguredDecimals\(\)[\s\S]*resolveOverlayDisplayDecimals\(\)[\s\S]*toFixed\(safeDecimals\)/, 'market bid/ask lines must snap to configured display precision before rendering');
   assertSourceContains(marketLineOptionsBody, /lineVisible: true/, 'market price lines must explicitly keep their chart guide visible');
-  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: true/, 'market price lines must show lightweight-charts native right-axis badges');
-  assertSourceContains(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask price badges must match their line color');
-  assertSourceContains(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask price badges must keep readable text');
+  assertSourceContains(marketLineOptionsBody, /axisLabelVisible: false/, 'market price lines must hide lightweight-charts native right-axis badges');
+  assert.doesNotMatch(marketLineOptionsBody, /axisLabelColor: color/, 'market bid/ask must not configure hidden native badge fill colors');
+  assert.doesNotMatch(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask must not configure hidden native badge text colors');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
   assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1/, 'custom market price-scale extensions must stay a one-pixel MT5-like accent');
   assertSourceContains(renderMarketPriceScaleExtensionBody, /className = 'rtx5-market-price-scale-extension'[\s\S]*style\.left = axisLeft \+ 'px'[\s\S]*style\.width = Math\.min\(axisWidth/, 'custom market price-scale extension must render only over the right price scale');
@@ -353,7 +353,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
 
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 3[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
+    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 20[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 32[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
     'custom right-axis label density and step choices must be bounded for phone/tablet chart heights',
   );
   assertSourceContains(

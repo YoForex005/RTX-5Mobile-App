@@ -69,6 +69,15 @@ export default function LiveChartPreviewWeb({
   const liveQuoteDigitsSource = (liveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLivePreviewQuote = hasLiveQuoteFeedData(liveQuote);
 
+  const previewCandles = useMemo(
+    () => sanitizePreviewCandles(candles).slice(-50),
+    [candles],
+  );
+  const latestPreviewPrecisionPrices = useMemo(() => {
+    const latest = previewCandles[previewCandles.length - 1];
+    return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
+  }, [previewCandles]);
+
   const displayDecimals = useMemo(() => {
     return resolveChartDisplayDecimals({
       instrumentDigits: instrumentMeta?.digits,
@@ -76,9 +85,12 @@ export default function LiveChartPreviewWeb({
       instrumentTickSize: instrumentMeta?.tickSize,
       liveQuoteDigits: liveQuote?.digits,
       liveQuoteDigitsFromBackend: hasLivePreviewQuote && liveQuoteDigitsSource === 'backend',
+      liveQuotePoint: liveQuote?.point,
+      liveQuoteTickSize: liveQuote?.tickSize,
       liveQuoteBid: liveQuote?.bid,
       liveQuoteAsk: liveQuote?.ask,
       liveQuoteLast: liveQuote?.close,
+      candlePrices: latestPreviewPrecisionPrices,
     });
   }, [
     hasLivePreviewQuote,
@@ -89,7 +101,10 @@ export default function LiveChartPreviewWeb({
     liveQuote?.bid,
     liveQuote?.close,
     liveQuote?.digits,
+    liveQuote?.point,
+    liveQuote?.tickSize,
     liveQuoteDigitsSource,
+    latestPreviewPrecisionPrices,
   ]);
 
   const chartOptions = useMemo(() => ({
@@ -135,11 +150,6 @@ export default function LiveChartPreviewWeb({
       },
     },
   }), [colors, display]);
-
-  const previewCandles = useMemo(
-    () => sanitizePreviewCandles(candles).slice(-50),
-    [candles],
-  );
 
   useEffect(() => {
     previewCandlesRef.current = previewCandles;

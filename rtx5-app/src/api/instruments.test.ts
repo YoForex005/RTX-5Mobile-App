@@ -17,6 +17,16 @@ test('normalizeInstrumentMetaPayload reads backend digit fields', () => {
     normalizeInstrumentMetaPayload({ symbol: 'ETHUSD', pricePrecision: 4 }).digits,
     4,
   );
+
+  assert.equal(
+    normalizeInstrumentMetaPayload({ symbol: 'GBPUSD', symbol_digits: '5' }).digits,
+    5,
+  );
+
+  assert.equal(
+    normalizeInstrumentMetaPayload({ symbol: 'GBPUSD', quoteDigits: '5' }).digits,
+    5,
+  );
 });
 
 test('normalizeInstrumentMetaPayload derives digits from backend point and tick size metadata', () => {

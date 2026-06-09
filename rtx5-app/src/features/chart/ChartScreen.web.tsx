@@ -633,28 +633,6 @@ export function ChartScreen() {
   const { data: chartInstrumentMeta } = useInstrumentMeta(chartSymbol, isScreenFocused);
   const chartLiveQuoteDigitsSource = (chartLiveQuote as { digitsSource?: string } | undefined)?.digitsSource;
   const hasLiveChartQuote = hasLiveQuoteFeedData(chartLiveQuote);
-  const displayDecimals = useMemo(() => {
-    return resolveChartDisplayDecimals({
-      instrumentDigits: chartInstrumentMeta?.digits,
-      instrumentPoint: chartInstrumentMeta?.point,
-      instrumentTickSize: chartInstrumentMeta?.tickSize,
-      liveQuoteDigits: chartLiveQuote?.digits,
-      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
-      liveQuoteBid: chartLiveQuote?.bid,
-      liveQuoteAsk: chartLiveQuote?.ask,
-      liveQuoteLast: chartLiveQuote?.close,
-    });
-  }, [
-    chartInstrumentMeta?.digits,
-    chartInstrumentMeta?.point,
-    chartInstrumentMeta?.tickSize,
-    chartLiveQuote?.ask,
-    chartLiveQuote?.bid,
-    chartLiveQuote?.close,
-    chartLiveQuote?.digits,
-    chartLiveQuoteDigitsSource,
-    hasLiveChartQuote,
-  ]);
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;
@@ -796,6 +774,38 @@ export function ChartScreen() {
       ),
     [candles, chartTimeframe, liveChartPrice, liveChartTimestamp],
   );
+  const latestChartPrecisionPrices = useMemo(() => {
+    const latest = sanitizedCandles[sanitizedCandles.length - 1];
+    return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
+  }, [sanitizedCandles]);
+  const displayDecimals = useMemo(() => {
+    return resolveChartDisplayDecimals({
+      instrumentDigits: chartInstrumentMeta?.digits,
+      instrumentPoint: chartInstrumentMeta?.point,
+      instrumentTickSize: chartInstrumentMeta?.tickSize,
+      liveQuoteDigits: chartLiveQuote?.digits,
+      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+      liveQuotePoint: chartLiveQuote?.point,
+      liveQuoteTickSize: chartLiveQuote?.tickSize,
+      liveQuoteBid: chartLiveQuote?.bid,
+      liveQuoteAsk: chartLiveQuote?.ask,
+      liveQuoteLast: chartLiveQuote?.close,
+      candlePrices: latestChartPrecisionPrices,
+    });
+  }, [
+    chartInstrumentMeta?.digits,
+    chartInstrumentMeta?.point,
+    chartInstrumentMeta?.tickSize,
+    chartLiveQuote?.ask,
+    chartLiveQuote?.bid,
+    chartLiveQuote?.close,
+    chartLiveQuote?.digits,
+    chartLiveQuote?.point,
+    chartLiveQuote?.tickSize,
+    chartLiveQuoteDigitsSource,
+    hasLiveChartQuote,
+    latestChartPrecisionPrices,
+  ]);
   const { data: chartDailyRangeCandle = null } = useLatestDailyCandle(chartSymbol, isScreenFocused);
   const hasCandles = sanitizedCandles.length > 0;
   const timeRangeCandlesRef = useRef(sanitizedCandles);

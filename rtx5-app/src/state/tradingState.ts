@@ -156,7 +156,7 @@ export const useTradingState = create<TradingState>((set) => ({
       const prevBidState = incomingBid && incomingBid !== existing.bid ? existing.bid : existing.prevBid;
       const prevAskState = incomingAsk && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
-      const digits = existing.digits ?? data.digits ?? spec?.digits ?? 5;
+      const digits = data.digits ?? existing.digits ?? spec?.digits ?? 5;
       const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
       const lastTickAt =
         feedTickAt ??

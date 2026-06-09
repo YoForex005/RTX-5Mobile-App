@@ -187,6 +187,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     ...(normalizedUpdate.spread === undefined ? {} : { spread: normalizedUpdate.spread }),
     ...(normalizedUpdate.volume === undefined ? {} : { volume: normalizedUpdate.volume }),
     ...(normalizedUpdate.digits === undefined ? {} : { digits: normalizedUpdate.digits }),
+    ...(normalizedUpdate.point === undefined ? {} : { point: normalizedUpdate.point }),
+    ...(normalizedUpdate.tickSize === undefined ? {} : { tickSize: normalizedUpdate.tickSize }),
     feedTickAt: normalizedTimestampMs ?? undefined,
     lastReceivedAt: receivedAt,
     ...(normalizedTimestamp === null
@@ -213,6 +215,8 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
     spread: normalizedUpdate.spread,
     volume: normalizedUpdate.volume,
     digits: normalizedUpdate.digits,
+    point: normalizedUpdate.point,
+    tickSize: normalizedUpdate.tickSize,
     feedTickAt: normalizedTimestampMs ?? undefined,
     receivedAt,
     timestamp: liveListenerTimestamp,

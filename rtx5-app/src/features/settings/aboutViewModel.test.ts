@@ -58,10 +58,10 @@ test('about store targets route android and ios to native store first with brows
   assert.equal(iosExact.fallbackUrl, 'https://apps.apple.com/app/id1234567890');
 });
 
-test('about build label shows the OTA display version instead of native build numbers', () => {
-  assert.equal(resolveAboutBuildLabel({ appVersion: '1.0' }), 'Build 1.0');
-  assert.equal(resolveAboutBuildLabel({ appVersion: '1.1' }), 'Build 1.1');
-  assert.equal(resolveAboutBuildLabel({ appVersion: '' }), 'Build Local');
+test('about version label shows the OTA display version instead of native build numbers', () => {
+  assert.equal(resolveAboutBuildLabel({ appVersion: '1.1.2' }), 'Version 1.1.2');
+  assert.equal(resolveAboutBuildLabel({ appVersion: '1.1' }), 'Version 1.1');
+  assert.equal(resolveAboutBuildLabel({ appVersion: '' }), 'Version Local');
 });
 
 test('about developer mailto includes selected category and device context', () => {

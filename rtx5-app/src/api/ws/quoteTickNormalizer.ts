@@ -16,6 +16,8 @@ export type QuoteTickEvent = {
   spread?: number;
   volume?: number;
   digits?: number;
+  point?: number;
+  tickSize?: number;
   feedTickAt?: number;
   receivedAt: number;
   timestamp: number;
@@ -36,6 +38,8 @@ export type NormalizedQuoteFeedUpdate = {
   spread?: number;
   volume?: number;
   digits?: number;
+  point?: number;
+  tickSize?: number;
   timestamp: number | null;
   timestampSource: 'feed' | 'received_at' | 'missing';
   rawKeys: string[];
@@ -56,7 +60,36 @@ const LOW_KEYS = ['low', 'Low', 'LOW', 'low_bid', 'lowBid', 'daily_low', 'dailyL
 const CHANGE_KEYS = ['changePct', 'dailyChangePct', 'daily_change_pct', 'change_pct', 'changePercent'];
 const SPREAD_KEYS = ['spread', 'Spread', 'SPREAD'];
 const VOLUME_KEYS = ['volume', 'Volume', 'VOL', 'tick_volume', 'tickVolume'];
-const DIGITS_KEYS = ['digits', 'Digits', 'DIGITS'];
+const DIGITS_KEYS = [
+  'digits',
+  'Digits',
+  'DIGITS',
+  'precision',
+  'pricePrecision',
+  'price_precision',
+  'symbolDigits',
+  'symbol_digits',
+  'priceDigits',
+  'price_digits',
+  'quoteDigits',
+  'quote_digits',
+  'quotePrecision',
+  'quote_precision',
+  'decimalPlaces',
+  'decimal_places',
+];
+const POINT_KEYS = ['point', 'Point', 'POINT', 'pricePoint', 'price_point'];
+const TICK_SIZE_KEYS = [
+  'tickSize',
+  'TickSize',
+  'TICK_SIZE',
+  'tick_size',
+  'tick-size',
+  'priceTickSize',
+  'price_tick_size',
+  'minimumPriceIncrement',
+  'minimum_price_increment',
+];
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -111,6 +144,11 @@ const toFinitePrice = (value: unknown): number | null => {
 const toFiniteOptionalNumber = (value: unknown): number | undefined => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toPositiveOptionalNumber = (value: unknown): number | undefined => {
+  const parsed = toFiniteOptionalNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : undefined;
 };
 
 const withSessionRecords = (records: Record<string, unknown>[]): Record<string, unknown>[] => {
@@ -187,6 +225,8 @@ export const normalizeQuoteTickPayload = (
   const spread = toFiniteOptionalNumber(pickFirstValue(metricRecords, SPREAD_KEYS));
   const volume = toFiniteOptionalNumber(pickFirstValue(metricRecords, VOLUME_KEYS));
   const digits = toFiniteOptionalNumber(pickFirstValue(metricRecords, DIGITS_KEYS));
+  const point = toPositiveOptionalNumber(pickFirstValue(metricRecords, POINT_KEYS));
+  const tickSize = toPositiveOptionalNumber(pickFirstValue(metricRecords, TICK_SIZE_KEYS));
   const resolvedTimestamp = resolveTimestamp(records, fallbackTimestampMs);
   return {
     ok: true,
@@ -205,6 +245,8 @@ export const normalizeQuoteTickPayload = (
       spread,
       volume,
       digits,
+      point,
+      tickSize,
       timestamp: resolvedTimestamp.timestamp,
       timestampSource: resolvedTimestamp.timestampSource,
       rawKeys,

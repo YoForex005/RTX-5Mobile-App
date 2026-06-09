@@ -55,8 +55,17 @@ const DIGITS_FIELD_KEYS = [
   'DIGITS',
   'precision',
   'pricePrecision',
+  'price_precision',
+  'symbolDigits',
+  'symbol_digits',
+  'priceDigits',
   'price_digits',
+  'quoteDigits',
+  'quote_digits',
+  'quotePrecision',
+  'quote_precision',
   'decimalPlaces',
+  'decimal_places',
 ] as const;
 
 const POINT_FIELD_KEYS = [
