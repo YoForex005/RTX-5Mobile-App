@@ -90,6 +90,7 @@ import {
 } from '../../utils/tradeVolume';
 import type { TradeSide } from '../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from './chartTradeActions';
+import { resolveChartTradeButtonQuote } from './components/ChartTradeButtonsFeature/quoteFallback';
 import {
   DEFAULT_CHART_SYMBOLS,
   SYMBOL_FLAGS,
@@ -1277,19 +1278,29 @@ export function ChartScreen() {
 
   const positions = usePositionsState((s) => s.positions);
   const positionLinesRef = useRef<any[]>([]);
+  const { bid: chartBid, ask: chartAsk } = useMemo(
+    () =>
+      resolveChartTradeButtonQuote({
+        liveBid: hasLiveChartQuote ? chartLiveQuote?.bid : undefined,
+        liveAsk: hasLiveChartQuote ? chartLiveQuote?.ask : undefined,
+        fallbackBid: chartMetaLastCandle?.close,
+        fallbackAsk: chartMetaLastCandle?.close,
+      }),
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, chartMetaLastCandle?.close, hasLiveChartQuote],
+  );
   const overlayLiveBid = useMemo(
     () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
+      Number.isFinite(chartBid) && chartBid > 0
+        ? chartBid
         : null,
-    [chartLiveQuote?.bid, hasLiveChartQuote],
+    [chartBid],
   );
   const overlayLiveAsk = useMemo(
     () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
+      Number.isFinite(chartAsk) && chartAsk > 0
+        ? chartAsk
         : null,
-    [chartLiveQuote?.ask, hasLiveChartQuote],
+    [chartAsk],
   );
   const overlayPayload = useMemo(
     () => {

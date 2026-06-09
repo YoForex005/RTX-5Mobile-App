@@ -4,10 +4,11 @@ import { FastPressable as Pressable } from './FastPressable';
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
 import {
-  Animated, BackHandler, Easing, ScrollView, StyleSheet, Text, View,
+  Alert, Animated, BackHandler, Easing, Linking, ScrollView, StyleSheet, Text, View,
   Platform
 } from 'react-native';
 import { GDark, GLight, ThemeColors } from '../theme/glass';
@@ -19,22 +20,26 @@ import { useAccounts } from '../../query/accounts';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import type { ThemeMode } from '../../state/userPreferences/types';
 import { AppLogo } from './AppLogo';
+import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
+import { getConfiguredSupportEmail } from '../../config/legalLinks';
+import { buildHelpMailto } from '../../features/settings/helpViewModel';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-  route: string;
+  route?: string;
+  action?: 'support-email';
 };
 
 const MENU_ITEMS: MenuItem[] = [
   { label: 'Trade', icon: 'flash-outline', route: '/trade' },
-  { label: 'News', icon: 'reader-outline', route: '/settings/news' },
-  { label: 'Mailbox', icon: 'mail-outline', route: '/settings/mailbox' },
   { label: 'Journal', icon: 'book-outline', route: '/settings/journal' },
   { label: 'Settings', icon: 'settings-outline', route: '/settings' },
   { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
   { label: 'User Guide', icon: 'help-circle-outline', route: '/settings/user-guide' },
+  { label: 'Support', icon: 'help-buoy-outline', action: 'support-email' },
+  { label: 'Help', icon: 'information-circle-outline', route: '/settings/help' },
   { label: 'About', icon: 'information-circle-outline', route: '/settings/about' },
 ];
 
@@ -91,6 +96,10 @@ export function SidebarDrawer() {
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
   const activeAccount = accounts?.find((account) => account.login === currentLogin) ?? accounts?.[0];
   const displayAccountName = activeAccount?.name?.trim() || (accountDetails?.id ? `Account ${accountDetails.id}` : '---');
+  const supportEmail = getConfiguredSupportEmail();
+  const appName = Constants.expoConfig?.name ?? 'RTX5';
+  const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
+  const appVersion = resolveAppDisplayVersion(nativeAppVersion);
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -250,9 +259,33 @@ export function SidebarDrawer() {
     unlockSidebarNavigation();
   }, [closeImmediately, pathname, router, unlockSidebarNavigation]);
 
+  const openSupportEmail = useCallback(async () => {
+    const mailtoUrl = buildHelpMailto({
+      appName,
+      appVersion,
+      platform: Platform.OS,
+      supportEmail,
+    });
+
+    try {
+      await Linking.openURL(mailtoUrl);
+    } catch {
+      Alert.alert('Email support', `Please email ${supportEmail} from your mail app.`);
+    }
+  }, [appName, appVersion, supportEmail]);
+
   const handleMenuItemPress = useCallback((item: MenuItem) => {
-    navigateSidebarRoute(item.route);
-  }, [navigateSidebarRoute]);
+    if (item.action === 'support-email') {
+      closeImmediately(() => {
+        void openSupportEmail();
+      });
+      return;
+    }
+
+    if (item.route) {
+      navigateSidebarRoute(item.route);
+    }
+  }, [closeImmediately, navigateSidebarRoute, openSupportEmail]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 

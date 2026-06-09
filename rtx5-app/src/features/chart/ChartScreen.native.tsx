@@ -1249,17 +1249,17 @@ export function ChartScreen() {
   );
   const overlayLiveBid = useMemo(
     () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.bid === 'number' && chartLiveQuote.bid > 0
-        ? chartLiveQuote.bid
+      Number.isFinite(chartBid) && chartBid > 0
+        ? chartBid
         : null,
-    [chartLiveQuote?.bid, hasLiveChartQuote],
+    [chartBid],
   );
   const overlayLiveAsk = useMemo(
     () =>
-      hasLiveChartQuote && typeof chartLiveQuote?.ask === 'number' && chartLiveQuote.ask > 0
-        ? chartLiveQuote.ask
+      Number.isFinite(chartAsk) && chartAsk > 0
+        ? chartAsk
         : null,
-    [chartLiveQuote?.ask, hasLiveChartQuote],
+    [chartAsk],
   );
   const chartPointSize = useMemo(() => {
     if (displayDecimals <= 0) return 1;
@@ -2993,37 +2993,6 @@ export function ChartScreen() {
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
-  const handleOpenChartViewportMenu = useCallback(() => {
-    runImmediateAction('chart.viewport.menu.open', () => {
-      showChartActionSheet({
-        title: t('Chart'),
-        detent: 'adaptive',
-        instantOpen: true,
-        actions: [
-          {
-            label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
-            icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
-            onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
-          },
-          {
-            label: t('Reset'),
-            icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
-            onPress: handleResetChartViewport,
-          },
-        ],
-      });
-      scheduleChartActionSheetContextReset();
-    });
-  }, [
-    TEXT_MUTED,
-    handleResetChartViewport,
-    scheduleChartActionSheetContextReset,
-    setChartViewportShowVolumePane,
-    showChartActionSheet,
-    showChartVolumePane,
-    t,
-  ]);
-
   const chartOptions = useMemo(() => ({
     layout: {
       background: { color: resolvedChartColors.background },
@@ -4582,16 +4551,6 @@ export function ChartScreen() {
                     }}
                   />
                 ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Chart')}
-                  style={styles.chartViewportMenuButton}
-                  onPressIn={handleOpenChartViewportMenu}
-                  hitSlop={8}
-                  unstable_pressDelay={0}
-                >
-                  <Ionicons name="ellipsis-horizontal" size={18} color={TEXT_MUTED} />
-                </Pressable>
                 {chartTradeConfirmations.length > 0 ? (
                   <View
                     pointerEvents="none"

@@ -152,6 +152,7 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-1');
   assert.equal(openLine?.lineStyle, CHART_LINE_STYLE.Dotted);
   assert.equal(openLine?.title, 'BUY 0.20, +42.00 USD');
+  assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
   assert.equal(openLine?.labelPlacement, 'line');
   assert.equal(payload.priceLines.find((line: any) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
   assert.equal(payload.markers.length, 1);
@@ -174,6 +175,18 @@ test('buildChartOverlayPayload updates open position labels from live bid and as
         swap: -0.01,
         commission: -0.02,
         openTime: new Date(candles[5].time * 1000).toISOString(),
+      },
+      {
+        id: 'buy-loss-live',
+        symbol: 'BTCUSD',
+        side: 'buy',
+        volume: 0.01,
+        openPrice: 61030,
+        currentPrice: 61030,
+        pnl: 999,
+        swap: 0,
+        commission: 0,
+        openTime: new Date(candles[7].time * 1000).toISOString(),
       },
       {
         id: 'sell-live',
@@ -205,9 +218,52 @@ test('buildChartOverlayPayload updates open position labels from live bid and as
   });
 
   const titleById = new Map(payload.priceLines.map((line: any) => [line.id, line.title]));
+  const colorById = new Map(payload.priceLines.map((line: any) => [line.id, line.color]));
 
   assert.equal(titleById.get('open-buy-live'), 'BUY 0.01, +0.22 USD');
+  assert.equal(colorById.get('open-buy-live'), TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(titleById.get('open-buy-loss-live'), 'BUY 0.01, -0.05 USD');
+  assert.equal(colorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeStopOut);
   assert.equal(titleById.get('open-sell-live'), 'SELL 0.02, +1.40 USD');
+  assert.equal(colorById.get('open-sell-live'), TEST_CHART_COLORS.tradeTpSl);
+});
+
+test('buildChartOverlayPayload keeps open position pnl live when one quote side is missing', () => {
+  const payload = buildChartOverlayPayload({
+    chartSymbol: 'GBPUSD',
+    candles,
+    positions: [
+      {
+        id: 'sell-one-sided',
+        symbol: 'GBPUSD',
+        side: 'sell',
+        volume: 0.1,
+        openPrice: 1.2,
+        currentPrice: 1.2,
+        pnl: -999,
+        swap: 0,
+        commission: 0,
+        openTime: new Date(candles[8].time * 1000).toISOString(),
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveBid: 1.199,
+    liveAccount: null,
+    showOnChart: {
+      openPositions: true,
+      tpSlStopLimit: false,
+      closedPositions: false,
+      tradingSignals: false,
+      hmrPeriods: false,
+      priceAlerts: false,
+      potentialStopOut: false,
+    },
+  });
+
+  const openLine = payload.priceLines.find((line: any) => line.id === 'open-sell-one-sided');
+  assert.equal(openLine?.title, 'SELL 0.10, +10.00 USD');
+  assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
 });
 
 test('buildChartOverlayPayload adds active pending stop and limit orders to TP/SL/Stop/Limit overlays', () => {

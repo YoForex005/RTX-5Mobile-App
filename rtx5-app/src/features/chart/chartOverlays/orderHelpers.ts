@@ -51,7 +51,7 @@ export const calculateOpenPositionLivePnl = ({
 }: OpenPositionLivePnlInput): number | null => {
   const safeOpenPrice = Number(openPrice);
   const safeVolume = Number(volume);
-  const closePrice = Number(side === 'sell' ? ask : bid);
+  const closePrice = Number(side === 'sell' ? ask ?? bid : bid ?? ask);
 
   if (
     !Number.isFinite(safeOpenPrice) ||

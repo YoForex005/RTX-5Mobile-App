@@ -237,13 +237,18 @@ test('chart trade one-click and ticket paths keep heavy work out of the tap pain
   assert.doesNotMatch(chartTradeHandlerSource, /usePlaceOrderMutation/);
 });
 
-test('trade success feedback does not trigger device vibration', () => {
+test('trade success feedback uses compact strips without device vibration', () => {
   const ticketSource = readSource('src/features/trade/OrderTicketScreen.tsx');
   const feedbackModalSource = readSource('src/ui/components/TradeFeedbackModal.tsx');
 
   assert.doesNotMatch(ticketSource, /\bVibration\b|\.vibrate\(/);
   assert.doesNotMatch(feedbackModalSource, /\bVibration\b|\.vibrate\(/);
   assert.match(ticketSource, /without device vibration/);
+  assert.match(ticketSource, /const \[tradeConfirmations, setTradeConfirmations\] = useState<OrderTicketTradeConfirmation\[\]>/);
+  assert.match(ticketSource, /showTradeConfirmation\(\{ side: requestedSide, symbol, volume \}\)/);
+  assert.match(ticketSource, /showTradeConfirmation\(\{ side: pendingSideValue, symbol, volume \}\)/);
+  assert.match(ticketSource, /Error modal overlay for rejected order feedback/);
+  assert.doesNotMatch(ticketSource, /showModal\(\{\s*visible:\s*true,\s*type:\s*'success'/);
 });
 
 test('action destination routes are warmed in non-blocking batches', () => {

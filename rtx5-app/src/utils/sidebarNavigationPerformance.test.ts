@@ -154,22 +154,26 @@ test('sidebar keeps the main option routes warm and available', () => {
   const deferredMountSource = readSource('src/ui/components/DeferredRouteMount.tsx');
   const deferredRouteFiles = [
     'app/settings/accounts.tsx',
-    'app/settings/news.tsx',
-    'app/settings/mailbox.tsx',
     'app/settings/journal.tsx',
     'app/settings/economic-calendar.tsx',
     'app/settings/user-guide.tsx',
+    'app/settings/help.tsx',
     'app/settings/about.tsx',
   ];
 
   assert.match(source, /label: 'Trade'.*route: '\/trade'/);
-  assert.match(source, /label: 'News'.*route: '\/settings\/news'/);
-  assert.match(source, /label: 'Mailbox'.*route: '\/settings\/mailbox'/);
+  assert.doesNotMatch(source, /label: 'News'.*route: '\/settings\/news'/);
+  assert.doesNotMatch(source, /label: 'Mailbox'.*route: '\/settings\/mailbox'/);
   assert.match(source, /label: 'Journal'.*route: '\/settings\/journal'/);
   assert.match(source, /label: 'Settings'.*route: '\/settings'/);
   assert.match(source, /label: 'Economic Calendar'.*route: '\/settings\/economic-calendar'/);
   assert.match(source, /label: 'User Guide'.*route: '\/settings\/user-guide'/);
+  assert.match(source, /label: 'Support'.*action: 'support-email'/);
+  assert.match(source, /label: 'Help'.*route: '\/settings\/help'/);
   assert.match(source, /label: 'About'.*route: '\/settings\/about'/);
+  assert.match(source, /getConfiguredSupportEmail/);
+  assert.match(source, /buildHelpMailto/);
+  assert.doesNotMatch(source, /\/settings\/support/);
   assert.doesNotMatch(source, /MQL5 Algo Trading|\/settings\/mql5-algo-trading|Traders Community|\/settings\/traders-community/);
   assert.match(source, /'\/settings\/accounts'/);
   assert.match(source, /'\/login'/);

@@ -21,7 +21,7 @@
 - Chart timeframe switch, objects manager, settings action sheet.
 - Trade positions, one-click consent, order ticket for market and pending types.
 - History filters, sorting, and totals.
-- Settings navigation to accounts, brokers, mailbox, and news.
+- Settings navigation to visible settings destinations such as accounts, brokers, economic calendar, journal, support, help, and about.
 - OTA update apply and rollback validation.
 
 ## Release Blocking Thresholds

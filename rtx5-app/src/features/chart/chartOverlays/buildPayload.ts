@@ -79,6 +79,17 @@ const applyRightAxisLabelVisibility = (lines: ChartOverlayPriceLine[]): ChartOve
   return lines.map((line) => ({ ...line, axisLabelVisible: false }));
 };
 
+const resolveOpenPositionPnlColor = (
+  pnl: number,
+  side: 'buy' | 'sell',
+  colors: ChartColorsConfig,
+  sellColor: string,
+): string => {
+  if (pnl > 0) return colors.tradeTpSl || '#089981';
+  if (pnl < 0) return colors.tradeStopOut || sellColor || '#DC2626';
+  return side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
+};
+
 export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
@@ -159,7 +170,7 @@ export const buildChartOverlayPayload = ({
         addUniquePriceLine(priceLines, {
           id: `open-${position.id}`,
           price: parsedPrice,
-          color: position.side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor,
+          color: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
           lineWidth: 1,
           lineStyle: CHART_LINE_STYLE.Dotted,
           axisLabelVisible: true,

@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { ActivityIndicator, Animated, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -70,6 +70,24 @@ type OrderTicketTradeAction = {
   execStyle: object;
   priceTestID: string;
   execTestID: string;
+};
+
+const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
+const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
+
+type OrderTicketFeedbackModalState = {
+  visible: boolean;
+  type: 'error';
+  title: string;
+  message: string;
+  side?: TradeSide;
+};
+
+type OrderTicketTradeConfirmation = {
+  id: string;
+  symbol: string;
+  side: TradeSide;
+  volumeLabel: string;
 };
 
 export function OrderTicketScreen() {
@@ -190,64 +208,58 @@ export function OrderTicketScreen() {
     }));
   }, [availableSymbols, handleSymbolSelect, marketSymbolsFetching, symbol, t]);
 
-  // One modal state handles both success and error feedback from trade actions.
-  const [modalState, setModalState] = useState<{
-    visible: boolean;
-    type: 'success' | 'error';
-    title: string;
-    message: string;
-    side?: TradeSide;
-    ticket?: string;
-    symbol?: string;
-    volume?: number;
-    price?: number;
-    executedAt?: string;
-  }>({ visible: false, type: 'success', title: '', message: '' });
+  // Broker or API failures keep the detailed modal; successful executions use
+  // the compact "done" strip below without device vibration.
+  const [modalState, setModalState] = useState<OrderTicketFeedbackModalState>({
+    visible: false,
+    type: 'error',
+    title: '',
+    message: '',
+  });
+  const [tradeConfirmations, setTradeConfirmations] = useState<OrderTicketTradeConfirmation[]>([]);
+  const tradeConfirmationTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const modalScaleAnim = useRef(new Animated.Value(0.85)).current;
-  const modalOpacityAnim = useRef(new Animated.Value(0)).current;
-  const autoDismissTimer = useRef<NodeJS.Timeout | null>(null);
-
-  // Show feedback with a short animation. Successful orders auto-dismiss after
-  // a few seconds without device vibration so execution stays calm and smooth.
-  const showModal = useCallback((state: typeof modalState) => {
+  const showModal = useCallback((state: OrderTicketFeedbackModalState) => {
     setModalState(state);
-    modalScaleAnim.setValue(0.85);
-    modalOpacityAnim.setValue(0);
-    Animated.parallel([
-      Animated.spring(modalScaleAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 8 }),
-      Animated.timing(modalOpacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-    ]).start();
-
-    if (state.type === 'success') {
-      autoDismissTimer.current = setTimeout(() => handleModalClose(), 4000);
-    }
   }, []);
 
-  // After a successful order, closing the modal returns the user to the
-  // previous screen. Errors just close the modal and leave the ticket open.
   const handleModalClose = useCallback(() => {
-    if (autoDismissTimer.current) {
-      clearTimeout(autoDismissTimer.current);
-      autoDismissTimer.current = null;
-    }
-    const wasSuccess = modalState.type === 'success';
-    Animated.parallel([
-      Animated.timing(modalScaleAnim, { toValue: 0.9, duration: 150, useNativeDriver: true }),
-      Animated.timing(modalOpacityAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
-    ]).start(() => {
-      setModalState(prev => ({ ...prev, visible: false }));
-      if (wasSuccess) {
-        safeRouterBack(router, '/(tabs)/trade');
-      }
-    });
-  }, [modalState.type]);
+    setModalState(prev => ({ ...prev, visible: false }));
+  }, []);
 
-  // Clear any pending auto-dismiss timer when the screen unmounts.
-  useEffect(() => {
-    return () => {
-      if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
+  const showTradeConfirmation = useCallback(({
+    side,
+    symbol: confirmationSymbol,
+    volume: confirmationVolume,
+  }: {
+    side: TradeSide;
+    symbol: string;
+    volume: number | string;
+  }) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const volumeLabel = typeof confirmationVolume === 'number'
+      ? formatTradeVolume(confirmationVolume, volumeBounds)
+      : String(confirmationVolume || '');
+    const confirmation: OrderTicketTradeConfirmation = {
+      id,
+      symbol: String(confirmationSymbol || symbol || '').replace(/\//g, ''),
+      side,
+      volumeLabel,
     };
+
+    setTradeConfirmations((current) =>
+      [confirmation, ...current].slice(0, ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS),
+    );
+
+    const timer = setTimeout(() => {
+      setTradeConfirmations((current) => current.filter((item) => item.id !== id));
+    }, ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS);
+    tradeConfirmationTimersRef.current.push(timer);
+  }, [symbol, volumeBounds]);
+
+  useEffect(() => () => {
+    tradeConfirmationTimersRef.current.forEach((timer) => clearTimeout(timer));
+    tradeConfirmationTimersRef.current = [];
   }, []);
 
   // Keep the editable volume field aligned with saved preferences and the
@@ -695,18 +707,7 @@ export function OrderTicketScreen() {
         void syncOpenedPosition(mt5Login, positionTicket);
       }
 
-      showModal({
-        visible: true,
-        type: 'success',
-        title: 'Order Executed',
-        message: `Successfully placed ${requestedSide.toUpperCase()} ${volume} lot(s) on ${symbol?.replace(/\//g, '')}`,
-        side: requestedSide,
-        ticket: String(positionTicket ?? ''),
-        symbol: symbol?.replace(/\//g, ''),
-        volume,
-        price: data.price || (requestedSide === 'buy' ? ASK : BID),
-        executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      });
+      showTradeConfirmation({ side: requestedSide, symbol, volume });
     } catch (error: any) {
       const feedback = classifyTradingError(error, { action: 'place-order' });
       // Extract raw server message so we can see the exact rejection reason
@@ -852,19 +853,7 @@ export function OrderTicketScreen() {
       queryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
       queryClient.invalidateQueries({ queryKey: ['accountOrders'] });
 
-      const orderTicket = data.order_ticket ?? data.position_ticket ?? data.ticket;
-      showModal({
-        visible: true,
-        type: 'success',
-        title: 'Pending Order Placed',
-        message: `${orderType.toUpperCase()} ${volume.toFixed(2)} lot(s) on ${symbol} at ${pendingEntryPrice > 0 ? pendingEntryPrice.toFixed(priceDecimals) : 'market'}`,
-        side: pendingSideValue,
-        ticket: String(orderTicket ?? ''),
-        symbol: symbol?.replace(/\//g, ''),
-        volume,
-        price: data.price ?? data.price_open ?? (pendingEntryPrice > 0 ? pendingEntryPrice : (pendingSideValue === 'buy' ? ASK : BID)),
-        executedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      });
+      showTradeConfirmation({ side: pendingSideValue, symbol, volume });
     } catch (error: any) {
       const feedback = classifyTradingError(error, { action: 'place-order' });
       const rawMsg = error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '';
@@ -1229,7 +1218,47 @@ export function OrderTicketScreen() {
         </View>
       </ScrollView>
 
-      {/* Success/error modal overlay for order feedback. */}
+      {tradeConfirmations.length > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[styles.tradeConfirmationStack, { bottom: insets.bottom + 112 }]}
+        >
+          {tradeConfirmations.map((confirmation) => {
+            const isBuyConfirmation = confirmation.side === 'buy';
+            const accentColor = isBuyConfirmation ? BUY_C : SELL_C;
+            return (
+              <View
+                key={confirmation.id}
+                style={[
+                  styles.tradeConfirmationCard,
+                  { borderLeftColor: accentColor },
+                ]}
+              >
+                <Text style={styles.tradeConfirmationSymbol} numberOfLines={1}>
+                  {confirmation.symbol}
+                </Text>
+                <Text
+                  style={[
+                    styles.tradeConfirmationSide,
+                    { color: accentColor },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {isBuyConfirmation ? 'Buy' : 'Sell'}
+                </Text>
+                <Text style={styles.tradeConfirmationVolume} numberOfLines={1}>
+                  {confirmation.volumeLabel}
+                </Text>
+                <Text style={styles.tradeConfirmationDone} numberOfLines={1}>
+                  done
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {/* Error modal overlay for rejected order feedback. */}
       <TradeFeedbackModal
         state={modalState}
         onClose={handleModalClose}
@@ -1418,6 +1447,62 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 12,
       lineHeight: 17,
       marginTop: 4,
+    },
+    tradeConfirmationStack: {
+      position: 'absolute' as any,
+      left: '30%',
+      right: 54,
+      zIndex: 24,
+      elevation: 24,
+      gap: 6,
+    },
+    tradeConfirmationCard: {
+      minHeight: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#FFFFFF',
+      borderLeftWidth: 3,
+      borderRadius: 2,
+      paddingHorizontal: 12,
+      shadowColor: '#000000',
+      shadowOpacity: isDark ? 0.18 : 0.12,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 6,
+      gap: 12,
+    },
+    tradeConfirmationSymbol: {
+      flex: 1.2,
+      minWidth: 0,
+      color: '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+    },
+    tradeConfirmationSide: {
+      flex: 0.8,
+      minWidth: 0,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0,
+    },
+    tradeConfirmationVolume: {
+      flex: 0.6,
+      minWidth: 0,
+      color: '#0F172A',
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'center',
+    },
+    tradeConfirmationDone: {
+      flex: 0.8,
+      minWidth: 0,
+      color: BUY_C,
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 0,
+      textAlign: 'right',
     },
 
     /* Success / Error Modal */
