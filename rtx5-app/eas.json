@@ -63,6 +63,34 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "production-no-ota": {
+      "channel": "production",
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_DISABLE_OTA_UPDATES": "true"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
+    "production-no-ota-apk": {
+      "channel": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_DISABLE_OTA_UPDATES": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

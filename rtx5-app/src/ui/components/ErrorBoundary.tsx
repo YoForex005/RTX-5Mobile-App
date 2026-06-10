@@ -2,6 +2,7 @@ import { FastPressable as Pressable } from './FastPressable';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { logStartupError } from '../../utils/startupDiagnostics';
 
 interface Props {
   children?: ReactNode;
@@ -25,7 +26,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught UI error captured by Boundary:', error, errorInfo);
+    logStartupError('error-boundary.caught', error, {
+      componentStack: errorInfo.componentStack,
+    });
   }
 
   private handleRestart = () => {

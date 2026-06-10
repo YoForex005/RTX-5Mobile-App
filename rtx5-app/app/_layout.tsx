@@ -113,6 +113,7 @@ function InnerLayout() {
             }
           }}
         >
+          <Stack.Screen name='index' options={{ headerShown: false }} />
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
           <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
           <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false }} />
@@ -181,15 +182,23 @@ import { hydratePersistedCandleCache } from '../src/domain/candles/state/persist
 import { useDataAnalyzer } from '../src/features/chart/DataAnalyzer';
 import { scheduleAfterFirstFrame, scheduleIdleWork } from '../src/utils/startupScheduler';
 import { bootstrapApp } from '../src/services/bootstrapApp';
+import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/utils/startupDiagnostics';
+
+installGlobalStartupErrorHandlers();
 
 export default function RootLayout() {
   useOtaUpdateOnLaunch();
   useDataAnalyzer();
 
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     ...Ionicons.font,
     ...MaterialIcons.font,
   });
+  // Treat a font-load *failure* as "ready" so we proceed with system-fallback
+  // glyphs instead of hanging on the splash forever. useFonts leaves
+  // fontsLoaded=false permanently if loadAsync rejects, and SplashScreen.hideAsync
+  // is gated on it below — without this the native splash would never hide.
+  const fontsReady = fontsLoaded || !!fontError;
 
   const hasHydrated = useUserPreferences((s) => s.hasHydrated);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
@@ -198,11 +207,35 @@ export default function RootLayout() {
   const chartTimeframe = useUserPreferences((s) => s.chartTimeframe);
 
   useEffect(() => {
-    if (!hasHydrated) return;
+    logStartupDiagnostic('root.mounted', {
+      hasHydrated,
+      fontsReady,
+      isLoggedIn,
+      hasAccountDetails: Boolean(accountDetails),
+      route: 'RootLayout',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      logStartupDiagnostic('storage.restore.waiting', { store: 'userPreferences' });
+      return;
+    }
+    logStartupDiagnostic('storage.restore.completed', {
+      store: 'userPreferences',
+      isLoggedIn,
+      hasAccountDetails: Boolean(accountDetails),
+      chartSymbol,
+      chartTimeframe,
+    });
     let cancelled = false;
 
     const cancelCacheHydration = scheduleIdleWork(() => {
       if (!cancelled) {
+        logStartupDiagnostic('trading.candleCache.restore.started', {
+          chartSymbol,
+          chartTimeframe,
+        });
         void hydratePersistedCandleCache(chartSymbol, chartTimeframe);
       }
     }, { delayMs: 1500, timeoutMs: 3000 });
@@ -214,6 +247,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (isLoggedIn) {
+      logStartupDiagnostic('auth.restore.started', {
+        hasAccountDetails: Boolean(accountDetails),
+        accountLoginPresent: Boolean(accountDetails?.id),
+      });
       let cancelled = false;
       const cancelScheduledBootWork: Array<() => void> = [];
       const scheduleBootWork = (cancel: () => void) => {
@@ -255,6 +292,9 @@ export default function RootLayout() {
         if (cancelled) return;
         if (Number.isFinite(mt5LoginNumber) && mt5LoginNumber > 0) {
           const mt5Login = String(mt5LoginNumber);
+          logStartupDiagnostic('trading.bootstrap.started', {
+            accountLoginPresent: true,
+          });
           useLiveAccountState.getState().updateMetrics({ login: mt5LoginNumber });
           brokerRealtimeService.connect();
           void bootstrapApp({ accountLogin: mt5Login }).catch((error) => {
@@ -336,28 +376,30 @@ export default function RootLayout() {
   }, [isLoggedIn]);
 
   useEffect(() => {
-    if (hasHydrated && fontsLoaded) {
+    if (hasHydrated && fontsReady) {
       // Small timeout allows SafeAreaProvider to measure insets on Android
       setTimeout(() => {
         void SplashScreen.hideAsync();
       }, 100);
     }
-  }, [hasHydrated, fontsLoaded]);
+  }, [hasHydrated, fontsReady]);
 
-  if (!fontsLoaded) {
-    return (
-      <AppProviders>
-        <StartupLogoScreen />
-      </AppProviders>
-    );
-  }
+  // Hard safety net: never let the native splash stay up indefinitely, even if
+  // hydration or font loading wedges on some unexpected path. Reveals the
+  // branded StartupLogoScreen rather than a frozen splash that looks like a crash.
+  useEffect(() => {
+    const fallback = setTimeout(() => {
+      void SplashScreen.hideAsync();
+    }, 8000);
+    return () => clearTimeout(fallback);
+  }, []);
 
   return (
-    <AppProviders>
-      <ErrorBoundary>
-        {hasHydrated ? <InnerLayout /> : <StartupLogoScreen />}
-      </ErrorBoundary>
-    </AppProviders>
+    <ErrorBoundary>
+      <AppProviders>
+        {hasHydrated && fontsReady ? <InnerLayout /> : <StartupLogoScreen />}
+      </AppProviders>
+    </ErrorBoundary>
   );
 }
 

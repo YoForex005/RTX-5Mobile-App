@@ -6,6 +6,7 @@ node_modules/
 
 # Expo
 .expo/
+.codex-tmp/
 dist/
 web-build/
 expo-env.d.ts
@@ -29,6 +30,11 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# build artifacts
+*.apk
+*.aab
+*.ipa
 
 # macOS
 .DS_Store

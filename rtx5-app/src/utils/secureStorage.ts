@@ -19,10 +19,15 @@ export const setSecureItemAsync = async (key: string, value: string): Promise<vo
 };
 
 export const getSecureItemAsync = async (key: string): Promise<string | null> => {
-  if (Platform.OS === 'web') {
-    return await AsyncStorage.getItem(key);
+  try {
+    if (Platform.OS === 'web') {
+      return await AsyncStorage.getItem(key);
+    }
+    return await SecureStore.getItemAsync(key);
+  } catch (error) {
+    console.warn('[SecureStorage] Failed to read secure item', { key, error });
+    return null;
   }
-  return await SecureStore.getItemAsync(key);
 };
 
 export const removeSecureItemAsync = async (key: string): Promise<void> => {

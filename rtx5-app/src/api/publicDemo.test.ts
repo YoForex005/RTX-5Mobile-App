@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
+import { AUTH_PROXY_SERVER_URL } from './brokerRouting';
 import {
   OrrnnDemoApiError,
   PUBLIC_DEMO_API_BASE_URL,
   createOrrnnDemoAccount,
   getOrrnnDemoGroups,
   getOrrnnDemoStatus,
+  resolveOrrnnDemoBrokerAuthRoute,
   type CreateOrrnnDemoAccountRequest,
 } from './publicDemo';
 
@@ -29,6 +33,8 @@ function mockFetch(t: { after: (fn: () => void) => void }, implementation: typeo
     globalThis.fetch = originalFetch;
   });
 }
+
+const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account', async (t) => {
   let capturedUrl = '';
@@ -77,6 +83,63 @@ test('createOrrnnDemoAccount posts compact body to /api/v1/public/demo-account',
   assert.equal(capturedBody.comment, undefined);
   assert.equal(response.login, 900000001);
   assert.equal(response.api_key, 'rtx5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+});
+
+test('resolveOrrnnDemoBrokerAuthRoute prefers the Orrnn broker services domain', () => {
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
+    broker_id: 'orrnn',
+    broker_name: 'Orrnn',
+    services_domain: 'https://trade.orrnn.example/api/v2',
+    server: '69.197.178.27:443',
+    server_ip: '69.197.178.27',
+    logo_url: ' https://cdn.orrnn.example/logo.png ',
+  }]);
+
+  assert.equal(route.serverUrl, 'https://trade.orrnn.example');
+  assert.equal(route.proxyServer, '');
+  assert.equal(route.logoUrl, 'https://cdn.orrnn.example/logo.png');
+  assert.equal(route.source, 'broker-directory');
+});
+
+test('resolveOrrnnDemoBrokerAuthRoute uses auth proxy route for non-URL broker servers', () => {
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', [{
+    broker_id: 'orrnn',
+    broker_name: 'Orrnn',
+    server: 'Orrnn-Demo',
+    server_ip: '69.197.178.27',
+  }]);
+
+  assert.equal(route.serverUrl, AUTH_PROXY_SERVER_URL);
+  assert.equal(route.proxyServer, 'Orrnn-Demo');
+  assert.equal(route.source, 'broker-directory');
+});
+
+test('resolveOrrnnDemoBrokerAuthRoute falls back to the configured public demo origin for Orrnn', () => {
+  const route = resolveOrrnnDemoBrokerAuthRoute('orrnn', []);
+
+  assert.equal(route.serverUrl, 'https://backend.orrnn.com');
+  assert.equal(route.proxyServer, '');
+  assert.equal(route.source, 'public-demo-config');
+});
+
+test('register fallback login uses resolved Orrnn broker route and persists secure session', () => {
+  const source = readSource('app/register.tsx');
+
+  assert.match(source, /resolveOrrnnDemoBrokerAuthRoute\(canonicalBrokerId, brokerServers\)/);
+  assert.match(source, /demoAuthRoute\.source !== 'broker-directory'/);
+  assert.match(source, /refetchBrokerServers\(\)/);
+  assert.match(
+    source,
+    /loginAPI\(\{[\s\S]*broker_id: canonicalBrokerId,[\s\S]*\}, \{[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*proxyServer: demoAuthRoute\.proxyServer,[\s\S]*\}\)/,
+  );
+  assert.match(
+    source,
+    /persistSelectedBrokerSession\(\{[\s\S]*brokerId: canonicalBrokerId,[\s\S]*serverUrl: demoAuthRoute\.serverUrl,[\s\S]*logoUrl: demoAuthRoute\.logoUrl,[\s\S]*\}\)/,
+  );
+  assert.match(
+    source,
+    /persistAuthSessionTokens\(\{[\s\S]*accessToken: sessionToken,[\s\S]*refreshToken: sessionRefreshToken,[\s\S]*expiresAt: sessionExpiresAt,[\s\S]*\}\)/,
+  );
 });
 
 test('public demo status and groups use the dedicated public demo API base URL', async (t) => {

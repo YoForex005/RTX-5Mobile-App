@@ -27,6 +27,7 @@ export type SelectHelpFaqItemsOptions = {
 export type HelpMailtoOptions = {
   appName: string;
   appVersion: string;
+  appBuildVersion?: string | null;
   platform: string;
   supportEmail?: string;
 };
@@ -150,6 +151,7 @@ export function buildHelpSummary(items: HelpFaqItem[] = HELP_FAQ_ITEMS): HelpSum
 export function buildHelpMailto({
   appName,
   appVersion,
+  appBuildVersion,
   platform,
   supportEmail = HELP_SUPPORT_EMAIL,
 }: HelpMailtoOptions): string {
@@ -157,6 +159,7 @@ export function buildHelpMailto({
   const bodyLines = [
     `App: ${appName}`,
     `Version: ${appVersion}`,
+    ...(appBuildVersion?.trim() ? [`Build: ${appBuildVersion.trim()}`] : []),
     `Platform: ${platform}`,
     '',
     'Describe your question or issue here.',

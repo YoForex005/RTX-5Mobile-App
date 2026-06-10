@@ -1,6 +1,6 @@
 {
   "name": "rtx5-app",
-  "version": "1.1.3",
+  "version": "1.1.5",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -19,8 +19,10 @@
     "build:preview": "eas build --platform all --profile preview --non-interactive",
     "build:staging": "eas build --platform all --profile staging --non-interactive",
     "build:prod": "eas build --platform all --profile production --non-interactive",
+    "build:prod:no-ota": "eas build --platform all --profile production-no-ota --non-interactive --clear-cache",
     "build:android:prod": "eas build --platform android --profile production --non-interactive",
     "build:android:prod-apk": "eas build --platform android --profile production-apk --non-interactive",
+    "build:android:prod-no-ota-apk": "eas build --platform android --profile production-no-ota-apk --non-interactive --clear-cache",
     "build:android": "eas build --platform android --profile preview --non-interactive",
     "build:ios": "eas build --platform ios --profile preview --non-interactive",
     "update:preview": "node ./scripts/eas-update.js preview",
@@ -40,6 +42,7 @@
     "@shopify/react-native-skia": "2.2.12",
     "@tanstack/react-query": "^5.90.21",
     "expo": "~54.0.35",
+    "expo-application": "~7.0.8",
     "expo-blur": "~15.0.8",
     "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.13",

@@ -6,6 +6,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import {
@@ -121,7 +122,8 @@ export function SettingsScreen() {
   const currentLanguageNative = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.nativeName ?? 'English';
   const supportEmail = getConfiguredSupportEmail();
   const appName = Constants.expoConfig?.name ?? 'RTX5';
-  const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
+  const nativeAppVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'Local';
+  const appBuildVersion = Application.nativeBuildVersion ?? Constants.nativeBuildVersion ?? '';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
   const styles = useMemo(() => makeSettingsStyles(T, themeMode), [T, themeMode]);
   const lowerSettingsReady = useDeferredRouteContentReady(SETTINGS_LOWER_CONTENT_DELAY_MS);
@@ -262,6 +264,7 @@ export function SettingsScreen() {
     const mailtoUrl = buildHelpMailto({
       appName,
       appVersion,
+      appBuildVersion,
       platform: Platform.OS,
       supportEmail,
     });
@@ -271,7 +274,7 @@ export function SettingsScreen() {
     } catch {
       Alert.alert('Email support', `Please email ${supportEmail} from your mail app.`);
     }
-  }, [appName, appVersion, supportEmail]);
+  }, [appBuildVersion, appName, appVersion, supportEmail]);
 
   const SEARCHABLE_ITEMS = useMemo<SearchableSettingsItem[]>(() => [
     { title: 'Accounts', sub: 'Manage trading accounts', icon: 'server-outline', routePath: '/settings/accounts' },

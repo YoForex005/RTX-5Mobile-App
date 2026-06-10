@@ -28,6 +28,11 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# build artifacts
+*.apk
+*.aab
+*.ipa
+
 # macOS
 .DS_Store
 *.pem

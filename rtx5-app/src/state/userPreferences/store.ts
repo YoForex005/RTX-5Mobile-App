@@ -158,20 +158,19 @@ const normalizeAccountDetails = (value: unknown): UserPreferencesState['accountD
   const accessToken = asString(credentials.accessToken);
   const refreshToken = asString(credentials.refreshToken);
   const expiresAt = asString(credentials.expiresAt);
+  if (!accessToken) {
+    return null;
+  }
 
   return {
     id,
     name: asString(record.name, `Account ${id}`),
     server: asString(record.server),
-    ...(accessToken || refreshToken || expiresAt
-      ? {
-          credentials: {
-            accessToken,
-            refreshToken,
-            expiresAt,
-          },
-        }
-      : {}),
+    credentials: {
+      accessToken,
+      refreshToken,
+      expiresAt,
+    },
   };
 };
 

@@ -380,6 +380,24 @@ test('resolveFooterTradeRowState keeps the iOS floating editor visible without w
   );
 });
 
+test('resolveFooterTradeRowState uses the measured iOS keyboard overlap for the floating editor', () => {
+  assert.deepEqual(
+    resolveFooterTradeRowState({
+      platform: 'ios',
+      footerLotEditorFocused: true,
+      footerLotEditorOpening: false,
+      showChartTradeSheet: false,
+      keyboardVisibleHeight: 312,
+      keyboardDockOffset: 76,
+    }),
+    {
+      shouldMountFloatingFooterTradeRow: true,
+      isFloatingFooterTradeRowVisible: true,
+      footerTradeRowKeyboardOffset: 76,
+    },
+  );
+});
+
 test('resolveFooterTradeRowState disables the floating row when the editor is closed', () => {
   assert.deepEqual(
     resolveFooterTradeRowState({
@@ -467,6 +485,20 @@ test('resolveFooterTradeDockBottom adds the focused edit gap on iOS only after k
       footerTradeRowKeyboardOffset: 288,
     }),
     333,
+  );
+});
+
+test('resolveFooterTradeDockBottom docks iOS lot editing from measured keyboard overlap', () => {
+  assert.equal(
+    resolveFooterTradeDockBottom({
+      platform: 'ios',
+      footerLotEditorFocused: true,
+      showFloatingFooterTradeRow: true,
+      showInlineFooterDock: false,
+      footerTradeRowKeyboardOffset: 76,
+      keyboardVisibleHeight: 312,
+    }),
+    121,
   );
 });
 
@@ -811,13 +843,27 @@ test('resolveKeyboardDockOffset falls back to keyboard height minus safe bottom 
   );
 });
 
-test('resolveKeyboardDockOffset keeps the full keyboard height on iOS', () => {
+test('resolveKeyboardDockOffset uses real keyboard overlap from screenY on iOS', () => {
   assert.equal(
     resolveKeyboardDockOffset({
       platform: 'ios',
       keyboardHeight: 312,
       keyboardScreenY: 544,
       containerBottom: 620,
+      screenHeight: 800,
+      safeAreaBottom: 34,
+    }),
+    76,
+  );
+});
+
+test('resolveKeyboardDockOffset falls back to full keyboard height on iOS without frame geometry', () => {
+  assert.equal(
+    resolveKeyboardDockOffset({
+      platform: 'ios',
+      keyboardHeight: 312,
+      keyboardScreenY: null,
+      containerBottom: null,
       screenHeight: 800,
       safeAreaBottom: 34,
     }),

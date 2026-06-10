@@ -1,5 +1,5 @@
 /**
- * Global reusable ActionSheet component.
+ * Global Reusable ActionSheet component.
  *
  * Provides a native-feeling bottom sheet overlay for contextual actions.
  * Highly configurable and typically controlled via the global `useUIState`

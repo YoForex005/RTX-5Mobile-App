@@ -35,6 +35,7 @@ import {
   ORRNN_DEMO_INITIAL_BALANCE,
   ORRNN_DEMO_ORIGIN_BROKER,
   isOrrnnDemoHealthy,
+  resolveOrrnnDemoBrokerAuthRoute,
 } from '../src/api/publicDemo';
 import {
   useCreateOrrnnDemoAccount,
@@ -43,6 +44,10 @@ import {
 } from '../src/query/publicDemo';
 import { safeRouterBack } from '../src/utils/navigation';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
+import {
+  persistAuthSessionTokens,
+  persistSelectedBrokerSession,
+} from '../src/state/brokerSessionStorage';
 
 type RegisterFieldKey =
   | 'firstName'
@@ -360,11 +365,25 @@ export default function RegisterScreen() {
 
       // Use the broker_id from the API response as canonical
       const canonicalBrokerId = response.broker_id || ORRNN_DEMO_BROKER_ID;
+      let demoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(canonicalBrokerId, brokerServers);
+      if (demoAuthRoute.source !== 'broker-directory') {
+        const refreshedBrokerServers = await refetchBrokerServers()
+          .then((result) => result.data ?? [])
+          .catch(() => []);
+        const refreshedDemoAuthRoute = resolveOrrnnDemoBrokerAuthRoute(canonicalBrokerId, refreshedBrokerServers);
+        if (refreshedDemoAuthRoute.source === 'broker-directory' || !demoAuthRoute.serverUrl) {
+          demoAuthRoute = refreshedDemoAuthRoute;
+        }
+      }
+      if (!demoAuthRoute.serverUrl) {
+        throw new Error(t('Demo account was created, but the Orrnn broker login server was not found.'));
+      }
+
       const accountName = `${trimmedFirstName} ${trimmedLastName}`.trim();
       let sessionLogin = response.login;
       let sessionToken = response.api_key ?? '';
       let sessionRefreshToken = '';
-      let sessionExpiresAt = '';
+      let sessionExpiresAt = new Date(Date.now() + 86400 * 1000).toISOString();
 
       if (!sessionToken) {
         // The documented public endpoint returns `api_key`, but current live
@@ -376,6 +395,9 @@ export default function RegisterScreen() {
           username: String(response.login),
           password,
           broker_id: canonicalBrokerId,
+        }, {
+          serverUrl: demoAuthRoute.serverUrl,
+          proxyServer: demoAuthRoute.proxyServer,
         });
         sessionToken = authResponse.access_token ?? authResponse.token ?? '';
         sessionRefreshToken = authResponse.refresh_token ?? authResponse.refreshToken ?? '';
@@ -409,8 +431,26 @@ export default function RegisterScreen() {
           expires_at: sessionExpiresAt,
         },
         canonicalBrokerId,
-        { isDemoAccount: true },
+        {
+          serverUrl: demoAuthRoute.serverUrl,
+          logoUrl: demoAuthRoute.logoUrl,
+          isDemoAccount: true,
+        },
       );
+      void Promise.all([
+        persistSelectedBrokerSession({
+          brokerId: canonicalBrokerId,
+          serverUrl: demoAuthRoute.serverUrl,
+          logoUrl: demoAuthRoute.logoUrl,
+        }),
+        persistAuthSessionTokens({
+          accessToken: sessionToken,
+          refreshToken: sessionRefreshToken,
+          expiresAt: sessionExpiresAt,
+        }),
+      ]).catch((err) => {
+        console.warn('[Register] Failed to persist secure broker session', err);
+      });
 
       // Persist the new demo account in the directory + secure-store the
       // master password so the user can switch back to it from the Accounts
@@ -421,6 +461,8 @@ export default function RegisterScreen() {
         name: accountName,
         brokerId: canonicalBrokerId,
         server: brokerConfig?.server_name || canonicalBrokerId,
+        serverUrl: demoAuthRoute.serverUrl,
+        logoUrl: demoAuthRoute.logoUrl,
         accountType: 'demo',
         lastUsedAt: Date.now(),
         hasCredentials: true,

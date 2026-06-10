@@ -4,7 +4,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
  * 
  * Central hub for managing multiple trading accounts. Displays the active 
  * connection status (live ping/health), balances across connected accounts,
- * and handles credential management (passwords, QR codes).
+ * and handles credential management (passwords).
  */
 
 import React from 'react';
@@ -37,7 +37,6 @@ import { signInWithCredentials } from '../../api/authSession';
 import { removeSecureItemAsync } from '../../utils/secureStorage';
 import { fmt } from '../../utils/format';
 import { ChangePasswordSheet } from './ChangePasswordSheet';
-import { QRCodeSheet } from './QRCodeSheet';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 
 
@@ -384,8 +383,6 @@ export function AccountsScreen() {
   const [passwordSheetVisible, setPasswordSheetVisible] = React.useState(false);
   const [passwordType, setPasswordType] = React.useState<'master' | 'investor'>('master');
   const [successMessage, setSuccessMessage] = React.useState('');
-  const [qrSheetVisible, setQRSheetVisible] = React.useState(false);
-  const [qrData, setQRData] = React.useState('');
   const [deleteTarget, setDeleteTarget] = React.useState<DeleteAccountTarget | null>(null);
   const [tradeNotificationsSheetVisible, setTradeNotificationsSheetVisible] = React.useState(false);
   const [brokerLogoFailed, setBrokerLogoFailed] = React.useState<Record<string, boolean>>({});
@@ -522,11 +519,6 @@ export function AccountsScreen() {
         ],
       }),
     );
-  };
-
-  const openQRSheet = (loginId: string) => {
-    setQRData(loginId);
-    setQRSheetVisible(true);
   };
 
   const openPasswordSheet = (type: 'master' | 'investor') => {
@@ -744,9 +736,6 @@ export function AccountsScreen() {
                 <Text style={styles.statusText}>{t('Gateway')}</Text>
               </View>
               <View style={styles.activeActions}>
-                <Pressable style={styles.actionIcon} onPress={() => openQRSheet(displayLogin)} hitSlop={12}>
-                  <Ionicons name="qr-code-outline" size={16} color={T.textMuted} />
-                </Pressable>
                 <Pressable
                   style={styles.actionIcon}
                   onPress={() => setTradeNotificationsSheetVisible(true)}
@@ -968,15 +957,6 @@ export function AccountsScreen() {
                 setSuccessMessage(`${t(passwordType === 'master' ? 'Master' : 'Investor')} ${t('password change successfully')}`);
               }}
             />
-          </View>
-        </View>
-      )}
-
-      {qrSheetVisible && (
-        <View style={styles.modalOverlay} pointerEvents="box-none">
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setQRSheetVisible(false)} />
-          <View style={styles.modalContent}>
-            <QRCodeSheet data={qrData} onClose={() => setQRSheetVisible(false)} />
           </View>
         </View>
       )}

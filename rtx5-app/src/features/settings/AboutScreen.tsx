@@ -6,6 +6,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -65,12 +66,14 @@ export function AboutScreen() {
   const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
   const androidConfig = Constants.expoConfig?.android as ExpoAndroidConfig | undefined;
   const appName = Constants.expoConfig?.name ?? 'RTX5';
-  const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
+  const nativeAppVersion = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'Local';
+  const appBuildVersion = Application.nativeBuildVersion ?? Constants.nativeBuildVersion ?? '';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const androidPackageName = androidConfig?.package ?? ABOUT_EXTERNAL_LINKS.androidPackageName;
   const buildLabel = resolveAboutBuildLabel({
     appVersion,
+    appBuildVersion,
   });
   const platformLabel = formatAboutPlatform(Platform.OS);
   const [contactOpen, setContactOpen] = useState(false);
@@ -157,6 +160,7 @@ export function AboutScreen() {
     const mailtoUrl = buildDeveloperMailto({
       appName,
       appVersion,
+      appBuildVersion,
       platform: platformLabel,
       category: selectedContactCategory,
       requesterName: contactName,
@@ -174,6 +178,7 @@ export function AboutScreen() {
       <ContactDeveloperScreen
         appName={appName}
         appVersion={appVersion}
+        appBuildVersion={appBuildVersion}
         name={contactName}
         email={contactEmail}
         title={contactTitle}
@@ -302,6 +307,7 @@ function AboutActionRow({
 function ContactDeveloperScreen({
   appName,
   appVersion,
+  appBuildVersion,
   name,
   email,
   title,
@@ -327,6 +333,7 @@ function ContactDeveloperScreen({
 }: {
   appName: string;
   appVersion: string;
+  appBuildVersion: string | null;
   name: string;
   email: string;
   title: string;
@@ -394,7 +401,9 @@ function ContactDeveloperScreen({
               <Text style={styles.contactHeroText}>
                 Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.
               </Text>
-              <Text style={styles.contactHeroMeta} numberOfLines={1}>App version {appVersion}</Text>
+        <Text style={styles.contactHeroMeta} numberOfLines={1}>
+          App version {appVersion}{appBuildVersion ? ` (${appBuildVersion})` : ''}
+        </Text>
             </View>
           </View>
 

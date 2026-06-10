@@ -14,7 +14,7 @@ export const PUBLIC_BROKER_DIRECTORY_BASE_URL = trimTrailingSlash(
     'https://testsuperbackend.orrnn.com/api/v1',
 );
 
-type BrokerServiceDiscovery = {
+export type BrokerServiceDiscovery = {
   server_url?: string | null;
   market_api_url?: string | null;
   domain_name?: string | null;

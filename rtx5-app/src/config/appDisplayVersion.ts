@@ -1,4 +1,4 @@
-export const APP_DISPLAY_VERSION = '1.1.2';
+export const APP_DISPLAY_VERSION = '1.1.6';
 
 export function resolveAppDisplayVersion(fallbackVersion?: string | null): string {
   const displayVersion = APP_DISPLAY_VERSION.trim();

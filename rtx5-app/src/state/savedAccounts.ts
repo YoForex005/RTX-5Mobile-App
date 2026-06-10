@@ -61,6 +61,73 @@ type SavedAccountsState = {
 
 const STORAGE_KEY = 'savedAccounts';
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const asString = (value: unknown, fallback = ''): string => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const asFiniteNumber = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const asBoolean = (value: unknown, fallback = false): boolean =>
+  typeof value === 'boolean' ? value : fallback;
+
+const isSavedAccountType = (value: unknown): value is SavedAccountType =>
+  value === 'demo' || value === 'real' || value === 'contest';
+
+const normalizeSavedAccountSnapshot = (value: unknown): SavedAccountSnapshot | undefined => {
+  const snapshot = asRecord(value);
+  if (Object.keys(snapshot).length === 0) return undefined;
+
+  return {
+    balance: asFiniteNumber(snapshot.balance),
+    equity: asFiniteNumber(snapshot.equity),
+    freeMargin: asFiniteNumber(snapshot.freeMargin),
+    leverage: asFiniteNumber(snapshot.leverage),
+    floatingPnl: asFiniteNumber(snapshot.floatingPnl),
+    openPositions: asFiniteNumber(snapshot.openPositions),
+    currency: asString(snapshot.currency, 'USD'),
+    updatedAt: asFiniteNumber(snapshot.updatedAt),
+  };
+};
+
+const normalizeSavedAccount = (value: unknown): SavedAccount | null => {
+  const account = asRecord(value);
+  const login = asString(account.login);
+  const brokerId = asString(account.brokerId);
+  if (!login || !brokerId) return null;
+
+  const snapshot = normalizeSavedAccountSnapshot(account.snapshot);
+
+  return {
+    login,
+    name: asString(account.name, `Account ${login}`),
+    brokerId,
+    server: asString(account.server),
+    serverUrl: asString(account.serverUrl) || undefined,
+    logoUrl: asString(account.logoUrl) || undefined,
+    accountType: isSavedAccountType(account.accountType) ? account.accountType : 'demo',
+    lastUsedAt: asFiniteNumber(account.lastUsedAt),
+    ...(snapshot ? { snapshot } : {}),
+    hasCredentials: asBoolean(account.hasCredentials),
+  };
+};
+
+const normalizeSavedAccountsPersistedState = (state: unknown): Pick<SavedAccountsState, 'accounts'> => {
+  const accounts = asRecord(state).accounts;
+  return {
+    accounts: Array.isArray(accounts)
+      ? accounts
+          .map(normalizeSavedAccount)
+          .filter((account): account is SavedAccount => account !== null)
+      : [],
+  };
+};
+
 export const useSavedAccounts = create<SavedAccountsState>()(
   persist(
     (set) => ({
@@ -100,8 +167,31 @@ export const useSavedAccounts = create<SavedAccountsState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => AsyncStorage),
+      // Corrupt-data tolerant: a malformed persisted blob is cleared and treated
+      // as empty rather than throwing during rehydrate (mirrors userPreferences).
+      // The inner storage validates the JSON and drops it on parse failure.
+      storage: createJSONStorage(() => ({
+        getItem: async (name) => {
+          try {
+            const value = await AsyncStorage.getItem(name);
+            if (value == null) return null;
+            JSON.parse(value);
+            return value;
+          } catch (error) {
+            console.warn('[SavedAccounts] Ignoring unreadable persisted accounts', error);
+            void AsyncStorage.removeItem(name).catch(() => {});
+            return null;
+          }
+        },
+        setItem: (name, value) => AsyncStorage.setItem(name, value),
+        removeItem: (name) => AsyncStorage.removeItem(name),
+      })),
       partialize: (state) => ({ accounts: state.accounts }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...normalizeSavedAccountsPersistedState(persistedState),
+        hasHydrated: true,
+      }),
       onRehydrateStorage: () => (state) => {
         if (state) {
           (state as SavedAccountsState).hasHydrated = true;

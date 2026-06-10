@@ -1,4 +1,11 @@
 import { timedFetch } from '../utils/apiLatency';
+import {
+  AUTH_PROXY_SERVER_URL,
+  type BrokerServiceDiscovery,
+  normalizeBrokerServerUrl,
+  resolveBrokerProxyServerAddress,
+  resolveBrokerServiceBaseUrl,
+} from './brokerRouting';
 
 const DEFAULT_API_BASE_URL = 'https://backend.orrnn.com/api/v2';
 const DEFAULT_PUBLIC_DEMO_API_BASE_URL = 'https://backend.orrnn.com/api/v1';
@@ -25,6 +32,7 @@ export const PUBLIC_DEMO_API_BASE_URL =
   process.env.EXPO_PUBLIC_DEMO_API_BASE_URL ||
   process.env.EXPO_PUBLIC_API_V1_BASE_URL ||
   DEFAULT_PUBLIC_DEMO_API_BASE_URL;
+const PUBLIC_DEMO_AUTH_SERVER_URL = normalizeBrokerServerUrl(PUBLIC_DEMO_API_BASE_URL);
 
 export interface OrrnnDemoStatusResponse {
   service: string;
@@ -143,6 +151,64 @@ export interface OrrnnDemoAccountResponse {
   master_pass?: string;
   created_at?: number;
   Registration?: number;
+}
+
+type OrrnnDemoBrokerDiscovery = BrokerServiceDiscovery & {
+  broker_id?: string | null;
+  broker_name?: string | null;
+  logo_url?: string | null;
+};
+
+export type OrrnnDemoBrokerAuthRoute = {
+  brokerId: string;
+  serverUrl: string;
+  proxyServer: string;
+  logoUrl: string;
+  source: 'broker-directory' | 'public-demo-config' | 'missing';
+};
+
+const normalizeDemoBrokerId = (brokerId: string | null | undefined) =>
+  String(brokerId ?? '').trim().toLowerCase();
+
+export function resolveOrrnnDemoBrokerAuthRoute(
+  brokerId: string,
+  brokers: readonly OrrnnDemoBrokerDiscovery[],
+): OrrnnDemoBrokerAuthRoute {
+  const normalizedBrokerId = normalizeDemoBrokerId(brokerId);
+  const routeBrokerId = brokerId.trim();
+  const fallbackServerUrl =
+    normalizedBrokerId === normalizeDemoBrokerId(ORRNN_DEMO_BROKER_ID)
+      ? PUBLIC_DEMO_AUTH_SERVER_URL
+      : '';
+  const broker = brokers.find(
+    (candidate) => normalizeDemoBrokerId(candidate.broker_id) === normalizedBrokerId,
+  );
+
+  if (!broker) {
+    return {
+      brokerId: routeBrokerId,
+      serverUrl: fallbackServerUrl,
+      proxyServer: '',
+      logoUrl: '',
+      source: fallbackServerUrl ? 'public-demo-config' : 'missing',
+    };
+  }
+
+  const directServerUrl = resolveBrokerServiceBaseUrl(broker);
+  const proxyServer = directServerUrl ? '' : resolveBrokerProxyServerAddress(broker);
+  const hasBrokerRoute = Boolean(directServerUrl || proxyServer);
+
+  return {
+    brokerId: routeBrokerId,
+    serverUrl: directServerUrl || (proxyServer ? AUTH_PROXY_SERVER_URL : fallbackServerUrl),
+    proxyServer,
+    logoUrl: broker.logo_url?.trim() ?? '',
+    source: hasBrokerRoute
+      ? 'broker-directory'
+      : fallbackServerUrl
+        ? 'public-demo-config'
+        : 'missing',
+  };
 }
 
 /**

@@ -42,6 +42,7 @@ Harden RTX5 for secure, observable, and stable beta operation.
 - [ ] Unit: redaction and kill-switch guards.
 - [ ] Integration: app lock lifecycle.
 - [ ] E2E: degraded network and reconnect scenarios.
+- [x] Unit/typecheck/device: Android no-OTA startup and reopen regression proved OTA-disabled, fixed the quote socket startup crash, and passed five preserved-data reopen cycles on the installed APK.
 - [x] Unit/typecheck: login submit touch-start snapshots ref-backed fields, starts auth before deferred keyboard dismiss work, and keeps successful session state atomic before navigation.
 - [x] Unit/device: Quotes symbol sheets and Settings navigation rows stay release-confirmed in scroll containers; ADB screenshots captured before/after scroll checks.
 - [x] Unit/typecheck/device: Chart Buy/Sell post-success refresh work is deferred after the optimistic position insert so the placement moment stays smooth against the MT5 reference.
@@ -52,6 +53,7 @@ Harden RTX5 for secure, observable, and stable beta operation.
 - Release readiness sign-off from security, QA, and mobile leads.
 
 ## Progress Notes
+- 2026-06-10: Proved the Android `1.1.5` no-OTA reopen crash was not caused by EAS Update/OTA because startup diagnostics from the installed `production-no-ota-apk` logged `updates.isEnabled: false`, blank update channel/runtime metadata, and `disabledByEnv: true`. The fatal startup path was `QuotesWebSocketService` resolving `url` before `failedBrokerSocketUrls` existed, which could crash the route/module load before the UI recovered. Moved the field initialization order, added persisted-state read/shape guards, hardened startup error serialization, and verified the fixed Android no-OTA v19 APK with five preserved-data reopen cycles and no fatal logcat matches.
 - 2026-05-27: Corrected the compact chart footer lot chevron order so the down/decrease control renders and receives taps on the left of the lot value, while the up/increase control renders and receives taps on the right. Updated the chart parity map and source-level regression contract for the footer lot ordering.
 - 2026-05-26: Rechecked MT5 Buy/Sell footer behavior with ADB screenshot observation, then tightened RTX5 chart trade success smoothness. The order success path now inserts the optimistic position first and defers position refresh plus query invalidations by 250ms, so the chart can paint the placed-trade result before heavier background sync work starts.
 - 2026-05-26: Removed the chart footer's network-pending Buy/Sell lock. The shared chart trade handler now blocks only the short local tap-guard window, releases the pressed-side visual without waiting for the backend mutation, and keeps Sell/Buy plus the footer lot controls enabled while the order response/background refresh finishes. Verified on device with `oneClickAccepted: false` safe tap captures in `artifacts/trade_speed_20260526/`.

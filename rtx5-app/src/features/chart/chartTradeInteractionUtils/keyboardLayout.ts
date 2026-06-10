@@ -50,10 +50,7 @@ export function resolveKeyboardDockOffset({
     return 0;
   }
 
-  if (
-    platform === 'android' &&
-    Number.isFinite(keyboardScreenY)
-  ) {
+  if (Number.isFinite(keyboardScreenY)) {
     const effectiveWindowBottom = Math.min(
       Number.isFinite(containerBottom) ? (containerBottom as number) : Number.POSITIVE_INFINITY,
       normalizedScreenHeight > 0 ? normalizedScreenHeight : Number.POSITIVE_INFINITY,

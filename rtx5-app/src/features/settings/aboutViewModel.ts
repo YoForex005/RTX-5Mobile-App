@@ -40,6 +40,7 @@ export type AboutStoreTarget = {
 export type AboutDeveloperMailOptions = {
   appName: string;
   appVersion: string;
+  appBuildVersion?: string | null;
   platform: string;
   category: AboutContactCategory | null;
   requesterName?: string;
@@ -134,12 +135,15 @@ export function formatAboutPlatform(platform: string): string {
 
 export function resolveAboutBuildLabel({
   appVersion,
+  appBuildVersion,
 }: {
   appVersion: string;
+  appBuildVersion?: string | null;
 }): string {
   const normalizedVersion = appVersion.trim() || 'Local';
+  const normalizedBuild = appBuildVersion?.trim();
 
-  return `Version ${normalizedVersion}`;
+  return normalizedBuild ? `Version ${normalizedVersion} (${normalizedBuild})` : `Version ${normalizedVersion}`;
 }
 
 export function getAboutStoreTarget(
@@ -207,6 +211,7 @@ export function buildAccountDeletionRequestMessage({
 export function buildDeveloperMailto({
   appName,
   appVersion,
+  appBuildVersion,
   platform,
   category,
   requesterName,
@@ -221,6 +226,7 @@ export function buildDeveloperMailto({
   const bodyLines = [
     `App: ${appName}`,
     `Version: ${appVersion}`,
+    ...(appBuildVersion?.trim() ? [`Build: ${appBuildVersion.trim()}`] : []),
     `Platform: ${platform}`,
     `Category: ${categoryLabel}`,
     `Name: ${requesterName?.trim() || 'Not provided'}`,

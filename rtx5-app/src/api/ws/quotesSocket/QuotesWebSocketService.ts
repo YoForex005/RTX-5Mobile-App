@@ -62,6 +62,9 @@ const resolveQuoteListenerKeys = (symbol: string): string[] => {
 export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelineState {
   private static instance: QuotesWebSocketService;
   private ws: WebSocket | null = null;
+  // Must be initialized before `url`: resolveSocketUrl() checks this set while
+  // class fields are still being evaluated during construction.
+  private failedBrokerSocketUrls: Set<string> = new Set();
   private url = this.resolveSocketUrl();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = QUOTE_WS_MAX_RECONNECT_ATTEMPTS;
@@ -70,7 +73,6 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
   private isConnected = false;
   private shouldReconnect = false;
   private isResolvingSocketUrl = false;
-  private failedBrokerSocketUrls: Set<string> = new Set();
 
   private activeSymbols: Set<string> = new Set();
   private stickySymbols: Set<string> = new Set();

@@ -37,6 +37,13 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(serviceSource, /Math\.min\([\s\S]*QUOTE_WS_RECONNECT_MAX_DELAY_MS[\s\S]*\)/);
   assert.match(serviceSource, /staleFor > QUOTE_WS_SILENT_STALE_MS/);
 
+  const failedBrokerSocketUrlsIndex = serviceSource.indexOf('private failedBrokerSocketUrls');
+  const eagerUrlIndex = serviceSource.indexOf('private url = this.resolveSocketUrl()');
+  assert.ok(
+    failedBrokerSocketUrlsIndex > -1 && eagerUrlIndex > -1 && failedBrokerSocketUrlsIndex < eagerUrlIndex,
+    'failedBrokerSocketUrls must initialize before url because resolveSocketUrl reads it during construction',
+  );
+
   const subscribeToSymbolSource = serviceSource.slice(subscribeToSymbolStart, unsubscribeStart);
   assert.match(
     subscribeToSymbolSource,
