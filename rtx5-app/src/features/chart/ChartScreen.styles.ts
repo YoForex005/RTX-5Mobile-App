@@ -370,17 +370,6 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       position: 'relative',
       overflow: 'hidden',
     },
-    chartViewportMenuButton: {
-      position: 'absolute',
-      right: 8,
-      bottom: 2,
-      minWidth: 28,
-      minHeight: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 80,
-      elevation: 80,
-    },
     footerLotKeyboardProxyInput: {
       position: 'absolute',
       top: 1,

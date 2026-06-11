@@ -3003,37 +3003,6 @@ export function ChartScreen() {
     });
   }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
 
-  const handleOpenChartViewportMenu = useCallback(() => {
-    runImmediateAction('chart.viewport.menu.open', () => {
-      showChartActionSheet({
-        title: t('Chart'),
-        detent: 'adaptive',
-        instantOpen: true,
-        actions: [
-          {
-            label: t(showChartVolumePane ? 'Hide Volume Bar' : 'Show Volume Bar'),
-            icon: <Ionicons name={showChartVolumePane ? 'eye-off-outline' : 'bar-chart-outline'} size={20} color={TEXT_MUTED} />,
-            onPress: () => setChartViewportShowVolumePane(!showChartVolumePane),
-          },
-          {
-            label: t('Reset'),
-            icon: <Ionicons name="refresh-outline" size={20} color={TEXT_MUTED} />,
-            onPress: handleResetChartViewport,
-          },
-        ],
-      });
-      scheduleChartActionSheetContextReset();
-    });
-  }, [
-    TEXT_MUTED,
-    handleResetChartViewport,
-    scheduleChartActionSheetContextReset,
-    setChartViewportShowVolumePane,
-    showChartActionSheet,
-    showChartVolumePane,
-    t,
-  ]);
-
   const chartOptions = useMemo(() => ({
     layout: {
       background: { color: resolvedChartColors.background },
@@ -3087,8 +3056,8 @@ export function ChartScreen() {
       entireTextOnly: false,
       minimumWidth: CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH,
       scaleMargins: {
-        top: 0.02,
-        bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0.02,
+        top: 0,
+        bottom: showChartVolumePane && chartType !== 'line' ? 0.32 : 0,
       },
     },
     customColors: {
@@ -3614,8 +3583,8 @@ export function ChartScreen() {
       return;
     }
 
-    // Quotes move market price lines only; candle geometry comes from the
-    // canonical REST history plus backend live-candle stream.
+    // The display candle has already folded in the same live quote used here,
+    // so the candle close and market price lines move from one tick source.
     // The scheduled bridge flush calls setMarketPriceLines( after coalescing.
     pendingMarketPriceLinesRef.current = {
       bid: hasBid ? chartBid : null,
@@ -4514,16 +4483,6 @@ export function ChartScreen() {
                     }}
                   />
                 ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Chart')}
-                  style={styles.chartViewportMenuButton}
-                  onPressIn={handleOpenChartViewportMenu}
-                  hitSlop={8}
-                  unstable_pressDelay={0}
-                >
-                  <Ionicons name="ellipsis-horizontal" size={18} color={TEXT_MUTED} />
-                </Pressable>
                 <View style={styles.chartOverlaySymbolSection}>
                   <View style={[styles.symbolSection, { minHeight: 'auto' }]}>
                     <Pressable

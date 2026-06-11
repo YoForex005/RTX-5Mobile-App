@@ -199,6 +199,10 @@ export const CH_HTML = `
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
+      var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
+      var MARKET_PRICE_SCALE_BADGE_MIN_WIDTH = 56;
+      var MARKET_PRICE_SCALE_BADGE_PADDING_X = 4;
+      var MARKET_PRICE_SCALE_BADGE_GAP = 1;
       var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
@@ -342,6 +346,7 @@ export const CH_HTML = `
           visible: true,
           entireTextOnly: false,
           minimumWidth: ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
+          scaleMargins: resolvePrimaryPriceScaleMargins(shouldUseMoveBarsPane()),
         };
         var priceScaleApi = getRightPriceScaleApi();
         try {
@@ -374,6 +379,7 @@ export const CH_HTML = `
             node.closest('.rtx5-overlay-label-layer') ||
             node.closest('.rtx5-position-price-scale-box') ||
             node.closest('.rtx5-market-price-scale-extension') ||
+            node.closest('.rtx5-market-price-scale-badge') ||
             node.closest('.rtx5-right-price-scale-fallback')
           );
         } catch (_e) {
@@ -859,11 +865,31 @@ export const CH_HTML = `
         return "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
       }
 
-      function resolveRightPriceScaleFallbackRange() {
-        var visibleDataRange = resolvePriceRangeFromVisibleData(true);
-        if (isValidPriceRange(visibleDataRange)) {
-          return normalizePriceRange(visibleDataRange);
-        }
+      function resolveRightPriceScaleCoordinateRange() {
+        try {
+          if (!series || typeof series.coordinateToPrice !== 'function') {
+            return null;
+          }
+          var metrics = resolvePrimaryPaneMetrics();
+          if (!metrics || !(metrics.plotHeight > 0)) {
+            return null;
+          }
+          var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
+          var plotBottom = plotTop + Math.max(0, Math.round(metrics.plotHeight || 0));
+          var topPrice = series.coordinateToPrice(plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2);
+          var bottomPrice = series.coordinateToPrice(plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2);
+          if (typeof topPrice !== 'number' || !isFinite(topPrice) || typeof bottomPrice !== 'number' || !isFinite(bottomPrice)) {
+            return null;
+          }
+          return normalizePriceRange({
+            from: Math.min(topPrice, bottomPrice),
+            to: Math.max(topPrice, bottomPrice),
+          });
+        } catch (_coordinateRangeErr) {}
+        return null;
+      }
+
+      function resolveRightPriceScaleVisibleRange() {
         try {
           var priceScaleApi = getRightPriceScaleApi();
           var visibleRange =
@@ -874,6 +900,22 @@ export const CH_HTML = `
             return normalizePriceRange(visibleRange);
           }
         } catch (_visibleRangeErr) {}
+        return null;
+      }
+
+      function resolveRightPriceScaleFallbackRange() {
+        var visibleScaleRange = resolveRightPriceScaleVisibleRange();
+        if (isValidPriceRange(visibleScaleRange)) {
+          return normalizePriceRange(visibleScaleRange);
+        }
+        var coordinateRange = resolveRightPriceScaleCoordinateRange();
+        if (isValidPriceRange(coordinateRange)) {
+          return normalizePriceRange(coordinateRange);
+        }
+        var visibleDataRange = resolvePriceRangeFromVisibleData(true);
+        if (isValidPriceRange(visibleDataRange)) {
+          return normalizePriceRange(visibleDataRange);
+        }
         return null;
       }
 
@@ -1093,6 +1135,60 @@ export const CH_HTML = `
         var ticks = [];
         var seenLabels = Object.create(null);
         var decimals = resolveRightPriceScaleFallbackStepDecimals(step);
+        var minTickGap = RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT + 4;
+        var appendTick = function(price, forcedY, forceEdge) {
+          if (typeof price !== 'number' || !isFinite(price)) {
+            return false;
+          }
+          var y = typeof forcedY === 'number' && isFinite(forcedY) ? forcedY : null;
+          if (y === null) {
+            try {
+              y = typeof series.priceToCoordinate === 'function' ? series.priceToCoordinate(price) : null;
+            } catch (_coordErr) {
+              y = null;
+            }
+          }
+          if (typeof y !== 'number' || !isFinite(y)) {
+            var ratio = span > 0
+              ? (invertScale ? (price - range.from) / span : (range.to - price) / span)
+              : 0.5;
+            y = plotTop + ratio * Math.max(1, metrics.plotHeight || 1);
+          }
+          y = Math.max(
+            plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
+            Math.min(plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2, y)
+          );
+          var text = formatRightPriceScaleFallbackLabel(price, decimals);
+          if (seenLabels[text]) {
+            return false;
+          }
+          if (forceEdge === true) {
+            for (var edgeIndex = ticks.length - 1; edgeIndex >= 0; edgeIndex -= 1) {
+              if (Math.abs(ticks[edgeIndex].y - y) < minTickGap) {
+                seenLabels[ticks[edgeIndex].text] = false;
+                ticks.splice(edgeIndex, 1);
+              }
+            }
+          } else {
+            for (var existingIndex = 0; existingIndex < ticks.length; existingIndex += 1) {
+              if (Math.abs(ticks[existingIndex].y - y) < minTickGap) {
+                return false;
+              }
+            }
+          }
+          seenLabels[text] = true;
+          ticks.push({
+            price: price,
+            text: text,
+            y: y,
+          });
+          return true;
+        };
+        appendTick(
+          invertScale ? range.from : range.to,
+          plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
+          true
+        );
         var startPrice = Math.ceil(range.from / step) * step;
         var endPrice = Math.floor(range.to / step) * step;
         var epsilon = Math.max(step * 0.000001, Math.pow(10, -Math.max(decimals, 1)) * 0.000001);
@@ -1118,43 +1214,14 @@ export const CH_HTML = `
           prices.reverse();
         }
         for (var i = 0; i < prices.length && ticks.length < RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS; i += 1) {
-          var price = prices[i];
-          if (typeof price !== 'number' || !isFinite(price)) {
-            continue;
-          }
-          var y = null;
-          try {
-            y = typeof series.priceToCoordinate === 'function' ? series.priceToCoordinate(price) : null;
-          } catch (_coordErr) {
-            y = null;
-          }
-          if (typeof y !== 'number' || !isFinite(y)) {
-            var ratio = span > 0
-              ? (invertScale ? (price - range.from) / span : (range.to - price) / span)
-              : 0.5;
-            y = plotTop + ratio * Math.max(1, metrics.plotHeight || 1);
-          }
-          y = Math.max(
-            plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
-            Math.min(plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2, y)
-          );
-          var text = formatRightPriceScaleFallbackLabel(price, decimals);
-          if (seenLabels[text]) {
-            continue;
-          }
-          if (
-            ticks.length > 0 &&
-            Math.abs(ticks[ticks.length - 1].y - y) < RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT + 4
-          ) {
-            continue;
-          }
-          seenLabels[text] = true;
-          ticks.push({
-            price: price,
-            text: text,
-            y: y,
-          });
+          appendTick(prices[i], null, false);
         }
+        appendTick(
+          invertScale ? range.to : range.from,
+          plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
+          true
+        );
+        ticks.sort(function(left, right) { return left.y - right.y; });
         return ticks;
       }
 
@@ -1183,12 +1250,20 @@ export const CH_HTML = `
           var labelLeft = Math.max(0, Math.round(axisMetrics.axisLeft + 3));
           var labelWidth = Math.max(0, Math.round(Math.min(axisMetrics.axisWidth - 4, axisMetrics.chartWidth - labelLeft - 1)));
           layer.style.display = 'block';
+          layer.style.position = 'absolute';
+          layer.style.left = '0px';
+          layer.style.top = '0px';
+          layer.style.right = '0px';
+          layer.style.bottom = '0px';
+          layer.style.pointerEvents = 'none';
+          layer.style.overflow = 'hidden';
+          layer.style.zIndex = '30';
           var axisBackground = document.createElement('div');
           axisBackground.className = 'rtx5-right-price-scale-fallback-axis';
           axisBackground.style.left = Math.max(0, Math.round(axisMetrics.axisLeft)) + 'px';
-          axisBackground.style.top = '0px';
+          axisBackground.style.top = Math.max(0, Math.round(metrics.plotTop || 0)) + 'px';
           axisBackground.style.width = Math.max(0, Math.round(axisMetrics.axisWidth)) + 'px';
-          axisBackground.style.height = Math.max(0, Math.round(metrics.chartHeight || 0)) + 'px';
+          axisBackground.style.height = Math.max(0, Math.round(metrics.plotHeight || metrics.paneHeight || 0)) + 'px';
           axisBackground.style.background = lastChartBackgroundColor || '#FFFFFF';
           layer.appendChild(axisBackground);
           for (var i = 0; i < ticks.length; i += 1) {
@@ -3550,6 +3625,68 @@ export const CH_HTML = `
         return null;
       }
 
+      function shouldFollowLiveRightEdge(range, lengthOverride) {
+        try {
+          if (
+            !range ||
+            typeof range.from !== 'number' ||
+            typeof range.to !== 'number' ||
+            !isFinite(range.from) ||
+            !isFinite(range.to)
+          ) {
+            return false;
+          }
+          if (activeHorizontalScrollGesture || Date.now() <= activeHorizontalScrollGestureUntil) {
+            return false;
+          }
+          var previousMaxRight = getBoundedLiveRightEdge(lengthOverride);
+          if (previousMaxRight === null) {
+            return false;
+          }
+          var followTolerance = Math.max(1.25, ${CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET} + 0.25);
+          return range.to >= previousMaxRight - followTolerance;
+        } catch (_e) {}
+        return false;
+      }
+
+      function followLiveRightEdge(previousRange, lengthOverride) {
+        try {
+          if (
+            !previousRange ||
+            typeof previousRange.from !== 'number' ||
+            typeof previousRange.to !== 'number' ||
+            !isFinite(previousRange.from) ||
+            !isFinite(previousRange.to)
+          ) {
+            return false;
+          }
+          if (!chart || !chart.timeScale || typeof chart.timeScale().setVisibleLogicalRange !== 'function') {
+            return false;
+          }
+          var nextRight = getBoundedLiveRightEdge(lengthOverride);
+          if (nextRight === null) {
+            return false;
+          }
+          var span = Math.max(1, previousRange.to - previousRange.from);
+          var nextFrom = nextRight - span;
+          if (!isFinite(nextFrom)) {
+            return false;
+          }
+          liveRightEdgeClampActive = true;
+          chart.timeScale().setVisibleLogicalRange({
+            from: nextFrom,
+            to: nextRight,
+          });
+          setTimeout(function() {
+            liveRightEdgeClampActive = false;
+          }, 0);
+          return true;
+        } catch (_e) {
+          liveRightEdgeClampActive = false;
+          return false;
+        }
+      }
+
       function findRawSeriesTimeIndex(data, time) {
         if (!data || typeof time !== 'number' || !isFinite(time)) return -1;
         for (var i = 0; i < data.length; i += 1) {
@@ -4404,6 +4541,13 @@ export const CH_HTML = `
         return shouldShowLowerPane && seriesType !== 'line';
       }
 
+      function resolvePrimaryPriceScaleMargins(hasLowerPane) {
+        return {
+          top: 0,
+          bottom: hasLowerPane ? 0.34 : 0,
+        };
+      }
+
       function setPrimaryPriceScaleMargins(hasLowerPane) {
         if (!chart || typeof chart.priceScale !== 'function') return;
         try {
@@ -4411,10 +4555,7 @@ export const CH_HTML = `
             visible: true,
             entireTextOnly: false,
             minimumWidth: ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
-            scaleMargins: {
-              top: 0.08,
-              bottom: hasLowerPane ? 0.34 : 0.12,
-            },
+            scaleMargins: resolvePrimaryPriceScaleMargins(hasLowerPane),
           });
         } catch (_e) {}
       }
@@ -4940,6 +5081,8 @@ export const CH_HTML = `
           } catch (_logErr) {}
           return;
         }
+        var previousSeriesLength = currentSeriesLength;
+        var previousVisibleRange = getVisibleLogicalRangeSnapshot();
         var normalizedTick = upsertRawSeriesDatum(tick);
         if (!normalizedTick) {
           try {
@@ -4952,6 +5095,7 @@ export const CH_HTML = `
           return;
         }
         var appendedNewBar = currentSeriesLength === 0 || normalizedTick.time > lastBarTime;
+        var shouldFollowLiveEdge = appendedNewBar && shouldFollowLiveRightEdge(previousVisibleRange, previousSeriesLength);
         var bar;
         if (seriesType === 'line') {
           bar = { time: normalizedTick.time, value: typeof normalizedTick.value === 'number' ? normalizedTick.value : normalizedTick.close };
@@ -4977,6 +5121,9 @@ export const CH_HTML = `
         series.update(bar);
         schedulePriceScaleHealthCheck('tick_update', false);
         currentSeriesLength = lastRawSeriesData.length;
+        if (shouldFollowLiveEdge) {
+          followLiveRightEdge(previousVisibleRange, currentSeriesLength);
+        }
         if (normalizedTick.time >= lastBarTime) {
           lastBarTime = normalizedTick.time;
         }
@@ -5673,6 +5820,139 @@ export const CH_HTML = `
         renderMarketPriceScaleExtension(layer, lastAskPrice, marketAskColor);
       }
 
+      function clearMarketPriceScaleBadges(layer) {
+        if (!layer || typeof layer.querySelectorAll !== 'function') {
+          return;
+        }
+        var badges = layer.querySelectorAll('.rtx5-market-price-scale-badge');
+        for (var i = 0; i < badges.length; i++) {
+          var badge = badges[i];
+          if (badge && badge.parentNode) {
+            badge.parentNode.removeChild(badge);
+          }
+        }
+      }
+
+      function resolveMarketPriceScaleAxisMetrics(layer) {
+        var metrics = resolvePrimaryPaneMetrics();
+        var chartWidth = Math.max(0, Math.round(metrics.chartWidth || (layer && layer.clientWidth) || 0));
+        var axisMetrics = resolveRightPriceScaleFallbackAxisMetrics(Object.assign({}, metrics, {
+          chartWidth: chartWidth,
+        }));
+        var axisLeft = Math.max(0, Math.round(axisMetrics.axisLeft || 0));
+        var axisWidth = Math.max(MARKET_PRICE_SCALE_BADGE_MIN_WIDTH, Math.round(axisMetrics.axisWidth || 0));
+        if (chartWidth > 0 && axisLeft + axisWidth > chartWidth) {
+          axisWidth = Math.max(0, chartWidth - axisLeft);
+        }
+        if (axisWidth <= 0 || chartWidth <= axisLeft) {
+          return null;
+        }
+        var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
+        var plotHeight = Math.max(0, Math.round(metrics.plotHeight || metrics.paneHeight || 0));
+        return {
+          axisLeft: axisLeft,
+          axisWidth: axisWidth,
+          chartWidth: chartWidth,
+          plotTop: plotTop,
+          plotBottom: plotTop + plotHeight,
+        };
+      }
+
+      function formatMarketPriceScaleBadgeLabel(price) {
+        var decimals = resolveOverlayDisplayDecimals();
+        return Number(price).toFixed(decimals);
+      }
+
+      function collectMarketPriceScaleBadge(layer, axisMetrics, price, color, role) {
+        if (!layer || !axisMetrics || !series || typeof price !== 'number' || !isFinite(price) || price <= 0) {
+          return null;
+        }
+        if (typeof series.priceToCoordinate !== 'function') {
+          return null;
+        }
+        var y = series.priceToCoordinate(price);
+        if (typeof y !== 'number' || !isFinite(y)) {
+          return null;
+        }
+        var minTop = axisMetrics.plotTop;
+        var maxTop = Math.max(minTop, axisMetrics.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
+        var desiredTop = Math.round(y - MARKET_PRICE_SCALE_BADGE_HEIGHT / 2);
+        return {
+          color: color || '#2962FF',
+          desiredTop: Math.max(minTop, Math.min(maxTop, desiredTop)),
+          price: price,
+          role: role,
+          top: Math.max(minTop, Math.min(maxTop, desiredTop)),
+          y: y,
+        };
+      }
+
+      function renderMarketPriceScaleBadge(layer, badge, axisMetrics) {
+        if (!layer || !badge || !axisMetrics) {
+          return;
+        }
+        var el = document.createElement('div');
+        el.className = 'rtx5-market-price-scale-badge rtx5-market-price-scale-badge-' + badge.role;
+        el.setAttribute('data-rtx5-role', 'market-price-scale-' + badge.role);
+        el.textContent = formatMarketPriceScaleBadgeLabel(badge.price);
+        el.style.position = 'absolute';
+        el.style.left = axisMetrics.axisLeft + 'px';
+        el.style.top = Math.round(badge.top) + 'px';
+        el.style.width = axisMetrics.axisWidth + 'px';
+        el.style.height = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
+        el.style.lineHeight = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
+        el.style.boxSizing = 'border-box';
+        el.style.padding = '0 ' + MARKET_PRICE_SCALE_BADGE_PADDING_X + 'px';
+        el.style.background = badge.color;
+        el.style.color = '#FFFFFF';
+        el.style.borderRadius = '2px';
+        el.style.fontSize = '12px';
+        el.style.fontWeight = '700';
+        el.style.fontVariantNumeric = 'tabular-nums';
+        el.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
+        el.style.textAlign = 'right';
+        el.style.whiteSpace = 'nowrap';
+        el.style.overflow = 'hidden';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '14';
+        layer.appendChild(el);
+      }
+
+      function renderMarketPriceScaleBadges(layer) {
+        clearMarketPriceScaleBadges(layer);
+        var axisMetrics = resolveMarketPriceScaleAxisMetrics(layer);
+        if (!axisMetrics) {
+          return;
+        }
+        var badges = [
+          collectMarketPriceScaleBadge(layer, axisMetrics, lastBidPrice, marketBidColor, 'bid'),
+          collectMarketPriceScaleBadge(layer, axisMetrics, lastAskPrice, marketAskColor, 'ask'),
+        ].filter(Boolean);
+        if (badges.length === 0) {
+          return;
+        }
+        badges.sort(function(left, right) { return left.desiredTop - right.desiredTop; });
+        var minTop = axisMetrics.plotTop;
+        var maxTop = Math.max(minTop, axisMetrics.plotBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
+        var step = MARKET_PRICE_SCALE_BADGE_HEIGHT + MARKET_PRICE_SCALE_BADGE_GAP;
+        for (var i = 0; i < badges.length; i++) {
+          var nextTop = badges[i].desiredTop;
+          if (i > 0) {
+            nextTop = Math.max(nextTop, badges[i - 1].top + step);
+          }
+          badges[i].top = Math.max(minTop, Math.min(maxTop, nextTop));
+        }
+        if (badges.length > 1 && badges[badges.length - 1].top > maxTop) {
+          badges[badges.length - 1].top = maxTop;
+          for (var backIndex = badges.length - 2; backIndex >= 0; backIndex--) {
+            badges[backIndex].top = Math.max(minTop, Math.min(badges[backIndex].top, badges[backIndex + 1].top - step));
+          }
+        }
+        for (var badgeIndex = 0; badgeIndex < badges.length; badgeIndex++) {
+          renderMarketPriceScaleBadge(layer, badges[badgeIndex], axisMetrics);
+        }
+      }
+
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
@@ -5684,6 +5964,7 @@ export const CH_HTML = `
           var layer = ensureOverlayLabelLayer();
           if (!layer) return;
           renderMarketPriceScaleExtensions(layer);
+          renderMarketPriceScaleBadges(layer);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];
@@ -5769,8 +6050,8 @@ export const CH_HTML = `
 
           // MT5-parity: render OUTLINED right-axis price box for each
           // position / pending order / SL / TP line. Live bid/ask native
-          // axis labels stay hidden; their thin filled right-scale accents
-          // are painted by renderMarketPriceScaleExtensions above. Position
+          // axis labels stay hidden; their filled right-scale badges are
+          // painted by renderMarketPriceScaleBadges above. Position
           // labels are drawn as DOM divs here so we can style them with a
           // white background + colored border + colored text — matching the
           // MT5 box style. One box per price level (dedup by tolerance) so

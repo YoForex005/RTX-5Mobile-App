@@ -292,12 +292,18 @@ test('chart adapter never sends malformed candlestick objects to setData', () =>
   );
 });
 
-test('quote feed is isolated from candle OHLC generation', () => {
-  const quoteBridgeStart = chartSource.indexOf('Quotes move market price lines only');
+test('quote feed synchronizes display candles before price-line bridge updates', () => {
+  assertSourceContains(
+    chartSource,
+    /resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe,[\s\S]*price: liveChartPrice,[\s\S]*time: chartTradeTickTimestamp/,
+    'ChartScreen must fold the latest live quote into the display candle before bridge sync',
+  );
+
+  const quoteBridgeStart = chartSource.indexOf('The display candle has already folded in the same live quote used here');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment must exist');
   const quoteBridge = chartSource.slice(quoteBridgeStart, chartSource.indexOf('// Watchdog', quoteBridgeStart));
 
   assertSourceContains(quoteBridge, /setMarketPriceLines\(/, 'quote bridge must move price lines');
-  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must not mutate candle geometry');
-  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not synthesize candles from quote ticks');
+  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must leave candle bridge updates in the candle sync effect');
+  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not create a second candle payload path');
 });

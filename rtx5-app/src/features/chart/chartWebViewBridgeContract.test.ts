@@ -123,13 +123,17 @@ test('webview bridge: formats candle timestamps in UTC broker time', () => {
   assert.doesNotMatch(tickFormatterBody, /getDate\(\)|getMonth\(\)|getHours\(\)|getMinutes\(\)|getFullYear\(\)/);
 });
 
-test('webview bridge: setMarketPriceLines hides native market badges and paints custom price-scale extensions', () => {
+test('webview bridge: setMarketPriceLines hides native market badges and paints custom price-scale badges', () => {
   const body = extractFunctionBody(chartWebViewHtmlSource, 'setMarketPriceLines');
   const marketLineOptionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMarketPriceLineOptions');
   const visibleRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'resolvePriceRangeFromVisibleData');
   const healPriceScaleBody = extractFunctionBody(chartWebViewHtmlSource, 'healCollapsedPriceScaleRange');
   const renderMarketPriceScaleExtensionBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtension');
   const renderMarketPriceScaleExtensionsBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleExtensions');
+  const renderMarketPriceScaleBadgeBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleBadge');
+  const renderMarketPriceScaleBadgesBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMarketPriceScaleBadges');
+  const axisMetricsBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveMarketPriceScaleAxisMetrics');
+  const badgeFormatterBody = extractFunctionBody(chartWebViewHtmlSource, 'formatMarketPriceScaleBadgeLabel');
   const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
   const marketPriceRangeBody = extractFunctionBody(chartWebViewHtmlSource, 'rangeContainsMarketPriceBadges');
   const marketPriceNormalizerBody = extractFunctionBody(chartWebViewHtmlSource, 'normalizeMarketPriceLinePrice');
@@ -147,8 +151,13 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
   assert.doesNotMatch(marketLineOptionsBody, /axisLabelTextColor: '#FFFFFF'/, 'market bid/ask must not configure hidden native badge text colors');
   assertSourceContains(marketLineOptionsBody, /title: ''/, 'market bid/ask price lines must stay text-free');
   assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1/, 'custom market price-scale extensions must stay a one-pixel MT5-like accent');
+  assertSourceContains(chartWebViewHtmlSource, /var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22[\s\S]*var MARKET_PRICE_SCALE_BADGE_MIN_WIDTH = 56/, 'custom market price-scale badges must use compact phone-safe dimensions');
   assertSourceContains(renderMarketPriceScaleExtensionBody, /className = 'rtx5-market-price-scale-extension'[\s\S]*style\.left = axisLeft \+ 'px'[\s\S]*style\.width = Math\.min\(axisWidth/, 'custom market price-scale extension must render only over the right price scale');
   assertSourceContains(renderMarketPriceScaleExtensionsBody, /clearMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastBidPrice, marketBidColor\)[\s\S]*renderMarketPriceScaleExtension\(layer, lastAskPrice, marketAskColor\)/, 'overlay refresh must repaint custom bid and ask price-scale extensions');
+  assertSourceContains(axisMetricsBody, /resolveRightPriceScaleFallbackAxisMetrics\(Object\.assign[\s\S]*MARKET_PRICE_SCALE_BADGE_MIN_WIDTH[\s\S]*axisLeft \+ axisWidth > chartWidth/, 'custom market price badges must occupy the owned right price-scale strip without overflowing the chart');
+  assertSourceContains(badgeFormatterBody, /resolveOverlayDisplayDecimals\(\)[\s\S]*Number\(price\)\.toFixed\(decimals\)/, 'custom market price badges must use the same configured display precision as the overlay');
+  assertSourceContains(renderMarketPriceScaleBadgeBody, /className = 'rtx5-market-price-scale-badge rtx5-market-price-scale-badge-' \+ badge\.role[\s\S]*textContent = formatMarketPriceScaleBadgeLabel\(badge\.price\)[\s\S]*style\.left = axisMetrics\.axisLeft \+ 'px'[\s\S]*style\.width = axisMetrics\.axisWidth \+ 'px'[\s\S]*style\.background = badge\.color[\s\S]*style\.color = '#FFFFFF'[\s\S]*style\.textAlign = 'right'/, 'custom market price-scale badge must render as a colored right-axis price box');
+  assertSourceContains(renderMarketPriceScaleBadgesBody, /clearMarketPriceScaleBadges\(layer\)[\s\S]*collectMarketPriceScaleBadge\(layer, axisMetrics, lastBidPrice, marketBidColor, 'bid'\)[\s\S]*collectMarketPriceScaleBadge\(layer, axisMetrics, lastAskPrice, marketAskColor, 'ask'\)[\s\S]*badges\.sort[\s\S]*MARKET_PRICE_SCALE_BADGE_GAP[\s\S]*renderMarketPriceScaleBadge\(layer, badges\[badgeIndex\], axisMetrics\)/, 'overlay refresh must repaint and stack custom bid and ask price-scale badges');
   assertSourceContains(visibleRangeBody, /includeMarketPriceBadges === false[\s\S]*expandPriceRangeForMarketPriceBadges\(robustRange\)/, 'visible price-scale recovery must be able to ignore far live bid/ask badges during horizontal navigation');
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -158,8 +167,8 @@ test('webview bridge: setMarketPriceLines hides native market badges and paints 
   assertSourceContains(marketPriceRangeBody, /resolveMarketPriceBadgeRecoveryBuffer\(reference \|\| normalized\)/, 'market badge containment must keep a small stability buffer before forcing axis recovery');
   assertSourceContains(healPriceScaleBody, /marketPriceBadgesOutOfRange[\s\S]*rangeContainsMarketPriceBadges\(currentRange, candleDataRange\)[\s\S]*setRecoveredRightPriceRange\(dataRange\)/, 'price-scale healing must recover only for near bid/ask badges outside the visible axis range');
   assertSourceContains(refreshBody, /renderMarketPriceScaleExtensions\(layer\)/, 'overlay refresh must render custom market price-scale extensions');
-  assert.doesNotMatch(refreshBody, /renderMarketPriceBadges\(layer\)/, 'market bid/ask must not use the old full DOM badge renderer');
-  assertSourceContains(source, /Quotes move market price lines only; candle geometry comes from the[\s\S]*canonical REST history plus backend live-candle stream/, 'native quote bridge must not create a second OHLC path');
+  assertSourceContains(refreshBody, /renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/, 'overlay refresh must render MT5-style custom market price-scale badges after the line accents');
+  assertSourceContains(source, /The display candle has already folded in the same live quote used here,[\s\S]*so the candle close and market price lines move from one tick source/, 'native quote bridge must keep candle close and market price lines synchronized to one live quote source');
 });
 
 test('webview bridge: native web and WebView creation reserve the right price scale', () => {
@@ -286,7 +295,7 @@ test('webview bridge: right price-scale DOM health ignores RTX5 numeric overlays
 
   assertSourceContains(
     customOverlayPredicateBody,
-    /_overlayLabelLayer[\s\S]*rightPriceScaleFallbackLayer[\s\S]*node\.closest\('\.rtx5-overlay-label-layer'\)[\s\S]*node\.closest\('\.rtx5-position-price-scale-box'\)[\s\S]*node\.closest\('\.rtx5-market-price-scale-extension'\)[\s\S]*node\.closest\('\.rtx5-right-price-scale-fallback'\)/,
+    /_overlayLabelLayer[\s\S]*rightPriceScaleFallbackLayer[\s\S]*node\.closest\('\.rtx5-overlay-label-layer'\)[\s\S]*node\.closest\('\.rtx5-position-price-scale-box'\)[\s\S]*node\.closest\('\.rtx5-market-price-scale-extension'\)[\s\S]*node\.closest\('\.rtx5-market-price-scale-badge'\)[\s\S]*node\.closest\('\.rtx5-right-price-scale-fallback'\)/,
     'right-axis DOM probe must explicitly exclude custom RTX5 overlay and fallback nodes',
   );
   assertSourceContains(
@@ -358,13 +367,23 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     rangeBody,
-    /resolvePriceRangeFromVisibleData\(true\)[\s\S]*isValidPriceRange\(visibleDataRange\)[\s\S]*getVisibleRange\(\)/,
-    'custom axis labels must prefer visible backend candle high/low data before falling back to the chart range',
+    /resolveRightPriceScaleVisibleRange\(\)[\s\S]*isValidPriceRange\(visibleScaleRange\)[\s\S]*resolveRightPriceScaleCoordinateRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(true\)/,
+    'custom axis labels must prefer the actual visible right-scale range and then chart coordinates so top and bottom labels fill the plot height',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resolveRightPriceScaleCoordinateRange\(\)[\s\S]*series\.coordinateToPrice\(plotTop \+ RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2\)[\s\S]*series\.coordinateToPrice\(plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2\)[\s\S]*normalizePriceRange/,
+    'custom axis fallback must read the visible top and bottom prices from chart coordinates when the price-scale API has no visible range',
   );
   assertSourceContains(
     ticksBody,
-    /lastRawSeriesData[\s\S]*resolveRightPriceScaleFallbackLabelCount\(metrics\)[\s\S]*resolveRightPriceScaleFallbackNiceStep\(span, Math\.max\(1, labelCount - 1\)\)[\s\S]*resolveRightPriceScaleFallbackStepDecimals\(step\)[\s\S]*roundRightPriceScaleFallbackPrice\(priceTick, decimals\)[\s\S]*series\.priceToCoordinate\(price\)[\s\S]*formatRightPriceScaleFallbackLabel\(price, decimals\)/,
+    /lastRawSeriesData[\s\S]*resolveRightPriceScaleFallbackLabelCount\(metrics\)[\s\S]*resolveRightPriceScaleFallbackNiceStep\(span, Math\.max\(1, labelCount - 1\)\)[\s\S]*resolveRightPriceScaleFallbackStepDecimals\(step\)[\s\S]*appendTick[\s\S]*series\.priceToCoordinate\(price\)[\s\S]*formatRightPriceScaleFallbackLabel\(price, decimals\)[\s\S]*roundRightPriceScaleFallbackPrice\(priceTick, decimals\)/,
     'custom axis ticks must be derived from backend data, nice step spacing, chart coordinates, and configured symbol precision',
+  );
+  assertSourceContains(
+    ticksBody,
+    /appendTick\([\s\S]*plotTop \+ RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*appendTick\([\s\S]*plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*ticks\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)/,
+    'custom axis ticks must include top and bottom edge labels to avoid empty right-scale whitespace',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -378,7 +397,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     renderBody,
-    /clearRightPriceScaleFallbackLabels\(\)[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*resolveRightPriceScaleFallbackAxisMetrics\(metrics\)[\s\S]*className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'[\s\S]*label\.textContent = tick\.text/,
+    /clearRightPriceScaleFallbackLabels\(\)[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*resolveRightPriceScaleFallbackAxisMetrics\(metrics\)[\s\S]*layer\.style\.zIndex = '30'[\s\S]*className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*axisBackground\.style\.top = Math\.max\(0, Math\.round\(metrics\.plotTop \|\| 0\)\) \+ 'px'[\s\S]*axisBackground\.style\.height = Math\.max\(0, Math\.round\(metrics\.plotHeight \|\| metrics\.paneHeight \|\| 0\)\) \+ 'px'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'[\s\S]*label\.textContent = tick\.text/,
     'custom labels must render inside an owned reserved right price-scale strip',
   );
   assertSourceContains(
@@ -388,7 +407,7 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     refreshBody,
-    /renderFallbackRightPriceScaleLabels\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)/,
+    /renderFallbackRightPriceScaleLabels\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/,
     'overlay refresh must repaint fallback axis labels before custom market/position overlays',
   );
   assertSourceContains(
@@ -479,6 +498,9 @@ test('webview bridge: watchdog keeps re-sending initChart until CHART_READY', ()
 
 test('webview bridge: recent viewport reserves a bounded live-edge gap before the price scale', () => {
   const recentViewportBody = extractFunctionBody(chartWebViewHtmlSource, 'applyRecentViewport');
+  const shouldFollowLiveRightEdgeBody = extractFunctionBody(chartWebViewHtmlSource, 'shouldFollowLiveRightEdge');
+  const followLiveRightEdgeBody = extractFunctionBody(chartWebViewHtmlSource, 'followLiveRightEdge');
+  const applyTickUpdateBody = extractFunctionBody(chartWebViewHtmlSource, 'applyTickUpdate');
   const logicalRangeBranchEnd = recentViewportBody.indexOf('} else {');
   const logicalRangeBranch =
     logicalRangeBranchEnd >= 0 ? recentViewportBody.slice(0, logicalRangeBranchEnd) : recentViewportBody;
@@ -487,6 +509,11 @@ test('webview bridge: recent viewport reserves a bounded live-edge gap before th
     source,
     /rightOffset: CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET/,
     'native chart must use the shared time-scale right-offset constant',
+  );
+  assertSourceContains(
+    chartConstantsSource,
+    /export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 2;/,
+    'right-offset must stay MT5-sized so the live candle remains close to the price scale',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -502,6 +529,21 @@ test('webview bridge: recent viewport reserves a bounded live-edge gap before th
     recentViewportBody,
     /\} else \{[\s\S]*fitContent\(\)[\s\S]*scrollToRealTime\(\)/,
     'legacy fallback may still use scrollToRealTime when logical range APIs are unavailable',
+  );
+  assertSourceContains(
+    shouldFollowLiveRightEdgeBody,
+    /activeHorizontalScrollGesture \|\| Date\.now\(\) <= activeHorizontalScrollGestureUntil[\s\S]*var previousMaxRight = getBoundedLiveRightEdge\(lengthOverride\)[\s\S]*return range\.to >= previousMaxRight - followTolerance/,
+    'live-edge follow must only engage when the user was already viewing the live edge and is not actively scrolling',
+  );
+  assertSourceContains(
+    followLiveRightEdgeBody,
+    /var span = Math\.max\(1, previousRange\.to - previousRange\.from\)[\s\S]*var nextFrom = nextRight - span[\s\S]*chart\.timeScale\(\)\.setVisibleLogicalRange\(\{[\s\S]*from: nextFrom,[\s\S]*to: nextRight/,
+    'live-edge follow must preserve the existing viewport width while advancing the right edge',
+  );
+  assertSourceContains(
+    applyTickUpdateBody,
+    /var previousSeriesLength = currentSeriesLength[\s\S]*var previousVisibleRange = getVisibleLogicalRangeSnapshot\(\)[\s\S]*var appendedNewBar = currentSeriesLength === 0 \|\| normalizedTick\.time > lastBarTime[\s\S]*var shouldFollowLiveEdge = appendedNewBar && shouldFollowLiveRightEdge\(previousVisibleRange, previousSeriesLength\)[\s\S]*currentSeriesLength = lastRawSeriesData\.length[\s\S]*if \(shouldFollowLiveEdge\) \{[\s\S]*followLiveRightEdge\(previousVisibleRange, currentSeriesLength\)/,
+    'appended live candles must advance the viewport right edge instead of drifting left behind empty future space',
   );
 });
 

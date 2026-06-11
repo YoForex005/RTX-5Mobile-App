@@ -32,8 +32,8 @@ export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
 // over the visible area so users see prices moving but no candle. Every
 // pro terminal (MT5, TradingView, cTrader) reserves a few bars of right
 // padding so the live forming candle has a place to live in the visible
-// range. 8 bars matches the convention without wasting too much canvas.
-export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 8;
+// range. Keep this small so the live candle stays close to the price scale.
+export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 2;
 export const CHART_DEFAULT_TIME_SCALE_MIN_BAR_SPACING = 3;
 export const CHART_TIME_SCALE_FIX_LEFT_EDGE = false;
 // Keep the library clamp disabled: LightweightCharts clamps positive

@@ -105,13 +105,19 @@ const buildLivePriceCandle = (
   timeframe: string,
   time: unknown,
   nowSeconds: number,
+  candles: readonly Candle[],
 ): Candle | null => {
   const normalizedTime = normalizeTimestampToSeconds(time) ?? nowSeconds;
   if (!Number.isFinite(normalizedTime) || normalizedTime <= 0) {
     return null;
   }
 
-  const bucketTime = getBucketStart(normalizedTime, timeframe) ?? Math.floor(normalizedTime);
+  const timeframeSeconds = getTimeframeSeconds(timeframe);
+  const lastCandle = candles[candles.length - 1];
+  const bucketTime =
+    lastCandle && timeframeSeconds > 0 && normalizedTime >= lastCandle.time
+      ? lastCandle.time + Math.floor((normalizedTime - lastCandle.time) / timeframeSeconds) * timeframeSeconds
+      : getBucketStart(normalizedTime, timeframe) ?? Math.floor(normalizedTime);
   return {
     time: bucketTime,
     open: price,
@@ -120,6 +126,43 @@ const buildLivePriceCandle = (
     close: price,
     volume: 0,
   };
+};
+
+const applyLivePriceToActiveCandle = (
+  candles: readonly Candle[],
+  liveCandle: Candle,
+): Candle[] => {
+  const lastCandle = candles[candles.length - 1];
+  if (!lastCandle) {
+    return [liveCandle];
+  }
+
+  if (liveCandle.time < lastCandle.time) {
+    return candles as Candle[];
+  }
+
+  if (liveCandle.time > lastCandle.time) {
+    return [...candles, liveCandle];
+  }
+
+  const nextLast: Candle = {
+    ...lastCandle,
+    high: Math.max(lastCandle.high, liveCandle.close),
+    low: Math.min(lastCandle.low, liveCandle.close),
+    close: liveCandle.close,
+    volume: lastCandle.volume ?? 0,
+  };
+
+  if (
+    nextLast.high === lastCandle.high &&
+    nextLast.low === lastCandle.low &&
+    nextLast.close === lastCandle.close &&
+    (nextLast.volume ?? 0) === (lastCandle.volume ?? 0)
+  ) {
+    return candles as Candle[];
+  }
+
+  return [...candles.slice(0, -1), nextLast];
 };
 
 export const resolveLivePriceCoherentCandles = (
@@ -134,7 +177,7 @@ export const resolveLivePriceCoherentCandles = (
   }
 
   const nowSeconds = livePrice.nowSeconds ?? Math.floor(Date.now() / 1000);
-  const liveCandle = buildLivePriceCandle(livePrice.price, timeframe, livePrice.time, nowSeconds);
+  const liveCandle = buildLivePriceCandle(livePrice.price, timeframe, livePrice.time, nowSeconds, displayCandles);
   if (!liveCandle) {
     return displayCandles as Candle[];
   }
@@ -165,24 +208,21 @@ export const resolveLivePriceCoherentCandles = (
         const timeframeSeconds = getTimeframeSeconds(timeframe);
         const staleGapThreshold = Math.max(timeframeSeconds * 3, STALE_HISTORY_MERGE_GAP_SECONDS);
         if (boundaryGapSeconds > staleGapThreshold) {
-          return displayCandles.slice(coherentStartIndex) as Candle[];
+          return applyLivePriceToActiveCandle(displayCandles.slice(coherentStartIndex), liveCandle);
         }
 
-        return displayCandles as Candle[];
+        return applyLivePriceToActiveCandle(displayCandles, liveCandle);
       }
 
-      return displayCandles.slice(coherentStartIndex) as Candle[];
+      return applyLivePriceToActiveCandle(displayCandles.slice(coherentStartIndex), liveCandle);
     }
 
-    return displayCandles as Candle[];
+    return applyLivePriceToActiveCandle(displayCandles, liveCandle);
   }
 
   if (displayCandles.length >= MIN_TRUSTED_HISTORY_PREFIX_TO_KEEP) {
-    if (liveCandle.time > lastCandle.time) {
-      return displayCandles as Candle[];
-    }
     if (liveCandle.time === lastCandle.time) {
-      return displayCandles as Candle[];
+      return applyLivePriceToActiveCandle(displayCandles, liveCandle);
     }
     return displayCandles as Candle[];
   }

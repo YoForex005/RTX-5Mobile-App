@@ -142,22 +142,27 @@ test('native WebView uses the native candlestick renderer for candle modes', () 
   );
 });
 
-test('quote updates never patch candle geometry inside the WebView', () => {
+test('quote updates synchronize display candles before isolated price-line bridge updates', () => {
   assert.doesNotMatch(
     source,
     /liveQuoteCandleStateRef/,
     'native chart must not keep a separate quote-built candle projection',
   );
+  assertSourceContains(
+    source,
+    /resolveLivePriceCoherentCandles\(sanitizedBackendCandles, chartTimeframe,[\s\S]*price: liveChartPrice,[\s\S]*time: chartTradeTickTimestamp/,
+    'native chart must fold the live quote into sanitizedCandles before WebView candle sync',
+  );
 
-  const quoteBridgeStart = source.indexOf('Quotes move market price lines only');
+  const quoteBridgeStart = source.indexOf('The display candle has already folded in the same live quote used here');
   assert.notEqual(quoteBridgeStart, -1, 'quote bridge contract comment was not found');
   const quoteBridgeEnd = source.indexOf('// Watchdog', quoteBridgeStart);
   assert.notEqual(quoteBridgeEnd, -1, 'quote bridge effect end was not found');
   const quoteBridge = source.slice(quoteBridgeStart, quoteBridgeEnd);
 
   assertSourceContains(quoteBridge, /setMarketPriceLines\(/, 'quote bridge must still move market price lines');
-  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must not mutate candle OHLC');
-  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not synthesize candle payloads');
+  assert.doesNotMatch(quoteBridge, /updateTick\(/, 'quote bridge must leave candle OHLC updates in the candle sync effect');
+  assert.doesNotMatch(quoteBridge, /buildChartTickPayload/, 'quote bridge must not create a second candle payload path');
 });
 
 test('horizontal zoom and pan keeps price autoscale attached to visible bars', () => {

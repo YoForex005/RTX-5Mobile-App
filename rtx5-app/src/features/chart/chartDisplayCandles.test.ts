@@ -8,15 +8,65 @@ const staleGoldHistory: Candle[] = [
   { time: 1_769_000_060, open: 2384, high: 2440, low: 2380, close: 2433, volume: 12 },
 ];
 
-test('keeps coherent candles when the fresh quote matches the history price regime', () => {
+test('updates the active candle close from a coherent live quote', () => {
   const result = resolveLivePriceCoherentCandles(staleGoldHistory, 'M1', {
     price: 2434,
     time: 1_769_000_090,
     nowSeconds: 1_769_000_090,
   });
 
-  assert.equal(result, staleGoldHistory);
-  assert.deepEqual(result, staleGoldHistory);
+  assert.notEqual(result, staleGoldHistory);
+  assert.deepEqual(result.slice(0, -1), staleGoldHistory.slice(0, -1));
+  assert.deepEqual(result[result.length - 1], {
+    ...staleGoldHistory[staleGoldHistory.length - 1],
+    high: 2440,
+    low: 2380,
+    close: 2434,
+  });
+});
+
+test('widens the active candle wick when the same live quote makes a new high or low', () => {
+  const candles: Candle[] = [
+    { time: 1_769_000_000, open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 3 },
+  ];
+
+  const newHigh = resolveLivePriceCoherentCandles(candles, 'M1', {
+    price: 1.13,
+    time: 1_769_000_030,
+    nowSeconds: 1_769_000_030,
+  });
+
+  assert.deepEqual(newHigh, [
+    { time: 1_769_000_000, open: 1.1, high: 1.13, low: 1.09, close: 1.13, volume: 3 },
+  ]);
+
+  const newLow = resolveLivePriceCoherentCandles(newHigh, 'M1', {
+    price: 1.08,
+    time: 1_769_000_045,
+    nowSeconds: 1_769_000_045,
+  });
+
+  assert.deepEqual(newLow, [
+    { time: 1_769_000_000, open: 1.1, high: 1.13, low: 1.08, close: 1.08, volume: 3 },
+  ]);
+});
+
+test('appends a new live bucket from the first live price in that timeframe', () => {
+  const result = resolveLivePriceCoherentCandles(staleGoldHistory, 'M1', {
+    price: 2435,
+    time: 1_769_000_120,
+    nowSeconds: 1_769_000_120,
+  });
+
+  assert.equal(result.length, staleGoldHistory.length + 1);
+  assert.deepEqual(result[result.length - 1], {
+    time: 1_769_000_120,
+    open: 2435,
+    high: 2435,
+    low: 2435,
+    close: 2435,
+    volume: 0,
+  });
 });
 
 test('replaces an incompatible stale candle regime with a live-price candle', () => {
@@ -27,7 +77,7 @@ test('replaces an incompatible stale candle regime with a live-price candle', ()
   });
 
   assert.equal(result.length, 1);
-  assert.equal(result[0].time, 1_769_000_100);
+  assert.equal(result[0].time, 1_769_000_120);
   assert.equal(result[0].open, 4539.64);
   assert.equal(result[0].high, 4539.64);
   assert.equal(result[0].low, 4539.64);
