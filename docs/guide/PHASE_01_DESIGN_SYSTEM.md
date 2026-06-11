@@ -41,6 +41,7 @@ Implement the dark themed design system and responsive shell to support near par
 - UI foundation is complete and feature teams only consume shared components.
 
 ## Progress Notes
+- 2026-06-11: Enabled landscape-capable orientation in the root Expo scaffold by setting `orientation: default`, matching the active `rtx5-app` Expo config. The active bottom tab shell now compacts in landscape phone width so Quotes, Chart, Trade, History, and Settings keep more usable vertical content area. Native orientation config changes require a fresh native build; OTA-only delivery is not sufficient.
 - 2026-05-25: Tightened the MT5-smooth ActionSheet path after device recheck. Shared sheets now virtualize action rows instead of mounting every item, intercept Android hardware Back while open, and support explicit touch-start activation for non-scrollable dropdown launchers that sit above native surfaces.
 - 2026-05-25: Reworked shared ActionSheet interaction timing toward MT5-style first-frame behavior. Global sheets now normalize to instant open, seed visible opacity/translate in the first render, avoid Android native Modal geometry settle/slide paths, execute row actions immediately by default, and keep adaptive sheet floors stable without reflowing after paint.
 - 2026-05-21: Replaced the referenced app identity assets with the dark-square RTX5 mark, white symbol, and green center `5` across the active Expo app assets and root Expo scaffold assets. Verified current logo consumers continue to reference the updated asset paths.

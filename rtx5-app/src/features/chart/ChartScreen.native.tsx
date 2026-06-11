@@ -4430,7 +4430,9 @@ export function ChartScreen() {
                             price: typeof msg.price === 'number' && Number.isFinite(msg.price) ? msg.price : null,
                           };
                           syncChartViewportFrame(() => {
-                            setChartTapMenuAnchor(nextAnchor);
+                            setChartTapMenuAnchor((currentAnchor) => (
+                              currentAnchor ? null : nextAnchor
+                            ));
                           });
                         } else if (msg.type === 'CHART_GEOMETRY') {
                           const nextPlotArea =

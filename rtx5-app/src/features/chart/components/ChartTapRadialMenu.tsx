@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React from 'react';
-import { PanResponder, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, PanResponder, StyleSheet, Text, View } from 'react-native';
 import {
   TvRadialIndicators,
   TvFx,
@@ -45,8 +45,9 @@ const CHART_TAP_OUTER_ITEM_RADIUS = CHART_TAP_MENU_SIZE / 2 - CHART_TAP_RING_WID
 const CHART_TAP_ACTION_RADIUS = CHART_TAP_OUTER_ITEM_RADIUS;
 const CHART_TAP_MENU_PADDING = 10;
 const CHART_TAP_MENU_DISMISS_GRACE_MS = 32;
-const CHART_TAP_MENU_VISUAL_OFFSET_X = 8;
-const CHART_TAP_MENU_VISUAL_OFFSET_Y = 8;
+const CHART_TAP_MENU_OPEN_DURATION_MS = 140;
+const CHART_TAP_MENU_OPEN_SCALE_FROM = 0.58;
+const CHART_TAP_MENU_OPEN_OPACITY_FROM = 0.92;
 
 const TIMEFRAME_ITEMS: Array<{ key: string; angle: number; width: number }> = [
   { key: 'M1', angle: 312, width: 38 },
@@ -114,6 +115,13 @@ const createStyles = (isDark: boolean) =>
       justifyContent: 'center',
       zIndex: 41,
       elevation: 121,
+      backgroundColor: 'transparent',
+    },
+    menuContent: {
+      width: CHART_TAP_MENU_SIZE,
+      height: CHART_TAP_MENU_SIZE,
+      alignItems: 'center',
+      justifyContent: 'center',
       backgroundColor: 'transparent',
     },
     ring: {
@@ -229,22 +237,41 @@ export function ChartTapRadialMenu({
     [containerHeight, containerWidth],
   );
 
-  const computeCenteredPosition = React.useCallback(() => {
-    // Optical centering: the ring reads slightly left/up without a small
-    // correction because of the chart frame and menu weight distribution.
-    return resolveMenuPosition(
-      containerWidth / 2 + CHART_TAP_MENU_VISUAL_OFFSET_X,
-      containerHeight / 2 + CHART_TAP_MENU_VISUAL_OFFSET_Y,
-    );
-  }, [containerHeight, containerWidth, resolveMenuPosition]);
+  const computeAnchorPosition = React.useCallback(() => (
+    resolveMenuPosition(anchor.x, anchor.y)
+  ), [anchor.x, anchor.y, resolveMenuPosition]);
 
-  const [menuPosition, setMenuPosition] = React.useState(computeCenteredPosition);
+  const [menuPosition, setMenuPosition] = React.useState(computeAnchorPosition);
   const menuViewRef = React.useRef<View>(null);
   const menuPositionRef = React.useRef(menuPosition);
   const dragOriginRef = React.useRef(menuPosition);
   const dismissReadyAtRef = React.useRef(Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS);
   const lastAnchorKeyRef = React.useRef(`${anchor.x}:${anchor.y}:${containerWidth}:${containerHeight}`);
   const syncFrameRef = React.useRef<number | null>(null);
+  const entranceOpacity = React.useRef(new Animated.Value(CHART_TAP_MENU_OPEN_OPACITY_FROM)).current;
+  const entranceScale = React.useRef(new Animated.Value(CHART_TAP_MENU_OPEN_SCALE_FROM)).current;
+
+  const startEntranceAnimation = React.useCallback(() => {
+    entranceOpacity.stopAnimation();
+    entranceScale.stopAnimation();
+    entranceOpacity.setValue(CHART_TAP_MENU_OPEN_OPACITY_FROM);
+    entranceScale.setValue(CHART_TAP_MENU_OPEN_SCALE_FROM);
+    Animated.parallel([
+      Animated.timing(entranceOpacity, {
+        toValue: 1,
+        duration: CHART_TAP_MENU_OPEN_DURATION_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(entranceScale, {
+        toValue: 1,
+        stiffness: 420,
+        damping: 32,
+        mass: 0.72,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [entranceOpacity, entranceScale]);
 
   const applyMenuPosition = React.useCallback(
     (left: number, top: number, commitToState = false) => {
@@ -270,13 +297,16 @@ export function ChartTapRadialMenu({
   );
 
   React.useEffect(() => {
+    startEntranceAnimation();
     return () => {
+      entranceOpacity.stopAnimation();
+      entranceScale.stopAnimation();
       if (syncFrameRef.current !== null) {
         cancelAnimationFrame(syncFrameRef.current);
         syncFrameRef.current = null;
       }
     };
-  }, []);
+  }, [entranceOpacity, entranceScale, startEntranceAnimation]);
 
   React.useEffect(() => {
     menuPositionRef.current = menuPosition;
@@ -289,15 +319,17 @@ export function ChartTapRadialMenu({
     }
     lastAnchorKeyRef.current = key;
     dismissReadyAtRef.current = Date.now() + CHART_TAP_MENU_DISMISS_GRACE_MS;
-    const nextPosition = computeCenteredPosition();
+    const nextPosition = computeAnchorPosition();
     menuPositionRef.current = nextPosition;
     setMenuPosition(nextPosition);
+    startEntranceAnimation();
   }, [
     anchor.x,
     anchor.y,
-    computeCenteredPosition,
+    computeAnchorPosition,
     containerHeight,
     containerWidth,
+    startEntranceAnimation,
   ]);
 
   const panResponder = React.useMemo(
@@ -409,70 +441,80 @@ export function ChartTapRadialMenu({
         ]}
         {...panResponder.panHandlers}
       >
-        <View style={[styles.ring, { borderColor: accentColor, shadowColor: accentColor }]} />
+        <Animated.View
+          style={[
+            styles.menuContent,
+            {
+              opacity: entranceOpacity,
+              transform: [{ scale: entranceScale }],
+            },
+          ]}
+        >
+          <View style={[styles.ring, { borderColor: accentColor, shadowColor: accentColor }]} />
 
-        {/* Tapping inside the empty inner circle dismisses the menu. Without
-            this, the ring's containing View absorbs the touch but the
-            panResponder only claims drags — so taps in the centre fall into
-            a dead zone instead of reaching the backdrop Pressable behind. */}
-        <Pressable
-          style={styles.innerDismissArea}
-          onPressIn={handleBackdropPress}
-          unstable_pressDelay={0}
-        />
+          {/* Tapping inside the empty inner circle dismisses the menu. Without
+              this, the ring's containing View absorbs the touch but the
+              panResponder only claims drags — so taps in the centre fall into
+              a dead zone instead of reaching the backdrop Pressable behind. */}
+          <Pressable
+            style={styles.innerDismissArea}
+            onPressIn={handleBackdropPress}
+            unstable_pressDelay={0}
+          />
 
-        {TIMEFRAME_ITEMS.map((item) => {
-          const position = getRadialItemPosition(
-            item.angle,
-            CHART_TAP_OUTER_ITEM_RADIUS,
-            item.width,
-            CHART_TAP_TIMEFRAME_HEIGHT,
-          );
-          const isActive = activeTimeframe === item.key;
-          return (
-            <Pressable
-              key={item.key}
-              onPress={() => onSelectTimeframe(item.key)}
-              unstable_pressDelay={0}
-              style={[
-                styles.timeframeItem,
-                position,
-                {
-                  width: item.width,
-                  transform: [{ rotate: getRadialTextRotation(item.angle) }],
-                },
-              ]}
-            >
-              <Text
+          {TIMEFRAME_ITEMS.map((item) => {
+            const position = getRadialItemPosition(
+              item.angle,
+              CHART_TAP_OUTER_ITEM_RADIUS,
+              item.width,
+              CHART_TAP_TIMEFRAME_HEIGHT,
+            );
+            const isActive = activeTimeframe === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                onPress={() => onSelectTimeframe(item.key)}
+                unstable_pressDelay={0}
                 style={[
-                  styles.timeframeText,
-                  isActive && styles.timeframeTextActive,
+                  styles.timeframeItem,
+                  position,
+                  {
+                    width: item.width,
+                    transform: [{ rotate: getRadialTextRotation(item.angle) }],
+                  },
                 ]}
               >
-                {item.key}
-              </Text>
-            </Pressable>
-          );
-        })}
+                <Text
+                  style={[
+                    styles.timeframeText,
+                    isActive && styles.timeframeTextActive,
+                  ]}
+                >
+                  {item.key}
+                </Text>
+              </Pressable>
+            );
+          })}
 
-        {actionItems.map((item) => {
-          const itemBoxSize = item.boxSize ?? 30;
-          const position = getRadialItemPosition(
-            item.angle,
-            CHART_TAP_ACTION_RADIUS,
-            itemBoxSize,
-          );
-          return (
-            <Pressable
-              key={item.key}
-              onPress={item.onPress}
-              unstable_pressDelay={0}
-              style={[styles.actionItem, position, { width: itemBoxSize, height: itemBoxSize }]}
-            >
-              {item.render(mutedColor)}
-            </Pressable>
-          );
-        })}
+          {actionItems.map((item) => {
+            const itemBoxSize = item.boxSize ?? 30;
+            const position = getRadialItemPosition(
+              item.angle,
+              CHART_TAP_ACTION_RADIUS,
+              itemBoxSize,
+            );
+            return (
+              <Pressable
+                key={item.key}
+                onPress={item.onPress}
+                unstable_pressDelay={0}
+                style={[styles.actionItem, position, { width: itemBoxSize, height: itemBoxSize }]}
+              >
+                {item.render(mutedColor)}
+              </Pressable>
+            );
+          })}
+        </Animated.View>
       </View>
     </View>
   );

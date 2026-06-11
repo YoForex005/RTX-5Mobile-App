@@ -1,0 +1,8 @@
+env: load .env
+env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL EXPO_PUBLIC_DEMO_API_BASE_URL EXPO_PUBLIC_TERMS_URL EXPO_PUBLIC_PRIVACY_POLICY_URL
+Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+› Opening exp://127.0.0.1:8081 on moto_g_9__power
+Waiting on http://localhost:8081
+Logs for your project will appear below.

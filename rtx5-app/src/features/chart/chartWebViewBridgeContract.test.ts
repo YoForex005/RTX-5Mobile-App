@@ -24,6 +24,7 @@ const readProjectSource = (relativePath: string): string => {
 const chartWebViewHtmlSource = readProjectSource('src/features/chart/rendering/ChartWebViewHtml.ts');
 const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
 const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
+const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
@@ -227,6 +228,37 @@ test('native chart status overlays do not block symbol recovery controls', () =>
     source,
     /\{chartSurfaceReady && isNoMarketData && !isError && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
     'no-data overlay must not block the symbol picker so unavailable symbols can be skipped',
+  );
+});
+
+test('native chart tap radial menu toggles closed on the next chart tap', () => {
+  assertSourceContains(
+    source,
+    /msg\.type === 'CHART_TAP'[\s\S]*const nextAnchor = \{[\s\S]*syncChartViewportFrame\(\(\) => \{[\s\S]*setChartTapMenuAnchor\(\(currentAnchor\) => \([\s\S]*currentAnchor \? null : nextAnchor[\s\S]*\)\)/,
+    'valid chart body taps must alternate the MT5-like radial menu open and closed instead of only re-anchoring it',
+  );
+});
+
+test('native chart tap radial menu opens with a native-driven smooth entrance', () => {
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const CHART_TAP_MENU_OPEN_SCALE_FROM = 0\.58/,
+    'the radial menu entrance must start from a visibly smaller MT5-like ring scale',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /const computeAnchorPosition = React\.useCallback\(\(\) => \(\s*resolveMenuPosition\(anchor\.x, anchor\.y\)\s*\)/,
+    'the radial menu must open around the actual chart tap point instead of screen-centering every open',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /Animated\.parallel\(\[[\s\S]*Animated\.timing\(entranceOpacity,[\s\S]*Easing\.out\(Easing\.cubic\)[\s\S]*useNativeDriver: true[\s\S]*Animated\.spring\(entranceScale,[\s\S]*useNativeDriver: true/,
+    'the MT5-like radial menu must use the native animation driver',
+  );
+  assertSourceContains(
+    chartTapRadialMenuSource,
+    /<Animated\.View[\s\S]*opacity: entranceOpacity[\s\S]*transform: \[\{ scale: entranceScale \}\]/,
+    'the entrance animation must apply directly to the radial menu content',
   );
 });
 

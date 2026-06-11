@@ -100,8 +100,25 @@ test('bottom tab navigation fast path preserves light and dark tab bar themes', 
   assert.match(source, /const bottomTabActiveColor = T\.trading\.buy\.primary/);
   assert.match(source, /tabBarActiveTintColor: bottomTabActiveColor/);
   assert.match(source, /tabBarInactiveTintColor: inactiveTabColor/);
-  assert.match(source, /style=\{\[styles\.tabLabel, \{ color \}\]\}/);
-  assert.match(source, /\[insets\.bottom, isDark, tabBarHeight\]/);
+  assert.match(source, /style=\{\[styles\.tabLabel, isLandscape && styles\.tabLabelLandscape, \{ color \}\]\}/);
+  assert.match(source, /\[insets\.bottom, isDark, isLandscape, tabBarHeight\]/);
+});
+
+test('bottom tab bar compacts in landscape to preserve phone content height', () => {
+  const source = readSource('app/(tabs)/_layout.tsx');
+  const bottomTabLayoutSource = readSource('src/ui/layout/bottomTabBar.ts');
+
+  assert.match(source, /useWindowDimensions/);
+  assert.match(source, /const \{ width, height \} = useWindowDimensions\(\)/);
+  assert.match(source, /const isLandscape = width > height/);
+  assert.match(source, /resolveBottomTabBarHeight\(\{[\s\S]*isLandscape,[\s\S]*\}\)/);
+  assert.match(source, /paddingTop: isLandscape \? 4 : 8/);
+  assert.match(source, /paddingBottom: Math\.max\(insets\.bottom, isLandscape \? 4 : 8\)/);
+  assert.match(source, /styles\.tabLabel, isLandscape && styles\.tabLabelLandscape, \{ color \}/);
+  assert.match(source, /tabLabelLandscape: \{[\s\S]*marginBottom: 0,[\s\S]*\}/);
+  assert.match(bottomTabLayoutSource, /MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT = 64/);
+  assert.match(bottomTabLayoutSource, /isLandscape\?: boolean/);
+  assert.match(bottomTabLayoutSource, /const baseHeight = isLandscape[\s\S]*MT5_BOTTOM_TAB_BAR_LANDSCAPE_BASE_HEIGHT[\s\S]*MT5_BOTTOM_TAB_BAR_BASE_HEIGHT/);
 });
 
 test('primary tab route wrappers do not unmount screens on blur', () => {

@@ -3,7 +3,7 @@ import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Text, type GestureResponderEvent } from 'react-native';
+import { View, StyleSheet, Text, useWindowDimensions, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUIState } from '../../src/state/uiState';
 import { ActionSheet } from '../../src/ui/components/ActionSheet';
@@ -190,6 +190,7 @@ export default function TabsLayout() {
   const T = themeMode === 'light' ? GLight : GDark;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const pathname = usePathname();
   const router = useRouter();
   const previousPathRef = useRef(pathname);
@@ -197,6 +198,7 @@ export default function TabsLayout() {
   const [optimisticTabName, setOptimisticTabName] = useState<BottomTabName | null>(null);
 
   const isChartTab = pathname === '/chart' || pathname.startsWith('/chart');
+  const isLandscape = width > height;
   const activeTabName = useMemo(() => resolveBottomTabName(pathname), [pathname]);
   const visualActiveTabName = optimisticTabName ?? activeTabName;
   const shouldHideMenu =
@@ -213,6 +215,7 @@ export default function TabsLayout() {
   const tabBarHeight = resolveBottomTabBarHeight({
     safeAreaBottom: insets.bottom,
     isChartTab,
+    isLandscape,
   });
 
   const tabBarStyle = useMemo(
@@ -221,10 +224,10 @@ export default function TabsLayout() {
       borderTopColor: isDark ? '#131722' : 'rgba(0,0,0,0.05)',
       borderTopWidth: 1,
       height: tabBarHeight,
-      paddingTop: 8,
-      paddingBottom: Math.max(insets.bottom, 8),
+      paddingTop: isLandscape ? 4 : 8,
+      paddingBottom: Math.max(insets.bottom, isLandscape ? 4 : 8),
     }),
-    [insets.bottom, isDark, tabBarHeight],
+    [insets.bottom, isDark, isLandscape, tabBarHeight],
   );
   const inactiveTabColor = isDark ? '#5A6B87' : T.textDimmed;
   const bottomTabActiveColor = T.trading.buy.primary;
@@ -315,7 +318,11 @@ export default function TabsLayout() {
             const tabName = isBottomTabName(route.name) ? route.name : 'quotes';
             const color = visualActiveTabName === tabName ? bottomTabActiveColor : inactiveTabColor;
             return (
-              <Text allowFontScaling={false} numberOfLines={1} style={[styles.tabLabel, { color }]}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={1}
+                style={[styles.tabLabel, isLandscape && styles.tabLabelLandscape, { color }]}
+              >
                 {children}
               </Text>
             );
@@ -365,5 +372,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  tabLabelLandscape: {
+    marginBottom: 0,
   },
 });

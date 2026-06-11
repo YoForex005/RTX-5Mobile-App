@@ -66,8 +66,10 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Right-scroll live-edge navigation does not shrink active candles when detached far-price history is still partially visible.
 - [x] Native chart startup throttles pending WebView init retries so slower iOS devices are not flooded with repeated full-history payloads before `CHART_READY`.
 - [x] Native WebView chart keeps the primary right price-axis labels visible through Android startup, resize, and data reload recovery.
+- [x] Chart radial quick menu opens at the chart tap point with an MT5-like smooth native scale entrance and repeated chart body taps alternate open/close.
 
 ## Progress Notes
+- 2026-06-11: Rechecked the MT5 radial menu on-device from the plain chart state. RTX5 now positions the radial quick menu around the actual chart tap point and opens from a visibly smaller native-driven scale, while valid chart-body taps still alternate open and close. Verified on Android through Expo Go full local bundle with ADB screen recording and extracted transition frames.
 - 2026-06-09: Fixed open-position chart trade-level labels so their live P/L amount refreshes from the resolved bid/ask feed and the dotted entry line plus label color follow profit/loss state: green for profit, red for loss.
 - 2026-06-09: Removed the native compact chart bottom-right horizontal three-dot viewport button. Reset and volume controls remain available from the top toolbar Options sheet, keeping the chart viewport clear above the compact Sell/Lot/Buy footer.
 - 2026-06-08: Fixed broker-routed live chart transport for insecure broker hosts. Shared websocket routing no longer upgrades `http://` broker servers to broken `wss://` sockets, and the quote feed now stays on the shared backend `/ws/feed` path when a saved broker server is plain HTTP so chart live prices do not die on brokers that expose only `/ws/v2` over `ws://`.
