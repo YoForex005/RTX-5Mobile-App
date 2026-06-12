@@ -18,6 +18,8 @@ type ActionSheetAction = {
   danger?: boolean;
   /** If true, the action appears greyed-out and is not interactive */
   disabled?: boolean;
+  /** If true, fires on press-in for tiny non-scroll action groups */
+  activateOnPressIn?: boolean;
   /** Callback fired when the user taps this action */
   onPress?: () => void;
   /** Optional leading icon element */

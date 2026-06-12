@@ -6,8 +6,10 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionHistoryQuery } from '../../query/positions';
+import { useAccountDealsQuery } from '../../query/deals';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
+import { deriveClosedPositionsFromDeals, mergeClosedPositionSources } from './derivedClosedPositions';
 import { resolveTradingLogin } from '../../state/tradingLogin';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -289,13 +291,27 @@ export function HistoryNetProfitLossScreen() {
   const balance = useLiveAccountState((state) => state.balance) || 0;
 
   const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin);
+  const { data: rawDeals = [] } = useAccountDealsQuery({ login: accountLogin });
   const { fromMs: effectiveHistoryFromMs, toMs: effectiveHistoryToMs } = useMemo(
     () => resolveEffectiveHistoryDateRange(historyRange, historyFromMs, historyToMs),
     [historyRange, historyFromMs, historyToMs],
   );
+  // Mirror HistoryScreen's closed-position pipeline: the history endpoint can
+  // lag behind freshly-closed trades (especially on demo brokers), so closed
+  // positions are also rebuilt from the deals stream and merged. Without this
+  // the full-screen Net P/L view shows zero while the History pill shows the
+  // real value.
+  const derivedClosedPositions = useMemo(
+    () => deriveClosedPositionsFromDeals(rawDeals),
+    [rawDeals],
+  );
+  const mergedClosedPositions = useMemo(
+    () => mergeClosedPositionSources(rawPositionHistory, derivedClosedPositions),
+    [rawPositionHistory, derivedClosedPositions],
+  );
   const positionHistory = useMemo(
-    () => filterClosedRecordsByDateRange(rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs),
-    [rawPositionHistory, effectiveHistoryFromMs, effectiveHistoryToMs],
+    () => filterClosedRecordsByDateRange(mergedClosedPositions, effectiveHistoryFromMs, effectiveHistoryToMs),
+    [mergedClosedPositions, effectiveHistoryFromMs, effectiveHistoryToMs],
   );
   const closedPositions = useMemo(
     () => positionHistory.map(normalizeClosedHistoryPosition),

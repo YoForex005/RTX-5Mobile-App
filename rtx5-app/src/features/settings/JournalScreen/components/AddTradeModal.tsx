@@ -3,13 +3,18 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark: boolean }) {
+type AddTradeModalProps = {
+  onClose: () => void;
+  isDark: boolean;
+  actionColor: string;
+};
+
+export function AddTradeModal({ onClose, isDark, actionColor }: AddTradeModalProps) {
   const cardBg = isDark ? '#111827' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#F8FAFC' : '#0F172A';
   const subText = isDark ? '#64748B' : '#94A3B8';
   const inputBg = isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC';
-  const accent = '#007ACC';
 
   const [step, setStep] = useState(1);
 
@@ -59,7 +64,7 @@ export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark
                 </View>
               </View>
 
-              <Pressable style={[styles.saveBtn, { backgroundColor: accent }]} onPress={() => setStep(2)}>
+              <Pressable style={[styles.saveBtn, { backgroundColor: actionColor }]} onPress={() => setStep(2)}>
                 <Text style={styles.saveBtnText}>Next: Setup & Psychology</Text>
               </Pressable>
             </View>
@@ -92,7 +97,7 @@ export function AddTradeModal({ onClose, isDark }: { onClose: () => void, isDark
                 <Pressable style={[styles.saveBtn, { backgroundColor: isDark ? '#334155' : '#E2E8F0', flex: 1, marginRight: 8 }]} onPress={() => setStep(1)}>
                   <Text style={[styles.saveBtnText, { color: textColor }]}>Back</Text>
                 </Pressable>
-                <Pressable style={[styles.saveBtn, { backgroundColor: accent, flex: 2, marginLeft: 8 }]} onPress={onClose}>
+                <Pressable style={[styles.saveBtn, { backgroundColor: actionColor, flex: 2, marginLeft: 8 }]} onPress={onClose}>
                   <Text style={styles.saveBtnText}>Save Trade</Text>
                 </Pressable>
               </View>

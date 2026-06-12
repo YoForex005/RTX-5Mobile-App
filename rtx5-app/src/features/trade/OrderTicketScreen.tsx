@@ -30,6 +30,7 @@ import { classifyTradingError, createFrontendTradingError } from '../../api/trad
 import { TradeFeedbackModal } from '../../ui/components/TradeFeedbackModal';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { ActionSheet } from '../../ui/components/ActionSheet';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { CRITICAL_TRADE_ACTION_MAX_LATENCY_MS, runImmediateAction } from '../../utils/actionLatency';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
@@ -74,6 +75,7 @@ type OrderTicketTradeAction = {
 
 const ORDER_TICKET_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
 const ORDER_TICKET_TRADE_CONFIRMATION_MAX_ITEMS = 3;
+const ORDER_TICKET_FULL_CONTENT_DELAY_MS = 0;
 
 type OrderTicketFeedbackModalState = {
   visible: boolean;
@@ -91,6 +93,126 @@ type OrderTicketTradeConfirmation = {
 };
 
 export function OrderTicketScreen() {
+  const contentReady = useDeferredRouteContentReady(ORDER_TICKET_FULL_CONTENT_DELAY_MS);
+
+  if (!contentReady) {
+    return <OrderTicketInitialShell />;
+  }
+
+  return <OrderTicketInteractiveContent />;
+}
+
+function OrderTicketInitialShell() {
+  const { symbol: routeSymbol } = useLocalSearchParams<{ symbol?: string }>();
+  const symbol = normalizeSymbol(routeSymbol || 'EURUSD');
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const themeMode = useUserPreferences((s) => s.themeMode);
+  const T = useTheme();
+  const { t } = useTranslation();
+  const isDark = themeMode === 'dark';
+  const styles = makeStyles(T, isDark);
+  const SELL_C = T.trading.sell.primary;
+  const BUY_C = T.trading.buy.primary;
+  const SELL_BG = isDark ? 'rgba(255,59,48,0.08)' : 'rgba(220,38,38,0.06)';
+  const BUY_BG = isDark ? 'rgba(52,199,89,0.08)' : 'rgba(5,150,105,0.06)';
+
+  return (
+    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={[styles.header, { paddingTop: insets.top + 6, zIndex: 10 }]}>
+        <FastPressable
+          onPress={() => safeRouterBack(router, '/(tabs)/trade')}
+          latencyLabel="orderTicket.shell.back"
+          hitSlop={{ top: 24, bottom: 24, left: 24, right: 24 }}
+          style={styles.backBtn}
+        >
+          <Ionicons name="arrow-back" size={24} color={T.text} />
+        </FastPressable>
+        <View style={styles.hCenter}>
+          <Text style={styles.hSymbol}>{symbol?.replace(/\//g, '')}</Text>
+        </View>
+        <View style={styles.symbolPickerBtn}>
+          <Ionicons name="logo-usd" size={20} color={T.accent} />
+        </View>
+      </View>
+
+      <View style={styles.pricePanel}>
+        <View style={[styles.priceHalf, { backgroundColor: SELL_BG }]}>
+          <Text style={[styles.priceTag, { color: SELL_C }]}>SELL</Text>
+          <Text style={styles.priceMain}>--</Text>
+          <Text style={styles.priceLabel}>BID</Text>
+        </View>
+        <View style={styles.spreadCenter}>
+          <Ionicons name="swap-horizontal" size={11} color={T.textSub} />
+          <Text style={styles.spreadVal}>0</Text>
+          <Text style={styles.spreadUnit}>pts</Text>
+        </View>
+        <View style={[styles.priceHalf, { backgroundColor: BUY_BG }]}>
+          <Text style={[styles.priceTag, { color: BUY_C }]}>BUY</Text>
+          <Text style={styles.priceMain}>--</Text>
+          <Text style={styles.priceLabel}>ASK</Text>
+        </View>
+      </View>
+
+      <View style={styles.shellBody}>
+        <Text style={styles.sectionTitle}>ORDER TYPE</Text>
+        <View style={styles.shellOrderTypeRow}>
+          <View style={[styles.orderTypeTab, styles.orderTypeTabActive, { borderColor: BUY_C }]}>
+            <Text style={[styles.orderTypeTabText, styles.orderTypeTabTextActive]}>
+              Market Execution
+            </Text>
+          </View>
+          <View style={styles.orderTypeTab}>
+            <Text style={styles.orderTypeTabText}>Buy Limit</Text>
+          </View>
+          <View style={styles.orderTypeTab}>
+            <Text style={styles.orderTypeTabText}>Sell Limit</Text>
+          </View>
+        </View>
+        <View style={styles.volSection}>
+          <Text style={styles.rowLabel}>Volume</Text>
+          <View style={styles.volStepper}>
+            <View style={styles.volBtn}>
+              <Ionicons name="remove" size={18} color={T.textSub} />
+            </View>
+            <View style={styles.volCenter}>
+              <Text style={styles.volNum}>0.02</Text>
+            </View>
+            <View style={styles.volBtn}>
+              <Ionicons name="add" size={18} color={T.textSub} />
+            </View>
+          </View>
+        </View>
+        <View style={styles.quickRow}>
+          {[0.01, 0.05, 0.10, 0.50, 1.00].map((value) => (
+            <View key={value} style={styles.quickPill}>
+              <Text style={styles.quickTxt}>{value.toFixed(2)}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.hairline} />
+        <View style={styles.sltpRow}>
+          <View style={styles.sltpGroup}>
+            <Text style={styles.sltpAction}>-</Text>
+            <Text style={styles.sltpLabel}>SL</Text>
+            <Text style={styles.sltpAction}>+</Text>
+          </View>
+          <View style={styles.sltpGroup}>
+            <Text style={styles.sltpAction}>-</Text>
+            <Text style={styles.sltpLabel}>TP</Text>
+            <Text style={styles.sltpAction}>+</Text>
+          </View>
+        </View>
+        <InfoRow label={t('Fill Policy')} value={t('Immediate or Cancel')} styles={styles} />
+        <View style={styles.hairline} />
+      </View>
+    </View>
+  );
+}
+
+function OrderTicketInteractiveContent() {
   // Route params let chart and quote screens open the ticket with a specific
   // symbol, initial trade side, or order comment.
   const { symbol: routeSymbol, comment: routeComment, side: routeSideParam } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string }>();
@@ -112,6 +234,7 @@ export function OrderTicketScreen() {
   const { t } = useTranslation();
   const isDark = themeMode === 'dark';
   const styles = makeStyles(T, isDark);
+  const heavyContentReady = useDeferredRouteContentReady(0);
   const { data: marketSymbols = [], isFetching: marketSymbolsFetching } = useMarketSymbols(isScreenFocused || symbolPickerOpen);
 
   useEffect(() => {
@@ -701,6 +824,11 @@ export function OrderTicketScreen() {
 
       state.upsertPosition(newPos);
 
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+      queryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['exposure'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+
       // Refresh positions state from the server in the background.
       const mt5Login = resolveTradingLoginString();
       if (mt5Login) {
@@ -1067,18 +1195,22 @@ export function OrderTicketScreen() {
         <View style={styles.hairline} />
 
         <View style={styles.executionGraphWrap}>
-          <LiveOrderTickExecutionGraph
-            symbol={symbol}
-            bid={BID}
-            ask={ASK}
-            timestamp={tickTimestamp}
-            priceDecimals={priceDecimals}
-            bidColor="#2563EB"
-            askColor="#EF4444"
-            height={300}
-            isDark={isDark}
-            backgroundColor={T.bg}
-          />
+          {heavyContentReady ? (
+            <LiveOrderTickExecutionGraph
+              symbol={symbol}
+              bid={BID}
+              ask={ASK}
+              timestamp={tickTimestamp}
+              priceDecimals={priceDecimals}
+              bidColor="#2563EB"
+              askColor="#EF4444"
+              height={300}
+              isDark={isDark}
+              backgroundColor={T.bg}
+            />
+          ) : (
+            <View style={styles.executionGraphPlaceholder} />
+          )}
         </View>
 
         <InfoRow label={t('Spread')} value={`${spread} ${t('pts')}`} styles={styles} />
@@ -1343,6 +1475,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
 
     scroll: { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16 },
+    shellBody: { paddingHorizontal: 16, paddingTop: 6 },
+    shellOrderTypeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingTop: 6,
+      paddingBottom: 2,
+      overflow: 'hidden',
+    },
     sectionTitle: { color: T.textSub, fontSize: 9, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 10, marginBottom: 2 },
 
     flatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
@@ -1420,6 +1561,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: BG,
       borderWidth: 0,
       borderColor: 'transparent',
+    },
+    executionGraphPlaceholder: {
+      height: 300,
+      width: '100%',
+      borderRadius: 12,
+      backgroundColor: BG,
     },
     pendingSubmitPlaceholder: {
       flexDirection: 'row',

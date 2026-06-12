@@ -82,6 +82,20 @@ function InnerLayout() {
   const sidebarHeaderScreenOptions = {
     animation: 'none',
   } as const;
+  const brokerFlowBackground = isDark ? '#05070D' : '#F3F6FA';
+  const brokerFlowScreenOptions = {
+    headerShown: false,
+    animation: 'none',
+    freezeOnBlur: false,
+    contentStyle: { backgroundColor: brokerFlowBackground },
+  } as const;
+  const registerScreenOptions = {
+    headerShown: false,
+    animation: 'none',
+    presentation: 'transparentModal',
+    freezeOnBlur: false,
+    contentStyle: { backgroundColor: 'transparent' },
+  } as const;
 
   return (
     <>
@@ -115,9 +129,9 @@ function InnerLayout() {
         >
           <Stack.Screen name='index' options={{ headerShown: false }} />
           <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
-          <Stack.Screen name='quotes/details' options={{ headerShown: false }} />
-          <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false }} />
-          <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade') }} />
+          <Stack.Screen name='quotes/details' options={{ headerShown: false, animation: 'none' }} />
+          <Stack.Screen name='quotes/market-statistics' options={{ headerShown: false, animation: 'none' }} />
+          <Stack.Screen name='trade/order-ticket' options={{ title: t('Trade'), animation: 'none' }} />
           <Stack.Screen name='trade/one-click-terms' options={{ title: t('One Click Trading') }} />
           <Stack.Screen name='trade/close-position' options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name='trade/close-by' options={{ headerShown: false }} />
@@ -133,6 +147,7 @@ function InnerLayout() {
           />
           <Stack.Screen name='trade/bulk' options={{ headerShown: false }} />
           <Stack.Screen name='login' options={{ title: t('Login'), headerLeft: () => null }} />
+          <Stack.Screen name='register' options={registerScreenOptions} />
           <Stack.Screen name='chart/objects' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/settings' options={chartPageScreenOptions} />
           <Stack.Screen name='chart/preferences' options={chartPageScreenOptions} />
@@ -153,8 +168,8 @@ function InnerLayout() {
           <Stack.Screen name='settings/accounts' options={{ title: t('Accounts'), ...sidebarHeaderScreenOptions }} />
           <Stack.Screen name='settings/mailbox' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/news' options={sidebarDetailScreenOptions} />
-          <Stack.Screen name='settings/brokers' options={{ headerShown: false }} />
-          <Stack.Screen name='settings/broker-detail' options={{ headerShown: false }} />
+          <Stack.Screen name='settings/brokers' options={brokerFlowScreenOptions} />
+          <Stack.Screen name='settings/broker-detail' options={brokerFlowScreenOptions} />
           <Stack.Screen name='settings/charts' options={{ title: t('Chart Schema & Colors') }} />
           <Stack.Screen name='settings/economic-calendar' options={sidebarDetailScreenOptions} />
           <Stack.Screen name='settings/interface' options={sidebarDetailScreenOptions} />

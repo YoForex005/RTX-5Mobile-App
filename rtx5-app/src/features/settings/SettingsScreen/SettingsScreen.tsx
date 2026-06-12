@@ -282,7 +282,7 @@ export function SettingsScreen() {
     { title: 'Economic Calender', sub: '', icon: 'calendar-outline', routePath: '/settings/economic-calendar' },
     { title: 'Theme', sub: themeMode === 'light' ? 'Light Mode' : 'Dark Mode', icon: 'color-palette-outline' },
     { title: 'Language Preference', sub: currentLanguageNative, icon: 'browsers-outline', routePath: '/settings/interface' },
-    { title: 'Journal', sub: '', icon: 'reader-outline', routePath: '/settings/journal' },
+    { title: 'Journal', sub: 'Activity log', icon: 'reader-outline', routePath: '/settings/journal' },
     { title: 'Support', sub: supportEmail, icon: 'help-buoy-outline', action: 'support-email' },
     { title: 'Help', sub: 'FAQ', icon: 'information-circle-outline', routePath: '/settings/help' },
   ], [currentLanguageNative, supportEmail, themeMode]);
@@ -581,7 +581,7 @@ export function SettingsScreen() {
                   <View style={styles.dividerInner} />
                   <SettingRow T={T} styles={styles} icon="browsers-outline" color="#1D4ED8" title={t('Language Preference')} sub={currentLanguageNative} onPress={() => openReadySettingsRoute('/settings/interface')} />
                   <View style={styles.dividerInner} />
-                  <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} onPress={() => openReadySettingsRoute('/settings/journal')} />
+                  <SettingRow T={T} styles={styles} icon="reader-outline" color="#1D4ED8" title={t('Journal')} sub="Activity log" onPress={() => openReadySettingsRoute('/settings/journal')} />
                 </View>
 
                 <Text style={styles.sectionTitle}>{t('SUPPORT & HELP')}</Text>

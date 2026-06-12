@@ -1,0 +1,116 @@
+--------- beginning of main
+--------- beginning of system
+06-12 12:54:30.116 I/ReactNativeJS(13540): Running "main" with {"rootTag":1,"initialProps":{"exp":{"initialUri":"exp://127.0.0.1:8081","shell":false,"manifestString":"{\"id\":\"3eb67444-0168-4efb-b03b-0325cd4dbeef\",\"createdAt\":\"2026-06-12T07:24:26.948Z\",\"runtimeVersion\":\"e16b0812294631ac5769ff07bc012533c2b81c84\",\"launchAsset\":{\"key\":\"bundle\",\"contentType\":\"application\\/javascript\",\"url\":\"http:\\/\\/127.0.0.1:8081\\/node_modules\\/expo-router\\/entry.bundle?platform=android&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&unstable_transformProfile=hermes-stable\"},\"assets\":[],\"metadata\":{},\"extra\":{\"eas\":{\"projectId\":\"092a58db-dea9-469a-a383-f27300598812\"},\"expoClient\":{\"name\":\"RTX5\",\"slug\":\"rtx5-app\",\"version\":\"1.1.5\",\"platforms\":[\"ios\",\"android\"],\"jsEngine\":\"hermes\",\"runtimeVersion\":{\"policy\":\"fingerprint\"},\"orientation\":\"default\",\"icon\":\".\\/assets\\/adaptive-icon.png\",\"userInterfaceStyle\":\"automatic\",\"newArchEnabled\":true,\"scheme\":\"rtx5\",\"splash\":{\"image\":\".\\/assets\\/adaptive-icon.png\",\"resizeMode\":\"contain\",\"backgroundColor\":\"#2d2c31\",\"imageUrl\":\"http:\\/\\/127.0.0.1:8081\\/assets\\/.\\/assets\\/adaptive-icon.png\"},\"updates\":{\"enabled\":true,\"checkAutomatically\":\"NEVER\",\"fallbackToCacheTimeout\":0,\"url\":\"https:\\/\\/u.expo.dev\\/092a58db-dea9-469a-a383-f27300598812\"},\"ios\":{\"bundleIdentifier\":\"com.rtx5.trading\",\"supportsTablet\":true,\"buildNumber\":\"1\",\"infoPlist\":{\"UIBackgroundModes\":[\"fetch\"]},\"config\":{\"usesNonExemptEncryption\":false}},\"android\":{\"package\":\"com.rtx5.app\",\"icon\":\".\\/assets\\/adaptive-icon.png\",\"adaptiveIcon\":{\"foregroundImage\":\".\\/assets\\/adaptive-icon.png\",\"backgroundColor\":\"#2d2c31\",\"foregroundImageUrl\":\"http:\\/\\/127.0.0.1:8081\\/assets\\/.\\/assets\\/adaptive-icon.png\"},\"softwareKeyboardLayoutMode\":\"resize\",\"edgeToEdgeEnabled\":true,\"predictiveBackGestureEnabled\":false,\"permissions\":[\"INTERNET\"],\"iconUrl\":\"http:\\/\\/127.0.0.1:8081\\/assets\\/.\\/assets\\/adaptive-icon.png\"},\"plugins\":[\"expo-router\",\"expo-secure-store\",[\"expo-font\",{\"fonts\":[\".\\/node_modules\\/@expo\\/vector-icons\\/build\\/vendor\\/react-native-vector-icons\\/Fonts\\/Ionicons.ttf\",\".\\/node_modules\\/@expo\\/vector-icons\\/build\\/vendor\\/react-native-vector-icons\\/Fonts\\/MaterialCommunityIcons.ttf\"]}],[\"expo-updates\",{\"username\":\"chinese-hedger\"}],\".\\/withAdiRegistration.js\",\".\\/withNetworkSecurityConfig.js\",[\"expo-build-properties\",{\"android\":{\"enableMinifyInReleaseBuilds\":true,\"enableShrinkResourcesInReleaseBuilds\":true}}]],\"extra\":{\"router\":{\"origin\":false},\"eas\":{\"projectId\":\"092a58db-dea9-469a-a383-f27300598812\"}},\"owner\":\"chinese-hedger\",\"_internal\":{\"isDebug\":false,\"projectRoot\":\"C:\\\\Users\\\\ADMIN\\\\RTX-5Mobile-App\\\\rtx5-app\",\"dynamicConfigPath\":\"C:\\\\Users\\\\ADMIN\\\\RTX-5Mobile-App\\\\rtx5-app\\\\app.config.js\",\"staticConfigPath\":\"C:\\\\Users\\\\ADMIN\\\\RTX-5Mobile-App\\\\rtx5-app\\\\app.json\",\"packageJsonPath\":\"C:\\\\Users\\\\ADMIN\\\\RTX-5Mobile-App\\\\rtx5-app\\\\package.json\",\"pluginHistory\":{\"expo-secure-store\":{\"name\":\"expo-secure-store\",\"version\":\"15.0.8\"},\"expo-font\":{\"name\":\"expo-font\",\"version\":\"14.0.12\"},\"expo-updates\":{\"name\":\"expo-updates\",\"version\":\"29.0.18\"}}},\"sdkVersion\":\"54.0.0\",\"iconUrl\":\"http:\\/\\/127.0.0.1:8081\\/assets\\/.\\/assets\\/adaptive-icon.png\",\"hostUri\":\"127.0.0.1:8081\"},\"expoGo\":{\"debuggerHost\":\"127.0.0.1:8081\",\"developer\":{\"tool\":\"expo-cli\",\"projectRoot\":\"C:\\\\Users\\\\ADMIN\\\\RTX-5Mobile-App\\\\rtx5-app\"},\"packagerOpts\":{\"dev\":true},\"mainModuleName\":\"node_modules\\/expo-router\\/entry\"},\"scopeKey\":\"@chinese-hedger\\/rtx5-app\"},\"isVerified\":true}"}},"fabric":true}
+06-12 12:54:33.814 W/ReactNativeJS(13540): 'setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.', { [Stack] name: 'Stack' }
+06-12 12:54:33.885 W/ReactNativeJS(13540): 'setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.', { [Stack] name: 'Stack' }
+06-12 12:54:36.037 I/ReactNativeJS(13540): '[Startup] updates.launch', { platform: 'android',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:36.037 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   canCheckForUpdates: false,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   disabledByEnv: false,
+06-12 12:54:36.037 I/ReactNativeJS(13540):   activeChannel: '' }
+06-12 12:54:36.087 I/ReactNativeJS(13540): '[Startup] root.mounted', { platform: 'android',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:36.087 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   hasHydrated: true,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   fontsReady: false,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   isLoggedIn: true,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   hasAccountDetails: true,
+06-12 12:54:36.087 I/ReactNativeJS(13540):   route: 'RootLayout' }
+06-12 12:54:36.090 I/ReactNativeJS(13540): '[Startup] storage.restore.completed', { platform: 'android',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   store: 'userPreferences',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   isLoggedIn: true,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   hasAccountDetails: true,
+06-12 12:54:36.090 I/ReactNativeJS(13540):   chartSymbol: 'AUDJPY',
+06-12 12:54:36.090 I/ReactNativeJS(13540):   chartTimeframe: 'M1' }
+06-12 12:54:36.095 I/ReactNativeJS(13540): '[Startup] auth.restore.started', { platform: 'android',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:36.095 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:36.095 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:36.095 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:36.095 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:36.095 I/ReactNativeJS(13540):   hasAccountDetails: true,
+06-12 12:54:36.095 I/ReactNativeJS(13540):   accountLoginPresent: true }
+06-12 12:54:36.101 I/ReactNativeJS(13540): '[Startup] trading.bootstrap.started', { platform: 'android',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:36.101 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:36.101 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:36.101 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:36.101 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:36.101 I/ReactNativeJS(13540):   accountLoginPresent: true }
+06-12 12:54:38.136 I/ReactNativeJS(13540): [CHART] screen mounted; surface pre-warm scheduled
+06-12 12:54:38.819 I/ReactNativeJS(13540): [API warn] GET /accounts 403 2635ms (apiClient.GET)
+06-12 12:54:38.827 I/ReactNativeJS(13540): [API warn] GET /orders 405 2642ms (apiClient.GET)
+06-12 12:54:38.829 I/ReactNativeJS(13540): [API warn] GET /instruments?favorites=true 200 2642ms (apiClient.GET)
+06-12 12:54:38.830 I/ReactNativeJS(13540): [API warn] GET /auth/me 200 2678ms (apiClient.GET)
+06-12 12:54:38.831 I/ReactNativeJS(13540): [API warn] GET /market/status 200 2642ms (apiClient.GET)
+06-12 12:54:38.835 W/ReactNativeJS(13540): '[Bootstrap] /accounts failed', { response: 
+06-12 12:54:38.835 W/ReactNativeJS(13540):    { status: 403,
+06-12 12:54:38.835 W/ReactNativeJS(13540):      data: 
+06-12 12:54:38.835 W/ReactNativeJS(13540):       { error: 'FORBIDDEN',
+06-12 12:54:38.835 W/ReactNativeJS(13540):         message: 'Admin or manager role required' } } }
+06-12 12:54:38.836 W/ReactNativeJS(13540): '[Bootstrap] /orders failed', { response: { status: 405, data: {} } }
+06-12 12:54:38.919 I/ReactNativeJS(13540): '[Startup] trading.candleCache.restore.started', { platform: 'android',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   appVersion: '54.0.8',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   nativeBuildVersion: 416,
+06-12 12:54:38.919 I/ReactNativeJS(13540):   runtimeVersion: 'exposdk:54.0.0',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   channel: '',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   updateId: '3eb67444-0168-4efb-b03b-0325cd4dbeef',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   isEnabled: true,
+06-12 12:54:38.919 I/ReactNativeJS(13540):   isEmbeddedLaunch: false,
+06-12 12:54:38.919 I/ReactNativeJS(13540):   createdAt: '2026-06-12T07:24:26.948Z',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   emergencyLaunchReason: null,
+06-12 12:54:38.919 I/ReactNativeJS(13540):   chartSymbol: 'AUDJPY',
+06-12 12:54:38.919 I/ReactNativeJS(13540):   chartTimeframe: 'M1' }
+06-12 12:54:41.106 I/ReactNativeJS(13540): [API warn] GET /instruments 200 2429ms (apiClient.GET)
+06-12 12:54:41.108 I/ReactNativeJS(13540): [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD 200 2427ms (apiClient.GET)
+06-12 12:54:41.109 I/ReactNativeJS(13540): [API warn] GET /watchlist 200 2431ms (apiClient.GET)
+06-12 12:54:41.111 I/ReactNativeJS(13540): '[Quotes WS] Connected to', 'wss://backend.orrnn.com/ws/feed'
+06-12 12:54:44.324 I/ReactNativeJS(13540): [API warn] GET /quotes?symbols=EURUSD 200 2909ms (apiClient.GET)
+06-12 12:54:44.326 I/ReactNativeJS(13540): '[Quotes WS] Connected to', 'wss://backend.orrnn.com/ws/feed'
+06-12 12:54:44.332 W/ReactNativeJS(13540): [API slow] GET /positions ERR 8148ms (apiClient.GET)
+06-12 12:54:44.333 W/ReactNativeJS(13540): '[Bootstrap] /positions failed', { [AbortError: Request timed out after 7000ms] name: 'AbortError' }
+06-12 12:54:47.449 W/ReactNativeJS(13540): [API slow] GET /broker/servers 200 3757ms (broker.servers)
+06-12 12:54:47.451 I/ReactNativeJS(13540): [API warn] GET /positions/200159?limit=50&offset=0 200 2172ms (apiClient.GET)
+06-12 12:54:47.717 I/ReactNativeJS(13540): [CHART] webview READY (surface boot complete)
+06-12 12:54:47.933 I/ReactNativeJS(13540): [API warn] GET /account/200159 200 2561ms (apiClient.GET)
+06-12 12:54:47.934 I/ReactNativeJS(13540): [API warn] GET /account/200159 200 2557ms (apiClient.GET)
+06-12 12:54:49.731 I/ReactNativeJS(13540): [API warn] GET /quotes?symbols=EURUSD 200 2015ms (apiClient.GET)
+06-12 12:54:58.516 W/ReactNativeJS(13540): [Tabs] chart first frame took 885ms; sync navigation 6ms; budget is 20ms.
+06-12 12:54:58.876 I/ReactNativeJS(13540): [API warn] GET /quotes?symbols=EURUSD 200 1634ms (apiClient.GET)
+06-12 12:54:58.885 W/ReactNativeJS(13540): [CHART] Frontend candle paint exceeded 3s after data was available: 17473ms for AUDJPY M1
+06-12 12:55:01.097 I/ReactNativeJS(13540): '[ClosedHistory] Response json:', '[]'
+06-12 12:55:01.098 I/ReactNativeJS(13540): '[ClosedHistory] Parsed rows length:', 0
+06-12 12:55:01.226 I/ReactNativeJS(13540): '[Quotes WS] Connected to', 'wss://backend.orrnn.com/ws/feed'
+06-12 12:55:04.240 W/ReactNativeJS(13540): [API slow] GET /candles/AUDJPY?timeframe=M1&limit=2500 200 3680ms (apiClient.GET)

@@ -56,7 +56,9 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.doesNotMatch(source, /runTabPress\(event as unknown as TabPressEvent\)/);
   assert.doesNotMatch(source, /handleTouchStart[\s\S]*onPress\?\.\(_event/);
   assert.doesNotMatch(source, /router\.navigate\(tabPaths\[routeName\]\)/);
-  assert.match(source, /detachInactiveScreens=\{true\}/);
+  // Inactive screens must stay natively attached: the chart WebView only boots
+  // while attached, and the background pre-warm depends on that.
+  assert.match(source, /detachInactiveScreens=\{false\}/);
   assert.match(source, /freezeOnBlur: true/);
   assert.match(source, /lazy: false/);
   assert.match(source, /name='chart'[\s\S]*lazy: false/);
@@ -67,7 +69,7 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /if \(previousPathRef\.current !== pathname\) \{[\s\S]*const uiState = useUIState\.getState\(\)/);
   assert.match(source, /uiState\.actionSheet !== null \|\| visibleScopedActionSheet/);
   assert.match(source, /taps never wait on cold route construction/);
-  assert.match(source, /inactive native views keep the active frame tree MT-style lean/);
+  assert.match(source, /frozen inactive screens keep the active frame tree MT-style lean/);
   assert.doesNotMatch(source, /screenListeners=/);
   assert.doesNotMatch(source, /traceUiInteraction/);
   assert.doesNotMatch(source, /freezeOnBlur: false/);

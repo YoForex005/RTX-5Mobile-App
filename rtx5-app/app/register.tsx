@@ -7,6 +7,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  type GestureResponderEvent,
   Linking,
   type LayoutChangeEvent,
   Platform,
@@ -43,6 +44,7 @@ import {
   useOrrnnDemoStatus,
 } from '../src/query/publicDemo';
 import { safeRouterBack } from '../src/utils/navigation';
+import { isValidEmail, isValidPhoneNumber } from '../src/utils/contactValidation';
 import { ActionSheet } from '../src/ui/components/ActionSheet';
 import {
   persistAuthSessionTokens,
@@ -64,6 +66,7 @@ const REGISTER_FIELD_SCROLL_OFFSET_Y = Platform.OS === 'android' ? 232 : 176;
 const REGISTER_FIELD_FOCUS_DELAY_MS = Platform.OS === 'android' ? 260 : 80;
 const REGISTER_KEYBOARD_BOTTOM_PADDING = Platform.OS === 'android' ? 220 : 120;
 const REGISTER_QUOTES_LIGHT_BACKGROUND = '#F2F4F8';
+const REGISTER_BACK_FALLBACK_HREF = '/settings/brokers';
 const DEMO_COUNTRY_OPTIONS = [
   { label: 'United States', code: 'US', dialCode: '+1' },
   { label: 'India', code: 'IN', dialCode: '+91' },
@@ -222,12 +225,13 @@ export default function RegisterScreen() {
   const scrollViewRef = React.useRef<React.ElementRef<typeof ScrollView> | null>(null);
   const fieldYPositionsRef = React.useRef<Partial<Record<RegisterFieldKey, number>>>({});
   const fieldFocusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const registerBackNavigationStartedRef = React.useRef(false);
 
   const themeMode = useThemeMode();
   const T = useTheme();
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(T, isDark, insets.top);
+  const styles = React.useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
   const privacyPolicyUrl = resolveLegalUrl(
     getConfiguredPrivacyPolicyUrl(),
     'https://rtx5.orrnn.com/privacy-policy',
@@ -241,6 +245,24 @@ export default function RegisterScreen() {
     if (fieldFocusTimerRef.current) {
       clearTimeout(fieldFocusTimerRef.current);
     }
+  }, []);
+
+  React.useEffect(() => {
+    if (isScreenFocused) {
+      registerBackNavigationStartedRef.current = false;
+    }
+  }, [isScreenFocused]);
+
+  const handleRegisterBack = React.useCallback((event: GestureResponderEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (registerBackNavigationStartedRef.current) {
+      return;
+    }
+
+    registerBackNavigationStartedRef.current = true;
+    safeRouterBack(router, REGISTER_BACK_FALLBACK_HREF);
   }, []);
 
   const handleFieldLayout = React.useCallback((field: RegisterFieldKey) => (event: LayoutChangeEvent) => {
@@ -321,6 +343,16 @@ export default function RegisterScreen() {
 
     if (!trimmedFirstName || !trimmedEmail || !password || !investorPassword || !trimmedCountry) {
       Alert.alert(t('Error'), t('Please fill in all required fields'));
+      return;
+    }
+
+    if (!isValidEmail(trimmedEmail)) {
+      Alert.alert(t('Error'), t('Please enter a valid email address (e.g. you@example.com)'));
+      return;
+    }
+
+    if (trimmedPhone && !isValidPhoneNumber(submissionPhone ?? trimmedPhone)) {
+      Alert.alert(t('Error'), t('Please enter a valid phone number (digits only, 7-15 digits)'));
       return;
     }
 
@@ -695,7 +727,10 @@ export default function RegisterScreen() {
                 <View style={styles.heroTitleRow}>
                   <Pressable
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    onPress={() => safeRouterBack(router, '/login')}
+                    onPress={handleRegisterBack}
+                    activateOnPressIn
+                    latencyLabel="register.back"
+                    unstable_pressDelay={0}
                     style={styles.heroBackButton}
                   >
                     <Ionicons name="arrow-back" size={26} color={heroBackIconColor} />

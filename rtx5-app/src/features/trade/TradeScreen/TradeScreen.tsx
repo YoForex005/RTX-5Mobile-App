@@ -115,6 +115,7 @@ export function TradeScreen() {
       fetchPositions();
     }
   }, [focusWorkReady, resolvedLogin, fetchPositions]);
+  const positionRowsActive = isScreenFocused && focusWorkReady;
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -171,8 +172,9 @@ export function TradeScreen() {
       onLongPress={showPositionSheet}
       onBulkPress={showBulkSheet}
       pnlCurrency={pnlCurrency}
+      active={positionRowsActive}
     />
-  ), [pnlCurrency, showBulkSheet, showPositionSheet]);
+  ), [pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet]);
 
   if (!focusWorkReady) {
     return (
@@ -182,7 +184,7 @@ export function TradeScreen() {
           <View style={s.summaryTop}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                {t('Floating P/L')}
+                {t('Floating Profit/Loss')}
               </Text>
               <Text
                 style={{
@@ -241,6 +243,7 @@ export function TradeScreen() {
         maxToRenderPerBatch={10}
         windowSize={5}
         removeClippedSubviews={true}
+        extraData={positionRowsActive}
         renderItem={renderPositionRow}
         ListEmptyComponent={
           <View style={s.emptyState}>

@@ -27,6 +27,10 @@ import { MetricPill, MomentumBar, RangeBar, Row, Section } from './SubComponents
 import { makeSymbolDetailsStyles } from './styles';
 
 export function SymbolDetailsScreen() {
+  return <SymbolDetailsInteractiveContent />;
+}
+
+function SymbolDetailsInteractiveContent() {
   const { symbol: routeSymbol = 'BTCUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
@@ -42,6 +46,7 @@ export function SymbolDetailsScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
+  const screenBg = isDark ? T.bgRoot : T.bg;
 
   const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
 
@@ -192,20 +197,20 @@ export function SymbolDetailsScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.bg }}>
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
       <View style={{
-        paddingTop: insets.top, backgroundColor: T.bg,
+        paddingTop: insets.top, backgroundColor: screenBg,
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}>
-        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
-            <Ionicons name="arrow-back" size={26} color={T.text} />
+        <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 }}>
+          <Pressable onPress={() => safeRouterBack(router, '/(tabs)/quotes')} hitSlop={15} style={{ width: 42, alignItems: 'flex-start', padding: 4 }}>
+            <Ionicons name="arrow-back" size={24} color={T.text} />
           </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '600', color: T.text }}>
             Quote Details
           </Text>
-          <View style={{ width: 46 }} />
+          <View style={{ width: 42 }} />
         </View>
       </View>
 
@@ -218,13 +223,13 @@ export function SymbolDetailsScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 12 }}>
+        canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60, paddingTop: 6 }}>
 
         <View style={s.glassHero.container}>
-          {isDark && <BlurView intensity={50} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}
+          {isDark && <BlurView intensity={20} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]} />}
           {isDark && (
             <LinearGradient
-              colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.01)', 'transparent']}
+              colors={['rgba(255,255,255,0.035)', 'rgba(255,255,255,0.008)', 'transparent']}
               start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
               style={[StyleSheet.absoluteFillObject, { borderRadius: 24, overflow: 'hidden' }]}
             />

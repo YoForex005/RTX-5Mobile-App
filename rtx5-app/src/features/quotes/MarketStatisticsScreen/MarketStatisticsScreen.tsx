@@ -28,8 +28,6 @@ import { calculateMarketSentiment } from '../../../domain/marketSentiment';
 import { getMeta } from '../SymbolDetailsScreen/instrumentMeta';
 import { makeMarketStatisticsStyles } from './styles';
 
-const LIVE_FEED_STALE_MS = 45_000;
-
 type StatDirection = 'up' | 'down' | 'neutral';
 
 type StatRow = {
@@ -81,6 +79,10 @@ const resolveDirection = (current: number, previous?: number): StatDirection => 
 };
 
 export function MarketStatisticsScreen() {
+  return <MarketStatisticsInteractiveContent />;
+}
+
+function MarketStatisticsInteractiveContent() {
   const router = useRouter();
   const { symbol: routeSymbol = 'EURUSD' } = useLocalSearchParams<{ symbol?: string }>();
   const symbol = useMemo(() => normalizeSymbol(routeSymbol), [routeSymbol]);
@@ -139,10 +141,6 @@ export function MarketStatisticsScreen() {
   const rangePositionPct = clampPercent(sentiment.rangePositionPct);
   const rangePct = bidLow > 0 && bidHigh > bidLow ? ((bidHigh - bidLow) / bidLow) * 100 : 0;
   const latestTickAt = pickLatestTimestamp(q);
-  const liveSnapshotAvailable = Boolean(liveQuotes[symbol]);
-  const hasRecentTick = latestTickAt ? Date.now() - latestTickAt <= LIVE_FEED_STALE_MS : liveSnapshotAvailable;
-  const feedStatusLabel = hasRecentTick ? 'LIVE' : 'CONNECTING';
-  const feedStatusColor = hasRecentTick ? T.up : T.textMuted;
   const marketStatusLabel = q.tradeAllowed === false ? 'Closed' : 'Open';
   const marketStatusColor = q.tradeAllowed === false ? T.down : T.up;
   const localMeta = useMemo(() => getMeta(symbol), [symbol]);
@@ -222,12 +220,8 @@ export function MarketStatisticsScreen() {
           </Pressable>
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle} numberOfLines={1}>Market Statistics</Text>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>{displaySymbol}</Text>
           </View>
-          <View style={[styles.feedChip, { borderColor: feedStatusColor }]}>
-            <View style={[styles.liveDot, { backgroundColor: feedStatusColor, shadowColor: feedStatusColor }]} />
-            <Text style={[styles.feedText, { color: feedStatusColor }]}>{feedStatusLabel}</Text>
-          </View>
+          <View style={styles.headerRightSpacer} />
         </View>
       </View>
 
@@ -241,7 +235,7 @@ export function MarketStatisticsScreen() {
         <View style={styles.heroPanel}>
           <View style={styles.instrumentRow}>
             <View style={styles.symbolMark}>
-              <Ionicons name="stats-chart-outline" size={22} color={T.trading.buy.primary} />
+              <Ionicons name="stats-chart-outline" size={19} color={T.trading.buy.primary} />
             </View>
             <View style={styles.instrumentCopy}>
               <Text style={styles.symbolText} numberOfLines={1}>{displaySymbol}</Text>

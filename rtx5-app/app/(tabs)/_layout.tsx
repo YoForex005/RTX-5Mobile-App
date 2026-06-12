@@ -288,8 +288,13 @@ export default function TabsLayout() {
     <View style={styles.root}>
       <Tabs
         // Keep primary tab routes eagerly mounted so taps never wait on cold route construction,
-        // while detached/frozen inactive native views keep the active frame tree MT-style lean.
-        detachInactiveScreens={true}
+        // while frozen inactive screens keep the active frame tree MT-style lean.
+        // Inactive screens stay natively ATTACHED (no detach): the chart WebView
+        // must boot in the background before the first Chart visit, and a WebView
+        // inside a detached screen does not start loading until the screen
+        // attaches — verified on-device. Attached-but-frozen screens cost some
+        // native memory but make first tab entry (especially Chart) instant.
+        detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle: shouldHideMenu

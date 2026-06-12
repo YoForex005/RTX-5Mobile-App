@@ -26,12 +26,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
 import { positionsApi } from '../../api/positions';
+import { appQueryClient } from '../../state/providers/AppProviders';
 import { useLiveTick, useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
+import { normalizeSymbol } from '../../domain/symbols';
+import { useInstrumentMeta } from '../../query/instruments';
+import { useMarketSymbols } from '../../query/market';
+import { DEFAULT_CHART_SYMBOLS, resolveChartSymbolFullName } from '../chart/chartSymbolMetadata';
+import { normalizePriceDigits, resolveDecimalsFromPriceStep } from '../../utils/pricePrecision';
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLoginString } from '../../state/tradingLogin';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
+import { ActionSheet } from '../../ui/components/ActionSheet';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { findPositionById } from './tradeFlow';
+import { runImmediateAction } from '../../utils/actionLatency';
 import { fmt } from '../../utils/format';
 import { safeRouterBack } from '../../utils/navigation';
 import {
@@ -40,8 +49,8 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
-function formatModifyPrice(val: number) {
-  const str = val.toFixed(2);
+function formatModifyPrice(val: number, decimals: number) {
+  const str = val.toFixed(decimals);
   // Splitting off the exact last two digits that the user circled
   return {
     main: str.slice(0, -2),
@@ -77,6 +86,19 @@ export function ModifyPositionScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [chartLayout, setChartLayout] = useState({ width: 0, height: 0 });
+  const [positionPickerOpen, setPositionPickerOpen] = useState(false);
+  // Symbol being VIEWED on this sheet (live bid/ask + tick chart). Defaults to
+  // the modified position's symbol; the top-right picker can point it at any
+  // market symbol without touching the chart tab's symbol. SL/TP editing only
+  // renders while the viewed symbol matches the position being modified.
+  const [viewSymbolOverride, setViewSymbolOverride] = useState<string | null>(null);
+  const positionSymbol = normalizeSymbol(position?.symbol ?? '');
+  const viewSymbol = viewSymbolOverride ?? positionSymbol;
+  const symbolsMatch = viewSymbol === positionSymbol;
+  useEffect(() => {
+    // Switching the modified position re-anchors the view to its symbol.
+    setViewSymbolOverride(null);
+  }, [positionSymbol]);
   const resolvedLogin = resolveTradingLoginString();
 
   // Fetch position if not natively loaded in cache (e.g. direct deep link or cold start)
@@ -86,24 +108,52 @@ export function ModifyPositionScreen() {
     }
   }, [isScreenFocused, position, resolvedLogin]);
 
-  // Tick History State for Chart
-  const latestTick = useLiveTick(position?.symbol || 'EURUSD', undefined, isScreenFocused);
-  const latestClose = latestTick?.close || position?.currentPrice || 0;
+  // Tick History State for Chart — all live market data follows the VIEWED
+  // symbol so the picker can browse any instrument's backend feed in place.
+  const latestTick = useLiveTick(viewSymbol || 'EURUSD', undefined, isScreenFocused);
+  const latestClose = latestTick?.close || (symbolsMatch ? position?.currentPrice : 0) || 0;
 
-  const isJpy = position?.symbol.includes('JPY') ?? false;
+  const isJpy = viewSymbol.includes('JPY');
+  // The route is a transparentModal with animation:'none', so nothing paints
+  // until the whole tree commits — every mount cost lands on the tap path.
+  // Mount the sheet shell first and defer the body by a couple of frames;
+  // the decorative tick chart (and its candle subscription) comes in last.
+  const sheetBodyReady = useDeferredRouteContentReady(0);
+  const tickChartReady = useDeferredRouteContentReady(450);
   // Fallbacks if bid/ask not provided directly
-  const { candles } = useLiveCandles(position?.symbol || '', '1', isScreenFocused); // Fetch REAL 1M histories!
+  const { candles } = useLiveCandles(viewSymbol, '1', isScreenFocused && tickChartReady); // Fetch REAL 1M histories!
   const syntheticAsk = latestClose + (isJpy ? 0.015 : 0.00015);
   const BID = (latestTick as any)?.bid || latestClose;
   const ASK = (latestTick as any)?.ask || syntheticAsk;
 
-  const currentPriceOrZero = position?.currentPrice || 0;
-  const pipSize = isJpy ? 0.01 : currentPriceOrZero > 100 ? 0.01 : 0.0001;
-  const decimals = 2;
+  // Symbol precision comes from the backend instrument meta (digits/point);
+  // fall back to the app-wide JPY heuristic when the endpoint has no record.
+  // A hardcoded precision breaks 5-decimal symbols: pip steps round away to
+  // nothing and SL/TP would be submitted as coarse 2-decimal prices.
+  const { data: instrumentMeta } = useInstrumentMeta(viewSymbol, isScreenFocused);
+  const decimals = useMemo(() => {
+    const metaDigits = normalizePriceDigits(instrumentMeta?.digits);
+    if (metaDigits !== undefined && metaDigits > 0) return metaDigits;
+    const stepDigits = resolveDecimalsFromPriceStep(instrumentMeta?.point ?? instrumentMeta?.tickSize);
+    if (stepDigits !== undefined && stepDigits > 0) return stepDigits;
+    return isJpy ? 3 : 5;
+  }, [instrumentMeta?.digits, instrumentMeta?.point, instrumentMeta?.tickSize, isJpy]);
+  const point = useMemo(() => {
+    const metaPoint = instrumentMeta?.point;
+    if (typeof metaPoint === 'number' && metaPoint > 0) return metaPoint;
+    return Math.pow(10, -decimals);
+  }, [instrumentMeta?.point, decimals]);
+  const pipSize = point * 10;
+  // Header open-price precision always follows the POSITION's symbol, even
+  // while the live view is pointed at another instrument.
+  const positionHeaderDecimals = symbolsMatch
+    ? decimals
+    : (positionSymbol.includes('JPY') ? 3 : 5);
 
   const [ticks, setTicks] = useState<{ bid: number; ask: number }[]>([]);
 
   useEffect(() => {
+    if (!tickChartReady) return;
     if (BID > 0 && ASK > 0) {
       // If we have actual historical candles from the live WebSocket, map them perfectly!
       if (candles && candles.length > 0) {
@@ -131,7 +181,7 @@ export function ModifyPositionScreen() {
         });
       }
     }
-  }, [BID, ASK, candles]);
+  }, [BID, ASK, candles, tickChartReady]);
 
   // Init S/L and T/P from existing
   useEffect(() => {
@@ -216,17 +266,155 @@ export function ModifyPositionScreen() {
     [dragStartTranslateY, sheetMaxTranslateY, sheetTranslateY],
   );
 
+  // Same elements as the order ticket's top-right symbol picker: the full
+  // market symbol list. An open position's symbol is fixed, so choosing a
+  // symbol re-targets this sheet to an open position on that symbol (tapping
+  // the same symbol again cycles through its positions); symbols without an
+  // open position are listed but disabled.
+  const { data: marketSymbols = [], isFetching: marketSymbolsFetching } =
+    useMarketSymbols(isScreenFocused || positionPickerOpen);
+
+  const handleOpenPositionPicker = useCallback(() => {
+    runImmediateAction('modifyPosition.positionPicker.open', () => {
+      setPositionPickerOpen(true);
+    });
+  }, []);
+
+  const handlePickPosition = useCallback((nextPositionId: string) => {
+    setPositionPickerOpen(false);
+    setViewSymbolOverride(null);
+    if (!nextPositionId || nextPositionId === String(position?.id ?? '')) {
+      return;
+    }
+    router.setParams({ positionId: nextPositionId });
+  }, [position?.id]);
+
+  const handlePickViewSymbol = useCallback((candidate: string) => {
+    setPositionPickerOpen(false);
+    const normalized = normalizeSymbol(candidate);
+    setViewSymbolOverride(normalized && normalized !== positionSymbol ? normalized : null);
+  }, [positionSymbol]);
+
+  const positionPickerActions = useMemo(() => {
+    const currentPositionId = String(position?.id ?? '');
+    const positionsBySymbol = new Map<string, typeof positions>();
+    for (const p of positions) {
+      const key = normalizeSymbol(p.symbol);
+      if (!key) continue;
+      const list = positionsBySymbol.get(key);
+      if (list) {
+        list.push(p);
+      } else {
+        positionsBySymbol.set(key, [p]);
+      }
+    }
+
+    const seen = new Set<string>();
+    const symbolOptions: string[] = [];
+    const addSymbol = (candidate: string) => {
+      const next = normalizeSymbol(candidate || '');
+      if (!next || seen.has(next)) {
+        return;
+      }
+      seen.add(next);
+      symbolOptions.push(next);
+    };
+
+    if (position?.symbol) addSymbol(position.symbol);
+    positions.forEach((p) => addSymbol(p.symbol));
+    marketSymbols
+      .map((candidate) => normalizeSymbol(candidate))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .forEach(addSymbol);
+    DEFAULT_CHART_SYMBOLS.forEach(addSymbol);
+
+    if (!symbolOptions.length) {
+      return [{
+        label: marketSymbolsFetching ? 'Loading symbols...' : 'No symbols available',
+        disabled: true,
+      }];
+    }
+
+    return symbolOptions.map((candidate) => {
+      const symbolPositions = positionsBySymbol.get(candidate) ?? [];
+      if (!symbolPositions.length) {
+        const isViewing = !symbolsMatch && candidate === viewSymbol;
+        return {
+          label: candidate,
+          subtitle: isViewing
+            ? `Viewing - ${resolveChartSymbolFullName(candidate)}`
+            : `${resolveChartSymbolFullName(candidate)} - No open position`,
+          onPress: () => handlePickViewSymbol(candidate),
+        };
+      }
+
+      const currentIndex = symbolPositions.findIndex((p) => String(p.id) === currentPositionId);
+      const target = symbolPositions[(currentIndex + 1) % symbolPositions.length];
+      const targetLabel = `${target.side} ${(target.volume || 0).toFixed(2)} #${String(target.id)}`;
+      return {
+        label: candidate,
+        subtitle: currentIndex >= 0 && symbolPositions.length === 1
+          ? `Selected - ${targetLabel}`
+          : targetLabel,
+        onPress: () => handlePickPosition(String(target.id)),
+      };
+    });
+  }, [handlePickPosition, handlePickViewSymbol, marketSymbols, marketSymbolsFetching, position?.id, position?.symbol, positions, symbolsMatch, viewSymbol]);
+
+  // A viewed-symbol switch changes the price scale; drop the old symbol's
+  // tick trail so the chart never mixes scales.
+  useEffect(() => {
+    setTicks([]);
+  }, [viewSymbol]);
+
+  // A buy closes at the Bid and a sell closes at the Ask — the broker validates
+  // SL/TP against that closing price. Stepping clamps to at least one pip on
+  // the valid side so chips/steppers can never build a value the server rejects.
+  const closingMarketPrice = position ? (position.side === 'buy' ? BID : ASK) : 0;
+
+  const clampStopTarget = (value: number, kind: 'sl' | 'tp') => {
+    if (!position || !(closingMarketPrice > 0)) return value;
+    const mustStayBelow = (position.side === 'buy') === (kind === 'sl');
+    return mustStayBelow
+      ? Math.min(value, closingMarketPrice - pipSize)
+      : Math.max(value, closingMarketPrice + pipSize);
+  };
+
+  const validateStopTargets = (): string | null => {
+    if (!position || !(closingMarketPrice > 0)) return null;
+    const priceLabel = closingMarketPrice.toFixed(decimals);
+    const isBuySide = position.side === 'buy';
+    if (stopLoss !== null) {
+      if (isBuySide && stopLoss >= closingMarketPrice) {
+        return `Stop Loss must be below the current Bid (${priceLabel}) for a buy position.`;
+      }
+      if (!isBuySide && stopLoss <= closingMarketPrice) {
+        return `Stop Loss must be above the current Ask (${priceLabel}) for a sell position.`;
+      }
+    }
+    if (takeProfit !== null) {
+      if (isBuySide && takeProfit <= closingMarketPrice) {
+        return `Take Profit must be above the current Bid (${priceLabel}) for a buy position.`;
+      }
+      if (!isBuySide && takeProfit >= closingMarketPrice) {
+        return `Take Profit must be below the current Ask (${priceLabel}) for a sell position.`;
+      }
+    }
+    return null;
+  };
+
   const handleStepSl = (delta: number) => {
     if (!position) return;
     setStopLoss((prev) => {
       // If setting for the first time, bias it directly against the live matching price for the position side
-      const livePrice = position.side === 'buy' ? BID : ASK;
+      const livePrice = closingMarketPrice;
       let base = prev;
       if (!base) {
         // Auto offset properly based on side
         base = position.side === 'buy' ? livePrice - (pipSize * 100) : livePrice + (pipSize * 100);
       }
-      const val = (base as number) + delta;
+      const val = clampStopTarget((base as number) + delta, 'sl');
       return parseFloat(val.toFixed(decimals));
     });
   };
@@ -234,13 +422,13 @@ export function ModifyPositionScreen() {
   const handleStepTp = (delta: number) => {
     if (!position) return;
     setTakeProfit((prev) => {
-      const livePrice = position.side === 'buy' ? BID : ASK;
+      const livePrice = closingMarketPrice;
       let base = prev;
       if (!base) {
         // Auto offset properly based on side
         base = position.side === 'buy' ? livePrice + (pipSize * 100) : livePrice - (pipSize * 100);
       }
-      const val = (base as number) + delta;
+      const val = clampStopTarget((base as number) + delta, 'tp');
       return parseFloat(val.toFixed(decimals));
     });
   };
@@ -258,7 +446,7 @@ export function ModifyPositionScreen() {
   };
 
   const handleModify = async () => {
-    if (!position) {
+    if (!position || !symbolsMatch) {
       return;
     }
 
@@ -269,6 +457,17 @@ export function ModifyPositionScreen() {
             'Authentication Error',
             'The app does not have a valid local trading session. Log in again before modifying the position.',
           ),
+        ),
+      );
+      return;
+    }
+
+    // Typed values bypass the stepper clamp, so re-validate before submitting.
+    const stopValidationError = validateStopTargets();
+    if (stopValidationError) {
+      setSubmitMessage(
+        formatTradingErrorFeedback(
+          createFrontendTradingError('Invalid Stop Levels', stopValidationError),
         ),
       );
       return;
@@ -295,6 +494,13 @@ export function ModifyPositionScreen() {
             : p
         ),
       }));
+
+      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
 
       dismissSheet();
     } catch (error: any) {
@@ -351,8 +557,8 @@ export function ModifyPositionScreen() {
   const isBuy = position.side === 'buy';
   const chartHeight = Math.max(220, Math.min(Dimensions.get('window').height * 0.32, 340));
 
-  const bidFmt = formatModifyPrice(BID);
-  const askFmt = formatModifyPrice(ASK);
+  const bidFmt = formatModifyPrice(BID, decimals);
+  const askFmt = formatModifyPrice(ASK, decimals);
 
   // Chart Rendering calculations
   const w = chartLayout.width;
@@ -438,7 +644,16 @@ export function ModifyPositionScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.backBtn} />
+                  <Pressable
+                    style={styles.positionPickerBtn}
+                    onPress={handleOpenPositionPicker}
+                    hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+                    unstable_pressDelay={0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Select Symbol"
+                  >
+                    <Ionicons name="logo-usd" size={20} color={T.accent} />
+                  </Pressable>
                 </View>
 
                 <View style={styles.headerSubRow}>
@@ -448,12 +663,17 @@ export function ModifyPositionScreen() {
                   <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
                   <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
                   <Text style={styles.headerAt}>at</Text>
-                  <Text style={styles.headerPrice}>{position.openPrice.toFixed(decimals)}</Text>
+                  <Text style={styles.headerPrice}>{position.openPrice.toFixed(positionHeaderDecimals)}</Text>
                 </View>
               </View>
             </View>
           </GestureDetector>
 
+          {!sheetBodyReady ? (
+            <View style={styles.bodyLoadingWrap}>
+              <ActivityIndicator color={T.accent} />
+            </View>
+          ) : (
           <ScrollView
         canCancelContentTouches={Platform.OS === 'ios'}
         style={styles.scrollView}
@@ -468,6 +688,17 @@ export function ModifyPositionScreen() {
         overScrollMode="never"
         contentInsetAdjustmentBehavior="never"
       >
+
+        {/* Viewed-symbol banner — shown while browsing a symbol other than the
+            modified position's; live prices below come from that symbol. */}
+        {!symbolsMatch && (
+          <View style={[styles.viewSymbolBanner, { borderColor: T.border, backgroundColor: T.glass1 }]}>
+            <Ionicons name="eye-outline" size={14} color={T.accent} />
+            <Text style={[styles.viewSymbolBannerText, { color: T.text }]}>
+              {viewSymbol} — live view. No open position on this symbol.
+            </Text>
+          </View>
+        )}
 
         {/* Big Prices */}
         <View style={styles.priceHero}>
@@ -486,19 +717,40 @@ export function ModifyPositionScreen() {
           </View>
         </View>
 
-        {/* SL / TP Adjusters — enterprise premium card design */}
-        {(() => {
+        {/* SL / TP Adjusters — enterprise premium card design. Only rendered
+            while viewing the modified position's own symbol: the stepper math
+            (clamping, estimates) is anchored to that symbol's live prices. */}
+        {symbolsMatch && (() => {
           const PRESET_PIPS = [10, 25, 50, 100];
           const SL_COLOR = isDark ? '#22D3EE' : '#06B6D4';
           const TP_COLOR = '#22C55E';
-          const contractSize = isJpy ? 1000 : 100000;
+          const contractSize =
+            typeof instrumentMeta?.contractSize === 'number' && instrumentMeta.contractSize > 0
+              ? instrumentMeta.contractSize
+              : 100000;
+          const metaTickSize = instrumentMeta?.tickSize;
+          const metaTickValue = instrumentMeta?.tickValue;
           const lots = position.volume || 0;
 
           const computeImpact = (target: number | null, kind: 'sl' | 'tp') => {
             if (!target) return null;
             const distance = Math.abs(target - position.openPrice);
             const pips = Math.round(distance / pipSize);
-            const usd = distance * contractSize * lots;
+            // Prefer the broker's tick economics (exact, in account currency).
+            // Fallback: contract-size math gives the quote-currency amount; for
+            // JPY-quoted symbols convert by the live rate instead of assuming 100.
+            let usd: number;
+            if (
+              typeof metaTickSize === 'number' && metaTickSize > 0 &&
+              typeof metaTickValue === 'number' && metaTickValue > 0
+            ) {
+              usd = (distance / metaTickSize) * metaTickValue * lots;
+            } else {
+              const quoteCurrencyAmount = distance * contractSize * lots;
+              usd = isJpy && closingMarketPrice > 0
+                ? quoteCurrencyAmount / closingMarketPrice
+                : quoteCurrencyAmount;
+            }
             const sign = kind === 'sl' ? '−' : '+';
             return { pips, usd, sign };
           };
@@ -617,7 +869,7 @@ export function ModifyPositionScreen() {
           style={[styles.chartContainer, { height: chartHeight }]}
           onLayout={(e) => setChartLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
         >
-          {w > 0 && h > 0 && (
+          {tickChartReady && w > 0 && h > 0 && (
             <Svg width={w} height={h}>
               {/* Horizontal Grid lines */}
               <Line x1="0" y1={yPos(maxPrice)} x2={w} y2={yPos(maxPrice)} stroke={T.border} strokeDasharray="4 4" strokeWidth="1" />
@@ -628,8 +880,9 @@ export function ModifyPositionScreen() {
               {bidPath ? <Path d={bidPath} stroke={T.trading.buy.primary} strokeWidth="1.5" fill="none" /> : null}
               {askPath ? <Path d={askPath} stroke={T.trading.sell.primary} strokeWidth="1.5" fill="none" /> : null}
 
-              {/* Stop Loss & Take Profit Visual Overlays */}
-              {stopLoss ? (
+              {/* Stop Loss & Take Profit Visual Overlays — only meaningful on
+                  the position's own price scale */}
+              {symbolsMatch && stopLoss ? (
                 <G>
                   <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={isDark ? '#22D3EE' : '#06B6D4'} strokeDasharray="6 6" strokeWidth="1" />
                   <G x={w - 60} y={yPos(stopLoss) - 10}>
@@ -641,7 +894,7 @@ export function ModifyPositionScreen() {
                 </G>
               ) : null}
 
-              {takeProfit ? (
+              {symbolsMatch && takeProfit ? (
                 <G>
                   <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke="#388E3C" strokeDasharray="6 6" strokeWidth="1" />
                   <G x={w - 60} y={yPos(takeProfit) - 10}>
@@ -675,7 +928,9 @@ export function ModifyPositionScreen() {
           )}
         </View>
 
-        {/* Footer / Controls */}
+        {/* Footer / Controls — submitting SL/TP only applies to the position's
+            own symbol view */}
+        {symbolsMatch && (
         <View style={styles.footer}>
           <View style={styles.disclaimerBox}>
             <Ionicons name="information-circle-outline" size={16} color={T.textMuted} style={styles.disclaimerIcon} />
@@ -707,9 +962,23 @@ export function ModifyPositionScreen() {
             )}
           </Pressable>
         </View>
+        )}
           </ScrollView>
+          )}
         </View>
       </Animated.View>
+
+      <ActionSheet
+        visible={positionPickerOpen}
+        onClose={() => setPositionPickerOpen(false)}
+        title="Select Symbol"
+        searchable
+        searchPlaceholder="Search symbols..."
+        detent="large"
+        instantOpen
+        runActionAfterClose={false}
+        actions={positionPickerActions}
+      />
     </View>
   );
 }
@@ -774,6 +1043,38 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  bodyLoadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  positionPickerBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(37,99,235,0.08)',
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  viewSymbolBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  viewSymbolBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
   },
   scrollContent: {
     flexGrow: 1,

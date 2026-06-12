@@ -782,3 +782,39 @@ Android Bundled 277ms node_modules\expo-router\entry.js (1 module)
  LOG  [ClosedHistory] Parsed rows length: 0
  LOG  [API warn] GET /orders/200159?limit=500 200 1029ms (apiClient.GET)
  WARN  [API slow] GET /candles/USDJPY?timeframe=M1&limit=2500 200 3923ms (apiClient.GET)
+ WARN  [Candles WS] connection error
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (10s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /quotes?symbols=USDJPY 200 2306ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Candles WS] connection error
+ WARN  [API slow] GET /orders/200159?limit=500 ERR 7137ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /quotes?symbols=USDJPY 200 2432ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1049ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ WARN  [Quotes WS] Silent TCP drop detected (11s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [Quotes WS] Silent TCP drop detected (8s). Healing invisibly...
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159/history?limit=1000&offset=0 200 1160ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1047ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0

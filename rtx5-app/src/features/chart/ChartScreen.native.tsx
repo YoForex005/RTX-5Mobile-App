@@ -26,6 +26,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
+import { useLatchedFlag } from '../../hooks/useLatchedFlag';
 import {
   ChartTapRadialMenu,
   type ChartTapMenuAnchor,
@@ -234,6 +235,12 @@ const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesS
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 650;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
+// Background pre-warm: the chart tab is prefetched at startup (warmActionRoutes),
+// so this screen can mount before the user's first visit. The WebView's first
+// boot (inline HTML + charting library parse/exec) costs multiple seconds on
+// low-end devices, so it starts this long after screen mount — late enough not
+// to compete with startup work, early enough to finish before a typical first tap.
+const CHART_SURFACE_PREWARM_DELAY_MS = 3000;
 const CHART_WATCHDOG_INTERVAL_MS = 3000;
 const CHART_INIT_RETRY_MIN_MS = 5000;
 const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
@@ -260,7 +267,22 @@ export function ChartScreen() {
     pathname.startsWith('/(tabs)/chart/');
   const isScreenFocused = isChartRouteActive;
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
-  const chartSurfaceReady = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
+  // Mount-once keep-alive: the first chart visit defers the WebView mount so tab
+  // entry stays fast, but after that the surface must never unmount on tab
+  // switches — rebuilding the WebView reloads the entire chart. Hidden-tab work
+  // is still paused via chartRuntimeActive; only the surface stays alive.
+  const chartSurfaceActivated = useDeferredActiveFlag(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS);
+  const [chartSurfacePrewarmed, setChartSurfacePrewarmed] = useState(false);
+  useEffect(() => {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[CHART] screen mounted; surface pre-warm scheduled');
+    }
+    return scheduleIdleWork(() => setChartSurfacePrewarmed(true), {
+      delayMs: CHART_SURFACE_PREWARM_DELAY_MS,
+      timeoutMs: 1500,
+    });
+  }, []);
+  const chartSurfaceReady = useLatchedFlag(chartSurfaceActivated || chartSurfacePrewarmed);
   // Derive login reactively from Zustand so the positions fetch re-triggers
   // when auth completes (login goes from undefined → valid number).
   const liveLogin = useLiveAccountState((s) => s.login);
@@ -4294,6 +4316,9 @@ export function ChartScreen() {
                       try {
                         const msg = JSON.parse(event.nativeEvent.data);
                         if (msg.type === 'READY') {
+                          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                            console.log('[CHART] webview READY (surface boot complete)');
+                          }
                           // WebView loaded — reset state and mark ready.
                           // The watchdog + Effect 1 will push initChart as soon as data exists.
                           resetChartBridgeState();

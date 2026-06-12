@@ -1,7 +1,7 @@
 /**
  * Summary header for the Trade screen.
  *
- * Shows live floating P/L, balance/equity/margin breakdown, and a Bulk-action
+ * Shows live floating Profit/Loss, balance/equity/margin breakdown, and a Bulk-action
  * launcher. Memoized so it does not re-render on every position-row tick.
  */
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -75,7 +75,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           {/* The Hero: Unrealized P/L */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-              {t('Floating P/L')}
+              {t('Floating Profit/Loss')}
             </Text>
             <Animated.Text
               style={{

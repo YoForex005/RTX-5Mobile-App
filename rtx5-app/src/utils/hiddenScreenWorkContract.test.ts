@@ -26,13 +26,13 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(quotesSource, /import \{ usePathname, useRouter \} from 'expo-router'/);
   assert.match(quotesSource, /const pathname = usePathname\(\)/);
   assert.match(quotesSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
-  assert.match(quotesSource, /const quoteServerDataActive = useDeferredActiveFlag\(isScreenFocused && isLoggedIn\)/);
+  assert.match(quotesSource, /const quoteServerDataActive = useDeferredActiveFlag\([\s\S]*isScreenFocused && isLoggedIn && !quoteSheetRouteActionPending[\s\S]*\)/);
   assert.match(quotesSource, /useMarketSymbols\(quoteServerDataActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteServerDataActive\)/);
   assert.match(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(quotesSource, /const quoteRouteActive =[\s\S]*isScreenFocused[\s\S]*pathname === '\/quotes'[\s\S]*pathname\.startsWith\('\/quotes\/'\)[\s\S]*pathname === '\/\(tabs\)\/quotes'[\s\S]*pathname\.startsWith\('\/\(tabs\)\/quotes\/'\)/);
   assert.match(quotesSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesSource, /const quoteFeedActive = quoteStickyFeedActive && !sidebarOpen/);
+  assert.match(quotesSource, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarOpen[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
   assert.match(quotesSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteFeedActive\)/);
   assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteFeedActive\}/);
@@ -75,7 +75,17 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(chartSource, /const CHART_FOCUS_WORK_DELAY_MS = 650/);
   assert.match(chartSource, /const CHART_SURFACE_MOUNT_DELAY_MS = 650/);
   assert.match(chartSource, /const chartRuntimeActive = useDeferredActiveFlag\(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS\)/);
-  assert.match(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
+  // Mount-once keep-alive + pre-warm: the chart surface mounts in the background
+  // shortly after the screen mounts (prefetched tab) or on first focus, then must
+  // stay mounted across tab switches (latched) so the WebView never reloads on
+  // refocus. Hidden-tab work is paused via chartRuntimeActive instead.
+  assert.match(chartSource, /import \{ useLatchedFlag \} from '\.\.\/\.\.\/hooks\/useLatchedFlag'/);
+  assert.match(chartSource, /const CHART_SURFACE_PREWARM_DELAY_MS = 3000/);
+  assert.match(chartSource, /const chartSurfaceActivated = useDeferredActiveFlag\(isChartRouteActive, CHART_SURFACE_MOUNT_DELAY_MS\)/);
+  assert.match(chartSource, /const \[chartSurfacePrewarmed, setChartSurfacePrewarmed\] = useState\(false\)/);
+  assert.match(chartSource, /scheduleIdleWork\(\(\) => setChartSurfacePrewarmed\(true\), \{\s*delayMs: CHART_SURFACE_PREWARM_DELAY_MS/);
+  assert.match(chartSource, /const chartSurfaceReady = useLatchedFlag\(chartSurfaceActivated \|\| chartSurfacePrewarmed\)/);
+  assert.doesNotMatch(chartSource, /const chartSurfaceReady = useDeferredActiveFlag\(/);
   assert.match(chartSource, /useLiveSymbolQuote\(chartSymbol, chartRuntimeActive, CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS\)/);
   assert.doesNotMatch(chartLiveHeadersSource, /useMarketData|useLiveTick/);
   assert.match(chartTradeButtonsSource, /useLiveSymbolQuote\(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS\)/);
@@ -101,6 +111,7 @@ test('settings and trade screens pause polling when another stack screen is focu
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
   const tradeSource = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+  const tradePositionRowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
   const tradeSummarySource = readSource('src/features/trade/TradeScreen/SummaryHeader.tsx');
   const calendarSource = readSource('src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx');
   const healthSource = readSource('src/query/health.ts');
@@ -127,9 +138,16 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /scheduleTradeFocusWork/);
   assert.match(tradeSource, /setFocusWorkReady\(true\)/);
   assert.match(tradeSource, /if \(focusWorkReady && resolvedLogin\) \{/);
+  assert.match(tradeSource, /const positionRowsActive = isScreenFocused && focusWorkReady/);
   assert.match(tradeSource, /if \(!focusWorkReady\) \{/);
   assert.match(tradeSource, /<AppHeader title=\{t\('Trade'\)\} noBorder \/>[\s\S]*\+0\.00 \{pnlCurrency\}/);
   assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{focusWorkReady\}/);
+  assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{positionRowsActive\}/);
+  assert.match(tradeSource, /extraData=\{positionRowsActive\}/);
+  assert.match(tradePositionRowSource, /active = true/);
+  assert.match(tradePositionRowSource, /active\?: boolean/);
+  assert.match(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol, active\)/);
+  assert.doesNotMatch(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol\)/);
   assert.match(tradeSummarySource, /active: boolean/);
   assert.match(tradeSummarySource, /useMarketData\(liveQuoteSymbols, active\)/);
   assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);

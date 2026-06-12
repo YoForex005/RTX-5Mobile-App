@@ -702,7 +702,7 @@ export function AccountsScreen() {
                 <Text style={styles.metricValue}>{displayLeverage}</Text>
               </View>
               <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>{t('Floating P/L')}</Text>
+                <Text style={styles.metricLabel}>{t('Floating Profit/Loss')}</Text>
                 <Text style={[styles.metricValue, { color: displayFloatingPnl >= 0 ? '#10B981' : '#EF4444' }]} numberOfLines={1}>{displayFloatingPnl >= 0 ? '+' : ''}{fmt.price(displayFloatingPnl)}</Text>
               </View>
             </View>
@@ -894,7 +894,7 @@ export function AccountsScreen() {
                         <Text style={styles.metricValue}>{leverageText}</Text>
                       </View>
                       <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>{t('Floating P/L')}</Text>
+                        <Text style={styles.metricLabel}>{t('Floating Profit/Loss')}</Text>
                         <Text
                           style={[styles.metricValue, metrics && { color: floatingPnl >= 0 ? '#10B981' : '#EF4444' }]}
                           numberOfLines={1}

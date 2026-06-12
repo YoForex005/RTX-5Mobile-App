@@ -21,14 +21,14 @@ export interface TradeJournalEntry {
   symbol: string;
   tradeType: TradeDirection;
   strategy: StrategyType;
-  timeframe: Timeframe;
+  timeframe?: Timeframe;
   
-  entryPrice: number;
-  stopLoss: number;
-  takeProfit: number;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
   exitPrice?: number;
-  lotSize: number;
-  riskAmount: number;
+  lotSize?: number;
+  riskAmount?: number;
   
   riskPercentage?: number;
   rewardToRiskRatio?: number;
@@ -40,36 +40,36 @@ export interface TradeJournalEntry {
   accountBalanceAfter?: number;
 
   // 2. Setup
-  entryReason: string;
-  marketStructure: string;
-  trendDirection: TrendDirection;
-  supportResistanceLevel: string;
-  setupType: SetupType;
-  confirmationUsed: string;
-  newsImpact: string;
+  entryReason?: string;
+  marketStructure?: string;
+  trendDirection?: TrendDirection;
+  supportResistanceLevel?: string;
+  setupType?: SetupType;
+  confirmationUsed?: string;
+  newsImpact?: string;
 
   // 3. Management
-  slMoved: boolean;
-  partialProfitTaken: boolean;
+  slMoved?: boolean;
+  partialProfitTaken?: boolean;
   closeType?: TradeCloseType;
-  followedPlan: RuleFollowing;
+  followedPlan?: RuleFollowing;
   maxDrawdownDuringTrade?: number;
   maxProfitDuringTrade?: number;
 
   // 4. Psychology & Discipline
-  emotionBefore: Emotion;
-  emotionDuring: Emotion;
-  emotionAfter: Emotion;
-  brokeRule: boolean;
-  disciplineScore: number; 
+  emotionBefore?: Emotion;
+  emotionDuring?: Emotion;
+  emotionAfter?: Emotion;
+  brokeRule?: boolean;
+  disciplineScore?: number; 
 
   // 5. Media & Reflection
   screenshotBefore?: string;
   screenshotDuring?: string;
   screenshotAfter?: string;
   screenshotNotes?: string;
-  didRight: string;
-  didWrong: string;
-  improveNextTime: string;
-  mainLesson: string;
+  didRight?: string;
+  didWrong?: string;
+  improveNextTime?: string;
+  mainLesson?: string;
 }

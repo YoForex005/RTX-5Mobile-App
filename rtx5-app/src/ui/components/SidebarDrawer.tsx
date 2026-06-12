@@ -34,7 +34,7 @@ type MenuItem = {
 
 const MENU_ITEMS: MenuItem[] = [
   { label: 'Trade', icon: 'flash-outline', route: '/trade' },
-  { label: 'Journal', icon: 'book-outline', route: '/settings/journal' },
+  { label: 'Journal', icon: 'reader-outline', route: '/settings/journal' },
   { label: 'Settings', icon: 'settings-outline', route: '/settings' },
   { label: 'Economic Calendar', icon: 'calendar-outline', route: '/settings/economic-calendar' },
   { label: 'User Guide', icon: 'help-circle-outline', route: '/settings/user-guide' },

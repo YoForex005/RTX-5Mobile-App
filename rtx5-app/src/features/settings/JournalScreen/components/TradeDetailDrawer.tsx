@@ -11,7 +11,11 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
   const subText = isDark ? '#64748B' : '#94A3B8';
   const accent = isDark ? '#22D3EE' : '#06B6D4';
 
-  const isWin = trade.result === 'Win';
+  const pnl = trade.pnlMoney ?? 0;
+  const isWin = pnl > 0 || trade.result === 'Win';
+  const rMultiple = typeof trade.finalRMultiple === 'number'
+    ? `${trade.finalRMultiple > 0 ? '+' : ''}${trade.finalRMultiple.toFixed(1)}R`
+    : '--';
 
   return (
     <View style={styles.overlay}>
@@ -34,8 +38,8 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
                 <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>{new Date(trade.date).toLocaleString()}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.pnlText, { color: isWin ? '#10B981' : '#EF4444' }]}>{isWin ? '+' : ''}${trade.pnlMoney?.toFixed(2)}</Text>
-                <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>{isWin ? '+' : ''}{trade.finalRMultiple}R</Text>
+                <Text style={[styles.pnlText, { color: isWin ? '#10B981' : '#EF4444' }]}>{pnl > 0 ? '+' : ''}${pnl.toFixed(2)}</Text>
+                <Text style={{ color: subText, fontSize: 12, marginTop: 4 }}>{rMultiple}</Text>
               </View>
             </View>
           </View>
@@ -56,7 +60,7 @@ export function TradeDetailDrawer({ trade, onClose, isDark }: { trade: TradeJour
           {/* Analysis */}
           <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
             <Text style={[styles.sectionTitle, { color: textColor }]}>Analysis & Reason</Text>
-            <Text style={[styles.bodyText, { color: textColor }]}>{trade.entryReason}</Text>
+            <Text style={[styles.bodyText, { color: textColor }]}>{trade.entryReason || 'No entry reason recorded.'}</Text>
           </View>
 
           {/* Review & Lessons */}
@@ -94,7 +98,7 @@ function DetailItem({ label, value, subText, textColor }: any) {
   return (
     <View style={styles.detailItem}>
       <Text style={[styles.detailLabel, { color: subText }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: textColor }]}>{value}</Text>
+      <Text style={[styles.detailValue, { color: textColor }]}>{value ?? '--'}</Text>
     </View>
   );
 }

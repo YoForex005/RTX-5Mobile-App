@@ -40,6 +40,7 @@ function TradePositionRowComponent({
   onBulkPress,
   pnlCurrency = 'USD',
   selected = false,
+  active = true,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
@@ -47,6 +48,7 @@ function TradePositionRowComponent({
   onBulkPress?: () => void;
   pnlCurrency?: string;
   selected?: boolean;
+  active?: boolean;
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -126,7 +128,7 @@ function TradePositionRowComponent({
   });
 
   // Subscribe to only this row's symbol through the shared quote store.
-  const liveQuote = useLiveSymbolQuote(item.symbol);
+  const liveQuote = useLiveSymbolQuote(item.symbol, active);
 
   const livePrice = resolveLivePositionPrice(item, liveQuote);
 
@@ -304,6 +306,7 @@ export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => 
   prev.item === next.item &&
   prev.pnlCurrency === next.pnlCurrency &&
   prev.selected === next.selected &&
+  prev.active === next.active &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&
   prev.onBulkPress === next.onBulkPress

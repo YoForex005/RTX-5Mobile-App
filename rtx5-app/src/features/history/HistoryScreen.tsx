@@ -61,7 +61,7 @@ type HistoryRow = {
 
 type Tone = 'positive' | 'negative' | 'neutral';
 
-const TABS: Tab[] = ['Positions', 'Orders', 'Deals'];
+const TABS: Tab[] = ['Orders', 'Positions', 'Deals'];
 const SORT_OPTIONS: SortBy[] = ['Default', 'Symbol', 'Ticket', 'Type', 'Volume', 'Open Time', 'Close Time', 'Profit'];
 
 function safeTimeStr(timestamp?: number | string | Date): string {

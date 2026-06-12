@@ -44,6 +44,7 @@ type ActionSheetAction = {
   selected?: boolean;
   danger?: boolean;
   disabled?: boolean;
+  activateOnPressIn?: boolean;
   onPress?: () => void;
   icon?: React.ReactNode;
 };
@@ -560,6 +561,7 @@ export function ActionSheet({
         onPressIn={recordActionRowPressStart}
         onTouchMove={recordActionRowPressMove}
         onPress={action.disabled ? undefined : () => handleActionRowPress(action.onPress)}
+        activateOnPressIn={action.activateOnPressIn === true && !action.disabled}
         disabled={action.disabled}
         style={({ pressed }) => [
           styles.action,

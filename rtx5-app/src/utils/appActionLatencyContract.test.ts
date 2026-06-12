@@ -304,6 +304,7 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /const ACTION_SHEET_CLOSE_SHEET_DURATION_MS = 50/);
   assert.match(source, /const ACTION_SHEET_ROW_PRESS_CANCEL_MOVE_PX = 10/);
   assert.match(source, /type ActionSheetPressGesture = \{[\s\S]*start: ActionSheetPressPoint \| null;[\s\S]*cancelled: boolean;[\s\S]*\}/);
+  assert.match(source, /activateOnPressIn\?: boolean/);
   assert.match(source, /const actionPressGestureRef = useRef<ActionSheetPressGesture>\(\{[\s\S]*start: null,[\s\S]*cancelled: false,[\s\S]*\}\)/);
   assert.match(source, /const recordActionRowPressStart = useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*start: getActionSheetPressPoint\(event\),[\s\S]*cancelled: false/);
   assert.match(source, /const cancelActionRowPressForScroll = useCallback\(\(\) => \{[\s\S]*cancelled: true/);
@@ -312,12 +313,9 @@ test('global action sheet actions avoid selecting rows while scrolling', () => {
   assert.match(source, /onPressIn=\{recordActionRowPressStart\}/);
   assert.match(source, /onTouchMove=\{recordActionRowPressMove\}/);
   assert.match(source, /onPress=\{action\.disabled \? undefined : \(\) => handleActionRowPress\(action\.onPress\)\}/);
+  assert.match(source, /activateOnPressIn=\{action\.activateOnPressIn === true && !action\.disabled\}/);
   assert.match(source, /onScrollBeginDrag=\{cancelActionRowPressForScroll\}/);
   assert.match(source, /onMomentumScrollBegin=\{cancelActionRowPressForScroll\}/);
-  const rowSourceStart = source.indexOf('const renderActionRow = useCallback');
-  const rowSourceEnd = source.indexOf('const renderAction = useCallback', rowSourceStart);
-  const rowSource = source.slice(rowSourceStart, rowSourceEnd);
-  assert.doesNotMatch(rowSource, /activateOnPressIn/);
   assert.match(source, /latencyLabel="actionSheet\.cancel"/);
   assert.match(source, /latencyLabel="actionSheet\.dismissOverlay"/);
   assert.match(source, /style=\{\[StyleSheet\.absoluteFillObject, styles\.backdrop\]\}/);
@@ -480,6 +478,18 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.match(brokerDetailSource, new RegExp(`loginBtn: \\{[\\s\\S]*backgroundColor: ${accentColorPattern}[\\s\\S]*shadowColor: ${accentColorPattern}`));
   assert.doesNotMatch(brokerDetailSource, /MT5_BLUE_LIGHT/);
   assert.doesNotMatch(brokerDetailSource, /LOGIN_VIOLET/);
+  assert.match(registerSource, /const REGISTER_BACK_FALLBACK_HREF = '\/settings\/brokers'/);
+  assert.match(registerSource, /const styles = React\.useMemo\(\(\) => makeStyles\(T, isDark, insets\.top\), \[T, isDark, insets\.top\]\)/);
+  assert.match(registerSource, /const registerBackNavigationStartedRef = React\.useRef\(false\)/);
+  assert.match(registerSource, /if \(isScreenFocused\) \{[\s\S]*registerBackNavigationStartedRef\.current = false;[\s\S]*\}, \[isScreenFocused\]\);/);
+  assert.match(registerSource, /const handleRegisterBack = React\.useCallback\(\(event: GestureResponderEvent\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*if \(registerBackNavigationStartedRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*registerBackNavigationStartedRef\.current = true;[\s\S]*safeRouterBack\(router, REGISTER_BACK_FALLBACK_HREF\);[\s\S]*\}, \[\]\);/);
+  assert.match(registerSource, /onPress=\{handleRegisterBack\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="register\.back"[\s\S]*unstable_pressDelay=\{0\}/);
+  assert.match(rootSource, /const brokerFlowBackground = isDark \? '#05070D' : '#F3F6FA'/);
+  assert.match(rootSource, /const brokerFlowScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: brokerFlowBackground \},[\s\S]*\} as const;/);
+  assert.match(rootSource, /const registerScreenOptions = \{[\s\S]*headerShown: false,[\s\S]*animation: 'none',[\s\S]*presentation: 'transparentModal',[\s\S]*freezeOnBlur: false,[\s\S]*contentStyle: \{ backgroundColor: 'transparent' \},[\s\S]*\} as const;/);
+  assert.match(rootSource, /<Stack\.Screen name='register' options=\{registerScreenOptions\}/);
+  assert.match(rootSource, /<Stack\.Screen name='settings\/brokers' options=\{brokerFlowScreenOptions\}/);
+  assert.match(rootSource, /<Stack\.Screen name='settings\/broker-detail' options=\{brokerFlowScreenOptions\}/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.back"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.login\.submit"/);
   assert.match(brokerDetailSource, /latencyLabel="brokerDetail\.server\.open"/);
@@ -503,6 +513,10 @@ test('trade ticket execution actions use the immediate fast press path', () => {
   assert.match(source, /latencyLabel="orderTicket\.volume\.increment"/);
   assert.match(source, /latencyLabel="orderTicket\.sl\.decrement"/);
   assert.match(source, /latencyLabel="orderTicket\.tp\.increment"/);
+  assert.match(source, /import \{ useDeferredRouteContentReady \} from '\.\.\/\.\.\/ui\/components\/DeferredRouteMount'/);
+  assert.match(source, /const heavyContentReady = useDeferredRouteContentReady\(0\)/);
+  assert.match(source, /heavyContentReady \? \([\s\S]*<LiveOrderTickExecutionGraph/);
+  assert.match(source, /styles\.executionGraphPlaceholder/);
   assert.doesNotMatch(source, /livePill|liveDot|liveLabel/);
   assert.doesNotMatch(source, /traceUiInteraction/);
 });
@@ -512,6 +526,9 @@ test('close position actions use the immediate trade path', () => {
   const overlaySource = readSource('src/ui/components/TradePositionRow/OverlayActions.tsx');
   const closePositionSource = readSource('src/features/trade/ClosePositionScreen.tsx');
 
+  assert.match(rootSource, /<Stack\.Screen name='quotes\/details' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(rootSource, /<Stack\.Screen name='quotes\/market-statistics' options=\{\{ headerShown: false, animation: 'none' \}\}/);
+  assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ title: t\('Trade'\), animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/close-position' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(overlaySource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.open"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);

@@ -544,8 +544,8 @@ test('webview bridge: recent viewport reserves a bounded live-edge gap before th
   );
   assertSourceContains(
     chartConstantsSource,
-    /export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 2;/,
-    'right-offset must stay MT5-sized so the live candle remains close to the price scale',
+    /export const CHART_DEFAULT_TIME_SCALE_RIGHT_OFFSET = 7;/,
+    'right-offset must keep the MT5-style professional gap between the live candle and the price scale',
   );
   assertSourceContains(
     chartWebViewHtmlSource,

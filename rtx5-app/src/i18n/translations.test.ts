@@ -38,7 +38,7 @@ test('translate returns selected language labels and falls back to English keys'
   assert.equal(translate('Drawing Tools', 'bn'), 'ড্রয়িং টুলস');
   assert.equal(translate('Search symbol...', 'bn'), 'সিম্বল খুঁজুন...');
   assert.equal(translate('Leverage', 'hi'), 'लीवरेज');
-  assert.equal(translate('Floating P/L', 'hi'), 'फ्लोटिंग P/L');
+  assert.equal(translate('Floating Profit/Loss', 'hi'), 'फ्लोटिंग P/L');
   assert.equal(translate('Broker Login', 'bn'), 'ব্রোকার লগইন');
   assert.equal(translate('Login to an existing account', 'bn'), 'বিদ্যমান অ্যাকাউন্টে লগইন করুন');
   assert.equal(translate('Demo Account', 'bn'), 'ডেমো অ্যাকাউন্ট');

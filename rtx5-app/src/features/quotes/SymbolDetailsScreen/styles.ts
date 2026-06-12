@@ -3,7 +3,10 @@ import { spacing } from '../../../ui/theme/index';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
-  const cardBg = T.glass2;
+  const cardBg = isDark ? '#1B2537' : T.glass2;
+  const nestedSurface = isDark ? '#121A2A' : T.glass1;
+  const cardBorder = isDark ? 'rgba(148,163,184,0.18)' : T.border;
+  const nestedBorder = isDark ? 'rgba(148,163,184,0.14)' : T.border;
   return {
     fl: StyleSheet.create({
       wrap: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
@@ -13,7 +16,7 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
       iconWrap: { width: 44, height: 44, borderRadius: 14, backgroundColor: isDark ? 'rgba(59,130,246,0.08)' : T.glass1, borderWidth: 1, borderColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
     }),
     sec: StyleSheet.create({
-      card: { backgroundColor: cardBg, borderWidth: 1, borderColor: T.border, borderRadius: 16, marginHorizontal: spacing.md, marginBottom: 12, overflow: 'hidden', shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4 },
+      card: { backgroundColor: cardBg, borderWidth: 1, borderColor: cardBorder, borderRadius: 16, marginHorizontal: spacing.md, marginBottom: 12, overflow: 'hidden', shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.36 : 0.08, shadowRadius: 24, elevation: 4 },
       headerGrad: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border, gap: 10 },
       iconBox: { width: 26, height: 26, borderRadius: 7, backgroundColor: isDark ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.08)', alignItems: 'center', justifyContent: 'center' },
       title: { color: T.textSub, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
@@ -24,7 +27,7 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
       val: { color: T.text, fontSize: 14, fontWeight: '500', fontVariant: ['tabular-nums'], maxWidth: '65%', textAlign: 'right', letterSpacing: -0.2 },
     }),
     mp: StyleSheet.create({
-      chip: { flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isDark ? 0 : 0.03, shadowRadius: 8, elevation: 0, borderWidth: 1, borderColor: T.border, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center' },
+      chip: { flex: 1, backgroundColor: isDark ? nestedSurface : T.glass2, shadowColor: isDark ? '#000' : '#475569', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isDark ? 0 : 0.03, shadowRadius: 8, elevation: 0, borderWidth: 1, borderColor: nestedBorder, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center' },
       iconRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
       lbl: { color: T.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '700' },
       val: { color: T.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
@@ -60,14 +63,14 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
       iconBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.06)' : T.border },
     }),
     glassHero: StyleSheet.create({
-      container: { marginHorizontal: spacing.md, marginBottom: 20, borderRadius: 24, overflow: 'hidden', borderColor: T.border, borderWidth: 1, backgroundColor: cardBg, shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4 },
+      container: { marginHorizontal: spacing.md, marginBottom: 16, borderRadius: 24, overflow: 'hidden', borderColor: cardBorder, borderWidth: 1, backgroundColor: cardBg, shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 10 }, shadowOpacity: isDark ? 0.38 : 0.08, shadowRadius: 28, elevation: 4 },
       borderHighlight: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.15)' },
-      header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0 },
-      priceRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10, gap: 12 },
+      header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 8, paddingBottom: 0 },
+      priceRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 8, gap: 10 },
       bigPrice: { fontSize: 42, fontWeight: '900', fontVariant: ['tabular-nums'], letterSpacing: -1.5, textShadowColor: isDark ? 'rgba(0,0,0,0.4)' : 'transparent', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
       ptsTxt: { color: T.textSub, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], marginTop: 4 },
-      metricsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 8 },
-      rangeCard: { marginHorizontal: 16, marginBottom: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : T.glass1, borderRadius: 12, borderWidth: 1, borderColor: T.border, paddingVertical: 12 },
+      metricsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, marginBottom: 6 },
+      rangeCard: { marginHorizontal: 14, marginBottom: 8, backgroundColor: nestedSurface, borderRadius: 12, borderWidth: 1, borderColor: nestedBorder, paddingVertical: 10 },
       rangeTop: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingBottom: 8 },
       rangeLbl: { color: T.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginBottom: 4 },
       rangeVal: { color: T.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
@@ -82,7 +85,7 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
       changeTxt: { fontSize: 14, fontWeight: '900', fontVariant: ['tabular-nums'] },
     }),
     ticker: StyleSheet.create({
-      container: { marginHorizontal: 16, marginBottom: 10, borderRadius: 16, borderWidth: 1, borderColor: T.border, backgroundColor: isDark ? 'transparent' : T.glass1, position: 'relative', overflow: 'hidden' },
+      container: { marginHorizontal: 14, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: nestedBorder, backgroundColor: nestedSurface, position: 'relative', overflow: 'hidden' },
       spreadBadge: { position: 'absolute', top: -1, alignSelf: 'center', zIndex: 10, backgroundColor: isDark ? 'rgba(15,20,35,0.95)' : T.glass2, borderBottomLeftRadius: 10, borderBottomRightRadius: 10, paddingHorizontal: 14, paddingVertical: 5, borderWidth: 1, borderTopWidth: 0, borderColor: T.border, flexDirection: 'row', alignItems: 'center', gap: 6 },
       spreadVal: { color: T.text, fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] },
       spreadLbl: { color: T.textSub, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
@@ -109,7 +112,7 @@ export function makeSymbolDetailsStyles(T: ThemeColors, isDark: boolean) {
       btn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 14, paddingVertical: 15, gap: 6, overflow: 'hidden' },
       buyBtn: { borderWidth: 0, shadowColor: '#2563EB', shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
       buyTxt: { color: '#fff', fontSize: 15, fontWeight: '900' },
-      chartBtn: { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : T.glass2, borderWidth: 1, borderColor: T.border, shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 12, elevation: 1 },
+      chartBtn: { backgroundColor: isDark ? cardBg : T.glass2, borderWidth: 1, borderColor: cardBorder, shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.22 : 0.05, shadowRadius: 12, elevation: 1 },
       chartTxt: { color: T.textSub, fontSize: 15, fontWeight: '700' },
     })
   };

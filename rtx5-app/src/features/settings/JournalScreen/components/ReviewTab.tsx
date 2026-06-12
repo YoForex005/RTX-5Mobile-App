@@ -63,7 +63,7 @@ export function ReviewTab({ isDark, trades }: ReviewTabProps) {
     const closedTrades = trades.filter((trade) => trade.result && trade.result !== 'Open');
     const totalTrades = closedTrades.length;
     const totalPnl = closedTrades.reduce((sum, trade) => sum + (trade.pnlMoney ?? 0), 0);
-    const avgDiscipline = closedTrades.reduce((sum, trade) => sum + trade.disciplineScore, 0) / (totalTrades || 1);
+    const avgDiscipline = closedTrades.reduce((sum, trade) => sum + (trade.disciplineScore ?? 0), 0) / (totalTrades || 1);
     const ruleBreaks = closedTrades.filter((trade) => trade.brokeRule || trade.followedPlan === 'No').length;
     const planAdherence = totalTrades ? Math.round(((totalTrades - ruleBreaks) / totalTrades) * 100) : 0;
     const bestTrade = [...closedTrades].sort((a, b) => (b.pnlMoney ?? 0) - (a.pnlMoney ?? 0))[0];
@@ -99,7 +99,7 @@ export function ReviewTab({ isDark, trades }: ReviewTabProps) {
         <View style={styles.tradeInsightBody}>
           <Text style={styles.tradeInsightLabel}>{label}</Text>
           <Text style={styles.tradeInsightTitle} numberOfLines={1}>
-            {trade ? `${trade.symbol} - ${trade.strategy}` : 'No trade recorded'}
+            {trade ? `${trade.symbol} - ${trade.strategy ?? 'Custom'}` : 'No trade recorded'}
           </Text>
           <Text style={styles.tradeInsightText} numberOfLines={2}>
             {trade?.mainLesson || 'Log closed trades to generate review context.'}

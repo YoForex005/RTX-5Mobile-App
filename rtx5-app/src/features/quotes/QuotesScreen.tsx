@@ -68,6 +68,17 @@ const volumeLabel = (volume?: number) => {
   return volume.toLocaleString('en-US');
 };
 
+function scheduleQuoteSheetOptionAction(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      setTimeout(action, 0);
+    });
+    return;
+  }
+
+  setTimeout(action, 0);
+}
+
 const gmtClock = (d: Date) =>
   d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' });
 
@@ -78,6 +89,9 @@ type QuotesRotationTheme = {
 
 type AnimatedColorValue = Animated.AnimatedInterpolation<string | number>;
 
+type QuoteSheetOptionOptions = {
+  routeChange?: boolean;
+};
 
 // full quotes screen background color + card background color
 const QUOTES_THEME_ROTATION_DARK: QuotesRotationTheme[] = [
@@ -1535,9 +1549,14 @@ export function QuotesScreen() {
   const setChartSymbol = useUserPreferences((st) => st.setChartSymbol);
 
   const showQuotesActionSheet = useUIState((s) => s.showQuotesActionSheet);
+  const hideQuotesActionSheet = useUIState((s) => s.hideQuotesActionSheet);
+  const quotesActionSheetOpen = useUIState((s) => s.scopedActionSheets.quotes !== null);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
-  const quoteServerDataActive = useDeferredActiveFlag(isScreenFocused && isLoggedIn);
+  const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
+  const quoteServerDataActive = useDeferredActiveFlag(
+    isScreenFocused && isLoggedIn && !quoteSheetRouteActionPending,
+  );
   const { data: apiSymbols = [] } = useMarketSymbols(quoteServerDataActive);
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
@@ -1688,7 +1707,11 @@ export function QuotesScreen() {
     pathname === '/(tabs)/quotes' ||
     pathname.startsWith('/(tabs)/quotes/');
   const quoteStickyFeedActive = quoteRouteActive;
-  const quoteFeedActive = quoteStickyFeedActive && !sidebarOpen;
+  const quoteFeedActive =
+    quoteStickyFeedActive &&
+    !sidebarOpen &&
+    !quotesActionSheetOpen &&
+    !quoteSheetRouteActionPending;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
 
   useEffect(() => {
@@ -1758,11 +1781,38 @@ export function QuotesScreen() {
   const setQuoteViewMode = useUserPreferences((st) => st.setQuoteViewMode);
   const preloadQuotesActionSheet = useUIState((s) => s.preloadQuotesActionSheet);
 
+  useEffect(() => {
+    setQuoteSheetRouteActionPending(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!quoteSheetRouteActionPending) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setQuoteSheetRouteActionPending(false);
+    }, 2500);
+
+    return () => clearTimeout(timeoutId);
+  }, [quoteSheetRouteActionPending]);
+
+  const runQuoteSheetOption = useCallback((action: () => void, options?: QuoteSheetOptionOptions) => {
+    const routeChange = options?.routeChange === true;
+    if (routeChange) {
+      setQuoteSheetRouteActionPending(true);
+    }
+    hideQuotesActionSheet();
+    scheduleQuoteSheetOptionAction(action);
+  }, [hideQuotesActionSheet]);
+
   const goDetail = useCallback((sym: string) => {
-    prefetchQuoteDetails(sym);
-    setChartSymbol(sym);
-    router.push({ pathname: '/quotes/details', params: { symbol: sym } });
-  }, [router, setChartSymbol]);
+    runQuoteSheetOption(() => {
+      prefetchQuoteDetails(sym);
+      setChartSymbol(sym);
+      router.push({ pathname: '/quotes/details', params: { symbol: sym } });
+    }, { routeChange: true });
+  }, [router, runQuoteSheetOption, setChartSymbol]);
 
   const quoteTapActionSheetConfigs = useMemo(() => {
     const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
@@ -1773,23 +1823,31 @@ export function QuotesScreen() {
         title: `${displayName}: ${describeMarketSymbol(sym)}`,
         detent: 'adaptive',
         instantOpen: true,
+        runActionAfterClose: false,
         actions: [
           {
             label: t('New Order'),
+            activateOnPressIn: true,
             onPress: () => {
-              prefetchOrderTicketData(resolveTradingLoginString(), sym);
-              router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+              runQuoteSheetOption(() => {
+                prefetchOrderTicketData(resolveTradingLoginString(), sym);
+                router.push({ pathname: '/trade/order-ticket', params: { symbol: sym } });
+              }, { routeChange: true });
             },
           },
           {
             label: t('Chart'),
+            activateOnPressIn: true,
             onPress: () => {
-              setChartSymbol(sym);
-              router.push('/(tabs)/chart');
+              runQuoteSheetOption(() => {
+                setChartSymbol(sym);
+                router.push('/(tabs)/chart');
+              }, { routeChange: true });
             },
           },
           {
             label: t('Symbol Details'),
+            activateOnPressIn: true,
             onPress: () => goDetail(sym),
           },
           {
@@ -1800,14 +1858,20 @@ export function QuotesScreen() {
           },
           {
             label: t('Market Statistics'),
+            activateOnPressIn: true,
             onPress: () => {
-              router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+              runQuoteSheetOption(() => {
+                router.push({ pathname: '/quotes/market-statistics', params: { symbol: sym } });
+              }, { routeChange: true });
             },
           },
           {
             label: quoteViewMode === 'list' ? t('Simple view mode') : t('Advanced view mode'),
+            activateOnPressIn: true,
             onPress: () => {
-              setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
+              runQuoteSheetOption(() => {
+                setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
+              });
             },
           },
         ],
@@ -1815,7 +1879,7 @@ export function QuotesScreen() {
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, quoteViewMode, router, setChartSymbol, setQuoteViewMode, showQuotesActionSheet, t]);
+  }, [goDetail, quoteSymbols, quoteViewMode, router, runQuoteSheetOption, setChartSymbol, setQuoteViewMode, showQuotesActionSheet, t]);
 
   const quoteLongPressActionSheetConfigs = useMemo(() => {
     const configs = new Map<string, Parameters<typeof showQuotesActionSheet>[0]>();
@@ -1825,26 +1889,36 @@ export function QuotesScreen() {
         title: fmt.symbol(sym),
         detent: 'auto',
         instantOpen: true,
+        runActionAfterClose: false,
         actions: [
           {
             label: t('Chart'),
+            activateOnPressIn: true,
             onPress: () => {
-              setChartSymbol(sym);
-              router.push('/(tabs)/chart');
+              runQuoteSheetOption(() => {
+                setChartSymbol(sym);
+                router.push('/(tabs)/chart');
+              }, { routeChange: true });
             },
           },
-          { label: t('Details'), onPress: () => goDetail(sym) },
+          { label: t('Details'), activateOnPressIn: true, onPress: () => goDetail(sym) },
           {
             label: t('Hide'),
             danger: true,
-            onPress: () => { removeQuoteSymbol(sym); serverRemove(sym); },
+            activateOnPressIn: true,
+            onPress: () => {
+              runQuoteSheetOption(() => {
+                removeQuoteSymbol(sym);
+                serverRemove(sym);
+              });
+            },
           },
         ],
       });
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, serverRemove, setChartSymbol, showQuotesActionSheet, t]);
+  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, runQuoteSheetOption, serverRemove, setChartSymbol, showQuotesActionSheet, t]);
 
   useEffect(() => {
     const firstSym = quoteSymbols[0];

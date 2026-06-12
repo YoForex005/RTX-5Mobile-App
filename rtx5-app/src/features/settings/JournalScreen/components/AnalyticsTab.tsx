@@ -27,7 +27,7 @@ export function AnalyticsTab({ isDark, trades }: AnalyticsTabProps) {
     const grossProfit = wins.reduce((sum, trade) => sum + Math.max(0, trade.pnlMoney ?? 0), 0);
     const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + Math.min(0, trade.pnlMoney ?? 0), 0));
     const avgR = closedTrades.reduce((sum, trade) => sum + (trade.finalRMultiple ?? 0), 0) / (totalTrades || 1);
-    const discipline = closedTrades.reduce((sum, trade) => sum + trade.disciplineScore, 0) / (totalTrades || 1);
+    const discipline = closedTrades.reduce((sum, trade) => sum + (trade.disciplineScore ?? 0), 0) / (totalTrades || 1);
     const winRate = totalTrades ? Math.round((wins.length / totalTrades) * 100) : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Number.POSITIVE_INFINITY : 0;
     const expectancy = totalTrades ? totalPnl / totalTrades : 0;

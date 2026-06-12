@@ -1,161 +1,583 @@
-import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../../ui/theme/useTheme';
-import { useUserPreferences } from '../../../state/userPreferences';
+import { useJournalState } from '../../../state/journalState';
+import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Screen } from '../../../ui/components/Screen';
-import { makeJournalStyles } from './styles';
-import { MOCK_TRADES } from './mockData';
-import { TradeJournalEntry } from './types';
+import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
+import { useJournalTrades } from './liveJournal';
+import { makeJournalStyles } from './styles';
+import type { TradeJournalEntry } from './types';
 
-import { JournalTabs } from './components/JournalTabs';
-import { AnalyticsTab } from './components/AnalyticsTab';
-import { ReviewTab } from './components/ReviewTab';
-import { TradeDetailDrawer } from './components/TradeDetailDrawer';
-import { AddTradeModal } from './components/AddTradeModal';
+type JournalFilter = 'All' | 'Opened' | 'Modified' | 'Closed' | 'Notes';
+type JournalTone = 'buy' | 'sell' | 'profit' | 'loss' | 'neutral' | 'note';
+type JournalActivityType = 'opened' | 'modified' | 'closed' | 'snapshot' | 'note';
+
+type JournalDetail = {
+  label: string;
+  value: string;
+  tone?: JournalTone;
+};
+
+type JournalActivityItem = {
+  id: string;
+  type: JournalActivityType;
+  filter: JournalFilter;
+  timestamp: string;
+  title: string;
+  symbol?: string;
+  tone: JournalTone;
+  details: JournalDetail[];
+};
+
+const FILTERS: JournalFilter[] = ['All', 'Opened', 'Modified', 'Closed', 'Notes'];
+
+const NOTE_SYMBOL = 'General';
+
+const isToday = (date: Date, now = new Date()) =>
+  date.getFullYear() === now.getFullYear() &&
+  date.getMonth() === now.getMonth() &&
+  date.getDate() === now.getDate();
+
+const isSameDay = (left: Date, right: Date) =>
+  left.getFullYear() === right.getFullYear() &&
+  left.getMonth() === right.getMonth() &&
+  left.getDate() === right.getDate();
+
+const parseDate = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : new Date(0);
+};
+
+const formatTime = (value: string) =>
+  parseDate(value).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+const formatDateHeading = (value: string) => {
+  const date = parseDate(value);
+  const label = date.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  if (isToday(date)) {
+    return `Today, ${label}`;
+  }
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(date, yesterday)) {
+    return `Yesterday, ${label}`;
+  }
+
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+  });
+};
+
+const formatMoney = (value: number | undefined) => {
+  const safe = Number.isFinite(value) ? Number(value) : 0;
+  return `${safe >= 0 ? '+' : '-'}$${Math.abs(safe).toFixed(2)}`;
+};
+
+const formatPlainMoney = (value: number | undefined) => {
+  const safe = Number.isFinite(value) ? Number(value) : 0;
+  return `$${Math.abs(safe).toFixed(2)}`;
+};
+
+const formatPriceValue = (value: number | undefined, symbol?: string) => {
+  if (!Number.isFinite(value)) {
+    return '--';
+  }
+  const upper = symbol?.toUpperCase() ?? '';
+  const decimals = upper.includes('JPY') ? 3 : upper.includes('XAU') ? 2 : 5;
+  return fmt.price(Number(value), decimals);
+};
+
+const formatLots = (value: number | undefined) =>
+  Number.isFinite(value) ? Number(value).toFixed(2) : '--';
+
+const formatPips = (trade: TradeJournalEntry) => {
+  if (Number.isFinite(trade.pnlPips)) {
+    const pips = Number(trade.pnlPips);
+    return `${pips >= 0 ? '+' : ''}${pips.toFixed(1)}`;
+  }
+
+  return '--';
+};
+
+const formatDuration = (trade: TradeJournalEntry) => {
+  const openedAt = parseDate(trade.createdAt).getTime();
+  const closedAt = parseDate(trade.date).getTime();
+  const minutes = Math.max(0, Math.round((closedAt - openedAt) / 60000));
+  if (minutes <= 0) return '--';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return hours > 0 ? `${hours}h ${String(mins).padStart(2, '0')}m` : `${mins}m`;
+};
+
+const hasNoteOnlyShape = (trade: TradeJournalEntry) =>
+  trade.symbol === NOTE_SYMBOL && !Number.isFinite(trade.entryPrice) && Boolean(trade.entryReason || trade.mainLesson);
+
+const buildJournalActivity = (trades: TradeJournalEntry[]): JournalActivityItem[] => {
+  const items: JournalActivityItem[] = [];
+
+  for (const trade of trades) {
+    if (hasNoteOnlyShape(trade)) {
+      items.push({
+        id: `${trade.id}-note`,
+        type: 'note',
+        filter: 'Notes',
+        timestamp: trade.date,
+        title: 'Note Added',
+        tone: 'note',
+        details: [
+          { label: 'Note', value: trade.entryReason || trade.mainLesson || 'No note text' },
+        ],
+      });
+      continue;
+    }
+
+    const isSell = trade.tradeType === 'Sell';
+    items.push({
+      id: `${trade.id}-opened`,
+      type: 'opened',
+      filter: 'Opened',
+      timestamp: trade.createdAt,
+      title: `${trade.tradeType.toUpperCase()} order opened`,
+      symbol: trade.symbol,
+      tone: isSell ? 'sell' : 'buy',
+      details: [
+        { label: 'Symbol', value: trade.symbol },
+        { label: 'Entry Price', value: formatPriceValue(trade.entryPrice, trade.symbol) },
+        { label: 'Lot Size', value: formatLots(trade.lotSize) },
+        { label: 'Spread', value: '--' },
+      ],
+    });
+
+    if (Number.isFinite(trade.stopLoss)) {
+      items.push({
+        id: `${trade.id}-sl`,
+        type: 'modified',
+        filter: 'Modified',
+        timestamp: trade.createdAt,
+        title: 'Stop Loss Added',
+        symbol: trade.symbol,
+        tone: 'loss',
+        details: [
+          { label: 'SL Price', value: formatPriceValue(trade.stopLoss, trade.symbol), tone: 'loss' },
+          { label: 'Risk', value: trade.riskAmount ? formatPlainMoney(trade.riskAmount) : '--' },
+        ],
+      });
+    }
+
+    if (Number.isFinite(trade.takeProfit)) {
+      items.push({
+        id: `${trade.id}-tp`,
+        type: 'modified',
+        filter: 'Modified',
+        timestamp: trade.createdAt,
+        title: 'Take Profit Added',
+        symbol: trade.symbol,
+        tone: 'profit',
+        details: [
+          { label: 'TP Price', value: formatPriceValue(trade.takeProfit, trade.symbol), tone: 'profit' },
+          { label: 'Reward', value: trade.rewardToRiskRatio ? `${trade.rewardToRiskRatio.toFixed(2)}R` : '--' },
+        ],
+      });
+    }
+
+    if (trade.result === 'Open' && Number.isFinite(trade.exitPrice)) {
+      const pnl = trade.pnlMoney ?? 0;
+      items.push({
+        id: `${trade.id}-snapshot`,
+        type: 'snapshot',
+        filter: 'All',
+        timestamp: trade.date,
+        title: 'Price Snapshot',
+        symbol: trade.symbol,
+        tone: pnl < 0 ? 'loss' : pnl > 0 ? 'profit' : 'neutral',
+        details: [
+          { label: 'Current Price', value: formatPriceValue(trade.exitPrice, trade.symbol) },
+          { label: 'Floating Profit/Loss', value: formatMoney(pnl), tone: pnl < 0 ? 'loss' : 'profit' },
+        ],
+      });
+    }
+
+    if (trade.result && trade.result !== 'Open') {
+      const pnl = trade.pnlMoney ?? 0;
+      const pips = formatPips(trade);
+      items.push({
+        id: `${trade.id}-closed`,
+        type: 'closed',
+        filter: 'Closed',
+        timestamp: trade.date,
+        title: trade.closeType === 'SL Hit' ? 'Trade Closed by Stop Loss' : 'Trade Closed Manually',
+        symbol: trade.symbol,
+        tone: pnl < 0 ? 'loss' : pnl > 0 ? 'profit' : 'neutral',
+        details: [
+          { label: 'Exit Price', value: formatPriceValue(trade.exitPrice, trade.symbol) },
+          { label: 'Final P/L', value: formatMoney(pnl), tone: pnl < 0 ? 'loss' : 'profit' },
+          { label: 'Pips', value: pips, tone: pips === '--' ? undefined : pnl < 0 ? 'loss' : 'profit' },
+          { label: 'Duration', value: formatDuration(trade) },
+        ],
+      });
+    }
+
+    const note = trade.mainLesson || trade.entryReason;
+    if (note && note !== 'Imported from account closed-position history.') {
+      items.push({
+        id: `${trade.id}-note`,
+        type: 'note',
+        filter: 'Notes',
+        timestamp: trade.date,
+        title: 'Trade Note',
+        symbol: trade.symbol,
+        tone: 'note',
+        details: [{ label: 'Note', value: note }],
+      });
+    }
+  }
+
+  return items.sort((left, right) => parseDate(right.timestamp).getTime() - parseDate(left.timestamp).getTime());
+};
+
+const groupActivityByDate = (items: JournalActivityItem[]) => {
+  const groups: Array<{ heading: string; items: JournalActivityItem[] }> = [];
+  for (const item of items) {
+    const heading = formatDateHeading(item.timestamp);
+    const existing = groups.find((group) => group.heading === heading);
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      groups.push({ heading, items: [item] });
+    }
+  }
+  return groups;
+};
+
+const getActivityBadgeLabel = (item: JournalActivityItem) =>
+  item.type === 'snapshot' ? 'Live' : item.filter;
 
 export function JournalScreen() {
   const T = useTheme();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const styles = useMemo(() => makeJournalStyles(T, isDark), [T, isDark]);
+  const styles = useMemo(() => makeJournalStyles(T), [T]);
+  const actionColor = T.trading.buy.primary;
   const insets = useSafeAreaInsets();
-  
-  const [trades, setTrades] = useState<TradeJournalEntry[]>(MOCK_TRADES);
-  const [activeTab, setActiveTab] = useState<'Journal' | 'Analytics' | 'Review'>('Journal');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [selectedTrade, setSelectedTrade] = useState<TradeJournalEntry | null>(null);
+  const { accountLogin, trades, isLoading, isError, refetch } = useJournalTrades();
+  const addEntry = useJournalState((state) => state.addEntry);
+  const [filter, setFilter] = useState<JournalFilter>('All');
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const [isNoteOpen, setIsNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState('');
 
-  // Stats calculation
-  const totalTrades = trades.length;
-  const winTrades = trades.filter(t => t.result === 'Win').length;
-  const winRate = totalTrades > 0 ? Math.round((winTrades / totalTrades) * 100) : 0;
-  const totalPnl = trades.reduce((sum, t) => sum + (t.pnlMoney || 0), 0);
-  const avgR = trades.reduce((sum, t) => sum + (t.finalRMultiple || 0), 0) / (totalTrades || 1);
-
-  const renderStatCard = (title: string, value: string, sub?: string, isPos?: boolean, isNeg?: boolean) => (
-    <View style={styles.statCardWrap}>
-      <View style={styles.statCard}>
-        <Text style={styles.statTitle}>{title}</Text>
-        <Text style={[styles.statValue, isPos && styles.statPos, isNeg && styles.statNeg]}>{value}</Text>
-        {sub && <Text style={styles.statSub}>{sub}</Text>}
-      </View>
-    </View>
+  const todayTrades = useMemo(
+    () => trades.filter((trade) => isToday(parseDate(trade.date))).length,
+    [trades],
   );
+  const todayClosedTrades = useMemo(
+    () => trades.filter((trade) => isToday(parseDate(trade.date)) && trade.result && trade.result !== 'Open'),
+    [trades],
+  );
+  const todayPnl = todayClosedTrades.reduce((sum, trade) => sum + (trade.pnlMoney ?? 0), 0);
+  const todayWins = todayClosedTrades.filter((trade) => (trade.pnlMoney ?? 0) > 0 || trade.result === 'Win').length;
+  const todayLosses = todayClosedTrades.filter((trade) => (trade.pnlMoney ?? 0) < 0 || trade.result === 'Loss').length;
+
+  const activityItems = useMemo(() => buildJournalActivity(trades), [trades]);
+  const filteredItems = useMemo(
+    () => filter === 'All'
+      ? activityItems
+      : activityItems.filter((item) => item.filter === filter),
+    [activityItems, filter],
+  );
+  const groups = useMemo(() => groupActivityByDate(filteredItems), [filteredItems]);
+  const filterCounts = useMemo<Record<JournalFilter, number>>(() => ({
+    All: activityItems.length,
+    Opened: activityItems.filter((item) => item.filter === 'Opened').length,
+    Modified: activityItems.filter((item) => item.filter === 'Modified').length,
+    Closed: activityItems.filter((item) => item.filter === 'Closed').length,
+    Notes: activityItems.filter((item) => item.filter === 'Notes').length,
+  }), [activityItems]);
+  const toneStyles = useMemo(() => ({
+    pills: {
+      buy: styles.buyPill,
+      sell: styles.sellPill,
+      profit: styles.profitPill,
+      loss: styles.lossPill,
+      neutral: styles.neutralPill,
+      note: styles.notePill,
+    },
+    labels: {
+      buy: styles.buyText,
+      sell: styles.sellText,
+      profit: styles.profitText,
+      loss: styles.lossText,
+      neutral: styles.neutralText,
+      note: styles.noteText,
+    },
+    cards: {
+      buy: styles.buyCard,
+      sell: styles.sellCard,
+      profit: styles.profitCard,
+      loss: styles.lossCard,
+      neutral: styles.neutralCard,
+      note: styles.noteCard,
+    },
+  }), [styles]);
+  const latestActivityAt = activityItems[0]?.timestamp;
+  const lastSyncLabel = latestActivityAt
+    ? `Synced ${formatTime(latestActivityAt)}`
+    : accountLogin
+      ? 'Live account'
+      : 'No account';
+  const emptyMessage = !accountLogin
+    ? 'Log in to view your trading activity journal.'
+    : isLoading
+      ? 'Loading account activity...'
+      : isError
+        ? 'Could not load account activity.'
+        : 'No journal activity for this filter yet.';
+
+  const handleRefresh = useCallback(() => {
+    setIsPullRefreshing(true);
+    void refetch().finally(() => setIsPullRefreshing(false));
+  }, [refetch]);
+
+  const handleSaveNote = useCallback(() => {
+    const trimmed = noteText.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    addEntry({
+      id: `note-${Date.now()}`,
+      createdAt: now,
+      date: now,
+      session: 'Out of Session',
+      market: 'Forex',
+      symbol: NOTE_SYMBOL,
+      tradeType: 'Buy',
+      strategy: 'Custom',
+      result: 'Open',
+      entryReason: trimmed,
+      mainLesson: trimmed,
+      followedPlan: 'Partial',
+      brokeRule: false,
+      disciplineScore: 0,
+    });
+    setNoteText('');
+    setIsNoteOpen(false);
+  }, [addEntry, noteText]);
 
   return (
     <Screen style={styles.screen}>
-      <View style={{
-        paddingTop: insets.top,
-        backgroundColor: T.bg,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-      }}>
-        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}>
-          <Pressable onPress={() => router.replace('/(tabs)/settings')} hitSlop={15} style={{ width: 46, alignItems: 'flex-start', padding: 4 }}>
-            <Ionicons name="arrow-back" size={26} color={T.text} />
-          </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600', color: T.text }}>
-            Trading Journal
-          </Text>
-          <View style={{ width: 46 }} />
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+        <Pressable
+          onPress={() => router.replace('/(tabs)/settings')}
+          hitSlop={15}
+          style={styles.backButton}
+          latencyLabel="journal.back"
+        >
+          <Ionicons name="arrow-back" size={22} color={T.text} />
+        </Pressable>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle}>Journal</Text>
+          <Text style={styles.headerSub}>Today activity log</Text>
+        </View>
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, accountLogin ? styles.statusDotLive : styles.statusDotMuted]} />
+          <Text style={styles.statusPillText}>{accountLogin ? 'Live' : 'Login'}</Text>
         </View>
       </View>
+
       <ScrollView
         keyboardShouldPersistTaps="always"
-        canCancelContentTouches={Platform.OS === 'ios'} style={styles.container} contentContainerStyle={styles.content}>
-
-        {/* TOP TABS */}
-        <JournalTabs activeTab={activeTab} setActiveTab={setActiveTab} isDark={isDark} />
-
-        {activeTab === 'Journal' && (
-          <>
-            {/* STATS HERO */}
-            <View style={styles.heroGrid}>
-              {renderStatCard('WIN RATE', `${winRate}%`, `${winTrades}/${totalTrades} Trades`)}
-              {renderStatCard('NET P&L', fmt.price(totalPnl), 'All Time', totalPnl > 0, totalPnl < 0)}
-              {renderStatCard('AVG R MULTIPLE', `${avgR.toFixed(1)}R`, 'Per Trade')}
-              {renderStatCard('DISCIPLINE', '6.0', 'Average Score')}
+        canCancelContentTouches={Platform.OS === 'ios'}
+        style={styles.container}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 20 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isPullRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={actionColor}
+            colors={[actionColor]}
+          />
+        )}
+      >
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <View>
+              <Text style={styles.summaryTitle}>Session Summary</Text>
+              <Text style={styles.summarySub}>Today | {lastSyncLabel}</Text>
             </View>
-
-            {/* ACTIONS */}
-            <View style={styles.actionRow}>
-              <Pressable style={styles.addBtn} onPress={() => setIsAddModalOpen(true)}>
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-                <Text style={styles.addBtnText}>New Trade</Text>
-              </Pressable>
-              <Pressable style={styles.filterBtn}>
-                <Ionicons name="filter-outline" size={20} color={isDark ? '#F8FAFC' : '#0F172A'} />
-              </Pressable>
+            <View style={styles.summaryStatus}>
+              <Ionicons name="shield-checkmark-outline" size={14} color={actionColor} />
+              <Text style={styles.summaryStatusText}>Audit</Text>
             </View>
+          </View>
 
-            {/* TABLE */}
-            <View style={styles.tableCard}>
-              <View style={styles.tableHeader}>
-                <View style={styles.colDate}><Text style={styles.headerText}>Date/Time</Text></View>
-                <View style={styles.colSymbol}><Text style={styles.headerText}>Symbol</Text></View>
-                <View style={styles.colResult}><Text style={styles.headerText}>Result</Text></View>
-                <View style={styles.colPnl}><Text style={styles.headerText}>P&L</Text></View>
-              </View>
-              
-              {trades.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIconWrap}>
-                    <Ionicons name="reader-outline" size={24} color={isDark ? '#94A3B8' : '#64748B'} />
-                  </View>
-                  <Text style={styles.emptyText}>No trades logged yet.</Text>
-                </View>
-              ) : (
-                trades.map((trade) => {
-                  const dt = new Date(trade.date);
-                  const isWin = trade.result === 'Win';
-                  return (
-                    <Pressable key={trade.id} style={styles.row} onPress={() => setSelectedTrade(trade)}>
-                      <View style={styles.colDate}>
-                        <Text style={styles.cellText}>{dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text>
-                        <Text style={styles.cellSub}>{dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</Text>
-                      </View>
-                      <View style={styles.colSymbol}>
-                        <Text style={styles.cellText}>{trade.symbol}</Text>
-                        <Text style={styles.cellSub}>{trade.tradeType}</Text>
-                      </View>
-                      <View style={styles.colResult}>
-                        <View style={[styles.badge, isWin ? styles.badgeWin : styles.badgeLoss]}>
-                          <Text style={isWin ? styles.badgeTextWin : styles.badgeTextLoss}>{trade.result}</Text>
+          <View style={styles.summaryMetrics}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Today's Trades</Text>
+              <Text style={styles.summaryValue}>{todayTrades}</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Net P/L</Text>
+              <Text style={[styles.summaryValue, todayPnl < 0 ? styles.lossText : styles.profitText]}>
+                {formatMoney(todayPnl)}
+              </Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Win/Loss</Text>
+              <Text style={styles.summaryValue}>{todayWins}W / {todayLosses}L</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.activityToolbar}>
+          <View>
+            <Text style={styles.activityToolbarTitle}>Activity Feed</Text>
+            <Text style={styles.activityToolbarSub}>{filteredItems.length} entries | clears at midnight</Text>
+          </View>
+          <Pressable
+            style={styles.toolbarNoteButton}
+            onPress={() => setIsNoteOpen(true)}
+            latencyLabel="journal.toolbarNote"
+          >
+            <Ionicons name="create-outline" size={15} color={actionColor} />
+            <Text style={styles.toolbarNoteText}>Note</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+          contentContainerStyle={styles.filterRow}
+        >
+          {FILTERS.map((item) => {
+            const active = filter === item;
+            return (
+              <Pressable
+                key={item}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setFilter(item)}
+                latencyLabel={`journal.filter.${item}`}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
+                <Text style={[styles.filterCount, active && styles.filterTextActive]}>{filterCounts[item]}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {groups.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="reader-outline" size={22} color={T.textMuted} />
+            </View>
+            <Text style={styles.emptyTitle}>{emptyMessage}</Text>
+            <Text style={styles.emptySub}>Actions will appear here after trades are opened, modified, closed, or noted.</Text>
+          </View>
+        ) : (
+          groups.map((group) => (
+            <View key={group.heading} style={styles.dateGroup}>
+              <Text style={styles.dateHeading}>{group.heading}</Text>
+              <View style={styles.timeline}>
+                {group.items.map((item) => (
+                  <View key={item.id} style={styles.timelineRow}>
+                    <View style={[styles.activityCard, toneStyles.cards[item.tone]]}>
+                      <View style={styles.activityTop}>
+                        <View style={styles.activityTitleBlock}>
+                          <Text style={styles.activityTitle}>{item.title}</Text>
+                          <View style={styles.activityMetaRow}>
+                            <Text style={styles.activityTime}>{formatTime(item.timestamp)}</Text>
+                            {item.symbol ? <Text style={styles.symbolBadge}>{item.symbol}</Text> : null}
+                          </View>
+                        </View>
+                        <View style={[styles.actionPill, toneStyles.pills[item.tone]]}>
+                          <Text style={[styles.actionPillText, toneStyles.labels[item.tone]]}>
+                            {getActivityBadgeLabel(item)}
+                          </Text>
                         </View>
                       </View>
-                      <View style={styles.colPnl}>
-                        <Text style={isWin ? styles.pnlPos : styles.pnlNeg}>
-                          {isWin ? '+' : ''}{fmt.price(trade.pnlMoney || 0)}
-                        </Text>
-                        <Text style={styles.cellSub}>{isWin ? '+' : ''}{trade.finalRMultiple}R</Text>
+                      <View style={styles.detailGrid}>
+                        {item.details.map((detail) => (
+                          <View key={`${item.id}-${detail.label}`} style={styles.detailItem}>
+                            <Text style={styles.detailLabel}>{detail.label}</Text>
+                            <Text
+                              style={[
+                                styles.detailValue,
+                                detail.tone === 'profit' && styles.profitText,
+                                detail.tone === 'loss' && styles.lossText,
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {detail.value}
+                            </Text>
+                          </View>
+                        ))}
                       </View>
-                    </Pressable>
-                  );
-                })
-              )}
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
-          </>
+          ))
         )}
 
-        {activeTab === 'Analytics' && <AnalyticsTab isDark={isDark} trades={trades} />}
-        
-        {activeTab === 'Review' && <ReviewTab isDark={isDark} trades={trades} />}
-
+        <Pressable
+          style={[styles.addNoteButton, styles.addNoteButtonSecondary]}
+          onPress={() => setIsNoteOpen(true)}
+          latencyLabel="journal.addNote"
+        >
+          <Ionicons name="add-circle-outline" size={18} color={actionColor} />
+          <Text style={styles.addNoteText}>Add Note</Text>
+        </Pressable>
       </ScrollView>
 
-      {/* FULL ADD TRADE MODAL */}
-      {isAddModalOpen && (
-        <AddTradeModal onClose={() => setIsAddModalOpen(false)} isDark={isDark} />
-      )}
-
-      {/* TRADE DETAIL DRAWER */}
-      {selectedTrade && (
-        <TradeDetailDrawer trade={selectedTrade} onClose={() => setSelectedTrade(null)} isDark={isDark} />
-      )}
+      {isNoteOpen ? (
+        <View style={styles.noteOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsNoteOpen(false)} latencyLabel="journal.noteOverlay" />
+          <View style={[styles.noteSheet, { paddingBottom: insets.bottom + 12 }]}>
+            <View style={styles.noteHeader}>
+              <Text style={styles.noteTitle}>Add Note</Text>
+              <Pressable onPress={() => setIsNoteOpen(false)} style={styles.noteClose} latencyLabel="journal.noteClose">
+                <Ionicons name="close" size={20} color={T.text} />
+              </Pressable>
+            </View>
+            <TextInput
+              value={noteText}
+              onChangeText={setNoteText}
+              placeholder="Write a short trading note..."
+              placeholderTextColor={T.textMuted}
+              multiline
+              textAlignVertical="top"
+              style={styles.noteInput}
+            />
+            <Pressable
+              style={[styles.saveNoteButton, !noteText.trim() && styles.saveNoteButtonDisabled]}
+              onPress={handleSaveNote}
+              disabled={!noteText.trim()}
+              latencyLabel="journal.noteSave"
+            >
+              <Text style={styles.saveNoteText}>Save Note</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </Screen>
   );
 }
