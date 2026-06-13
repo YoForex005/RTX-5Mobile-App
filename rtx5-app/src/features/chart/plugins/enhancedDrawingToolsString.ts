@@ -233,7 +233,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return isFiniteNumber(price) ? price.toFixed(precision) : '';
   }
 
-  function formatCrosshairTime(time) {
+  function normalizeCrosshairTimeframe(timeframe) {
+    return String(timeframe || '').trim().toUpperCase();
+  }
+
+  function formatCrosshairTime(time, timeframe) {
     if (isFiniteNumber(time)) {
       var date = new Date(time * 1000);
       if (isFinite(date.getTime())) {
@@ -241,15 +245,61 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         var day = String(date.getUTCDate()).padStart(2, '0');
         var hour = String(date.getUTCHours()).padStart(2, '0');
         var minute = String(date.getUTCMinutes()).padStart(2, '0');
-        return day + ' ' + months[date.getUTCMonth()] + ' ' + hour + ':' + minute;
+        var month = months[date.getUTCMonth()];
+        var year = date.getUTCFullYear();
+        var tf = normalizeCrosshairTimeframe(timeframe);
+        if (tf === '1D' || tf === 'D' || tf === 'DAY') {
+          return day + ' ' + month + ' ' + year;
+        }
+        if (tf === '1W' || tf === 'W' || tf === 'WEEK') {
+          return day + ' ' + month + ' ' + year;
+        }
+        if (tf === '1M' || tf === 'MN' || tf === 'MONTH') {
+          return month + ' ' + year;
+        }
+        if (tf === '1H' || tf === 'H1' || tf === '4H' || tf === 'H4') {
+          return day + ' ' + month + ' ' + hour + ':00';
+        }
+        return day + ' ' + month + ' ' + hour + ':' + minute;
       }
     }
 
     if (time && typeof time === 'object' && time.year && time.month && time.day) {
-      return String(time.year) + '-' + String(time.month).padStart(2, '0') + '-' + String(time.day).padStart(2, '0');
+      var businessMonth = String(time.month).padStart(2, '0');
+      var businessDay = String(time.day).padStart(2, '0');
+      var businessFrame = normalizeCrosshairTimeframe(timeframe);
+      if (businessFrame === '1M' || businessFrame === 'MN' || businessFrame === 'MONTH') {
+        return String(time.year) + '-' + businessMonth;
+      }
+      return String(time.year) + '-' + businessMonth + '-' + businessDay;
     }
 
     return String(time || '');
+  }
+
+  function timeToComparableValue(time) {
+    if (isFiniteNumber(time)) {
+      return time;
+    }
+    if (time && typeof time === 'object' && time.year && time.month && time.day) {
+      return (Number(time.year) * 10000) + (Number(time.month) * 100) + Number(time.day);
+    }
+    return null;
+  }
+
+  function formatCrosshairPercent(value) {
+    return (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
+  }
+
+  function formatCrosshairVolume(value) {
+    if (!isFiniteNumber(value)) {
+      return '';
+    }
+    var abs = Math.abs(value);
+    if (abs >= 1000000000) return (value / 1000000000).toFixed(2) + 'B';
+    if (abs >= 1000000) return (value / 1000000).toFixed(2) + 'M';
+    if (abs >= 1000) return (value / 1000).toFixed(2) + 'K';
+    return String(Math.round(value));
   }
 
   function roundRectPath(ctx, x, y, width, height, radius) {
@@ -301,16 +351,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   }
 
   function clonePoint(point) {
-    return {
+    var next = {
       time: point.time,
       price: point.price
     };
+    if (point.timestamp !== undefined) next.timestamp = point.timestamp;
+    if (point.dataIndex !== undefined) next.dataIndex = point.dataIndex;
+    if (point.paneId !== undefined) next.paneId = point.paneId;
+    return next;
   }
 
   function clonePoints(points) {
     return Array.isArray(points)
       ? points.map(function (point) { return clonePoint(point); })
       : [];
+  }
+
+  function cloneSerializable(value, fallback) {
+    if (value === undefined || value === null) return fallback;
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (_error) {
+      return fallback;
+    }
   }
 
   function hasTouchSupport() {
@@ -360,6 +423,51 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   });
 
   function createLinePrimitive(p1, p2, options) {
+    function resolveLineStyleDash(style, ratio) {
+      var px = Math.max(1, ratio || 1);
+      if (style === 'dashed') return [8 * px, 5 * px];
+      if (style === 'dotted') return [2 * px, 5 * px];
+      return [];
+    }
+
+    function extendLineSegment(x1, y1, x2, y2, width, height, mode) {
+      var start = { x: x1, y: y1 };
+      var end = { x: x2, y: y2 };
+      var dx = x2 - x1;
+      var dy = y2 - y1;
+      var extendMode = mode || 'none';
+      if (extendMode === 'none' || (!isFiniteNumber(dx)) || (!isFiniteNumber(dy)) || (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001)) {
+        return { start: start, end: end };
+      }
+
+      if (Math.abs(dx) < 0.001) {
+        if (extendMode === 'left' || extendMode === 'both') {
+          if (y1 <= y2) start = { x: x1, y: 0 };
+          else end = { x: x2, y: 0 };
+        }
+        if (extendMode === 'right' || extendMode === 'both') {
+          if (y1 <= y2) end = { x: x2, y: height };
+          else start = { x: x1, y: height };
+        }
+        return { start: start, end: end };
+      }
+
+      function pointAtX(targetX) {
+        var ratio = (targetX - x1) / dx;
+        return { x: targetX, y: y1 + (dy * ratio) };
+      }
+
+      if (extendMode === 'left' || extendMode === 'both') {
+        if (x1 <= x2) start = pointAtX(0);
+        else end = pointAtX(0);
+      }
+      if (extendMode === 'right' || extendMode === 'both') {
+        if (x1 <= x2) end = pointAtX(width);
+        else start = pointAtX(width);
+      }
+      return { start: start, end: end };
+    }
+
     function LinePaneRenderer(source, points) {
       this._source = source;
       this._points = points;
@@ -372,30 +480,52 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (!source._options.visible || p1p.x === null || p1p.y === null || p2p.x === null || p2p.y === null) return;
       target.useBitmapCoordinateSpace(function (scope) {
         var ctx = scope.context;
-        var x1 = Math.round(p1p.x * scope.horizontalPixelRatio);
-        var y1 = Math.round(p1p.y * scope.verticalPixelRatio);
-        var x2 = Math.round(p2p.x * scope.horizontalPixelRatio);
-        var y2 = Math.round(p2p.y * scope.verticalPixelRatio);
+        var horizontalRatio = scope.horizontalPixelRatio || 1;
+        var verticalRatio = scope.verticalPixelRatio || 1;
+        var x1 = Math.round(p1p.x * horizontalRatio);
+        var y1 = Math.round(p1p.y * verticalRatio);
+        var x2 = Math.round(p2p.x * horizontalRatio);
+        var y2 = Math.round(p2p.y * verticalRatio);
+        var bitmapWidth = scope.bitmapSize && isFiniteNumber(scope.bitmapSize.width) ? scope.bitmapSize.width : Math.max(x1, x2, 1);
+        var bitmapHeight = scope.bitmapSize && isFiniteNumber(scope.bitmapSize.height) ? scope.bitmapSize.height : Math.max(y1, y2, 1);
+        var lineColor = source._options.selected
+          ? source._options.selectedColor
+          : (source._options.hovered ? source._options.hoverColor : source._options.color);
+        var extended = extendLineSegment(x1, y1, x2, y2, bitmapWidth, bitmapHeight, source._options.extendMode);
+        var dash = resolveLineStyleDash(source._options.lineStyle, horizontalRatio);
         ctx.save();
-        ctx.lineWidth = source._options.width * scope.horizontalPixelRatio;
-        ctx.strokeStyle = source._options.color;
+        ctx.globalAlpha = source._options.opacity;
+        ctx.lineWidth = source._options.width * horizontalRatio;
+        ctx.strokeStyle = lineColor;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        if (ctx.setLineDash) ctx.setLineDash(dash);
+        // Render-time extension changes only the pixels; logical anchors stay stable for pan/zoom/live candle updates.
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        ctx.moveTo(extended.start.x, extended.start.y);
+        ctx.lineTo(extended.end.x, extended.end.y);
         ctx.stroke();
-        ctx.fillStyle = source._options.color;
-        ctx.beginPath();
-        ctx.arc(x1, y1, 3 * scope.horizontalPixelRatio, 0, Math.PI * 2);
-        ctx.arc(x2, y2, 3 * scope.horizontalPixelRatio, 0, Math.PI * 2);
-        ctx.fill();
+
+        if (ctx.setLineDash) ctx.setLineDash([]);
+        if (source._options.showHandles || source._options.selected || source._options.draft) {
+          var handleRadius = (source._options.selected ? source._options.selectedHandleRadius : source._options.handleRadius) * horizontalRatio;
+          ctx.fillStyle = source._options.handleFillColor;
+          ctx.strokeStyle = lineColor;
+          ctx.lineWidth = Math.max(1, source._options.handleBorderWidth * horizontalRatio);
+          ctx.beginPath();
+          ctx.arc(x1, y1, handleRadius, 0, Math.PI * 2);
+          ctx.arc(x2, y2, handleRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
         if (source._options.label) {
-          ctx.font = '600 ' + Math.round(source._options.fontSize * scope.horizontalPixelRatio) + 'px Arial';
-          var padding = 6 * scope.horizontalPixelRatio;
+          var fontSize = Math.round(source._options.fontSize * horizontalRatio);
+          ctx.font = '600 ' + fontSize + 'px Arial';
+          var padding = 6 * horizontalRatio;
           var textWidth = ctx.measureText(source._options.label).width;
           var lx = x2 + padding;
           var ly = y2 - (source._options.fontSize + padding * 0.35);
-          roundRectPath(ctx, lx - padding * 0.65, ly - padding * 0.85, textWidth + padding * 1.3, source._options.fontSize + padding * 1.2, 6 * scope.horizontalPixelRatio);
+          roundRectPath(ctx, lx - padding * 0.65, ly - padding * 0.85, textWidth + padding * 1.3, source._options.fontSize + padding * 1.2, 6 * horizontalRatio);
           ctx.fillStyle = source._options.labelBackgroundColor;
           ctx.fill();
           ctx.fillStyle = source._options.labelTextColor;
@@ -432,8 +562,21 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._p2 = pointB;
       this._options = Object.assign({
         color: '#3B82F6',
+        selectedColor: '#1D4ED8',
+        hoverColor: '#2563EB',
         width: 2,
         visible: true,
+        selected: false,
+        hovered: false,
+        draft: false,
+        opacity: 1,
+        lineStyle: 'solid',
+        extendMode: 'none',
+        showHandles: false,
+        handleRadius: 4,
+        selectedHandleRadius: 5,
+        handleBorderWidth: 2,
+        handleFillColor: '#FFFFFF',
         label: '',
         fontSize: 11,
         labelBackgroundColor: 'rgba(15, 23, 42, 0.92)',
@@ -454,10 +597,40 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._options.visible = !!visible;
       this.requestUpdate();
     };
+    LinePrimitive.prototype.setSelected = function (selected) {
+      this._options.selected = !!selected;
+      this.requestUpdate();
+    };
+    LinePrimitive.prototype.setHovered = function (hovered) {
+      this._options.hovered = !!hovered;
+      this.requestUpdate();
+    };
+    LinePrimitive.prototype.setDraft = function (draft) {
+      this._options.draft = !!draft;
+      this.requestUpdate();
+    };
+    LinePrimitive.prototype.setOptions = function (options) {
+      if (!options || typeof options !== 'object') return;
+      this._options = Object.assign({}, this._options, options);
+      this.requestUpdate();
+    };
     LinePrimitive.prototype.updatePoints = function (pointA, pointB) {
       this._p1 = pointA;
       this._p2 = pointB;
       this.requestUpdate();
+    };
+    LinePrimitive.prototype.getPoints = function () {
+      return clonePoints([this._p1, this._p2]);
+    };
+    LinePrimitive.prototype.getGeometry = function () {
+      this.updateAllViews();
+      var view = this._paneViews[0];
+      return view && view._points
+        ? {
+            p1: { x: view._points.p1.x, y: view._points.p1.y },
+            p2: { x: view._points.p2.x, y: view._points.p2.y }
+          }
+        : null;
     };
     return new LinePrimitive(p1, p2, options);
   }
@@ -873,6 +1046,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   BaseTool.prototype._resolvePoint = function (param) {
     if (!param || !param.point || !param.time) return null;
+    if (this._manager && typeof this._manager._resolveCrosshairState === 'function') {
+      var state = this._manager._resolveCrosshairState(param);
+      if (state && state.time !== null && state.time !== undefined && isFiniteNumber(state.price)) {
+        var resolved = { time: state.time, price: state.price };
+        if (state.timestamp !== undefined) resolved.timestamp = state.timestamp;
+        if (state.dataIndex !== undefined) resolved.dataIndex = state.dataIndex;
+        if (state.paneId !== undefined) resolved.paneId = state.paneId;
+        return resolved;
+      }
+    }
     var price = this._series.coordinateToPrice(param.point.y);
     if (price === null || price === undefined) return null;
     return { time: param.time, price: price };
@@ -881,6 +1064,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   BaseTool.prototype._completeDrawing = function (primitive, explicitLabel, serializedData) {
     if (!primitive) return;
     this._manager.registerDrawing(this._kind, primitive, explicitLabel, serializedData);
+    this._manager._ignoreCrosshairClickUntil = Date.now() + 120;
     if (this._manager.isStickyMode()) {
       this._drawing = true;
       if (typeof this._resetDrawingSession === 'function') this._resetDrawingSession();
@@ -1020,6 +1204,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._locked = false;
     this._sticky = false;
     this._magnetEnabled = false;
+    this._crosshairLocked = false;
+    this._crosshairVisible = false;
+    this._crosshairRaf = 0;
+    this._crosshairConfig = {
+      symbol: '',
+      timeframe: '',
+      lineColor: 'rgba(148, 163, 184, 0.68)',
+      labelBackground: 'rgba(15, 23, 42, 0.96)',
+      labelText: '#FFFFFF',
+      tooltipBackground: 'rgba(15, 23, 42, 0.94)',
+      tooltipBorder: 'rgba(148, 163, 184, 0.28)',
+      tooltipText: '#E5E7EB',
+      tooltipMuted: '#94A3B8',
+      upColor: '#2962FF',
+      downColor: '#EF5350',
+      snapType: 'ohlc-nearest',
+      snapThresholdPx: 18
+    };
+    this._lastCrosshairParam = null;
+    this._lastCrosshairState = null;
+    this._pendingCrosshairState = null;
+    this._lastNotifiedCrosshairSignature = '';
+    this._ignoreCrosshairClickUntil = 0;
     this._drawingCounter = {};
     this._records = [];
     this._chartHost = null;
@@ -1027,11 +1234,27 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
+    this._touchStartX = 0;
+    this._touchStartY = 0;
+    this._lastTextEditTap = null;
+    this._selectedRecordId = null;
+    this._hoveredRecordId = null;
+    this._lineEditState = null;
+    this._lineEditPendingFrame = 0;
+    this._lineEditPendingPoints = null;
+    this._textEditState = null;
+    this._snapBypassActive = false;
     this._crosshairOverlay = null;
     this._handleTouchStart = this._handleTouchStart.bind(this);
     this._handleTouchMove = this._handleTouchMove.bind(this);
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
     this._handleTouchCancel = this._handleTouchCancel.bind(this);
+    this._handleHostDoubleClick = this._handleHostDoubleClick.bind(this);
+    this._handleTextEditDocumentPointer = this._handleTextEditDocumentPointer.bind(this);
+    this._handleCrosshairMove = this._handleCrosshairMove.bind(this);
+    this._handleCrosshairClick = this._handleCrosshairClick.bind(this);
+    this._handleKeyDown = this._handleKeyDown.bind(this);
+    this._handleKeyUp = this._handleKeyUp.bind(this);
     this._tools = {};
     ENHANCED_DRAWING_TOOL_SPECS.forEach(function (spec) {
       if (!spec || !spec.kind || typeof spec.createTool !== 'function') return;
@@ -1045,6 +1268,22 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         this._tools[spec.kind] = tool;
       }
     }, this);
+    try {
+      if (this._chart && typeof this._chart.subscribeCrosshairMove === 'function') {
+        this._chart.subscribeCrosshairMove(this._handleCrosshairMove);
+      }
+    } catch (_subscribeMoveError) {}
+    try {
+      if (this._chart && typeof this._chart.subscribeClick === 'function') {
+        this._chart.subscribeClick(this._handleCrosshairClick);
+      }
+    } catch (_subscribeClickError) {}
+    try {
+      if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+        document.addEventListener('keydown', this._handleKeyDown, true);
+        document.addEventListener('keyup', this._handleKeyUp, true);
+      }
+    } catch (_keyError) {}
     this._bindTouchBridge();
     this._emitDrawingsChanged();
     this._applyChartInteractionMode();
@@ -1068,7 +1307,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._bindTouchBridge = function () {
-    if (!this.shouldUseDirectTouchInput() || typeof document === 'undefined') {
+    if (typeof document === 'undefined') {
       return;
     }
 
@@ -1079,10 +1318,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     this._unbindTouchBridge();
     this._chartHost = host;
-    host.addEventListener('touchstart', this._handleTouchStart, { capture: true, passive: false });
-    host.addEventListener('touchmove', this._handleTouchMove, { capture: true, passive: false });
-    host.addEventListener('touchend', this._handleTouchEnd, { capture: true, passive: false });
-    host.addEventListener('touchcancel', this._handleTouchCancel, { capture: true, passive: false });
+    host.addEventListener('dblclick', this._handleHostDoubleClick, true);
+    if (this.shouldUseDirectTouchInput()) {
+      host.addEventListener('touchstart', this._handleTouchStart, { capture: true, passive: false });
+      host.addEventListener('touchmove', this._handleTouchMove, { capture: true, passive: false });
+      host.addEventListener('touchend', this._handleTouchEnd, { capture: true, passive: false });
+      host.addEventListener('touchcancel', this._handleTouchCancel, { capture: true, passive: false });
+    }
   };
 
   AdvancedDrawingToolsManager.prototype._unbindTouchBridge = function () {
@@ -1090,6 +1332,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return;
     }
 
+    this._chartHost.removeEventListener('dblclick', this._handleHostDoubleClick, true);
     this._chartHost.removeEventListener('touchstart', this._handleTouchStart, true);
     this._chartHost.removeEventListener('touchmove', this._handleTouchMove, true);
     this._chartHost.removeEventListener('touchend', this._handleTouchEnd, true);
@@ -1106,6 +1349,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._lastTouchParam = null;
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
   };
 
   AdvancedDrawingToolsManager.prototype._applyElementStyles = function (element, styles) {
@@ -1122,6 +1367,13 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (!this._chartHost) {
       this._bindTouchBridge();
     }
+    if (!this._chartHost && typeof document !== 'undefined') {
+      try {
+        this._chartHost = document.getElementById('chart');
+      } catch (_hostError) {
+        this._chartHost = null;
+      }
+    }
     if (!this._chartHost || typeof document === 'undefined') {
       return null;
     }
@@ -1135,6 +1387,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     var priceLabel = document.createElement('div');
     var timeLabel = document.createElement('div');
     var center = document.createElement('div');
+    var tooltip = document.createElement('div');
+    var lockBadge = document.createElement('div');
 
     root.setAttribute('data-rtx5-crosshair-overlay', 'true');
     this._applyElementStyles(root, {
@@ -1146,57 +1400,84 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       pointerEvents: 'none',
       overflow: 'hidden',
       display: 'none',
-      zIndex: '5'
+      zIndex: '45'
     });
     this._applyElementStyles(vertical, {
       position: 'absolute',
       top: '0',
-      bottom: '0',
       width: '0',
-      borderLeft: '1px dashed rgba(15, 23, 42, 0.68)'
+      height: '0',
+      borderLeft: '1px dashed rgba(148, 163, 184, 0.68)'
     });
     this._applyElementStyles(horizontal, {
       position: 'absolute',
       left: '0',
-      right: '0',
       height: '0',
-      borderTop: '1px dashed rgba(15, 23, 42, 0.68)'
+      width: '0',
+      borderTop: '1px dashed rgba(148, 163, 184, 0.68)'
     });
     this._applyElementStyles(priceLabel, {
       position: 'absolute',
       right: '0',
-      minWidth: '58px',
-      padding: '2px 6px',
-      borderRadius: '2px',
-      background: 'rgba(15, 23, 42, 0.95)',
+      minWidth: '60px',
+      padding: '3px 7px',
+      borderRadius: '4px',
+      background: 'rgba(15, 23, 42, 0.96)',
       color: '#FFFFFF',
       font: '700 11px Arial, sans-serif',
       lineHeight: '14px',
       textAlign: 'center',
       whiteSpace: 'nowrap',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
       transform: 'translateY(-50%)'
     });
     this._applyElementStyles(timeLabel, {
       position: 'absolute',
-      bottom: '0',
-      padding: '2px 7px',
-      borderRadius: '2px',
-      background: 'rgba(15, 23, 42, 0.95)',
+      top: '0',
+      padding: '3px 8px',
+      borderRadius: '4px',
+      background: 'rgba(15, 23, 42, 0.96)',
       color: '#FFFFFF',
       font: '700 11px Arial, sans-serif',
       lineHeight: '14px',
       whiteSpace: 'nowrap',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
       transform: 'translateX(-50%)'
     });
     this._applyElementStyles(center, {
       position: 'absolute',
-      width: '7px',
-      height: '7px',
+      width: '6px',
+      height: '6px',
       marginLeft: '-3px',
       marginTop: '-3px',
       borderRadius: '999px',
-      border: '1px solid rgba(15, 23, 42, 0.85)',
-      background: '#FFFFFF'
+      border: '1px solid rgba(148, 163, 184, 0.9)',
+      background: 'rgba(255, 255, 255, 0.92)'
+    });
+    this._applyElementStyles(tooltip, {
+      position: 'absolute',
+      minWidth: '148px',
+      maxWidth: '190px',
+      padding: '8px 9px',
+      borderRadius: '6px',
+      border: '1px solid rgba(148, 163, 184, 0.28)',
+      background: 'rgba(15, 23, 42, 0.94)',
+      color: '#E5E7EB',
+      font: '600 11px Arial, sans-serif',
+      lineHeight: '15px',
+      boxShadow: '0 8px 22px rgba(0, 0, 0, 0.28)',
+      whiteSpace: 'normal'
+    });
+    this._applyElementStyles(lockBadge, {
+      position: 'absolute',
+      display: 'none',
+      padding: '2px 5px',
+      borderRadius: '999px',
+      background: 'rgba(37, 99, 235, 0.95)',
+      color: '#FFFFFF',
+      font: '700 9px Arial, sans-serif',
+      lineHeight: '11px',
+      letterSpacing: '0'
     });
 
     root.appendChild(vertical);
@@ -1204,6 +1485,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     root.appendChild(priceLabel);
     root.appendChild(timeLabel);
     root.appendChild(center);
+    root.appendChild(tooltip);
+    root.appendChild(lockBadge);
     this._chartHost.appendChild(root);
     this._crosshairOverlay = {
       root: root,
@@ -1211,27 +1494,599 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       horizontal: horizontal,
       priceLabel: priceLabel,
       timeLabel: timeLabel,
-      center: center
+      center: center,
+      tooltip: tooltip,
+      lockBadge: lockBadge
     };
 
     return this._crosshairOverlay;
   };
 
   AdvancedDrawingToolsManager.prototype._hideCrosshairOverlay = function () {
+    this._crosshairVisible = false;
+    this._lastCrosshairParam = null;
     if (this._crosshairOverlay && this._crosshairOverlay.root) {
       this._crosshairOverlay.root.style.display = 'none';
     }
+    this._notifyCrosshairCandle(null);
   };
 
   AdvancedDrawingToolsManager.prototype._destroyCrosshairOverlay = function () {
+    if (this._crosshairRaf) {
+      try {
+        var cancelRaf = (typeof window !== 'undefined' && window.cancelAnimationFrame) || (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : null);
+        if (cancelRaf) cancelRaf(this._crosshairRaf);
+      } catch (_cancelError) {}
+      this._crosshairRaf = 0;
+    }
     if (this._crosshairOverlay && this._crosshairOverlay.root && this._crosshairOverlay.root.parentNode) {
       try { this._crosshairOverlay.root.parentNode.removeChild(this._crosshairOverlay.root); } catch (_error) {}
     }
     this._crosshairOverlay = null;
+    this._crosshairVisible = false;
+    this._lastCrosshairParam = null;
+    this._lastCrosshairState = null;
+    this._pendingCrosshairState = null;
+    this._notifyCrosshairCandle(null);
   };
 
-  AdvancedDrawingToolsManager.prototype._updateCrosshairOverlay = function (_param) {
-    this._hideCrosshairOverlay();
+  AdvancedDrawingToolsManager.prototype._getCrosshairMetrics = function () {
+    var width = 0;
+    var height = 0;
+    try {
+      var rect = this._chartHost && typeof this._chartHost.getBoundingClientRect === 'function'
+        ? this._chartHost.getBoundingClientRect()
+        : null;
+      width = rect && isFiniteNumber(rect.width) ? rect.width : 0;
+      height = rect && isFiniteNumber(rect.height) ? rect.height : 0;
+    } catch (_rectError) {}
+    if (!(width > 0)) {
+      width = this._chartHost && isFiniteNumber(this._chartHost.clientWidth) ? this._chartHost.clientWidth : 0;
+    }
+    if (!(height > 0)) {
+      height = this._chartHost && isFiniteNumber(this._chartHost.clientHeight) ? this._chartHost.clientHeight : 0;
+    }
+
+    var rightAxisWidth = 64;
+    var timeAxisHeight = 24;
+    try {
+      var rightPriceScale = this._chart && typeof this._chart.priceScale === 'function' ? this._chart.priceScale('right') : null;
+      if (rightPriceScale && typeof rightPriceScale.width === 'function') {
+        var measuredRightAxis = rightPriceScale.width();
+        if (isFiniteNumber(measuredRightAxis) && measuredRightAxis >= 0) {
+          rightAxisWidth = Math.max(48, measuredRightAxis);
+        }
+      }
+    } catch (_rightAxisError) {}
+    try {
+      var timeScale = this._chart && typeof this._chart.timeScale === 'function' ? this._chart.timeScale() : null;
+      if (timeScale && typeof timeScale.height === 'function') {
+        var measuredTimeAxis = timeScale.height();
+        if (isFiniteNumber(measuredTimeAxis) && measuredTimeAxis >= 0) {
+          timeAxisHeight = Math.max(18, measuredTimeAxis);
+        }
+      }
+    } catch (_timeAxisError) {}
+
+    var paneWidth = Math.max(1, width - rightAxisWidth);
+    var paneHeight = Math.max(1, height - timeAxisHeight);
+    try {
+      var paneSize = this._chart && typeof this._chart.paneSize === 'function' ? this._chart.paneSize(0) : null;
+      if (paneSize && isFiniteNumber(paneSize.width) && paneSize.width > 0) {
+        paneWidth = Math.min(width, paneSize.width);
+      }
+      if (paneSize && isFiniteNumber(paneSize.height) && paneSize.height > 0) {
+        paneHeight = Math.min(height, paneSize.height);
+      }
+    } catch (_paneError) {}
+
+    return {
+      width: Math.max(1, width),
+      height: Math.max(1, height),
+      paneWidth: Math.max(1, paneWidth),
+      paneHeight: Math.max(1, paneHeight),
+      rightAxisWidth: Math.max(0, rightAxisWidth),
+      timeAxisHeight: Math.max(0, timeAxisHeight)
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveNearestCandle = function (time, x) {
+    var data = getSeriesData(this._series);
+    if (!Array.isArray(data) || data.length === 0) {
+      return { candle: null, index: null };
+    }
+
+    var index = null;
+    var timeScale = this._chart && typeof this._chart.timeScale === 'function' ? this._chart.timeScale() : null;
+    try {
+      if (timeScale && typeof timeScale.coordinateToLogical === 'function' && isFiniteNumber(x)) {
+        var logical = timeScale.coordinateToLogical(x);
+        if (isFiniteNumber(logical)) {
+          var firstLogical = resolveTimeScaleIndex(timeScale, data[0].time, 0);
+          var resolvedIndex = Math.round(logical - firstLogical);
+          if (isFiniteNumber(resolvedIndex)) {
+            index = Math.max(0, Math.min(data.length - 1, resolvedIndex));
+          }
+        }
+      }
+    } catch (_logicalError) {}
+
+    if (index === null) {
+      var targetComparable = timeToComparableValue(time);
+      var bestDistance = Number.POSITIVE_INFINITY;
+      for (var i = 0; i < data.length; i += 1) {
+        var candidateComparable = timeToComparableValue(data[i] && data[i].time);
+        if (targetComparable === null || candidateComparable === null) {
+          continue;
+        }
+        var distance = Math.abs(candidateComparable - targetComparable);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          index = i;
+        }
+      }
+    }
+
+    if (index === null) {
+      index = Math.max(0, Math.min(data.length - 1, Math.round(data.length - 1)));
+    }
+
+    return {
+      candle: data[index] || null,
+      index: index
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._isSnapBypassActive = function () {
+    return !!this._snapBypassActive;
+  };
+
+  AdvancedDrawingToolsManager.prototype._isMagnetActive = function () {
+    return !!this._magnetEnabled && !this._isSnapBypassActive();
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveCrosshairPrice = function (rawPrice, candle, rawY) {
+    if (!this._isMagnetActive() || !candle) {
+      return rawPrice;
+    }
+
+    var snapType = this._crosshairConfig.snapType || 'ohlc-nearest';
+    if (snapType === 'none' || snapType === 'candle-center') {
+      return rawPrice;
+    }
+    if (snapType === 'close') {
+      var closePrice = isFiniteNumber(candle.close) ? candle.close : (isFiniteNumber(candle.value) ? candle.value : rawPrice);
+      return this._isSnapPriceWithinThreshold(closePrice, rawY) ? closePrice : rawPrice;
+    }
+
+    var candidates = [];
+    if (snapType !== 'high-low' && isFiniteNumber(candle.open)) candidates.push(candle.open);
+    if (isFiniteNumber(candle.high)) candidates.push(candle.high);
+    if (isFiniteNumber(candle.low)) candidates.push(candle.low);
+    if (snapType !== 'high-low' && isFiniteNumber(candle.close)) candidates.push(candle.close);
+    if (snapType !== 'high-low' && isFiniteNumber(candle.value)) candidates.push(candle.value);
+    if (!candidates.length) {
+      return rawPrice;
+    }
+    var nearest = candidates[0];
+    var minDistance = Math.abs(nearest - rawPrice);
+    for (var i = 1; i < candidates.length; i += 1) {
+      var distance = Math.abs(candidates[i] - rawPrice);
+      if (distance < minDistance) {
+        nearest = candidates[i];
+        minDistance = distance;
+      }
+    }
+    return this._isSnapPriceWithinThreshold(nearest, rawY) ? nearest : rawPrice;
+  };
+
+  AdvancedDrawingToolsManager.prototype._isSnapPriceWithinThreshold = function (price, rawY) {
+    if (!this._series || typeof this._series.priceToCoordinate !== 'function') {
+      return true;
+    }
+    var threshold = isFiniteNumber(this._crosshairConfig.snapThresholdPx)
+      ? Math.max(0, this._crosshairConfig.snapThresholdPx)
+      : 18;
+    if (!isFiniteNumber(rawY)) {
+      return true;
+    }
+    try {
+      var y = this._series.priceToCoordinate(price);
+      if (!isFiniteNumber(y)) return false;
+      return Math.abs(y - rawY) <= threshold;
+    } catch (_error) {
+      return true;
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveCrosshairState = function (param) {
+    if (!param || !param.point || !this._series) {
+      return null;
+    }
+    var metrics = this._getCrosshairMetrics();
+    var rawX = clampNumber(param.point.x, 0);
+    var rawY = clampNumber(param.point.y, 0);
+    if (metrics.paneWidth > 1) {
+      rawX = Math.max(0, Math.min(metrics.paneWidth, rawX));
+    }
+    if (metrics.paneHeight > 1) {
+      rawY = Math.max(0, Math.min(metrics.paneHeight, rawY));
+    }
+
+    var timeScale = this._chart && typeof this._chart.timeScale === 'function' ? this._chart.timeScale() : null;
+    var time = param.time;
+    if ((time === null || time === undefined) && timeScale) {
+      time = resolveTimeFromCoordinate(timeScale, this._series, rawX);
+    }
+    if (time === null || time === undefined) {
+      return null;
+    }
+
+    var price = typeof this._series.coordinateToPrice === 'function'
+      ? this._series.coordinateToPrice(rawY)
+      : null;
+    if (price === null || price === undefined || !isFinite(price)) {
+      return null;
+    }
+
+    var nearest = this._resolveNearestCandle(time, rawX);
+    var candle = nearest.candle;
+    var dataIndex = nearest.index;
+    var x = rawX;
+    if (this._isMagnetActive() && candle && candle.time !== undefined) {
+      time = candle.time;
+      var snappedX = resolveCoordinateFromTime(this._chart, this._series, candle.time);
+      if (isFiniteNumber(snappedX)) {
+        x = Math.max(0, Math.min(metrics.paneWidth, snappedX));
+      }
+    }
+
+    price = this._resolveCrosshairPrice(price, candle, rawY);
+    var y = rawY;
+    if (typeof this._series.priceToCoordinate === 'function') {
+      var priceY = this._series.priceToCoordinate(price);
+      if (priceY !== null && priceY !== undefined && isFinite(priceY)) {
+        y = Math.max(0, Math.min(metrics.paneHeight, priceY));
+      }
+    }
+
+    return {
+      visible: true,
+      locked: this._crosshairLocked,
+      rawX: rawX,
+      rawY: rawY,
+      x: x,
+      y: y,
+      metrics: metrics,
+      time: time,
+      price: price,
+      timestamp: isFiniteNumber(time) ? time : undefined,
+      paneId: 'main',
+      priceLabel: formatCrosshairPrice(this._series, price),
+      timeLabel: formatCrosshairTime(time, this._crosshairConfig.timeframe),
+      candle: candle,
+      dataIndex: dataIndex
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildTooltipHtml = function (state) {
+    if (!state || !state.candle) {
+      return '';
+    }
+    var candle = state.candle;
+    var open = isFiniteNumber(candle.open) ? candle.open : (isFiniteNumber(candle.value) ? candle.value : state.price);
+    var high = isFiniteNumber(candle.high) ? candle.high : open;
+    var low = isFiniteNumber(candle.low) ? candle.low : open;
+    var close = isFiniteNumber(candle.close) ? candle.close : (isFiniteNumber(candle.value) ? candle.value : open);
+    var change = close - open;
+    var changePct = open !== 0 ? (change / open) * 100 : 0;
+    var changeColor = change >= 0 ? this._crosshairConfig.upColor : this._crosshairConfig.downColor;
+    var rows = [
+      ['O', formatCrosshairPrice(this._series, open)],
+      ['H', formatCrosshairPrice(this._series, high)],
+      ['L', formatCrosshairPrice(this._series, low)],
+      ['C', formatCrosshairPrice(this._series, close)]
+    ];
+    var volume = formatCrosshairVolume(candle.volume);
+    if (volume) {
+      rows.push(['Vol', volume]);
+    }
+
+    var html = ''
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px;">'
+      + '<span style="color:' + this._crosshairConfig.tooltipMuted + ';font-weight:700;">' + state.timeLabel + '</span>'
+      + '<span style="color:' + changeColor + ';font-weight:800;">' + formatCrosshairPercent(changePct) + '</span>'
+      + '</div>';
+    rows.forEach(function (row) {
+      html += '<div style="display:flex;justify-content:space-between;gap:12px;">'
+        + '<span style="color:' + this._crosshairConfig.tooltipMuted + ';">' + row[0] + '</span>'
+        + '<span style="font-variant-numeric:tabular-nums;">' + row[1] + '</span>'
+        + '</div>';
+    }, this);
+    html += '<div style="display:flex;justify-content:space-between;gap:12px;margin-top:3px;">'
+      + '<span style="color:' + this._crosshairConfig.tooltipMuted + ';">Chg</span>'
+      + '<span style="color:' + changeColor + ';font-variant-numeric:tabular-nums;">' + formatDelta(change) + '</span>'
+      + '</div>';
+    return html;
+  };
+
+  AdvancedDrawingToolsManager.prototype._notifyCrosshairCandle = function (state) {
+    if (!state || !state.candle) {
+      if (this._lastNotifiedCrosshairSignature !== '') {
+        this._lastNotifiedCrosshairSignature = '';
+        safeNotify('CHART_CROSSHAIR_CANDLE', { active: false });
+      }
+      return;
+    }
+
+    var candle = state.candle;
+    var payloadCandle = {
+      time: isFiniteNumber(candle.time) ? candle.time : null,
+      open: isFiniteNumber(candle.open) ? candle.open : (isFiniteNumber(candle.value) ? candle.value : null),
+      high: isFiniteNumber(candle.high) ? candle.high : (isFiniteNumber(candle.value) ? candle.value : null),
+      low: isFiniteNumber(candle.low) ? candle.low : (isFiniteNumber(candle.value) ? candle.value : null),
+      close: isFiniteNumber(candle.close) ? candle.close : (isFiniteNumber(candle.value) ? candle.value : null),
+      volume: isFiniteNumber(candle.volume) ? candle.volume : null
+    };
+    var signature = [
+      state.dataIndex,
+      payloadCandle.time,
+      payloadCandle.open,
+      payloadCandle.high,
+      payloadCandle.low,
+      payloadCandle.close,
+      payloadCandle.volume,
+      state.locked ? 'locked' : 'free'
+    ].join('|');
+    if (signature === this._lastNotifiedCrosshairSignature) {
+      return;
+    }
+    this._lastNotifiedCrosshairSignature = signature;
+    safeNotify('CHART_CROSSHAIR_CANDLE', {
+      active: true,
+      locked: !!state.locked,
+      dataIndex: state.dataIndex,
+      timeLabel: state.timeLabel,
+      candle: payloadCandle
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._renderCrosshairOverlay = function (state) {
+    var overlay = this._ensureCrosshairOverlay();
+    if (!overlay || !state) {
+      return;
+    }
+
+    var metrics = state.metrics;
+    var lineColor = this._crosshairConfig.lineColor;
+    overlay.root.style.display = 'block';
+    overlay.vertical.style.borderLeft = '1px dashed ' + lineColor;
+    overlay.horizontal.style.borderTop = '1px dashed ' + lineColor;
+    overlay.vertical.style.left = Math.round(state.x) + 'px';
+    overlay.vertical.style.top = '0px';
+    overlay.vertical.style.height = Math.round(metrics.paneHeight) + 'px';
+    overlay.horizontal.style.left = '0px';
+    overlay.horizontal.style.top = Math.round(state.y) + 'px';
+    overlay.horizontal.style.width = Math.round(metrics.paneWidth) + 'px';
+    overlay.center.style.left = Math.round(state.x) + 'px';
+    overlay.center.style.top = Math.round(state.y) + 'px';
+
+    overlay.priceLabel.textContent = state.priceLabel;
+    overlay.priceLabel.style.background = this._crosshairConfig.labelBackground;
+    overlay.priceLabel.style.color = this._crosshairConfig.labelText;
+    overlay.priceLabel.style.top = Math.round(Math.max(10, Math.min(metrics.paneHeight - 10, state.y))) + 'px';
+
+    overlay.timeLabel.textContent = state.timeLabel;
+    overlay.timeLabel.style.background = this._crosshairConfig.labelBackground;
+    overlay.timeLabel.style.color = this._crosshairConfig.labelText;
+    overlay.timeLabel.style.top = Math.round(metrics.paneHeight) + 'px';
+    var timeLabelWidth = overlay.timeLabel.offsetWidth || Math.max(68, state.timeLabel.length * 7 + 18);
+    var clampedTimeX = Math.max(timeLabelWidth / 2 + 2, Math.min(metrics.paneWidth - timeLabelWidth / 2 - 2, state.x));
+    overlay.timeLabel.style.left = Math.round(clampedTimeX) + 'px';
+
+    overlay.tooltip.innerHTML = this._buildTooltipHtml(state);
+    overlay.tooltip.style.background = this._crosshairConfig.tooltipBackground;
+    overlay.tooltip.style.borderColor = this._crosshairConfig.tooltipBorder;
+    overlay.tooltip.style.color = this._crosshairConfig.tooltipText;
+    var tooltipWidth = overlay.tooltip.offsetWidth || 164;
+    var tooltipHeight = overlay.tooltip.offsetHeight || 112;
+    var tooltipLeft = state.x + 14;
+    if (tooltipLeft + tooltipWidth > metrics.paneWidth - 6) {
+      tooltipLeft = state.x - tooltipWidth - 14;
+    }
+    tooltipLeft = Math.max(6, Math.min(metrics.paneWidth - tooltipWidth - 6, tooltipLeft));
+    var tooltipTop = state.y + 14;
+    if (tooltipTop + tooltipHeight > metrics.paneHeight - 6) {
+      tooltipTop = state.y - tooltipHeight - 14;
+    }
+    tooltipTop = Math.max(6, Math.min(metrics.paneHeight - tooltipHeight - 6, tooltipTop));
+    overlay.tooltip.style.left = Math.round(tooltipLeft) + 'px';
+    overlay.tooltip.style.top = Math.round(tooltipTop) + 'px';
+
+    overlay.lockBadge.style.display = state.locked ? 'block' : 'none';
+    overlay.lockBadge.textContent = 'LOCK';
+    overlay.lockBadge.style.left = Math.round(Math.max(4, Math.min(metrics.paneWidth - 36, state.x + 8))) + 'px';
+    overlay.lockBadge.style.top = Math.round(Math.max(4, Math.min(metrics.paneHeight - 18, state.y - 18))) + 'px';
+    this._notifyCrosshairCandle(state);
+  };
+
+  AdvancedDrawingToolsManager.prototype._scheduleCrosshairRender = function (state) {
+    this._pendingCrosshairState = state;
+    if (this._crosshairRaf) {
+      return;
+    }
+    var self = this;
+    var raf = null;
+    try {
+      raf = (typeof window !== 'undefined' && window.requestAnimationFrame) || (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null);
+    } catch (_rafError) {
+      raf = null;
+    }
+    var render = function () {
+      self._crosshairRaf = 0;
+      var nextState = self._pendingCrosshairState;
+      self._pendingCrosshairState = null;
+      if (nextState) {
+        self._lastCrosshairState = nextState;
+        self._crosshairVisible = true;
+        self._renderCrosshairOverlay(nextState);
+      }
+    };
+    this._crosshairRaf = raf ? raf(render) : 0;
+    if (!raf) {
+      render();
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._updateCrosshairOverlay = function (param, force) {
+    if (this._crosshairLocked && !force) {
+      return;
+    }
+    var state = this._resolveCrosshairState(param);
+    if (!state) {
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      return;
+    }
+    this._lastCrosshairParam = {
+      point: { x: state.rawX, y: state.rawY },
+      time: state.time
+    };
+    this._scheduleCrosshairRender(state);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleCrosshairMove = function (param) {
+    if (!param || !param.point) {
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      this._setHoveredRecord(null);
+      return;
+    }
+    if (this._activeTool === 'crosshair' && !this._lineEditState) {
+      var hoverHit = this._hitTestEditableDrawingAtPoint(param.point);
+      this._setHoveredRecord(hoverHit && hoverHit.record ? hoverHit.record.id : null);
+    } else {
+      this._setHoveredRecord(null);
+    }
+    this._updateCrosshairOverlay(param, this._isDrawingToolActive());
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleCrosshairClick = function (param) {
+    if (this._activeTool !== 'crosshair' || !param || !param.point) {
+      return;
+    }
+    this._suppressHostTapMenu();
+    if (this._ignoreCrosshairClickUntil && Date.now() <= this._ignoreCrosshairClickUntil) {
+      return;
+    }
+    var drawingHit = this._hitTestEditableDrawingAtPoint(param.point);
+    if (drawingHit && drawingHit.record) {
+      this._crosshairLocked = false;
+      this._hideCrosshairOverlay();
+      this._selectRecord(drawingHit.record.id);
+      return;
+    }
+    if (this._selectedRecordId) {
+      this._selectRecord(null);
+      return;
+    }
+    if (this._crosshairLocked) {
+      this._crosshairLocked = false;
+      this._hideCrosshairOverlay();
+      return;
+    }
+    this._crosshairLocked = true;
+    this._updateCrosshairOverlay(param, true);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleKeyDown = function (event) {
+    var key = event && typeof event.key === 'string' ? event.key : '';
+    if (this._textEditState) {
+      if (key === 'Enter') {
+        this._consumeTouchEvent(event);
+        this._endTextRecordEdit(true);
+      } else if (key === 'Escape' || key === 'Esc') {
+        this._consumeTouchEvent(event);
+        this._endTextRecordEdit(false);
+      }
+      return;
+    }
+    if (key === 'Control' || key === 'Meta' || key === 'Alt') {
+      this._snapBypassActive = true;
+    }
+    if (key === 'Escape' || key === 'Esc') {
+      this._crosshairLocked = false;
+      this._hideCrosshairOverlay();
+      this._endLineEdit(false);
+      if (this._selectedRecordId) {
+        this._selectRecord(null);
+      }
+      if (this._activeTool !== 'crosshair') {
+        this.setActiveTool('crosshair');
+      }
+      return;
+    }
+    if ((key === 'Delete' || key === 'Backspace') && this._selectedRecordId) {
+      this._removeSelectedRecord();
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      return;
+    }
+    if ((key === 'Control' || key === 'Meta') && this._lastCrosshairParam) {
+      this._updateCrosshairOverlay(this._lastCrosshairParam, true);
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleKeyUp = function (event) {
+    var key = event && typeof event.key === 'string' ? event.key : '';
+    if (key === 'Control' || key === 'Meta' || key === 'Alt') {
+      this._snapBypassActive = false;
+      if (this._lastCrosshairParam) {
+        this._updateCrosshairOverlay(this._lastCrosshairParam, true);
+      }
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._suppressHostTapMenu = function () {
+    try {
+      if (typeof window !== 'undefined') {
+        window.__rtx5SuppressChartTapUntil = Date.now() + 550;
+      }
+    } catch (_error) {}
+  };
+
+  AdvancedDrawingToolsManager.prototype.refreshCrosshairData = function () {
+    if (!this._lastCrosshairParam || (!this._crosshairVisible && !this._crosshairLocked)) {
+      return;
+    }
+    this._updateCrosshairOverlay(this._lastCrosshairParam, true);
+  };
+
+  AdvancedDrawingToolsManager.prototype.setCrosshairConfig = function (config) {
+    if (!config || typeof config !== 'object') {
+      return;
+    }
+    var snap = config.snap && typeof config.snap === 'object' ? config.snap : null;
+    this._crosshairConfig = Object.assign({}, this._crosshairConfig, {
+      symbol: typeof config.symbol === 'string' ? config.symbol : this._crosshairConfig.symbol,
+      timeframe: typeof config.timeframe === 'string' ? config.timeframe : this._crosshairConfig.timeframe,
+      lineColor: typeof config.lineColor === 'string' ? config.lineColor : this._crosshairConfig.lineColor,
+      labelBackground: typeof config.labelBackground === 'string' ? config.labelBackground : this._crosshairConfig.labelBackground,
+      labelText: typeof config.labelText === 'string' ? config.labelText : this._crosshairConfig.labelText,
+      tooltipBackground: typeof config.tooltipBackground === 'string' ? config.tooltipBackground : this._crosshairConfig.tooltipBackground,
+      tooltipBorder: typeof config.tooltipBorder === 'string' ? config.tooltipBorder : this._crosshairConfig.tooltipBorder,
+      tooltipText: typeof config.tooltipText === 'string' ? config.tooltipText : this._crosshairConfig.tooltipText,
+      tooltipMuted: typeof config.tooltipMuted === 'string' ? config.tooltipMuted : this._crosshairConfig.tooltipMuted,
+      upColor: typeof config.upColor === 'string' ? config.upColor : this._crosshairConfig.upColor,
+      downColor: typeof config.downColor === 'string' ? config.downColor : this._crosshairConfig.downColor,
+      snapType: snap && typeof snap.type === 'string' ? snap.type : (typeof config.snapType === 'string' ? config.snapType : this._crosshairConfig.snapType),
+      snapThresholdPx: snap && isFiniteNumber(snap.thresholdPx) ? snap.thresholdPx : (isFiniteNumber(config.snapThresholdPx) ? config.snapThresholdPx : this._crosshairConfig.snapThresholdPx)
+    });
+    if (snap && typeof snap.enabled === 'boolean') {
+      this.setMagnetMode(snap.enabled);
+    }
+    this.refreshCrosshairData();
   };
 
   AdvancedDrawingToolsManager.prototype._getActiveTouchTool = function () {
@@ -1269,7 +2124,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype._snapPriceToSeriesBar = function (timeScale, time, price) {
     if (
-      !this._magnetEnabled ||
+      !this._isMagnetActive() ||
       !timeScale ||
       typeof timeScale.timeToIndex !== 'function' ||
       !this._series ||
@@ -1382,9 +2237,342 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
   };
 
+  AdvancedDrawingToolsManager.prototype._resolveHostEventPoint = function (event) {
+    if (!event || !this._chartHost || typeof this._chartHost.getBoundingClientRect !== 'function') {
+      return null;
+    }
+    var rect = this._chartHost.getBoundingClientRect();
+    if (!rect) {
+      return null;
+    }
+    var clientX = isFiniteNumber(event.clientX) ? event.clientX : null;
+    var clientY = isFiniteNumber(event.clientY) ? event.clientY : null;
+    if (clientX === null || clientY === null) {
+      return null;
+    }
+    return {
+      x: Math.max(0, Math.min(rect.width || 0, clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height || 0, clientY - rect.top))
+    };
+  };
+
+  AdvancedDrawingToolsManager.prototype._sanitizeTextRecordValue = function (value) {
+    var text = typeof value === 'string' ? value : '';
+    // Canvas draws plain text only, but we still strip HTML brackets/control chars before persisting.
+    text = text.replace(/<[^>]*>/g, '').replace(/[\\u0000-\\u001F\\u007F]/g, ' ').replace(/[<>]/g, '').replace(/\\s+/g, ' ').trim();
+    if (text.length > 120) {
+      text = text.slice(0, 120);
+    }
+    return text;
+  };
+
+  AdvancedDrawingToolsManager.prototype._commitTextRecordValue = function (record, value) {
+    if (!record) {
+      return false;
+    }
+    var nextText = this._sanitizeTextRecordValue(value);
+    if (!nextText) {
+      nextText = 'Level';
+    }
+    var changed = record.text !== nextText || record.label !== nextText;
+    record.text = nextText;
+    record.label = nextText;
+    record.updatedAt = Date.now();
+    if (record.primitive && typeof record.primitive.updateText === 'function') {
+      record.primitive.updateText(nextText);
+    }
+    if (changed) {
+      this._emitDrawingsChanged();
+    }
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype._shouldUseNativeTextEditor = function () {
+    return this.shouldUseDirectTouchInput() &&
+      typeof window !== 'undefined' &&
+      window.ReactNativeWebView &&
+      typeof window.ReactNativeWebView.postMessage === 'function';
+  };
+
+  AdvancedDrawingToolsManager.prototype._beginNativeTextRecordEdit = function (record, geometry) {
+    if (!this._shouldUseNativeTextEditor()) {
+      return false;
+    }
+    var box = geometry && geometry.labelBox ? geometry.labelBox : null;
+    this._textEditState = {
+      recordId: record.id,
+      input: null,
+      native: true,
+      originalText: record.text || record.label || 'Level'
+    };
+    safeNotify('DRAWING_TEXT_EDIT_REQUEST', {
+      recordId: record.id,
+      kind: record.kind,
+      text: this._sanitizeTextRecordValue(record.text || record.label || 'Level'),
+      label: record.label || 'Level',
+      x: box ? Math.round(box.left) : undefined,
+      y: box ? Math.round(box.top) : undefined,
+      width: box ? Math.max(56, Math.round(box.width)) : undefined,
+      height: box ? Math.max(24, Math.round(box.height)) : undefined
+    });
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype._isTextRecordEditable = function (record) {
+    return !!record &&
+      !!record.primitive &&
+      (record.kind === 'textLevel' || typeof record.primitive.getTextEditGeometry === 'function') &&
+      !record.locked &&
+      !this._locked;
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleHostDoubleClick = function (event) {
+    var point = this._resolveHostEventPoint(event);
+    if (!point) {
+      return;
+    }
+    var hit = this._hitTestEditableDrawingAtPoint(point);
+    if (!hit || !this._isTextRecordEditable(hit.record)) {
+      return;
+    }
+    this._consumeTouchEvent(event);
+    this._selectRecord(hit.record.id);
+    this._beginTextRecordEdit(hit.record);
+  };
+
+  AdvancedDrawingToolsManager.prototype._handleTextEditDocumentPointer = function (event) {
+    var state = this._textEditState;
+    if (!state || !state.input) {
+      return;
+    }
+    if (event && event.target === state.input) {
+      return;
+    }
+    this._endTextRecordEdit(true);
+  };
+
+  AdvancedDrawingToolsManager.prototype._beginTextRecordEdit = function (record) {
+    if (!this._isTextRecordEditable(record) || typeof document === 'undefined') {
+      return false;
+    }
+    if (!this._chartHost) {
+      this._bindTouchBridge();
+    }
+    if (!this._chartHost) {
+      return false;
+    }
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    if (record.primitive && typeof record.primitive.updateAllViews === 'function') {
+      record.primitive.updateAllViews();
+    }
+    if (
+      record.primitive &&
+      typeof record.primitive.setFallbackPaneSize === 'function'
+    ) {
+      try {
+        var metrics = this._getCrosshairMetrics();
+        record.primitive.setFallbackPaneSize(metrics.paneWidth, metrics.paneHeight);
+      } catch (_metricsError) {}
+    }
+    var geometry = record.primitive && typeof record.primitive.getTextEditGeometry === 'function'
+      ? record.primitive.getTextEditGeometry()
+      : null;
+    if (!geometry || !geometry.labelBox) {
+      return false;
+    }
+    if (this._beginNativeTextRecordEdit(record, geometry)) {
+      return true;
+    }
+    var style = record.primitive && typeof record.primitive.getTextEditStyle === 'function'
+      ? record.primitive.getTextEditStyle()
+      : {};
+    var box = geometry.labelBox;
+    var input = document.createElement('input');
+    if (!input || typeof input.addEventListener !== 'function') {
+      return false;
+    }
+    input.type = 'text';
+    input.inputMode = 'text';
+    input.autocapitalize = 'off';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.maxLength = 120;
+    input.value = this._sanitizeTextRecordValue(record.text || record.label || 'Level');
+    this._applyElementStyles(input, {
+      position: 'absolute',
+      left: Math.round(box.left) + 'px',
+      top: Math.round(box.top) + 'px',
+      width: Math.max(56, Math.round(box.width)) + 'px',
+      height: Math.max(24, Math.round(box.height)) + 'px',
+      zIndex: '70',
+      boxSizing: 'border-box',
+      padding: style.padding || '3px 6px',
+      border: style.border || '1px solid #5B9DFF',
+      borderRadius: style.borderRadius || '4px',
+      outline: 'none',
+      background: style.background || 'rgba(15, 23, 42, 0.96)',
+      color: style.color || '#FFFFFF',
+      font: style.font || '700 12px Arial, sans-serif',
+      lineHeight: style.lineHeight || '16px',
+      textAlign: style.textAlign || 'left',
+      pointerEvents: 'auto',
+      boxShadow: '0 6px 16px rgba(0, 0, 0, 0.28)'
+    });
+    var manager = this;
+    var keyHandler = function (keyboardEvent) {
+      var key = keyboardEvent && typeof keyboardEvent.key === 'string' ? keyboardEvent.key : '';
+      if (key === 'Enter') {
+        manager._consumeTouchEvent(keyboardEvent);
+        manager._endTextRecordEdit(true);
+        return;
+      }
+      if (key === 'Escape' || key === 'Esc') {
+        manager._consumeTouchEvent(keyboardEvent);
+        manager._endTextRecordEdit(false);
+        return;
+      }
+      if (keyboardEvent && typeof keyboardEvent.stopPropagation === 'function') {
+        keyboardEvent.stopPropagation();
+      }
+    };
+    var blurHandler = function () {
+      manager._endTextRecordEdit(true);
+    };
+    input.addEventListener('keydown', keyHandler, true);
+    input.addEventListener('blur', blurHandler, false);
+    this._textEditState = {
+      recordId: record.id,
+      input: input,
+      originalText: record.text || '',
+      keyHandler: keyHandler,
+      blurHandler: blurHandler
+    };
+    this._chartHost.appendChild(input);
+    try {
+      document.addEventListener('mousedown', this._handleTextEditDocumentPointer, true);
+      document.addEventListener('touchstart', this._handleTextEditDocumentPointer, true);
+    } catch (_listenerError) {}
+    // Android WebView only opens the keyboard reliably when focus happens in the
+    // same user-gesture call stack. The timeout below is just a safety refocus.
+    try {
+      input.focus();
+      input.select();
+    } catch (_immediateFocusError) {}
+    setTimeout(function () {
+      try {
+        input.focus();
+        input.select();
+      } catch (_focusError) {}
+    }, 0);
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype._endTextRecordEdit = function (commit) {
+    var state = this._textEditState;
+    if (!state) {
+      return;
+    }
+    this._textEditState = null;
+    try {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mousedown', this._handleTextEditDocumentPointer, true);
+        document.removeEventListener('touchstart', this._handleTextEditDocumentPointer, true);
+      }
+    } catch (_listenerError) {}
+    var input = state.input;
+    if (input) {
+      try { input.removeEventListener('keydown', state.keyHandler, true); } catch (_keyError) {}
+      try { input.removeEventListener('blur', state.blurHandler, false); } catch (_blurError) {}
+      try {
+        if (input.parentNode) input.parentNode.removeChild(input);
+      } catch (_removeError) {}
+    }
+    var record = this._findRecordById(state.recordId);
+    if (!record) {
+      return;
+    }
+    var nextText = commit ? this._sanitizeTextRecordValue(input ? input.value : state.originalText) : state.originalText;
+    if (!nextText) {
+      nextText = state.originalText || 'Level';
+    }
+    this._commitTextRecordValue(record, nextText);
+  };
+
+  AdvancedDrawingToolsManager.prototype.applyTextRecordEdit = function (recordId, value) {
+    var record = this._findRecordById(recordId);
+    if (!this._isTextRecordEditable(record)) {
+      return false;
+    }
+    this._textEditState = null;
+    return this._commitTextRecordValue(record, value);
+  };
+
+  AdvancedDrawingToolsManager.prototype.cancelTextRecordEdit = function (recordId) {
+    if (this._textEditState && (!recordId || this._textEditState.recordId === recordId)) {
+      this._endTextRecordEdit(false);
+    }
+  };
+
   AdvancedDrawingToolsManager.prototype._handleTouchStart = function (event) {
     if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
-      this._hideCrosshairOverlay();
+      if (event.touches && event.touches.length > 1) {
+        this._activeTouchId = null;
+        return;
+      }
+      var crosshairTouch = this._findTrackedTouch(event.changedTouches || event.touches);
+      if (!crosshairTouch) {
+        return;
+      }
+      this._ignoreCrosshairClickUntil = Date.now() + 650;
+      this._suppressHostTapMenu();
+      this._activeTouchId = crosshairTouch.identifier;
+      this._touchDidMove = false;
+      this._touchStartX = crosshairTouch.clientX;
+      this._touchStartY = crosshairTouch.clientY;
+      var crosshairParam = this._buildSyntheticPointerParam(crosshairTouch);
+      if (crosshairParam) {
+        var textHit = this._hitTestEditableDrawingAtPoint(crosshairParam.point);
+        if (textHit && textHit.part === 'label' && this._isTextRecordEditable(textHit.record)) {
+          var now = Date.now();
+          var lastTap = this._lastTextEditTap;
+          var sameRecord = lastTap && lastTap.recordId === textHit.record.id;
+          var dx = lastTap ? crosshairTouch.clientX - lastTap.x : 0;
+          var dy = lastTap ? crosshairTouch.clientY - lastTap.y : 0;
+          var isDoubleTap = sameRecord && now - lastTap.time <= 420 && (dx * dx + dy * dy) <= 900;
+          if (isDoubleTap) {
+            this._lastTextEditTap = null;
+            this._touchGestureMode = 'text-edit';
+            this._lastTouchParam = crosshairParam;
+            this._crosshairLocked = false;
+            this._hideCrosshairOverlay();
+            this._selectRecord(textHit.record.id);
+            this._beginTextRecordEdit(textHit.record);
+            this._consumeTouchEvent(event);
+            return;
+          }
+          this._lastTextEditTap = {
+            recordId: textHit.record.id,
+            x: crosshairTouch.clientX,
+            y: crosshairTouch.clientY,
+            time: now
+          };
+        } else {
+          this._lastTextEditTap = null;
+        }
+      }
+      if (crosshairParam && this._beginLineEdit(crosshairParam)) {
+        this._touchGestureMode = 'line-edit';
+        this._lastTouchParam = crosshairParam;
+        this._crosshairLocked = false;
+        this._hideCrosshairOverlay();
+        this._consumeTouchEvent(event);
+        return;
+      }
+      if (crosshairParam) {
+        this._lastTouchParam = crosshairParam;
+        this._updateCrosshairOverlay(crosshairParam, true);
+      }
       return;
     }
 
@@ -1418,6 +2606,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
     if (param) {
       this._lastTouchParam = param;
+      this._updateCrosshairOverlay(param, true);
       if (this._touchGestureMode === 'drag-from-first-anchor') {
         if (typeof tool._handleClick === 'function') {
           tool._handleClick(param);
@@ -1432,8 +2621,39 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchMove = function (event) {
+    if (this._lineEditState && this.shouldUseDirectTouchInput()) {
+      var editTouch = this._findTrackedTouch(event.touches || event.changedTouches);
+      if (!editTouch) {
+        return;
+      }
+      var editParam = this._buildSyntheticPointerParam(editTouch);
+      if (editParam) {
+        this._lastTouchParam = editParam;
+        this._touchDidMove = true;
+        this._updateLineEdit(editParam);
+      }
+      this._consumeTouchEvent(event);
+      return;
+    }
+
     if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
-      this._hideCrosshairOverlay();
+      var crosshairTouch = this._findTrackedTouch(event.touches || event.changedTouches);
+      if (!crosshairTouch) {
+        return;
+      }
+      var crosshairParam = this._buildSyntheticPointerParam(crosshairTouch);
+      if (crosshairParam) {
+        var dx = crosshairTouch.clientX - this._touchStartX;
+        var dy = crosshairTouch.clientY - this._touchStartY;
+        if ((dx * dx + dy * dy) > 144) {
+          this._touchDidMove = true;
+        }
+        if (!this._touchDidMove) {
+          return;
+        }
+        this._lastTouchParam = crosshairParam;
+        this._updateCrosshairOverlay(crosshairParam, true);
+      }
       return;
     }
 
@@ -1451,16 +2671,71 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     if (param && typeof tool._handleMove === 'function') {
       this._lastTouchParam = param;
       this._touchDidMove = true;
+      this._updateCrosshairOverlay(param, true);
       tool._handleMove(param);
     }
     this._consumeTouchEvent(event);
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchEnd = function (event) {
-    if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
+    if (this._touchGestureMode === 'text-edit') {
+      this._touchGestureMode = 'idle';
+      this._touchDidMove = false;
       this._activeTouchId = null;
       this._lastTouchParam = null;
-      this._hideCrosshairOverlay();
+      this._consumeTouchEvent(event);
+      return;
+    }
+
+    if (this._lineEditState && this.shouldUseDirectTouchInput()) {
+      var completedEditState = this._lineEditState;
+      var editTouch = this._findTrackedTouch(event.changedTouches || event.touches);
+      var editParam = editTouch ? this._buildSyntheticPointerParam(editTouch) : this._lastTouchParam;
+      if (editParam && this._touchDidMove) {
+        this._updateLineEdit(editParam);
+      }
+      var editRecord = completedEditState ? this._findRecordById(completedEditState.recordId) : null;
+      var shouldOpenTextEditor = completedEditState &&
+        completedEditState.part === 'label' &&
+        !completedEditState.moved &&
+        !this._touchDidMove &&
+        this._isTextRecordEditable(editRecord);
+      this._endLineEdit(true);
+      this._touchGestureMode = 'idle';
+      this._touchDidMove = false;
+      this._activeTouchId = null;
+      this._lastTouchParam = null;
+      if (shouldOpenTextEditor && editRecord) {
+        this._lastTextEditTap = null;
+        this._selectRecord(editRecord.id);
+        this._beginTextRecordEdit(editRecord);
+      }
+      this._consumeTouchEvent(event);
+      return;
+    }
+
+    if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
+      var crosshairTouch = this._findTrackedTouch(event.changedTouches || event.touches);
+      var crosshairParam = crosshairTouch ? this._buildSyntheticPointerParam(crosshairTouch) : this._lastTouchParam;
+      if (crosshairParam) {
+        this._lastTouchParam = crosshairParam;
+        this._updateCrosshairOverlay(crosshairParam, true);
+      }
+      if (!this._touchDidMove) {
+        this._ignoreCrosshairClickUntil = Date.now() + 650;
+        this._suppressHostTapMenu();
+        this._crosshairLocked = !this._crosshairLocked;
+        if (this._crosshairLocked && crosshairParam) {
+          this._updateCrosshairOverlay(crosshairParam, true);
+        } else {
+          this._hideCrosshairOverlay();
+        }
+      } else if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      this._activeTouchId = null;
+      this._lastTouchParam = null;
+      this._touchDidMove = false;
       return;
     }
 
@@ -1485,6 +2760,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       (this._touchGestureMode === 'drag-from-first-anchor' && this._touchDidMove)
     );
     if (shouldCommitOnRelease && param && typeof tool._handleClick === 'function') {
+      this._updateCrosshairOverlay(param, true);
       tool._handleClick(param);
     }
 
@@ -1496,12 +2772,18 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchCancel = function (event) {
+    if (this._lineEditState) {
+      this._endLineEdit(false);
+    }
     this._touchGestureMode = 'idle';
     this._touchDidMove = false;
     this._activeTouchId = null;
     this._lastTouchParam = null;
+    this._lastTextEditTap = null;
     if (this._activeTool === 'crosshair') {
-      this._hideCrosshairOverlay();
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
       return;
     }
     this._consumeTouchEvent(event);
@@ -1570,6 +2852,326 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     try { this._series.detachPrimitive(record.primitive); } catch (_error) {}
   };
 
+  AdvancedDrawingToolsManager.prototype._findRecordById = function (id) {
+    if (!id) return null;
+    for (var i = 0; i < this._records.length; i += 1) {
+      if (this._records[i].id === id) return this._records[i];
+    }
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._setHoveredRecord = function (id) {
+    if (this._hoveredRecordId === (id || null)) return;
+    this._hoveredRecordId = id || null;
+    this._records.forEach(function (record) {
+      var hovered = !!id && record.id === id;
+      if (record.primitive && typeof record.primitive.setHovered === 'function') {
+        record.primitive.setHovered(hovered);
+      }
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._selectRecord = function (id) {
+    var changed = false;
+    this._selectedRecordId = id || null;
+    this._records.forEach(function (record) {
+      var selected = !!id && record.id === id;
+      if (!!record.selected !== selected) changed = true;
+      record.selected = selected;
+      if (record.primitive && typeof record.primitive.setSelected === 'function') {
+        record.primitive.setSelected(selected);
+      }
+    });
+    if (changed) {
+      this._emitDrawingsChanged();
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._removeSelectedRecord = function () {
+    var selectedId = this._selectedRecordId;
+    if (!selectedId) return;
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    var removed = false;
+    this._records = this._records.filter(function (record) {
+      if (record.id !== selectedId) return true;
+      this._detachRecord(record);
+      removed = true;
+      return false;
+    }, this);
+    this._selectedRecordId = null;
+    if (removed) {
+      this._emitDrawingsChanged();
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._distanceToPoint = function (a, b) {
+    if (!a || !b || !isFiniteNumber(a.x) || !isFiniteNumber(a.y) || !isFiniteNumber(b.x) || !isFiniteNumber(b.y)) {
+      return Number.POSITIVE_INFINITY;
+    }
+    var dx = a.x - b.x;
+    var dy = a.y - b.y;
+    return Math.sqrt((dx * dx) + (dy * dy));
+  };
+
+  AdvancedDrawingToolsManager.prototype._distanceToSegment = function (point, a, b) {
+    if (!point || !a || !b) return Number.POSITIVE_INFINITY;
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var lengthSquared = (dx * dx) + (dy * dy);
+    if (lengthSquared <= 0.0001) {
+      return this._distanceToPoint(point, a);
+    }
+    var t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    return this._distanceToPoint(point, {
+      x: a.x + (t * dx),
+      y: a.y + (t * dy)
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._hitTestTrendLineRecordAtPoint = function (record, point) {
+    if (!record || !point || this._locked) return null;
+    if (record.kind !== 'trendline' || record.locked || !record.visible || !record.primitive || typeof record.primitive.getGeometry !== 'function') {
+      return null;
+    }
+    var handleThreshold = this.shouldUseDirectTouchInput() ? 18 : 10;
+    var lineThreshold = this.shouldUseDirectTouchInput() ? 14 : 8;
+    var geometry = record.primitive.getGeometry();
+    if (!geometry || !geometry.p1 || !geometry.p2 || !isFiniteNumber(geometry.p1.x) || !isFiniteNumber(geometry.p1.y) || !isFiniteNumber(geometry.p2.x) || !isFiniteNumber(geometry.p2.y)) {
+      return null;
+    }
+    var touchPoint = { x: point.x, y: point.y };
+    if (this._distanceToPoint(touchPoint, geometry.p1) <= handleThreshold) {
+      return { record: record, part: 'p1' };
+    }
+    if (this._distanceToPoint(touchPoint, geometry.p2) <= handleThreshold) {
+      return { record: record, part: 'p2' };
+    }
+    if (this._distanceToSegment(touchPoint, geometry.p1, geometry.p2) <= lineThreshold) {
+      return { record: record, part: 'body' };
+    }
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._hitTestTrendLineAtPoint = function (point) {
+    if (!point || this._locked) return null;
+    for (var i = this._records.length - 1; i >= 0; i -= 1) {
+      var record = this._records[i];
+      var lineHit = this._hitTestTrendLineRecordAtPoint(record, point);
+      if (lineHit) return lineHit;
+    }
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._hitTestEditableDrawingAtPoint = function (point) {
+    if (!point || this._locked) return null;
+    var isTouch = this.shouldUseDirectTouchInput();
+    for (var i = this._records.length - 1; i >= 0; i -= 1) {
+      var record = this._records[i];
+      if (!record || !record.visible || !record.primitive) {
+        continue;
+      }
+      if (record.primitive && typeof record.primitive.hitTest === 'function') {
+        var primitiveHit = record.primitive.hitTest(point, { isTouch: isTouch, manager: this, record: record });
+        if (primitiveHit) {
+          return {
+            record: record,
+            part: primitiveHit.part || 'body'
+          };
+        }
+      }
+      if (record.kind === 'trendline') {
+        var lineHit = this._hitTestTrendLineRecordAtPoint(record, point);
+        if (lineHit) return lineHit;
+      }
+    }
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._resolveLineEditPoint = function (param) {
+    var state = this._resolveCrosshairState(param);
+    if (state && state.time !== null && state.time !== undefined && isFiniteNumber(state.price)) {
+      var point = { time: state.time, price: state.price };
+      if (state.timestamp !== undefined) point.timestamp = state.timestamp;
+      if (state.dataIndex !== undefined) point.dataIndex = state.dataIndex;
+      if (state.paneId !== undefined) point.paneId = state.paneId;
+      return point;
+    }
+    return null;
+  };
+
+  AdvancedDrawingToolsManager.prototype._beginLineEdit = function (param) {
+    if (!param || !param.point || this._locked) return false;
+    this._endTextRecordEdit(true);
+    var hit = this._hitTestEditableDrawingAtPoint(param.point);
+    if (!hit || !hit.record) {
+      if (this._selectedRecordId) {
+        this._selectRecord(null);
+        return true;
+      }
+      return false;
+    }
+    if (hit.record.locked) {
+      this._selectRecord(hit.record.id);
+      return true;
+    }
+    var editPoint = this._resolveLineEditPoint(param);
+    if (!editPoint) {
+      this._selectRecord(hit.record.id);
+      return true;
+    }
+    this._selectRecord(hit.record.id);
+    this._lineEditState = {
+      recordId: hit.record.id,
+      part: hit.part,
+      startPoint: clonePoint(editPoint),
+      originalPoints: clonePoints(hit.record.points),
+      moved: false
+    };
+    if (hit.record.primitive && typeof hit.record.primitive.beginEdit === 'function') {
+      hit.record.primitive.beginEdit(hit.part, editPoint);
+    }
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype._buildEditedLinePoints = function (editPoint) {
+    var state = this._lineEditState;
+    if (!state || !editPoint || !Array.isArray(state.originalPoints)) {
+      return null;
+    }
+
+    var record = this._findRecordById(state.recordId);
+    var requiredPointCount = record ? this._requiredPointCount(record.kind) : 2;
+    if (record && record.primitive && typeof record.primitive.buildEditPoints === 'function') {
+      var customPoints = record.primitive.buildEditPoints(state.part, state.originalPoints, state.startPoint, editPoint);
+      if (Array.isArray(customPoints) && customPoints.length >= requiredPointCount) {
+        return clonePoints(customPoints.slice(0, requiredPointCount));
+      }
+    }
+
+    if (state.originalPoints.length < 2) {
+      return requiredPointCount === 1 ? clonePoints([editPoint]) : null;
+    }
+
+    var points = clonePoints(state.originalPoints);
+    if (state.part === 'p1' || state.part === 'p2') {
+      points[state.part === 'p1' ? 0 : 1] = clonePoint(editPoint);
+      return points;
+    }
+
+    var priceDelta = editPoint.price - state.startPoint.price;
+    var timeDelta = isFiniteNumber(editPoint.time) && isFiniteNumber(state.startPoint.time)
+      ? editPoint.time - state.startPoint.time
+      : 0;
+    var dataIndexDelta = isFiniteNumber(editPoint.dataIndex) && isFiniteNumber(state.startPoint.dataIndex)
+      ? editPoint.dataIndex - state.startPoint.dataIndex
+      : null;
+
+    return points.map(function (point) {
+      var next = clonePoint(point);
+      if (isFiniteNumber(next.time)) next.time += timeDelta;
+      if (isFiniteNumber(next.timestamp)) next.timestamp += timeDelta;
+      if (dataIndexDelta !== null && isFiniteNumber(next.dataIndex)) next.dataIndex += dataIndexDelta;
+      next.price = point.price + priceDelta;
+      return next;
+    });
+  };
+
+  AdvancedDrawingToolsManager.prototype._applyLineEditPoints = function (record, points) {
+    if (!record || !Array.isArray(points)) return;
+    var requiredPointCount = Math.max(1, this._requiredPointCount(record.kind) || points.length);
+    if (points.length < requiredPointCount) return;
+    record.points = clonePoints(points.slice(0, requiredPointCount));
+    if (record.primitive && typeof record.primitive.updatePoints === 'function') {
+      record.primitive.updatePoints.apply(record.primitive, record.points);
+    }
+    if (record.primitive && typeof record.primitive.getSerializableState === 'function') {
+      var state = record.primitive.getSerializableState();
+      if (state && typeof state === 'object') {
+        [
+          'text',
+          'style',
+          'levelLine',
+          'labelPosition',
+          'labelOffset',
+          'showPrice',
+          'showPriceAxisLabel',
+          'levelType',
+          'followLastPrice',
+          'alertMetadata'
+        ].forEach(function (key) {
+          if (state[key] !== undefined) {
+            record[key] = cloneSerializable(state[key], state[key]);
+          }
+        });
+      }
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._flushLineEditFrame = function () {
+    this._lineEditPendingFrame = 0;
+    var pending = this._lineEditPendingPoints;
+    this._lineEditPendingPoints = null;
+    if (!pending || !this._lineEditState) return;
+    var record = this._findRecordById(this._lineEditState.recordId);
+    this._applyLineEditPoints(record, pending);
+  };
+
+  AdvancedDrawingToolsManager.prototype._queueLineEditPoints = function (points) {
+    this._lineEditPendingPoints = points;
+    if (this._lineEditPendingFrame) return;
+    var manager = this;
+    if (typeof requestAnimationFrame === 'function') {
+      this._lineEditPendingFrame = requestAnimationFrame(function () {
+        manager._flushLineEditFrame();
+      });
+    } else {
+      this._flushLineEditFrame();
+    }
+  };
+
+  AdvancedDrawingToolsManager.prototype._updateLineEdit = function (param) {
+    if (!this._lineEditState || !param) return false;
+    var editPoint = this._resolveLineEditPoint(param);
+    if (!editPoint) return true;
+    var points = this._buildEditedLinePoints(editPoint);
+    if (!points) return true;
+    this._lineEditState.moved = true;
+    this._queueLineEditPoints(points);
+    return true;
+  };
+
+  AdvancedDrawingToolsManager.prototype._endLineEdit = function (commit) {
+    var state = this._lineEditState;
+    if (this._lineEditPendingFrame && typeof cancelAnimationFrame === 'function') {
+      try { cancelAnimationFrame(this._lineEditPendingFrame); } catch (_error) {}
+    }
+    this._lineEditPendingFrame = 0;
+    if (this._lineEditPendingPoints) {
+      this._flushLineEditFrame();
+    }
+    this._lineEditState = null;
+    this._lineEditPendingPoints = null;
+    if (!state) return;
+    var record = this._findRecordById(state.recordId);
+    if (!record) return;
+    if (!commit) {
+      if (record.primitive && typeof record.primitive.endEdit === 'function') {
+        record.primitive.endEdit(false);
+      }
+      this._applyLineEditPoints(record, state.originalPoints);
+      return;
+    }
+    if (record.primitive && typeof record.primitive.endEdit === 'function') {
+      record.primitive.endEdit(true);
+    }
+    if (state.moved) {
+      record.updatedAt = Date.now();
+      this._emitDrawingsChanged();
+    }
+  };
+
   AdvancedDrawingToolsManager.prototype._recountDrawingCounters = function () {
     this._drawingCounter = {};
     this._records.forEach(function (record) {
@@ -1599,14 +3201,40 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return null;
     }
 
+    var recordVisible = typeof record.visible === 'boolean' ? record.visible : !record.hidden;
+
     return {
       id: typeof record.id === 'string' && record.id ? record.id : record.kind + '_restored_' + (index + 1),
       kind: record.kind,
+      type: typeof record.type === 'string' ? record.type : record.kind,
+      symbol: typeof record.symbol === 'string' ? record.symbol : undefined,
+      timeframe: typeof record.timeframe === 'string' ? record.timeframe : undefined,
+      paneId: typeof record.paneId === 'string' ? record.paneId : undefined,
       label: typeof record.label === 'string' && record.label ? record.label : defaultLabel(record.kind, index + 1),
-      hidden: !!record.hidden,
-      visible: !record.hidden,
+      hidden: !recordVisible,
+      visible: recordVisible,
       points: points,
-      text: typeof record.text === 'string' ? record.text : undefined
+      text: typeof record.text === 'string' ? record.text : undefined,
+      style: record.style && typeof record.style === 'object' ? Object.assign({}, record.style) : undefined,
+      levelLine: record.levelLine && typeof record.levelLine === 'object' ? cloneSerializable(record.levelLine, undefined) : undefined,
+      labelPosition: typeof record.labelPosition === 'string' ? record.labelPosition : undefined,
+      labelOffset: record.labelOffset && typeof record.labelOffset === 'object' ? cloneSerializable(record.labelOffset, undefined) : undefined,
+      showPrice: typeof record.showPrice === 'boolean' ? record.showPrice : undefined,
+      showPriceAxisLabel: typeof record.showPriceAxisLabel === 'boolean' ? record.showPriceAxisLabel : undefined,
+      levelType: typeof record.levelType === 'string' ? record.levelType : undefined,
+      followLastPrice: !!record.followLastPrice,
+      levels: Array.isArray(record.levels) ? cloneSerializable(record.levels, []) : undefined,
+      extendMode: typeof record.extendMode === 'string' ? record.extendMode : undefined,
+      zoneType: typeof record.zoneType === 'string' ? record.zoneType : undefined,
+      extendUntil: typeof record.extendUntil === 'string' ? record.extendUntil : undefined,
+      alertMetadata: record.alertMetadata && typeof record.alertMetadata === 'object' ? cloneSerializable(record.alertMetadata, undefined) : undefined,
+      reverse: !!record.reverse,
+      goldenPocket: record.goldenPocket && typeof record.goldenPocket === 'object' ? cloneSerializable(record.goldenPocket, undefined) : undefined,
+      oteZone: record.oteZone && typeof record.oteZone === 'object' ? cloneSerializable(record.oteZone, undefined) : undefined,
+      locked: !!record.locked,
+      selected: !!record.selected,
+      createdAt: isFiniteNumber(record.createdAt) ? record.createdAt : undefined,
+      updatedAt: isFiniteNumber(record.updatedAt) ? record.updatedAt : undefined
     };
   };
 
@@ -1626,10 +3254,38 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
           label: record.label,
           hidden: !record.visible,
           points: clonePoints(record.points),
-          text: record.text
+          text: record.text,
+          type: record.type,
+          symbol: record.symbol,
+          timeframe: record.timeframe,
+          paneId: record.paneId,
+          style: record.style,
+          levelLine: record.levelLine,
+          labelPosition: record.labelPosition,
+          labelOffset: record.labelOffset,
+          showPrice: record.showPrice,
+          showPriceAxisLabel: record.showPriceAxisLabel,
+          levelType: record.levelType,
+          followLastPrice: !!record.followLastPrice,
+          levels: Array.isArray(record.levels) ? cloneSerializable(record.levels, []) : undefined,
+          extendMode: record.extendMode,
+          zoneType: record.zoneType,
+          extendUntil: record.extendUntil,
+          alertMetadata: record.alertMetadata,
+          reverse: !!record.reverse,
+          goldenPocket: record.goldenPocket,
+          oteZone: record.oteZone,
+          locked: !!record.locked,
+          selected: !!record.selected,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt
         };
       })
     });
+  };
+
+  AdvancedDrawingToolsManager.prototype.publishDrawingsToHost = function () {
+    this._emitDrawingsChanged();
   };
 
   AdvancedDrawingToolsManager.prototype.isLocked = function () {
@@ -1650,14 +3306,51 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       hidden: !!this._hidden,
       visible: !this._hidden,
       points: clonePoints(serializedData && Array.isArray(serializedData.points) ? serializedData.points : []),
-      text: serializedData && typeof serializedData.text === 'string' ? serializedData.text : undefined
+      text: serializedData && typeof serializedData.text === 'string' ? serializedData.text : undefined,
+      type: serializedData && typeof serializedData.type === 'string' ? serializedData.type : kind,
+      symbol: serializedData && typeof serializedData.symbol === 'string' ? serializedData.symbol : undefined,
+      timeframe: serializedData && typeof serializedData.timeframe === 'string' ? serializedData.timeframe : undefined,
+      paneId: serializedData && typeof serializedData.paneId === 'string' ? serializedData.paneId : undefined,
+      style: serializedData && serializedData.style && typeof serializedData.style === 'object' ? Object.assign({}, serializedData.style) : undefined,
+      levelLine: serializedData && serializedData.levelLine && typeof serializedData.levelLine === 'object' ? cloneSerializable(serializedData.levelLine, undefined) : undefined,
+      labelPosition: serializedData && typeof serializedData.labelPosition === 'string' ? serializedData.labelPosition : undefined,
+      labelOffset: serializedData && serializedData.labelOffset && typeof serializedData.labelOffset === 'object' ? cloneSerializable(serializedData.labelOffset, undefined) : undefined,
+      showPrice: serializedData && typeof serializedData.showPrice === 'boolean' ? serializedData.showPrice : undefined,
+      showPriceAxisLabel: serializedData && typeof serializedData.showPriceAxisLabel === 'boolean' ? serializedData.showPriceAxisLabel : undefined,
+      levelType: serializedData && typeof serializedData.levelType === 'string' ? serializedData.levelType : undefined,
+      followLastPrice: !!(serializedData && serializedData.followLastPrice),
+      levels: serializedData && Array.isArray(serializedData.levels) ? cloneSerializable(serializedData.levels, []) : undefined,
+      extendMode: serializedData && typeof serializedData.extendMode === 'string' ? serializedData.extendMode : undefined,
+      zoneType: serializedData && typeof serializedData.zoneType === 'string' ? serializedData.zoneType : undefined,
+      extendUntil: serializedData && typeof serializedData.extendUntil === 'string' ? serializedData.extendUntil : undefined,
+      alertMetadata: serializedData && serializedData.alertMetadata && typeof serializedData.alertMetadata === 'object' ? cloneSerializable(serializedData.alertMetadata, undefined) : undefined,
+      reverse: !!(serializedData && serializedData.reverse),
+      goldenPocket: serializedData && serializedData.goldenPocket && typeof serializedData.goldenPocket === 'object' ? cloneSerializable(serializedData.goldenPocket, undefined) : undefined,
+      oteZone: serializedData && serializedData.oteZone && typeof serializedData.oteZone === 'object' ? cloneSerializable(serializedData.oteZone, undefined) : undefined,
+      locked: !!(serializedData && serializedData.locked),
+      selected: !!(serializedData && serializedData.selected),
+      createdAt: serializedData && isFiniteNumber(serializedData.createdAt) ? serializedData.createdAt : Date.now(),
+      updatedAt: serializedData && isFiniteNumber(serializedData.updatedAt) ? serializedData.updatedAt : Date.now()
     };
     if (typeof primitive.setVisible === 'function') {
       primitive.setVisible(record.visible);
     }
+    if (typeof primitive.setSelected === 'function') {
+      primitive.setSelected(record.selected);
+    }
+    if (record.selected) {
+      this._selectedRecordId = record.id;
+    }
     this._series.attachPrimitive(primitive);
     this._records.push(record);
     this._emitDrawingsChanged();
+    if (serializedData && serializedData.editAfterCreate && this._isTextRecordEditable(record)) {
+      var manager = this;
+      setTimeout(function () {
+        manager._selectRecord(record.id);
+        manager._beginTextRecordEdit(record);
+      }, 0);
+    }
   };
 
   AdvancedDrawingToolsManager.prototype.setActiveTool = function (tool, silent) {
@@ -1672,9 +3365,6 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     } else {
       this._activeTool = 'crosshair';
     }
-    if (this._activeTool !== 'crosshair') {
-      this._hideCrosshairOverlay();
-    }
     this._applyChartInteractionMode();
     if (!silent) {
       safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool });
@@ -1687,6 +3377,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype.setDrawingsHidden = function (hidden) {
     this._hidden = !!hidden;
+    if (this._hidden) {
+      this._endLineEdit(false);
+      this._endTextRecordEdit(false);
+      this._selectRecord(null);
+    }
     this._records.forEach(function (record) {
       record.hidden = !!this._hidden;
       record.visible = !this._hidden;
@@ -1700,6 +3395,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   AdvancedDrawingToolsManager.prototype.setDrawingsLocked = function (locked) {
     this._locked = !!locked;
     if (this._locked) {
+      this._endLineEdit(false);
+      this._endTextRecordEdit(false);
+      this._selectRecord(null);
       this.setActiveTool('crosshair');
     }
   };
@@ -1723,6 +3421,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
         }
       });
     }
+    this.refreshCrosshairData();
   };
 
   AdvancedDrawingToolsManager.prototype.zoomToFit = function () {
@@ -1743,6 +3442,9 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       : [];
 
     this._stopAllTools();
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    this._selectedRecordId = null;
     this._records.forEach(function (record) {
       this._detachRecord(record);
     }, this);
@@ -1757,6 +3459,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (typeof primitive.setVisible === 'function') {
         primitive.setVisible(record.visible);
       }
+      if (typeof primitive.setSelected === 'function') {
+        primitive.setSelected(!!record.selected);
+      }
+      if (record.selected) {
+        this._selectedRecordId = record.id;
+      }
       this._series.attachPrimitive(primitive);
       this._records.push(record);
     }, this);
@@ -1767,17 +3475,45 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype.removeAllDrawings = function () {
     this._stopAllTools();
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
     this._records.forEach(function (record) {
       this._detachRecord(record);
     }, this);
     this._records = [];
     this._drawingCounter = {};
+    this._selectedRecordId = null;
     this.setActiveTool('crosshair');
     this._emitDrawingsChanged();
   };
 
   AdvancedDrawingToolsManager.prototype.remove = function () {
-    this.removeAllDrawings();
+    try {
+      if (this._chart && typeof this._chart.unsubscribeCrosshairMove === 'function') {
+        this._chart.unsubscribeCrosshairMove(this._handleCrosshairMove);
+      }
+    } catch (_unsubscribeMoveError) {}
+    try {
+      if (this._chart && typeof this._chart.unsubscribeClick === 'function') {
+        this._chart.unsubscribeClick(this._handleCrosshairClick);
+      }
+    } catch (_unsubscribeClickError) {}
+    try {
+      if (typeof document !== 'undefined' && document && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('keydown', this._handleKeyDown, true);
+        document.removeEventListener('keyup', this._handleKeyUp, true);
+      }
+    } catch (_keyError) {}
+    this._stopAllTools();
+    this._endLineEdit(false);
+    this._endTextRecordEdit(false);
+    this._records.forEach(function (record) {
+      this._detachRecord(record);
+    }, this);
+    this._records = [];
+    this._drawingCounter = {};
+    this._selectedRecordId = null;
+    this._activeTool = 'crosshair';
     this._unbindTouchBridge();
     this._destroyCrosshairOverlay();
     Object.keys(this._tools).forEach(function (key) {

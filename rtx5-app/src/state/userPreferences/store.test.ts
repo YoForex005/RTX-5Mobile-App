@@ -9,13 +9,18 @@ test('persisted user preferences are normalized before second-launch hydration r
   const storeSource = source();
 
   assert.match(storeSource, /const PREFERENCES_STORAGE_VERSION = 17/);
+  assert.match(storeSource, /const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1'/);
   assert.match(storeSource, /normalizePersistedUserPreferencesState/);
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
   assert.match(storeSource, /chartSymbol = asString\(state\.chartSymbol, 'GBPUSD'\)/);
   assert.match(storeSource, /chartTimeframe: normalizeCandleHistoryTimeframe\(state\.chartTimeframe\)/);
+  assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);
+  assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
   assert.match(storeSource, /marketNewsSavedIds: Array\.from\(new Set\(asStringArray\(state\.marketNewsSavedIds\)\)\)/);
   assert.match(storeSource, /isLoggedIn = asBoolean\(state\.isLoggedIn, false\) && accountDetails !== null/);
   assert.match(storeSource, /merge: \(persistedState, currentState\) => \(\{/);
   assert.match(storeSource, /Ignoring invalid persisted preferences/);
+  assert.match(storeSource, /setItem: \(name, value\) => \{[\s\S]*pendingPreferenceWrites\.set\(name, value\);[\s\S]*flushPendingPreferenceWrites\(\);[\s\S]*\}/);
+  assert.doesNotMatch(storeSource, /schedulePreferenceWriteFlush/);
   assert.doesNotMatch(storeSource, /state\.marketNewsSavedIds\.map\(\(id\) => id\.trim\(\)\)/);
 });

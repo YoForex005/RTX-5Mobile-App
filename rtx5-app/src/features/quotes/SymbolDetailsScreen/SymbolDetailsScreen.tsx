@@ -46,7 +46,7 @@ function SymbolDetailsInteractiveContent() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeSymbolDetailsStyles(T, isDark), [T, isDark]);
-  const screenBg = isDark ? T.bgRoot : T.bg;
+  const screenBg = isDark ? '#000000' : T.bg;
 
   const { data: remoteMeta } = useInstrumentMeta(symbol, isScreenFocused);
 
@@ -213,13 +213,6 @@ function SymbolDetailsInteractiveContent() {
           <View style={{ width: 42 }} />
         </View>
       </View>
-
-      {isDark && (
-        <>
-          <View style={{ position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: isUp ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)', top: 0, right: -60 }} />
-          <View style={{ position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(59,130,246,0.03)', bottom: 300, left: -60 }} />
-        </>
-      )}
 
       <ScrollView
         keyboardShouldPersistTaps="always"

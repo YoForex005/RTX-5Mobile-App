@@ -8,6 +8,7 @@ import { patternPathEnhancedDrawingToolRuntime } from './patternPathRuntime';
 import { pitchforkEnhancedDrawingToolRuntime } from './pitchforkRuntime';
 import { stickerEnhancedDrawingToolRuntime } from './stickerRuntime';
 import { textLabelEnhancedDrawingToolRuntime } from './textLabelRuntime';
+import { textLevelEnhancedDrawingToolRuntime } from './textLevelRuntime';
 import { trendLineEnhancedDrawingToolRuntime } from './trendLineRuntime';
 
 export { crosshairEnhancedDrawingToolRuntime } from './crosshairRuntime';
@@ -19,6 +20,7 @@ export { patternPathEnhancedDrawingToolRuntime } from './patternPathRuntime';
 export { pitchforkEnhancedDrawingToolRuntime } from './pitchforkRuntime';
 export { stickerEnhancedDrawingToolRuntime } from './stickerRuntime';
 export { textLabelEnhancedDrawingToolRuntime } from './textLabelRuntime';
+export { textLevelEnhancedDrawingToolRuntime } from './textLevelRuntime';
 export { trendLineEnhancedDrawingToolRuntime } from './trendLineRuntime';
 
 export const ENHANCED_DRAWING_TOOL_RUNTIMES: EnhancedDrawingToolRuntime[] = [
@@ -27,6 +29,7 @@ export const ENHANCED_DRAWING_TOOL_RUNTIMES: EnhancedDrawingToolRuntime[] = [
   fibZoneEnhancedDrawingToolRuntime,
   highlightBoxEnhancedDrawingToolRuntime,
   textLabelEnhancedDrawingToolRuntime,
+  textLevelEnhancedDrawingToolRuntime,
   patternPathEnhancedDrawingToolRuntime,
   longPositionEnhancedDrawingToolRuntime,
   pitchforkEnhancedDrawingToolRuntime,

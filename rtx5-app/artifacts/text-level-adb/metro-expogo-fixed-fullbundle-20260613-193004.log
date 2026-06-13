@@ -1,0 +1,146 @@
+env: load .env
+env: export EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_BROKER_DIRECTORY_BASE_URL EXPO_PUBLIC_DEMO_API_BASE_URL EXPO_PUBLIC_TERMS_URL EXPO_PUBLIC_PRIVACY_POLICY_URL
+Starting project at C:\Users\ADMIN\RTX-5Mobile-App\rtx5-app
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android node_modules\expo-router\entry.js ▓▓░░░░░░░░░░░░░░ 18.1% ( 52/205)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓░░░░░░░░░░░ 33.4% (265/459)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓░░░░░░░░ 55.9% (522/737)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.4% (766/968)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.4% ( 836/1186)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.4% ( 983/1337)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.4% (1127/1529)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.4% (1351/1705)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 69.8% (1488/1783)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 77.3% (1633/1857)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 83.7% (1814/1983)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 86.2% (2015/2344)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 92.3% (2378/2480)
+Android Bundled 49246ms node_modules\expo-router\entry.js (2713 modules)
+Android node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (2713/2713)
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ LOG  [ChartDrawings] read buckets {"BTCUSD": 0, "EURUSD": 0, "USDJPY": 0}
+ INFO  [Startup] updates.launch {"activeChannel": "", "appVersion": "54.0.8", "canCheckForUpdates": false, "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "disabledByEnv": false, "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] root.mounted {"appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "fontsReady": false, "hasAccountDetails": true, "hasHydrated": true, "isEmbeddedLaunch": false, "isEnabled": true, "isLoggedIn": true, "nativeBuildVersion": 416, "platform": "android", "route": "RootLayout", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] storage.restore.completed {"appVersion": "54.0.8", "channel": "", "chartSymbol": "BTCUSD", "chartTimeframe": "M1", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "hasAccountDetails": true, "isEmbeddedLaunch": false, "isEnabled": true, "isLoggedIn": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "store": "userPreferences", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] auth.restore.started {"accountLoginPresent": true, "appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "hasAccountDetails": true, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] trading.bootstrap.started {"accountLoginPresent": true, "appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ LOG  [CHART] screen mounted; surface pre-warm scheduled
+ LOG  [API warn] GET /orders 405 2889ms (apiClient.GET)
+ LOG  [API warn] GET /positions 404 2901ms (apiClient.GET)
+ LOG  [API warn] GET /accounts 403 2905ms (apiClient.GET)
+ LOG  [API warn] GET /auth/me 200 2935ms (apiClient.GET)
+ LOG  [API warn] GET /market/status 200 2899ms (apiClient.GET)
+ LOG  [API warn] GET /instruments?favorites=true 200 2902ms (apiClient.GET)
+ WARN  [Bootstrap] /orders failed {"response": {"data": {}, "status": 405}}
+ WARN  [Bootstrap] /positions failed {"response": {"data": {}, "status": 404}}
+ WARN  [Bootstrap] /accounts failed {"response": {"data": {"error": "FORBIDDEN", "message": "Admin or manager role required"}, "status": 403}}
+ INFO  [Startup] trading.candleCache.restore.started {"appVersion": "54.0.8", "channel": "", "chartSymbol": "BTCUSD", "chartTimeframe": "M1", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ LOG  [API warn] GET /instruments 200 2977ms (apiClient.GET)
+ LOG  [API warn] GET /watchlist 200 2976ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD%2CBTCUSD 200 2976ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159 200 2814ms (apiClient.GET)
+ WARN  [API slow] GET /orders/200159 200 3042ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ WARN  [API slow] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD 200 3762ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1011ms (apiClient.GET)
+ LOG  [API warn] GET /deals/200159?limit=1000&offset=0 200 1009ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159/history?limit=1000&offset=0 200 1013ms (apiClient.GET)
+ LOG  [API warn] GET /broker/servers 200 1371ms (broker.servers)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [CHART] webview READY (surface boot complete)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 2022ms (apiClient.GET)
+ LOG  [API warn] GET /account/200159 200 1990ms (apiClient.GET)
+ LOG  [API warn] GET /account/200159 200 2136ms (apiClient.GET)
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD 200 1477ms (apiClient.GET)
+ WARN  [Tabs] quotes first frame took 210ms; sync navigation 4ms; budget is 20ms.
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD 200 1908ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1829ms (apiClient.GET)
+ WARN  [Tabs] chart first frame took 852ms; sync navigation 3ms; budget is 20ms.
+ LOG  [API warn] GET /quotes?symbols=EURUSD%2CGBPUSD%2CUSDJPY%2CXAUUSD 200 1408ms (apiClient.GET)
+ WARN  [CHART] Frontend candle paint exceeded 3s after data was available: 16773ms for BTCUSD M1
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1792ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ LOG  [API warn] GET /orders/200159?limit=500 200 1338ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4579ms (apiClient.GET)
+ LOG  [API warn] GET /deals/200159?limit=1000&offset=0 200 2846ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1062ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1699ms (apiClient.GET)
+ WARN  [Action] chart.drawingTools.open first frame took 154ms; budget is 20ms.
+ WARN  [Action] fastPress first frame took 155ms; budget is 20ms.
+ WARN  [Action] actionSheet.Text Level first frame took 89ms; budget is 20ms.
+ WARN  [Action] actionSheet.Text Level first frame took 89ms; budget is 20ms.
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ChartDrawings] persist buckets {"BTCUSD": 1, "EURUSD": 0, "USDJPY": 0}
+ LOG  [API warn] GET /orders/200159?limit=500 200 1816ms (apiClient.GET)
+ LOG  [ChartDrawings] persist buckets {"BTCUSD": 1, "EURUSD": 0, "USDJPY": 0}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1055ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1037ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200159?limit=500 200 1444ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1505ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1053ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /deals/200159?limit=1000&offset=0 200 1047ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1010ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200159?limit=500 200 1176ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /quotes?symbols=BTCUSD 200 2867ms (apiClient.GET)
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ WARN  setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.
+ LOG  [CHART] screen mounted; surface pre-warm scheduled
+ INFO  [Startup] updates.launch {"activeChannel": "", "appVersion": "54.0.8", "canCheckForUpdates": false, "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "disabledByEnv": false, "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] root.mounted {"appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "fontsReady": true, "hasAccountDetails": true, "hasHydrated": true, "isEmbeddedLaunch": false, "isEnabled": true, "isLoggedIn": true, "nativeBuildVersion": 416, "platform": "android", "route": "RootLayout", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] storage.restore.completed {"appVersion": "54.0.8", "channel": "", "chartSymbol": "BTCUSD", "chartTimeframe": "M1", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "hasAccountDetails": true, "isEmbeddedLaunch": false, "isEnabled": true, "isLoggedIn": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "store": "userPreferences", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] auth.restore.started {"accountLoginPresent": true, "appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "hasAccountDetails": true, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ INFO  [Startup] trading.bootstrap.started {"accountLoginPresent": true, "appVersion": "54.0.8", "channel": "", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ WARN  [API slow] GET /orders/200159?limit=500 200 4960ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] POST /calculate/margin 404 1356ms (apiClient.POST)
+ LOG  [API warn] GET /auth/me 200 1879ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1884ms (apiClient.GET)
+ LOG  [API warn] GET /deals/200159?limit=1000&offset=0 200 1884ms (apiClient.GET)
+ LOG  [API warn] GET /accounts 403 1882ms (apiClient.GET)
+ LOG  [API warn] GET /positions 404 1882ms (apiClient.GET)
+ LOG  [API warn] GET /orders 405 1882ms (apiClient.GET)
+ LOG  [API warn] GET /instruments?favorites=true 200 1882ms (apiClient.GET)
+ WARN  [Bootstrap] /accounts failed {"response": {"data": {"error": "FORBIDDEN", "message": "Admin or manager role required"}, "status": 403}}
+ WARN  [Bootstrap] /positions failed {"response": {"data": {}, "status": 404}}
+ WARN  [Bootstrap] /orders failed {"response": {"data": {}, "status": 405}}
+ LOG  [API warn] GET /market/status 200 1897ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1672ms (apiClient.GET)
+ LOG  [Quotes WS] Connected to wss://backend.orrnn.com/ws/feed
+ INFO  [Startup] trading.candleCache.restore.started {"appVersion": "54.0.8", "channel": "", "chartSymbol": "BTCUSD", "chartTimeframe": "M1", "createdAt": "2026-06-13T14:00:51.207Z", "emergencyLaunchReason": null, "isEmbeddedLaunch": false, "isEnabled": true, "nativeBuildVersion": 416, "platform": "android", "runtimeVersion": "exposdk:54.0.0", "updateId": "0d0b92b7-85da-4389-9852-8618032cfb3b"}
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /account/200159 200 1035ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159 200 2633ms (apiClient.GET)
+ WARN  [API slow] GET /candles/BTCUSD?timeframe=M1&limit=2500 200 4733ms (apiClient.GET)
+ LOG  [API warn] GET /account/200159 200 2167ms (apiClient.GET)
+ LOG  [API warn] GET /orders/200159 200 2975ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1123ms (apiClient.GET)
+ LOG  [API warn] GET /positions/200159?limit=50&offset=0 200 1083ms (apiClient.GET)
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [ClosedHistory] Response json: []
+ LOG  [ClosedHistory] Parsed rows length: 0
+ LOG  [API warn] GET /alerts 200 1186ms (apiClient.GET)
+ LOG  [API warn] GET /account/200159 200 1190ms (apiClient.GET)

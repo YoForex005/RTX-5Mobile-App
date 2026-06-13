@@ -714,6 +714,8 @@ export function ChartScreen() {
   const setIsChartExpanded = useUIState((s) => s.setChartFullscreen);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(false);
+  const toolbarNeutralIconColor = isDark ? '#D1D4DC' : '#131722';
+  const toolbarFullscreenIconColor = isChartExpanded ? BLUE : toolbarNeutralIconColor;
   const [showCalendar, setShowCalendar] = useState(false);
   const drawingToolsRef = useRef<DrawingToolsManager | null>(null);
   const [overlayRevision, setOverlayRevision] = useState(0);
@@ -1498,7 +1500,7 @@ export function ChartScreen() {
                     <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#D1D4DC' : '#131722' }}>{displaySymbol}</Text>
                   </Pressable>
                   <Pressable style={styles.toolbarIconButton} onPressIn={handleOpenSymbolPicker} unstable_pressDelay={0}>
-                    <Ionicons name="add-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                    <Ionicons name="add-outline" size={16} color={toolbarNeutralIconColor} />
                   </Pressable>
                 </View>
 
@@ -1537,21 +1539,21 @@ export function ChartScreen() {
 
                 {/* 7: Chart Preferences */}
                 <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.settings.open', () => router.push('/chart/settings'))} hitSlop={8} unstable_pressDelay={0}>
-                  <Ionicons name="options-outline" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                  <Ionicons name="options-outline" size={16} color={toolbarNeutralIconColor} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 8: Expand */}
                 <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.expand.toggle', () => setIsChartExpanded(!isChartExpanded))} hitSlop={8} unstable_pressDelay={0}>
-                  <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                  <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={16} color={toolbarFullscreenIconColor} />
                 </Pressable>
 
                 <View style={styles.toolbarSeparator} />
 
                 {/* 9: More */}
                 <Pressable style={styles.toolbarIconButton} onPressIn={() => runImmediateAction('chart.web.moreMenu.open', () => setShowMoreMenu(true))} hitSlop={8} unstable_pressDelay={0}>
-                  <Ionicons name="ellipsis-vertical" size={16} color={isDark ? '#D1D4DC' : '#131722'} />
+                  <Ionicons name="ellipsis-vertical" size={16} color={toolbarNeutralIconColor} />
                 </Pressable>
               </View>
             </ScrollView>

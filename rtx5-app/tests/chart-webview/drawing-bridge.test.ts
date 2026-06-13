@@ -13,6 +13,8 @@ test('required drawing bridge functions remain exposed on window', () => {
     'setDrawingTool',
     'clearDrawings',
     'setSerializedDrawings',
+    'applyDrawingTextEdit',
+    'cancelDrawingTextEdit',
     'setDrawingsLocked',
     'setDrawingsHidden',
     'setStayInDrawingMode',
@@ -33,6 +35,11 @@ test('drawing manager is recreated on chart init and removed before re-init', ()
 test('native drawing sync restores serialized drawings after chart ready epoch changes', () => {
   assertSourceContains(
     source,
+    /if \(!preferencesHydrated \|\| !webViewReady \|\| !chartCanvasReady \|\| !webViewRef\.current\)/,
+    'drawing sync must wait for persisted drawing hydration before WebView replay',
+  );
+  assertSourceContains(
+    source,
     /lastInjectedDrawingSyncRef\.current\.signature === chartDrawingSignature[\s\S]*lastInjectedDrawingSyncRef\.current\.epoch === chartReadyEpoch/,
     'drawing sync must be keyed by both drawing signature and chart ready epoch',
   );
@@ -46,7 +53,7 @@ test('native drawing sync restores serialized drawings after chart ready epoch c
 test('DRAWINGS_CHANGED sanitizes payload and persists only when signature changes', () => {
   assertSourceContains(
     source,
-    /msg\.type === 'DRAWINGS_CHANGED'[\s\S]*sanitizePersistedChartDrawings\(msg\.drawings\)[\s\S]*nextSignature !== drawingSignatureRef\.current[\s\S]*setChartDrawingRecordsForSymbol\(chartSymbol, nextDrawings\)/,
+    /msg\.type === 'DRAWINGS_CHANGED'[\s\S]*sanitizePersistedChartDrawings\(msg\.drawings\)[\s\S]*unexpectedEmptyWebViewPayload[\s\S]*return;[\s\S]*nextSignature !== nativeDrawingSignature[\s\S]*setChartDrawingRecordsForSymbol\(chartSymbol, nextDrawings\)/,
     'drawing changes must be sanitized and persisted for the active chart symbol',
   );
 });

@@ -1,0 +1,4 @@
+
+> rtx5-app@1.1.5 start:android:usb
+> node ./scripts/android/start-dev-client-usb.js --clear
+

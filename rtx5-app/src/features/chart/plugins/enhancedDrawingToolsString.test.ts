@@ -5,7 +5,11 @@ import { ENHANCED_DRAWING_TOOLS_JS } from './enhancedDrawingToolsString';
 type ChartPoint = { x: number; y: number };
 type ChartClickParam = { point: ChartPoint; time: number };
 type WebViewMessage = {
-  drawings?: Array<{ hidden?: boolean; kind: string; points: Array<{ price: number; time: number }> }>;
+  active?: boolean;
+  candle?: { close: number | null; high: number | null; low: number | null; open: number | null; time: number | null };
+  drawings?: Array<any>;
+  recordId?: string;
+  text?: string;
   tool?: string;
   type: string;
 };
@@ -31,13 +35,21 @@ function createFakeChartEnvironment({
       parentNode: null as any,
       style: {} as Record<string, string>,
       textContent: '',
+      addEventListener: () => undefined,
       appendChild: (child: any) => {
         child.parentNode = element;
         element.children.push(child);
       },
+      focus: () => {
+        element.focused = true;
+      },
       removeChild: (child: any) => {
         element.children = element.children.filter((item: any) => item !== child);
         child.parentNode = null;
+      },
+      removeEventListener: () => undefined,
+      select: () => {
+        element.selectedText = true;
       },
       setAttribute: (name: string, value: string) => {
         element[name] = value;
@@ -124,6 +136,7 @@ function createFakeChartEnvironment({
   const fakeWindow: any = {
     LightweightCharts: {
       CrosshairMode: {
+        Hidden: 2,
         MagnetOHLC: 3,
         Normal: 0,
       },
@@ -144,16 +157,24 @@ function createFakeChartEnvironment({
   });
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
-    value: touch ? { createElement, getElementById: () => host } : undefined,
+    value: touch
+      ? {
+        addEventListener: () => undefined,
+        createElement,
+        getElementById: () => host,
+        removeEventListener: () => undefined,
+      }
+      : undefined,
   });
 
   new Function(ENHANCED_DRAWING_TOOLS_JS)();
   const DrawingToolsManager = fakeWindow.DrawingToolsManager;
   const manager = new DrawingToolsManager(chart, series);
 
+  const drawingMessages = () => messages.filter((message) => message.type === 'DRAWINGS_CHANGED');
   const latestDrawings = () => {
-    const drawingMessages = messages.filter((message) => message.type === 'DRAWINGS_CHANGED');
-    return drawingMessages[drawingMessages.length - 1]?.drawings ?? [];
+    const drawingMessageList = drawingMessages();
+    return drawingMessageList[drawingMessageList.length - 1]?.drawings ?? [];
   };
   const listenerCounts = () => ({
     click: clickListeners.length,
@@ -164,6 +185,7 @@ function createFakeChartEnvironment({
     touchStart: hostListeners.touchstart?.length ?? 0,
   });
   const toolsChanged = () => messages.filter((message) => message.type === 'TOOL_ACTIVE_CHANGED');
+  const crosshairMessages = () => messages.filter((message) => message.type === 'CHART_CROSSHAIR_CANDLE');
   const click = (x: number, y: number, time = Math.max(1, Math.round(x / 10))) => {
     clickListeners.slice().forEach((listener) => listener({ point: { x, y }, time }));
   };
@@ -205,11 +227,14 @@ function createFakeChartEnvironment({
     appliedOptions,
     attachedPrimitives,
     click,
+    crosshairMessages,
     detachedPrimitives,
+    drawingMessages,
     host,
     latestDrawings,
     listenerCounts,
     manager,
+    messages,
     move,
     priceScaleActions,
     timeScaleActions,
@@ -221,25 +246,33 @@ function createFakeChartEnvironment({
 }
 
 function createFakeBitmapTarget() {
+  const fillRects: Array<{ height: number; width: number; x: number; y: number }> = [];
   const roundRects: Array<{ height: number; width: number; x: number; y: number }> = [];
   const lines: Array<{ x: number; y: number }> = [];
   const context = {
     arc: () => undefined,
     beginPath: () => undefined,
+    clip: () => undefined,
     fill: () => undefined,
+    fillRect: (x: number, y: number, width: number, height: number) => {
+      fillRects.push({ height, width, x, y });
+    },
     fillText: () => undefined,
     lineTo: (x: number, y: number) => lines.push({ x, y }),
     measureText: (text: string) => ({ width: text.length * 7 }),
     moveTo: () => undefined,
+    rect: () => undefined,
     restore: () => undefined,
     roundRect: (x: number, y: number, width: number, height: number) => {
       roundRects.push({ height, width, x, y });
     },
     save: () => undefined,
+    setLineDash: () => undefined,
     stroke: () => undefined,
   };
 
   return {
+    fillRects,
     lines,
     roundRects,
     target: {
@@ -264,21 +297,32 @@ test('Crosshair stays passive and does not create drawing records', () => {
   assert.deepEqual(harness.latestDrawings(), []);
 });
 
-test('Crosshair touch mode keeps cursor overlay hidden without drawing records', () => {
+test('Crosshair touch mode shows and locks the professional cursor overlay without drawing records', () => {
   const harness = createFakeChartEnvironment({ touch: true });
 
   harness.manager.setActiveTool('crosshair');
   const startEvent = harness.touchStart(120, 140);
-  const moveEvent = harness.touchMove(180, 140);
-  const endEvent = harness.touchEnd(180, 140);
+  const endEvent = harness.touchEnd(120, 140);
+  harness.click(120, 140);
 
   const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
-  assert.equal(overlay, undefined);
+  assert.ok(overlay);
+  assert.equal(overlay.style.display, 'block');
+  assert.ok(overlay.children.some((child: any) => child.textContent === 'LOCK'));
   assert.equal(harness.host.style.touchAction, 'manipulation');
   assert.equal(startEvent.preventDefaultCalls, 0);
-  assert.equal(moveEvent.preventDefaultCalls, 0);
   assert.equal(endEvent.preventDefaultCalls, 0);
+  assert.equal(harness.latestDrawings().length, 0);
+  assert.ok(harness.crosshairMessages().some((message) => message.active === true));
   assert.deepEqual(harness.latestDrawings(), []);
+
+  harness.touchStart(120, 140);
+  harness.touchMove(124, 144);
+  harness.touchEnd(124, 144);
+  harness.click(124, 144);
+
+  assert.equal(overlay.style.display, 'none');
+  assert.ok(harness.crosshairMessages().some((message) => message.active === false));
 });
 
 test('Trend Line creates a two-point line and returns to crosshair', () => {
@@ -293,7 +337,67 @@ test('Trend Line creates a two-point line and returns to crosshair', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'trendline');
   assert.equal(drawings[0].points.length, 2);
+  assert.equal(drawings[0].type, 'trendline');
+  assert.equal(drawings[0].paneId, 'main');
+  assert.equal(drawings[0].extendMode, 'none');
+  assert.equal(drawings[0].style.color, '#2962FF');
+  assert.equal(typeof drawings[0].createdAt, 'number');
+  assert.equal(typeof drawings[0].updatedAt, 'number');
   assert.equal(harness.manager.getActiveTool(), 'crosshair');
+});
+
+test('Trend Line can be selected and deleted from crosshair mode', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setActiveTool('trendline');
+  harness.click(10, 100);
+  harness.click(20, 90);
+  (harness.manager as any)._ignoreCrosshairClickUntil = 0;
+  harness.click(15, 95);
+
+  assert.equal(harness.latestDrawings()[0].selected, true);
+  (harness.manager as any)._handleKeyDown({ key: 'Delete', preventDefault: () => undefined });
+
+  assert.equal(harness.latestDrawings().length, 0);
+});
+
+test('Trend Line direct mobile editing moves endpoints and whole lines without React move spam', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('trendline');
+  harness.touchStart(10, 100);
+  harness.touchMove(100, 60);
+  harness.touchEnd(100, 60);
+  assert.equal(harness.latestDrawings().length, 1);
+
+  harness.touchStart(10, 100);
+  const messagesBeforeEndpointMove = harness.drawingMessages().length;
+  harness.touchMove(20, 110);
+  assert.equal(harness.drawingMessages().length, messagesBeforeEndpointMove);
+  harness.touchEnd(20, 110);
+
+  let drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].points[0].time, 2);
+  assert.equal(drawings[0].points[0].price, 89);
+  assert.equal(drawings[0].points[1].time, 10);
+  assert.equal(drawings[0].points[1].price, 94);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  harness.touchStart(60, 85);
+  const messagesBeforeBodyMove = harness.drawingMessages().length;
+  harness.touchMove(70, 95);
+  assert.equal(harness.drawingMessages().length, messagesBeforeBodyMove);
+  harness.touchEnd(70, 95);
+
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 3);
+  assert.equal(drawings[0].points[0].price, 88);
+  assert.equal(drawings[0].points[1].time, 11);
+  assert.equal(drawings[0].points[1].price, 93);
 });
 
 test('Trend Line supports direct mobile drag input without chart pan interference', () => {
@@ -339,7 +443,7 @@ test('Direct touch box tools commit in empty chart space even when touchend has 
   assert.ok(drawTarget.roundRects.some((rect) => rect.width > 250 && rect.height > 30));
 });
 
-test('Fib Zone creates a two-point box drawing', () => {
+test('Fib Zone creates calculated levels, zones, and golden pocket metadata', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setActiveTool('fib');
@@ -349,10 +453,90 @@ test('Fib Zone creates a two-point box drawing', () => {
   const drawings = harness.latestDrawings();
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'fib');
+  assert.equal(drawings[0].type, 'fibZone');
   assert.equal(drawings[0].points.length, 2);
+  assert.ok(drawings[0].levels.some((level: any) => level.value === 0.618));
+  assert.ok(drawings[0].levels.some((level: any) => level.value === 0.65));
+  assert.equal(drawings[0].goldenPocket.enabled, true);
+  assert.equal(drawings[0].extendMode, 'right');
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  const prices = primitive.getLevelPrices();
+  assert.equal(prices.find((level: any) => level.value === 0).price, 90);
+  assert.equal(prices.find((level: any) => level.value === 0.5).price, 91);
+  assert.equal(prices.find((level: any) => level.value === 1).price, 92);
+  assert.equal(Number(prices.find((level: any) => level.value === 0.618).price.toFixed(3)), 91.236);
+  assert.equal(Number(prices.find((level: any) => level.value === 0.65).price.toFixed(1)), 91.3);
+
+  primitive.updateAllViews();
+  const renderer = primitive.paneViews()[0].renderer();
+  const drawTarget = createFakeBitmapTarget();
+  renderer.draw(drawTarget.target);
+  assert.ok(drawTarget.fillRects.length > 0);
+  assert.ok(drawTarget.lines.length >= drawings[0].levels.length);
 });
 
-test('Highlight Box creates a two-point box drawing', () => {
+test('Fib Zone calculates bearish direction and extension levels accurately on restore', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([{
+    id: 'fib_bearish',
+    kind: 'fib',
+    label: 'Bearish Fib',
+    points: [{ time: 1, price: 200 }, { time: 3, price: 100 }],
+  }]);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  const prices = primitive.getLevelPrices();
+  assert.equal(prices.find((level: any) => level.value === 0).price, 200);
+  assert.equal(prices.find((level: any) => level.value === 0.5).price, 150);
+  assert.equal(prices.find((level: any) => level.value === 1).price, 100);
+  assert.equal(Number(prices.find((level: any) => level.value === 1.618).price.toFixed(1)), 38.2);
+});
+
+test('Fib Zone supports mobile anchor and body editing without React move spam', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('fib');
+  harness.touchStart(10, 100);
+  harness.touchMove(120, 60);
+  harness.touchEnd(120, 60);
+
+  let drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].kind, 'fib');
+
+  harness.touchStart(120, 60);
+  const messagesBeforeAnchorMove = harness.drawingMessages().length;
+  harness.touchMove(130, 70);
+  assert.equal(harness.drawingMessages().length, messagesBeforeAnchorMove);
+  harness.touchEnd(130, 70);
+
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 1);
+  assert.equal(drawings[0].points[0].price, 90);
+  assert.equal(drawings[0].points[1].time, 13);
+  assert.equal(drawings[0].points[1].price, 93);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+  assert.equal((harness.manager as any)._hitTestEditableDrawingAtPoint({ x: 70, y: 85 })?.part, 'body');
+
+  harness.touchStart(70, 85);
+  const messagesBeforeBodyMove = harness.drawingMessages().length;
+  harness.touchMove(80, 95);
+  assert.equal(harness.drawingMessages().length, messagesBeforeBodyMove);
+  harness.touchEnd(80, 95);
+
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 2);
+  assert.equal(drawings[0].points[0].price, 89);
+  assert.equal(drawings[0].points[1].time, 14);
+  assert.equal(drawings[0].points[1].price, 92);
+});
+
+test('Highlight Box creates a two-point box drawing with persistence metadata', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setActiveTool('brush');
@@ -362,7 +546,224 @@ test('Highlight Box creates a two-point box drawing', () => {
   const drawings = harness.latestDrawings();
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'brush');
+  assert.equal(drawings[0].type, 'highlightBox');
+  assert.equal(drawings[0].paneId, 'main');
+  assert.equal(drawings[0].label, 'Highlight');
   assert.equal(drawings[0].points.length, 2);
+  assert.equal(drawings[0].extendMode, 'none');
+  assert.equal(drawings[0].extendUntil, 'none');
+  assert.equal(drawings[0].zoneType, 'neutral');
+  assert.equal(drawings[0].style.fillColor, 'rgba(41, 98, 255, 0.15)');
+  assert.equal(drawings[0].style.borderColor, '#2962FF');
+  assert.deepEqual(drawings[0].alertMetadata.supportedEvents, [
+    'enter-zone',
+    'exit-zone',
+    'touch-top',
+    'touch-bottom',
+    'close-inside',
+    'close-beyond',
+  ]);
+  assert.equal(drawings[0].alertMetadata.priceTop, 92);
+  assert.equal(drawings[0].alertMetadata.priceBottom, 90);
+  assert.equal(typeof drawings[0].createdAt, 'number');
+  assert.equal(typeof drawings[0].updatedAt, 'number');
+  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+});
+
+test('Highlight Box restore preserves serialized zone metadata and alert settings', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([{
+    alertMetadata: {
+      id: 'supply-alert-1',
+      supportedEvents: ['enter-zone'],
+      triggerOnce: true,
+    },
+    createdAt: 1000,
+    extendMode: 'right',
+    extendUntil: 'price-touch',
+    hidden: true,
+    id: 'supply_zone_saved',
+    kind: 'brush',
+    label: 'London supply',
+    locked: true,
+    paneId: 'main',
+    points: [{ time: 1, price: 95 }, { time: 4, price: 90 }],
+    selected: true,
+    style: {
+      borderColor: '#EF5350',
+      borderStyle: 'dashed',
+      fillColor: 'rgba(239, 83, 80, 0.14)',
+      showMidline: true,
+    },
+    type: 'highlightBox',
+    updatedAt: 2000,
+    zoneType: 'supply',
+  }]);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].id, 'supply_zone_saved');
+  assert.equal(drawings[0].kind, 'brush');
+  assert.equal(drawings[0].type, 'highlightBox');
+  assert.equal(drawings[0].label, 'London supply');
+  assert.equal(drawings[0].zoneType, 'supply');
+  assert.equal(drawings[0].extendMode, 'right');
+  assert.equal(drawings[0].extendUntil, 'price-touch');
+  assert.equal(drawings[0].hidden, true);
+  assert.equal(drawings[0].locked, true);
+  assert.equal(drawings[0].selected, true);
+  assert.equal(drawings[0].createdAt, 1000);
+  assert.equal(drawings[0].updatedAt, 2000);
+  assert.deepEqual(drawings[0].alertMetadata, {
+    id: 'supply-alert-1',
+    supportedEvents: ['enter-zone'],
+    triggerOnce: true,
+  });
+  assert.equal(drawings[0].style.borderStyle, 'dashed');
+  assert.equal(drawings[0].style.showMidline, true);
+});
+
+test('Highlight Box right extension renders to the pane edge without moving anchors', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([{
+    extendMode: 'right',
+    id: 'extended_demand_zone',
+    kind: 'brush',
+    label: 'Extended demand',
+    points: [{ time: 1, price: 90 }, { time: 8, price: 96 }],
+    style: { showLabel: false },
+    type: 'highlightBox',
+    zoneType: 'demand',
+  }]);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  const renderer = primitive.paneViews()[0].renderer();
+  const drawTarget = createFakeBitmapTarget();
+  renderer.draw(drawTarget.target);
+
+  const geometry = primitive.getGeometry();
+  assert.deepEqual(primitive.getPoints(), [{ time: 1, price: 90 }, { time: 8, price: 96 }]);
+  assert.equal(geometry.anchorRect.anchorLeft, 10);
+  assert.equal(geometry.anchorRect.anchorRight, 80);
+  assert.equal(geometry.visibleRect.left, 10);
+  assert.equal(geometry.visibleRect.right, 360);
+  assert.ok(drawTarget.roundRects.some((rect) => rect.x === 10 && rect.width >= 349));
+});
+
+test('Highlight Box hit testing prefers handles over body and extended fill', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([{
+    extendMode: 'right',
+    id: 'editable_box',
+    kind: 'brush',
+    label: 'Editable Box',
+    points: [{ time: 1, price: 90 }, { time: 8, price: 96 }],
+    selected: true,
+    style: { showLabel: false },
+    type: 'highlightBox',
+  }]);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  const hitContext = { isTouch: false, manager: harness.manager };
+  assert.equal(primitive.hitTest({ x: 10, y: 40 }, hitContext)?.part, 'top-left');
+  assert.equal(primitive.hitTest({ x: 45, y: 70 }, hitContext)?.part, 'body');
+  assert.equal(primitive.hitTest({ x: 200, y: 70 }, hitContext)?.part, 'body');
+});
+
+test('Highlight Box edge and corner resize math updates only the intended boundaries', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([{
+    id: 'resize_math_box',
+    kind: 'brush',
+    label: 'Resize Math',
+    points: [{ time: 5, price: 90 }, { time: 1, price: 100 }],
+    type: 'highlightBox',
+  }]);
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  const originalPoints = [{ time: 5, price: 90 }, { time: 1, price: 100 }];
+
+  assert.deepEqual(
+    primitive.buildEditPoints('top-left', originalPoints, originalPoints[1], { time: 2, price: 110 }),
+    [{ time: 5, price: 90 }, { time: 2, price: 110 }],
+  );
+  assert.deepEqual(
+    primitive.buildEditPoints('right', originalPoints, originalPoints[0], { time: 7, price: 95 }),
+    [{ time: 7, price: 90 }, { time: 1, price: 100 }],
+  );
+  assert.deepEqual(
+    primitive.buildEditPoints('bottom', originalPoints, originalPoints[0], { time: 3, price: 80 }),
+    [{ time: 5, price: 80 }, { time: 1, price: 100 }],
+  );
+});
+
+test('Highlight Box direct mobile drag creation and resize avoid React move spam', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('brush');
+  const startEvent = harness.touchStart(10, 100);
+  const messagesBeforeCreateMove = harness.drawingMessages().length;
+  const moveEvent = harness.touchMove(80, 40);
+  assert.equal(harness.drawingMessages().length, messagesBeforeCreateMove);
+  const endEvent = harness.touchEnd(80, 40);
+
+  let drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].kind, 'brush');
+  assert.equal(drawings[0].type, 'highlightBox');
+  assert.equal(drawings[0].points[0].time, 1);
+  assert.equal(drawings[0].points[0].price, 90);
+  assert.equal(drawings[0].points[1].time, 8);
+  assert.equal(drawings[0].points[1].price, 96);
+  assert.equal(startEvent.preventDefaultCalls, 1);
+  assert.equal(moveEvent.preventDefaultCalls, 1);
+  assert.equal(endEvent.preventDefaultCalls, 1);
+  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  const editStartEvent = harness.touchStart(80, 40);
+  const messagesBeforeResizeMove = harness.drawingMessages().length;
+  const editMoveEvent = harness.touchMove(90, 30);
+  assert.equal(harness.drawingMessages().length, messagesBeforeResizeMove);
+  const editEndEvent = harness.touchEnd(90, 30);
+
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 1);
+  assert.equal(drawings[0].points[0].price, 90);
+  assert.equal(drawings[0].points[1].time, 9);
+  assert.equal(drawings[0].points[1].price, 97);
+  assert.equal(editStartEvent.preventDefaultCalls, 1);
+  assert.equal(editMoveEvent.preventDefaultCalls, 1);
+  assert.equal(editEndEvent.preventDefaultCalls, 1);
+
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  const bodyStartEvent = harness.touchStart(45, 70);
+  const messagesBeforeBodyMove = harness.drawingMessages().length;
+  const bodyMoveEvent = harness.touchMove(55, 60);
+  assert.equal(harness.drawingMessages().length, messagesBeforeBodyMove);
+  const bodyEndEvent = harness.touchEnd(55, 60);
+
+  drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 2);
+  assert.equal(drawings[0].points[0].price, 91);
+  assert.equal(drawings[0].points[1].time, 10);
+  assert.equal(drawings[0].points[1].price, 98);
+  assert.equal(bodyStartEvent.preventDefaultCalls, 1);
+  assert.equal(bodyMoveEvent.preventDefaultCalls, 1);
+  assert.equal(bodyEndEvent.preventDefaultCalls, 1);
 });
 
 test('Text Label creates a one-point label drawing', () => {
@@ -375,6 +776,146 @@ test('Text Label creates a one-point label drawing', () => {
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'text');
   assert.equal(drawings[0].points.length, 1);
+});
+
+test('Text Level creates a snapped one-point price level drawing', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setCrosshairConfig({ symbol: 'GBPUSD', timeframe: 'M5' });
+  harness.manager.setActiveTool('textLevel');
+  harness.click(120, 100, 12);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings.length, 1);
+  assert.equal(drawings[0].kind, 'textLevel');
+  assert.equal(drawings[0].type, 'textLevel');
+  assert.equal(drawings[0].symbol, 'GBPUSD');
+  assert.equal(drawings[0].timeframe, 'M5');
+  assert.equal(drawings[0].points.length, 1);
+  assert.equal(drawings[0].points[0].time, 12);
+  assert.equal(drawings[0].points[0].price, 90);
+  assert.equal(drawings[0].text, 'Level');
+  assert.equal(drawings[0].levelLine.enabled, true);
+  assert.equal(drawings[0].levelLine.extendMode, 'right');
+  assert.equal(drawings[0].labelPosition, 'right');
+  assert.equal(drawings[0].showPrice, true);
+  assert.equal(drawings[0].showPriceAxisLabel, true);
+  assert.equal(drawings[0].levelType, 'neutral');
+  assert.deepEqual(drawings[0].labelOffset, { x: 0, y: 0 });
+
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+  assert.equal(primitive.priceAxisViews()[0].text(), '90.00000');
+  assert.ok(primitive.getGeometry().labelBox.width > 0);
+});
+
+test('Text Level touch drag moves the level price without changing its time anchor', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'text_level_saved',
+      kind: 'textLevel',
+      label: 'Entry',
+      points: [{ time: 1, price: 90 }],
+      text: 'Entry',
+      levelLine: { enabled: true, extendMode: 'right', lineColor: '#2962FF', lineWidth: 1, lineStyle: 'solid', opacity: 0.9 },
+      showPriceAxisLabel: true,
+    },
+  ]);
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  harness.touchStart(180, 100);
+  const messagesBeforeMove = harness.drawingMessages().length;
+  harness.touchMove(180, 80);
+  assert.equal(harness.drawingMessages().length, messagesBeforeMove);
+  harness.touchEnd(180, 80);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 1);
+  assert.equal(drawings[0].points[0].price, 92);
+});
+
+test('Text Level touch drag on the label stores label offset without moving the level', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'text_level_label_saved',
+      kind: 'textLevel',
+      label: 'Entry',
+      labelOffset: { x: 0, y: 0 },
+      points: [{ time: 1, price: 90 }],
+      text: 'Entry',
+      levelLine: { enabled: true, extendMode: 'right', lineColor: '#2962FF', lineWidth: 1, lineStyle: 'solid', opacity: 0.9 },
+      showPriceAxisLabel: true,
+    },
+  ]);
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  const labelBox = primitive.getGeometry().labelBox;
+  const labelX = (labelBox.left + labelBox.right) / 2;
+  const labelY = (labelBox.top + labelBox.bottom) / 2;
+
+  harness.touchStart(labelX, labelY);
+  const messagesBeforeMove = harness.drawingMessages().length;
+  harness.touchMove(labelX - 30, labelY + 20);
+  assert.equal(harness.drawingMessages().length, messagesBeforeMove);
+  harness.touchEnd(labelX - 30, labelY + 20);
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings[0].points[0].time, 1);
+  assert.equal(drawings[0].points[0].price, 90);
+  assert.ok(drawings[0].labelOffset.x < 0);
+  assert.ok(drawings[0].labelOffset.y > 0);
+});
+
+test('Text Level mobile tap on the label opens native editing and sanitizes persisted text', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'text_level_edit_saved',
+      kind: 'textLevel',
+      label: 'Entry',
+      points: [{ time: 1, price: 90 }],
+      text: 'Entry',
+      levelLine: { enabled: true, extendMode: 'right', lineColor: '#2962FF', lineWidth: 1, lineStyle: 'solid', opacity: 0.9 },
+      showPriceAxisLabel: true,
+    },
+  ]);
+  const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
+  primitive.updateAllViews();
+  primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
+
+  const labelBox = primitive.getGeometry().labelBox;
+  const labelX = (labelBox.left + labelBox.right) / 2;
+  const labelY = (labelBox.top + labelBox.bottom) / 2;
+
+  harness.touchStart(labelX, labelY);
+  harness.touchEnd(labelX, labelY);
+
+  const editRequests = harness.messages.filter((message) => message.type === 'DRAWING_TEXT_EDIT_REQUEST');
+  assert.equal(editRequests.length, 1);
+  assert.equal(editRequests[0].recordId, 'text_level_edit_saved');
+  assert.equal(editRequests[0].text, 'Entry');
+
+  (harness.manager as any).applyTextRecordEdit(
+    'text_level_edit_saved',
+    '<b>Breakout</b>\n<script>x</script>',
+  );
+
+  const drawings = harness.latestDrawings();
+  assert.equal(drawings[0].text, 'Breakout x');
+  assert.equal(drawings[0].label, 'Breakout x');
 });
 
 test('Pattern Path creates a three-point polyline drawing', () => {
@@ -475,6 +1016,7 @@ test('Serialized drawings restore each registered drawing tool through the runti
     { kind: 'fib', points: [{ time: 1, price: 90 }, { time: 3, price: 94 }] },
     { kind: 'brush', points: [{ time: 1, price: 90 }, { time: 3, price: 94 }] },
     { kind: 'text', points: [{ time: 1, price: 90 }], text: 'TXT' },
+    { kind: 'textLevel', points: [{ time: 1, price: 90 }], text: 'Entry' },
     { kind: 'prediction', points: [{ time: 1, price: 90 }, { time: 3, price: 94 }] },
     { kind: 'pitchfork', points: [{ time: 1, price: 90 }, { time: 2, price: 93 }, { time: 3, price: 91 }] },
     { kind: 'smiley', points: [{ time: 1, price: 90 }], text: ':)' },
@@ -600,6 +1142,38 @@ test('Clear Drawings removes drawings and returns to crosshair', () => {
   assert.equal(harness.manager.getActiveTool(), 'crosshair');
 });
 
+test('Manager teardown detaches drawings without clearing persisted host state', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setActiveTool('fib');
+  harness.click(10, 100);
+  harness.click(40, 70);
+
+  assert.equal(harness.latestDrawings().length, 1);
+  const messagesBeforeTeardown = harness.drawingMessages().length;
+  harness.manager.remove();
+
+  assert.equal(harness.drawingMessages().length, messagesBeforeTeardown);
+  assert.equal(harness.latestDrawings().length, 1);
+  assert.ok(harness.detachedPrimitives.length > 0);
+});
+
+test('Manager can republish current drawings for host-side objects sync', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setActiveTool('fib');
+  harness.click(10, 100);
+  harness.click(40, 70);
+
+  const messagesBeforePublish = harness.drawingMessages().length;
+  harness.manager.publishDrawingsToHost();
+
+  assert.equal(harness.drawingMessages().length, messagesBeforePublish + 1);
+  assert.equal(harness.latestDrawings().length, 1);
+  assert.equal(harness.latestDrawings()[0].kind, 'fib');
+  assert.equal(harness.latestDrawings()[0].type, 'fibZone');
+});
+
 test('Repeated tool switching does not duplicate native chart listeners', () => {
   const harness = createFakeChartEnvironment();
   const initialCounts = harness.listenerCounts();
@@ -630,8 +1204,8 @@ test('Direct touch bridge stays single-bound through repeated drawing activation
   const harness = createFakeChartEnvironment({ touch: true });
 
   assert.deepEqual(harness.listenerCounts(), {
-    click: 0,
-    crosshairMove: 0,
+    click: 1,
+    crosshairMove: 1,
     touchCancel: 1,
     touchEnd: 1,
     touchMove: 1,
@@ -645,8 +1219,8 @@ test('Direct touch bridge stays single-bound through repeated drawing activation
   }
 
   assert.deepEqual(harness.listenerCounts(), {
-    click: 0,
-    crosshairMove: 0,
+    click: 1,
+    crosshairMove: 1,
     touchCancel: 1,
     touchEnd: 1,
     touchMove: 1,

@@ -62,9 +62,30 @@ test('webview bridge: exposes required bridge methods for updates and recovery',
     'recoverChartSurface',
     'setChartOverlays',
     'setSerializedDrawings',
+    'publishSerializedDrawings',
+    'applyDrawingTextEdit',
+    'cancelDrawingTextEdit',
   ].forEach((method) => {
     assertSourceContains(chartWebViewHtmlSource, new RegExp(`window\\.${method} = ${method}`), `${method} must be exposed on window`);
   });
+});
+
+test('webview bridge: objects navigation flushes current drawing records first', () => {
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function publishSerializedDrawings\(\)[\s\S]*window\._drawingManager\.publishDrawingsToHost\(\)/,
+    'WebView must expose a host sync function that republishes manager drawings',
+  );
+  assertSourceContains(
+    source,
+    /const requestChartDrawingSyncForObjects = useCallback\(\(\) => \{[\s\S]*publishSerializedDrawings\(\)[\s\S]*DRAWINGS_SYNCED_FOR_OBJECTS[\s\S]*\}, \[chartCanvasReady, webViewReady\]\)/,
+    'native chart must request current WebView drawings and wait for an ack before navigation',
+  );
+  assertSourceContains(
+    source,
+    /msg\.type === 'DRAWINGS_SYNCED_FOR_OBJECTS'[\s\S]*pendingObjectsDrawingSyncRef\.current[\s\S]*router\.push\('\/chart\/objects'\)/,
+    'Objects screen navigation must happen after the WebView confirms drawing publication',
+  );
 });
 
 test('webview bridge: updateChartData full reload reapplies overlays and market price lines', () => {

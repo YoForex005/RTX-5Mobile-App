@@ -76,7 +76,7 @@ export function ObjectsScreen() {
     if (chartDrawings.length > 0) {
       return chartDrawings.map((drawing) => {
         const meta = DRAWING_TOOL_META[drawing.kind];
-        const extraText = drawing.kind === 'text' && drawing.text ? ` | ${drawing.text}` : '';
+        const extraText = (drawing.kind === 'text' || drawing.kind === 'textLevel') && drawing.text ? ` | ${drawing.text}` : '';
         return {
           id: drawing.id,
           label: drawing.label,
@@ -251,6 +251,16 @@ export function ObjectsScreen() {
             accent="#1D4ED8"
             Icon={TvText}
             onPress={() => handleSelectTool('text')}
+            showDivider
+            styles={styles}
+            isDark={isDark}
+          />
+          <ActionRow
+            label="Add text level"
+            description="Mark a horizontal price level"
+            accent="#2962FF"
+            Icon={TvText}
+            onPress={() => handleSelectTool('textLevel')}
             styles={styles}
             isDark={isDark}
           />

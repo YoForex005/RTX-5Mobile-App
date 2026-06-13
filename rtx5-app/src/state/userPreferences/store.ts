@@ -87,10 +87,10 @@ type PersistedUserPreferencesState = Omit<
 >;
 
 const pendingPreferenceWrites = new Map<string, StorageValue<PersistedUserPreferencesState>>();
-let preferenceWriteScheduled = false;
 let pendingThemeModeCommit: ThemeMode | null = null;
 let themeModeCommitScheduled = false;
 const PREFERENCES_STORAGE_VERSION = 17;
+const CHART_DRAWING_RECORDS_STORAGE_KEY = 'rtx5-chart-drawing-records-v1';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -184,6 +184,29 @@ const normalizeDrawingRecordsBySymbol = (value: unknown): PersistedChartDrawings
   );
 };
 
+const hasDrawingRecordBuckets = (value: PersistedChartDrawingsBySymbol): boolean =>
+  Object.values(value).some((drawings) => drawings.length > 0);
+
+function persistChartDrawingRecordsBySymbol(recordsBySymbol: PersistedChartDrawingsBySymbol): void {
+  void AsyncStorage.setItem(CHART_DRAWING_RECORDS_STORAGE_KEY, JSON.stringify(recordsBySymbol)).catch((error) => {
+    console.warn('[UserPreferences] Failed to persist chart drawings', error);
+  });
+}
+
+async function readChartDrawingRecordsBySymbol(): Promise<PersistedChartDrawingsBySymbol> {
+  try {
+    const value = await AsyncStorage.getItem(CHART_DRAWING_RECORDS_STORAGE_KEY);
+    const normalized = value ? normalizeDrawingRecordsBySymbol(JSON.parse(value)) : {};
+    return normalized;
+  } catch (error) {
+    console.warn('[UserPreferences] Ignoring invalid persisted chart drawings', error);
+    void AsyncStorage.removeItem(CHART_DRAWING_RECORDS_STORAGE_KEY).catch((removeError) => {
+      console.warn('[UserPreferences] Failed to clear invalid persisted chart drawings', removeError);
+    });
+    return {};
+  }
+}
+
 export function normalizePersistedUserPreferencesState(
   persistedState: unknown,
   version = PREFERENCES_STORAGE_VERSION,
@@ -267,7 +290,6 @@ export function normalizePersistedUserPreferencesState(
 }
 
 function flushPendingPreferenceWrites() {
-  preferenceWriteScheduled = false;
   const writes = Array.from(pendingPreferenceWrites.entries());
   pendingPreferenceWrites.clear();
 
@@ -275,20 +297,6 @@ function flushPendingPreferenceWrites() {
     void AsyncStorage.setItem(name, JSON.stringify(value)).catch((error) => {
       console.warn('[UserPreferences] Failed to persist preferences', error);
     });
-  });
-}
-
-function schedulePreferenceWriteFlush() {
-  if (preferenceWriteScheduled) return;
-  preferenceWriteScheduled = true;
-
-  const scheduleAfterFrame =
-    typeof globalThis.requestAnimationFrame === 'function'
-      ? globalThis.requestAnimationFrame
-      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
-
-  scheduleAfterFrame(() => {
-    setTimeout(flushPendingPreferenceWrites, 0);
   });
 }
 
@@ -324,7 +332,7 @@ const userPreferencesStorage: PersistStorage<PersistedUserPreferencesState, void
   },
   setItem: (name, value) => {
     pendingPreferenceWrites.set(name, value);
-    schedulePreferenceWriteFlush();
+    flushPendingPreferenceWrites();
   },
   removeItem: (name) => {
     pendingPreferenceWrites.delete(name);
@@ -526,6 +534,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             ...state.chartDrawingRecordsBySymbol,
             [bucketKey]: nextDrawings,
           };
+          persistChartDrawingRecordsBySymbol(nextRecordsBySymbol);
 
           return {
             chartDrawingRecordsBySymbol: nextRecordsBySymbol,
@@ -543,6 +552,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
             ...state.chartDrawingRecordsBySymbol,
             [bucketKey]: nextDrawings,
           };
+          persistChartDrawingRecordsBySymbol(nextRecordsBySymbol);
 
           return {
             chartDrawingRecordsBySymbol: nextRecordsBySymbol,
@@ -644,7 +654,19 @@ export const useUserPreferences = create<UserPreferencesState>()(
         if (state?.themeMode) {
           setImmediateThemeMode(state.themeMode);
         }
-        state?.setHasHydrated(true);
+        void readChartDrawingRecordsBySymbol()
+          .then((storedRecordsBySymbol) => {
+            if (!state || !hasDrawingRecordBuckets(storedRecordsBySymbol)) {
+              return;
+            }
+
+            Object.entries(storedRecordsBySymbol).forEach(([symbol, drawings]) => {
+              state.setChartDrawingRecordsForSymbol(symbol, drawings);
+            });
+          })
+          .finally(() => {
+            state?.setHasHydrated(true);
+          });
       },
     }
   )

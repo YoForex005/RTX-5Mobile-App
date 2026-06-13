@@ -2696,6 +2696,11 @@ export const CH_HTML = `
         if (now <= suppressChartTapUntil) {
           return;
         }
+        try {
+          if (typeof window.__rtx5SuppressChartTapUntil === 'number' && now <= window.__rtx5SuppressChartTapUntil) {
+            return;
+          }
+        } catch (_suppressCrosshairTapErr) {}
         if (
           isFinite(lastPostedChartTap.x) &&
           isFinite(lastPostedChartTap.y) &&
@@ -4125,9 +4130,11 @@ export const CH_HTML = `
         } catch (_bgErr) {}
         safeOpts = hideChartCrosshairOptions(makeChartCanvasBackgroundTransparent(safeOpts));
         var customCols = safeOpts.customColors;
+        var customCrosshairConfig = safeOpts.customCrosshair || {};
         applyMovingVerticalGridColor(customCols && customCols.grid);
         applyChartAxisDividerColor(customCols && customCols.axisDivider);
         if (safeOpts.customColors) { delete safeOpts.customColors; }
+        if (safeOpts.customCrosshair) { delete safeOpts.customCrosshair; }
         if (!safeOpts.timeScale) {
           safeOpts.timeScale = {};
         }
@@ -4277,6 +4284,12 @@ export const CH_HTML = `
         try {
           if (typeof window.DrawingToolsManager === 'function') {
             window._drawingManager = new window.DrawingToolsManager(chart, series);
+            if (window._drawingManager && typeof window._drawingManager.setCrosshairConfig === 'function') {
+              window._drawingManager.setCrosshairConfig(Object.assign({}, customCrosshairConfig, {
+                upColor: colors.up,
+                downColor: colors.down,
+              }));
+            }
           }
         } catch (_dtErr) {}
 
@@ -4988,6 +5001,9 @@ export const CH_HTML = `
           currentSeriesLength = mapped.length;
           clearMarketPriceLineRefs();
           series.setData(mapped);
+          if (window._drawingManager && typeof window._drawingManager.refreshCrosshairData === 'function') {
+            try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
+          }
           var didPrependHistory =
             previousRawSeriesData.length > 0 &&
             lastRawSeriesData.length > 0 &&
@@ -5119,6 +5135,9 @@ export const CH_HTML = `
           });
         } catch (_logErr) {}
         series.update(bar);
+        if (window._drawingManager && typeof window._drawingManager.refreshCrosshairData === 'function') {
+          try { window._drawingManager.refreshCrosshairData(); } catch (_crosshairRefreshErr) {}
+        }
         schedulePriceScaleHealthCheck('tick_update', false);
         currentSeriesLength = lastRawSeriesData.length;
         if (shouldFollowLiveEdge) {
@@ -5459,6 +5478,21 @@ export const CH_HTML = `
       function setSerializedDrawings(drawings) {
         if (window._drawingManager && typeof window._drawingManager.setSerializedDrawings === 'function') {
           window._drawingManager.setSerializedDrawings(drawings);
+        }
+      }
+      function publishSerializedDrawings() {
+        if (window._drawingManager && typeof window._drawingManager.publishDrawingsToHost === 'function') {
+          window._drawingManager.publishDrawingsToHost();
+        }
+      }
+      function applyDrawingTextEdit(recordId, text) {
+        if (window._drawingManager && typeof window._drawingManager.applyTextRecordEdit === 'function') {
+          window._drawingManager.applyTextRecordEdit(recordId, text);
+        }
+      }
+      function cancelDrawingTextEdit(recordId) {
+        if (window._drawingManager && typeof window._drawingManager.cancelTextRecordEdit === 'function') {
+          window._drawingManager.cancelTextRecordEdit(recordId);
         }
       }
       function setDrawingsLocked(locked) {
@@ -6245,6 +6279,9 @@ export const CH_HTML = `
       window.setDrawingTool = setDrawingTool;
       window.clearDrawings = clearDrawings;
       window.setSerializedDrawings = setSerializedDrawings;
+      window.publishSerializedDrawings = publishSerializedDrawings;
+      window.applyDrawingTextEdit = applyDrawingTextEdit;
+      window.cancelDrawingTextEdit = cancelDrawingTextEdit;
       window.setDrawingsLocked = setDrawingsLocked;
       window.setDrawingsHidden = setDrawingsHidden;
       window.setStayInDrawingMode = setStayInDrawingMode;

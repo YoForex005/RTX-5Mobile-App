@@ -12,6 +12,7 @@ import { pitchforkDrawingTool } from './pitchforkTool';
 import { stayInDrawingModeDrawingToolAction } from './stayInDrawingModeTool';
 import { stickerDrawingTool } from './stickerTool';
 import { textLabelDrawingTool } from './textLabelTool';
+import { textLevelDrawingTool } from './textLevelTool';
 import { trendLineDrawingTool } from './trendLineTool';
 import { zoomToFitDrawingToolAction } from './zoomToFitTool';
 import type {
@@ -54,6 +55,7 @@ export { pitchforkDrawingTool } from './pitchforkTool';
 export { stayInDrawingModeDrawingToolAction } from './stayInDrawingModeTool';
 export { stickerDrawingTool } from './stickerTool';
 export { textLabelDrawingTool } from './textLabelTool';
+export { textLevelDrawingTool } from './textLevelTool';
 export { trendLineDrawingTool } from './trendLineTool';
 export { zoomToFitDrawingToolAction } from './zoomToFitTool';
 export {
@@ -68,6 +70,7 @@ export {
   pitchforkEnhancedDrawingToolRuntime,
   stickerEnhancedDrawingToolRuntime,
   textLabelEnhancedDrawingToolRuntime,
+  textLevelEnhancedDrawingToolRuntime,
   trendLineEnhancedDrawingToolRuntime,
 } from './runtime';
 
@@ -77,6 +80,7 @@ export const DRAWING_TOOL_OPTIONS: SelectableDrawingToolDefinition[] = [
   fibZoneDrawingTool,
   highlightBoxDrawingTool,
   textLabelDrawingTool,
+  textLevelDrawingTool,
   patternPathDrawingTool,
   longPositionDrawingTool,
   pitchforkDrawingTool,

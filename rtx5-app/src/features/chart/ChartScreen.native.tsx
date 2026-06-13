@@ -36,6 +36,10 @@ import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
 import { createDrawingToolsActionSheetActions } from './drawingTools';
+import {
+  TextLevelEditOverlay,
+  type TextLevelEditRequest,
+} from './drawingTools/TextLevelEditOverlay';
 import type { FixedHorizontalGridPlotArea } from './components/ChartFixedHorizontalGridOverlay';
 import {
   ChartTradeInlineFooter,
@@ -930,6 +934,7 @@ export function ChartScreen() {
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [stickyDrawingMode, setStickyDrawingMode] = useState(false);
+  const [textLevelEditRequest, setTextLevelEditRequest] = useState<TextLevelEditRequest | null>(null);
   const [chartViewportTouchActive, setChartViewportTouchActive] = useState(false);
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
@@ -937,6 +942,7 @@ export function ChartScreen() {
     isChartExpanded || activeTool !== 'crosshair' || Boolean(pendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
+  const pendingObjectsDrawingSyncRef = useRef(false);
   const chartViewportRef = useRef<View>(null);
   const chartTapMenuBoundsRef = useRef<ChartTapMenuBounds>({ width: 0, height: 0 });
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
@@ -1345,6 +1351,20 @@ export function ChartScreen() {
     webViewRef.current?.injectJavaScript(`${script} true;`);
   };
 
+  const handleCommitTextLevelEdit = useCallback((recordId: string, text: string) => {
+    setTextLevelEditRequest(null);
+    injectChartScript(
+      `if (typeof applyDrawingTextEdit === 'function') { applyDrawingTextEdit(${JSON.stringify(recordId)}, ${JSON.stringify(text)}); }`,
+    );
+  }, []);
+
+  const handleCancelTextLevelEdit = useCallback((recordId: string) => {
+    setTextLevelEditRequest(null);
+    injectChartScript(
+      `if (typeof cancelDrawingTextEdit === 'function') { cancelDrawingTextEdit(${JSON.stringify(recordId)}); }`,
+    );
+  }, []);
+
   const closeChartTapMenu = useCallback(() => {
     setChartTapMenuAnchor(null);
   }, []);
@@ -1368,6 +1388,8 @@ export function ChartScreen() {
   const handleClearDrawings = () => {
     closeChartTapMenu();
     setActiveTool('crosshair');
+    allowNextEmptyDrawingSyncRef.current = true;
+    hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
     setChartDrawingRecordsForSymbol(chartSymbol, []);
     lastWebViewDrawingSignatureRef.current = '';
     lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
@@ -2534,6 +2556,33 @@ export function ChartScreen() {
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
+  const requestChartDrawingSyncForObjects = useCallback(() => {
+    if (!webViewRef.current || !webViewReady || !chartCanvasReady) {
+      return false;
+    }
+
+    pendingObjectsDrawingSyncRef.current = true;
+    webViewRef.current.injectJavaScript(`
+      try {
+        if (typeof publishSerializedDrawings === 'function') {
+          publishSerializedDrawings();
+        }
+      } finally {
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DRAWINGS_SYNCED_FOR_OBJECTS' }));
+        }
+      }
+      true;
+    `);
+    setTimeout(() => {
+      if (!pendingObjectsDrawingSyncRef.current) {
+        return;
+      }
+      pendingObjectsDrawingSyncRef.current = false;
+      router.push('/chart/objects');
+    }, 700);
+    return true;
+  }, [chartCanvasReady, webViewReady]);
 
   const hasCandles = sanitizedCandles.length > 0;
   const timeRangeCandlesRef = useRef(sanitizedCandles);
@@ -2553,8 +2602,19 @@ export function ChartScreen() {
     (value: number | null | undefined) => (Number.isFinite(value) ? Number(value).toFixed(displayDecimals) : '--'),
     [displayDecimals],
   );
+  const [chartCrosshairCandle, setChartCrosshairCandle] = useState<{
+    close: number;
+    high: number;
+    low: number;
+    open: number;
+    time?: number | null;
+    volume?: number | null;
+  } | null>(null);
+  useEffect(() => {
+    setChartCrosshairCandle(null);
+  }, [chartSymbol, chartTimeframe, chartType]);
   const chartMetaBackendLast = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
-  const chartMetaLastCandle = chartMetaBackendLast;
+  const chartMetaLastCandle = chartCrosshairCandle ?? chartMetaBackendLast;
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
   const chartLatestCandleGap = useMemo(
     () => resolveLatestCandleGap(chartCandles, chartTimeframe),
@@ -2844,9 +2904,13 @@ export function ChartScreen() {
   const handleOpenObjectsScreen = useCallback(() => {
     runImmediateAction('chart.objects.open', () => {
       closeChartTapMenu();
+      if (requestChartDrawingSyncForObjects()) {
+        return;
+      }
+
       router.push('/chart/objects');
     });
-  }, [closeChartTapMenu]);
+  }, [closeChartTapMenu, requestChartDrawingSyncForObjects]);
 
   const handleOpenSignalDetails = useCallback(() => {
     runImmediateAction('chart.signalDetails.open', () => {
@@ -3091,8 +3155,25 @@ export function ChartScreen() {
       lineBody: resolvedChartColors.lineBody,
       grid: chartDisplay.showGrid ? chartGridColor : 'transparent',
       axisDivider: chartAxisBorderColor,
+    },
+    customCrosshair: {
+      symbol: chartSymbol,
+      timeframe: chartTimeframe,
+      lineColor: isDark ? 'rgba(148, 163, 184, 0.64)' : 'rgba(71, 85, 105, 0.58)',
+      labelBackground: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.94)',
+      labelText: '#FFFFFF',
+      tooltipBackground: isDark ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.97)',
+      tooltipBorder: isDark ? 'rgba(148, 163, 184, 0.30)' : 'rgba(15, 23, 42, 0.14)',
+      tooltipText: isDark ? '#E5E7EB' : '#0F172A',
+      tooltipMuted: isDark ? '#94A3B8' : '#64748B',
+      upColor: resolvedChartColors.candlesUptrend,
+      downColor: resolvedChartColors.candlesDowntrend,
+      snap: {
+        enabled: magnetEnabled,
+        type: magnetEnabled ? 'ohlc-nearest' : 'none',
+      },
     }
-  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartType, resolvedChartColors, showChartVolumePane]);
+  }), [chartAxisBorderColor, chartDisplay.showGrid, chartGridColor, chartSymbol, chartTimeframe, chartType, isDark, magnetEnabled, resolvedChartColors, showChartVolumePane]);
 
   const [overlaySyncRevision, setOverlaySyncRevision] = useState(0);
   // Monotonic counter — incremented every time the WebView confirms
@@ -3106,8 +3187,17 @@ export function ChartScreen() {
   // race condition.
   const overlayPayloadRef = useRef<any>({ priceLines: [], markers: [] });
   const drawingSignatureRef = useRef(chartDrawingSignature);
+  const drawingRecordsRef = useRef(chartDrawingRecords);
   const lastWebViewDrawingSignatureRef = useRef('');
   const lastInjectedDrawingSyncRef = useRef({ signature: '', epoch: -1 });
+  const allowNextEmptyDrawingSyncRef = useRef(false);
+  const hasAcceptedNonEmptyWebViewDrawingsRef = useRef(chartDrawingRecords.length > 0);
+  drawingSignatureRef.current = chartDrawingSignature;
+  drawingRecordsRef.current = chartDrawingRecords;
+  useEffect(() => {
+    allowNextEmptyDrawingSyncRef.current = false;
+    hasAcceptedNonEmptyWebViewDrawingsRef.current = chartDrawingRecords.length > 0;
+  }, [chartDrawingBucketKey, chartDrawingRecords.length]);
   // Loading overlay: delay before showing so fast cached switches (< 500 ms)
   // never flash a spinner. Falls back to hiding at 3 s to prevent an
   // indefinite blocking overlay when the chart fails to respond.
@@ -3139,9 +3229,6 @@ export function ChartScreen() {
       setLoadingFallback(false);
     }
   }, [candlesAvailable, loadingFallback]);
-  useEffect(() => {
-    drawingSignatureRef.current = chartDrawingSignature;
-  }, [chartDrawingSignature]);
   const requestOverlaySync = useCallback(() => {
     setOverlaySyncRevision((revision) => revision + 1);
   }, []);
@@ -3708,7 +3795,7 @@ export function ChartScreen() {
     overlayPayloadRef.current = overlayPayload;
   }, [overlayPayloadSignature]);
   useEffect(() => {
-    if (!webViewReady || !chartCanvasReady || !webViewRef.current) {
+    if (!preferencesHydrated || !webViewReady || !chartCanvasReady || !webViewRef.current) {
       return;
     }
 
@@ -3736,7 +3823,7 @@ export function ChartScreen() {
       true;
     `);
     lastInjectedDrawingSyncRef.current = { signature: chartDrawingSignature, epoch: chartReadyEpoch };
-  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, webViewReady]);
+  }, [chartCanvasReady, chartDrawingRecords, chartDrawingSignature, chartReadyEpoch, preferencesHydrated, webViewReady]);
 
   // ── Chart Overlays Bridge ───────────────────────────────────────
   // Single effect that pushes ALL 7 "Show on Chart" features to the WebView:
@@ -3796,6 +3883,9 @@ export function ChartScreen() {
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolName = resolveChartSymbolFullName(chartSymbol);
   const symbolCategory = resolveChartSymbolCategory(chartSymbol);
+  const isDrawingToolActive = activeTool !== 'crosshair' || Boolean(pendingChartDrawingTool);
+  const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : TEXT_MUTED;
+  const compactHeaderFullscreenIconColor = isChartExpanded ? BLUE : TEXT_MUTED;
   const renderCompactHeaderToolbar = () => (
     <>
       <View style={[styles.compactHeaderToolbarSlot, { width: 'auto' }]}>
@@ -3841,7 +3931,7 @@ export function ChartScreen() {
           hitSlop={8}
           unstable_pressDelay={0}
         >
-          <Ionicons name="pencil-outline" size={18} color={TEXT_MUTED} />
+          <Ionicons name="pencil-outline" size={18} color={compactHeaderDrawingIconColor} />
         </Pressable>
       </View>
       <View style={styles.compactHeaderToolbarSlot}>
@@ -3866,7 +3956,7 @@ export function ChartScreen() {
           hitSlop={8}
           unstable_pressDelay={0}
         >
-          <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={TEXT_MUTED} />
+          <Ionicons name={isChartExpanded ? "contract-outline" : "expand-outline"} size={18} color={compactHeaderFullscreenIconColor} />
         </Pressable>
       </View>
       <View style={[styles.compactHeaderToolbarSlot, styles.compactHeaderToolbarLastSlot]}>
@@ -4324,6 +4414,9 @@ export function ChartScreen() {
                           resetChartBridgeState();
                           lastWebViewDrawingSignatureRef.current = '';
                           lastInjectedDrawingSyncRef.current = { signature: '', epoch: -1 };
+                          allowNextEmptyDrawingSyncRef.current = false;
+                          hasAcceptedNonEmptyWebViewDrawingsRef.current = drawingRecordsRef.current.length > 0;
+                          setTextLevelEditRequest(null);
                           setWebViewReady(true);
                         } else if (msg.type === 'CHART_READY') {
                           const readyInitSignature = typeof msg.initSignature === 'string' ? msg.initSignature : '';
@@ -4350,6 +4443,22 @@ export function ChartScreen() {
                           lastInitSigRef.current = currentSig;
                           setChartCanvasReady(true);
                           lastInjectedLiveQuoteSignatureRef.current = '';
+                          try {
+                            const drawingsToReplay = drawingRecordsRef.current;
+                            if (drawingsToReplay.length > 0 && webViewRef.current) {
+                              const drawingReplaySignature = drawingSignatureRef.current;
+                              webViewRef.current.injectJavaScript(`
+                                if (typeof setSerializedDrawings === 'function') {
+                                  setSerializedDrawings(${JSON.stringify(drawingsToReplay)});
+                                }
+                                true;
+                              `);
+                              lastInjectedDrawingSyncRef.current = {
+                                signature: drawingReplaySignature,
+                                epoch: chartReadyEpoch,
+                              };
+                            }
+                          } catch (_) { }
                           // Fast path: if initChart already seeded this exact
                           // sanitized series, skip the duplicate full reload.
                           // Otherwise paint retained candles for the READY race.
@@ -4413,13 +4522,70 @@ export function ChartScreen() {
                               pendingMarketPriceLinesRef.current = null;
                             }
                           } catch (_) { }
+                        } else if (msg.type === 'CHART_CROSSHAIR_CANDLE') {
+                          if (!msg.active || !msg.candle || typeof msg.candle !== 'object') {
+                            setChartCrosshairCandle(null);
+                            return;
+                          }
+                          const candle = msg.candle;
+                          const open = typeof candle.open === 'number' && Number.isFinite(candle.open) ? candle.open : null;
+                          const high = typeof candle.high === 'number' && Number.isFinite(candle.high) ? candle.high : null;
+                          const low = typeof candle.low === 'number' && Number.isFinite(candle.low) ? candle.low : null;
+                          const close = typeof candle.close === 'number' && Number.isFinite(candle.close) ? candle.close : null;
+                          if (open === null || high === null || low === null || close === null) {
+                            setChartCrosshairCandle(null);
+                            return;
+                          }
+                          setChartCrosshairCandle({
+                            open,
+                            high,
+                            low,
+                            close,
+                            time: typeof candle.time === 'number' && Number.isFinite(candle.time) ? candle.time : null,
+                            volume: typeof candle.volume === 'number' && Number.isFinite(candle.volume) ? candle.volume : null,
+                          });
+                        } else if (msg.type === 'DRAWING_TEXT_EDIT_REQUEST') {
+                          const recordId = typeof msg.recordId === 'string' ? msg.recordId : '';
+                          if (!recordId) {
+                            return;
+                          }
+                          setTextLevelEditRequest({
+                            recordId,
+                            text: typeof msg.text === 'string' ? msg.text : 'Level',
+                          });
                         } else if (msg.type === 'DRAWINGS_CHANGED') {
                           const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
                           const nextSignature = JSON.stringify(nextDrawings);
-                          lastWebViewDrawingSignatureRef.current = nextSignature;
+                          const nativeDrawingRecords = drawingRecordsRef.current;
+                          const nativeDrawingSignature = drawingSignatureRef.current;
+                          const hasNativeOrAcceptedDrawings =
+                            nativeDrawingRecords.length > 0 ||
+                            hasAcceptedNonEmptyWebViewDrawingsRef.current;
+                          const unexpectedEmptyWebViewPayload =
+                            nextDrawings.length === 0 &&
+                            hasNativeOrAcceptedDrawings &&
+                            !allowNextEmptyDrawingSyncRef.current;
 
-                          if (nextSignature !== drawingSignatureRef.current) {
+                          if (unexpectedEmptyWebViewPayload) {
+                            return;
+                          }
+
+                          lastWebViewDrawingSignatureRef.current = nextSignature;
+                          if (nextDrawings.length > 0) {
+                            allowNextEmptyDrawingSyncRef.current = false;
+                            hasAcceptedNonEmptyWebViewDrawingsRef.current = true;
+                          } else {
+                            allowNextEmptyDrawingSyncRef.current = false;
+                            hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
+                          }
+
+                          if (nextSignature !== nativeDrawingSignature) {
                             setChartDrawingRecordsForSymbol(chartSymbol, nextDrawings);
+                          }
+                        } else if (msg.type === 'DRAWINGS_SYNCED_FOR_OBJECTS') {
+                          if (pendingObjectsDrawingSyncRef.current) {
+                            pendingObjectsDrawingSyncRef.current = false;
+                            router.push('/chart/objects');
                           }
                         } else if (msg.type === 'CHART_TOUCH_STATE') {
                           if (msg.active) {
@@ -5332,6 +5498,14 @@ export function ChartScreen() {
           </View>
         </Pressable>
       )}
+
+      <TextLevelEditOverlay
+        accentColor={BLUE}
+        isDark={isDark}
+        request={textLevelEditRequest}
+        onCancel={handleCancelTextLevelEdit}
+        onCommit={handleCommitTextLevelEdit}
+      />
 
       <TradeFeedbackModal
         state={tradeFeedback}
