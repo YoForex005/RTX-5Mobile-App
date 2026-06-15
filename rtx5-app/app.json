@@ -82,12 +82,21 @@
             "enableShrinkResourcesInReleaseBuilds": true
           }
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "rtx5",
+          "organization": "yoforex-ts"
+        }
       ]
     ],
     "extra": {
       "router": {
         "origin": false
       },
+      "sentryDsn": "https://3dab2efca640377d8759f471e3452523@o4511568602464256.ingest.us.sentry.io/4511568799531008",
       "eas": {
         "projectId": "092a58db-dea9-469a-a383-f27300598812"
       }

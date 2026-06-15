@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
+import { wrapWithSentry } from '../src/services/sentry';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PropsWithChildren, useEffect } from 'react';
@@ -201,7 +202,7 @@ import { installGlobalStartupErrorHandlers, logStartupDiagnostic } from '../src/
 
 installGlobalStartupErrorHandlers();
 
-export default function RootLayout() {
+function RootLayout() {
   useOtaUpdateOnLaunch();
   useDataAnalyzer();
 
@@ -417,6 +418,8 @@ export default function RootLayout() {
     </ErrorBoundary>
   );
 }
+
+export default wrapWithSentry(RootLayout);
 
 const styles = StyleSheet.create({
   webCanvas: {

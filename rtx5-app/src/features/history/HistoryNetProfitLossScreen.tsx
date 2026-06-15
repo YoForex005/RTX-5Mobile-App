@@ -2,8 +2,8 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View, Platform, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAccountDealsQuery } from '../../query/deals';
@@ -20,6 +20,7 @@ import { fmt } from '../../utils/format';
 import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
 import { safeRouterBack } from '../../utils/navigation';
+import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 
 type SnapshotRowProps = {
   label: string;
@@ -278,6 +279,14 @@ function normalizeClosedHistoryPosition(position: ClosedPosition): ClosedHistory
   };
 }
 
+// Render closed-trade rows in batches: only the first window paints on open,
+// and more rows are appended as the user scrolls near the bottom. This keeps a
+// long history from rendering every row up-front (which is what made the screen
+// slow to open / scroll).
+const CLOSED_PNL_INITIAL_VISIBLE_ROWS = 8;
+const CLOSED_PNL_ROW_BATCH = 8;
+const CLOSED_PNL_LOAD_MORE_THRESHOLD_PX = 600;
+
 export function HistoryNetProfitLossScreen() {
   const isDark = useUserPreferences((state) => state.themeMode) === 'dark';
   const historyRange = useUserPreferences((state) => state.historyRange);
@@ -289,6 +298,23 @@ export function HistoryNetProfitLossScreen() {
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   const accountLogin = resolveTradingLogin();
   const balance = useLiveAccountState((state) => state.balance) || 0;
+  // Defer the heavy closed-trade row list past the navigation transition so the
+  // screen opens instantly (header + summary cards paint first; the full row
+  // list — which renders every closed trade synchronously — fills in ~2 frames
+  // later instead of blocking the screen-open animation).
+  const heavyContentReady = useDeferredRouteContentReady(0);
+  const [visibleRowCount, setVisibleRowCount] = useState(CLOSED_PNL_INITIAL_VISIBLE_ROWS);
+  const handleClosedRowsScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceFromBottom <= CLOSED_PNL_LOAD_MORE_THRESHOLD_PX) {
+        setVisibleRowCount((current) => current + CLOSED_PNL_ROW_BATCH);
+      }
+    },
+    [],
+  );
 
   const { data: rawPositionHistory = [] } = usePositionHistoryQuery(accountLogin);
   const { data: rawDeals = [] } = useAccountDealsQuery({ login: accountLogin });
@@ -435,6 +461,8 @@ export function HistoryNetProfitLossScreen() {
         ]}
         keyboardShouldPersistTaps='always'
         showsVerticalScrollIndicator={false}
+        onScroll={handleClosedRowsScroll}
+        scrollEventThrottle={16}
       >
         <View style={styles.heroWrap}>
           <LinearGradient
@@ -521,18 +549,24 @@ export function HistoryNetProfitLossScreen() {
             </Text>
           </View>
           {closedTradePnlRows.length > 0 ? (
-            closedTradePnlRows.map((position, index) => (
-              <ClosedTradePnlRow
-                key={`${resolveClosedPositionTicket(position, index)}-${index}`}
-                position={position}
-                index={index}
-                isLast={index === closedTradePnlRows.length - 1}
-                isDark={isDark}
-                styles={styles}
-                T={T}
-                t={t}
-              />
-            ))
+            heavyContentReady ? (
+              closedTradePnlRows.slice(0, visibleRowCount).map((position, index) => (
+                <ClosedTradePnlRow
+                  key={`${resolveClosedPositionTicket(position, index)}-${index}`}
+                  position={position}
+                  index={index}
+                  isLast={index === closedTradePnlRows.length - 1}
+                  isDark={isDark}
+                  styles={styles}
+                  T={T}
+                  t={t}
+                />
+              ))
+            ) : (
+              // Placeholder reserving space while the row list mounts a frame
+              // after the screen-open transition, so the open feels instant.
+              <View style={{ minHeight: 160 }} />
+            )
           ) : (
             <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No closed trade P/L available yet.')}</Text>
           )}

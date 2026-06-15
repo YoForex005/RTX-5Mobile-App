@@ -13,6 +13,11 @@ module.exports = ({ config }) => {
     extra: {
       ...(config.extra ?? {}),
       ...(appJson.expo.extra ?? {}),
+      sentryDsn:
+        process.env.EXPO_PUBLIC_SENTRY_DSN ??
+        config.extra?.sentryDsn ??
+        appJson.expo.extra?.sentryDsn ??
+        '',
     },
   };
 

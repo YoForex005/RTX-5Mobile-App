@@ -206,7 +206,7 @@ export const CH_HTML = `
       var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
-      var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 20;
+      var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30;
       var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 32;
       var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = [1, 2, 2.5, 5, 10];
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS = 2;
@@ -904,13 +904,22 @@ export const CH_HTML = `
       }
 
       function resolveRightPriceScaleFallbackRange() {
-        var visibleScaleRange = resolveRightPriceScaleVisibleRange();
-        if (isValidPriceRange(visibleScaleRange)) {
-          return normalizePriceRange(visibleScaleRange);
-        }
+        // Prefer the COORDINATE range — it is the exact inverse of the
+        // series.priceToCoordinate() mapping used to POSITION the labels, so the
+        // generated label range always matches where labels actually land and
+        // the axis fills top-to-bottom. getVisibleRange() is the scale's logical
+        // range, which can report a NARROWER band than the rendered plot when a
+        // wide bid/ask price line or autoscale margin stretches the view (e.g. a
+        // stale 2+ point spread right after a symbol switch). Using it as the
+        // primary source clustered the labels and left the reported blank band,
+        // so it is now only a fallback when the coordinate range is unavailable.
         var coordinateRange = resolveRightPriceScaleCoordinateRange();
         if (isValidPriceRange(coordinateRange)) {
           return normalizePriceRange(coordinateRange);
+        }
+        var visibleScaleRange = resolveRightPriceScaleVisibleRange();
+        if (isValidPriceRange(visibleScaleRange)) {
+          return normalizePriceRange(visibleScaleRange);
         }
         var visibleDataRange = resolvePriceRangeFromVisibleData(true);
         if (isValidPriceRange(visibleDataRange)) {
@@ -936,9 +945,21 @@ export const CH_HTML = `
         return decimalIndex >= 0 ? Math.max(0, text.length - decimalIndex - 1) : 0;
       }
 
+      var rightPriceScaleFallbackDataDecimalsCache = { signature: '', value: 0 };
       function resolveRightPriceScaleFallbackDataDecimals() {
         if (!lastRawSeriesData || lastRawSeriesData.length === 0) {
           return 0;
+        }
+        // Memoize per data-state: this scan runs once per label otherwise, and
+        // the price scale re-renders every frame. The signature changes whenever
+        // the series grows or the latest bar updates, so it rescans exactly once
+        // per real data change instead of ~30x per render.
+        var lastBar = lastRawSeriesData[lastRawSeriesData.length - 1];
+        var signature = lastRawSeriesData.length + '|' + (lastBar
+          ? (lastBar.close + ',' + lastBar.high + ',' + lastBar.low + ',' + lastBar.open + ',' + lastBar.value)
+          : 'none');
+        if (rightPriceScaleFallbackDataDecimalsCache.signature === signature) {
+          return rightPriceScaleFallbackDataDecimalsCache.value;
         }
         var maxDecimals = 0;
         var startIndex = Math.max(0, lastRawSeriesData.length - 260);
@@ -951,11 +972,14 @@ export const CH_HTML = `
           for (var p = 0; p < candidates.length; p += 1) {
             maxDecimals = Math.max(maxDecimals, countRightPriceScaleFallbackDecimalPlaces(candidates[p]));
             if (maxDecimals >= 8) {
+              rightPriceScaleFallbackDataDecimalsCache = { signature: signature, value: 8 };
               return 8;
             }
           }
         }
-        return Math.max(0, Math.min(8, maxDecimals));
+        var resolvedDataDecimals = Math.max(0, Math.min(8, maxDecimals));
+        rightPriceScaleFallbackDataDecimalsCache = { signature: signature, value: resolvedDataDecimals };
+        return resolvedDataDecimals;
       }
 
       function resolveRightPriceScaleFallbackConfiguredDecimals() {
@@ -965,17 +989,21 @@ export const CH_HTML = `
       }
 
       function resolveRightPriceScaleFallbackDecimals(minimumDecimals) {
-        var configuredDecimals =
-          resolveRightPriceScaleFallbackConfiguredDecimals();
-        if (configuredDecimals !== null) {
-          return configuredDecimals;
-        }
-
+        var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
         var safeMinimum =
           typeof minimumDecimals === 'number' && isFinite(minimumDecimals)
             ? Math.max(0, Math.min(8, Math.round(minimumDecimals)))
             : 0;
-        return Math.max(2, resolveRightPriceScaleFallbackDataDecimals(), safeMinimum);
+        // The backend's real data precision is the FLOOR — the price scale must
+        // never cut decimals the backend actually sent (e.g. 1.34398 -> 5 dp,
+        // 45678.1234 -> 4 dp). The chart-configured digits and the caller's
+        // minimum can only RAISE precision, never truncate the live data.
+        return Math.max(
+          2,
+          resolveRightPriceScaleFallbackDataDecimals(),
+          configuredDecimals !== null ? configuredDecimals : 0,
+          safeMinimum
+        );
       }
 
       function roundRightPriceScaleFallbackPrice(price, decimals) {
@@ -997,13 +1025,12 @@ export const CH_HTML = `
 
       function resolveRightPriceScaleFallbackStepDecimals(step) {
         var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
-        if (configuredDecimals !== null) {
-          return configuredDecimals;
-        }
-
+        // Honor the backend data precision as a floor here too, so the per-tick
+        // step rounding/formatting never drops decimals the backend provided.
         return Math.max(
-          resolveRightPriceScaleFallbackDecimals(),
-          countRightPriceScaleFallbackDecimalPlaces(step)
+          resolveRightPriceScaleFallbackDataDecimals(),
+          countRightPriceScaleFallbackDecimalPlaces(step),
+          configuredDecimals !== null ? configuredDecimals : 0
         );
       }
 
@@ -1122,6 +1149,20 @@ export const CH_HTML = `
           var denseStep = resolveRightPriceScaleFallbackNiceStep(span, denseIntervals, true);
           if (denseStep > 0 && denseStep < step) {
             step = denseStep;
+          }
+        }
+        // Guarantee the step is coarse enough that EVERY label across the full
+        // range fits under the hard cap. Otherwise the generation loop fills the
+        // cap from the top and stops, leaving the bottom of the axis blank (the
+        // reported gap). Coarsen until the whole range is covered top-to-bottom.
+        var projectedLabelCount = Math.floor(span / step) + 1;
+        if (projectedLabelCount > RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS) {
+          var fittedStep = resolveRightPriceScaleFallbackNiceStep(
+            span,
+            Math.max(1, RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS - 1)
+          );
+          if (fittedStep > step) {
+            step = fittedStep;
           }
         }
         var priceScaleApi = getRightPriceScaleApi();

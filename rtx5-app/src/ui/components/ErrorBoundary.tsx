@@ -3,6 +3,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { logStartupError } from '../../utils/startupDiagnostics';
+import { captureErrorBoundaryException } from '../../services/sentry';
 
 interface Props {
   children?: ReactNode;
@@ -29,6 +30,7 @@ export class ErrorBoundary extends Component<Props, State> {
     logStartupError('error-boundary.caught', error, {
       componentStack: errorInfo.componentStack,
     });
+    captureErrorBoundaryException(error, errorInfo);
   }
 
   private handleRestart = () => {
