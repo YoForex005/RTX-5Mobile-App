@@ -15,9 +15,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
-import { resolveTradingLogin, resolveTradingLoginString } from '../../state/tradingLogin';
+import { resolveTradingLogin, resolveTradingLoginString, useResolvedTradingLogin } from '../../state/tradingLogin';
 import { ordersApi } from '../../api/orders';
 import { useAccountSummary } from '../../query/account';
+import { useMarginCalculation } from '../../query/calculators';
+import type { MarginCalcPayload } from '../../api/calculators';
 import { useInstrumentMeta } from '../../query/instruments';
 import { useMarketSymbols } from '../../query/market';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
@@ -410,12 +412,19 @@ function OrderTicketInteractiveContent() {
   const isMarketExecution = orderType === 'Market Execution';
 
   const loginStr = resolveTradingLoginString();
+  // Reactive numeric login — the codebase's standard source for query hooks
+  // keyed by account login (see useResolvedTradingLogin docs).
+  const loginNum = useResolvedTradingLogin();
   const { data: accountSummary } = useAccountSummary(loginStr);
   const leverage = accountSummary?.leverage || 100;
   const currency = accountSummary?.currency || 'USD';
 
-  // Estimate margin locally for display only. The backend remains the final
-  // authority for real margin and execution validation.
+  // Local margin estimate — used ONLY as a fallback while the authoritative
+  // server figure loads or if it fails. This naive formula uses a hardcoded
+  // contract size and the account's nominal leverage, which does NOT match the
+  // broker's symbol-specific margin mode for crypto/CFD instruments (e.g.
+  // BTCUSD margins at a fixed crypto rate, not 1:nominal-leverage). It must
+  // never be the value shown when the server can answer.
   let contractSize = 100000;
   if (symbol.includes('XAU') || symbol.includes('XAG')) contractSize = 100;
   else if (symbol.includes('BTC') || symbol.includes('ETH')) contractSize = 1;
@@ -425,9 +434,29 @@ function OrderTicketInteractiveContent() {
     ? (volume * contractSize * ASK) / leverage
     : 0;
 
+  // Authoritative margin from the server calculator. It applies the account's
+  // real leverage, the broker's contract specs, and the symbol's margin mode —
+  // the only figure that matches what the trading engine actually locks. Keyed
+  // on (login, symbol, side, volume) so it refetches as the user edits volume.
+  // Margin is direction-independent for display, so 'buy' is representative.
+  const marginCalcPayload = useMemo<MarginCalcPayload | null>(() => {
+    if (loginNum === undefined || loginNum <= 0) return null;
+    if (!symbol || !(volume > 0)) return null;
+    return { account_login: loginNum, symbol, side: 'buy', volume };
+  }, [loginNum, symbol, volume]);
+  const { data: serverMargin } = useMarginCalculation(marginCalcPayload);
+
+  const serverRequiredMargin =
+    typeof serverMargin?.required_margin === 'number' && Number.isFinite(serverMargin.required_margin)
+      ? serverMargin.required_margin
+      : null;
+  // Prefer the server figure; fall back to the local estimate only until it
+  // arrives. This is what previously made BTCUSD look "cheap" then lock more.
+  const resolvedMargin = serverRequiredMargin ?? estimatedMargin;
+
   const marginDisplay = currency === 'USD'
-    ? `-$${fmt.price(estimatedMargin)}`
-    : `-${fmt.price(estimatedMargin)} ${currency}`;
+    ? `-$${fmt.price(resolvedMargin)}`
+    : `-${fmt.price(resolvedMargin)} ${currency}`;
 
   const baseSymbol = symbol.replace(/[a-z_.-].*$/, '');
   const displayDecimals = 2;

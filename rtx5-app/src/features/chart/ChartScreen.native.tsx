@@ -1217,7 +1217,7 @@ export function ChartScreen() {
     const latest = sanitizedBackendCandles[sanitizedBackendCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
   }, [sanitizedBackendCandles]);
-  const displayDecimals = useMemo(() => {
+  const rawDisplayDecimals = useMemo(() => {
     return resolveChartDisplayDecimals({
       instrumentDigits: chartInstrumentMeta?.digits,
       instrumentPoint: chartInstrumentMeta?.point,
@@ -1245,6 +1245,32 @@ export function ChartScreen() {
     hasLiveChartQuote,
     latestChartPrecisionPrices,
   ]);
+  // Stabilize price precision per symbol/timeframe. When the broker doesn't
+  // expose stable instrument digits, resolveChartDisplayDecimals() infers them
+  // from live tick prices, which jitter bar-to-bar (e.g. BTCUSD alternating
+  // 2<->3 decimals as round ticks arrive). Because displayDecimals is part of
+  // the chart re-init signature (currentSig), that jitter forced a full chart
+  // rebuild — the "Loading chart data..." flash — several times a minute. Latch
+  // the resolved value once real candles exist and hold it steady until the
+  // symbol or timeframe changes, so transient per-tick precision can't churn
+  // the rebuild signature.
+  const displayDecimalsLatchRef = useRef<{ key: string; value: number; settled: boolean }>({
+    key: '',
+    value: rawDisplayDecimals,
+    settled: false,
+  });
+  const displayDecimalsKey = `${chartSymbol}::${chartTimeframe}`;
+  if (
+    displayDecimalsLatchRef.current.key !== displayDecimalsKey ||
+    !displayDecimalsLatchRef.current.settled
+  ) {
+    displayDecimalsLatchRef.current = {
+      key: displayDecimalsKey,
+      value: rawDisplayDecimals,
+      settled: sanitizedBackendCandles.length > 0,
+    };
+  }
+  const displayDecimals = displayDecimalsLatchRef.current.value;
   const liveChartPrice = useMemo(() => {
     if (!hasLiveChartQuote) {
       return null;

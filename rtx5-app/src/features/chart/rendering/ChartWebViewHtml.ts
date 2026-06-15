@@ -1216,10 +1216,17 @@ export const CH_HTML = `
         for (var i = 0; i < prices.length && ticks.length < RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS; i += 1) {
           appendTick(prices[i], null, false);
         }
+        // Bottom boundary label must YIELD to round-number labels, not cull them.
+        // forceEdge=true here used to delete the nearest round label within
+        // minTickGap to seat the exact range.from value — but that boundary label
+        // sits behind the live-price tag and is invisible, so as the live range
+        // drifted it intermittently erased a real round label (e.g. 0.70755) and
+        // left a visible gap. forceEdge=false keeps the round label and only adds
+        // the boundary label when there is genuinely room for it.
         appendTick(
           invertScale ? range.to : range.from,
           plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2,
-          true
+          false
         );
         ticks.sort(function(left, right) { return left.y - right.y; });
         return ticks;
