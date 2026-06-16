@@ -82,9 +82,11 @@ import {
 import { buildChartOverlayPayload, CHART_LINE_STYLE, type ChartOverlayPriceLine } from './chartOverlays';
 import { resolveChartDisplayDecimals } from './chartPricePrecision';
 import { resolveLivePriceCoherentCandles } from './chartDisplayCandles';
+import { isPriceCoherentWithCandle } from '../../domain/candles/series/priceCoherence';
 import {
   getChartDrawingBucketKey,
   sanitizePersistedChartDrawings,
+  type PersistedChartDrawing,
 } from './drawingPersistence';
 import {
   buildChartSeriesSnapshot,
@@ -242,6 +244,84 @@ const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesS
     snapshot.tailWithoutLastSignature,
   ].join('|');
 
+type ChartDrawingPriceCandle = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+const LEGACY_DRAWING_PRICE_RANGE_MULTIPLE = 4;
+const LEGACY_DRAWING_RELATIVE_PRICE_TOLERANCE = 0.2;
+const LEGACY_UNSCOPED_DRAWING_KINDS = new Set<PersistedChartDrawing['kind']>(['fib', 'measure']);
+
+const isChartDrawingRecordForCurrentChart = (
+  drawing: PersistedChartDrawing,
+  chartSymbol: string,
+  chartTimeframe: string,
+): boolean => {
+  if (LEGACY_UNSCOPED_DRAWING_KINDS.has(drawing.kind) && (!drawing.symbol || !drawing.timeframe)) {
+    return false;
+  }
+
+  if (drawing.symbol && getChartDrawingBucketKey(drawing.symbol) !== getChartDrawingBucketKey(chartSymbol)) {
+    return false;
+  }
+
+  if (drawing.timeframe && normalizeTimeframe(drawing.timeframe) !== normalizeTimeframe(chartTimeframe)) {
+    return false;
+  }
+
+  return true;
+};
+
+const isDrawingPriceCompatibleWithCandles = (
+  drawing: PersistedChartDrawing,
+  candles: readonly ChartDrawingPriceCandle[],
+): boolean => {
+  if (candles.length === 0 || drawing.points.length === 0) {
+    return true;
+  }
+
+  let minPrice = Number.POSITIVE_INFINITY;
+  let maxPrice = Number.NEGATIVE_INFINITY;
+  candles.forEach((candle) => {
+    minPrice = Math.min(minPrice, candle.open, candle.high, candle.low, candle.close);
+    maxPrice = Math.max(maxPrice, candle.open, candle.high, candle.low, candle.close);
+  });
+
+  if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) {
+    return true;
+  }
+
+  const span = Math.max(0, maxPrice - minPrice);
+  const reference = Math.max(Math.abs(maxPrice), Math.abs(minPrice), 1);
+  const tolerance = Math.max(
+    span * LEGACY_DRAWING_PRICE_RANGE_MULTIPLE,
+    reference * LEGACY_DRAWING_RELATIVE_PRICE_TOLERANCE,
+  );
+
+  return drawing.points.every((point) => {
+    if (!Number.isFinite(point.price)) {
+      return false;
+    }
+
+    return point.price >= minPrice - tolerance && point.price <= maxPrice + tolerance;
+  });
+};
+
+const filterChartDrawingRecordsForCurrentChart = (
+  drawings: readonly PersistedChartDrawing[],
+  chartSymbol: string,
+  chartTimeframe: string,
+  candles: readonly ChartDrawingPriceCandle[] = [],
+): PersistedChartDrawing[] =>
+  drawings.filter(
+    (drawing) =>
+      isChartDrawingRecordForCurrentChart(drawing, chartSymbol, chartTimeframe) &&
+      isDrawingPriceCompatibleWithCandles(drawing, candles),
+  );
+
 const CHART_RUNTIME_ACTIVE_DELAY_MS = 650;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
@@ -393,11 +473,14 @@ export function ChartScreen() {
   );
   const chartColorsSignature = useMemo(() => JSON.stringify(resolvedChartColors), [resolvedChartColors]);
   const chartDrawingBucketKey = useMemo(() => getChartDrawingBucketKey(chartSymbol), [chartSymbol]);
-  const chartDrawingRecords = useMemo(
+  const persistedChartDrawingRecords = useMemo(
     () => chartDrawingRecordsBySymbol[chartDrawingBucketKey] ?? [],
     [chartDrawingBucketKey, chartDrawingRecordsBySymbol],
   );
-  const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
+  const scopedChartDrawingRecords = useMemo(
+    () => filterChartDrawingRecordsForCurrentChart(persistedChartDrawingRecords, chartSymbol, chartTimeframe),
+    [chartSymbol, chartTimeframe, persistedChartDrawingRecords],
+  );
 
   const { data: apiSymbols = [] } = useMarketSymbols(chartRuntimeActive);
   const availableSymbols = useMemo(
@@ -1214,22 +1297,57 @@ export function ChartScreen() {
     cancelChartViewportRecovery,
     requestChartViewportRecovery,
   ]);
-  const { candles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartRuntimeActive);
+  const { candles, hasHistoryCandles, paginate } = useLiveCandles(chartSymbol, chartTimeframe, chartRuntimeActive);
   const sanitizedBackendCandles = useMemo(
-    () => sanitizeCandlesForChart(candles, { timeframe: chartTimeframe }),
-    [candles, chartTimeframe],
+    () => (
+      hasHistoryCandles
+        ? sanitizeCandlesForChart(candles, { timeframe: chartTimeframe })
+        : EMPTY_DISPLAY_CANDLES
+    ),
+    [candles, chartTimeframe, hasHistoryCandles],
   );
+  const chartDrawingRecords = useMemo(
+    () =>
+      filterChartDrawingRecordsForCurrentChart(
+        scopedChartDrawingRecords,
+        chartSymbol,
+        chartTimeframe,
+        sanitizedBackendCandles,
+      ),
+    [chartSymbol, chartTimeframe, sanitizedBackendCandles, scopedChartDrawingRecords],
+  );
+  const chartDrawingSignature = useMemo(() => JSON.stringify(chartDrawingRecords), [chartDrawingRecords]);
   const latestChartPrecisionPrices = useMemo(() => {
     const latest = sanitizedBackendCandles[sanitizedBackendCandles.length - 1];
     return latest ? [latest.open, latest.high, latest.low, latest.close] : [];
   }, [sanitizedBackendCandles]);
+  const hasCoherentLiveChartQuote = useMemo(() => {
+    if (!hasLiveChartQuote) {
+      return false;
+    }
+
+    const latestBackendCandle = sanitizedBackendCandles[sanitizedBackendCandles.length - 1];
+    if (!latestBackendCandle) {
+      return true;
+    }
+
+    const quotePrices = [chartLiveQuote?.bid, chartLiveQuote?.ask].filter(
+      (price): price is number => typeof price === 'number' && Number.isFinite(price) && price > 0,
+    );
+
+    if (quotePrices.length === 0) {
+      return false;
+    }
+
+    return quotePrices.every((price) => isPriceCoherentWithCandle(latestBackendCandle, price));
+  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, sanitizedBackendCandles]);
   const rawDisplayDecimals = useMemo(() => {
     return resolveChartDisplayDecimals({
       instrumentDigits: chartInstrumentMeta?.digits,
       instrumentPoint: chartInstrumentMeta?.point,
       instrumentTickSize: chartInstrumentMeta?.tickSize,
       liveQuoteDigits: chartLiveQuote?.digits,
-      liveQuoteDigitsFromBackend: hasLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
+      liveQuoteDigitsFromBackend: hasCoherentLiveChartQuote && chartLiveQuoteDigitsSource === 'backend',
       liveQuotePoint: chartLiveQuote?.point,
       liveQuoteTickSize: chartLiveQuote?.tickSize,
       liveQuoteBid: chartLiveQuote?.bid,
@@ -1248,7 +1366,7 @@ export function ChartScreen() {
     chartLiveQuote?.point,
     chartLiveQuote?.tickSize,
     chartLiveQuoteDigitsSource,
-    hasLiveChartQuote,
+    hasCoherentLiveChartQuote,
     latestChartPrecisionPrices,
   ]);
   // Stabilize price precision per symbol/timeframe. When the broker doesn't
@@ -1278,7 +1396,7 @@ export function ChartScreen() {
   }
   const displayDecimals = displayDecimalsLatchRef.current.value;
   const liveChartPrice = useMemo(() => {
-    if (!hasLiveChartQuote) {
+    if (!hasCoherentLiveChartQuote) {
       return null;
     }
 
@@ -1294,7 +1412,7 @@ export function ChartScreen() {
     return priceSource === 'ask'
       ? ask ?? bid
       : bid ?? ask;
-  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
+  }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasCoherentLiveChartQuote, priceSource]);
   const sanitizedCandles = useMemo(
     () => {
       // Until real (or cached) history is present, do NOT synthesize a lone
@@ -1321,12 +1439,12 @@ export function ChartScreen() {
   const { bid: chartBid, ask: chartAsk } = useMemo(
     () =>
       resolveChartTradeButtonQuote({
-        liveBid: hasLiveChartQuote ? chartLiveQuote?.bid : undefined,
-        liveAsk: hasLiveChartQuote ? chartLiveQuote?.ask : undefined,
+        liveBid: hasCoherentLiveChartQuote ? chartLiveQuote?.bid : undefined,
+        liveAsk: hasCoherentLiveChartQuote ? chartLiveQuote?.ask : undefined,
         fallbackBid: latestChartClose,
         fallbackAsk: latestChartClose,
       }),
-    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, latestChartClose],
+    [chartLiveQuote?.ask, chartLiveQuote?.bid, hasCoherentLiveChartQuote, latestChartClose],
   );
   const overlayLiveBid = useMemo(
     () =>
@@ -3341,7 +3459,11 @@ export function ChartScreen() {
 
     return () => subscription.remove();
   }, [isScreenFocused, refreshShowOnChartSources, requestChartViewportRecovery]);
-  const isLoading = (!chartCanvasReady || !candlesAvailable) && loadingDelayPassed && !loadingFallback;
+  const shouldShowImmediateHistoryLoading = !candlesAvailable;
+  const isLoading =
+    (!chartCanvasReady || !candlesAvailable) &&
+    (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
+    !loadingFallback;
   const isError = false;
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
 
@@ -4504,9 +4626,9 @@ export function ChartScreen() {
                           setChartCanvasReady(true);
                           lastInjectedLiveQuoteSignatureRef.current = '';
                           try {
-                            const drawingsToReplay = drawingRecordsRef.current;
-                            if (drawingsToReplay.length > 0 && webViewRef.current) {
-                              const drawingReplaySignature = drawingSignatureRef.current;
+                            const drawingsToReplay = chartDrawingRecords;
+                            if (webViewRef.current) {
+                              const drawingReplaySignature = chartDrawingSignature;
                               webViewRef.current.injectJavaScript(`
                                 if (typeof setSerializedDrawings === 'function') {
                                   setSerializedDrawings(${JSON.stringify(drawingsToReplay)});
@@ -4614,7 +4736,20 @@ export function ChartScreen() {
                             text: typeof msg.text === 'string' ? msg.text : 'Level',
                           });
                         } else if (msg.type === 'DRAWINGS_CHANGED') {
-                          const nextDrawings = sanitizePersistedChartDrawings(msg.drawings);
+                          if (
+                            !chartInitializedRef.current ||
+                            !chartCanvasReady ||
+                            lastInitSigRef.current !== currentSig
+                          ) {
+                            return;
+                          }
+
+                          const nextDrawings = filterChartDrawingRecordsForCurrentChart(
+                            sanitizePersistedChartDrawings(msg.drawings),
+                            chartSymbol,
+                            chartTimeframe,
+                            sanitizedBackendCandles,
+                          );
                           const nextSignature = JSON.stringify(nextDrawings);
                           const nativeDrawingRecords = drawingRecordsRef.current;
                           const nativeDrawingSignature = drawingSignatureRef.current;

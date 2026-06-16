@@ -446,6 +446,7 @@ test('Direct touch box tools commit in empty chart space even when touchend has 
 test('Fib Zone creates calculated levels, zones, and golden pocket metadata', () => {
   const harness = createFakeChartEnvironment();
 
+  harness.manager.setCrosshairConfig({ symbol: 'BTCUSD', timeframe: 'M1' });
   harness.manager.setActiveTool('fib');
   harness.click(10, 100);
   harness.click(30, 80);
@@ -454,6 +455,8 @@ test('Fib Zone creates calculated levels, zones, and golden pocket metadata', ()
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'fib');
   assert.equal(drawings[0].type, 'fibZone');
+  assert.equal(drawings[0].symbol, 'BTCUSD');
+  assert.equal(drawings[0].timeframe, 'M1');
   assert.equal(drawings[0].points.length, 2);
   assert.ok(drawings[0].levels.some((level: any) => level.value === 0.618));
   assert.ok(drawings[0].levels.some((level: any) => level.value === 0.65));
@@ -999,6 +1002,7 @@ test('Sticker creates a one-point sticker drawing', () => {
 test('Measure Range creates a two-point measurement box drawing', () => {
   const harness = createFakeChartEnvironment();
 
+  harness.manager.setCrosshairConfig({ symbol: 'AUDJPY', timeframe: 'M1' });
   harness.manager.setActiveTool('measure');
   harness.click(10, 100);
   harness.click(30, 80);
@@ -1006,6 +1010,8 @@ test('Measure Range creates a two-point measurement box drawing', () => {
   const drawings = harness.latestDrawings();
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'measure');
+  assert.equal(drawings[0].symbol, 'AUDJPY');
+  assert.equal(drawings[0].timeframe, 'M1');
   assert.equal(drawings[0].points.length, 2);
 });
 
@@ -1172,6 +1178,24 @@ test('Manager can republish current drawings for host-side objects sync', () => 
   assert.equal(harness.latestDrawings().length, 1);
   assert.equal(harness.latestDrawings()[0].kind, 'fib');
   assert.equal(harness.latestDrawings()[0].type, 'fibZone');
+});
+
+test('setSerializedDrawings clears locked crosshair overlay before replaying records', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  harness.manager.setActiveTool('crosshair');
+  harness.touchStart(120, 140);
+  harness.touchEnd(120, 140);
+  harness.click(120, 140);
+
+  const overlay = harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true');
+  assert.ok(overlay);
+  assert.equal(overlay.style.display, 'block');
+
+  harness.manager.setSerializedDrawings([]);
+
+  assert.equal(overlay.style.display, 'none');
+  assert.ok(harness.crosshairMessages().some((message) => message.active === false));
 });
 
 test('Repeated tool switching does not duplicate native chart listeners', () => {

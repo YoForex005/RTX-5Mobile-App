@@ -3298,6 +3298,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype.registerDrawing = function (kind, primitive, label, serializedData) {
     var nextLabel = label || this._nextLabel(kind);
+    var currentSymbol = this._crosshairConfig && typeof this._crosshairConfig.symbol === 'string' ? this._crosshairConfig.symbol : '';
+    var currentTimeframe = this._crosshairConfig && typeof this._crosshairConfig.timeframe === 'string' ? this._crosshairConfig.timeframe : '';
     var record = {
       id: kind + '_' + Date.now() + '_' + (this._records.length + 1),
       kind: kind,
@@ -3308,8 +3310,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       points: clonePoints(serializedData && Array.isArray(serializedData.points) ? serializedData.points : []),
       text: serializedData && typeof serializedData.text === 'string' ? serializedData.text : undefined,
       type: serializedData && typeof serializedData.type === 'string' ? serializedData.type : kind,
-      symbol: serializedData && typeof serializedData.symbol === 'string' ? serializedData.symbol : undefined,
-      timeframe: serializedData && typeof serializedData.timeframe === 'string' ? serializedData.timeframe : undefined,
+      symbol: serializedData && typeof serializedData.symbol === 'string' ? serializedData.symbol : (currentSymbol || undefined),
+      timeframe: serializedData && typeof serializedData.timeframe === 'string' ? serializedData.timeframe : (currentTimeframe || undefined),
       paneId: serializedData && typeof serializedData.paneId === 'string' ? serializedData.paneId : undefined,
       style: serializedData && serializedData.style && typeof serializedData.style === 'object' ? Object.assign({}, serializedData.style) : undefined,
       levelLine: serializedData && serializedData.levelLine && typeof serializedData.levelLine === 'object' ? cloneSerializable(serializedData.levelLine, undefined) : undefined,
@@ -3444,6 +3446,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._stopAllTools();
     this._endLineEdit(false);
     this._endTextRecordEdit(false);
+    this._crosshairLocked = false;
+    this._pendingCrosshairState = null;
+    this._lastCrosshairState = null;
+    this._hideCrosshairOverlay();
     this._selectedRecordId = null;
     this._records.forEach(function (record) {
       this._detachRecord(record);

@@ -77,6 +77,9 @@ const getQuoteTimestampMs = (quote: Record<string, any> | undefined): number | n
 
 export type { CandleParams } from '../stream/liveCandleStream';
 
+const hasCommittedHistoryCandles = (candles: readonly CandleParams[]): boolean =>
+  candles.some((candle) => candle.source === 'history' || candle.source === 'rest' || candle.closed === true);
+
 /**
  * React hook that binds a specific market symbol and timeframe to the `LiveCandleStreamManager`.
  * 
@@ -150,6 +153,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
   }, [active, normalizedSymbol, normalizedTimeframe]);
 
   const candles = useMemo(() => engineCandles, [engineCandles]);
+  const hasHistoryCandles = useMemo(() => hasCommittedHistoryCandles(engineCandles), [engineCandles]);
 
   const refresh = useCallback(() => {
     if (!normalizedSymbol || !normalizedTimeframe) {
@@ -167,7 +171,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
     liveCandlesEngine.paginateHistory(normalizedSymbol, normalizedTimeframe);
   }, [normalizedSymbol, normalizedTimeframe]);
 
-  return { candles, refresh, paginate };
+  return { candles, hasHistoryCandles, refresh, paginate };
 }
 
 /**

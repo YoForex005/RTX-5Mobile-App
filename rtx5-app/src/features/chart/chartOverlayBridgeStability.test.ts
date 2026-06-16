@@ -107,6 +107,16 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
 });
 
+test('overlay bridge: anchored trade labels stay below the chart header', () => {
+  const boundsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelBounds');
+
+  assertSourceContains(
+    boundsBody,
+    /var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 6\)/,
+    'line-anchored open-position labels must reserve the full chart header safe area',
+  );
+});
+
 test('overlay payload: duplicate position and order inputs produce unique line ids', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',

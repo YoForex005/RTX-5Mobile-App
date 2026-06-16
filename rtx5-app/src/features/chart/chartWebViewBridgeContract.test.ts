@@ -27,6 +27,7 @@ const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.c
 const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
 const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
 const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
+const enhancedDrawingToolsSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
@@ -54,6 +55,72 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
     liveCandlesHookSource,
     /engineCandles\.length\s*>\s*0\s*\?\s*engineCandles\s*:\s*safeCachedCandles/,
     'useLiveCandles must not fall back to cached candles during a symbol switch',
+  );
+  assertSourceContains(
+    liveCandlesHookSource,
+    /const hasCommittedHistoryCandles = \(candles: readonly CandleParams\[\]\): boolean =>[\s\S]*candle\.source === 'history' \|\| candle\.source === 'rest' \|\| candle\.closed === true[\s\S]*const hasHistoryCandles = useMemo\(\(\) => hasCommittedHistoryCandles\(engineCandles\), \[engineCandles\]\)/,
+    'useLiveCandles must expose whether the current series contains committed REST history',
+  );
+  assertSourceContains(
+    source,
+    /const \{ candles, hasHistoryCandles, paginate \} = useLiveCandles\(chartSymbol, chartTimeframe, chartRuntimeActive\)[\s\S]*hasHistoryCandles[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
+    'native chart must not paint a live-only pre-history series as the history chart',
+  );
+});
+
+test('webview bridge: symbol switches reject stale drawing bridge updates', () => {
+  assertSourceContains(
+    source,
+    /const scopedChartDrawingRecords = useMemo\([\s\S]*filterChartDrawingRecordsForCurrentChart\(persistedChartDrawingRecords, chartSymbol, chartTimeframe\)/,
+    'drawing records must be scoped to the active symbol and timeframe before replay',
+  );
+  assertSourceContains(
+    source,
+    /LEGACY_UNSCOPED_DRAWING_KINDS = new Set<PersistedChartDrawing\['kind'\]>\(\['fib', 'measure'\]\)[\s\S]*LEGACY_UNSCOPED_DRAWING_KINDS\.has\(drawing\.kind\) && \(!drawing\.symbol \|\| !drawing\.timeframe\)[\s\S]*return false/,
+    'legacy fib and measure drawings without chart identity must not be replayed into symbol switches',
+  );
+  assertSourceContains(
+    source,
+    /msg\.type === 'DRAWINGS_CHANGED'[\s\S]*!chartInitializedRef\.current[\s\S]*!chartCanvasReady[\s\S]*lastInitSigRef\.current !== currentSig[\s\S]*return/,
+    'native host must ignore drawing updates until the current chart init is active',
+  );
+  assertSourceContains(
+    source,
+    /filterChartDrawingRecordsForCurrentChart\([\s\S]*sanitizePersistedChartDrawings\(msg\.drawings\)[\s\S]*chartSymbol[\s\S]*chartTimeframe[\s\S]*sanitizedBackendCandles/,
+    'drawing updates from WebView must be filtered against the active chart and backend candle range',
+  );
+  assertSourceContains(
+    source,
+    /const drawingsToReplay = chartDrawingRecords[\s\S]*if \(webViewRef\.current\)[\s\S]*const drawingReplaySignature = chartDrawingSignature[\s\S]*setSerializedDrawings\(\$\{JSON\.stringify\(drawingsToReplay\)\}\)/,
+    'CHART_READY drawing replay must use the current render-scoped drawing records, including an empty list to clear stale overlays',
+  );
+  assertSourceContains(
+    enhancedDrawingToolsSource,
+    /currentSymbol = this\._crosshairConfig[\s\S]*symbol:[\s\S]*currentSymbol \|\| undefined[\s\S]*timeframe:[\s\S]*currentTimeframe \|\| undefined/,
+    'drawing plugin must stamp new drawing records with the active chart symbol and timeframe',
+  );
+  assertSourceContains(
+    enhancedDrawingToolsSource,
+    /setSerializedDrawings = function \(drawings\)[\s\S]*this\._crosshairLocked = false[\s\S]*this\._pendingCrosshairState = null[\s\S]*this\._hideCrosshairOverlay\(\)/,
+    'drawing replay must clear stale locked crosshair overlays from the previous chart',
+  );
+});
+
+test('webview bridge: symbol switches ignore live quotes outside current backend candle range', () => {
+  assertSourceContains(
+    source,
+    /const hasCoherentLiveChartQuote = useMemo\([\s\S]*sanitizedBackendCandles\[sanitizedBackendCandles\.length - 1\][\s\S]*quotePrices\.every\(\(price\) => isPriceCoherentWithCandle\(latestBackendCandle, price\)\)/,
+    'live quotes must be checked against the active backend history candle before display',
+  );
+  assertSourceContains(
+    source,
+    /liveQuoteDigitsFromBackend: hasCoherentLiveChartQuote && chartLiveQuoteDigitsSource === 'backend'/,
+    'incoherent quotes must not influence display precision',
+  );
+  assertSourceContains(
+    source,
+    /liveBid: hasCoherentLiveChartQuote \? chartLiveQuote\?\.bid : undefined[\s\S]*liveAsk: hasCoherentLiveChartQuote \? chartLiveQuote\?\.ask : undefined/,
+    'incoherent quotes must not drive header/footer bid and ask prices',
   );
 });
 
@@ -328,6 +395,11 @@ test('webview bridge: native web and WebView creation reserve the right price sc
 });
 
 test('native chart status overlays do not block symbol recovery controls', () => {
+  assertSourceContains(
+    source,
+    /const shouldShowImmediateHistoryLoading = !candlesAvailable[\s\S]*const isLoading =[\s\S]*shouldShowImmediateHistoryLoading \|\| loadingDelayPassed/,
+    'fresh symbol switches with no committed history must show loading immediately instead of a blank grid',
+  );
   assertSourceContains(
     source,
     /\{\(!chartSurfaceReady \|\| isLoading\) && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,

@@ -197,6 +197,7 @@ export const CH_HTML = `
       var OVERLAY_LABEL_GAP = 4;
       var OVERLAY_LABEL_LINE_GAP = 1;
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
+      var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 132;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
@@ -5912,7 +5913,7 @@ export const CH_HTML = `
         var plotTop = metrics.plotTop || 0;
         var plotBottom = plotTop + (metrics.plotHeight || 0);
         var layerHeight = layer && layer.clientHeight ? layer.clientHeight : metrics.chartHeight || 0;
-        var minTop = Math.max(0, plotTop + 1);
+        var minTop = Math.max(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop + 6);
         var maxTop = Math.max(
           minTop,
           Math.min(layerHeight - OVERLAY_LABEL_LINE_HEIGHT - 1, plotBottom - OVERLAY_LABEL_LINE_HEIGHT - 1)
