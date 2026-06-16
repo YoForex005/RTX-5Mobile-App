@@ -17,12 +17,12 @@ export const CHART_TRADE_MINI_PREVIEW_BOTTOM_PAD = 16;
 export const CHART_TRADE_MINI_PREVIEW_TAG_WIDTH = 68;
 export const CHART_TRADE_MINI_PREVIEW_TAG_HEIGHT = 22;
 export const CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH = 62;
-export const CHART_DEFAULT_VISIBLE_BAR_MAX = 56;
-export const CHART_DEFAULT_VISIBLE_BAR_TARGET_PX = 12;
-export const CHART_DEFAULT_VISIBLE_BAR_MIN = 26;
-export const CHART_DEFAULT_TIME_SCALE_BAR_SPACING = 13;
-export const CHART_DEFAULT_RESET_BAR_SPACING_MAX = 14;
-export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 8;
+export const CHART_DEFAULT_VISIBLE_BAR_MAX = 88;
+export const CHART_DEFAULT_VISIBLE_BAR_TARGET_PX = 8;
+export const CHART_DEFAULT_VISIBLE_BAR_MIN = 42;
+export const CHART_DEFAULT_TIME_SCALE_BAR_SPACING = 9;
+export const CHART_DEFAULT_RESET_BAR_SPACING_MAX = 11;
+export const CHART_DEFAULT_RESET_BAR_SPACING_MIN = 5;
 // Reserved empty bars on the right of the time-scale.
 //
 // Why this is non-zero: with rightOffset=0 the *last* candle in the data is

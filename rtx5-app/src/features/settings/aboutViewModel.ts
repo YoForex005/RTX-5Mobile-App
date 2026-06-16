@@ -50,6 +50,8 @@ export type AboutDeveloperMailOptions = {
   developerEmail?: string;
 };
 
+const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const ABOUT_EXTERNAL_LINKS: AboutExternalLinks = {
   androidPackageName: 'com.rtx5.app',
   iosSearchTerm: 'RTX5',
@@ -185,6 +187,12 @@ export function getAboutStoreTarget(
 
 export function getAboutContactCategory(categoryId: string): AboutContactCategory | null {
   return ABOUT_CONTACT_CATEGORIES.find((category) => category.id === categoryId) ?? null;
+}
+
+export function isValidDeveloperContactEmail(email: string): boolean {
+  const trimmedEmail = email.trim();
+
+  return trimmedEmail.length <= 254 && CONTACT_EMAIL_PATTERN.test(trimmedEmail);
 }
 
 export function buildAccountDeletionRequestMessage({

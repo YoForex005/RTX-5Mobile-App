@@ -1,6 +1,7 @@
 import type { Candle } from '../../core/candleTypes';
 import { MAX_CANDLE_SERIES_LENGTH } from '../../core/candles';
 import {
+  getExpectedNextCandleTime,
   normalizeSymbol,
   normalizeTimeframeStrict,
 } from '../../core/timeframeUtils';
@@ -115,6 +116,39 @@ export const isSameSeries = (left: readonly Candle[], right: readonly Candle[]):
  * Falling back to the naïve approach only when the cache is empty or the split
  * yields no closed candles (single-candle edge case).
  */
+/**
+ * Detects an empty span between the freshest closed history bar and the start
+ * of the live overlay — the "live-edge gap".
+ *
+ * This is the gap users see even when the backend has full data: the chart
+ * seeds REST history (often from a stale background prefetch, so its newest bar
+ * is a few minutes old) while live quote ticks open the *current* bucket. The
+ * intermediate buckets are never backfilled by the quote-tick path, leaving a
+ * hole between history and the live candle.
+ *
+ * Returns true only when the first live bucket is more than one timeframe step
+ * after `historyLastTime` — i.e. at least one whole bucket is missing. A live
+ * candle that sits in the bucket immediately after history is contiguous and
+ * returns false.
+ */
+export const hasLiveEdgeHistoryGap = (
+  historyLastTime: number | null,
+  firstLiveBucketTime: number | null | undefined,
+  timeframe: string,
+): boolean => {
+  if (
+    historyLastTime === null ||
+    typeof firstLiveBucketTime !== 'number' ||
+    !Number.isFinite(firstLiveBucketTime)
+  ) {
+    return false;
+  }
+  if (firstLiveBucketTime <= historyLastTime) {
+    return false;
+  }
+  return firstLiveBucketTime > getExpectedNextCandleTime(historyLastTime, timeframe);
+};
+
 export const computeClosedHistoryLastTime = (
   candles: readonly Candle[],
   timeframe: string,

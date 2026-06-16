@@ -15,14 +15,12 @@ import {
 } from '../stream/liveCandleStream';
 import { candlesWsService } from '../ws/candlesSocket';
 import {
-  isTrustworthyCandleBootstrapSeed,
   normalizeSymbol,
   normalizeTimeframeStrict,
 } from '../core/candles';
 import { normalizeTimestampToMs } from '../core/timeframeUtils';
 import { hasLiveQuoteFeedData, useMarketData } from '../../../query/websocket';
 import { hydratePersistedCandleCache } from '../state/persistedCandleCache';
-import { useTradingState } from '../../../state/tradingState';
 
 // Cache the empty-snapshot reference for useSyncExternalStore. Returning a new
 // `[]` each call would trip React's "cache the snapshot" guard and infinite-loop.
@@ -93,26 +91,6 @@ export type { CandleParams } from '../stream/liveCandleStream';
 export function useLiveCandles(symbol: string, timeframe: string, active = true) {
   const normalizedSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
   const normalizedTimeframe = useMemo(() => normalizeTimeframeStrict(timeframe), [timeframe]);
-  const candleKey = useMemo(
-    () => (normalizedSymbol && normalizedTimeframe ? `${normalizedSymbol}.${normalizedTimeframe}` : ''),
-    [normalizedSymbol, normalizedTimeframe],
-  );
-  const cachedCandles = useTradingState(
-    useCallback(
-      (state) =>
-        candleKey
-          ? (state.candles[candleKey] as CandleParams[] | undefined) ?? emptyCandles
-          : emptyCandles,
-      [candleKey],
-    ),
-  );
-  const safeCachedCandles = useMemo(
-    () =>
-      normalizedTimeframe && isTrustworthyCandleBootstrapSeed(cachedCandles, normalizedTimeframe)
-        ? cachedCandles
-        : emptyCandles,
-    [cachedCandles, normalizedTimeframe],
-  );
 
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -171,18 +149,7 @@ export function useLiveCandles(symbol: string, timeframe: string, active = true)
     };
   }, [active, normalizedSymbol, normalizedTimeframe]);
 
-  useEffect(() => {
-    if (!active || !normalizedSymbol || !normalizedTimeframe || safeCachedCandles.length === 0) {
-      return;
-    }
-
-    liveCandlesEngine.hydrateFromCache(normalizedSymbol, normalizedTimeframe, safeCachedCandles);
-  }, [active, normalizedSymbol, normalizedTimeframe, safeCachedCandles]);
-
-  const candles = useMemo(
-    () => (engineCandles.length > 0 ? engineCandles : safeCachedCandles),
-    [engineCandles, safeCachedCandles],
-  );
+  const candles = useMemo(() => engineCandles, [engineCandles]);
 
   const refresh = useCallback(() => {
     if (!normalizedSymbol || !normalizedTimeframe) {

@@ -34,7 +34,6 @@ import {
 } from './types';
 import {
   getEventTime,
-  getStoreCache,
   isSameSeries,
   logDebug,
   toCandleParams,
@@ -45,7 +44,7 @@ import {
   type HistoryFetchManagerBridge,
 } from './historyFetching';
 import { splitRestHistoryCandles, getConfiguredCandlePriceBasis } from '../../core/candleProvenance';
-import { computeClosedHistoryLastTime } from './helpers';
+import { computeClosedHistoryLastTime, hasLiveEdgeHistoryGap } from './helpers';
 
 const getHistoryPageLookbackMultiplier = (timeframe: Timeframe): number => {
   if (timeframe === 'W1' || timeframe === 'MN') {
@@ -346,6 +345,11 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     const liveCandles = materializeLiveCandleMap(entry.liveCandleMap, entry.historyLastTime, {
       preserveProvenance: true,
     });
+    this.maybeRefreshForLiveEdgeGap(
+      entry,
+      entry.historyCandles[entry.historyCandles.length - 1]?.time ?? null,
+      liveCandles[0]?.time ?? null,
+    );
     const renderHistoryLimit = Math.min(
       MAX_RENDERED_HISTORY_CANDLES,
       Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
@@ -375,6 +379,62 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     this.notify(entry);
   }
 
+  /**
+   * Heals the "live-edge gap": when seeded REST history is stale (e.g. a
+   * background prefetch ran minutes before the chart was opened) the live quote
+   * tick opens the current bucket while history ends a few bars back, leaving an
+   * empty span between them. The backend almost always has those bars (REST is
+   * only ~1 bar behind real time), so we re-pull history once to fill them with
+   * REAL data rather than fabricating synthetic bars.
+   *
+   * Guarded to fire at most once per distinct history boundary so a genuinely
+   * data-less span (illiquid no-trade minutes) is not refreshed in a loop — it
+   * is only retried after a newer bar actually closes and advances the boundary.
+   */
+  private maybeRefreshForLiveEdgeGap(
+    entry: StreamEntry,
+    newestHistoryTime: number | null,
+    firstLiveBucketTime: number | null,
+  ): void {
+    if (entry.historyLoading || entry.historyPageLoading) {
+      return;
+    }
+    // Only heal while the user is viewing the live edge. A history re-fetch
+    // resets the render window, so we must not yank a user who has scrolled back
+    // into older history — the gap is at the right edge they aren't looking at.
+    if (
+      entry.historyPaginationCursorTime !== null ||
+      entry.renderHistoryLimit !== DEFAULT_HISTORY_LIMIT
+    ) {
+      return;
+    }
+    // Measure the gap against the NEWEST history bar (including the still-forming
+    // tail bar), not the closed-cutoff `historyLastTime`. REST marks its latest
+    // bar as forming, so the closed cutoff trails it by one bucket; using the
+    // cutoff would report a phantom gap and re-fetch every minute forever.
+    if (!hasLiveEdgeHistoryGap(newestHistoryTime, firstLiveBucketTime, entry.timeframe)) {
+      return;
+    }
+    if (entry.lastLiveEdgeGapRefreshBoundary === entry.historyLastTime) {
+      return;
+    }
+    entry.lastLiveEdgeGapRefreshBoundary = entry.historyLastTime;
+    logDebug('live_edge_gap_refresh', {
+      symbol: entry.symbol,
+      timeframe: entry.timeframe,
+      historyLastTime: entry.historyLastTime,
+      firstLiveBucketTime,
+    });
+    // Defer out of commit() so runLoadHistory's own notify/commit cannot reenter
+    // this path synchronously.
+    setTimeout(() => {
+      const live = this.entries.get(entry.key);
+      if (live && !live.historyLoading && !live.historyPageLoading) {
+        runLoadHistory(this, live, DEFAULT_HISTORY_LIMIT);
+      }
+    }, 0);
+  }
+
   private ensureEntry(symbol: string, timeframe: Timeframe): StreamEntry {
     const key = this.getKey(symbol, timeframe);
     const existing = this.entries.get(key);
@@ -382,21 +442,19 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       return existing;
     }
 
-    const cache = candleMemoryCache.get(symbol, timeframe);
-    const storeCache = cache.length > 0 ? cache : getStoreCache(symbol, timeframe);
-    const safeCache = sanitizeCandlesForChart(storeCache, { timeframe }).slice(-MAX_CANDLE_SERIES_LENGTH);
     const entry: StreamEntry = {
       key,
       symbol,
       timeframe,
       requestId: 0,
       streamKey: createCandleStreamKey(symbol, timeframe),
-      historyCandles: safeCache,
+      historyCandles: [],
       liveCandleMap: new Map(),
-      historyLastTime: computeClosedHistoryLastTime(safeCache, timeframe),
+      historyLastTime: null,
+      lastLiveEdgeGapRefreshBoundary: null,
       historyPaginationCursorTime: null,
       renderHistoryLimit: DEFAULT_HISTORY_LIMIT,
-      candles: toCandleParams(safeCache),
+      candles: EMPTY_CANDLES as CandleParams[],
       listeners: new Set(),
       consumers: 0,
       loading: true,
@@ -404,7 +462,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       historyPageLoading: false,
       error: null,
       isLiveConnected: false,
-      lastUpdateTime: safeCache.length > 0 ? Date.now() : null,
+      lastUpdateTime: null,
       abortController: null,
       bufferedEvents: [],
       pendingEvents: [],

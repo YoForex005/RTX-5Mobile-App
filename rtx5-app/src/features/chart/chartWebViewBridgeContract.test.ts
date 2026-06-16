@@ -25,6 +25,8 @@ const chartWebViewHtmlSource = readProjectSource('src/features/chart/rendering/C
 const chartWebSource = readProjectSource('src/features/chart/ChartScreen.web.tsx');
 const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.constants.ts');
 const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
+const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
+const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
   assertSourceContains(source, /msg\.type === 'READY'[\s\S]*resetChartBridgeState\(\)[\s\S]*setWebViewReady\(true\)/, 'READY must reset bridge state and enable WebView');
@@ -40,6 +42,19 @@ test('webview bridge: candles arriving before READY are retained and sent after 
   assertSourceContains(source, /const candlesRef = useRef\(sanitizedCandles\)/, 'sanitized candles must be retained outside render timing');
   assertSourceContains(source, /useEffect\(\(\) => \{[\s\S]*candlesRef\.current = sanitizedCandles;[\s\S]*\}, \[[^\]]*sanitizedCandles[^\]]*\]\)/, 'latest sanitized candles must update the retained ref');
   assertSourceContains(source, /const data = candlesRef\.current[\s\S]*const mapped = data\.length > 0 \? buildMappedData\(data\) : \[\][\s\S]*initChart\(/, 'sendInit must initialize the chart shell even before candles arrive');
+});
+
+test('webview bridge: symbol switches do not paint cached candles before fresh history commits', () => {
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /historyCandles:\s*\[\][\s\S]*candles:\s*EMPTY_CANDLES as CandleParams\[\][\s\S]*runLoadHistory\(this, entry, DEFAULT_HISTORY_LIMIT\)/,
+    'new candle streams must expose an empty UI series until the authoritative REST history load commits',
+  );
+  assert.doesNotMatch(
+    liveCandlesHookSource,
+    /engineCandles\.length\s*>\s*0\s*\?\s*engineCandles\s*:\s*safeCachedCandles/,
+    'useLiveCandles must not fall back to cached candles during a symbol switch',
+  );
 });
 
 test('webview bridge: zero-size WebView init is deferred and retried from rAF and ResizeObserver', () => {
@@ -122,6 +137,63 @@ test('webview bridge: updateTick uses an incremental requestAnimationFrame path'
   assertSourceContains(flushBody, /applyTickUpdate\(tick\)/, 'pending tick flush must update only the active candle');
 });
 
+test('webview bridge: lower move bars show the current amount without a separate volume price scale', () => {
+  const mapMoveBarsBody = extractFunctionBody(chartWebViewHtmlSource, 'mapMoveBarsData');
+  const optionsBody = extractFunctionBody(chartWebViewHtmlSource, 'makeMoveDirectionPriceLineOptions');
+  const ensureBody = extractFunctionBody(chartWebViewHtmlSource, 'ensureMoveDirectionPriceLine');
+  const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshMoveDirectionPriceLine');
+  const ensureMoveBarsBody = extractFunctionBody(chartWebViewHtmlSource, 'ensureMoveBarsSeries');
+  const moveBadgeBody = extractFunctionBody(chartWebViewHtmlSource, 'renderMoveDirectionOverlayBadge');
+  const moveBadgeLabelBody = extractFunctionBody(chartWebViewHtmlSource, 'formatMoveDirectionOverlayBadgeLabel');
+  const overlayRefreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+
+  assertSourceContains(
+    mapMoveBarsBody,
+    /value: Math\.abs\(close - open\)[\s\S]*color: up \? moveUpColor : moveDownColor/,
+    'lower bars must keep plotting the candle move magnitude and direction color',
+  );
+  assertSourceContains(
+    optionsBody,
+    /price: pickLiveMoveValue\(\)[\s\S]*axisLabelVisible: false[\s\S]*title: ''/,
+    'lower move direction line must not show a native volume price-scale badge',
+  );
+  assertSourceContains(
+    ensureMoveBarsBody,
+    /chart\.priceScale\('move'\)\.applyOptions\(\{[\s\S]*visible: false,[\s\S]*ticksVisible: false,[\s\S]*borderVisible: false,[\s\S]*entireTextOnly: false/,
+    'lower move price scale must stay hidden so the chart keeps one visible symbol price scale',
+  );
+  assertSourceContains(
+    ensureBody,
+    /moveBarsSeries\.createPriceLine\(makeMoveDirectionPriceLineOptions\(\)\)/,
+    'lower move guide line must still be created on the move-bars series',
+  );
+  assertSourceContains(
+    refreshBody,
+    /moveDirectionPriceLine\.applyOptions\(makeMoveDirectionPriceLineOptions\(\)\)/,
+    'live ticks must refresh the lower move guide line without rebuilding the histogram series',
+  );
+  assertSourceContains(
+    moveBadgeBody,
+    /var value = pickLiveSignedMoveValue\(\)[\s\S]*moveBarsSeries\.priceToCoordinate\(pickLiveMoveValue\(\)\)[\s\S]*className = 'rtx5-move-overlay-badge'[\s\S]*left = axisMetrics\.axisLeft \+ 'px'[\s\S]*width = axisMetrics\.axisWidth[\s\S]*background = pickLivePriceColor\(\)/,
+    'custom lower move badge must highlight the live volume bar amount on the right price-scale axis',
+  );
+  assertSourceContains(
+    moveBadgeLabelBody,
+    /if \(value > 0\)[\s\S]*return '\+' \+ rounded/,
+    'custom lower move badge must show signed up/down movement',
+  );
+  assert.doesNotMatch(
+    moveBadgeBody,
+    /rtx5-move-price-scale-badge|data-rtx5-role', 'move-price-scale'/,
+    'lower move amount must stay a custom overlay badge, never a second native price scale',
+  );
+  assertSourceContains(
+    overlayRefreshBody,
+    /renderMarketPriceScaleBadges\(layer\)[\s\S]*renderMoveDirectionOverlayBadge\(layer\)/,
+    'overlay refresh must repaint the custom lower move amount without adding a price-scale badge',
+  );
+});
+
 test('webview bridge: renders backend candle timestamps directly', () => {
   assertSourceContains(
     source,
@@ -130,6 +202,27 @@ test('webview bridge: renders backend candle timestamps directly', () => {
   );
   assert.doesNotMatch(source, /setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
   assert.doesNotMatch(chartWebViewHtmlSource, /_rtxIndexToRealTime|setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
+});
+
+test('webview bridge: preserves backend OHLC candles without price-continuity pruning', () => {
+  const sanitizerBody = extractFunctionBody(chartWebViewHtmlSource, 'sanitizeSeriesData');
+  const normalizerBody = extractFunctionBody(chartWebViewHtmlSource, 'normalizeRawSeriesDatum');
+
+  assertSourceContains(
+    sanitizerBody,
+    /return Object\.keys\(byTime\)[\s\S]*\.sort\(function\(left, right\) \{ return left\.time - right\.time; \}\);/,
+    'WebView candle sanitizer should only dedupe and sort finite backend candles before rendering',
+  );
+  assert.doesNotMatch(
+    sanitizerBody,
+    /filterRawSeriesDataByPriceContinuity/,
+    'WebView must not drop valid backend candles using a price-continuity heuristic',
+  );
+  assert.doesNotMatch(
+    normalizerBody,
+    /isRawSeriesDatumInternallyCoherent/,
+    'WebView must not drop a finite backend OHLC candle because its wick is large',
+  );
 });
 
 test('webview bridge: formats candle timestamps in UTC broker time', () => {
@@ -415,13 +508,13 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
 
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 20[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 32[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
+    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
     'custom right-axis label density and step choices must be bounded for phone/tablet chart heights',
   );
   assertSourceContains(
     rangeBody,
-    /resolveRightPriceScaleVisibleRange\(\)[\s\S]*isValidPriceRange\(visibleScaleRange\)[\s\S]*resolveRightPriceScaleCoordinateRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(true\)/,
-    'custom axis labels must prefer the actual visible right-scale range and then chart coordinates so top and bottom labels fill the plot height',
+    /resolveRightPriceScaleCoordinateRange\(\)[\s\S]*isValidPriceRange\(coordinateRange\)[\s\S]*resolveRightPriceScaleVisibleRange\(\)[\s\S]*resolvePriceRangeFromVisibleData\(true\)/,
+    'custom axis labels must prefer chart coordinates before visible right-scale fallback so top and bottom labels fill the plot height',
   );
   assertSourceContains(
     chartWebViewHtmlSource,

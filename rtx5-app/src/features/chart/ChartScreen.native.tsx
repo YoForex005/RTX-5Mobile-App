@@ -226,6 +226,12 @@ const buildChartTickPayload = (
   };
 };
 
+// Stable empty reference for the display series so the "no history yet" branch
+// of `sanitizedCandles` doesn't churn referential identity each render.
+const EMPTY_DISPLAY_CANDLES = Object.freeze(
+  [],
+) as unknown as ReturnType<typeof resolveLivePriceCoherentCandles>;
+
 const getChartSnapshotSignature = (snapshot: ReturnType<typeof buildChartSeriesSnapshot>): string =>
   [
     snapshot.length,
@@ -1290,11 +1296,22 @@ export function ChartScreen() {
       : bid ?? ask;
   }, [chartLiveQuote?.ask, chartLiveQuote?.bid, hasLiveChartQuote, priceSource]);
   const sanitizedCandles = useMemo(
-    () =>
-      resolveLivePriceCoherentCandles(sanitizedBackendCandles, chartTimeframe, {
+    () => {
+      // Until real (or cached) history is present, do NOT synthesize a lone
+      // live-price candle. With no backend bars, resolveLivePriceCoherentCandles
+      // returns just [liveCandle], which paints as an empty, tightly auto-scaled
+      // chart (wrong price range) while the ~5s REST history fetch is still in
+      // flight — it looks broken. Returning empty keeps the chart's loading
+      // state until history actually arrives, so the first real paint is the
+      // full history series.
+      if (sanitizedBackendCandles.length === 0) {
+        return EMPTY_DISPLAY_CANDLES;
+      }
+      return resolveLivePriceCoherentCandles(sanitizedBackendCandles, chartTimeframe, {
         price: liveChartPrice,
         time: chartTradeTickTimestamp,
-      }),
+      });
+    },
     [sanitizedBackendCandles, chartTimeframe, chartTradeTickTimestamp, liveChartPrice],
   );
   const latestChartClose = useMemo(
@@ -3543,8 +3560,11 @@ export function ChartScreen() {
         });
       }
 
-      // Intentional: no whitespace injection. Backend gaps remain real gaps and
-      // we avoid extra synthetic bars in the WebView payload.
+      // Intentional: no whitespace injection and no synthetic gap-fill bars.
+      // Lightweight-charts index-spaces real bars adjacently, so minutes the
+      // backend has no candle for (illiquid symbols, no-trade gaps) simply
+      // collapse — matching MT5/TradingView. Fabricating flat bars here would
+      // render zero-height dashes that read as broken whitespace.
     }
 
     if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG && result.length > 0) {

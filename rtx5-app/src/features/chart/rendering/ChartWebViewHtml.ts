@@ -207,7 +207,11 @@ export const CH_HTML = `
       var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
       var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30;
-      var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 32;
+      // Target vertical gap between price labels. The scale now spans the full
+      // pane height, so the old 32px target packed labels ~37px apart (cramped).
+      // 60px lands the spacing on the next coarser "nice" step (~60-74px),
+      // which reads as a clean, professional axis — neither crowded nor sparse.
+      var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60;
       var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = [1, 2, 2.5, 5, 10];
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_CLUSTERS = 2;
       var RIGHT_PRICE_SCALE_CANVAS_LABEL_MIN_FOREGROUND_PIXELS = 24;
@@ -314,6 +318,22 @@ export const CH_HTML = `
           plotTop: plotTop,
           plotHeight: Math.max(0, plotBottom - plotTop),
         };
+      }
+
+      // The right price-scale labels fill the FULL pane height (candles plus
+      // the move/volume overlay region at the bottom), not just the candle
+      // plot area (top ~66%). The primary metrics reserve the bottom 0.34 as
+      // scaleMargin for the move bars, which would stop the symbol price labels
+      // partway down and let the native scale leak a second, mismatched column.
+      // Overriding plotTop/plotHeight to the whole pane makes the fallback emit
+      // one continuous symbol price scale top-to-bottom.
+      function resolveFallbackPlotMetrics() {
+        var metrics = resolvePrimaryPaneMetrics();
+        var fullHeight = Math.max(0, Math.round(metrics.paneHeight || metrics.plotHeight || 0));
+        return Object.assign({}, metrics, {
+          plotTop: 0,
+          plotHeight: fullHeight,
+        });
       }
 
       function resolveChartElementSize() {
@@ -870,7 +890,7 @@ export const CH_HTML = `
           if (!series || typeof series.coordinateToPrice !== 'function') {
             return null;
           }
-          var metrics = resolvePrimaryPaneMetrics();
+          var metrics = resolveFallbackPlotMetrics();
           if (!metrics || !(metrics.plotHeight > 0)) {
             return null;
           }
@@ -990,18 +1010,17 @@ export const CH_HTML = `
 
       function resolveRightPriceScaleFallbackDecimals(minimumDecimals) {
         var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
+        if (configuredDecimals !== null) {
+          return configuredDecimals;
+        }
         var safeMinimum =
           typeof minimumDecimals === 'number' && isFinite(minimumDecimals)
             ? Math.max(0, Math.min(8, Math.round(minimumDecimals)))
             : 0;
-        // The backend's real data precision is the FLOOR — the price scale must
-        // never cut decimals the backend actually sent (e.g. 1.34398 -> 5 dp,
-        // 45678.1234 -> 4 dp). The chart-configured digits and the caller's
-        // minimum can only RAISE precision, never truncate the live data.
+        // With no configured display metadata, preserve real backend precision.
         return Math.max(
           2,
           resolveRightPriceScaleFallbackDataDecimals(),
-          configuredDecimals !== null ? configuredDecimals : 0,
           safeMinimum
         );
       }
@@ -1025,12 +1044,14 @@ export const CH_HTML = `
 
       function resolveRightPriceScaleFallbackStepDecimals(step) {
         var configuredDecimals = resolveRightPriceScaleFallbackConfiguredDecimals();
+        if (configuredDecimals !== null) {
+          return configuredDecimals;
+        }
         // Honor the backend data precision as a floor here too, so the per-tick
         // step rounding/formatting never drops decimals the backend provided.
         return Math.max(
           resolveRightPriceScaleFallbackDataDecimals(),
-          countRightPriceScaleFallbackDecimalPlaces(step),
-          configuredDecimals !== null ? configuredDecimals : 0
+          countRightPriceScaleFallbackDecimalPlaces(step)
         );
       }
 
@@ -1112,11 +1133,49 @@ export const CH_HTML = `
         return resolveRightPriceScaleFallbackNiceStepFromRaw(rawStep, preferDense === true);
       }
 
+      // Snap an exact "ideal" step to the NEAREST nice step (1/2/2.5/5/10 ×10ⁿ),
+      // measuring distance in log space. The nice fractions jump by up to ×2, so
+      // "pick the coarsest step ≥ ideal" (the old approach) lands the label gap
+      // anywhere from ~0.6× to ~2× the target depending on where a symbol's price
+      // span happens to fall between two steps — cramped for some symbols, sparse
+      // for others. Nearest-in-log instead keeps the rendered gap within ~×1.41
+      // of the target for EVERY symbol and zoom, so the scale is uniformly
+      // professional (never too close, never too wide) without per-symbol tuning.
+      function resolveRightPriceScaleFallbackNearestNiceStep(idealStep) {
+        if (!(idealStep > 0)) {
+          return 0;
+        }
+        var exponent = Math.floor(Math.log(idealStep) / Math.LN10);
+        var targetLog = Math.log(idealStep);
+        var best = 0;
+        var bestDist = Infinity;
+        for (var e = exponent - 1; e <= exponent + 1; e += 1) {
+          var magnitude = Math.pow(10, e);
+          for (var i = 0; i < RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS.length; i += 1) {
+            var candidate = RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS[i] * magnitude;
+            if (!(candidate > 0)) {
+              continue;
+            }
+            var dist = Math.abs(Math.log(candidate) - targetLog);
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = candidate;
+            }
+          }
+        }
+        if (!(best > 0)) {
+          return 0;
+        }
+        var decimals = resolveRightPriceScaleFallbackStepDecimals(best);
+        var minimumStep = decimals > 0 ? Math.pow(10, -decimals) : 1;
+        return Math.max(best, minimumStep);
+      }
+
       function resolveRightPriceScaleFallbackTicks() {
         if (!series || !lastRawSeriesData || lastRawSeriesData.length === 0) {
           return [];
         }
-        var metrics = resolvePrimaryPaneMetrics();
+        var metrics = resolveFallbackPlotMetrics();
         if (
           !metrics ||
           !(metrics.chartWidth > 0) ||
@@ -1135,21 +1194,20 @@ export const CH_HTML = `
           return [];
         }
         var labelCount = resolveRightPriceScaleFallbackLabelCount(metrics);
-        var step = resolveRightPriceScaleFallbackNiceStep(span, Math.max(1, labelCount - 1));
+        var plotHeightPx = Math.max(1, metrics.plotHeight || 1);
+        var targetLabelGap = resolveRightPriceScaleFallbackTargetLabelGap();
+        // Dynamic, symbol-agnostic step: derive the exact step that would place
+        // labels exactly targetLabelGap px apart for THIS symbol's price span and
+        // pane height, then snap it to the nearest nice step. This bounds the
+        // rendered gap to ~×1.41 of the target for every symbol — no per-symbol
+        // tuning, never cramped, never sparse.
+        var idealStep = (span * targetLabelGap) / plotHeightPx;
+        var step = resolveRightPriceScaleFallbackNearestNiceStep(idealStep);
+        if (!(step > 0)) {
+          step = resolveRightPriceScaleFallbackNiceStep(span, Math.max(1, labelCount - 1));
+        }
         if (!(step > 0)) {
           return [];
-        }
-        var targetLabelGap = resolveRightPriceScaleFallbackTargetLabelGap();
-        var projectedStepGap = (step / span) * Math.max(1, metrics.plotHeight || 1);
-        if (projectedStepGap > targetLabelGap * 1.25) {
-          var denseIntervals = Math.max(
-            Math.max(1, labelCount - 1),
-            Math.floor(Math.max(1, metrics.plotHeight || 1) / targetLabelGap)
-          );
-          var denseStep = resolveRightPriceScaleFallbackNiceStep(span, denseIntervals, true);
-          if (denseStep > 0 && denseStep < step) {
-            step = denseStep;
-          }
         }
         // Guarantee the step is coarse enough that EVERY label across the full
         // range fits under the hard cap. Otherwise the generation loop fills the
@@ -1279,7 +1337,7 @@ export const CH_HTML = `
             clearRightPriceScaleFallbackLabels();
             return false;
           }
-          var metrics = resolvePrimaryPaneMetrics();
+          var metrics = resolveFallbackPlotMetrics();
           var layer = ensureRightPriceScaleFallbackLayer();
           if (!layer) {
             return false;
@@ -1306,6 +1364,11 @@ export const CH_HTML = `
           layer.style.pointerEvents = 'none';
           layer.style.overflow = 'hidden';
           layer.style.zIndex = '30';
+          // metrics here comes from resolveFallbackPlotMetrics(), whose
+          // plotTop/plotHeight already span the FULL pane height (candles plus
+          // the move/volume region), so this background masks the native scale's
+          // tick labels across the whole axis and the fallback paints one
+          // continuous symbol price scale top-to-bottom.
           var axisBackground = document.createElement('div');
           axisBackground.className = 'rtx5-right-price-scale-fallback-axis';
           axisBackground.style.left = Math.max(0, Math.round(axisMetrics.axisLeft)) + 'px';
@@ -4648,7 +4711,10 @@ export const CH_HTML = `
             color: moveUpColor,
           });
           chart.priceScale('move').applyOptions({
-            entireTextOnly: true,
+            visible: false,
+            ticksVisible: false,
+            borderVisible: false,
+            entireTextOnly: false,
             scaleMargins: { top: 0.82, bottom: 0.02 },
           });
           if (lastRawSeriesData && lastRawSeriesData.length > 0) {
@@ -4880,7 +4946,7 @@ export const CH_HTML = `
           if (!isFiniteNumber(value)) {
             return null;
           }
-          var lineDatum = {
+          return {
             time: time,
             value: value,
             open: isFiniteNumber(item.open) ? item.open : value,
@@ -4889,7 +4955,6 @@ export const CH_HTML = `
             close: isFiniteNumber(item.close) ? item.close : value,
             volume: volume,
           };
-          return isRawSeriesDatumInternallyCoherent(lineDatum) ? lineDatum : null;
         }
 
         var open = item.open;
@@ -4909,7 +4974,7 @@ export const CH_HTML = `
         var high = Math.max(open, close, rawHigh);
         var low = Math.min(open, close, rawLow);
 
-        var normalized = {
+        return {
           time: time,
           open: open,
           high: high,
@@ -4917,7 +4982,6 @@ export const CH_HTML = `
           close: close,
           volume: volume,
         };
-        return isRawSeriesDatumInternallyCoherent(normalized) ? normalized : null;
       }
 
       function mergeRawSeriesDatum(existing, incoming) {
@@ -4963,10 +5027,9 @@ export const CH_HTML = `
           }
         }
 
-        var sorted = Object.keys(byTime)
+        return Object.keys(byTime)
           .map(function(key) { return byTime[key]; })
           .sort(function(left, right) { return left.time - right.time; });
-        return filterRawSeriesDataByPriceContinuity(sorted);
       }
 
       function upsertRawSeriesDatum(tick) {
@@ -5294,6 +5357,25 @@ export const CH_HTML = `
         return Math.abs(_liveBar.close - _liveBar.open);
       }
 
+      function pickLiveSignedMoveValue() {
+        if (!_liveBar || typeof _liveBar.close !== 'number' || typeof _liveBar.open !== 'number') {
+          return 0;
+        }
+        return _liveBar.close - _liveBar.open;
+      }
+
+      function makeMoveDirectionPriceLineOptions() {
+        var color = pickLivePriceColor();
+        return {
+          price: pickLiveMoveValue(),
+          color: color,
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
+          axisLabelVisible: false,
+          title: '',
+        };
+      }
+
       // Create the move-bars pane's direction line the first time we have a
       // live bar. Scoped to the move-bars series so it renders on the move
       // price scale ('move'), not the main candle scale.
@@ -5301,13 +5383,7 @@ export const CH_HTML = `
         try {
           if (moveDirectionPriceLine || !moveBarsSeries) return;
           if (!_liveBar || typeof _liveBar.close !== 'number') return;
-          moveDirectionPriceLine = moveBarsSeries.createPriceLine({
-            price: pickLiveMoveValue(),
-            color: pickLivePriceColor(),
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 0,
-            axisLabelVisible: false,
-          });
+          moveDirectionPriceLine = moveBarsSeries.createPriceLine(makeMoveDirectionPriceLineOptions());
         } catch (_e) {
           moveDirectionPriceLine = null;
         }
@@ -5324,10 +5400,7 @@ export const CH_HTML = `
           return;
         }
         try {
-          moveDirectionPriceLine.applyOptions({
-            price: pickLiveMoveValue(),
-            color: pickLivePriceColor(),
-          });
+          moveDirectionPriceLine.applyOptions(makeMoveDirectionPriceLineOptions());
         } catch (_e) {
           moveDirectionPriceLine = null;
         }
@@ -6035,6 +6108,83 @@ export const CH_HTML = `
         }
       }
 
+      function formatMoveDirectionOverlayBadgeLabel(value) {
+        var decimals =
+          typeof lastDisplayDecimals === 'number' && isFinite(lastDisplayDecimals) && lastDisplayDecimals >= 0
+            ? Math.min(8, Math.max(0, Math.floor(lastDisplayDecimals)))
+            : resolveOverlayDisplayDecimals();
+        var rounded = Number(value).toFixed(decimals);
+        if (value > 0) {
+          return '+' + rounded;
+        }
+        return rounded;
+      }
+
+      function renderMoveDirectionOverlayBadge(layer) {
+        if (!layer || !moveBarsSeries || !series || !_liveBar || !shouldUseMoveBarsPane()) {
+          return;
+        }
+        if (typeof moveBarsSeries.priceToCoordinate !== 'function') {
+          return;
+        }
+
+        var value = pickLiveSignedMoveValue();
+        if (typeof value !== 'number' || !isFinite(value)) {
+          return;
+        }
+
+        // Anchor the highlight at the TOP of the live volume bar (its |close −
+        // open| magnitude on the move scale), so the up/down value sits right
+        // at the bar it describes in the bottom region — not in the candle area.
+        var y = moveBarsSeries.priceToCoordinate(pickLiveMoveValue());
+        if (typeof y !== 'number' || !isFinite(y)) {
+          return;
+        }
+
+        var axisMetrics = resolveMarketPriceScaleAxisMetrics(layer);
+        if (!axisMetrics) {
+          return;
+        }
+
+        // The badge sits ON the right price-scale axis, like the bid/ask
+        // badges. Clamp to the FULL pane height (not the 66% candle plot) so it
+        // can land in the move/volume region at the bottom of the scale.
+        var paneMetrics = resolvePrimaryPaneMetrics();
+        var paneBottom = Math.max(
+          axisMetrics.plotBottom,
+          Math.round(paneMetrics.paneHeight || 0)
+        );
+        var minTop = axisMetrics.plotTop;
+        var maxTop = Math.max(minTop, paneBottom - MARKET_PRICE_SCALE_BADGE_HEIGHT);
+        var top = Math.max(minTop, Math.min(maxTop, Math.round(y - MARKET_PRICE_SCALE_BADGE_HEIGHT / 2)));
+
+        var el = document.createElement('div');
+        el.className = 'rtx5-move-overlay-badge';
+        el.setAttribute('data-rtx5-role', 'move-overlay-value');
+        el.textContent = formatMoveDirectionOverlayBadgeLabel(value);
+        el.style.position = 'absolute';
+        el.style.left = axisMetrics.axisLeft + 'px';
+        el.style.top = top + 'px';
+        el.style.width = axisMetrics.axisWidth + 'px';
+        el.style.height = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
+        el.style.lineHeight = MARKET_PRICE_SCALE_BADGE_HEIGHT + 'px';
+        el.style.boxSizing = 'border-box';
+        el.style.padding = '0 ' + MARKET_PRICE_SCALE_BADGE_PADDING_X + 'px';
+        el.style.background = pickLivePriceColor();
+        el.style.color = '#FFFFFF';
+        el.style.borderRadius = '2px';
+        el.style.fontSize = '12px';
+        el.style.fontWeight = '700';
+        el.style.fontVariantNumeric = 'tabular-nums';
+        el.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
+        el.style.textAlign = 'right';
+        el.style.whiteSpace = 'nowrap';
+        el.style.overflow = 'hidden';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '14';
+        layer.appendChild(el);
+      }
+
       function refreshOverlayDomLabels(payload) {
         try {
           clearOverlayDomLabels();
@@ -6047,6 +6197,7 @@ export const CH_HTML = `
           if (!layer) return;
           renderMarketPriceScaleExtensions(layer);
           renderMarketPriceScaleBadges(layer);
+          renderMoveDirectionOverlayBadge(layer);
           var lines = Array.isArray(payload && payload.priceLines) ? payload.priceLines : [];
           var floatingLabels = [];
           var anchoredLabels = [];

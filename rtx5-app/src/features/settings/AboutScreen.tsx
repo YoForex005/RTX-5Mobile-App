@@ -9,15 +9,21 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Platform,
   ScrollView,
   Text,
   TextInput,
   View,
+  type KeyboardEvent,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
@@ -44,6 +50,7 @@ import {
   formatAboutPlatform,
   getAboutContactCategory,
   getAboutStoreTarget,
+  isValidDeveloperContactEmail,
   resolveAboutBuildLabel,
   type AboutAction,
   type AboutContactCategory,
@@ -54,6 +61,13 @@ type ExpoAndroidConfig = {
 };
 
 const RATING_STARS = [0, 1, 2, 3, 4] as const;
+const CONTACT_FORM_BASE_BOTTOM_PADDING = 28;
+const CONTACT_DETAILS_VISIBLE_GAP = 24;
+
+type ContactDetailsLayout = {
+  y: number;
+  height: number;
+};
 
 export function AboutScreen() {
   const router = useRouter();
@@ -157,6 +171,11 @@ export function AboutScreen() {
   };
 
   const handleSendDeveloperMessage = () => {
+    if (!isValidDeveloperContactEmail(contactEmail)) {
+      Alert.alert('Contact Developer', 'Please enter a valid email address before sending.');
+      return;
+    }
+
     const mailtoUrl = buildDeveloperMailto({
       appName,
       appVersion,
@@ -362,13 +381,129 @@ function ContactDeveloperScreen({
   const placeholderColor = isDark ? '#64748B' : '#9CA3AF';
   const categoryChevronColor = isDark ? '#CBD5E1' : '#7B7B7B';
   const categoryCheckColor = isDark ? '#60A5FA' : '#2563EB';
+  const contactScrollRef = useRef<ScrollView>(null);
+  const contactScrollViewportRef = useRef<View>(null);
+  const detailsFieldRef = useRef<View>(null);
+  const contactScrollYRef = useRef(0);
+  const detailsFocusedRef = useRef(false);
+  const detailsLayoutRef = useRef<ContactDetailsLayout | null>(null);
+  const keyboardInsetRef = useRef(0);
+  const keyboardTopRef = useRef(Number.POSITIVE_INFINITY);
+  const scrollViewportHeightRef = useRef(0);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const trimmedEmail = email.trim();
+  const isEmailValid = isValidDeveloperContactEmail(email);
+  const emailError =
+    trimmedEmail.length > 0 && !isEmailValid
+      ? 'Enter a valid email address.'
+      : undefined;
   const canSend =
     name.trim().length > 0 &&
-    email.trim().length > 0 &&
+    isEmailValid &&
     selectedCategory !== null &&
     title.trim().length > 0 &&
     message.trim().length > 0 &&
     consentAccepted;
+
+  const scrollDetailsFromLayout = useCallback((animated = true) => {
+    const layout = detailsLayoutRef.current;
+    const viewportHeight = scrollViewportHeightRef.current;
+
+    if (!layout || viewportHeight <= 0) {
+      return;
+    }
+
+    const visibleHeight = Math.max(
+      0,
+      viewportHeight - keyboardInsetRef.current - CONTACT_DETAILS_VISIBLE_GAP,
+    );
+    const nextY = Math.max(0, layout.y + layout.height - visibleHeight);
+    contactScrollRef.current?.scrollTo({ y: nextY, animated });
+  }, []);
+
+  const scrollDetailsAboveKeyboard = useCallback((animated = true) => {
+    const scrollView = contactScrollRef.current;
+    const scrollViewport = contactScrollViewportRef.current;
+    const detailsField = detailsFieldRef.current;
+
+    if (!scrollView || !scrollViewport || !detailsField) {
+      scrollDetailsFromLayout(animated);
+      return;
+    }
+
+    scrollViewport.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
+      detailsField.measureInWindow((_fieldX, fieldY, _fieldWidth, fieldHeight) => {
+        if (scrollHeight <= 0 || fieldHeight <= 0) {
+          scrollDetailsFromLayout(animated);
+          return;
+        }
+
+        const keyboardTop = keyboardTopRef.current;
+        const scrollViewportBottom = scrollY + scrollHeight;
+        const visibleBottom = Math.min(scrollViewportBottom, keyboardTop) - CONTACT_DETAILS_VISIBLE_GAP;
+        const overlap = fieldY + fieldHeight - visibleBottom;
+
+        if (overlap > 0) {
+          scrollView.scrollTo({ y: Math.max(0, contactScrollYRef.current + overlap), animated });
+        }
+      });
+    });
+  }, [scrollDetailsFromLayout]);
+
+  const scheduleDetailsScrollAboveKeyboard = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      scrollDetailsAboveKeyboard(animated);
+    });
+  }, [scrollDetailsAboveKeyboard]);
+
+  const handleKeyboardShow = useCallback((event: KeyboardEvent) => {
+    const nextKeyboardInset = Math.max(event.endCoordinates.height, 0);
+    keyboardInsetRef.current = nextKeyboardInset;
+    keyboardTopRef.current = event.endCoordinates.screenY;
+    setKeyboardInset(nextKeyboardInset);
+
+    if (detailsFocusedRef.current) {
+      scheduleDetailsScrollAboveKeyboard();
+    }
+  }, [scheduleDetailsScrollAboveKeyboard]);
+
+  const handleKeyboardHide = useCallback(() => {
+    keyboardInsetRef.current = 0;
+    keyboardTopRef.current = Number.POSITIVE_INFINITY;
+    setKeyboardInset(0);
+  }, []);
+
+  useEffect(() => {
+    const keyboardShowSubscription = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+    const keyboardHideSubscription = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
+
+    return () => {
+      keyboardShowSubscription.remove();
+      keyboardHideSubscription.remove();
+    };
+  }, [handleKeyboardHide, handleKeyboardShow]);
+
+  const handleContactScrollLayout = useCallback((event: LayoutChangeEvent) => {
+    scrollViewportHeightRef.current = event.nativeEvent.layout.height;
+  }, []);
+
+  const handleContactScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    contactScrollYRef.current = event.nativeEvent.contentOffset.y;
+  }, []);
+
+  const handleDetailsLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height, y } = event.nativeEvent.layout;
+    detailsLayoutRef.current = { y, height };
+  }, []);
+
+  const handleDetailsFocus = useCallback(() => {
+    detailsFocusedRef.current = true;
+    scheduleDetailsScrollAboveKeyboard();
+  }, [scheduleDetailsScrollAboveKeyboard]);
+
+  const handleDetailsBlur = useCallback(() => {
+    detailsFocusedRef.current = false;
+  }, []);
 
   return (
     <Screen noBottomInset style={styles.contactScreen}>
@@ -386,154 +521,172 @@ function ContactDeveloperScreen({
         <Text style={styles.contactPageTitle} numberOfLines={1}>Contact Developer</Text>
       </View>
 
-      <View style={styles.contactPageBody}>
-        <ScrollView
-          canCancelContentTouches={Platform.OS === 'ios'}
-          style={styles.contactFormScroll}
-          contentContainerStyle={styles.contactFormContent}
-          keyboardShouldPersistTaps="always"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.contactHeroCard}>
-            <AppLogo style={styles.contactHeroLogo} />
-            <View style={styles.contactHeroCopy}>
-              <Text style={styles.contactHeroTitle} numberOfLines={1}>{appName} support</Text>
-              <Text style={styles.contactHeroText}>
-                Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.
-              </Text>
-        <Text style={styles.contactHeroMeta} numberOfLines={1}>
-          App version {appVersion}{appBuildVersion ? ` (${appBuildVersion})` : ''}
-        </Text>
-            </View>
-          </View>
-
-          <LineTextInput
-            label="Your Name"
-            value={name}
-            onChangeText={onChangeName}
-            placeholder="Enter your full name"
-            icon="person-outline"
-            keyboardType="default"
-            iconColor={supportIconColor}
-            placeholderColor={placeholderColor}
-            styles={styles}
-          />
-          <LineTextInput
-            label="Your Email"
-            value={email}
-            onChangeText={onChangeEmail}
-            placeholder="Enter your email address"
-            icon="mail-outline"
-            keyboardType="email-address"
-            iconColor={supportIconColor}
-            placeholderColor={placeholderColor}
-            styles={styles}
-          />
-
-          <View style={styles.formField}>
-            <Text style={styles.formFieldLabel}>Category</Text>
-            <FastPressable
-              onPress={onOpenCategorySheet}
-              activateOnPressIn
-              latencyLabel="about.contact.category.open"
-              style={({ pressed }) => [styles.categorySelectCard, pressed && styles.contactLinePressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Select category"
-            >
-              <View style={styles.categorySelectCopy}>
-                <Text style={styles.categorySelectValue} numberOfLines={1}>
-                  {selectedCategory?.label ?? 'Select Category'}
+      <KeyboardAvoidingView
+        style={styles.contactKeyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View ref={contactScrollViewportRef} style={styles.contactPageBody}>
+          <ScrollView
+            ref={contactScrollRef}
+            canCancelContentTouches={Platform.OS === 'ios'}
+            style={styles.contactFormScroll}
+            contentContainerStyle={[
+              styles.contactFormContent,
+              keyboardInset > 0
+                ? { paddingBottom: CONTACT_FORM_BASE_BOTTOM_PADDING + keyboardInset + Math.max(insetsBottom, 0) }
+                : null,
+            ]}
+            keyboardShouldPersistTaps="always"
+            onLayout={handleContactScrollLayout}
+            onScroll={handleContactScroll}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.contactHeroCard}>
+              <AppLogo style={styles.contactHeroLogo} />
+              <View style={styles.contactHeroCopy}>
+                <Text style={styles.contactHeroTitle} numberOfLines={1}>{appName} support</Text>
+                <Text style={styles.contactHeroText}>
+                  Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.
                 </Text>
-                <Text style={styles.categorySelectHint} numberOfLines={1}>
-                  {selectedCategory?.subtitle ?? 'Choose the closest request type'}
+                <Text style={styles.contactHeroMeta} numberOfLines={1}>
+                  App version {appVersion}{appBuildVersion ? ` (${appBuildVersion})` : ''}
                 </Text>
               </View>
-              <Ionicons name="chevron-down" size={27} color={categoryChevronColor} />
-            </FastPressable>
-            {categorySheetOpen ? (
-              <ContactCategoryDropdown
-                selectedCategory={selectedCategory}
-                onSelect={onSelectCategory}
-                onClose={onCloseCategorySheet}
-                checkColor={categoryCheckColor}
-                styles={styles}
-              />
-            ) : null}
-          </View>
+            </View>
 
-          <LineTextInput
-            label="Title"
-            value={title}
-            onChangeText={onChangeTitle}
-            placeholder="Short summary"
-            icon="create-outline"
-            keyboardType="default"
-            iconColor={supportIconColor}
-            placeholderColor={placeholderColor}
-            styles={styles}
-          />
-
-          <View style={styles.formField}>
-            <Text style={styles.formFieldLabel}>Details</Text>
-            <TextInput
-              value={message}
-              onChangeText={onChangeMessage}
-              placeholder="Describe your problem in detail here"
-              placeholderTextColor={placeholderColor}
-              style={styles.problemInput}
-              multiline
-              textAlignVertical="top"
+            <LineTextInput
+              label="Your Name"
+              value={name}
+              onChangeText={onChangeName}
+              placeholder="Enter your full name"
+              icon="person-outline"
+              keyboardType="default"
+              iconColor={supportIconColor}
+              placeholderColor={placeholderColor}
+              styles={styles}
             />
-          </View>
+            <LineTextInput
+              label="Your Email"
+              value={email}
+              onChangeText={onChangeEmail}
+              placeholder="Enter your email address"
+              icon="mail-outline"
+              keyboardType="email-address"
+              iconColor={supportIconColor}
+              placeholderColor={placeholderColor}
+              error={emailError}
+              styles={styles}
+            />
 
-          <View style={styles.consentBlock}>
-            <Text style={styles.consentText}>
-              I agree to the processing of my personal data by RTX5 for request handling purposes.
-            </Text>
-            <FastPressable
-              onPress={onToggleConsent}
-              latencyLabel="about.contact.consent"
-              hitSlop={12}
-              style={styles.checkbox}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: consentAccepted }}
-              accessibilityLabel="Agree to personal data processing"
-            >
-              {consentAccepted ? <Ionicons name="checkmark" size={22} color={iconColor} /> : null}
-            </FastPressable>
-          </View>
+            <View style={styles.formField}>
+              <Text style={styles.formFieldLabel}>Category</Text>
+              <FastPressable
+                onPress={onOpenCategorySheet}
+                activateOnPressIn
+                latencyLabel="about.contact.category.open"
+                style={({ pressed }) => [styles.categorySelectCard, pressed && styles.contactLinePressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Select category"
+              >
+                <View style={styles.categorySelectCopy}>
+                  <Text style={styles.categorySelectValue} numberOfLines={1}>
+                    {selectedCategory?.label ?? 'Select Category'}
+                  </Text>
+                  <Text style={styles.categorySelectHint} numberOfLines={1}>
+                    {selectedCategory?.subtitle ?? 'Choose the closest request type'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-down" size={27} color={categoryChevronColor} />
+              </FastPressable>
+              {categorySheetOpen ? (
+                <ContactCategoryDropdown
+                  selectedCategory={selectedCategory}
+                  onSelect={onSelectCategory}
+                  onClose={onCloseCategorySheet}
+                  checkColor={categoryCheckColor}
+                  styles={styles}
+                />
+              ) : null}
+            </View>
 
-          <View style={styles.privacyRow}>
-            <Text style={styles.privacyText}>Please have a look at our </Text>
-            <FastPressable
-              onPress={onOpenPrivacyPolicy}
-              latencyLabel="about.contact.privacy"
-              accessibilityRole="link"
-              accessibilityLabel="Privacy Policy"
-            >
-              <Text style={styles.privacyLink}>Privacy Policy</Text>
-            </FastPressable>
-          </View>
-        </ScrollView>
+            <LineTextInput
+              label="Title"
+              value={title}
+              onChangeText={onChangeTitle}
+              placeholder="Short summary"
+              icon="create-outline"
+              keyboardType="default"
+              iconColor={supportIconColor}
+              placeholderColor={placeholderColor}
+              styles={styles}
+            />
 
-      </View>
+            <View ref={detailsFieldRef} style={styles.formField} onLayout={handleDetailsLayout}>
+              <Text style={styles.formFieldLabel}>Details</Text>
+              <TextInput
+                value={message}
+                onChangeText={onChangeMessage}
+                placeholder="Describe your problem in detail here"
+                placeholderTextColor={placeholderColor}
+                style={styles.problemInput}
+                multiline
+                scrollEnabled
+                blurOnSubmit={false}
+                textAlignVertical="top"
+                onFocus={handleDetailsFocus}
+                onBlur={handleDetailsBlur}
+              />
+            </View>
 
-      <View style={[styles.contactPageFooter, { paddingBottom: Math.max(insetsBottom, 8) + 6 }]}>
-        <Text style={styles.contactDisclaimer}>
-          RTX5 is a software application and does not provide any financial, investment, brokerage or trading services.
-        </Text>
-        <FastPressable
-          onPress={canSend ? onSend : undefined}
-          disabled={!canSend}
-          latencyLabel="about.contact.send"
-          style={[styles.contactSendButton, canSend && styles.contactSendButtonEnabled]}
-          accessibilityRole="button"
-          accessibilityLabel="Send developer support request"
-          accessibilityState={{ disabled: !canSend }}
-        >
-          <Text style={[styles.contactSendText, canSend && styles.contactSendTextEnabled]}>SEND</Text>
-        </FastPressable>
-      </View>
+            <View style={styles.consentBlock}>
+              <Text style={styles.consentText}>
+                I agree to the processing of my personal data by RTX5 for request handling purposes.
+              </Text>
+              <FastPressable
+                onPress={onToggleConsent}
+                latencyLabel="about.contact.consent"
+                hitSlop={12}
+                style={styles.checkbox}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: consentAccepted }}
+                accessibilityLabel="Agree to personal data processing"
+              >
+                {consentAccepted ? <Ionicons name="checkmark" size={22} color={iconColor} /> : null}
+              </FastPressable>
+            </View>
+
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyText}>Please have a look at our </Text>
+              <FastPressable
+                onPress={onOpenPrivacyPolicy}
+                latencyLabel="about.contact.privacy"
+                accessibilityRole="link"
+                accessibilityLabel="Privacy Policy"
+              >
+                <Text style={styles.privacyLink}>Privacy Policy</Text>
+              </FastPressable>
+            </View>
+          </ScrollView>
+        </View>
+
+        <View style={[styles.contactPageFooter, { paddingBottom: Math.max(insetsBottom, 8) + 6 }]}>
+          <Text style={styles.contactDisclaimer}>
+            RTX5 is a software application and does not provide any financial, investment, brokerage or trading services.
+          </Text>
+          <FastPressable
+            onPress={canSend ? onSend : undefined}
+            disabled={!canSend}
+            latencyLabel="about.contact.send"
+            style={[styles.contactSendButton, canSend && styles.contactSendButtonEnabled]}
+            accessibilityRole="button"
+            accessibilityLabel="Send developer support request"
+            accessibilityState={{ disabled: !canSend }}
+          >
+            <Text style={[styles.contactSendText, canSend && styles.contactSendTextEnabled]}>SEND</Text>
+          </FastPressable>
+        </View>
+      </KeyboardAvoidingView>
 
       <SidebarDrawer />
     </Screen>
@@ -549,6 +702,7 @@ function LineTextInput({
   keyboardType,
   iconColor,
   placeholderColor,
+  error,
   styles,
 }: {
   label: string;
@@ -559,13 +713,16 @@ function LineTextInput({
   keyboardType: 'default' | 'email-address';
   iconColor: string;
   placeholderColor: string;
+  error?: string;
   styles: AboutStyles;
 }) {
+  const hasError = Boolean(error);
+
   return (
     <View style={styles.formField}>
       <Text style={styles.formFieldLabel}>{label}</Text>
-      <View style={styles.textFieldCard}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+      <View style={[styles.textFieldCard, hasError && styles.textFieldCardError]}>
+        <Ionicons name={icon} size={18} color={iconColor} style={styles.textFieldIcon} />
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -573,9 +730,11 @@ function LineTextInput({
           placeholderTextColor={placeholderColor}
           keyboardType={keyboardType}
           autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
+          autoCorrect={keyboardType === 'email-address' ? false : undefined}
           style={styles.lineInput}
         />
       </View>
+      {hasError ? <Text style={styles.formFieldError}>{error}</Text> : null}
     </View>
   );
 }

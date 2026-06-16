@@ -59,6 +59,14 @@ export type StreamEntry = {
   /** Timestamp of the last fully closed historical candle. */
   historyLastTime: number | null;
   /**
+   * The `historyLastTime` value for which we last fired a live-edge-gap history
+   * refresh. Guards against re-fetching in a loop: we refresh at most once per
+   * distinct history boundary, so a stale-seeded chart self-heals with one
+   * fetch while a genuinely data-less span (illiquid no-trade minutes) is not
+   * retried until a newer bar actually closes.
+   */
+  lastLiveEdgeGapRefreshBoundary: number | null;
+  /**
    * Optional pagination boundary for the next older-history request.
    * It advances even when a requested page is empty so M1 weekend/session gaps
    * cannot make the frontend request the same empty window forever.

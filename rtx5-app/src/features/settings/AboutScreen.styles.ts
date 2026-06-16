@@ -141,6 +141,9 @@ export const makeAboutStyles = (isDark = false) => {
       fontWeight: '600',
       letterSpacing: 0,
     },
+    contactKeyboardAvoider: {
+      flex: 1,
+    },
     contactPageBody: {
       flex: 1,
       position: 'relative',
@@ -227,6 +230,12 @@ export const makeAboutStyles = (isDark = false) => {
       gap: 10,
       paddingHorizontal: 12,
     },
+    textFieldCardError: {
+      borderColor: '#EF4444',
+    },
+    textFieldIcon: {
+      transform: [{ translateY: -1 }],
+    },
     lineInput: {
       flex: 1,
       minWidth: 0,
@@ -238,6 +247,14 @@ export const makeAboutStyles = (isDark = false) => {
       letterSpacing: 0,
       paddingHorizontal: 0,
       paddingVertical: 0,
+    },
+    formFieldError: {
+      color: '#DC2626',
+      fontSize: 12,
+      lineHeight: 16,
+      fontWeight: '700',
+      letterSpacing: 0,
+      marginTop: 6,
     },
     contactLinePressed: {
       backgroundColor: palette.pressedSoft,
@@ -275,7 +292,7 @@ export const makeAboutStyles = (isDark = false) => {
       marginTop: 2,
     },
     problemInput: {
-      minHeight: 136,
+      height: 136,
       borderRadius: 10,
       borderWidth: 1,
       borderColor: palette.border,

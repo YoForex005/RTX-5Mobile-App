@@ -9,6 +9,7 @@ import {
   buildDeveloperMailto,
   formatAboutPlatform,
   getAboutStoreTarget,
+  isValidDeveloperContactEmail,
   resolveAboutBuildLabel,
 } from './aboutViewModel';
 
@@ -91,6 +92,16 @@ test('about developer mailto includes selected category and device context', () 
   assert.match(decoded, /Chart freezes after symbol change\./);
 });
 
+test('about developer contact email validation accepts only valid email addresses', () => {
+  assert.equal(isValidDeveloperContactEmail('alex@example.com'), true);
+  assert.equal(isValidDeveloperContactEmail(' alex.support+rtx5@example.co.uk '), true);
+  assert.equal(isValidDeveloperContactEmail('alex'), false);
+  assert.equal(isValidDeveloperContactEmail('alex@example'), false);
+  assert.equal(isValidDeveloperContactEmail('alex@'), false);
+  assert.equal(isValidDeveloperContactEmail('@example.com'), false);
+  assert.equal(isValidDeveloperContactEmail('alex example@example.com'), false);
+});
+
 test('about account deletion request is available as an in-app contact category', () => {
   const category = ABOUT_CONTACT_CATEGORIES.find((item) => item.id === 'account-deletion');
   assert.ok(category);
@@ -127,4 +138,38 @@ test('about screen follows the active app theme and owns its drawer', () => {
   assert.match(stylesSource, /screen: isDark \? '#050607' : '#FFFFFF'/);
   assert.match(stylesSource, /surface: isDark \? '#0B0F14' : '#FFFFFF'/);
   assert.match(stylesSource, /text: isDark \? '#F8FAFC' : '#050505'/);
+});
+
+test('about contact details input remains usable above the android keyboard', () => {
+  const screenSource = readSource('src/features/settings/AboutScreen.tsx');
+  const stylesSource = readSource('src/features/settings/AboutScreen.styles.ts');
+
+  assert.match(screenSource, /<KeyboardAvoidingView[\s\S]*style=\{styles\.contactKeyboardAvoider\}[\s\S]*behavior=\{Platform\.OS === 'ios' \? 'padding' : 'height'\}/);
+  assert.match(screenSource, /const contactScrollRef = useRef<ScrollView>\(null\)/);
+  assert.match(screenSource, /const contactScrollViewportRef = useRef<View>\(null\)/);
+  assert.match(screenSource, /const detailsFieldRef = useRef<View>\(null\)/);
+  assert.match(screenSource, /Keyboard\.addListener\('keyboardDidShow', handleKeyboardShow\)/);
+  assert.match(screenSource, /Keyboard\.addListener\('keyboardDidHide', handleKeyboardHide\)/);
+  assert.match(screenSource, /measureInWindow[\s\S]*Math\.min\(scrollViewportBottom, keyboardTop\)/);
+  assert.match(screenSource, /scrollTo\(\{ y: Math\.max\(0, contactScrollYRef\.current \+ overlap\), animated \}\)/);
+  assert.match(screenSource, /contentContainerStyle=\{\[[\s\S]*styles\.contactFormContent,[\s\S]*keyboardInset > 0[\s\S]*paddingBottom: CONTACT_FORM_BASE_BOTTOM_PADDING \+ keyboardInset \+ Math\.max\(insetsBottom, 0\)/);
+  assert.match(screenSource, /<View ref=\{contactScrollViewportRef\} style=\{styles\.contactPageBody\}>[\s\S]*<ScrollView[\s\S]*ref=\{contactScrollRef\}[\s\S]*keyboardShouldPersistTaps="always"[\s\S]*onLayout=\{handleContactScrollLayout\}[\s\S]*onScroll=\{handleContactScroll\}/);
+  assert.match(screenSource, /<View ref=\{detailsFieldRef\} style=\{styles\.formField\} onLayout=\{handleDetailsLayout\}>[\s\S]*<TextInput[\s\S]*style=\{styles\.problemInput\}[\s\S]*multiline[\s\S]*scrollEnabled[\s\S]*blurOnSubmit=\{false\}[\s\S]*onFocus=\{handleDetailsFocus\}[\s\S]*onBlur=\{handleDetailsBlur\}/);
+  assert.match(stylesSource, /contactKeyboardAvoider: \{\s*flex: 1,/);
+  assert.match(stylesSource, /problemInput: \{[\s\S]*height: 136,/);
+});
+
+test('about contact developer requires a valid email before sending', () => {
+  const screenSource = readSource('src/features/settings/AboutScreen.tsx');
+  const stylesSource = readSource('src/features/settings/AboutScreen.styles.ts');
+
+  assert.match(screenSource, /if \(!isValidDeveloperContactEmail\(contactEmail\)\) \{[\s\S]*Please enter a valid email address before sending\./);
+  assert.match(screenSource, /const isEmailValid = isValidDeveloperContactEmail\(email\)/);
+  assert.match(screenSource, /const emailError =[\s\S]*Enter a valid email address\./);
+  assert.match(screenSource, /const canSend =[\s\S]*isEmailValid[\s\S]*selectedCategory !== null/);
+  assert.match(screenSource, /label="Your Email"[\s\S]*keyboardType="email-address"[\s\S]*error=\{emailError\}/);
+  assert.match(screenSource, /styles\.textFieldCard,\s*hasError && styles\.textFieldCardError/);
+  assert.match(screenSource, /autoCorrect=\{keyboardType === 'email-address' \? false : undefined\}/);
+  assert.match(stylesSource, /textFieldCardError: \{[\s\S]*borderColor: '#EF4444'/);
+  assert.match(stylesSource, /formFieldError: \{[\s\S]*color: '#DC2626'/);
 });
