@@ -61,11 +61,12 @@ type ActionSheetProps = {
   instantOpen?: boolean;
   runActionAfterClose?: boolean;
   androidKeyboardAvoidance?: 'event' | 'resize';
+  keepFullHeightOnKeyboard?: boolean;
 };
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance'
+  'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
@@ -126,6 +127,7 @@ export function ActionSheet({
   instantOpen = false,
   runActionAfterClose = true,
   androidKeyboardAvoidance = 'event',
+  keepFullHeightOnKeyboard = false,
 }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const T = useTheme();
@@ -160,6 +162,7 @@ export function ActionSheet({
     instantOpen,
     runActionAfterClose,
     androidKeyboardAvoidance,
+    keepFullHeightOnKeyboard,
   });
   const incomingConfig: CachedActionSheetConfig = {
     title,
@@ -171,6 +174,7 @@ export function ActionSheet({
     instantOpen,
     runActionAfterClose,
     androidKeyboardAvoidance,
+    keepFullHeightOnKeyboard,
   };
   const hasIncomingConfig =
     actions.length > 0 ||
@@ -193,6 +197,7 @@ export function ActionSheet({
   const activeInstantOpen = activeConfig.instantOpen ?? true;
   const activeRunActionAfterClose = activeConfig.runActionAfterClose ?? false;
   const activeAndroidKeyboardAvoidance = activeConfig.androidKeyboardAvoidance ?? 'event';
+  const activeKeepFullHeightOnKeyboard = activeConfig.keepFullHeightOnKeyboard ?? false;
 
   const prevVisibleRef = useRef(visible);
   if (visible !== prevVisibleRef.current) {
@@ -241,7 +246,14 @@ export function ActionSheet({
   // spacer for the part that was not already handled by a smaller overlay or
   // window height. That keeps searchable sheets above the IME without the
   // double-lift jump on resize-mode devices.
-  const androidSearchableSheet = Platform.OS === 'android' && activeSearchable;
+  // Symbol-picker "stay still" mode: opt out of the keyboard avoidance entirely
+  // so the sheet keeps its full height and fixed position; the keyboard simply
+  // overlays its lower part (see the pinned sheetHost height below). Isolated —
+  // every other searchable sheet keeps the avoidance math unchanged.
+  const keepFullHeightSheet =
+    Platform.OS === 'android' && activeSearchable && activeKeepFullHeightOnKeyboard;
+  const androidSearchableSheet =
+    Platform.OS === 'android' && activeSearchable && !keepFullHeightSheet;
   const overlayKeyboardLift = androidSearchableSheet
     ? Math.max(0, measuredHeight - (currentOverlayHeight || measuredHeight))
     : 0;
@@ -770,7 +782,19 @@ export function ActionSheet({
           {sheetBody}
         </KeyboardAvoidingView>
       ) : (
-        <View style={styles.sheetHost} pointerEvents="box-none">
+        <View
+          style={[
+            styles.sheetHost,
+            // "Stay still" mode: pin the host to the full (stable) height, top-
+            // anchored, so it does NOT ride the overlay up as adjustResize
+            // shrinks the window for the keyboard. The bottom-anchored sheet
+            // therefore stays put and the keyboard overlays its lower part.
+            keepFullHeightSheet
+              ? { position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight }
+              : null,
+          ]}
+          pointerEvents="box-none"
+        >
           {sheetBody}
         </View>
       )}

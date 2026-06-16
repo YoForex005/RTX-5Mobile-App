@@ -1861,7 +1861,19 @@ export function ChartScreen() {
       (Keyboard as typeof Keyboard & { scheduleLayoutAnimation?: (event: unknown) => void }).scheduleLayoutAnimation;
 
     const showSub = Keyboard.addListener(showEvent, (event) => {
+      // Let the keyboard layout animation run so a keyboard-driven resize glides.
       scheduleKeyboardLayoutAnimation?.(event);
+      // When a global action sheet (e.g. the symbol picker's search field) owns
+      // the keyboard, stop here. The chart's own keyboardVisibleHeight reflow +
+      // dock-offset remeasure run on the same frame the sheet resizes to clear
+      // the keyboard and shove the layout under the sheet — the focus-time jump.
+      const ui = useUIState.getState();
+      const actionSheetOwnsKeyboard =
+        ui.actionSheet !== null ||
+        (ui.actionSheetScope != null && ui.scopedActionSheets[ui.actionSheetScope] !== null);
+      if (actionSheetOwnsKeyboard) {
+        return;
+      }
       const nextHeight = Math.max(0, event.endCoordinates.height);
       keyboardFrameRef.current = {
         height: nextHeight,
@@ -2855,7 +2867,9 @@ export function ChartScreen() {
         searchable: true,
         detent: 'large',
         instantOpen: true,
-        androidKeyboardAvoidance: 'resize',
+        // Keep the sheet fixed when the search keyboard opens (no rise/jump);
+        // the keyboard just overlays the lower part of the list.
+        keepFullHeightOnKeyboard: true,
         actions: symbolPickerActions,
       });
       scheduleChartActionSheetContextReset();

@@ -176,6 +176,7 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
       instantOpen={activeConfig?.instantOpen}
       runActionAfterClose={activeConfig?.runActionAfterClose}
       androidKeyboardAvoidance={activeConfig?.androidKeyboardAvoidance}
+      keepFullHeightOnKeyboard={activeConfig?.keepFullHeightOnKeyboard}
     />
   );
 });

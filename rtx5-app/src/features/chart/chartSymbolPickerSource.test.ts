@@ -26,6 +26,50 @@ test('chart symbol pickers keep the saved chart symbol first and include fallbac
   }
 });
 
+test('symbol picker stays fixed when the search keyboard opens (no focus-time jump)', () => {
+  // Regression guard for the search-focus "jump": the symbol picker must opt
+  // into keepFullHeightOnKeyboard, and the shared ActionSheet must honour it by
+  // (a) opting OUT of android keyboard avoidance and (b) pinning the host to the
+  // full screen height so the bottom-anchored sheet never rides the shrinking
+  // window up. If any link in this chain is removed the jump returns.
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
+  const uiStateSource = readSource('src/state/uiState.ts');
+  const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
+  const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
+
+  // 1) Symbol picker opts in (and no longer relies on the old 'resize' avoidance).
+  assert.match(chartSource, /title: t\('Select Symbol'\)[\s\S]*keepFullHeightOnKeyboard:\s*true/);
+  assert.doesNotMatch(
+    chartSource,
+    /title: t\('Select Symbol'\)[\s\S]*androidKeyboardAvoidance:[\s\S]*actions: symbolPickerActions/,
+  );
+
+  // 2) Config type + global host passthrough exist.
+  assert.match(uiStateSource, /keepFullHeightOnKeyboard\?:\s*boolean/);
+  assert.match(tabsLayoutSource, /keepFullHeightOnKeyboard=\{activeConfig\?\.keepFullHeightOnKeyboard\}/);
+
+  // 3) ActionSheet honours the flag: avoidance is disabled AND the host is pinned
+  //    to the full (stable) screen height, top-anchored, so it cannot rise.
+  assert.match(
+    actionSheetSource,
+    /const keepFullHeightSheet\s*=\s*\n?\s*Platform\.OS === 'android' && activeSearchable && activeKeepFullHeightOnKeyboard;/,
+  );
+  assert.match(
+    actionSheetSource,
+    /const androidSearchableSheet\s*=\s*\n?\s*Platform\.OS === 'android' && activeSearchable && !keepFullHeightSheet;/,
+  );
+  assert.match(
+    actionSheetSource,
+    /keepFullHeightSheet\s*\n?\s*\?\s*\{ position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight \}/,
+  );
+
+  // 4) The chart must not run its own keyboard avoidance for a sheet's keyboard.
+  assert.match(
+    chartSource,
+    /const actionSheetOwnsKeyboard\s*=[\s\S]*ui\.actionSheet !== null[\s\S]*scopedActionSheets\[ui\.actionSheetScope\] !== null[\s\S]*if \(actionSheetOwnsKeyboard\) \{\s*\n\s*return;/,
+  );
+});
+
 test('market symbol API cache is broker scoped and parses full instrument payloads', () => {
   const querySource = readSource('src/query/market.ts');
   const extractorSource = readSource('src/domain/marketSymbols.ts');
@@ -117,7 +161,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /showChartActionSheet\(\{[\s\S]*title: t\('Select Symbol'\)[\s\S]*actions: symbolPickerActions[\s\S]*\}\);[\s\S]*scheduleChartActionSheetContextReset\(\);/);
   assert.match(
     source,
-    /title: t\('Select Symbol'\)[\s\S]*searchable:\s*true[\s\S]*androidKeyboardAvoidance:\s*'resize'[\s\S]*actions: symbolPickerActions/,
+    /title: t\('Select Symbol'\)[\s\S]*searchable:\s*true[\s\S]*keepFullHeightOnKeyboard:\s*true[\s\S]*actions: symbolPickerActions/,
   );
   assert.match(
     source,

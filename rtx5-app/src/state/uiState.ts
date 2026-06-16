@@ -46,6 +46,13 @@ export type ActionSheetConfig = {
   runActionAfterClose?: boolean;
   /** Android keyboard avoidance mode for searchable sheets */
   androidKeyboardAvoidance?: 'event' | 'resize';
+  /**
+   * Opt-in (symbol picker only): keep the sheet fixed when the search keyboard
+   * opens instead of resizing/rising to clear it. The search box + top results
+   * stay put and the keyboard simply overlays the lower part of the list. Other
+   * sheets must NOT set this so their existing behavior is unchanged.
+   */
+  keepFullHeightOnKeyboard?: boolean;
 };
 
 export type ActionSheetScope =
