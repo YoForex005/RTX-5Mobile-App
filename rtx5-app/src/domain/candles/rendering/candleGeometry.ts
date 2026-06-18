@@ -210,6 +210,86 @@ export const createCandleGeometry = ({
   };
 };
 
+/** Pixel rectangles for a candle's two wicks, in screen space (Y grows downward). */
+export type CandleWickRects = {
+  /** Top Y of the upper-wick rect; draw height `upperHeight` downward from here. */
+  upperWickTop: number;
+  /** Upper-wick rect height in px. 0 ⇒ no upper wick to draw. */
+  upperHeight: number;
+  /** Top Y of the lower-wick rect (one px below the body bottom). */
+  lowerWickTop: number;
+  /** Lower-wick rect height in px. 0 ⇒ no lower wick to draw. */
+  lowerHeight: number;
+};
+
+export type CandleWickRectsInput = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Rounded Y of the body top (the higher-priced of open/close). */
+  bodyTop: number;
+  /** Rounded Y of the body bottom (the lower-priced of open/close). */
+  bodyBottom: number;
+  /** Rounded Y of the high price. */
+  wickTop: number;
+  /** Rounded Y of the low price. */
+  wickBottom: number;
+};
+
+/**
+ * Computes the upper/lower wick rectangles with a price-aware minimum-visibility
+ * rule. This is the fix for wicks that render "missing", "too small", or
+ * "disconnected":
+ *
+ *  - A wick is drawn only when it exists in PRICE terms — `high > max(open,close)`
+ *    for the upper wick, `low < min(open,close)` for the lower. This removes the
+ *    phantom 1px stub the old `+1` height produced for wickless candles.
+ *  - When a wick DOES exist but independent pixel rounding has collapsed its tip
+ *    onto the body edge (`round(highY) === round(bodyTop)`), it is nudged to a
+ *    guaranteed 1px so a real wick can never visually vanish — matching MT5 /
+ *    TradingView, which always show a real wick.
+ *  - Rects sit flush against the body (adjacent, never overlapping or detached):
+ *      upper wick → rows [upperWickTop, bodyTop - 1]
+ *      lower wick → rows [bodyBottom + 1, bodyBottom + lowerHeight]
+ *
+ * Inputs are the original OHLC prices plus the already-rounded body/wick Y
+ * coordinates from {@link createCandleGeometry}.
+ */
+export const computeCandleWickRects = ({
+  open,
+  high,
+  low,
+  close,
+  bodyTop,
+  bodyBottom,
+  wickTop,
+  wickBottom,
+}: CandleWickRectsInput): CandleWickRects => {
+  const hasUpperWick = high > Math.max(open, close);
+  const hasLowerWick = low < Math.min(open, close);
+
+  let upperWickTop = wickTop;
+  if (hasUpperWick && upperWickTop >= bodyTop) {
+    // Real wick that rounded onto the body edge — pull it 1px clear so it shows.
+    upperWickTop = bodyTop - 1;
+  }
+  const upperHeight = hasUpperWick ? Math.max(0, bodyTop - upperWickTop) : 0;
+
+  let lowerWickBottom = wickBottom;
+  if (hasLowerWick && lowerWickBottom <= bodyBottom) {
+    lowerWickBottom = bodyBottom + 1;
+  }
+  const lowerHeight = hasLowerWick ? Math.max(0, lowerWickBottom - bodyBottom) : 0;
+
+  return {
+    upperWickTop,
+    upperHeight,
+    lowerWickTop: bodyBottom + 1,
+    lowerHeight,
+  };
+};
+
 export const getBodyCenterFromGeometry = (geometry: Pick<CandleGeometry, 'bodyLeft' | 'bodyWidth'>) =>
   geometry.bodyLeft + geometry.bodyWidth / 2;
 

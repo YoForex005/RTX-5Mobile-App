@@ -15,25 +15,62 @@
 import type { Deal } from '../../api/deals';
 import type { ClosedPosition } from '../../api/positions';
 
+const dealTimeAsc = (a: Deal, b: Deal): number =>
+  (typeof a.time === 'number' ? a.time : 0) - (typeof b.time === 'number' ? b.time : 0);
+
+const hasUsablePositionTicket = (deal: Deal): boolean =>
+  typeof deal.position_ticket === 'number' && Number.isFinite(deal.position_ticket) && deal.position_ticket > 0;
+
 export function deriveClosedPositionsFromDeals(deals: Deal[] | undefined | null): ClosedPosition[] {
   if (!Array.isArray(deals) || deals.length === 0) {
     return [];
   }
 
-  // Earliest entry_in per position holds the open price/side/time.
+  const entryInDeals = deals.filter((deal) => deal.entry === 'entry_in');
+
+  // Primary pairing key: position_ticket. Non-consuming (a single open backs
+  // every partial close of the position), and the earliest entry_in wins so we
+  // capture the original open price/side/time.
   const openByPosition = new Map<number, Deal>();
-  for (const deal of deals) {
-    if (deal.entry !== 'entry_in') continue;
+  for (const deal of entryInDeals) {
+    if (!hasUsablePositionTicket(deal)) continue;
     const existing = openByPosition.get(deal.position_ticket);
     if (!existing || (typeof deal.time === 'number' && deal.time < existing.time)) {
       openByPosition.set(deal.position_ticket, deal);
     }
   }
 
+  // Fallback pairing: per-symbol FIFO queues for opens that carry no usable
+  // position_ticket. The orrnn demo backend omits position_ticket on every
+  // deal (and leaves order_ticket = 0 on closes), so without this fallback all
+  // opens collapsed under a single `undefined` key and one arbitrary
+  // instrument's price (e.g. USDJPY 160.256) was stamped onto every closed
+  // row regardless of symbol. FIFO within a symbol is the standard convention
+  // when no position id links the open and close executions.
+  const openQueueBySymbol = new Map<string, Deal[]>();
+  for (const deal of entryInDeals.filter((d) => !hasUsablePositionTicket(d)).sort(dealTimeAsc)) {
+    const queue = openQueueBySymbol.get(deal.symbol);
+    if (queue) queue.push(deal);
+    else openQueueBySymbol.set(deal.symbol, [deal]);
+  }
+
+  // Resolves the opening deal for a close, never accepting a cross-instrument
+  // match (a GBPUSD close must not inherit a USDJPY open price).
+  const resolveOpenDeal = (out: Deal): Deal | undefined => {
+    if (hasUsablePositionTicket(out)) {
+      const byTicket = openByPosition.get(out.position_ticket);
+      if (byTicket && byTicket.symbol === out.symbol) return byTicket;
+    }
+    const queue = openQueueBySymbol.get(out.symbol);
+    if (queue && queue.length > 0) return queue.shift();
+    return undefined;
+  };
+
   const synthesized: ClosedPosition[] = [];
-  for (const deal of deals) {
-    if (deal.entry !== 'entry_out') continue;
-    const open = openByPosition.get(deal.position_ticket);
+  // Sort closes chronologically so the FIFO fallback pairs the earliest open
+  // with the earliest close deterministically.
+  for (const deal of deals.filter((d) => d.entry === 'entry_out').sort(dealTimeAsc)) {
+    const open = resolveOpenDeal(deal);
 
     // The entry_in deal's action determines the position direction:
     //   entry_in deal_buy  → position is BUY
@@ -45,11 +82,18 @@ export function deriveClosedPositionsFromDeals(deals: Deal[] | undefined | null)
       ? (open.action === 'deal_sell' ? 'sell' : 'buy')
       : (deal.action === 'deal_sell' ? 'buy' : 'sell');
 
+    // Prefer a real position_ticket for the synthetic record so it dedupes
+    // against authoritative history records; fall back to the close deal's own
+    // unique ticket when the backend supplies no position id.
+    const ticket = hasUsablePositionTicket(deal)
+      ? deal.position_ticket
+      : (open && hasUsablePositionTicket(open) ? open.position_ticket : deal.ticket);
+
     // `fee` is propagated even though it is not in ClosedPosition's type —
     // resolveClosedPositionNetProfit() on the screen reads it via duck-typing,
     // so dropping it would understate Net P/L by the broker fee component.
     synthesized.push({
-      ticket: deal.position_ticket,
+      ticket,
       account_login: deal.account_login,
       symbol: deal.symbol,
       side,

@@ -150,6 +150,31 @@ test('normalizeQuoteTickPayload maps backend precision aliases', () => {
   assert.equal(result.update.tickSize, 0.00001);
 });
 
+test('normalizeQuoteTickPayload accepts only non-negative backend volume', () => {
+  const accepted = normalizeQuoteTickPayload({
+    symbol: 'EURUSD',
+    bid: 1.17121,
+    ask: 1.17141,
+    tick_volume: '0',
+  });
+  const rejected = normalizeQuoteTickPayload({
+    symbol: 'EURUSD',
+    bid: 1.17121,
+    ask: 1.17141,
+    volume: -1,
+  });
+
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) {
+    assert.equal(accepted.update.volume, 0);
+  }
+
+  assert.equal(rejected.ok, true);
+  if (rejected.ok) {
+    assert.equal(rejected.update.volume, undefined);
+  }
+});
+
 test('normalizeQuoteTickPayload keeps raw broker variants distinct from the base symbol', () => {
   const result = normalizeQuoteTickPayload({
     symbol: 'EURUSD.X1782',

@@ -69,6 +69,84 @@ test('buildTradeAccountSummary falls back to stored account data before live met
   assert.equal(summary.marginLevel, 8156.25);
 });
 
+test('buildTradeAccountSummary merges partial live metrics with stored account snapshot per field', () => {
+  const summary = buildTradeAccountSummary(
+    {
+      login: 100003,
+      balance: 0,
+      equity: 0,
+      margin: 0,
+      margin_free: 0,
+      margin_level: 0,
+      floating: -0.03,
+      metricFlags: {
+        balance: false,
+        equity: false,
+        margin: false,
+        margin_free: false,
+        margin_level: false,
+        floating: true,
+      },
+    },
+    {
+      balance: 10000,
+      credit: 0,
+      floating: 0,
+      equity: 10000,
+      margin: 25,
+      freeMargin: 9975,
+      marginLevel: 40000,
+      currency: 'USD',
+    },
+  );
+
+  assert.equal(summary.balance, 10000);
+  assert.equal(summary.floating, -0.03);
+  assert.equal(summary.equity, 10000);
+  assert.equal(summary.margin, 25);
+  assert.equal(summary.freeMargin, 9975);
+  assert.equal(summary.marginLevel, 40000);
+});
+
+test('buildTradeAccountSummary honors live zero metrics when readiness flags are present', () => {
+  const summary = buildTradeAccountSummary(
+    {
+      login: 100003,
+      balance: 0,
+      equity: 0,
+      margin: 0,
+      margin_free: 0,
+      margin_level: 0,
+      floating: 0,
+      metricFlags: {
+        balance: true,
+        equity: true,
+        margin: true,
+        margin_free: true,
+        margin_level: true,
+        floating: true,
+      },
+    },
+    {
+      balance: 9800,
+      credit: 25,
+      floating: -12.5,
+      equity: 9787.5,
+      margin: 120,
+      freeMargin: 9667.5,
+      marginLevel: 8156.25,
+      currency: 'USD',
+    },
+  );
+
+  assert.equal(summary.balance, 0);
+  assert.equal(summary.floating, 0);
+  assert.equal(summary.equity, 0);
+  assert.equal(summary.margin, 0);
+  assert.equal(summary.freeMargin, 0);
+  assert.equal(summary.marginLevel, 0);
+});
+
 test('resolveTradeFloatingPnl uses the synced open-position total for the active login', () => {
   const floating = resolveTradeFloatingPnl(
     175.75,
@@ -149,4 +227,45 @@ test('resolveRenderableTradeAccountSummary derives equity, free margin, and marg
   assert.equal(summary.equity, 9843.75);
   assert.equal(summary.freeMargin, 9723.75);
   assert.equal(summary.marginLevel, 8203.125);
+});
+
+test('resolveRenderableTradeAccountSummary keeps balance settled while deriving live equity from floating pnl', () => {
+  const summary = resolveRenderableTradeAccountSummary(
+    {
+      balance: 10000,
+      credit: 0,
+      floating: -0.03,
+      equity: 10000,
+      margin: 0,
+      freeMargin: 10000,
+      marginLevel: 0,
+      currency: 'USD',
+    },
+    -0.03,
+  );
+
+  assert.equal(summary.balance, 10000);
+  assert.equal(summary.floating, -0.03);
+  assert.equal(Number(summary.equity.toFixed(2)), 9999.97);
+  assert.equal(Number(summary.freeMargin.toFixed(2)), 9999.97);
+});
+
+test('resolveRenderableTradeAccountSummary derives free margin and margin level from live equity', () => {
+  const summary = resolveRenderableTradeAccountSummary(
+    {
+      balance: 10000,
+      credit: 0,
+      floating: -0.03,
+      equity: 10000,
+      margin: 25,
+      freeMargin: 0,
+      marginLevel: 0,
+      currency: 'USD',
+    },
+    -0.03,
+  );
+
+  assert.equal(Number(summary.equity.toFixed(2)), 9999.97);
+  assert.equal(Number(summary.freeMargin.toFixed(2)), 9974.97);
+  assert.equal(Number(summary.marginLevel.toFixed(2)), 39999.88);
 });

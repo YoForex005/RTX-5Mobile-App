@@ -79,7 +79,20 @@ function inferContractSize(position: PositionItem, quote?: QuoteLike): number {
   return 100000;
 }
 
+// The calibrated factor depends only on the position snapshot (pnl, swap,
+// commission, currentPrice, openPrice) — NOT on the live quote — so it is stable
+// across every quote tick until the broker pushes a new position object. Caching
+// by object identity turns the per-tick cost into a cheap map lookup and
+// auto-invalidates when positionsState replaces the position on update. Only the
+// calibrated branch is cached; the contract-size fallback depends on the quote.
+const calibratedFactorCache = new WeakMap<PositionItem, number>();
+
 function derivePriceToPnlFactor(position: PositionItem, quote?: QuoteLike): number {
+  const cached = calibratedFactorCache.get(position);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const swap = toFiniteNumber(position.swap) ?? 0;
   const commission = toFiniteNumber(position.commission) ?? 0;
   const baseProfit = (toFiniteNumber(position.pnl) ?? 0) - swap - commission;
@@ -88,6 +101,7 @@ function derivePriceToPnlFactor(position: PositionItem, quote?: QuoteLike): numb
   if (Math.abs(snapshotDelta) > Number.EPSILON) {
     const calibratedFactor = baseProfit / snapshotDelta;
     if (Number.isFinite(calibratedFactor) && calibratedFactor !== 0) {
+      calibratedFactorCache.set(position, calibratedFactor);
       return calibratedFactor;
     }
   }

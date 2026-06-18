@@ -151,6 +151,11 @@ const toPositiveOptionalNumber = (value: unknown): number | undefined => {
   return parsed !== undefined && parsed > 0 ? parsed : undefined;
 };
 
+const toNonNegativeOptionalNumber = (value: unknown): number | undefined => {
+  const parsed = toFiniteOptionalNumber(value);
+  return parsed !== undefined && parsed >= 0 ? parsed : undefined;
+};
+
 const withSessionRecords = (records: Record<string, unknown>[]): Record<string, unknown>[] => {
   const sessionRecords = records
     .map((record) => asRecord(record.session))
@@ -223,7 +228,8 @@ export const normalizeQuoteTickPayload = (
   const low = toFiniteOptionalNumber(pickFirstValue(metricRecords, LOW_KEYS));
   const changePct = toFiniteOptionalNumber(pickFirstValue(metricRecords, CHANGE_KEYS));
   const spread = toFiniteOptionalNumber(pickFirstValue(metricRecords, SPREAD_KEYS));
-  const volume = toFiniteOptionalNumber(pickFirstValue(metricRecords, VOLUME_KEYS));
+  // Backend volume/tick_volume may be absent, but it should never be negative.
+  const volume = toNonNegativeOptionalNumber(pickFirstValue(metricRecords, VOLUME_KEYS));
   const digits = toFiniteOptionalNumber(pickFirstValue(metricRecords, DIGITS_KEYS));
   const point = toPositiveOptionalNumber(pickFirstValue(metricRecords, POINT_KEYS));
   const tickSize = toPositiveOptionalNumber(pickFirstValue(metricRecords, TICK_SIZE_KEYS));

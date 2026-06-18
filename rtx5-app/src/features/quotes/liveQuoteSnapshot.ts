@@ -4,6 +4,7 @@ import { normalizeSymbol } from '../../domain/symbols';
 import { quotes as mockQuotes, type QuoteItem } from '../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
+import { resolveBackendQuoteVolume } from '../../utils/quoteVolume';
 
 export const LIVE_QUOTE_STALE_MS = 45_000;
 
@@ -122,10 +123,15 @@ export const buildInitialLiveQuoteSnapshot = (
     ...(liveQuote || {}),
     symbol,
   };
+  // Spread is a display calculation from bid/ask; volume is backend-owned.
+  // This avoids trusting stale spread fields or mock volume after live ticks.
   const spread = calculateQuoteSpreadPoints(merged.bid, merged.ask, merged.digits);
+  const volume = resolveBackendQuoteVolume({ incoming: liveQuote?.volume, previous: liveQuote });
 
   return {
     ...merged,
+    volume,
+    volumeSource: volume === undefined ? undefined : 'backend',
     ...(spread === undefined ? {} : { spread }),
   };
 };
@@ -164,7 +170,9 @@ export const applyLiveQuoteTickToSnapshot = (
   const open = dailyOpen ?? toFiniteNumber(tick.open) ?? base?.open ?? spec?.open;
   const high = toFiniteNumber(tick.high) ?? base?.high ?? spec?.high;
   const low = toFiniteNumber(tick.low) ?? base?.low ?? spec?.low;
-  const volume = toFiniteNumber(tick.volume) ?? base?.volume ?? spec?.volume;
+  // Live tick volume is optional. If the feed omits it, keep only a previous
+  // backend-sourced value; never replace it with built-in quote defaults.
+  const volume = resolveBackendQuoteVolume({ incoming: tick.volume, previous: base });
   const spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? base?.spread ?? spec?.spread ?? 0;
 
   return {
@@ -182,6 +190,7 @@ export const applyLiveQuoteTickToSnapshot = (
     open,
     close: toFiniteNumber(tick.last) ?? base?.close ?? spec?.close,
     volume,
+    volumeSource: volume === undefined ? undefined : 'backend',
     changePct: resolveChangePct(tick, bid, base),
     feedTickAt: feedTickAt ?? undefined,
     lastTickAt,

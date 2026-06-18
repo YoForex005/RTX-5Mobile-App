@@ -22,7 +22,7 @@ type FooterLotPickerMode = 'absolute' | 'increase' | 'decrease';
 
 const LOT_ADJUST_HIT_SLOP = { top: 8, bottom: 8, left: 6, right: 6 } as const;
 const LOT_VALUE_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
-const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 80;
+const TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS = 16;
 
 type ChartTradeButtonsProps = {
   symbol: string;
@@ -31,6 +31,9 @@ type ChartTradeButtonsProps = {
   volumeBounds?: TradeVolumeBounds;
   onTradeResult?: (feedback: TradeFeedback) => void;
   comment?: string;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
+  pointSize?: number;
   onEditLot?: () => void;
   onOpenLotEditor?: (mode?: FooterLotPickerMode) => void;
   isLotEditing?: boolean;
@@ -58,6 +61,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   volumeBounds,
   onTradeResult,
   comment,
+  stopLossPrice,
+  takeProfitPrice,
+  pointSize,
   onEditLot,
   onOpenLotEditor,
   isLotEditing = false,
@@ -139,6 +145,9 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     symbol,
     variant,
     comment,
+    stopLossPrice,
+    takeProfitPrice,
+    pointSize,
     lotSize,
     latestBid,
     latestAsk,

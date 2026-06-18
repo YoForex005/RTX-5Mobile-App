@@ -111,6 +111,43 @@ test('deriveClosedPositionsFromDeals propagates fee from the closing deal', () =
   assert.equal(Number(net.toFixed(2)), 9.20);
 });
 
+test('deriveClosedPositionsFromDeals pairs by symbol (FIFO) when position_ticket is absent', () => {
+  // The orrnn demo backend ships deals with no usable position_ticket. Without
+  // a per-symbol fallback, every closed row inherited one arbitrary open price
+  // (e.g. a USDJPY 160.256 open stamped onto a GBPUSD close).
+  const deals: Deal[] = [
+    makeDeal({ ticket: 1, position_ticket: 0, symbol: 'USDJPY', action: 'deal_buy', entry: 'entry_in', price: 160.256, time: 1_700_000_010 }),
+    makeDeal({ ticket: 2, position_ticket: 0, symbol: 'GBPUSD', action: 'deal_buy', entry: 'entry_in', price: 1.32358, time: 1_700_000_020 }),
+    makeDeal({ ticket: 3, position_ticket: 0, symbol: 'GBPUSD', action: 'deal_sell', entry: 'entry_out', price: 1.32310, time: 1_700_000_100, profit: -0.05 }),
+    makeDeal({ ticket: 4, position_ticket: 0, symbol: 'USDJPY', action: 'deal_sell', entry: 'entry_out', price: 160.138, time: 1_700_000_110, profit: 0.2 }),
+  ];
+
+  const result = deriveClosedPositionsFromDeals(deals);
+  const gbp = result.find((r) => r.symbol === 'GBPUSD');
+  const jpy = result.find((r) => r.symbol === 'USDJPY');
+
+  assert.ok(gbp && jpy);
+  // Each close inherits its own instrument's open price — no cross-contamination.
+  assert.equal(gbp!.price_open, 1.32358);
+  assert.equal(jpy!.price_open, 160.256);
+  assert.equal(gbp!.side, 'buy');
+  assert.equal(jpy!.side, 'buy');
+});
+
+test('deriveClosedPositionsFromDeals never inherits a cross-symbol open via a colliding ticket', () => {
+  // Even if a position_ticket collides across instruments, the open price must
+  // come from the matching symbol (or be left unknown), never the other pair.
+  const deals: Deal[] = [
+    makeDeal({ ticket: 1, position_ticket: 777, symbol: 'USDJPY', action: 'deal_buy', entry: 'entry_in', price: 160.256, time: 1_700_000_010 }),
+    makeDeal({ ticket: 2, position_ticket: 777, symbol: 'GBPUSD', action: 'deal_sell', entry: 'entry_out', price: 1.32310, time: 1_700_000_100 }),
+  ];
+
+  const [closed] = deriveClosedPositionsFromDeals(deals);
+  assert.equal(closed.symbol, 'GBPUSD');
+  assert.notEqual(closed.price_open, 160.256);
+  assert.equal(closed.price_open, 0); // no GBPUSD open available → unknown, not USDJPY's
+});
+
 test('mergeClosedPositionSources dedupes across ms-vs-seconds time mismatches', () => {
   // History returns time_close in ms, deals returns it in seconds — same close
   const fromHistory: ClosedPosition[] = [

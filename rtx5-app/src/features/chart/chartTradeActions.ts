@@ -56,12 +56,16 @@ export function buildChartMarketOrderPayload({
   side,
   volume,
   comment,
+  stopLossPrice,
+  takeProfitPrice,
 }: {
   accountLogin: number | string;
   symbol: string;
   side: TradeSide;
   volume: number;
   comment?: string;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
 }): PlaceOrderPayload {
   const action = getChartTradeAction(side);
   const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
@@ -71,6 +75,8 @@ export function buildChartMarketOrderPayload({
     symbol,
     side: action.side,
     volume,
+    ...(typeof stopLossPrice === 'number' && stopLossPrice > 0 ? { price_sl: stopLossPrice } : {}),
+    ...(typeof takeProfitPrice === 'number' && takeProfitPrice > 0 ? { price_tp: takeProfitPrice } : {}),
     ...(trimmedComment ? { comment: trimmedComment } : {}),
   };
 }

@@ -26,7 +26,6 @@ import { useTradingState } from '../../state/tradingState';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
-import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useMarketSymbols } from '../../query/market';
@@ -63,7 +62,7 @@ const LIVE_SYMBOL_STALE_MS = 45_000;
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
 const volumeLabel = (volume?: number) => {
-  if (!volume) return '--';
+  if (typeof volume !== 'number' || !Number.isFinite(volume) || volume < 0) return '--';
   if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(1)}M`;
   return volume.toLocaleString('en-US');
 };
@@ -1554,19 +1553,39 @@ export function QuotesScreen() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
-  const quoteServerDataActive = useDeferredActiveFlag(
-    isScreenFocused && isLoggedIn && !quoteSheetRouteActionPending,
-  );
-  const { data: apiSymbols = [] } = useMarketSymbols(quoteServerDataActive);
+  const quoteRouteActive =
+    isScreenFocused ||
+    pathname === '/quotes' ||
+    pathname.startsWith('/quotes/') ||
+    pathname === '/(tabs)/quotes' ||
+    pathname.startsWith('/(tabs)/quotes/');
+  const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending;
+  const quoteWatchlistActive = quoteCatalogActive && isLoggedIn;
+  const { data: apiSymbols = [] } = useMarketSymbols(quoteCatalogActive);
 
   // ── Server-side watchlist sync ──────────────────────────────────────────
   // Fetch the server watchlist and sync mutations. Local Zustand state stays
   // as the primary UI source of truth (instant updates); the server is kept
   // in sync fire-and-forget so the watchlist persists across devices/sessions.
-  const { data: serverWatchlist } = useWatchlistQuery(quoteServerDataActive);
+  const { data: serverWatchlist } = useWatchlistQuery(quoteWatchlistActive);
   const { mutate: serverAdd } = useAddToWatchlistMutation();
   const { mutate: serverRemove } = useRemoveWatchlistMutation();
   const { mutate: serverReplace } = useReplaceWatchlistMutation();
+  const syncServerAdd = useCallback((symbol: string) => {
+    if (isLoggedIn) {
+      serverAdd(symbol);
+    }
+  }, [isLoggedIn, serverAdd]);
+  const syncServerRemove = useCallback((symbol: string) => {
+    if (isLoggedIn) {
+      serverRemove(symbol);
+    }
+  }, [isLoggedIn, serverRemove]);
+  const syncServerReplace = useCallback((symbols: string[]) => {
+    if (isLoggedIn) {
+      serverReplace(symbols);
+    }
+  }, [isLoggedIn, serverReplace]);
 
   const hasSetInitialSymbols = useUserPreferences((st) => st.hasSetInitialSymbols);
   const setHasSetInitialSymbols = useUserPreferences((st) => st.setHasSetInitialSymbols);
@@ -1700,12 +1719,6 @@ export function QuotesScreen() {
     ] as const);
     return new Map(entries);
   }, [quoteSymbols, quoteFeedSymbols]);
-  const quoteRouteActive =
-    isScreenFocused ||
-    pathname === '/quotes' ||
-    pathname.startsWith('/quotes/') ||
-    pathname === '/(tabs)/quotes' ||
-    pathname.startsWith('/(tabs)/quotes/');
   const quoteStickyFeedActive = quoteRouteActive;
   const quoteFeedActive =
     quoteStickyFeedActive &&
@@ -1754,8 +1767,8 @@ export function QuotesScreen() {
     newQueue.splice(toIndex, 0, element);
     // Update local state immediately for instant UI response, then sync to server
     setQuoteSymbols(newQueue);
-    serverReplace(newQueue);
-  }, [quoteSymbols, serverReplace, setQuoteSymbols]);
+    syncServerReplace(newQueue);
+  }, [quoteSymbols, setQuoteSymbols, syncServerReplace]);
 
   // Clock timer moved into isolated GmtClock component to prevent
   // the 1-second interval from re-rendering the entire QuotesScreen
@@ -1909,7 +1922,7 @@ export function QuotesScreen() {
             onPress: () => {
               runQuoteSheetOption(() => {
                 removeQuoteSymbol(sym);
-                serverRemove(sym);
+                syncServerRemove(sym);
               });
             },
           },
@@ -1918,7 +1931,7 @@ export function QuotesScreen() {
     });
 
     return configs;
-  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, runQuoteSheetOption, serverRemove, setChartSymbol, showQuotesActionSheet, t]);
+  }, [goDetail, quoteSymbols, removeQuoteSymbol, router, runQuoteSheetOption, setChartSymbol, showQuotesActionSheet, syncServerRemove, t]);
 
   useEffect(() => {
     const firstSym = quoteSymbols[0];
@@ -1961,7 +1974,7 @@ export function QuotesScreen() {
           T={T}
           isDark={isDark}
           cardBackground={animatedCardBackground}
-          onRemove={() => { removeQuoteSymbol(sym); serverRemove(sym); }}
+          onRemove={() => { removeQuoteSymbol(sym); syncServerRemove(sym); }}
           onMoveUp={() => moveQuote(globalIndex, globalIndex - 1)}
           onMoveDown={() => moveQuote(globalIndex, globalIndex + 1)}
         />
@@ -1993,7 +2006,7 @@ export function QuotesScreen() {
     quoteFeedSymbolByDisplay,
     quoteViewMode,
     removeQuoteSymbol,
-    serverRemove,
+    syncServerRemove,
   ]);
 
   return (
@@ -2128,7 +2141,7 @@ export function QuotesScreen() {
         onClose={closeAddSymbolModal}
         onAdd={(sym: string) => {
           addQuoteSymbol(sym);
-          serverAdd(sym);
+          syncServerAdd(sym);
         }}
         T={T}
         isDark={isDark}

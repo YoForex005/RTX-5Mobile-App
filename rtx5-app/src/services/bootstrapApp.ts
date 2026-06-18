@@ -50,11 +50,12 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
 
   const login = Number(record.login ?? record.account_login ?? record.id);
   const balance = Number(record.balance);
+  const credit = Number(record.credit);
   const equity = Number(record.equity);
-  const margin = Number(record.margin ?? record.usedMargin);
-  const freeMargin = Number(record.margin_free ?? record.freeMargin);
+  const margin = Number(record.margin ?? record.usedMargin ?? record.used_margin);
+  const freeMargin = Number(record.margin_free ?? record.freeMargin ?? record.free_margin ?? record.margin_available);
   const marginLevel = Number(record.margin_level ?? record.marginLevel);
-  const floating = Number(record.floating ?? record.floatingPnl ?? record.pnl);
+  const floating = Number(record.floating ?? record.floatingPnl ?? record.floating_pnl ?? record.unrealized_pl ?? record.pnl);
 
   useLiveAccountState.getState().updateMetrics({
     ...(Number.isFinite(login) ? { login } : {}),
@@ -69,6 +70,7 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
   if (Number.isFinite(balance) || Number.isFinite(equity)) {
     useTradingState.getState().setAccount({
       balance: Number.isFinite(balance) ? balance : 0,
+      credit: Number.isFinite(credit) ? credit : 0,
       equity: Number.isFinite(equity) ? equity : Number.isFinite(balance) ? balance : 0,
       margin: Number.isFinite(margin) ? margin : 0,
       freeMargin: Number.isFinite(freeMargin) ? freeMargin : 0,
@@ -82,7 +84,67 @@ const updateAccountMetricsFromBootstrap = (accounts: unknown, accountLogin: stri
 export async function bootstrapApp(options: { accountLogin?: string | number } = {}): Promise<BootstrapResult> {
   const accountLogin = options.accountLogin ? String(options.accountLogin) : resolveTradingLoginString();
 
-  let [
+  const state = useUserPreferences.getState();
+  if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
+    brokerRealtimeService.connect();
+  }
+
+  // Start startup requests together and apply each result as soon as it lands.
+  // This keeps quotes/account/positions from waiting on a slower endpoint.
+  const mePromise = requestJson('/auth/me');
+  const accountsPromise = requestJson('/accounts').then((accounts) => {
+    if (accounts) {
+      appQueryClient.setQueryData([ACCOUNTS_LIST_KEY], unwrapArray(accounts));
+      updateAccountMetricsFromBootstrap(accounts, accountLogin);
+    }
+    return accounts;
+  });
+  const positionsPromise = requestJson('/positions').then(async (positions) => {
+    const unscopedRows = unwrapArray(positions);
+    // The generic endpoint can be an empty catalog while the login-scoped
+    // endpoint has real open trades, so never let it clear an active account.
+    const needsScopedPositions = Boolean(accountLogin && unscopedRows.length === 0);
+    const resolvedPositions = needsScopedPositions && accountLogin
+      ? await requestJson(`/positions/${encodeURIComponent(accountLogin)}`)
+      : positions;
+    const resolvedRows = unwrapArray(resolvedPositions);
+    // If there is no account login and the generic endpoint is empty, skip the
+    // store update. An unscoped empty response does not prove the active account
+    // has no open trades, and applying it would blank the Trade screen.
+    if (resolvedPositions && (accountLogin || resolvedRows.length > 0)) {
+      usePositionsState.getState().applyPositionsSnapshot(resolvedRows, accountLogin, {
+        preserveMissingExisting: false,
+      });
+    }
+    return resolvedPositions;
+  });
+  const ordersPromise = requestJson('/orders').then(async (orders) => {
+    const resolvedOrders = orders || (
+      accountLogin
+        ? await requestJson(`/orders/${encodeURIComponent(accountLogin)}`)
+        : null
+    );
+    if (resolvedOrders) {
+      appQueryClient.setQueryData(['orders', accountLogin], unwrapArray(resolvedOrders));
+    }
+    return resolvedOrders;
+  });
+  const instrumentsPromise = requestJson('/instruments?favorites=true').then((instruments) => {
+    if (instruments) {
+      const instrumentRows = unwrapArray(instruments) as InstrumentContractSpec[];
+      brokerRealtimeService.setInstrumentSpecs(instrumentRows);
+      appQueryClient.setQueryData(['instruments', 'favorites'], instrumentRows);
+    }
+    return instruments;
+  });
+  const marketStatusPromise = requestJson('/market/status').then((marketStatus) => {
+    if (marketStatus) {
+      appQueryClient.setQueryData(['marketStatus'], marketStatus);
+    }
+    return marketStatus;
+  });
+
+  const [
     me,
     accounts,
     positions,
@@ -90,51 +152,13 @@ export async function bootstrapApp(options: { accountLogin?: string | number } =
     instruments,
     marketStatus,
   ] = await Promise.all([
-    requestJson('/auth/me'),
-    requestJson('/accounts'),
-    requestJson('/positions'),
-    requestJson('/orders'),
-    requestJson('/instruments?favorites=true'),
-    requestJson('/market/status'),
+    mePromise,
+    accountsPromise,
+    positionsPromise,
+    ordersPromise,
+    instrumentsPromise,
+    marketStatusPromise,
   ]);
-
-  if (!positions && accountLogin) {
-    positions = await requestJson(`/positions/${encodeURIComponent(accountLogin)}`);
-  }
-
-  if (!orders && accountLogin) {
-    orders = await requestJson(`/orders/${encodeURIComponent(accountLogin)}`);
-  }
-
-  if (accounts) {
-    appQueryClient.setQueryData([ACCOUNTS_LIST_KEY], unwrapArray(accounts));
-    updateAccountMetricsFromBootstrap(accounts, accountLogin);
-  }
-
-  if (positions) {
-    usePositionsState.getState().applyPositionsSnapshot(unwrapArray(positions), accountLogin, {
-      preserveMissingExisting: false,
-    });
-  }
-
-  if (orders) {
-    appQueryClient.setQueryData(['orders', accountLogin], unwrapArray(orders));
-  }
-
-  if (instruments) {
-    const instrumentRows = unwrapArray(instruments) as InstrumentContractSpec[];
-    brokerRealtimeService.setInstrumentSpecs(instrumentRows);
-    appQueryClient.setQueryData(['instruments', 'favorites'], instrumentRows);
-  }
-
-  if (marketStatus) {
-    appQueryClient.setQueryData(['marketStatus'], marketStatus);
-  }
-
-  const state = useUserPreferences.getState();
-  if (state.isLoggedIn && state.accountDetails?.credentials?.accessToken) {
-    brokerRealtimeService.connect();
-  }
 
   return {
     me,

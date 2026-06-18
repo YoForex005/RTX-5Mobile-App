@@ -25,6 +25,20 @@ type StablePendingChartTradeValidationInput = PendingChartTradeValidationInput &
   previouslyEnabled: boolean;
 };
 
+type ChartTradeProtectionValidationInput = {
+  side: 'buy' | 'sell';
+  entryPrice: number;
+  slEnabled: boolean;
+  slPrice: number;
+  tpEnabled: boolean;
+  tpPrice: number;
+  pointSize: number;
+};
+
+export type ChartTradeProtectionValidationResult =
+  | { valid: true; message: '' }
+  | { valid: false; message: string };
+
 export const isPendingChartOrderType = (orderType: ChartOrderType) => orderType !== 'Market Execution';
 
 export const supportsChartTradeFillPolicy = (orderType: ChartOrderType) =>
@@ -47,6 +61,53 @@ export const getChartOrderSide = (
     return marketSide;
   }
   return orderType.toLowerCase().startsWith('sell') ? 'sell' : 'buy';
+};
+
+export const validateChartTradeProtectionLevels = ({
+  side,
+  entryPrice,
+  slEnabled,
+  slPrice,
+  tpEnabled,
+  tpPrice,
+  pointSize,
+}: ChartTradeProtectionValidationInput): ChartTradeProtectionValidationResult => {
+  if (!slEnabled && !tpEnabled) {
+    return { valid: true, message: '' };
+  }
+
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    return { valid: false, message: 'Entry price is required before setting SL/TP.' };
+  }
+
+  const epsilon = Math.max(pointSize / 10, 1e-9);
+  const hasValidPrice = (price: number) => Number.isFinite(price) && price > 0;
+
+  if (slEnabled) {
+    if (!hasValidPrice(slPrice)) {
+      return { valid: false, message: 'Stop Loss price must be greater than 0.' };
+    }
+    if (side === 'buy' && slPrice >= entryPrice - epsilon) {
+      return { valid: false, message: 'Stop Loss must be below entry for buy orders.' };
+    }
+    if (side === 'sell' && slPrice <= entryPrice + epsilon) {
+      return { valid: false, message: 'Stop Loss must be above entry for sell orders.' };
+    }
+  }
+
+  if (tpEnabled) {
+    if (!hasValidPrice(tpPrice)) {
+      return { valid: false, message: 'Take Profit price must be greater than 0.' };
+    }
+    if (side === 'buy' && tpPrice <= entryPrice + epsilon) {
+      return { valid: false, message: 'Take Profit must be above entry for buy orders.' };
+    }
+    if (side === 'sell' && tpPrice >= entryPrice - epsilon) {
+      return { valid: false, message: 'Take Profit must be below entry for sell orders.' };
+    }
+  }
+
+  return { valid: true, message: '' };
 };
 
 export const resolveDefaultStopLimitPrice = (

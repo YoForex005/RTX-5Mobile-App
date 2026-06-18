@@ -12,23 +12,28 @@ export function useMarketSymbols(enabled = true) {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const brokerId = useUserPreferences((state) => state.brokerId);
   const accountId = useUserPreferences((state) => state.accountDetails?.id ?? '');
-  const isEnabled = enabled && isLoggedIn;
-  const cacheScope = `${brokerId}:${accountId}`;
+  const accountScope = isLoggedIn ? accountId : 'public';
+  const isEnabled = enabled;
+  const cacheScope = `${brokerId}:${accountScope}`;
 
   return useQuery({
-    queryKey: ['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId],
+    queryKey: ['market', 'symbols', 'instrument-catalog-v2', brokerId, accountScope],
     queryFn: async () => {
       // Use the broker's full instrument catalog instead of the WS feed
       // status. The feed-status endpoint only reports currently subscribed
       // symbols (i.e. the user's existing watchlist), which made the Add
       // Asset picker show only symbols that were already added.
-      const res = await apiClient('/instruments');
+      const res = await apiClient(
+        '/instruments',
+        isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },
+      );
       if (!res.ok) throw new Error('Failed to fetch symbols');
       const data = await res.json();
       primeInstrumentMetaCacheFromCatalogPayload(data, cacheScope);
       return extractMarketSymbols(data);
     },
     enabled: isEnabled,
+    placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 5,
   });
 }

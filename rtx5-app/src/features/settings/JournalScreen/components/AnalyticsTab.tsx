@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fmt } from '../../../../utils/format';
+import { calculateWinRatePercentFromCounts } from '../../../../utils/winRate';
 import type { TradeJournalEntry } from '../types';
 
 type AnalyticsTabProps = {
@@ -28,7 +29,7 @@ export function AnalyticsTab({ isDark, trades }: AnalyticsTabProps) {
     const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + Math.min(0, trade.pnlMoney ?? 0), 0));
     const avgR = closedTrades.reduce((sum, trade) => sum + (trade.finalRMultiple ?? 0), 0) / (totalTrades || 1);
     const discipline = closedTrades.reduce((sum, trade) => sum + (trade.disciplineScore ?? 0), 0) / (totalTrades || 1);
-    const winRate = totalTrades ? Math.round((wins.length / totalTrades) * 100) : 0;
+    const winRate = calculateWinRatePercentFromCounts({ wins: wins.length, losses: losses.length });
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Number.POSITIVE_INFINITY : 0;
     const expectancy = totalTrades ? totalPnl / totalTrades : 0;
 
@@ -47,15 +48,19 @@ export function AnalyticsTab({ isDark, trades }: AnalyticsTabProps) {
 
     const strategyRows = Array.from(
       closedTrades.reduce((map, trade) => {
-        const current = map.get(trade.strategy) ?? { name: trade.strategy, pnl: 0, trades: 0, wins: 0 };
+        const current = map.get(trade.strategy) ?? { name: trade.strategy, pnl: 0, trades: 0, wins: 0, losses: 0 };
         current.pnl += trade.pnlMoney ?? 0;
         current.trades += 1;
         current.wins += trade.result === 'Win' ? 1 : 0;
+        current.losses += trade.result === 'Loss' ? 1 : 0;
         map.set(trade.strategy, current);
         return map;
-      }, new Map<string, { name: string; pnl: number; trades: number; wins: number }>()),
+      }, new Map<string, { name: string; pnl: number; trades: number; wins: number; losses: number }>()),
     )
-      .map(([, row]) => ({ ...row, winRate: row.trades ? Math.round((row.wins / row.trades) * 100) : 0 }))
+      .map(([, row]) => ({
+        ...row,
+        winRate: calculateWinRatePercentFromCounts({ wins: row.wins, losses: row.losses }),
+      }))
       .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl))
       .slice(0, 4);
 

@@ -39,6 +39,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 ## Test Checklist
 - [x] Unit: list item formatting helpers.
 - [x] Unit: Settings search results route to the same settings destinations as the visible hub rows.
+- [x] Unit: Settings account-card connection status is gated by logged-in account state.
 - [x] Unit: active-language dictionary coverage includes reported Settings account-card status and finance labels.
 - [x] Unit: active-language dictionary coverage includes account login, demo registration, and broker directory labels.
 - [x] Unit: account API numeric normalization and live metric readiness guard.
@@ -60,6 +61,7 @@ Implement settings and account ecosystem screens required for full screenshot pa
 - [ ] E2E: open broker list, open account details, read mailbox list.
 
 ## Progress Notes
+- 2026-06-18: Fixed the Settings account card status pill so it no longer shows the green `Connected` state before login. The card now requires an authenticated account session before rendering the connected dot and label, with focused coverage guarding against an unconditional Connected badge.
 - 2026-06-09: Added Support and Help to sidebar navigation. Support uses the same configured support-email mailto flow as Settings, and Help routes to the existing FAQ screen with sidebar route warmup.
 - 2026-06-09: Removed News and Mailbox from sidebar navigation and sidebar route warmup so sidebar exposure matches the Settings hub/search removal; the standalone screen modules remain available for existing direct routes.
 - 2026-06-08: Fixed selected-broker login routing for broker directory entries that publish only raw IP hosts, such as `gta_broker`. The login screen now keeps trusted direct broker URLs for domain-backed brokers and uses the documented `/api/v2/auth/login` gateway proxy `server` field for raw-IP entries instead of treating them as an empty broker selection. Focused auth/broker-routing/login source-contract tests and TypeScript passed. Live GTA validation still depends on the published broker server resolving upstream; the current gateway response for `103.91.186.142:443` is `502 Bad Gateway`.

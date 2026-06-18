@@ -619,6 +619,20 @@ test('chart tap radial menu opens only after lot interaction suppression expires
   );
 });
 
+test('chart tap radial menu treats inactive drawing mode as normal chart mode', () => {
+  assert.equal(
+    shouldSuppressChartTapMenu({
+      activeTool: 'none',
+      footerLotEditorFocused: false,
+      footerLotEditorOpening: false,
+      footerLotPickerOpen: false,
+      suppressUntil: 0,
+      now: 100,
+    }),
+    false,
+  );
+});
+
 test('chart tap radial menu remains disabled for drawing tools', () => {
   assert.equal(
     shouldSuppressChartTapMenu({

@@ -6,7 +6,7 @@ import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
 import {
   buildContractSizeMap,
-  calculateEquityFromTick,
+  calculateFloatingPnlFromTick,
   type InstrumentContractSpec,
 } from '../../domain/account/equity';
 
@@ -29,6 +29,16 @@ const normalizeChannel = (value: unknown): string => String(value ?? '').trim();
 
 const numberFrom = (...values: unknown[]): number | undefined => {
   for (const value of values) {
+    // Skip absent/blank fields BEFORE Number(): Number(null), Number(undefined →
+    // NaN handled), and Number('') all coerce to 0, which would record a fake 0
+    // (e.g. balance/margin) and mark the metric as "present". Only treat genuine
+    // numeric values as found; otherwise fall through to the next candidate.
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      continue;
+    }
     const numeric = Number(value);
     if (Number.isFinite(numeric)) {
       return numeric;
@@ -50,6 +60,10 @@ class BrokerRealtimeService {
   private shouldReconnect = false;
   private activeChannels: string[] = [];
   private contractSizes: Record<string, number> = {};
+  // Last bid/ask we actually processed per symbol. Floating P/L only moves when a
+  // price moves, so an unchanged tick lets us skip the O(positions) equity
+  // recompute and the two store writes below.
+  private lastTickPrice: Map<string, { bid: number; ask: number }> = new Map();
 
   static getInstance(): BrokerRealtimeService {
     if (!BrokerRealtimeService.instance) {
@@ -206,6 +220,15 @@ class BrokerRealtimeService {
       lastReceivedAt: Date.now(),
     });
 
+    // Skip the equity recompute when neither bid nor ask moved. The quote store
+    // is already updated above (keeps freshness/staleness correct); only the
+    // expensive floating-P/L recompute + store writes are gated.
+    const previousTickPrice = this.lastTickPrice.get(symbol);
+    this.lastTickPrice.set(symbol, { bid, ask });
+    if (previousTickPrice && previousTickPrice.bid === bid && previousTickPrice.ask === ask) {
+      return;
+    }
+
     const liveAccount = useLiveAccountState.getState();
     const positions = usePositionsState.getState().positions;
     const currentPrice = numberFrom(data.price, bid, ask);
@@ -213,24 +236,43 @@ class BrokerRealtimeService {
       return;
     }
 
-    const { equity, floating } = calculateEquityFromTick({
-      balance: liveAccount.balance,
+    const tradingAccount = useTradingState.getState().account;
+    // Quote ticks can arrive before the account snapshot. Update floating P/L,
+    // but wait for a settled balance before deriving equity/free margin.
+    const hasSettledBalance = liveAccount.metricFlags.balance || Number.isFinite(tradingAccount?.balance);
+    const settledBalance = liveAccount.metricFlags.balance
+      ? liveAccount.balance
+      : (tradingAccount?.balance ?? 0);
+    const floating = calculateFloatingPnlFromTick({
       positions,
       tick: { symbol, price: currentPrice },
       contractSizes: this.contractSizes,
     });
-    const marginFree = equity - (Number(liveAccount.margin) || 0);
+
+    if (!hasSettledBalance) {
+      useLiveAccountState.getState().updateMetrics({ floating });
+      useTradingState.getState().setAccount({ floating });
+      return;
+    }
+
+    const equity = settledBalance + floating;
+    const margin = liveAccount.metricFlags.margin && Number.isFinite(liveAccount.margin)
+      ? liveAccount.margin
+      : (tradingAccount?.margin ?? 0);
+    const marginFree = equity - margin;
+    const marginLevel = margin > 0 ? (equity / margin) * 100 : 0;
 
     useLiveAccountState.getState().updateMetrics({
       equity,
       floating,
       margin_free: marginFree,
-      margin_level: liveAccount.margin > 0 ? (equity / liveAccount.margin) * 100 : liveAccount.margin_level,
+      margin_level: marginLevel,
     });
     useTradingState.getState().setAccount({
       equity,
       floating,
       freeMargin: marginFree,
+      marginLevel,
     });
   }
 

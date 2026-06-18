@@ -19,6 +19,22 @@ const webViewHtmlSource = readFileSync(
   'utf8',
 );
 const source = `${nativeSource}\n${webViewHtmlSource}`;
+const chartTradeFeatureSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/components/ChartTradeFeature.tsx'),
+  'utf8',
+);
+const chartTradeButtonsFeatureSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/components/ChartTradeButtonsFeature/ChartTradeButtonsFeature.tsx'),
+  'utf8',
+);
+const chartTradeHandlerSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/components/ChartTradeButtonsFeature/useTradeHandler.ts'),
+  'utf8',
+);
+const chartTradeActionsSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/chartTradeActions.ts'),
+  'utf8',
+);
 
 const TEST_CHART_COLORS = {
   background: '#000000',
@@ -89,12 +105,53 @@ test('overlay bridge: draggable trade labels keep touch ownership through the fu
   assertSourceContains(source, /var listenerOptions = \{ capture: true, passive: false \}/, 'chart touch listeners must be non-passive so preventDefault works on mobile');
 });
 
-test('chart pending CTA does not open the blocking preview-only alert', () => {
+test('chart pending CTA submits the pending order and then exposes chart-side levels', () => {
+  const handlerSource = source.slice(
+    source.indexOf('const handleSubmitPendingTradeFromSheet = useCallback'),
+    source.indexOf('const handleToggleChartTradeSheetMode', source.indexOf('const handleSubmitPendingTradeFromSheet = useCallback')),
+  );
+
   assert.doesNotMatch(source, /Pending Order Preview/);
   assert.doesNotMatch(source, /Chart-side pending submission is still preview-only in this build/);
   assert.doesNotMatch(source, /Alert\.alert/);
-  assertSourceContains(source, /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'/, 'pending CTA must return the user to chart-side editing');
-  assertSourceContains(source, /snapTradeSheet\('collapsed'\)/, 'pending CTA must expose draggable chart lines instead of blocking them');
+  assertSourceContains(handlerSource, /ordersApi\.placePendingOrder\(payload\)/, 'pending CTA must submit to the pending-order API');
+  assertSourceContains(handlerSource, /price_sl: chartTradeSlPrice/, 'pending CTA must include enabled SL price');
+  assertSourceContains(handlerSource, /price_tp: chartTradeTpPrice/, 'pending CTA must include enabled TP price');
+  assertSourceContains(handlerSource, /refetchOrders\(\)/, 'pending CTA must refresh orders so overlays can draw the new order');
+  assertSourceContains(handlerSource, /snapTradeSheet\('collapsed'\)/, 'pending CTA must expose chart-side levels after submission');
+});
+
+test('chart market execution submits selected sheet SL and TP levels', () => {
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /stopLossPrice=\{sheet\.chartTradeSlEnabled \? sheet\.chartTradeSlPrice : undefined\}/,
+    'market buttons must receive enabled sheet SL price',
+  );
+  assertSourceContains(
+    chartTradeFeatureSource,
+    /takeProfitPrice=\{sheet\.chartTradeTpEnabled \? sheet\.chartTradeTpPrice : undefined\}/,
+    'market buttons must receive enabled sheet TP price',
+  );
+  assertSourceContains(
+    chartTradeButtonsFeatureSource,
+    /useTradeHandler\(\{[\s\S]*stopLossPrice,[\s\S]*takeProfitPrice,[\s\S]*pointSize,/,
+    'market button hook must receive SL/TP inputs',
+  );
+  assertSourceContains(
+    chartTradeHandlerSource,
+    /validateChartTradeProtectionLevels\(\{[\s\S]*side: action\.side,[\s\S]*entryPrice: action\.side === 'buy' \? latestAsk : latestBid/,
+    'market submit must validate MT5-style SL/TP direction before sending',
+  );
+  assertSourceContains(
+    chartTradeHandlerSource,
+    /buildChartMarketOrderPayload\(\{[\s\S]*stopLossPrice: queuedTrade\.stopLossPrice,[\s\S]*takeProfitPrice: queuedTrade\.takeProfitPrice/,
+    'queued one-click market submit must include selected SL/TP prices',
+  );
+  assertSourceContains(
+    chartTradeActionsSource,
+    /price_sl: stopLossPrice[\s\S]*price_tp: takeProfitPrice/,
+    'market payload builder must map selected levels to API price_sl and price_tp fields',
+  );
 });
 
 test('overlay bridge: repeated overlay sync clears previous lines before recreating', () => {

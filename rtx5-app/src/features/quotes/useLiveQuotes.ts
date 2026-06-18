@@ -5,6 +5,7 @@ import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
 import { useTradingState } from '../../state/tradingState';
+import { useUserPreferences } from '../../state/userPreferences';
 import {
   applyLiveQuoteTickToSnapshot,
   buildInitialLiveQuoteSnapshot,
@@ -185,7 +186,7 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
     ...(update.low !== undefined ? { low: update.low } : {}),
     ...(update.open !== undefined ? { open: update.open } : {}),
     ...(update.spread !== undefined ? { spread: update.spread } : {}),
-    ...(update.volume !== undefined ? { volume: update.volume } : {}),
+    ...(update.volume !== undefined ? { volume: update.volume, volumeSource: 'backend' as const } : {}),
     ...(update.digits !== undefined ? { digits: update.digits } : {}),
   });
   return true;
@@ -226,7 +227,11 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
 
   const requestedKeys = new Set(symbols.flatMap(getSnapshotKeys));
   const symbolsQuery = symbols.map(encodeURIComponent).join(',');
-  const response = await apiClient(`/quotes?symbols=${symbolsQuery}`);
+  const isLoggedIn = useUserPreferences.getState().isLoggedIn;
+  const response = await apiClient(
+    `/quotes?symbols=${symbolsQuery}`,
+    isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },
+  );
   if (!response.ok) {
     return;
   }

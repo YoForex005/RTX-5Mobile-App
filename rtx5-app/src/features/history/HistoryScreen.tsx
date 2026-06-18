@@ -28,6 +28,11 @@ import { LoginOrder } from '../../api/orders';
 import { ClosedPosition } from '../../api/positions';
 import { filterClosedRecordsByDateRange, resolveEffectiveHistoryDateRange } from './historyDateRange';
 import { deriveClosedPositionsFromDeals, mergeClosedPositionSources } from './derivedClosedPositions';
+import {
+  calculateHistoryMoneySummary,
+  resolveClosedPositionNetProfit,
+  resolveDealBalanceOperation,
+} from './historyMoney';
 import { spacing } from '../../ui/theme/index';
 import { useTheme } from '../../ui/theme/useTheme';
 import { ThemeColors } from '../../ui/theme/glass';
@@ -36,6 +41,7 @@ import { formatBrokerTime } from '../../utils/brokerTime';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useShallow } from 'zustand/shallow';
 import { runImmediateAction } from '../../utils/actionLatency';
+import { calculateWinRatePercentFromPnl } from '../../utils/winRate';
 
 type Tab = 'Positions' | 'Orders' | 'Deals';
 type SortBy = 'Default' | 'Symbol' | 'Ticket' | 'Type' | 'Volume' | 'Open Time' | 'Close Time' | 'Profit';
@@ -141,21 +147,6 @@ function resolveClosedPositionSide(source: Record<string, unknown>, fallback?: s
   }
 
   return sideLower;
-}
-
-function resolveClosedPositionNetProfit(position: ClosedPosition): number {
-  const source = position as unknown as Record<string, unknown>;
-  const netProfit = pickFiniteNumber(source, ['netPnl', 'net_pnl', 'net_profit']);
-  if (netProfit !== undefined) {
-    return netProfit;
-  }
-
-  const profit = pickFiniteNumber(source, ['profit', 'pnl', 'pl', 'close_profit', 'closed_profit']) ?? 0;
-  const swap = pickFiniteNumber(source, ['swap', 'swaps']) ?? 0;
-  const commission = pickFiniteNumber(source, ['commission', 'commissions']) ?? 0;
-  const fee = pickFiniteNumber(source, ['fee', 'fees']) ?? 0;
-
-  return profit + swap + commission + fee;
 }
 
 function normalizeHistoryIdPart(value: unknown): string {
@@ -283,6 +274,28 @@ function mapOrderToRow(o: LoginOrder): HistoryRow {
  */
 function mapDealToRow(d: Deal): HistoryRow {
   const source = d as unknown as Record<string, unknown>;
+  const balanceOperation = resolveDealBalanceOperation(d);
+  if (balanceOperation) {
+    // Balance/deposit/withdrawal rows are account ledger movements, not trades.
+    // Keep profit null so deposits never inflate trade P/L or win-rate stats.
+    const label =
+      balanceOperation.kind === 'withdrawal'
+        ? 'Withdrawal'
+        : balanceOperation.kind === 'deposit'
+          ? 'Deposit'
+          : 'Balance';
+    const identity = buildHistoryRowIdentity('hd', source, [label, d.time, balanceOperation.amount]);
+
+    return {
+      ...identity,
+      line1: label,
+      line2: `${fmt.pnlPrecise(balanceOperation.amount)} balance operation`,
+      time: safeTimeStr(d.time),
+      profit: null,
+      note: d.comment?.trim() || undefined,
+    };
+  }
+
   const direction = d.action === 'deal_buy' ? 'buy' : 'sell';
   const entry = d.entry === 'entry_in' ? 'in' : 'out';
   const timeStr = safeTimeStr(d.time);
@@ -446,16 +459,17 @@ export function HistoryScreen() {
     [mergedClosedPositions, effectiveHistoryFromMs, effectiveHistoryToMs],
   );
 
-  // Calculate actual history summary stats from the raw API payload
-  const closedSwap = useMemo(() => positionHistory.reduce((acc, p) => acc + (toFiniteNumber(p.swap) ?? 0), 0), [positionHistory]);
-  const closedCommission = useMemo(() => positionHistory.reduce((acc, p) => acc + (toFiniteNumber(p.commission) ?? 0), 0), [positionHistory]);
-  const totalClosedPnl = useMemo(
-    () => positionHistory.reduce((acc, p) => acc + resolveClosedPositionNetProfit(p), 0),
-    [positionHistory],
+  // Keep all money math in one pure helper: closed P/L includes swap,
+  // commission, and fee once; deposit prefers exact ledger rows when present.
+  const historyMoneySummary = useMemo(
+    () => calculateHistoryMoneySummary({
+      closedPositions: positionHistory,
+      deals: rawDeals,
+      balance,
+    }),
+    [positionHistory, rawDeals, balance],
   );
-
-  // Approximate initial deposit using current balance & realized PNL
-  const deposit = balance - totalClosedPnl;
+  const { closedSwap, closedCommission, totalClosedPnl, deposit } = historyMoneySummary;
 
   const baseData = useMemo<HistoryRow[]>(() => {
     // GET /api/v2/account/orders — real order history, replaces static mock
@@ -470,11 +484,10 @@ export function HistoryScreen() {
     [data]
   );
   const netProfit = useMemo(() => profitRows.reduce((sum, item) => sum + item.profit, 0), [profitRows]);
-  const wins = useMemo(() => profitRows.filter((item) => item.profit > 0).length, [profitRows]);
   const winRate = useMemo(() => {
     if (!profitRows.length) return '0%';
-    return `${Math.round((wins / profitRows.length) * 100)}%`;
-  }, [profitRows.length, wins]);
+    return `${calculateWinRatePercentFromPnl(profitRows.map((item) => item.profit))}%`;
+  }, [profitRows]);
   const filledCount = useMemo(() => data.filter((item) => item.status === 'filled').length, [data]);
   const netTone: Tone = netProfit > 0 ? 'positive' : netProfit < 0 ? 'negative' : 'neutral';
   const historyRangeLabel = t(historyRange);

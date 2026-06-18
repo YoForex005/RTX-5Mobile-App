@@ -24,7 +24,29 @@ const BROKER_SUFFIXES_RE = /(?:PRO|ECN|STD|STP|RAW|ZERO|CENT|MICRO|MINI|NANO|FIX
 export const normalizeQuoteSymbolKey = (symbol: string): string =>
   symbol.trim().toUpperCase().replace(/[\/\s]+/g, '');
 
+// normalizeSymbol is pure and sits on the per-tick P&L hot path (called per
+// position per quote tick). The set of distinct raw symbols is tiny and bounded,
+// so memoizing on the raw input string removes the repeated regex/Set work.
+const NORMALIZE_SYMBOL_CACHE = new Map<string, string>();
+const NORMALIZE_SYMBOL_CACHE_LIMIT = 1024;
+
 export const normalizeSymbol = (symbol: string): string => {
+  const cached = NORMALIZE_SYMBOL_CACHE.get(symbol);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = computeNormalizedSymbol(symbol);
+  // Bounded guard: symbols are a small fixed universe, but never let an
+  // unexpected flood of inputs grow the cache without limit.
+  if (NORMALIZE_SYMBOL_CACHE.size >= NORMALIZE_SYMBOL_CACHE_LIMIT) {
+    NORMALIZE_SYMBOL_CACHE.clear();
+  }
+  NORMALIZE_SYMBOL_CACHE.set(symbol, result);
+  return result;
+};
+
+const computeNormalizedSymbol = (symbol: string): string => {
   const normalized = normalizeQuoteSymbolKey(symbol);
   if (!normalized) return '';
 

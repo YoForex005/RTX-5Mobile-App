@@ -44,7 +44,6 @@ import {
   type HistoryFetchManagerBridge,
 } from './historyFetching';
 import { splitRestHistoryCandles, getConfiguredCandlePriceBasis } from '../../core/candleProvenance';
-import { computeClosedHistoryLastTime, hasLiveEdgeHistoryGap } from './helpers';
 
 const getHistoryPageLookbackMultiplier = (timeframe: Timeframe): number => {
   if (timeframe === 'W1' || timeframe === 'MN') {
@@ -137,9 +136,9 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
   }
 
-  /** 
-   * Fetches the next chunk of older historical data when the user scrolls 
-   * to the left edge of the chart. 
+  /**
+   * Fetches the next chunk of older historical data when the user scrolls
+   * to the left edge of the chart.
    */
   public paginateHistory(symbol: string, timeframe: string): void {
     const entry = this.entries.get(this.getKey(symbol, timeframe));
@@ -345,11 +344,11 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     const liveCandles = materializeLiveCandleMap(entry.liveCandleMap, entry.historyLastTime, {
       preserveProvenance: true,
     });
-    this.maybeRefreshForLiveEdgeGap(
-      entry,
-      entry.historyCandles[entry.historyCandles.length - 1]?.time ?? null,
-      liveCandles[0]?.time ?? null,
-    );
+    // History is fetched ONLY on a fresh load (app open / symbol / timeframe
+    // change) and on user-driven pagination. We deliberately do NOT auto-refresh
+    // here: live ticks update the forming candle in place, and a closed candle is
+    // never re-pulled or replaced, so a finalized candle stays exactly as it
+    // looked while forming (no reload/flicker, no live→history shape change).
     const renderHistoryLimit = Math.min(
       MAX_RENDERED_HISTORY_CANDLES,
       Math.max(DEFAULT_HISTORY_LIMIT, entry.renderHistoryLimit || DEFAULT_HISTORY_LIMIT),
@@ -377,62 +376,6 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       nextParams.map((candle) => Object.freeze({ ...candle })),
     ) as unknown as CandleParams[];
     this.notify(entry);
-  }
-
-  /**
-   * Heals the "live-edge gap": when seeded REST history is stale (e.g. a
-   * background prefetch ran minutes before the chart was opened) the live quote
-   * tick opens the current bucket while history ends a few bars back, leaving an
-   * empty span between them. The backend almost always has those bars (REST is
-   * only ~1 bar behind real time), so we re-pull history once to fill them with
-   * REAL data rather than fabricating synthetic bars.
-   *
-   * Guarded to fire at most once per distinct history boundary so a genuinely
-   * data-less span (illiquid no-trade minutes) is not refreshed in a loop — it
-   * is only retried after a newer bar actually closes and advances the boundary.
-   */
-  private maybeRefreshForLiveEdgeGap(
-    entry: StreamEntry,
-    newestHistoryTime: number | null,
-    firstLiveBucketTime: number | null,
-  ): void {
-    if (entry.historyLoading || entry.historyPageLoading) {
-      return;
-    }
-    // Only heal while the user is viewing the live edge. A history re-fetch
-    // resets the render window, so we must not yank a user who has scrolled back
-    // into older history — the gap is at the right edge they aren't looking at.
-    if (
-      entry.historyPaginationCursorTime !== null ||
-      entry.renderHistoryLimit !== DEFAULT_HISTORY_LIMIT
-    ) {
-      return;
-    }
-    // Measure the gap against the NEWEST history bar (including the still-forming
-    // tail bar), not the closed-cutoff `historyLastTime`. REST marks its latest
-    // bar as forming, so the closed cutoff trails it by one bucket; using the
-    // cutoff would report a phantom gap and re-fetch every minute forever.
-    if (!hasLiveEdgeHistoryGap(newestHistoryTime, firstLiveBucketTime, entry.timeframe)) {
-      return;
-    }
-    if (entry.lastLiveEdgeGapRefreshBoundary === entry.historyLastTime) {
-      return;
-    }
-    entry.lastLiveEdgeGapRefreshBoundary = entry.historyLastTime;
-    logDebug('live_edge_gap_refresh', {
-      symbol: entry.symbol,
-      timeframe: entry.timeframe,
-      historyLastTime: entry.historyLastTime,
-      firstLiveBucketTime,
-    });
-    // Defer out of commit() so runLoadHistory's own notify/commit cannot reenter
-    // this path synchronously.
-    setTimeout(() => {
-      const live = this.entries.get(entry.key);
-      if (live && !live.historyLoading && !live.historyPageLoading) {
-        runLoadHistory(this, live, DEFAULT_HISTORY_LIMIT);
-      }
-    }, 0);
   }
 
   private ensureEntry(symbol: string, timeframe: Timeframe): StreamEntry {
@@ -472,13 +415,21 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     this.entries.set(key, entry);
 
-    void hydratePersistedCandleCache(symbol, timeframe).then((persisted) => {
-      const live = this.entries.get(key);
-      if (!live || live.requestId > 0 || persisted.length === 0) {
-        return;
-      }
-      this.hydrateFromCache(symbol, timeframe, persisted as CandleParams[]);
-    });
+    const memoryCachedCandles = candleMemoryCache.get(symbol, timeframe);
+    if (memoryCachedCandles.length > 0) {
+      // Startup prefetch stores fresh history in memory before the Chart tab is
+      // opened.  Seed the new stream from it synchronously so first tab entry
+      // can paint immediately while REST refreshes in the background.
+      this.hydrateFromCache(symbol, timeframe, memoryCachedCandles as CandleParams[]);
+    } else {
+      void hydratePersistedCandleCache(symbol, timeframe).then((persisted) => {
+        const live = this.entries.get(key);
+        if (!live || live.requestId > 0 || persisted.length === 0) {
+          return;
+        }
+        this.hydrateFromCache(symbol, timeframe, persisted as CandleParams[]);
+      });
+    }
 
     runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
     return entry;
@@ -529,9 +480,10 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     entry.pendingEvents.push(event);
     if (entry.pendingEvents.length > MAX_BUFFERED_LIVE_EVENTS) {
+      // Burst of live events: keep only the most recent ones and flush them. We
+      // intentionally do NOT re-pull history here — history loads only on a fresh
+      // open / symbol / timeframe change, never as an automatic resync.
       entry.pendingEvents = entry.pendingEvents.slice(-MAX_BUFFERED_LIVE_EVENTS);
-      runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
-      return;
     }
 
     this.scheduleFlush(entry);

@@ -38,8 +38,11 @@ function mapPositionToItem(dto: Position): PositionItem {
     volume: dto.volume,
     openPrice: dto.price_open,
     currentPrice: dto.price_current,
+    // Backend `profit` is price profit. The row P/L shown to users is net P/L,
+    // so swap and commission must be included exactly once.
     pnl: dto.profit + (dto.swap || 0) + (dto.commission || 0),
     swap: dto.swap || 0,
+    commission: dto.commission || 0,
     openTime: new Date(dto.time_create * 1000).toISOString(),
     sl: dto.price_sl || 0,
     tp: dto.price_tp || 0,

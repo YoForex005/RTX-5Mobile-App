@@ -76,8 +76,10 @@ export type QuoteTick = {
   symbol: string;
   bid: number;
   ask: number;
-  spread: number;
-  dailyChangePct: number;
+  spread?: number;
+  volume?: number;
+  digits?: number;
+  dailyChangePct?: number;
   timestamp: string; // ISO datetime
 };
 
@@ -251,6 +253,7 @@ export type OrrnnDemoAccount = {
 - The live candle `/ws/v2` channel contract uses backend interval tokens, not canonical app timeframe labels: subscribe to `candles.{SYMBOL}.1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, `1w`, or `1M`. Probing showed `candles.EURUSD.M1` is acknowledged but only returns `candle_history`, while `candles.EURUSD.1m` streams live `{ data: { type: "candle", symbol, tf, open, high, low, close, time, volume, closed } }` updates. Frontend code must map app timeframes (`M1`, `H1`, `MN`) to these WS tokens when subscribing and normalize incoming `tf` values back to canonical app timeframes.
 - The public market feed used by the chart is `ws://69.197.178.27/ws/feed` and the verified subscribe contract is `{ "type": "subscribe", "symbols": ["EURUSD", "XAUUSD"] }`. The same feed emits quote payloads with `bid`/`ask`/`time` plus session metrics such as `session.high_bid` and `session.low_bid`; when candle envelopes are available they are shaped like `{ "type": "update", "symbol": "XAUUSD", "candle": { ... } }`. Quote ticks are not standalone candle data: the frontend may use the current `bid` only to extend a safe active REST/backend candle bucket, while session high/low metrics must never become candle OHLC wick values. Backend REST history plus backend live OHLC remains authoritative, and the frontend must not fabricate missing backend gap candles.
 - The live market feed may acknowledge broker-suffixed subscriptions such as `GBPUSDm` or `GBPUSD.c`, but verified runtime payloads still arrive under the canonical base symbol (for example `GBPUSD`). Frontend consumers must normalize both requested symbols and incoming payload symbols before matching, otherwise history can load while live candle updates are silently dropped.
+- Quote-row spread is a display value derived from the accepted `ask - bid` price difference using the broker/backend display precision (`digits` or equivalent metadata). Any raw `spread` field is advisory only. Quote-row `volume` is optional backend tick/session volume, must be non-negative, and is not synthesized by the frontend when the feed omits it.
 
 ## Error Shapes
 ```ts

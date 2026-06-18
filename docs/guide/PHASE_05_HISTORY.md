@@ -38,11 +38,13 @@ Deliver history parity for Positions, Orders, and Deals with sorting, filtering,
 - [x] Typecheck: History Net P/L drill-in renders per-closed-trade P/L rows from the closed-position history payload.
 - [x] Typecheck: History Positions Trade Records render closed trades from closed-position payload aliases with an explicit `closed` row badge.
 - [x] Unit: History deal query cache is scoped by active login and merges session deals with login-scoped fallback deals for demo parity.
+- [x] Unit: History and Journal win-rate percentages use winning trades divided by decisive closed trades, excluding break-even rows from the denominator.
 
 ## Exit Criteria
 - History flows are parity-complete and validated in E2E suite.
 
 ## Progress Notes
+- 2026-06-18: Fixed History and Journal win-rate calculations to share one tested rule: net-positive trades count as wins, net-negative trades count as losses, and break-even closed trades are shown as trades but excluded from the win-rate denominator.
 - 2026-05-15: Fixed demo-account closed trades missing from History Trade Records by making the History deals query active-login aware. The app now fetches session `/account/deals` and login-scoped `/deals/{login}` together, keeps account endpoint data authoritative on duplicates, and uses the login fallback so demo accounts rebuild closed positions the same way real accounts do.
 - 2026-05-05: Updated the closed-position history API adapter to page through the closed-trade endpoint until all available records are loaded, with duplicate-page protection for backends that ignore `offset`. The History Positions screen and Net P/L drill-in now receive the full closed-trade history payload instead of only the first page, and the background refresh interval was relaxed so all-page history polling does not run every few seconds.
 - 2026-05-05: Hardened the History Positions `Trade Records` list so closed trades render from common backend payload shapes (`closed_positions`, `closedTrades`, `records`, `rows`) and common MT5 close-field aliases. Closed position rows now show a visible `closed` badge plus close-price and realized P/L details in the main History list.

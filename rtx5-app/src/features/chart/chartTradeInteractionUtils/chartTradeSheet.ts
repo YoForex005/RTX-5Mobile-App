@@ -230,9 +230,10 @@ export function shouldSuppressChartTapMenu({
     typeof suppressUntil === 'number' && Number.isFinite(suppressUntil)
       ? suppressUntil
       : 0;
+  const drawingToolSelected = activeTool !== 'none' && activeTool !== 'crosshair';
 
   return (
-    activeTool !== 'crosshair' ||
+    drawingToolSelected ||
     footerLotEditorFocused ||
     footerLotEditorOpening ||
     footerLotPickerOpen ||

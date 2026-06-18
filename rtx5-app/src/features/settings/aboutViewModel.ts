@@ -137,15 +137,13 @@ export function formatAboutPlatform(platform: string): string {
 
 export function resolveAboutBuildLabel({
   appVersion,
-  appBuildVersion,
 }: {
   appVersion: string;
   appBuildVersion?: string | null;
 }): string {
   const normalizedVersion = appVersion.trim() || 'Local';
-  const normalizedBuild = appBuildVersion?.trim();
 
-  return normalizedBuild ? `Version ${normalizedVersion} (${normalizedBuild})` : `Version ${normalizedVersion}`;
+  return `Version ${normalizedVersion}`;
 }
 
 export function getAboutStoreTarget(

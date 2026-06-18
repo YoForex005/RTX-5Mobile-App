@@ -316,11 +316,36 @@ test('SL and TP drag preserves the active WebView price while native overlays re
   );
 });
 
-test('pending chart CTA does not open the blocking preview-only Alert', () => {
+test('pending chart CTA submits the pending order and then exposes chart-side levels', () => {
+  const handlerSource = source.slice(
+    source.indexOf('const handleSubmitPendingTradeFromSheet = useCallback'),
+    source.indexOf('const handleToggleChartTradeSheetMode', source.indexOf('const handleSubmitPendingTradeFromSheet = useCallback')),
+  );
+
   assertSourceContains(
-    source,
-    /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'[\s\S]*snapTradeSheet\('collapsed'\)/,
-    'pending CTA must expose the chart-side draggable levels',
+    handlerSource,
+    /ordersApi\.placePendingOrder\(payload\)/,
+    'pending CTA must submit to the pending-order API',
+  );
+  assertSourceContains(
+    handlerSource,
+    /price_sl: chartTradeSlPrice/,
+    'pending CTA must include enabled SL price',
+  );
+  assertSourceContains(
+    handlerSource,
+    /price_tp: chartTradeTpPrice/,
+    'pending CTA must include enabled TP price',
+  );
+  assertSourceContains(
+    handlerSource,
+    /refetchOrders\(\)/,
+    'pending CTA must refresh order overlays after success',
+  );
+  assertSourceContains(
+    handlerSource,
+    /snapTradeSheet\('collapsed'\)/,
+    'pending CTA must expose chart-side draggable levels after submission',
   );
   if (/Pending Order Preview|Chart-side pending submission is still preview-only in this build|Alert\.alert/.test(source)) {
     throw new Error('pending CTA must not show the old preview-only blocking alert');

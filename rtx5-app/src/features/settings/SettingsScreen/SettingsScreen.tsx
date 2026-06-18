@@ -45,6 +45,7 @@ import { getConfiguredSupportEmail } from '../../../config/legalLinks';
 import { accountWsService } from '../../../api/ws/accountSocket';
 import { candlesWsService } from '../../../domain/candles/ws/candlesSocket';
 import { buildHelpMailto } from '../helpViewModel';
+import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
 
@@ -108,6 +109,7 @@ export function SettingsScreen() {
   const activeAccount = activeAccountDetails ?? listedAccount;
   const rawAccountName = activeAccount?.name ?? 'Account';
   const displayEmail = accountDetails?.name ?? '---';
+  const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
   const fallbackBalance = activeAccount?.balance;
   const liveMatchesActiveAccount = liveLogin !== 0 && (!activeAccount || liveLogin === activeAccount.login);
   const balanceToDisplay = liveHasBalance && liveMatchesActiveAccount ? liveBalance : fallbackBalance;
@@ -452,10 +454,12 @@ export function SettingsScreen() {
                   <Text style={[styles.accEmail, themeMode === 'light' && { color: 'rgba(255,255,255,0.9)' }]} ellipsizeMode="tail" numberOfLines={1}>
                     {displayEmail}
                   </Text>
-                  <View style={styles.connectedPill}>
-                    <View style={styles.greenDot} />
-                    <Text style={styles.connectedText}>{t('Connected')}</Text>
-                  </View>
+                  {isAccountConnected ? (
+                    <View style={styles.connectedPill}>
+                      <View style={styles.greenDot} />
+                      <Text style={styles.connectedText}>{t('Connected')}</Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <Text style={[styles.accName, themeMode === 'light' && { color: '#FFFFFF' }]}>{displayAccountName}</Text>

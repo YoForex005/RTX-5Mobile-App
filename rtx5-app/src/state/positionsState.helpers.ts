@@ -125,22 +125,21 @@ export function buildMergedPositions(
 
   const mergedMapped = mapped.map((mappedPosition) => {
     const existing = currentPositions.find((position) => position.id === mappedPosition.id);
+    const { clientCreatedAt: _confirmedClientCreatedAt, ...confirmedPosition } = mappedPosition;
     if (existing?.clientModifiedAt) {
       const modAgeMs = now - existing.clientModifiedAt;
       if (modAgeMs >= 0 && modAgeMs < preserveModifiedMs) {
         return {
-          ...mappedPosition,
+          ...confirmedPosition,
           sl: existing.sl,
           tp: existing.tp,
-          clientCreatedAt: existing.clientCreatedAt,
           clientModifiedAt: existing.clientModifiedAt,
         };
       }
     }
 
     return {
-      ...mappedPosition,
-      clientCreatedAt: existing?.clientCreatedAt,
+      ...confirmedPosition,
       clientModifiedAt: existing?.clientModifiedAt,
     };
   });

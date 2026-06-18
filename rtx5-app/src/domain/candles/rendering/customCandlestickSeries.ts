@@ -12,6 +12,7 @@ import {
 
 import {
   CANDLE_CENTER_EPSILON,
+  computeCandleWickRects,
   createCandleGeometry,
   formatCandleGeometryInvariantMessage,
   getCandlestickBorderWidth,
@@ -213,24 +214,34 @@ class RTX5CustomCandlestickRenderer implements ICustomSeriesPaneRenderer {
         }
 
         if (this.options.wickVisible && geometry.wickWidth > 0) {
-          const upperHeight = geometry.upperWickBodyY - geometry.wickTop + 1;
-          const lowerHeight = geometry.wickBottom - geometry.lowerWickBodyY + 1;
+          // Price-aware wick rects: draw a wick only when one exists in price
+          // terms, and never let a real-but-tiny wick collapse onto the body.
+          const wicks = computeCandleWickRects({
+            open: bar.originalData.open,
+            high: bar.originalData.high,
+            low: bar.originalData.low,
+            close: bar.originalData.close,
+            bodyTop: geometry.bodyTop,
+            bodyBottom: geometry.bodyBottom,
+            wickTop: geometry.wickTop,
+            wickBottom: geometry.wickBottom,
+          });
 
           context.fillStyle = wickColor;
-          if (upperHeight > 0) {
+          if (wicks.upperHeight > 0) {
             context.fillRect(
               geometry.wickLeft,
-              geometry.wickTop,
+              wicks.upperWickTop,
               geometry.wickWidth,
-              upperHeight,
+              wicks.upperHeight,
             );
           }
-          if (lowerHeight > 0) {
+          if (wicks.lowerHeight > 0) {
             context.fillRect(
               geometry.wickLeft,
-              geometry.lowerWickBodyY,
+              wicks.lowerWickTop,
               geometry.wickWidth,
-              lowerHeight,
+              wicks.lowerHeight,
             );
           }
         }

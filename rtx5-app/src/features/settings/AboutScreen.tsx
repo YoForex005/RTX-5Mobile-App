@@ -550,7 +550,7 @@ function ContactDeveloperScreen({
                   Send a structured request to the developer team. Include the area, title, and details so the issue can be reviewed clearly.
                 </Text>
                 <Text style={styles.contactHeroMeta} numberOfLines={1}>
-                  App version {appVersion}{appBuildVersion ? ` (${appBuildVersion})` : ''}
+                  App version {appVersion}
                 </Text>
               </View>
             </View>

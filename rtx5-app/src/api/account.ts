@@ -64,10 +64,19 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
-function mapApiResponse(raw: AccountSummaryApiResponse): AccountSummary {
+export function mapAccountSummaryApiResponse(raw: AccountSummaryApiResponse): AccountSummary {
   const balance = toFiniteNumber(raw.balance);
-  const equity = toFiniteNumber(raw.equity);
+  const credit = toFiniteNumber(raw.credit);
+  const profit = toFiniteNumber(raw.unrealized_pl ?? raw.floating_pnl ?? raw.floating);
+  // If the broker omits derived metrics, rebuild the standard account math:
+  // equity = balance + credit + floating, free margin = equity - used margin.
+  const equity = raw.equity !== undefined
+    ? toFiniteNumber(raw.equity)
+    : balance + credit + profit;
   const margin = toFiniteNumber(raw.margin_used ?? raw.used_margin ?? raw.margin);
+  const freeMargin = raw.margin_available !== undefined || raw.free_margin !== undefined || raw.margin_free !== undefined
+    ? toFiniteNumber(raw.margin_available ?? raw.free_margin ?? raw.margin_free)
+    : equity - margin;
   const marginLevel = raw.margin_level !== undefined
     ? toFiniteNumber(raw.margin_level)
     : margin > 0
@@ -76,11 +85,11 @@ function mapApiResponse(raw: AccountSummaryApiResponse): AccountSummary {
 
   return {
     balance,
-    credit: toFiniteNumber(raw.credit),
-    profit: toFiniteNumber(raw.unrealized_pl ?? raw.floating_pnl ?? raw.floating),
+    credit,
+    profit,
     equity,
     margin,
-    freeMargin: toFiniteNumber(raw.margin_available ?? raw.free_margin ?? raw.margin_free),
+    freeMargin,
     marginLevel,
     leverage: toFiniteNumber(raw.leverage),
     currency: raw.currency || 'USD',
@@ -115,5 +124,5 @@ export async function getAccountSummary(login?: string): Promise<AccountSummary>
   }
 
   const raw: AccountSummaryApiResponse = await response.json();
-  return mapApiResponse(raw);
+  return mapAccountSummaryApiResponse(raw);
 }

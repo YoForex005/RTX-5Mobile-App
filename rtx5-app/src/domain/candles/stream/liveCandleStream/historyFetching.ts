@@ -8,7 +8,10 @@
  */
 import { getCandleHistory } from '../../api/candles';
 import { syncMergedCandleCache } from '../../state/candleCache';
-import { pruneLiveCandleMapCoveredByHistory } from '../../series/freshHistoryLiveSeries';
+import {
+  foldCoveredLiveExtremesIntoHistory,
+  pruneLiveCandleMapCoveredByHistory,
+} from '../../series/freshHistoryLiveSeries';
 import {
   normalizeCandleHistoryTimeframeStrict,
   normalizeSymbol,
@@ -117,8 +120,16 @@ export const runLoadHistory = (
       // Keep REST history and backend live candles separate. The visible
       // chart series is rebuilt fresh from these two sources in commit().
       live.historyCandles = historyCandles;
-      
+
       if (!options?.to) {
+        // Preserve wicks we observed live before the live candle is pruned, so a
+        // finalized candle never renders narrower than it did while forming.
+        live.historyCandles = foldCoveredLiveExtremesIntoHistory(
+          live.historyCandles,
+          live.liveCandleMap,
+          historySeed.closedHistoryLastTime,
+          timeframe,
+        );
         live.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
           live.liveCandleMap,
           historySeed.closedHistoryLastTime,
@@ -232,7 +243,12 @@ export const runPrefetchHistory = (
         liveEntry.requestId === 0 &&
         !liveEntry.historyLoading
       ) {
-        liveEntry.historyCandles = candles;
+        liveEntry.historyCandles = foldCoveredLiveExtremesIntoHistory(
+          candles,
+          liveEntry.liveCandleMap,
+          seed.closedHistoryLastTime,
+          timeframe,
+        );
         liveEntry.historyLastTime = seed.closedHistoryLastTime;
         liveEntry.liveCandleMap = pruneLiveCandleMapCoveredByHistory(
           liveEntry.liveCandleMap,

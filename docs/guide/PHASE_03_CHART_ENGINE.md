@@ -67,8 +67,16 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - [x] Native chart startup throttles pending WebView init retries so slower iOS devices are not flooded with repeated full-history payloads before `CHART_READY`.
 - [x] Native WebView chart keeps the primary right price-axis labels visible through Android startup, resize, and data reload recovery.
 - [x] Chart radial quick menu opens at the chart tap point with an MT5-like smooth native scale entrance and repeated chart body taps alternate open/close.
+- [x] Chart live-data subscriptions and quote fallbacks activate as soon as the chart route is active, without waiting for the delayed WebView surface mount.
+- [x] Chart header and compact trade-button bid/ask values repaint on the one-frame quote UI path.
+- [x] Native chart first visit uses startup-prefetched candle history instead of showing a false no-data state while a duplicate REST refresh is still in flight.
 
 ## Progress Notes
+- 2026-06-18: Physical Android full-bundle ADB checks after a 45s Quotes wait showed the old hidden-tab timer could show "No market data available" before the chart was visited. Chart loading/no-data timers now run only while Chart is active, empty `CHART_READY` no longer latches first paint, and new candle streams seed synchronously from startup-prefetched memory before the background REST refresh. Follow-up screenshots showed the first Chart visit displaying a loader instead of false no-data and then candles by the 1.5s capture while the duplicate REST refresh was still in flight.
+- 2026-06-18: Physical Android full-bundle ADB checks showed the chart surface stayed mounted, but primary tab `freezeOnBlur` caused old tab content to remain visible for roughly a second on Trade/Chart switches. Primary tabs now stay attached without freeze/thaw while route-gated hooks continue pausing hidden live work.
+- 2026-06-18: Native Chart now warms the saved symbol/timeframe candle history shortly after app startup and latches the loading overlay off after the first real candle paint, so returning from another tab keeps the retained chart surface visible instead of showing a fresh load.
+- 2026-06-18: Reduced chart bid/ask UI throttles from 120ms for the chart header and 80ms for compact trade buttons to the shared one-frame 16ms quote commit path.
+- 2026-06-18: Chart runtime live data now activates immediately when the chart route becomes active, while the heavier WebView surface mount delay remains in place for first-frame smoothness.
 - 2026-06-11: Rechecked the MT5 radial menu on-device from the plain chart state. RTX5 now positions the radial quick menu around the actual chart tap point and opens from a visibly smaller native-driven scale, while valid chart-body taps still alternate open and close. Verified on Android through Expo Go full local bundle with ADB screen recording and extracted transition frames.
 - 2026-06-09: Fixed open-position chart trade-level labels so their live P/L amount refreshes from the resolved bid/ask feed and the dotted entry line plus label color follow profit/loss state: green for profit, red for loss.
 - 2026-06-09: Removed the native compact chart bottom-right horizontal three-dot viewport button. Reset and volume controls remain available from the top toolbar Options sheet, keeping the chart viewport clear above the compact Sell/Lot/Buy footer.
@@ -444,6 +452,8 @@ Build a custom Skia chart engine that replicates chart interactions and tools wi
 - 2026-05-16: Added extra vertical clearance to the compact Sell/Lot/Buy footer so the row no longer clips at the bottom edge. The fixed footer row is now 40px tall, the keyboard/dock reserve is 72px, the dock keeps a 20px internal bottom cushion, and Android lot editing applies a small bottom safety gap instead of sitting exactly on the keyboard edge.
 - 2026-05-26: Tightened the compact chart Buy/Sell footer response against the MT5 reference. The chart trade handler no longer treats a pending order mutation as a footer-wide disabled state; it uses the existing short tap guard for duplicate responder protection, releases the visual lock after that guard, and leaves Sell/Buy plus lot controls tappable while backend work continues.
 ## Test Checklist
+- [x] Unit/typecheck/ADB: primary tabs stay attached without freeze/thaw so Chart/Trade tab returns do not leave old tab content visible while hidden live work remains route-gated.
+- [x] Unit/typecheck: native Chart startup warms the saved candle history before the first tab visit and keeps the loading overlay one-time after the first confirmed WebView paint.
 - [x] Unit/typecheck: chart price-scale precision follows backend digits/precision/point/tick_size metadata across native/web chart and preview paths; focused chart bridge tests plus the chart stability suite pass.
 - [x] Unit: candle transforms and viewport math.
 - [x] Unit/typecheck: app-wide fast actions stay on the immediate action path without the old tracing wrapper across Settings, Accounts, Quotes, History, Trade summary, Chart Settings, Order Ticket, and native/web ChartScreen, with light/dark theme wiring guarded.

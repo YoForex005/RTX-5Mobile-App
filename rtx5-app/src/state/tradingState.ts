@@ -13,6 +13,7 @@ import { normalizeSymbol, normalizeTimeframeStrict, normalizeTimestampToMs } fro
 import { sanitizeCandlesForChart } from '../domain/candles/normalization/chartAdapter';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
+import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
 
@@ -119,7 +120,7 @@ export const useTradingState = create<TradingState>((set) => ({
         // We will merge it. Note: the actual app structure might require `QuoteItem` to be fully formed.
         // If a new quote ticks we haven't seen, we'll cast it to `QuoteItem`.
         const digits = data.digits ?? spec?.digits ?? 5;
-        const volume = data.volume ?? spec?.volume ?? 0;
+        const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const lastTickAt =
           feedTickAt ??
           (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : undefined);
@@ -128,12 +129,21 @@ export const useTradingState = create<TradingState>((set) => ({
           ...data,
           symbol: normalizedSymbol,
           digits,
-          volume,
           feedTickAt: feedTickAt ?? undefined,
           lastTickAt,
           lastReceivedAt,
           lastPriceChangedAt,
         } as QuoteItem;
+
+        // Do not seed live quote volume from static specs; volume is meaningful
+        // only when the backend sends it for this quote stream.
+        if (volume === undefined) {
+          delete newQuote.volume;
+          delete newQuote.volumeSource;
+        } else {
+          newQuote.volume = volume;
+          newQuote.volumeSource = 'backend';
+        }
         
         const spread = calculateQuoteSpreadPoints(newQuote.bid, newQuote.ask, digits);
         if (spread !== undefined) {
@@ -157,33 +167,43 @@ export const useTradingState = create<TradingState>((set) => ({
       const prevAskState = incomingAsk && incomingAsk !== existing.ask ? existing.ask : existing.prevAsk;
 
       const digits = data.digits ?? existing.digits ?? spec?.digits ?? 5;
-      const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
+      const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
       const lastTickAt =
         feedTickAt ??
         (Number.isFinite(data.bid) && Number.isFinite(data.ask) ? Date.now() : existing.lastTickAt);
       const spread =
         calculateQuoteSpreadPoints(data.bid ?? existing.bid, data.ask ?? existing.ask, digits) ??
         existing.spread;
+      const updatedQuote = {
+        ...spec,
+        ...existing,
+        ...data,
+        symbol: normalizedSymbol,
+        digits,
+        feedTickAt: feedTickAt ?? undefined,
+        lastTickAt,
+        lastReceivedAt,
+        lastPriceChangedAt,
+        spread,
+        // Track previous prices
+        prevBid: prevBidState,
+        prevAsk: prevAskState,
+      } as QuoteItem;
+
+      // Keep an old backend volume if the next tick omits it, but remove any
+      // value that came from static/default data.
+      if (volume === undefined) {
+        delete updatedQuote.volume;
+        delete updatedQuote.volumeSource;
+      } else {
+        updatedQuote.volume = volume;
+        updatedQuote.volumeSource = 'backend';
+      }
 
       return {
         quotes: {
           ...state.quotes,
-          [normalizedSymbol]: {
-            ...spec,
-            ...existing,
-            ...data,
-            symbol: normalizedSymbol,
-            digits,
-            volume,
-            feedTickAt: feedTickAt ?? undefined,
-            lastTickAt,
-            lastReceivedAt,
-            lastPriceChangedAt,
-            spread,
-            // Track previous prices
-            prevBid: prevBidState,
-            prevAsk: prevAskState,
-          },
+          [normalizedSymbol]: updatedQuote,
         },
         tickCount: state.tickCount + (priceChanged ? 1 : 0),
       };

@@ -44,3 +44,12 @@ test('settings search results reuse the same routes as settings rows', () => {
   assert.doesNotMatch(source, /FAQ & Documentation|FAQs & Documentation/);
   assert.doesNotMatch(source, /feature-status|statusKey|openFeatureStatus|statusModal|title: 'OTP'|SOCIAL & ALGO|COMMUNITY/);
 });
+
+test('settings account card only shows connected status when an authenticated login session exists', () => {
+  const source = readSettingsScreenSource();
+
+  assert.match(source, /import \{ hasAuthenticatedAccountSession \} from '\.\.\/accountConnectionStatus'/);
+  assert.match(source, /const isAccountConnected = hasAuthenticatedAccountSession\(isLoggedIn, accountDetails\)/);
+  assert.match(source, /\{isAccountConnected \? \([\s\S]*style=\{styles\.connectedPill\}[\s\S]*style=\{styles\.greenDot\}[\s\S]*style=\{styles\.connectedText\}[\s\S]*t\('Connected'\)[\s\S]*\) : null\}/);
+  assert.doesNotMatch(source, /t\('Not connected'\)/);
+});

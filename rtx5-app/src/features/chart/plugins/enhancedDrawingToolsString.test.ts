@@ -8,6 +8,7 @@ type WebViewMessage = {
   active?: boolean;
   candle?: { close: number | null; high: number | null; low: number | null; open: number | null; time: number | null };
   drawings?: Array<any>;
+  drawingActive?: boolean;
   recordId?: string;
   text?: string;
   tool?: string;
@@ -325,7 +326,66 @@ test('Crosshair touch mode shows and locks the professional cursor overlay witho
   assert.ok(harness.crosshairMessages().some((message) => message.active === false));
 });
 
-test('Trend Line creates a two-point line and returns to crosshair', () => {
+test('No drawing tool selected leaves chart touches passive and hides drawing UI', () => {
+  const harness = createFakeChartEnvironment({ touch: true });
+
+  assert.equal(harness.manager.getActiveTool(), 'none');
+  const startEvent = harness.touchStart(120, 140);
+  const moveEvent = harness.touchMove(124, 144);
+  const endEvent = harness.touchEnd(124, 144);
+  harness.move(124, 144);
+  harness.click(124, 144);
+
+  assert.equal(startEvent.preventDefaultCalls, 0);
+  assert.equal(moveEvent.preventDefaultCalls, 0);
+  assert.equal(endEvent.preventDefaultCalls, 0);
+  assert.equal(harness.host.children.find((child: any) => child['data-rtx5-crosshair-overlay'] === 'true'), undefined);
+  assert.deepEqual(harness.crosshairMessages(), []);
+  assert.deepEqual(harness.latestDrawings(), []);
+});
+
+test('Serialized drawings stay hidden until a matching drawing tool is selected', () => {
+  const harness = createFakeChartEnvironment();
+
+  harness.manager.setSerializedDrawings([
+    {
+      hidden: false,
+      id: 'text_level_saved',
+      kind: 'textLevel',
+      label: 'Entry',
+      points: [{ time: 1, price: 90 }],
+      text: 'Entry',
+    },
+    {
+      hidden: false,
+      id: 'fib_saved',
+      kind: 'fib',
+      label: 'Fib',
+      points: [{ time: 1, price: 90 }, { time: 3, price: 94 }],
+    },
+  ]);
+
+  const textLevelPrimitive: any = harness.attachedPrimitives[0];
+  const fibPrimitive: any = harness.attachedPrimitives[1];
+  assert.equal(textLevelPrimitive._options.visible, false);
+  assert.equal(fibPrimitive._options.visible, false);
+  assert.equal(harness.latestDrawings().length, 2);
+  assert.equal(harness.latestDrawings()[0].hidden, false);
+
+  harness.manager.setActiveTool('textLevel');
+  assert.equal(textLevelPrimitive._options.visible, true);
+  assert.equal(fibPrimitive._options.visible, false);
+
+  harness.manager.setActiveTool('fib');
+  assert.equal(textLevelPrimitive._options.visible, false);
+  assert.equal(fibPrimitive._options.visible, true);
+
+  harness.manager.setActiveTool('none');
+  assert.equal(textLevelPrimitive._options.visible, false);
+  assert.equal(fibPrimitive._options.visible, false);
+});
+
+test('Trend Line creates a two-point line and keeps only that tool selected', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setActiveTool('trendline');
@@ -343,7 +403,9 @@ test('Trend Line creates a two-point line and returns to crosshair', () => {
   assert.equal(drawings[0].style.color, '#2962FF');
   assert.equal(typeof drawings[0].createdAt, 'number');
   assert.equal(typeof drawings[0].updatedAt, 'number');
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'trendline');
+  const toolMessages = harness.toolsChanged();
+  assert.equal(toolMessages[toolMessages.length - 1]?.drawingActive, false);
 });
 
 test('Trend Line can be selected and deleted from crosshair mode', () => {
@@ -352,6 +414,7 @@ test('Trend Line can be selected and deleted from crosshair mode', () => {
   harness.manager.setActiveTool('trendline');
   harness.click(10, 100);
   harness.click(20, 90);
+  harness.manager.setActiveTool('crosshair');
   (harness.manager as any)._ignoreCrosshairClickUntil = 0;
   harness.click(15, 95);
 
@@ -370,6 +433,7 @@ test('Trend Line direct mobile editing moves endpoints and whole lines without R
   harness.touchEnd(100, 60);
   assert.equal(harness.latestDrawings().length, 1);
 
+  harness.manager.setActiveTool('crosshair');
   harness.touchStart(10, 100);
   const messagesBeforeEndpointMove = harness.drawingMessages().length;
   harness.touchMove(20, 110);
@@ -412,7 +476,9 @@ test('Trend Line supports direct mobile drag input without chart pan interferenc
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'trendline');
   assert.equal(drawings[0].points.length, 2);
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'trendline');
+  const toolMessages = harness.toolsChanged();
+  assert.equal(toolMessages[toolMessages.length - 1]?.drawingActive, false);
   assert.equal(startEvent.preventDefaultCalls, 1);
   assert.equal(moveEvent.preventDefaultCalls, 1);
   assert.equal(endEvent.preventDefaultCalls, 1);
@@ -435,6 +501,7 @@ test('Direct touch box tools commit in empty chart space even when touchend has 
   assert.ok(drawings[0].points[1].time > drawings[0].points[0].time);
   assert.notEqual(drawings[0].points[1].price, drawings[0].points[0].price);
 
+  harness.manager.setActiveTool('measure');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   const renderer = primitive.paneViews()[0].renderer();
@@ -463,6 +530,7 @@ test('Fib Zone creates calculated levels, zones, and golden pocket metadata', ()
   assert.equal(drawings[0].goldenPocket.enabled, true);
   assert.equal(drawings[0].extendMode, 'right');
 
+  harness.manager.setActiveTool('fib');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   const prices = primitive.getLevelPrices();
   assert.equal(prices.find((level: any) => level.value === 0).price, 90);
@@ -509,6 +577,7 @@ test('Fib Zone supports mobile anchor and body editing without React move spam',
   assert.equal(drawings.length, 1);
   assert.equal(drawings[0].kind, 'fib');
 
+  harness.manager.setActiveTool('crosshair');
   harness.touchStart(120, 60);
   const messagesBeforeAnchorMove = harness.drawingMessages().length;
   harness.touchMove(130, 70);
@@ -570,7 +639,7 @@ test('Highlight Box creates a two-point box drawing with persistence metadata', 
   assert.equal(drawings[0].alertMetadata.priceBottom, 90);
   assert.equal(typeof drawings[0].createdAt, 'number');
   assert.equal(typeof drawings[0].updatedAt, 'number');
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'brush');
 });
 
 test('Highlight Box restore preserves serialized zone metadata and alert settings', () => {
@@ -641,6 +710,7 @@ test('Highlight Box right extension renders to the pane edge without moving anch
     zoneType: 'demand',
   }]);
 
+  harness.manager.setActiveTool('brush');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   const renderer = primitive.paneViews()[0].renderer();
@@ -670,6 +740,7 @@ test('Highlight Box hit testing prefers handles over body and extended fill', ()
     type: 'highlightBox',
   }]);
 
+  harness.manager.setActiveTool('brush');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
@@ -729,12 +800,13 @@ test('Highlight Box direct mobile drag creation and resize avoid React move spam
   assert.equal(startEvent.preventDefaultCalls, 1);
   assert.equal(moveEvent.preventDefaultCalls, 1);
   assert.equal(endEvent.preventDefaultCalls, 1);
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'brush');
 
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
 
+  harness.manager.setActiveTool('crosshair');
   const editStartEvent = harness.touchStart(80, 40);
   const messagesBeforeResizeMove = harness.drawingMessages().length;
   const editMoveEvent = harness.touchMove(90, 30);
@@ -806,6 +878,7 @@ test('Text Level creates a snapped one-point price level drawing', () => {
   assert.equal(drawings[0].levelType, 'neutral');
   assert.deepEqual(drawings[0].labelOffset, { x: 0, y: 0 });
 
+  harness.manager.setActiveTool('crosshair');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
@@ -828,6 +901,7 @@ test('Text Level touch drag moves the level price without changing its time anch
       showPriceAxisLabel: true,
     },
   ]);
+  harness.manager.setActiveTool('crosshair');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
@@ -859,6 +933,7 @@ test('Text Level touch drag on the label stores label offset without moving the 
       showPriceAxisLabel: true,
     },
   ]);
+  harness.manager.setActiveTool('crosshair');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
@@ -895,6 +970,7 @@ test('Text Level mobile tap on the label opens native editing and sanitizes pers
       showPriceAxisLabel: true,
     },
   ]);
+  harness.manager.setActiveTool('crosshair');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   primitive.paneViews()[0].renderer().draw(createFakeBitmapTarget().target);
@@ -952,6 +1028,7 @@ test('Pitchfork direct touch commits three anchors in empty chart space', () => 
   assert.equal(drawings[0].points.length, 3);
   assert.ok(drawings[0].points[2].time > drawings[0].points[1].time);
 
+  harness.manager.setActiveTool('pitchfork');
   const primitive: any = harness.attachedPrimitives[harness.attachedPrimitives.length - 1];
   primitive.updateAllViews();
   const renderer = primitive.paneViews()[0].renderer();
@@ -1113,7 +1190,7 @@ test('Lock All Drawings blocks selecting drawing tools until unlocked', () => {
   harness.manager.setDrawingsLocked(true);
   harness.manager.setActiveTool('trendline');
 
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'none');
 
   harness.manager.setDrawingsLocked(false);
   harness.manager.setActiveTool('trendline');
@@ -1136,7 +1213,7 @@ test('Hide All Drawings toggles persisted hidden state for existing drawings', (
   assert.equal(harness.latestDrawings()[0].hidden, false);
 });
 
-test('Clear Drawings removes drawings and returns to crosshair', () => {
+test('Clear Drawings removes drawings and returns to inactive mode', () => {
   const harness = createFakeChartEnvironment();
 
   harness.manager.setActiveTool('trendline');
@@ -1145,7 +1222,7 @@ test('Clear Drawings removes drawings and returns to crosshair', () => {
   harness.manager.removeAllDrawings();
 
   assert.deepEqual(harness.latestDrawings(), []);
-  assert.equal(harness.manager.getActiveTool(), 'crosshair');
+  assert.equal(harness.manager.getActiveTool(), 'none');
 });
 
 test('Manager teardown detaches drawings without clearing persisted host state', () => {

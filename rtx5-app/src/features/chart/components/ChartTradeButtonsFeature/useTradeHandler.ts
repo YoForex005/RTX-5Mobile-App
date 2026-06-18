@@ -12,6 +12,7 @@ import { runCriticalTradeAction } from '../../../../utils/actionLatency';
 import { getApiLatencyNow } from '../../../../utils/apiLatency';
 import type { TradeSide } from '../../../../domain/tradeSide';
 import { buildChartMarketOrderPayload, getChartTradeAction } from '../../chartTradeActions';
+import { validateChartTradeProtectionLevels } from '../../chartTradeOrderUtils';
 import {
   CHART_TRADE_TAP_RELEASE_DELAY_MS,
   acquireChartTradeButtonSharedLock,
@@ -67,6 +68,8 @@ type QueuedChartTrade = {
   tradingLogin: string | number;
   volume: number;
   comment: string;
+  stopLossPrice?: number;
+  takeProfitPrice?: number;
   latestBid: number;
   latestAsk: number;
   queuedAtMs: number;
@@ -76,6 +79,9 @@ export type TradeHandlerOptions = {
   symbol: string;
   variant?: 'compact' | 'mt5-market';
   comment?: string;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
+  pointSize?: number;
   lotSize: number;
   latestBid: number;
   latestAsk: number;
@@ -86,6 +92,9 @@ export function useTradeHandler({
   symbol,
   variant = 'compact',
   comment,
+  stopLossPrice,
+  takeProfitPrice,
+  pointSize = 0.00001,
   lotSize,
   latestBid,
   latestAsk,
@@ -213,6 +222,8 @@ export function useTradeHandler({
       side: action.side,
       volume: queuedTrade.volume,
       comment: queuedTrade.comment,
+      stopLossPrice: queuedTrade.stopLossPrice,
+      takeProfitPrice: queuedTrade.takeProfitPrice,
     });
     const requestStartedAtMs = getApiLatencyNow();
     const queueWaitMs = Math.max(0, Math.round(requestStartedAtMs - queuedTrade.queuedAtMs));
@@ -351,6 +362,10 @@ export function useTradeHandler({
     }
     const volume = Number(lotSize);
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
+    const normalizedStopLossPrice = Number(stopLossPrice);
+    const normalizedTakeProfitPrice = Number(takeProfitPrice);
+    const hasStopLossPrice = Number.isFinite(normalizedStopLossPrice) && normalizedStopLossPrice > 0;
+    const hasTakeProfitPrice = Number.isFinite(normalizedTakeProfitPrice) && normalizedTakeProfitPrice > 0;
     const authState = useUserPreferences.getState();
     const authToken = authState.accountDetails?.credentials?.accessToken;
     const tradingLogin = resolveTradingLogin();
@@ -397,6 +412,28 @@ export function useTradeHandler({
       return;
     }
 
+    const protectionValidation = validateChartTradeProtectionLevels({
+      side: action.side,
+      entryPrice: action.side === 'buy' ? latestAsk : latestBid,
+      slEnabled: hasStopLossPrice,
+      slPrice: hasStopLossPrice ? normalizedStopLossPrice : 0,
+      tpEnabled: hasTakeProfitPrice,
+      tpPrice: hasTakeProfitPrice ? normalizedTakeProfitPrice : 0,
+      pointSize,
+    });
+
+    if (!protectionValidation.valid) {
+      onTradeResult?.({
+        visible: true,
+        type: 'error',
+        title: 'Invalid SL/TP',
+        message: protectionValidation.message,
+        side: action.side,
+      });
+      releaseTradeTapLock(CHART_TRADE_TAP_RELEASE_DELAY_MS);
+      return;
+    }
+
     if (oneClickAccepted) {
       logChartTradeDiagnostic('[Trade] one-click path, login=', tradingLogin);
       const queuedTrade: QueuedChartTrade = {
@@ -406,6 +443,8 @@ export function useTradeHandler({
         tradingLogin,
         volume,
         comment: trimmedComment,
+        ...(hasStopLossPrice ? { stopLossPrice: normalizedStopLossPrice } : {}),
+        ...(hasTakeProfitPrice ? { takeProfitPrice: normalizedTakeProfitPrice } : {}),
         latestBid,
         latestAsk,
         queuedAtMs: getApiLatencyNow(),
@@ -450,6 +489,8 @@ export function useTradeHandler({
             params: {
               symbol,
               side: action.side,
+              ...(hasStopLossPrice ? { sl: String(normalizedStopLossPrice) } : {}),
+              ...(hasTakeProfitPrice ? { tp: String(normalizedTakeProfitPrice) } : {}),
               ...(trimmedComment ? { comment: trimmedComment } : {}),
             },
           });

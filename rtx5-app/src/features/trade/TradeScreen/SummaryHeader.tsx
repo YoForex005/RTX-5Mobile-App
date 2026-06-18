@@ -33,6 +33,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   const safeMarginLevel = Number.isFinite(account.marginLevel) ? account.marginLevel : 0;
   const tradeSummaryDetailsVisible = useUserPreferences((state) => state.tradeSummaryDetailsVisible);
   const setTradeSummaryDetailsVisible = useUserPreferences((state) => state.setTradeSummaryDetailsVisible);
+  const accountCurrency = account.currency || 'USD';
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -73,29 +74,33 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           ]}
         >
           {/* The Hero: Unrealized P/L */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }}>
               {t('Floating Profit/Loss')}
             </Text>
             <Animated.Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
               style={{
                 fontSize: 24,
                 fontWeight: '700',
                 color: safeFloating >= 0 ? T.up : T.down,
                 opacity: pulseAnim,
-                letterSpacing: -0.2,
+                letterSpacing: 0,
                 fontVariant: ['tabular-nums'],
                 textAlign: 'right',
+                flexShrink: 0,
               }}>
-              {fmt.pnlPrecise(safeFloating)} {account.currency || 'USD'}
+              {fmt.pnlPrecise(safeFloating)} {accountCurrency}
             </Animated.Text>
           </View>
         </FastPressable>
         {tradeSummaryDetailsVisible ? (
           <View style={s.summaryMetrics}>
+            {/* Keep Floating P/L as the collapsed headline; equity belongs in the expanded account breakdown. */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Balance')} <Text style={{ fontSize: 10, color: T.textFaint }}>({account.currency || 'USD'})</Text>
+                {t('Balance')} <Text style={{ fontSize: 10, color: T.textFaint }}>({accountCurrency})</Text>
               </Text>
               <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
                 <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
@@ -211,6 +216,7 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
 export const TradeSummaryHeader = React.memo(({
   positions,
+  liveQuotePositions,
   hydratedLogin,
   resolvedLogin,
   s,
@@ -221,6 +227,7 @@ export const TradeSummaryHeader = React.memo(({
   active,
 }: {
   positions: PositionItem[];
+  liveQuotePositions?: PositionItem[];
   hydratedLogin: string | null;
   resolvedLogin: number | undefined;
   s: TradeScreenStyles;
@@ -239,11 +246,15 @@ export const TradeSummaryHeader = React.memo(({
       margin: state.margin,
       margin_free: state.margin_free,
       margin_level: state.margin_level,
+      metricFlags: state.metricFlags,
     })),
   );
   const liveQuoteSymbols = useMemo(
-    () => Array.from(new Set(positions.map((position) => position.symbol))),
-    [positions],
+    // Only rows that are mounted/visible need live quote ticks immediately.
+    // Off-screen positions still count in the Positions total, but they keep
+    // their latest snapshot P/L until they scroll in and become live rows.
+    () => Array.from(new Set((liveQuotePositions ?? positions).map((position) => position.symbol))),
+    [liveQuotePositions, positions],
   );
   const liveQuotes = useMarketData(liveQuoteSymbols, active);
   const account = useMemo(() => {

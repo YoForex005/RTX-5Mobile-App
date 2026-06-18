@@ -33,6 +33,8 @@ export const calculateQuoteSpreadPoints = (
     return undefined;
   }
 
+  // Market Watch style spread: ask minus bid converted to display points.
+  // Round both prices first so the spread matches what the user sees on screen.
   const scale = 10 ** safeDigits;
   const bidPoints = Math.round(safeBid * scale);
   const askPoints = Math.round(safeAsk * scale);

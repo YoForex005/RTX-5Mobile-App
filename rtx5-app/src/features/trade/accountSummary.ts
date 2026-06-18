@@ -1,7 +1,11 @@
-import type { LiveAccountData } from '../../state/liveAccountState';
+import type { LiveAccountData, LiveAccountMetricFlags } from '../../state/liveAccountState';
 import type { AccountSummary } from '../../state/tradingState';
 import type { PositionItem, QuoteItem } from '../../dev/mock/tradingData';
 import { sumLivePositionPnl } from './livePositionMetrics.ts';
+
+type TradeLiveAccountMetrics = Partial<LiveAccountData> & {
+  metricFlags?: Partial<LiveAccountMetricFlags>;
+};
 
 export type TradeAccountSummary = {
   balance: number;
@@ -18,31 +22,46 @@ function toFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function hasAuthoritativeLiveMetrics(liveAccount: Partial<LiveAccountData>): boolean {
-  return [
-    liveAccount.balance,
-    liveAccount.equity,
-    liveAccount.margin,
-    liveAccount.margin_free,
-    liveAccount.margin_level,
-    liveAccount.floating,
-  ].some((value) => toFiniteNumber(value) !== undefined && value !== 0);
+function hasLiveMetric(
+  liveAccount: TradeLiveAccountMetrics,
+  key: keyof LiveAccountMetricFlags,
+  value: unknown,
+): boolean {
+  // Zero can be a valid broker value, so metric flags decide whether a live
+  // account field is present instead of treating 0 as "missing".
+  if (liveAccount.metricFlags) {
+    return liveAccount.metricFlags[key] === true && toFiniteNumber(value) !== undefined;
+  }
+
+  const numericValue = toFiniteNumber(value);
+  return numericValue !== undefined && numericValue !== 0;
+}
+
+function pickAccountMetric(
+  liveAccount: TradeLiveAccountMetrics,
+  key: keyof LiveAccountMetricFlags,
+  liveValue: unknown,
+  fallbackValue: unknown,
+): number {
+  if (hasLiveMetric(liveAccount, key, liveValue)) {
+    return toFiniteNumber(liveValue) ?? 0;
+  }
+
+  return toFiniteNumber(fallbackValue) ?? 0;
 }
 
 export function buildTradeAccountSummary(
-  liveAccount: Partial<LiveAccountData>,
+  liveAccount: TradeLiveAccountMetrics,
   tradingAccount: AccountSummary | null | undefined,
 ): TradeAccountSummary {
-  const useLiveMetrics = hasAuthoritativeLiveMetrics(liveAccount);
-
   return {
-    balance: useLiveMetrics ? toFiniteNumber(liveAccount.balance) ?? 0 : toFiniteNumber(tradingAccount?.balance) ?? 0,
+    balance: pickAccountMetric(liveAccount, 'balance', liveAccount.balance, tradingAccount?.balance),
     credit: toFiniteNumber(tradingAccount?.credit) ?? 0,
-    floating: useLiveMetrics ? toFiniteNumber(liveAccount.floating) ?? 0 : toFiniteNumber(tradingAccount?.floating) ?? 0,
-    equity: useLiveMetrics ? toFiniteNumber(liveAccount.equity) ?? 0 : toFiniteNumber(tradingAccount?.equity) ?? 0,
-    margin: useLiveMetrics ? toFiniteNumber(liveAccount.margin) ?? 0 : toFiniteNumber(tradingAccount?.margin) ?? 0,
-    freeMargin: useLiveMetrics ? toFiniteNumber(liveAccount.margin_free) ?? 0 : toFiniteNumber(tradingAccount?.freeMargin) ?? 0,
-    marginLevel: useLiveMetrics ? toFiniteNumber(liveAccount.margin_level) ?? 0 : toFiniteNumber(tradingAccount?.marginLevel) ?? 0,
+    floating: pickAccountMetric(liveAccount, 'floating', liveAccount.floating, tradingAccount?.floating),
+    equity: pickAccountMetric(liveAccount, 'equity', liveAccount.equity, tradingAccount?.equity),
+    margin: pickAccountMetric(liveAccount, 'margin', liveAccount.margin, tradingAccount?.margin),
+    freeMargin: pickAccountMetric(liveAccount, 'margin_free', liveAccount.margin_free, tradingAccount?.freeMargin),
+    marginLevel: pickAccountMetric(liveAccount, 'margin_level', liveAccount.margin_level, tradingAccount?.marginLevel),
     currency: tradingAccount?.currency || 'USD',
   };
 }
@@ -69,13 +88,29 @@ export function resolveRenderableTradeAccountSummary(
   summary: TradeAccountSummary,
   floating: number,
 ): TradeAccountSummary {
-  if (!Number.isFinite(floating) || Math.abs(floating - summary.floating) <= Number.EPSILON) {
+  if (!Number.isFinite(floating)) {
     return summary;
   }
 
+  // Balance is settled cash. Equity/free margin/margin level move live because
+  // they include current floating P/L while positions are still open.
+  const floatingChanged = Math.abs(floating - summary.floating) > Number.EPSILON;
   const equity = summary.balance + summary.credit + floating;
   const freeMargin = equity - summary.margin;
-  const marginLevel = summary.margin > 0 ? (equity / summary.margin) * 100 : summary.marginLevel;
+  const marginLevel = summary.margin > 0 ? (equity / summary.margin) * 100 : 0;
+  const equityChanged =
+    Number.isFinite(equity) &&
+    (!Number.isFinite(summary.equity) || Math.abs(equity - summary.equity) >= 0.005);
+  const freeMarginChanged =
+    Number.isFinite(freeMargin) &&
+    (!Number.isFinite(summary.freeMargin) || Math.abs(freeMargin - summary.freeMargin) >= 0.005);
+  const marginLevelChanged =
+    Number.isFinite(marginLevel) &&
+    (!Number.isFinite(summary.marginLevel) || Math.abs(marginLevel - summary.marginLevel) >= 0.005);
+
+  if (!floatingChanged && !equityChanged && !freeMarginChanged && !marginLevelChanged) {
+    return summary;
+  }
 
   return {
     ...summary,

@@ -35,12 +35,16 @@ type PositionsState = {
   primePositionSnapshot: (position: PositionItem) => void;
   clearPositionSnapshot: (positionId?: string | number) => void;
   removePosition: (positionId: string | number) => void;
+  beginOptimisticClose: (positionId: string | number) => void;
+  finishOptimisticClose: (positionId: string | number) => void;
+  rollbackOptimisticClose: (position: PositionItem) => void;
   applyPositionsSnapshot: (
     dtos: any[],
     accountLogin?: string,
     options?: Parameters<typeof buildMergedPositions>[2],
   ) => void;
   upsertPosition: (dto: any) => void;
+  hydrateCachedPositions: (accountLogin: string) => Promise<void>;
   refreshPositions: (accountLogin: string) => Promise<void>;
 };
 
@@ -49,6 +53,10 @@ const DEBUG_POSITIONS_STATE =
 const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
 const positionsRateLimitUntilByLogin = new Map<string, number>();
 const OPEN_POSITIONS_CACHE_PREFIX = 'rtx5-open-positions-v1';
+const OPTIMISTIC_CLOSE_SUPPRESS_MS = 60_000;
+// After a close tap we hide that ticket immediately. This guard stops a stale
+// positions poll from briefly adding the same position back before backend sync.
+const optimisticCloseUntilByPositionId = new Map<string, number>();
 
 type CachedOpenPositionsPayload = {
   version: 1;
@@ -74,6 +82,54 @@ const warnPositionsStateDiagnostic = (...args: Parameters<typeof console.warn>) 
 
 const getOpenPositionsCacheKey = (accountLogin: string): string =>
   `${OPEN_POSITIONS_CACHE_PREFIX}:${accountLogin}`;
+
+const resolvePositionId = (value: unknown): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const id = source.ticket ?? source.position_ticket ?? source.order_ticket ?? source.id;
+  if (id === undefined || id === null) {
+    return null;
+  }
+
+  const normalized = String(id).trim();
+  return normalized ? normalized : null;
+};
+
+const markPositionOptimisticallyClosing = (positionId: string | number) => {
+  optimisticCloseUntilByPositionId.set(String(positionId), Date.now() + OPTIMISTIC_CLOSE_SUPPRESS_MS);
+};
+
+const clearPositionOptimisticallyClosing = (positionId: string | number) => {
+  optimisticCloseUntilByPositionId.delete(String(positionId));
+};
+
+const isPositionOptimisticallyClosing = (positionId: string | number | null | undefined): boolean => {
+  if (positionId === undefined || positionId === null) {
+    return false;
+  }
+
+  const key = String(positionId);
+  const suppressUntil = optimisticCloseUntilByPositionId.get(key);
+  if (!suppressUntil) {
+    return false;
+  }
+
+  if (suppressUntil <= Date.now()) {
+    optimisticCloseUntilByPositionId.delete(key);
+    return false;
+  }
+
+  return true;
+};
+
+const sortPositionsNewestFirst = (positions: PositionItem[]): PositionItem[] =>
+  [...positions].sort((a, b) => new Date(b.openTime).getTime() - new Date(a.openTime).getTime());
+
+const withoutOptimisticallyClosingPositions = (positions: PositionItem[]): PositionItem[] =>
+  positions.filter((position) => !isPositionOptimisticallyClosing(position.id));
 
 const clonePositionForCache = (position: PositionItem): PositionItem => ({
   id: String(position.id),
@@ -179,7 +235,7 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
   hydratedLogin: null,
   lastError: null,
   setPositions: (positions) => {
-    const nextPositions = dedupePositionsById(positions);
+    const nextPositions = withoutOptimisticallyClosingPositions(dedupePositionsById(positions));
     const accountLogin = get().lastFetchLogin ?? get().hydratedLogin ?? resolveTradingLoginString();
     scheduleOpenPositionsCacheWrite(accountLogin, nextPositions);
     set({ positions: nextPositions });
@@ -222,9 +278,40 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
         ),
       };
     }),
+  beginOptimisticClose: (positionId) => {
+    markPositionOptimisticallyClosing(positionId);
+    get().removePosition(positionId);
+  },
+  finishOptimisticClose: (positionId) => {
+    markPositionOptimisticallyClosing(positionId);
+    get().removePosition(positionId);
+  },
+  rollbackOptimisticClose: (position) => {
+    clearPositionOptimisticallyClosing(position.id);
+    set((state) => {
+      const restoredPositions = sortPositionsNewestFirst(dedupePositionsById([
+        position,
+        ...state.positions.filter((item) => String(item.id) !== String(position.id)),
+      ]));
+      const accountLogin = state.lastFetchLogin ?? state.hydratedLogin ?? resolveTradingLoginString();
+      scheduleOpenPositionsCacheWrite(accountLogin, restoredPositions);
+      return {
+        positions: restoredPositions,
+        positionSnapshots: {
+          ...state.positionSnapshots,
+          [String(position.id)]: { ...position },
+        },
+      };
+    });
+  },
   applyPositionsSnapshot: (dtos, accountLogin, options) =>
     set((state) => {
-      const nextPositions = buildMergedPositions(state.positions, Array.isArray(dtos) ? dtos : [], options);
+      const incomingDtos = Array.isArray(dtos)
+        ? dtos.filter((dto) => !isPositionOptimisticallyClosing(resolvePositionId(dto)))
+        : [];
+      const nextPositions = withoutOptimisticallyClosingPositions(
+        buildMergedPositions(state.positions, incomingDtos, options),
+      );
       const nextLogin = accountLogin ?? state.lastFetchLogin ?? state.hydratedLogin ?? resolveTradingLoginString();
       scheduleOpenPositionsCacheWrite(nextLogin, nextPositions);
       return {
@@ -237,6 +324,10 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
 
   upsertPosition: (dto: any) => {
     set((state) => {
+      if (isPositionOptimisticallyClosing(resolvePositionId(dto))) {
+        return {};
+      }
+
       const accountLogin = state.lastFetchLogin ?? state.hydratedLogin ?? resolveTradingLoginString();
       if (isTerminalPositionUpdate(dto)) {
         const existing = findExistingPosition(state.positions, dto);
@@ -266,7 +357,16 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
       if (!existing && newItem.symbol === UNKNOWN_POSITION_SYMBOL) {
         return {};
       }
-      newItem.clientCreatedAt = existing?.clientCreatedAt ?? Date.now();
+      const source = dto && typeof dto === 'object' ? (dto as Record<string, unknown>) : {};
+      const incomingClientCreatedAt =
+        typeof source.clientCreatedAt === 'number' && Number.isFinite(source.clientCreatedAt)
+          ? source.clientCreatedAt
+          : undefined;
+      if (incomingClientCreatedAt !== undefined) {
+        newItem.clientCreatedAt = incomingClientCreatedAt;
+      } else {
+        delete newItem.clientCreatedAt;
+      }
       newItem.clientModifiedAt = existing?.clientModifiedAt;
 
       const existsIdx = state.positions.findIndex((position) => position.id === newItem.id);
@@ -285,6 +385,59 @@ export const usePositionsState = create<PositionsState>((set, get) => ({
 
       return {
         positions: sortedPositions,
+      };
+    });
+  },
+
+  hydrateCachedPositions: async (accountLogin: string) => {
+    const normalizedLogin = String(accountLogin ?? '').trim();
+    if (!normalizedLogin) {
+      return;
+    }
+
+    // Guard before the async cache read: if the app already knows a different
+    // account is active, never hydrate rows from the requested login.
+    const activeLogin = resolveTradingLoginString();
+    if (activeLogin && activeLogin !== normalizedLogin) {
+      return;
+    }
+
+    const state = get();
+    if (state.hydratedLogin === normalizedLogin && state.lastFetchLogin === normalizedLogin) {
+      return;
+    }
+
+    const cachedPositions = await readCachedOpenPositions(normalizedLogin);
+    set((latestState) => {
+      // Guard again after AsyncStorage returns. The active account may have
+      // changed while the cache read was in flight.
+      const latestActiveLogin = resolveTradingLoginString();
+      if (latestActiveLogin && latestActiveLogin !== normalizedLogin) {
+        return {};
+      }
+
+      if (latestState.hydratedLogin === normalizedLogin && latestState.lastFetchLogin === normalizedLogin) {
+        return {};
+      }
+
+      const loginChanged = shouldClearPositionsForLoginSwitch(
+        latestState.lastFetchLogin ?? latestState.hydratedLogin,
+        normalizedLogin,
+      );
+      const nextPositions = loginChanged
+        ? cachedPositions
+        : dedupePositionsById([...latestState.positions, ...cachedPositions]);
+
+      // This is only a device-cache hydrate. The focused refresh still asks the
+      // backend, but the Trade screen does not have to flash a fake empty state.
+      // For the same account we merge cache + memory; for a real account switch
+      // we replace old-account rows so stale trades are not shown.
+      return {
+        positions: withoutOptimisticallyClosingPositions(nextPositions),
+        positionSnapshots: loginChanged ? {} : latestState.positionSnapshots,
+        lastFetchLogin: loginChanged ? normalizedLogin : latestState.lastFetchLogin ?? normalizedLogin,
+        hydratedLogin: normalizedLogin,
+        lastError: loginChanged ? null : latestState.lastError,
       };
     });
   },

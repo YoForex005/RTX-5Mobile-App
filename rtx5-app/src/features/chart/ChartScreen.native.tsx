@@ -64,8 +64,11 @@ import { liveCandlesEngine } from '../../api/ws/liveCandlesEngine';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
+import { ordersApi } from '../../api/orders';
+import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
 import { usePositionsState } from '../../state/positionsState';
+import { resolveTradingLogin } from '../../state/tradingLogin';
 import { usePositionHistoryQuery } from '../../query/positions';
 import { useAlertsQuery } from '../../query/alerts';
 import { useMarketSymbols } from '../../query/market';
@@ -119,6 +122,7 @@ import {
   isStopLimitChartOrderType,
   resolveStablePendingChartTradeEnabled,
   resolveDefaultStopLimitPrice,
+  validateChartTradeProtectionLevels,
   type ChartOrderType,
 } from './chartTradeOrderUtils';
 import {
@@ -201,7 +205,7 @@ const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
   hashDevRefreshSource(CH_HTML),
 );
 const CHART_BRIDGE_DEBUG = false;
-const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 120;
+const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 16;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
 
 type ChartLiveQuoteTickFields = {
@@ -254,6 +258,10 @@ type ChartDrawingPriceCandle = {
 const LEGACY_DRAWING_PRICE_RANGE_MULTIPLE = 4;
 const LEGACY_DRAWING_RELATIVE_PRICE_TOLERANCE = 0.2;
 const LEGACY_UNSCOPED_DRAWING_KINDS = new Set<PersistedChartDrawing['kind']>(['fib', 'measure']);
+const CHART_NO_DRAWING_TOOL = 'none';
+const CHART_CROSSHAIR_TOOL = 'crosshair';
+const isChartDrawingInputTool = (tool: string | null | undefined): tool is string =>
+  typeof tool === 'string' && tool !== CHART_NO_DRAWING_TOOL && tool !== CHART_CROSSHAIR_TOOL;
 
 const isChartDrawingRecordForCurrentChart = (
   drawing: PersistedChartDrawing,
@@ -322,9 +330,10 @@ const filterChartDrawingRecordsForCurrentChart = (
       isDrawingPriceCompatibleWithCandles(drawing, candles),
   );
 
-const CHART_RUNTIME_ACTIVE_DELAY_MS = 650;
+const CHART_RUNTIME_ACTIVE_DELAY_MS = 0;
 const CHART_FOCUS_WORK_DELAY_MS = 650;
 const CHART_SURFACE_MOUNT_DELAY_MS = 650;
+const CHART_STARTUP_HISTORY_PREWARM_DELAY_MS = 900;
 // Background pre-warm: the chart tab is prefetched at startup (warmActionRoutes),
 // so this screen can mount before the user's first visit. The WebView's first
 // boot (inline HTML + charting library parse/exec) costs multiple seconds on
@@ -742,6 +751,7 @@ export function ChartScreen() {
   const [chartTradeExpiration, setChartTradeExpiration] = useState<'GTC' | 'Today' | 'Date and Time' | 'Date'>('GTC');
   const [chartExpirationMenuOpen, setChartExpirationMenuOpen] = useState(false);
   const [chartStepperEditor, setChartStepperEditor] = useState<{ kind: 'price' | 'stopLimitPrice' | 'tp' | 'sl' | 'volume' } | null>(null);
+  const [chartPendingOrderSubmitting, setChartPendingOrderSubmitting] = useState(false);
   const [chartTradeStopUnit, setChartTradeStopUnit] = useState<'Price' | 'Pips' | 'Currency'>('Price');
   const [chartTradeSlLocked, setChartTradeSlLocked] = useState(false);
   const [chartTradeTpLocked, setChartTradeTpLocked] = useState(false);
@@ -1016,7 +1026,8 @@ export function ChartScreen() {
   const keyboardFrameRef = useRef<{ height: number; screenY: number | null }>({ height: 0, screenY: null });
   const chartTradeHostBottomRef = useRef<number | null>(null);
   const footerTradeRowAnchorBottomRef = useRef<number | null>(null);
-  const [activeTool, setActiveTool] = useState<string>('crosshair');
+  const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
+  const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
@@ -1028,7 +1039,7 @@ export function ChartScreen() {
   const pendingChartDrawingTool = useUIState((s) => s.pendingChartDrawingTool);
   const clearPendingChartDrawingTool = useUIState((s) => s.clearPendingChartDrawingTool);
   const shouldCaptureChartGestures =
-    isChartExpanded || activeTool !== 'crosshair' || Boolean(pendingChartDrawingTool);
+    isChartExpanded || chartDrawingInputActive || Boolean(pendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
   const pendingObjectsDrawingSyncRef = useRef(false);
@@ -1531,7 +1542,7 @@ export function ChartScreen() {
   }, []);
 
   useEffect(() => {
-    if (activeTool !== 'crosshair') {
+    if (activeTool !== CHART_NO_DRAWING_TOOL) {
       closeChartTapMenu();
     }
   }, [activeTool, closeChartTapMenu]);
@@ -1542,13 +1553,16 @@ export function ChartScreen() {
 
   const handleSetTool = (tool: string) => {
     closeChartTapMenu();
+    const nextDrawingInputActive = !chartLockAll && isChartDrawingInputTool(tool);
     setActiveTool(tool);
-    injectChartScript(`setDrawingTool(${JSON.stringify(tool)});`);
+    setChartDrawingInputActive(nextDrawingInputActive);
+    injectChartScript(`setDrawingTool(${JSON.stringify(tool)}, { startDrawing: ${nextDrawingInputActive} });`);
   };
 
   const handleClearDrawings = () => {
     closeChartTapMenu();
-    setActiveTool('crosshair');
+    setActiveTool(CHART_NO_DRAWING_TOOL);
+    setChartDrawingInputActive(false);
     allowNextEmptyDrawingSyncRef.current = true;
     hasAcceptedNonEmptyWebViewDrawingsRef.current = false;
     setChartDrawingRecordsForSymbol(chartSymbol, []);
@@ -1576,7 +1590,8 @@ export function ChartScreen() {
     const next = !chartLockAll;
     setChartLockAll(next);
     if (next) {
-      setActiveTool('crosshair');
+      setActiveTool(CHART_NO_DRAWING_TOOL);
+      setChartDrawingInputActive(false);
     }
     injectChartScript(`setDrawingsLocked(${next});`);
   };
@@ -1838,13 +1853,178 @@ export function ChartScreen() {
     roundTradePrice,
   ]);
   const handleSubmitPendingTradeFromSheet = useCallback(() => {
-    // Pending CTA must NOT open a blocking preview-only alert. Per
-    // chartOverlayBridgeStability.test.ts: collapse the sheet so the
-    // chart's draggable price lines are exposed for chart-side editing.
-    runImmediateAction('chart.tradeSheet.pending.editOnChart', () => {
-      snapTradeSheet('collapsed');
+    if (chartPendingOrderSubmitting) {
+      return;
+    }
+
+    const submitPendingOrder = async () => {
+      if (!isPendingChartOrderType(chartTradeOrderType)) {
+        const feedback = createFrontendTradingError(
+          'Order Type Error',
+          'Select a pending order type before placing a pending order.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const side = getChartOrderSide(chartTradeOrderType);
+      if (isStopLimitChartOrderType(chartTradeOrderType)) {
+        const feedback = createFrontendTradingError(
+          'Unsupported Order Type',
+          'Buy Stop Limit and Sell Stop Limit are not supported by the current trading API.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
+        return;
+      }
+
+      if (!isPendingChartTradeValid({
+        orderType: chartTradeOrderType,
+        entryPrice: chartTradePrice,
+        stopLimitPrice: chartTradeStopLimitPrice,
+        bid: chartBid,
+        ask: chartAsk,
+        pointSize: chartPointSize,
+      })) {
+        const feedback = createFrontendTradingError(
+          'Invalid Pending Order',
+          'Check the pending price and stop-limit price before placing the order.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const protectionValidation = validateChartTradeProtectionLevels({
+        side,
+        entryPrice: chartTradePrice,
+        slEnabled: chartTradeSlEnabled,
+        slPrice: chartTradeSlPrice,
+        tpEnabled: chartTradeTpEnabled,
+        tpPrice: chartTradeTpPrice,
+        pointSize: chartPointSize,
+      });
+      if (!protectionValidation.valid) {
+        const feedback = createFrontendTradingError('Invalid SL/TP', protectionValidation.message);
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message, side });
+        return;
+      }
+
+      const accountState = useUserPreferences.getState();
+      if (!accountState.accountDetails?.credentials?.accessToken) {
+        const feedback = createFrontendTradingError(
+          'Sign In Required',
+          'Please sign in to your trading account before placing orders.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const tradingLogin = resolveTradingLogin();
+      if (!tradingLogin) {
+        const feedback = createFrontendTradingError(
+          'No Trading Account',
+          'No active trading account is selected. Open the account menu and choose one, then try again.',
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const volume = Number(tradeVolume);
+      if (!Number.isFinite(volume) || volume <= 0) {
+        const feedback = createFrontendTradingError(
+          'Invalid Lot Size',
+          `Volume must be greater than 0. Current: ${tradeVolume}`,
+        );
+        handleChartTradeResult({ visible: true, type: 'error', title: feedback.title, message: feedback.message });
+        return;
+      }
+
+      const trimmedComment = chartTradeComment.trim();
+      const payload = {
+        account_login: tradingLogin,
+        symbol: chartSymbol,
+        side,
+        volume,
+        price: chartTradePrice,
+        ...(chartTradeSlEnabled && chartTradeSlPrice > 0 ? { price_sl: chartTradeSlPrice } : {}),
+        ...(chartTradeTpEnabled && chartTradeTpPrice > 0 ? { price_tp: chartTradeTpPrice } : {}),
+        ...(trimmedComment ? { comment: trimmedComment } : {}),
+        type: chartTradeOrderType.toLowerCase().replace(/\s+/g, '_'),
+      };
+
+      setChartPendingOrderSubmitting(true);
+      try {
+        const data = await ordersApi.placePendingOrder(payload);
+        if (['rejected', 'failed', 'error'].includes((data.status ?? '').toLowerCase())) {
+          const feedback = classifyTradingError(
+            { status: 400, data: { message: data.comment || `Server returned status: ${data.status}` } },
+            { action: 'place-order' },
+          );
+          handleChartTradeResult({
+            visible: true,
+            type: 'error',
+            title: feedback.title,
+            message: feedback.message,
+            side,
+          });
+          return;
+        }
+
+        await Promise.allSettled([
+          refetchOrders(),
+          refetchAccountSummary(),
+          refreshPositions(String(tradingLogin)),
+        ]);
+
+        handleChartTradeResult({
+          visible: true,
+          type: 'success',
+          side,
+          symbol: chartSymbol,
+          ticket: String(data.ticket ?? data.order_ticket ?? data.position_ticket ?? 'Confirmed'),
+          price: Number(data.price_open ?? data.price ?? chartTradePrice),
+          volume,
+          executedAt: new Date().toLocaleTimeString(),
+        });
+        snapTradeSheet('collapsed');
+      } catch (error: any) {
+        const feedback = classifyTradingError(error, { action: 'place-order' });
+        const rawMsg = error?.response?.data?.message || error?.response?.data?.error || error?.data?.message || '';
+        handleChartTradeResult({
+          visible: true,
+          type: 'error',
+          title: feedback.title,
+          message: rawMsg ? `${feedback.message}\n\nServer: ${rawMsg}` : feedback.message,
+          side,
+        });
+      } finally {
+        setChartPendingOrderSubmitting(false);
+      }
+    };
+
+    runImmediateAction('chart.tradeSheet.pending.submit', () => {
+      void submitPendingOrder();
     });
-  }, [snapTradeSheet]);
+  }, [
+    chartAsk,
+    chartBid,
+    chartPendingOrderSubmitting,
+    chartPointSize,
+    chartSymbol,
+    chartTradeComment,
+    chartTradeOrderType,
+    chartTradePrice,
+    chartTradeSlEnabled,
+    chartTradeSlPrice,
+    chartTradeStopLimitPrice,
+    chartTradeTpEnabled,
+    chartTradeTpPrice,
+    handleChartTradeResult,
+    refetchAccountSummary,
+    refetchOrders,
+    refreshPositions,
+    snapTradeSheet,
+    tradeVolume,
+  ]);
   const handleToggleChartTradeSheetMode = useCallback(() => {
     snapTradeSheet(chartTradeSheetMode === 'expanded' ? 'collapsed' : 'expanded');
   }, [chartTradeSheetMode, snapTradeSheet]);
@@ -2341,6 +2521,23 @@ export function ChartScreen() {
     : chartTradeSheetSide === 'buy'
       ? chartAsk
       : chartBid;
+  const chartTradeProtectionValidation = useMemo(() => validateChartTradeProtectionLevels({
+    side: chartTradeSheetSide,
+    entryPrice: chartTradeEntryPrice,
+    slEnabled: chartTradeSlEnabled,
+    slPrice: chartTradeSlPrice,
+    tpEnabled: chartTradeTpEnabled,
+    tpPrice: chartTradeTpPrice,
+    pointSize: chartPointSize,
+  }), [
+    chartPointSize,
+    chartTradeEntryPrice,
+    chartTradeSheetSide,
+    chartTradeSlEnabled,
+    chartTradeSlPrice,
+    chartTradeTpEnabled,
+    chartTradeTpPrice,
+  ]);
   const [stablePendingTradePlaceButtonEnabled, setStablePendingTradePlaceButtonEnabled] = useState(true);
   const pendingTradeValidationConfigKeyRef = useRef<string | null>(null);
 
@@ -2386,7 +2583,10 @@ export function ChartScreen() {
   ]);
 
   const disablePendingTradePlaceButton = isPendingChartOrder
-    ? !stablePendingTradePlaceButtonEnabled
+    ? chartPendingOrderSubmitting
+      || isStopLimitChartOrder
+      || !stablePendingTradePlaceButtonEnabled
+      || !chartTradeProtectionValidation.valid
     : false;
   const chartTradeCtaColor = chartTradeSheetSide === 'buy' ? BLUE : T.trading.sell.primary;
   const chartTradeMarginPerLot = useMemo(() => {
@@ -2729,6 +2929,7 @@ export function ChartScreen() {
   const [customDateValue, setCustomDateValue] = useState<Date | null>(null);
   const [webViewReady, setWebViewReady] = useState(false);
   const [chartCanvasReady, setChartCanvasReady] = useState(false);
+  const [hasPaintedChartOnce, setHasPaintedChartOnce] = useState(false);
   const requestChartDrawingSyncForObjects = useCallback(() => {
     if (!webViewRef.current || !webViewReady || !chartCanvasReady) {
       return false;
@@ -2915,6 +3116,37 @@ export function ChartScreen() {
   const prefetchChartTimeframeHistory = useCallback((nextSymbol: string, nextTimeframe: string) => {
     return liveCandlesEngine.prefetchHistory(nextSymbol, nextTimeframe);
   }, []);
+  const startupChartPrefetchKeyRef = useRef('');
+
+  useEffect(() => {
+    if (!chartSymbol || !chartTimeframe) {
+      return undefined;
+    }
+
+    const normalizedTimeframe = normalizeTimeframe(chartTimeframe);
+    const startupPrefetchKey = `${chartSymbol}:${normalizedTimeframe}`;
+    if (startupChartPrefetchKeyRef.current === startupPrefetchKey) {
+      return undefined;
+    }
+    startupChartPrefetchKeyRef.current = startupPrefetchKey;
+
+    // Warm the saved chart history during app startup. Later tab visits can
+    // reuse the candle cache instead of showing "Loading chart data..." again.
+    return scheduleIdleWork(() => {
+      void prefetchChartTimeframeHistory(chartSymbol, normalizedTimeframe).catch((error) => {
+        if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_BRIDGE_DEBUG) {
+          console.warn('[CHART-BRIDGE] startup_history_prefetch_failed', {
+            symbol: chartSymbol,
+            timeframe: normalizedTimeframe,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+    }, {
+      delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS,
+      timeoutMs: 1500,
+    });
+  }, [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory]);
 
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
@@ -3382,6 +3614,11 @@ export function ChartScreen() {
   useEffect(() => {
     setLoadingDelayPassed(false);
     setLoadingFallback(false);
+    // Hidden hot tabs should not age into "No market data" before the user
+    // opens Chart.  Start this timeout only for the active chart screen.
+    if (!chartRuntimeActive) {
+      return undefined;
+    }
     const delayTmr = setTimeout(() => setLoadingDelayPassed(true), 500);
     // Bumped 3 s → 10 s. The previous 3 s fallback was firing on slow first
     // REST loads (cold network, demo broker handshake) and showing the
@@ -3394,7 +3631,7 @@ export function ChartScreen() {
       clearTimeout(delayTmr);
       clearTimeout(fallbackTmr);
     };
-  }, [chartSymbol, chartTimeframe, chartType]);
+  }, [chartRuntimeActive, chartSymbol, chartTimeframe, chartType]);
   // The moment candles arrive, drop the "no market data" fallback regardless
   // of how long the REST/WS handshake took. This prevents a brief flash of
   // the empty-state overlay when the timer happens to fire just before the
@@ -3464,20 +3701,24 @@ export function ChartScreen() {
     (!chartCanvasReady || !candlesAvailable) &&
     (shouldShowImmediateHistoryLoading || loadingDelayPassed) &&
     !loadingFallback;
+  // After the first confirmed WebView paint, keep tab returns visually stable.
+  // Recovery can still run underneath, but the startup loader stays one-time.
+  const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && (!chartSurfaceReady || isLoading);
   const isError = false;
   const isNoMarketData = sanitizedCandles.length === 0 && !isLoading && loadingFallback;
 
   useEffect(() => {
     if (!webViewReady || !chartCanvasReady) return;
-    const bridgedTool = chartLockAll ? 'crosshair' : activeTool;
+    const bridgedTool = chartLockAll ? CHART_NO_DRAWING_TOOL : activeTool;
+    const shouldStartDrawing = !chartLockAll && chartDrawingInputActive && isChartDrawingInputTool(bridgedTool);
     injectChartScript(`
       setDrawingsLocked(${chartLockAll});
       setDrawingsHidden(${chartHideAll});
       setStayInDrawingMode(${stickyDrawingMode});
       setMagnetMode(${magnetEnabled});
-      setDrawingTool(${JSON.stringify(bridgedTool)});
+      setDrawingTool(${JSON.stringify(bridgedTool)}, { startDrawing: ${shouldStartDrawing} });
     `);
-  }, [activeTool, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
+  }, [activeTool, chartDrawingInputActive, webViewReady, chartCanvasReady, chartLockAll, chartHideAll, stickyDrawingMode, magnetEnabled, chartSymbol, chartTimeframe, chartType]);
 
   useEffect(() => {
     if (!hasCandles || !webViewReady || !chartCanvasReady) {
@@ -3491,8 +3732,10 @@ export function ChartScreen() {
       return;
     }
 
+    const nextDrawingInputActive = isChartDrawingInputTool(pendingChartDrawingTool);
     setActiveTool(pendingChartDrawingTool);
-    injectChartScript(`setDrawingTool(${JSON.stringify(pendingChartDrawingTool)});`);
+    setChartDrawingInputActive(nextDrawingInputActive);
+    injectChartScript(`setDrawingTool(${JSON.stringify(pendingChartDrawingTool)}, { startDrawing: ${nextDrawingInputActive} });`);
     clearPendingChartDrawingTool();
   }, [pendingChartDrawingTool, chartCanvasReady, webViewReady, clearPendingChartDrawingTool]);
 
@@ -3847,6 +4090,10 @@ export function ChartScreen() {
 
     if (didInject) {
       renderedSeriesSnapshotRef.current = nextSnapshot;
+      // Physical cold-start checks showed the WebView can be READY while REST
+      // candle history is still loading.  Treat first paint as the first real
+      // candle batch, not the empty chart shell.
+      setHasPaintedChartOnce(true);
     }
   }, [sanitizedCandles, chartCanvasReady, chartReadyEpoch, chartType, buildMappedData, chartSymbol, chartTimeframe]);
 
@@ -4065,7 +4312,7 @@ export function ChartScreen() {
   const displaySymbol = chartSymbol.replace(/\//g, '');
   const symbolName = resolveChartSymbolFullName(chartSymbol);
   const symbolCategory = resolveChartSymbolCategory(chartSymbol);
-  const isDrawingToolActive = activeTool !== 'crosshair' || Boolean(pendingChartDrawingTool);
+  const isDrawingToolActive = activeTool !== CHART_NO_DRAWING_TOOL || Boolean(pendingChartDrawingTool);
   const compactHeaderDrawingIconColor = isDrawingToolActive ? BLUE : TEXT_MUTED;
   const compactHeaderFullscreenIconColor = isChartExpanded ? BLUE : TEXT_MUTED;
   const renderCompactHeaderToolbar = () => (
@@ -4336,6 +4583,7 @@ export function ChartScreen() {
         chartTradeComment,
         chartTradeCommentInputRef,
         chartTradeEntryPrice,
+        chartPointSize,
         disablePendingTradePlaceButton,
         chartTradeCtaColor,
         candles: sanitizedCandles,
@@ -4535,7 +4783,7 @@ export function ChartScreen() {
                   syncChartViewportFrame();
                 }}
               >
-                {(!chartSurfaceReady || isLoading) && (
+                {shouldShowChartLoadingOverlay && (
                   <View pointerEvents="none" style={styles.chartOverlay}>
                     <ActivityIndicator size="large" color={BLUE} />
                     <Text style={styles.overlayText}>{t('Loading chart data...')}</Text>
@@ -4620,7 +4868,10 @@ export function ChartScreen() {
                             }
                             return;
                           }
-                          // Chart successfully rendered in WebView.
+                          // WebView shell is ready.  Keep the startup loader
+                          // until a non-empty candle series is actually
+                          // painted, otherwise slow REST history briefly shows
+                          // a false "No market data" screen.
                           chartInitializedRef.current = true;
                           lastInitSigRef.current = currentSig;
                           setChartCanvasReady(true);
@@ -4650,6 +4901,7 @@ export function ChartScreen() {
                             if (readyCandles.length > 0 && webViewRef.current) {
                               if (getChartSnapshotSignature(pendingInitSnapshotRef.current) === getChartSnapshotSignature(readySnapshot)) {
                                 renderedSeriesSnapshotRef.current = readySnapshot;
+                                setHasPaintedChartOnce(true);
                               } else {
                                 const mapped = buildMappedData(readyCandles);
                                 webViewRef.current.injectJavaScript(`
@@ -4657,6 +4909,7 @@ export function ChartScreen() {
                               true;
                             `);
                                 renderedSeriesSnapshotRef.current = readySnapshot;
+                                setHasPaintedChartOnce(true);
                               }
                             }
                           } catch (_) { }
@@ -4789,7 +5042,8 @@ export function ChartScreen() {
                             handleChartViewportTouchEnd();
                           }
                         } else if (msg.type === 'TOOL_ACTIVE_CHANGED') {
-                          setActiveTool(typeof msg.tool === 'string' ? msg.tool : 'crosshair');
+                          setActiveTool(typeof msg.tool === 'string' ? msg.tool : CHART_NO_DRAWING_TOOL);
+                          setChartDrawingInputActive(msg.drawingActive === true);
                         } else if (msg.type === 'CHART_TRADE_LINE_DRAG') {
                           handleChartTradePreviewDragMessage(msg);
                         } else if (msg.type === 'ON_PAGINATE_HISTORY') {

@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePositionsState } from '../../state/positionsState';
 import { useUserPreferences } from '../../state/userPreferences';
@@ -125,42 +125,48 @@ export function CloseByScreen() {
 
     setIsClosing(true);
     setCloseError(null);
-    try {
-      await positionsApi.closePosition(sourcePosition.id, selectedPair.id);
+    const sourceSnapshot = { ...sourcePosition };
+    const pairSnapshot = { ...selectedPair };
+    const state = usePositionsState.getState();
+    state.beginOptimisticClose(sourcePosition.id);
+    state.beginOptimisticClose(selectedPair.id);
+    setSubmitted(true);
+    safeRouterBack(router, '/(tabs)/trade');
 
-      const state = usePositionsState.getState();
-      state.setPositions(state.positions.filter(p =>
-        String(p.id) !== String(sourcePosition.id) && String(p.id) !== String(selectedPair.id)
-      ));
+    void positionsApi.closePosition(sourcePosition.id, selectedPair.id)
+      .then(() => {
+        const latestState = usePositionsState.getState();
+        latestState.finishOptimisticClose(sourcePosition.id);
+        latestState.finishOptimisticClose(selectedPair.id);
 
-      setSubmitted(true);
+        // Invalidate all history / deals / account caches so the History tab
+        // immediately shows the newly closed trade and its Net P/L.
+        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+        appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+        appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+        appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-      // Invalidate all history / deals / account caches so the History tab
-      // immediately shows the newly closed trade and its Net P/L.
-      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-      appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-      appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
-
-      safeRouterBack(router, '/(tabs)/trade');
-
-      if (resolvedLogin) {
-        state.refreshPositions(resolvedLogin);
-      }
-    } catch (error: any) {
-      setCloseError(
-        formatTradingErrorFeedback(
-          classifyTradingError(error, { action: 'close-by' }),
-        ),
-      );
-    } finally {
-      setIsClosing(false);
-      releaseActionLock();
-    }
+        if (resolvedLogin) {
+          void latestState.refreshPositions(resolvedLogin);
+        }
+      })
+      .catch((error: any) => {
+        const feedback = classifyTradingError(error, { action: 'close-by' });
+        const message = formatTradingErrorFeedback(feedback);
+        const latestState = usePositionsState.getState();
+        latestState.rollbackOptimisticClose(sourceSnapshot);
+        latestState.rollbackOptimisticClose(pairSnapshot);
+        setCloseError(message);
+        Alert.alert(feedback.title, feedback.message);
+      })
+      .finally(() => {
+        setIsClosing(false);
+        releaseActionLock();
+      });
   }, [accountDetails?.credentials?.accessToken, isClosing, releaseActionLock, resolvedLogin, selectedPair, sourcePosition]);
 
   if (!sourcePosition) return (

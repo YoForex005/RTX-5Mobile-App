@@ -61,6 +61,7 @@ test('about store targets route android and ios to native store first with brows
 
 test('about version label shows the OTA display version instead of native build numbers', () => {
   assert.equal(resolveAboutBuildLabel({ appVersion: '1.1.2' }), 'Version 1.1.2');
+  assert.equal(resolveAboutBuildLabel({ appVersion: '1.1.9', appBuildVersion: '29' }), 'Version 1.1.9');
   assert.equal(resolveAboutBuildLabel({ appVersion: '1.1' }), 'Version 1.1');
   assert.equal(resolveAboutBuildLabel({ appVersion: '' }), 'Version Local');
 });

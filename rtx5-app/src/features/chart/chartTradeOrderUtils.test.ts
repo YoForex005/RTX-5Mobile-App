@@ -10,6 +10,7 @@ import {
   resolveDefaultStopLimitPrice,
   resolveChartTradeFillPolicyLabel,
   supportsChartTradeFillPolicy,
+  validateChartTradeProtectionLevels,
   type ChartOrderType,
 } from './chartTradeOrderUtils.ts';
 
@@ -127,6 +128,55 @@ test('stable pending order validation adds hysteresis around the live boundary',
       ask: 1.1996,
       previouslyEnabled: true,
     }),
+    false,
+  );
+});
+
+test('SL/TP protection validation follows MT5 entry-side rules', () => {
+  const sharedInput = {
+    entryPrice: 1.2,
+    pointSize: 0.00001,
+    slEnabled: true,
+    tpEnabled: true,
+  };
+
+  assert.deepEqual(
+    validateChartTradeProtectionLevels({
+      ...sharedInput,
+      side: 'buy',
+      slPrice: 1.199,
+      tpPrice: 1.201,
+    }),
+    { valid: true, message: '' },
+  );
+
+  assert.deepEqual(
+    validateChartTradeProtectionLevels({
+      ...sharedInput,
+      side: 'sell',
+      slPrice: 1.201,
+      tpPrice: 1.199,
+    }),
+    { valid: true, message: '' },
+  );
+
+  assert.equal(
+    validateChartTradeProtectionLevels({
+      ...sharedInput,
+      side: 'buy',
+      slPrice: 1.201,
+      tpPrice: 1.202,
+    }).valid,
+    false,
+  );
+
+  assert.equal(
+    validateChartTradeProtectionLevels({
+      ...sharedInput,
+      side: 'sell',
+      slPrice: 1.199,
+      tpPrice: 1.198,
+    }).valid,
     false,
   );
 });

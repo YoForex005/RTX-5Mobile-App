@@ -57,9 +57,11 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.doesNotMatch(source, /handleTouchStart[\s\S]*onPress\?\.\(_event/);
   assert.doesNotMatch(source, /router\.navigate\(tabPaths\[routeName\]\)/);
   // Inactive screens must stay natively attached: the chart WebView only boots
-  // while attached, and the background pre-warm depends on that.
+  // while attached, and the background pre-warm depends on that. They must not
+  // freeze, because full-bundle ADB checks showed freeze/thaw leaves old tab
+  // content visible for about a second.
   assert.match(source, /detachInactiveScreens=\{false\}/);
-  assert.match(source, /freezeOnBlur: true/);
+  assert.match(source, /freezeOnBlur: false/);
   assert.match(source, /lazy: false/);
   assert.match(source, /name='chart'[\s\S]*lazy: false/);
   assert.match(source, /animation: 'none'/);
@@ -69,10 +71,11 @@ test('bottom tab navigation keeps primary tabs hot for immediate switching', () 
   assert.match(source, /if \(previousPathRef\.current !== pathname\) \{[\s\S]*const uiState = useUIState\.getState\(\)/);
   assert.match(source, /uiState\.actionSheet !== null \|\| visibleScopedActionSheet/);
   assert.match(source, /taps never wait on cold route construction/);
-  assert.match(source, /frozen inactive screens keep the active frame tree MT-style lean/);
+  assert.match(source, /route-gated inactive screens keep the active frame tree MT-style lean/);
+  assert.match(source, /freeze\/thaw can leave old tab content visible for about a second/);
   assert.doesNotMatch(source, /screenListeners=/);
   assert.doesNotMatch(source, /traceUiInteraction/);
-  assert.doesNotMatch(source, /freezeOnBlur: false/);
+  assert.doesNotMatch(source, /freezeOnBlur: true/);
   assert.doesNotMatch(source, /lazy: true/);
 });
 

@@ -11,15 +11,17 @@ import { quotesWsService } from '../api/ws/quotesSocket';
 import type { QuoteTickEvent } from '../api/ws/quoteTickNormalizer';
 import { normalizeQuoteTickTimestampToMs } from '../api/ws/quoteTimestamp';
 import { useTradingState } from '../state/tradingState';
+import { useUserPreferences } from '../state/userPreferences';
 import { quotes as mockQuotes, type QuoteItem } from '../dev/mock/tradingData';
 import { normalizeSymbol } from '../domain/symbols';
 import { liveCandleStream } from '../domain/candles/stream/liveCandleStream';
 import { hasQuotePriceChange } from '../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../utils/quoteSpread';
+import { resolveBackendQuoteVolume } from '../utils/quoteVolume';
 import { buildRestQuoteTickEvent } from './restQuoteTick';
 
 const LIVE_QUOTE_STALE_MS = 45_000;
-const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 50;
+const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
 const LIVE_SYMBOL_REST_SNAPSHOT_POLL_MS = 1_000;
 const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
 
@@ -85,7 +87,7 @@ const publishQuoteTickToSharedStores = (tick: QuoteTickEvent): void => {
     ...(tick.low !== undefined ? { low: tick.low } : {}),
     ...(tick.open !== undefined ? { open: tick.open } : {}),
     ...(tick.spread !== undefined ? { spread: tick.spread } : {}),
-    ...(tick.volume !== undefined ? { volume: tick.volume } : {}),
+    ...(tick.volume !== undefined ? { volume: tick.volume, volumeSource: 'backend' as const } : {}),
     ...(tick.digits !== undefined ? { digits: tick.digits } : {}),
     ...(tick.digits !== undefined ? { digitsSource: 'backend' as const } : {}),
     ...(tick.point !== undefined ? { point: tick.point } : {}),
@@ -118,7 +120,11 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
   entry.inFlight = true;
   const receivedAt = Date.now();
   try {
-    const response = await apiClient(`/quotes?symbols=${encodeURIComponent(entry.symbol)}`);
+    const isLoggedIn = useUserPreferences.getState().isLoggedIn;
+    const response = await apiClient(
+      `/quotes?symbols=${encodeURIComponent(entry.symbol)}`,
+      isLoggedIn ? {} : { skipAuth: true, skipRefresh: true },
+    );
     if (!response.ok) {
       return;
     }
@@ -345,6 +351,7 @@ const areQuoteSnapshotsEqual = (
     left.lastPriceChangedAt === right.lastPriceChangedAt &&
     left.spread === right.spread &&
     left.volume === right.volume &&
+    left.volumeSource === right.volumeSource &&
     left.changePct === right.changePct
   );
 };
@@ -361,6 +368,7 @@ const mergeQuoteTickIntoSnapshot = (
     digits?: number;
     point?: number;
     tickSize?: number;
+    volume?: number;
   },
 ): Partial<QuoteItem> | undefined => {
   const normalizedSymbol = normalizeSymbol(requestedSymbol);
@@ -378,6 +386,7 @@ const mergeQuoteTickIntoSnapshot = (
   const lastPriceChangedAt = priceChanged
     ? lastReceivedAt
     : currentSnapshot?.lastPriceChangedAt;
+  const volume = resolveBackendQuoteVolume({ incoming: tick.volume, previous: currentSnapshot });
 
   const backendDigits =
     typeof tick.digits === 'number' && Number.isFinite(tick.digits)
@@ -401,6 +410,8 @@ const mergeQuoteTickIntoSnapshot = (
     lastTickAt,
     lastReceivedAt,
     lastPriceChangedAt,
+    volume,
+    volumeSource: volume === undefined ? undefined : 'backend',
     spread:
       digits !== undefined
         ? calculateQuoteSpreadPoints(tick.bid, tick.ask, digits)
@@ -457,11 +468,22 @@ export function useLiveSymbolQuote(
         quoteCommitTimerRef.current = null;
       }
 
-      const nextSnapshot = liveQuoteRef.current;
-      React.startTransition(() => {
+      const updateLiveQuote = () => {
+        const nextSnapshot = liveQuoteRef.current;
         setLiveQuote((current) => (areQuoteSnapshotsEqual(current, nextSnapshot) ? current : nextSnapshot));
-      });
+      };
+
+      if (safeCommitIntervalMs <= 16) {
+        updateLiveQuote();
+      } else {
+        React.startTransition(updateLiveQuote);
+      }
     };
+
+    if (safeCommitIntervalMs <= 16 && typeof globalThis.requestAnimationFrame === 'function') {
+      quoteCommitAnimationFrameRef.current = globalThis.requestAnimationFrame(commit);
+      return;
+    }
 
     quoteCommitTimerRef.current = setTimeout(commit, safeCommitIntervalMs);
   }, [safeCommitIntervalMs]);

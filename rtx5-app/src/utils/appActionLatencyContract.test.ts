@@ -525,6 +525,8 @@ test('close position actions use the immediate trade path', () => {
   const rootSource = readSource('app/_layout.tsx');
   const overlaySource = readSource('src/ui/components/TradePositionRow/OverlayActions.tsx');
   const closePositionSource = readSource('src/features/trade/ClosePositionScreen.tsx');
+  const closeBySource = readSource('src/features/trade/CloseByScreen.tsx');
+  const positionsStateSource = readSource('src/state/positionsState.ts');
 
   assert.match(rootSource, /<Stack\.Screen name='quotes\/details' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='quotes\/market-statistics' options=\{\{ headerShown: false, animation: 'none' \}\}/);
@@ -534,6 +536,20 @@ test('close position actions use the immediate trade path', () => {
   assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.open"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
   assert.match(closePositionSource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(closePositionSource, /onPress=\{\(\) => \{ void handleClosePosition\(\); \}\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  assert.match(closePositionSource, /beginOptimisticClose\(ticketId\)[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/trade'\)[\s\S]*void positionsApi\.closePosition\(ticketId\)/);
+  assert.match(closePositionSource, /finishOptimisticClose\(ticketId\)/);
+  assert.match(closePositionSource, /rollbackOptimisticClose\(closeSnapshot\)/);
+  assert.match(closePositionSource, /Alert\.alert\(feedback\.title, feedback\.message\)/);
+  assert.match(closeBySource, /beginOptimisticClose\(sourcePosition\.id\)[\s\S]*beginOptimisticClose\(selectedPair\.id\)[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/trade'\)[\s\S]*void positionsApi\.closePosition\(sourcePosition\.id, selectedPair\.id\)/);
+  assert.match(closeBySource, /finishOptimisticClose\(sourcePosition\.id\)[\s\S]*finishOptimisticClose\(selectedPair\.id\)/);
+  assert.match(closeBySource, /rollbackOptimisticClose\(sourceSnapshot\)[\s\S]*rollbackOptimisticClose\(pairSnapshot\)/);
+  assert.match(positionsStateSource, /const OPTIMISTIC_CLOSE_SUPPRESS_MS = 60_000/);
+  assert.match(positionsStateSource, /const optimisticCloseUntilByPositionId = new Map<string, number>\(\)/);
+  assert.match(positionsStateSource, /beginOptimisticClose: \(positionId\) => \{[\s\S]*markPositionOptimisticallyClosing\(positionId\)[\s\S]*get\(\)\.removePosition\(positionId\)/);
+  assert.match(positionsStateSource, /finishOptimisticClose: \(positionId\) => \{[\s\S]*markPositionOptimisticallyClosing\(positionId\)[\s\S]*get\(\)\.removePosition\(positionId\)/);
+  assert.match(positionsStateSource, /rollbackOptimisticClose: \(position\) => \{[\s\S]*clearPositionOptimisticallyClosing\(position\.id\)[\s\S]*positionSnapshots:/);
+  assert.match(positionsStateSource, /dtos\.filter\(\(dto\) => !isPositionOptimisticallyClosing\(resolvePositionId\(dto\)\)\)/);
+  assert.match(positionsStateSource, /if \(isPositionOptimisticallyClosing\(resolvePositionId\(dto\)\)\) \{/);
 });
 
 test('high-traffic tab screens keep fast actions off the old trace wrapper', () => {

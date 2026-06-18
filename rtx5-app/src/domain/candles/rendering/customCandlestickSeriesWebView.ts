@@ -156,6 +156,30 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
     };
   }
 
+  function computeCandleWickRects(input) {
+    var hasUpperWick = input.high > Math.max(input.open, input.close);
+    var hasLowerWick = input.low < Math.min(input.open, input.close);
+
+    var upperWickTop = input.wickTop;
+    if (hasUpperWick && upperWickTop >= input.bodyTop) {
+      upperWickTop = input.bodyTop - 1;
+    }
+    var upperHeight = hasUpperWick ? Math.max(0, input.bodyTop - upperWickTop) : 0;
+
+    var lowerWickBottom = input.wickBottom;
+    if (hasLowerWick && lowerWickBottom <= input.bodyBottom) {
+      lowerWickBottom = input.bodyBottom + 1;
+    }
+    var lowerHeight = hasLowerWick ? Math.max(0, lowerWickBottom - input.bodyBottom) : 0;
+
+    return {
+      upperWickTop: upperWickTop,
+      upperHeight: upperHeight,
+      lowerWickTop: input.bodyBottom + 1,
+      lowerHeight: lowerHeight,
+    };
+  }
+
   function getBodyCenterFromGeometry(geometry) {
     return geometry.bodyLeft + geometry.bodyWidth / 2;
   }
@@ -275,15 +299,23 @@ export const RTX5_CUSTOM_CANDLESTICK_SERIES_WEBVIEW_JS = String.raw`
         }
 
         if (self._options.wickVisible && geometry.wickWidth > 0) {
-          var upperHeight = geometry.upperWickBodyY - geometry.wickTop + 1;
-          var lowerHeight = geometry.wickBottom - geometry.lowerWickBodyY + 1;
+          var wicks = computeCandleWickRects({
+            open: original.open,
+            high: original.high,
+            low: original.low,
+            close: original.close,
+            bodyTop: geometry.bodyTop,
+            bodyBottom: geometry.bodyBottom,
+            wickTop: geometry.wickTop,
+            wickBottom: geometry.wickBottom,
+          });
           context.fillStyle = wickColor;
 
-          if (upperHeight > 0) {
-            context.fillRect(geometry.wickLeft, geometry.wickTop, geometry.wickWidth, upperHeight);
+          if (wicks.upperHeight > 0) {
+            context.fillRect(geometry.wickLeft, wicks.upperWickTop, geometry.wickWidth, wicks.upperHeight);
           }
-          if (lowerHeight > 0) {
-            context.fillRect(geometry.wickLeft, geometry.lowerWickBodyY, geometry.wickWidth, lowerHeight);
+          if (wicks.lowerHeight > 0) {
+            context.fillRect(geometry.wickLeft, wicks.lowerWickTop, geometry.wickWidth, wicks.lowerHeight);
           }
         }
 

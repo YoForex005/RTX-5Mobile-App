@@ -44,8 +44,11 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - [x] Unit: quote live snapshots refresh receive-time state on duplicate backend feed payloads while preserving previous bid/ask only for real price movement.
 - [x] Unit: quote live snapshot rendering keeps real EURUSD/XAUUSD bid/ask values visible when the backend snapshot marks the quote as unchanged.
 - [x] Unit: quote default watchlist fallback starts the public feed when the instrument catalog is temporarily unavailable and no device-local watchlist exists.
+- [x] Unit: public quote catalog and quote REST snapshot fallbacks stay available without login while private watchlist sync remains login-gated.
+- [x] Unit: visible single-symbol bid/ask consumers commit on the one-frame quote UI path instead of delayed 50-120ms throttles.
 - [x] Unit/device: quote symbol action sheets use prebuilt instant configs, avoid leaving the tapped row held, and stay at one settled Android position when opened.
 - [x] Unit/device: Quotes tab owns the full watchlist live feed so virtualized rows can render snapshots for all subscribed symbols.
+- [x] Unit: Quotes spread is derived from displayed bid/ask precision, while volume stays backend-owned, non-negative, and never falls back to mock values after live ticks.
 - [ ] Integration: search + filter + mode switching.
 - [ ] E2E: swipe action and context menu flow.
 
@@ -53,6 +56,9 @@ Deliver full Quotes parity: search, list/table modes, edit/reorder, swipe action
 - Quotes module reaches parity checklist with no P1 defects.
 
 ## Progress Notes
+- 2026-06-18: Audited Quotes row spread/volume math against standard market-watch behavior. Spread is recalculated as `ask - bid` in broker display points using backend digits, even when the feed sends a stale/raw spread value. Volume is treated as backend-provided tick/session volume only, rejects negative values, carries forward only previously backend-sourced volume, and shows `0` when the backend explicitly sends zero.
+- 2026-06-18: Increased visible bid/ask paint speed by moving the single-symbol quote hook, chart header, and chart trade buttons to a one-frame 16ms commit path. The hook now uses requestAnimationFrame and immediate state commits on that fast path, while slower custom intervals still use transition scheduling.
+- 2026-06-18: Made quote live-data startup faster before and after login. The visible Quotes route now starts the public symbol catalog immediately, quote REST snapshot fallbacks skip auth while logged out, private watchlist sync/mutations remain login-only, and app bootstrap applies account, positions, instruments, and market-status data as each startup request resolves instead of waiting for every endpoint.
 - 2026-05-25: Added second-pass MT5-style dropdown latency work after device screenshots showed large/searchable sheets could still lag behind compact sheets. The shared ActionSheet now uses bounded FlatList batches, and chart dropdown openers show the sheet before next-frame chart cleanup work.
 - 2026-05-25: Rechecked the MT5 quote-row symbol tap sheet with 18 ADB screenshots across two open cycles. MT5 paints the native bottom sheet at its final position on the first captured frame, with `bottom_sheet` bounds `[0,842][720,1598]`, `central_layout` `[0,954][720,1598]`, and fixed 84px action rows. RTX5 quote symbol tap now uses the shared adaptive compact detent instead of the oversized large detent, and instant sheets set opacity/translate synchronously so the first frame is already the final open state.
 - 2026-05-25: Rechecked the Quotes symbol tap dropdown with ADB screenshot evidence after the shared ActionSheet adaptive-floor fix. Tap symbol menus continue to use the prebuilt instant path, and short-content Android sheets no longer shrink below the expected action-sheet height.

@@ -217,11 +217,21 @@ function OrderTicketInitialShell() {
 function OrderTicketInteractiveContent() {
   // Route params let chart and quote screens open the ticket with a specific
   // symbol, initial trade side, or order comment.
-  const { symbol: routeSymbol, comment: routeComment, side: routeSideParam } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string }>();
+  const {
+    symbol: routeSymbol,
+    comment: routeComment,
+    side: routeSideParam,
+    sl: routeSlParam,
+    tp: routeTpParam,
+  } = useLocalSearchParams<{ symbol?: string; comment?: string; side?: string; sl?: string; tp?: string }>();
   const routeInitialSymbol = normalizeSymbol(routeSymbol || 'EURUSD');
   const [symbol, setSymbol] = useState(routeInitialSymbol);
   const routeSymbolRef = useRef(routeInitialSymbol);
   const routeSide = normalizeTradeSide(routeSideParam);
+  const initialRouteSlPrice = Number(routeSlParam);
+  const initialRouteTpPrice = Number(routeTpParam);
+  const initialSlPrice = Number.isFinite(initialRouteSlPrice) && initialRouteSlPrice > 0 ? initialRouteSlPrice : 0;
+  const initialTpPrice = Number.isFinite(initialRouteTpPrice) && initialRouteTpPrice > 0 ? initialRouteTpPrice : 0;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isScreenFocused = useIsFocused();
@@ -271,10 +281,10 @@ function OrderTicketInteractiveContent() {
   );
   const [volume, setVolume] = useState(() => normalizeTradeVolume(tradeVolume, volumeBounds));
   const [volumeInput, setVolumeInput] = useState(() => formatTradeVolume(tradeVolume, volumeBounds));
-  const [slEnabled, setSlEnabled] = useState(false);
-  const [slPrice, setSlPrice] = useState(0);
-  const [tpEnabled, setTpEnabled] = useState(false);
-  const [tpPrice, setTpPrice] = useState(0);
+  const [slEnabled, setSlEnabled] = useState(initialSlPrice > 0);
+  const [slPrice, setSlPrice] = useState(initialSlPrice);
+  const [tpEnabled, setTpEnabled] = useState(initialTpPrice > 0);
+  const [tpPrice, setTpPrice] = useState(initialTpPrice);
 
   const availableSymbols = useMemo(() => {
     const seen = new Set<string>();

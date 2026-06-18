@@ -159,6 +159,77 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
   assert.equal(payload.markers[0].id, 'closed-99');
 });
 
+test('buildChartOverlayPayload removes SL/TP lines once the hit position is no longer active', () => {
+  const openPosition = {
+    id: 'hit-501',
+    symbol: 'EURUSD',
+    side: 'buy' as const,
+    volume: 0.1,
+    openPrice: 1.111,
+    currentPrice: 1.116,
+    pnl: 50,
+    swap: 0,
+    openTime: new Date(candles[5].time * 1000).toISOString(),
+    sl: 1.106,
+    tp: 1.116,
+  };
+  const showOnChart = {
+    openPositions: true,
+    tpSlStopLimit: true,
+    closedPositions: true,
+    tradingSignals: false,
+    hmrPeriods: false,
+    priceAlerts: false,
+    potentialStopOut: false,
+  };
+
+  const beforeHit = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions: [openPosition],
+    closedPositions: [],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart,
+  });
+
+  assert.deepEqual(
+    beforeHit.priceLines.map((line: any) => line.id).sort(),
+    ['open-hit-501', 'sl-hit-501', 'tp-hit-501'].sort(),
+  );
+
+  const afterHit = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions: [],
+    closedPositions: [
+      {
+        ticket: 501,
+        account_login: 1,
+        symbol: 'EURUSD',
+        side: 'buy',
+        volume: 0.1,
+        price_open: 1.111,
+        price_close: 1.116,
+        profit: 50,
+        swap: 0,
+        commission: 0,
+        time_create: candles[5].time,
+        time_update: candles[10].time,
+        time_close: candles[10].time,
+      },
+    ],
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart,
+  });
+
+  assert.deepEqual(afterHit.priceLines, []);
+  assert.equal(afterHit.markers[0]?.id, 'closed-501');
+});
+
 test('buildChartOverlayPayload updates open position labels from live bid and ask prices', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'BTCUSD',

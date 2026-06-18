@@ -65,7 +65,7 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(watchlistHookSource, /ingestLiveQuoteTick\(tick\)/);
   assert.match(watchlistHookSource, /useRestQuoteSnapshotFallback\(normalizedSymbols, active\)/);
   assert.doesNotMatch(watchlistHookSource, /subscribeToSymbol/);
-  assert.match(liveQuotesSource, /apiClient\(`\/quotes\?symbols=\$\{symbolsQuery\}`\)/);
+  assert.match(liveQuotesSource, /apiClient\([\s\S]*`\/quotes\?symbols=\$\{symbolsQuery\}`[\s\S]*isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}[\s\S]*\)/);
   assert.match(liveQuotesSource, /asQuoteSnapshotArray\(payload\)\.forEach/);
   assert.match(liveQuotesSource, /const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000/);
   assert.match(liveQuotesSource, /const needsRestQuoteSnapshot = \(symbol: string, now = Date\.now\(\)\): boolean =>/);
@@ -73,10 +73,11 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /const symbolsNeedingFallback = symbols\.filter\(\(symbol\) => needsRestQuoteSnapshot\(symbol\)\)/);
   assert.match(liveQuotesSource, /await fetchRestQuoteSnapshots\(symbolsNeedingFallback\)/);
   assert.match(liveQuotesSource, /if \(!matchesRequestedSymbol \|\| !needsRestQuoteSnapshot\(symbol\)\)/);
+  assert.match(liveQuotesSource, /isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}/);
   assert.match(liveQuotesSource, /QUOTE_REST_SNAPSHOT_POLL_MS = 500/);
   assert.match(liveQuotesSource, /WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesScreenSource, /const quoteFeedActive = quoteStickyFeedActive/);
+  assert.match(quotesScreenSource, /const quoteFeedActive =\s*quoteStickyFeedActive/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   assert.match(
     quotesScreenSource,

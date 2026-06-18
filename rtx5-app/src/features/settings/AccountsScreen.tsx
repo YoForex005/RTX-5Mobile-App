@@ -70,6 +70,7 @@ import {
   isDemoTradingAccount,
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
+import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -228,6 +229,7 @@ export function AccountsScreen() {
   const activeIsDemo = activeAccount ? isDemoTradingAccount(activeAccount.group) : isDemoAccount;
   const activeRibbonLabel = t(activeIsDemo ? 'Demo' : 'Real');
   const activeBadgeLabel = t(activeAccount ? getTradingAccountBadgeLabel(activeAccount.group) : (isDemoAccount ? 'Demo' : 'Live'));
+  const hasConnectedAccount = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
 
   // Build the unified "Other Connected Accounts" list. We merge two sources:
   //   1. `accounts` from /accounts — sub-accounts of the current session
@@ -671,10 +673,12 @@ export function AccountsScreen() {
                         <Text style={styles.liveBadgeText}>{activeBadgeLabel}</Text>
                       </View>
                     )}
-                    <View style={styles.connectedBadge}>
-                      <View style={styles.connectedDot} />
-                      <Text style={styles.connectedLabel}>{t('Connected')}</Text>
-                    </View>
+                    {hasConnectedAccount ? (
+                      <View style={styles.connectedBadge}>
+                        <View style={styles.connectedDot} />
+                        <Text style={styles.connectedLabel}>{t('Connected')}</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
                 <Text style={styles.activeCompany}>{displayBrokerName}</Text>

@@ -14,6 +14,7 @@ import { useTradingState } from '../../../state/tradingState';
 import { quotes as mockQuotes } from '../../../dev/mock/tradingData';
 import { hasQuotePriceChange } from '../../../utils/quotePriceChange';
 import { calculateQuoteSpreadPoints } from '../../../utils/quoteSpread';
+import { resolveBackendQuoteVolume } from '../../../utils/quoteVolume';
 import { normalizeQuoteTickTimestampToMs } from '../quoteTimestamp';
 
 const symbolSpecs = new Map(mockQuotes.map((q) => [q.symbol, q]));
@@ -97,12 +98,11 @@ export const flushUpdates = (state: FlushPipelineState): void => {
 
       if (!existing) {
         const digits = data.digits ?? spec?.digits ?? 5;
-        const volume = data.volume ?? spec?.volume ?? 0;
+        const volume = resolveBackendQuoteVolume({ incoming: data.volume });
         const entry: any = {
           symbol,
           digits,
           ...(data.digits !== undefined ? { digitsSource: 'backend' } : {}),
-          volume,
           feedTickAt,
           lastTickAt,
           lastReceivedAt,
@@ -117,11 +117,20 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         entry.lastTickAt = lastTickAt;
         entry.lastReceivedAt = lastReceivedAt;
         entry.lastPriceChangedAt = lastPriceChangedAt;
+        // Missing live volume should stay missing. A mock/default volume would
+        // make the Quotes screen look more certain than the feed really is.
+        if (volume === undefined) {
+          delete entry.volume;
+          delete entry.volumeSource;
+        } else {
+          entry.volume = volume;
+          entry.volumeSource = 'backend';
+        }
         entry.spread = calculateQuoteSpreadPoints(bid, ask, digits) ?? entry.spread;
         newQuotes[symbol] = entry;
       } else {
         const digits = data.digits ?? existing.digits ?? spec?.digits ?? 5;
-        const volume = data.volume ?? existing.volume ?? spec?.volume ?? 0;
+        const volume = resolveBackendQuoteVolume({ incoming: data.volume, previous: existing });
 
         // Single object creation — merge existing + server data in one allocation
         const updated: any = {};
@@ -137,7 +146,14 @@ export const flushUpdates = (state: FlushPipelineState): void => {
         if (data.digits !== undefined) {
           updated.digitsSource = 'backend';
         }
-        updated.volume = volume;
+        // Keep volume backend-owned across coalesced ticks.
+        if (volume === undefined) {
+          delete updated.volume;
+          delete updated.volumeSource;
+        } else {
+          updated.volume = volume;
+          updated.volumeSource = 'backend';
+        }
         updated.feedTickAt = feedTickAt ?? undefined;
         updated.lastTickAt = lastTickAt;
         updated.lastReceivedAt = lastReceivedAt;

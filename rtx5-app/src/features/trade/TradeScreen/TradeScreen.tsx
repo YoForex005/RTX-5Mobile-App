@@ -12,7 +12,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useMemo, useEffect, useCallback, useState } from 'react';
+import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react';
 import { Text, View, FlatList } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { Screen } from '../../../ui/components/Screen';
@@ -24,7 +24,7 @@ import { useUserPreferences } from '../../../state/userPreferences';
 import { useIsDarkTheme } from '../../../state/themeMode';
 import { usePositionsState } from '../../../state/positionsState';
 import { useTradingState } from '../../../state/tradingState';
-import { resolveTradingLogin } from '../../../state/tradingLogin';
+import { useResolvedTradingLogin } from '../../../state/tradingLogin';
 import { isRenderablePositionSymbol } from '../../../state/positionsMapper';
 import { dedupePositionsById } from '../../../state/positionsState.helpers';
 import { useTheme } from '../../../ui/theme/useTheme';
@@ -35,29 +35,29 @@ import { runImmediateAction } from '../../../utils/actionLatency';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
-const TRADE_FOCUS_WORK_DELAY_MS = 650;
+// Render only the first screenful of trade rows first. This prevents 15-30 open
+// positions from all mounting and subscribing to live quotes before the user scrolls.
+const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
+const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
+const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
 
-function scheduleTradeFocusWork(action: () => void) {
-  let frameId: number | null = null;
-  const timerId = setTimeout(() => {
-    if (typeof globalThis.requestAnimationFrame === 'function') {
-      frameId = globalThis.requestAnimationFrame(action);
-      return;
-    }
-    action();
-  }, TRADE_FOCUS_WORK_DELAY_MS);
+function areStringSetsEqual(left: Set<string>, right: Set<string>) {
+  if (left.size !== right.size) {
+    return false;
+  }
 
-  return () => {
-    clearTimeout(timerId);
-    if (frameId !== null) {
-      globalThis.cancelAnimationFrame?.(frameId);
+  for (const item of left) {
+    if (!right.has(item)) {
+      return false;
     }
-  };
+  }
+
+  return true;
 }
 
 export function TradeScreen() {
   const isScreenFocused = useIsFocused();
-  const [focusWorkReady, setFocusWorkReady] = useState(false);
+  const [viewablePositionIds, setViewablePositionIds] = useState<Set<string>>(() => new Set());
   const T = useTheme();
   const { t } = useTranslation();
   const isDark = useIsDarkTheme();
@@ -66,11 +66,11 @@ export function TradeScreen() {
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
 
-  // ── Position Hydration & Live Fetch ─────────────────────────────────────
-  const { positions, refreshPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
+  const { positions, refreshPositions, hydrateCachedPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
       positions: state.positions,
       refreshPositions: state.refreshPositions,
+      hydrateCachedPositions: state.hydrateCachedPositions,
       isLoading: state.isLoading,
       lastFetchLogin: state.lastFetchLogin,
       hydratedLogin: state.hydratedLogin,
@@ -78,44 +78,34 @@ export function TradeScreen() {
     })),
   );
   const primePositionSnapshot = usePositionsState((state) => state.primePositionSnapshot);
-  const resolvedLogin = resolveTradingLogin();
-
-  useEffect(() => {
-    if (!isScreenFocused) {
-      setFocusWorkReady(false);
-      return;
-    }
-
-    let cancelled = false;
-    const cancelFocusWork = scheduleTradeFocusWork(() => {
-      if (!cancelled) {
-        setFocusWorkReady(true);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      cancelFocusWork();
-    };
-  }, [isScreenFocused]);
+  // Use the reactive login hook here. If the Trade tab is already mounted while
+  // login state hydrates, this rerenders immediately and starts cache/fetch work.
+  const resolvedLogin = useResolvedTradingLogin();
 
   const fetchPositions = useCallback(async () => {
-    const mt5Login = resolveTradingLogin();
-    if (!mt5Login) {
+    if (!resolvedLogin) {
       return;
     }
 
-    await refreshPositions(String(mt5Login));
-  }, [refreshPositions]);
+    await refreshPositions(String(resolvedLogin));
+  }, [refreshPositions, resolvedLogin]);
 
-  // Initial fetch when the account login is first available. After that,
-  // live position updates flow through the websocket/store pipeline.
+  // Cache hydration is cheap and lets the Trade tab show the last known real
+  // positions immediately, while the focused screen fetch below verifies them.
   useEffect(() => {
-    if (focusWorkReady && resolvedLogin) {
+    if (resolvedLogin) {
+      void hydrateCachedPositions(String(resolvedLogin));
+    }
+  }, [hydrateCachedPositions, resolvedLogin]);
+
+  // Fetch only while the tab is focused so hidden Trade does not keep polling,
+  // but render the real stored positions immediately instead of a fake 0-open frame.
+  useEffect(() => {
+    if (isScreenFocused && resolvedLogin) {
       fetchPositions();
     }
-  }, [focusWorkReady, resolvedLogin, fetchPositions]);
-  const positionRowsActive = isScreenFocused && focusWorkReady;
+  }, [isScreenFocused, resolvedLogin, fetchPositions]);
+  const positionRowsActive = isScreenFocused;
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -123,6 +113,38 @@ export function TradeScreen() {
     [positions],
   );
   const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);
+  const livePositionRows = useMemo(
+    // These are the rows allowed to use live quote subscriptions right now.
+    // The header receives this smaller list so off-screen symbols do not slow
+    // down the first Trade render, while the full `renderablePositions` list
+    // still controls the count, total lots, and FlatList data.
+    () =>
+      renderablePositions.filter((position, index) =>
+        index < TRADE_INITIAL_POSITION_RENDER_COUNT || viewablePositionIds.has(String(position.id)),
+      ),
+    [renderablePositions, viewablePositionIds],
+  );
+  const rowActivationKey = useMemo(
+    // FlatList rows are memoized, so this key tells them when their "live row"
+    // status changed after scrolling.
+    () => `${positionRowsActive ? '1' : '0'}:${Array.from(viewablePositionIds).sort().join('|')}`,
+    [positionRowsActive, viewablePositionIds],
+  );
+
+  const handleViewablePositionRowsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item?: PositionItem | null }> }) => {
+    // FlatList calls this as rows enter/leave the viewport. We store only the
+    // visible ticket ids so newly visible rows can start live quote updates.
+    const nextIds = new Set<string>();
+    viewableItems.forEach(({ item }) => {
+      if (item?.id !== undefined && item.id !== null) {
+        nextIds.add(String(item.id));
+      }
+    });
+
+    setViewablePositionIds((currentIds) => (
+      areStringSetsEqual(currentIds, nextIds) ? currentIds : nextIds
+    ));
+  }).current;
 
   const navigateToBulkMode = useCallback((mode: string) => {
     router.push({ pathname: '/trade/bulk', params: { mode } });
@@ -165,64 +187,31 @@ export function TradeScreen() {
     );
   }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
 
-  const renderPositionRow = useCallback(({ item }: { item: PositionItem }) => (
-    <TradePositionRow
-      item={item}
-      onPress={showPositionSheet}
-      onLongPress={showPositionSheet}
-      onBulkPress={showBulkSheet}
-      pnlCurrency={pnlCurrency}
-      active={positionRowsActive}
-    />
-  ), [pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet]);
-
-  if (!focusWorkReady) {
-    return (
-      <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
-        <AppHeader title={t('Trade')} noBorder />
-        <View style={[s.summaryBlock, { borderLeftWidth: 1, borderLeftColor: isDark ? 'rgba(255,255,255,0.06)' : T.border }]}>
-          <View style={s.summaryTop}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                {t('Floating Profit/Loss')}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 24,
-                  fontWeight: '700',
-                  color: T.up,
-                  letterSpacing: 0,
-                  fontVariant: ['tabular-nums'],
-                  textAlign: 'right',
-                }}
-              >
-                +0.00 {pnlCurrency}
-              </Text>
-            </View>
-          </View>
-        </View>
-        <View style={[s.positionsHeader, { borderBottomColor: T.border }]}>
-          <View style={s.positionsHeaderLeft}>
-            <View style={[s.positionsAccentBar, { backgroundColor: T.accent }]} />
-            <View>
-              <View style={s.positionsTitleRow}>
-                <Text style={[s.positionsTitle, { color: T.text }]}>{t('Positions')}</Text>
-              </View>
-              <Text style={[s.positionsMeta, { color: T.textMuted }]}>
-                0 {t('open')} · 0.00 {t('lots')}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </Screen>
+  const renderPositionRow = useCallback(({ item, index }: { item: PositionItem; index: number }) => {
+    // Keep the first visible batch live immediately; below-fold rows only start
+    // quote subscriptions after FlatList reports that they are coming on screen.
+    const rowActive = positionRowsActive && (
+      index < TRADE_INITIAL_POSITION_RENDER_COUNT || viewablePositionIds.has(String(item.id))
     );
-  }
+
+    return (
+      <TradePositionRow
+        item={item}
+        onPress={showPositionSheet}
+        onLongPress={showPositionSheet}
+        onBulkPress={showBulkSheet}
+        pnlCurrency={pnlCurrency}
+        active={rowActive}
+      />
+    );
+  }, [pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet, viewablePositionIds]);
 
   return (
     <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
       <AppHeader title={t('Trade')} noBorder />
       <TradeSummaryHeader
         positions={renderablePositions}
+        liveQuotePositions={livePositionRows}
         hydratedLogin={hydratedLogin}
         resolvedLogin={resolvedLogin}
         s={s}
@@ -230,7 +219,7 @@ export function TradeScreen() {
         isDark={isDark}
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
-        active={focusWorkReady}
+        active={isScreenFocused}
       />
       <FlatList
         keyboardShouldPersistTaps="always"
@@ -239,11 +228,14 @@ export function TradeScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
-        initialNumToRender={15}
-        maxToRenderPerBatch={10}
-        windowSize={5}
+        initialNumToRender={TRADE_INITIAL_POSITION_RENDER_COUNT}
+        maxToRenderPerBatch={TRADE_POSITION_RENDER_BATCH_SIZE}
+        windowSize={2}
+        updateCellsBatchingPeriod={80}
         removeClippedSubviews={true}
-        extraData={positionRowsActive}
+        viewabilityConfig={TRADE_POSITION_VIEWABILITY_CONFIG}
+        onViewableItemsChanged={handleViewablePositionRowsChanged}
+        extraData={rowActivationKey}
         renderItem={renderPositionRow}
         ListEmptyComponent={
           <View style={s.emptyState}>
@@ -262,7 +254,7 @@ export function TradeScreen() {
         }
         ListFooterComponent={renderablePositions.length > 0 ? (
           <>
-            {/* ── Top Exposures ── */}
+            {/* Top Exposures */}
           </>
         ) : null}
       />

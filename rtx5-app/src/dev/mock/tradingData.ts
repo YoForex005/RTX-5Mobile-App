@@ -18,6 +18,7 @@ export type QuoteItem = {
   open?: number;
   close?: number;
   volume?: number;
+  volumeSource?: 'backend';
   digits?: number;
   digitsSource?: 'backend';
   contractSize: number;

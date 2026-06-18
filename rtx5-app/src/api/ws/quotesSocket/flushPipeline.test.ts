@@ -45,3 +45,67 @@ test('batched quote flush lets backend digits correct stale cached precision', (
   assert.equal(quote.digits, 8);
   assert.equal(quote.digitsSource, 'backend');
 });
+
+test('batched quote flush recalculates spread and keeps volume backend-owned', () => {
+  resetTradingState();
+
+  const flushState: FlushPipelineState = {
+    flushScheduled: false,
+    flushAnimationFrame: null,
+    flushTimer: null,
+    pendingUpdates: new Map([
+      [
+        'EURUSD',
+        {
+          bid: 1.16345,
+          ask: 1.16365,
+          spread: 0,
+          digits: 5,
+        },
+      ],
+    ]),
+  };
+
+  flushUpdates(flushState);
+
+  let quote = useTradingState.getState().quotes.EURUSD;
+  assert.equal(quote.spread, 20);
+  assert.equal(quote.volume, undefined);
+  assert.equal(quote.volumeSource, undefined);
+
+  flushState.pendingUpdates = new Map([
+    [
+      'EURUSD',
+      {
+        bid: 1.16346,
+        ask: 1.16366,
+        digits: 5,
+        volume: 4407,
+      },
+    ],
+  ]);
+
+  flushUpdates(flushState);
+
+  quote = useTradingState.getState().quotes.EURUSD;
+  assert.equal(quote.spread, 20);
+  assert.equal(quote.volume, 4407);
+  assert.equal(quote.volumeSource, 'backend');
+
+  flushState.pendingUpdates = new Map([
+    [
+      'EURUSD',
+      {
+        bid: 1.16347,
+        ask: 1.16367,
+        digits: 5,
+      },
+    ],
+  ]);
+
+  flushUpdates(flushState);
+
+  quote = useTradingState.getState().quotes.EURUSD;
+  assert.equal(quote.volume, 4407);
+  assert.equal(quote.volumeSource, 'backend');
+});

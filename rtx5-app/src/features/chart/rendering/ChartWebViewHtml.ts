@@ -5587,9 +5587,9 @@ export const CH_HTML = `
         } catch (_e) {}
       }
 
-      function setDrawingTool(tool) {
+      function setDrawingTool(tool, options) {
         if (window._drawingManager && typeof window._drawingManager.setActiveTool === 'function') {
-          window._drawingManager.setActiveTool(tool);
+          window._drawingManager.setActiveTool(tool, false, options);
         }
       }
       function clearDrawings() {

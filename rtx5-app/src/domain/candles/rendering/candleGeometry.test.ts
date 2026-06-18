@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   CANDLE_CENTER_EPSILON,
+  computeCandleWickRects,
   createCandleGeometry,
   createSpanFromRoundedX,
   formatCandleGeometryInvariantMessage,
@@ -15,6 +16,105 @@ import {
   normalizeCandlestickBodyWidth,
   scaleToBitmapCoordinate,
 } from './candleGeometry';
+
+// In screen space Y grows downward, so higher price => smaller Y. A bullish
+// candle with full wicks: high above body top, low below body bottom.
+test('computeCandleWickRects draws both wicks flush against the body', () => {
+  const rects = computeCandleWickRects({
+    open: 100,
+    close: 110, // bullish: body spans 100..110
+    high: 120,
+    low: 90,
+    bodyTop: 20, // y(110)
+    bodyBottom: 40, // y(100)
+    wickTop: 10, // y(120)
+    wickBottom: 50, // y(90)
+  });
+  // upper wick occupies rows [10, 19] (flush below to body top at 20)
+  assert.equal(rects.upperWickTop, 10);
+  assert.equal(rects.upperHeight, 10);
+  // lower wick starts one px below body bottom and spans to y(low)
+  assert.equal(rects.lowerWickTop, 41);
+  assert.equal(rects.lowerHeight, 10);
+});
+
+test('computeCandleWickRects draws NO wick when none exists in price terms', () => {
+  // high == max(open,close) and low == min(open,close): a wickless marubozu.
+  const rects = computeCandleWickRects({
+    open: 100,
+    close: 110,
+    high: 110,
+    low: 100,
+    bodyTop: 20,
+    bodyBottom: 40,
+    wickTop: 20,
+    wickBottom: 40,
+  });
+  assert.equal(rects.upperHeight, 0);
+  assert.equal(rects.lowerHeight, 0);
+});
+
+test('computeCandleWickRects keeps a real-but-tiny wick visible (1px) when rounding collapses it', () => {
+  // high is fractionally above the body, so highY rounds onto bodyTop. The wick
+  // is real and must not vanish.
+  const rects = computeCandleWickRects({
+    open: 100,
+    close: 110,
+    high: 110.0001,
+    low: 99.9999,
+    bodyTop: 20,
+    bodyBottom: 40,
+    wickTop: 20, // collapsed onto bodyTop
+    wickBottom: 40, // collapsed onto bodyBottom
+  });
+  assert.equal(rects.upperHeight, 1);
+  assert.equal(rects.upperWickTop, 19); // 1px above the body top
+  assert.equal(rects.lowerHeight, 1);
+  assert.equal(rects.lowerWickTop, 41); // 1px below the body bottom
+});
+
+test('computeCandleWickRects handles one-sided wicks (upper only / lower only)', () => {
+  const upperOnly = computeCandleWickRects({
+    open: 100,
+    close: 110,
+    high: 120,
+    low: 100, // low == body bottom => no lower wick
+    bodyTop: 20,
+    bodyBottom: 40,
+    wickTop: 10,
+    wickBottom: 40,
+  });
+  assert.equal(upperOnly.upperHeight, 10);
+  assert.equal(upperOnly.lowerHeight, 0);
+
+  const lowerOnly = computeCandleWickRects({
+    open: 110,
+    close: 100, // bearish
+    high: 110, // high == body top => no upper wick
+    low: 90,
+    bodyTop: 20,
+    bodyBottom: 40,
+    wickTop: 20,
+    wickBottom: 50,
+  });
+  assert.equal(lowerOnly.upperHeight, 0);
+  assert.equal(lowerOnly.lowerHeight, 10);
+});
+
+test('computeCandleWickRects renders nothing for a fully flat (doji-line) candle', () => {
+  const rects = computeCandleWickRects({
+    open: 100,
+    close: 100,
+    high: 100,
+    low: 100,
+    bodyTop: 30,
+    bodyBottom: 30,
+    wickTop: 30,
+    wickBottom: 30,
+  });
+  assert.equal(rects.upperHeight, 0);
+  assert.equal(rects.lowerHeight, 0);
+});
 
 test('wickX always equals exact body center for bullish and bearish candles', () => {
   const bullish = createCandleGeometry({

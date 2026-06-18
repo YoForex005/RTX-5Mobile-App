@@ -27,6 +27,7 @@ const chartConstantsSource = readProjectSource('src/features/chart/ChartScreen.c
 const chartTapRadialMenuSource = readProjectSource('src/features/chart/components/ChartTapRadialMenu.tsx');
 const liveCandlesHookSource = readProjectSource('src/domain/candles/hooks/useLiveCandles.ts');
 const liveCandleStreamManagerSource = readProjectSource('src/domain/candles/stream/liveCandleStream/manager.ts');
+const liveCandleHistoryFetchingSource = readProjectSource('src/domain/candles/stream/liveCandleStream/historyFetching.ts');
 const enhancedDrawingToolsSource = readProjectSource('src/features/chart/plugins/enhancedDrawingToolsString.ts');
 
 test('webview bridge: ChartScreen initializes chart only after WebView READY enables bridge', () => {
@@ -65,6 +66,19 @@ test('webview bridge: symbol switches do not paint cached candles before fresh h
     source,
     /const \{ candles, hasHistoryCandles, paginate \} = useLiveCandles\(chartSymbol, chartTimeframe, chartRuntimeActive\)[\s\S]*hasHistoryCandles[\s\S]*sanitizeCandlesForChart\(candles, \{ timeframe: chartTimeframe \}\)[\s\S]*EMPTY_DISPLAY_CANDLES/,
     'native chart must not paint a live-only pre-history series as the history chart',
+  );
+});
+
+test('live candle stream: startup prefetch seeds first chart render before REST refresh', () => {
+  assertSourceContains(
+    liveCandleHistoryFetchingSource,
+    /candleMemoryCache\.set\(normalizedSymbol, normalizedTimeframe, candles\)/,
+    'startup prefetch must store fetched REST history in the in-memory candle cache',
+  );
+  assertSourceContains(
+    liveCandleStreamManagerSource,
+    /const memoryCachedCandles = candleMemoryCache\.get\(symbol, timeframe\)[\s\S]*this\.hydrateFromCache\(symbol, timeframe, memoryCachedCandles as CandleParams\[\]\)[\s\S]*runLoadHistory\(this, entry, DEFAULT_HISTORY_LIMIT\)/,
+    'new chart subscriptions must synchronously paint memory-prefetched candles before starting the REST refresh',
   );
 });
 
@@ -397,13 +411,28 @@ test('webview bridge: native web and WebView creation reserve the right price sc
 test('native chart status overlays do not block symbol recovery controls', () => {
   assertSourceContains(
     source,
+    /const startupChartPrefetchKeyRef = useRef\(''\)[\s\S]*scheduleIdleWork\(\(\) => \{[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, normalizedTimeframe\)[\s\S]*delayMs: CHART_STARTUP_HISTORY_PREWARM_DELAY_MS/,
+    'native chart must warm saved candle history during app startup before the first chart tab visit',
+  );
+  assertSourceContains(
+    source,
     /const shouldShowImmediateHistoryLoading = !candlesAvailable[\s\S]*const isLoading =[\s\S]*shouldShowImmediateHistoryLoading \|\| loadingDelayPassed/,
     'fresh symbol switches with no committed history must show loading immediately instead of a blank grid',
   );
   assertSourceContains(
     source,
-    /\{\(!chartSurfaceReady \|\| isLoading\) && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
-    'loading overlay must not block the symbol picker or toolbar while chart data is pending',
+    /setLoadingFallback\(false\);[\s\S]*if \(!chartRuntimeActive\) \{[\s\S]*return undefined;[\s\S]*const fallbackTmr = setTimeout\(\(\) => setLoadingFallback\(true\), 10000\)[\s\S]*\}, \[chartRuntimeActive, chartSymbol, chartTimeframe, chartType\]\)/,
+    'hidden hot tabs must not age into the no-data fallback before Chart is opened',
+  );
+  assertSourceContains(
+    source,
+    /const shouldShowChartLoadingOverlay = !hasPaintedChartOnce && \(!chartSurfaceReady \|\| isLoading\)/,
+    'startup loading overlay must stay visible until the first real candle paint',
+  );
+  assertSourceContains(
+    source,
+    /\{shouldShowChartLoadingOverlay && \(\s*<View pointerEvents="none" style=\{styles\.chartOverlay\}>/,
+    'loading overlay must not reappear over the retained chart after normal tab navigation',
   );
   assertSourceContains(
     source,
@@ -696,7 +725,10 @@ test('webview bridge: native handler accepts CHART_READY geometry drag and error
   assertSourceContains(chartWebViewHtmlSource, /function postChartReady\(initSignature, configSig\)[\s\S]*type: 'CHART_READY'[\s\S]*initSignature: initSignature \|\| ''[\s\S]*configSig: configSig \|\| ''/, 'WebView CHART_READY must echo the init signatures');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyInitSignature = typeof msg\.initSignature === 'string' \? msg\.initSignature : ''[\s\S]*readyInitSignature !== latestInitDispatch\.signature[\s\S]*readyConfigSig !== currentSig[\s\S]*return/, 'native handler must ignore stale CHART_READY signatures');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*chartInitializedRef\.current = true[\s\S]*setChartCanvasReady\(true\)/, 'CHART_READY must mark canvas ready');
+  assert.doesNotMatch(source, /setChartCanvasReady\(true\);\s*setHasPaintedChartOnce\(true\)/, 'empty CHART_READY must not hide the startup loader before candles arrive');
   assertSourceContains(source, /msg\.type === 'CHART_READY'[\s\S]*const readyCandles = candlesRef\.current[\s\S]*const readySnapshot = buildChartSeriesSnapshot\(readyCandles\)/, 'CHART_READY must read the retained sanitized candles');
+  assertSourceContains(source, /if \(readyCandles\.length > 0 && webViewRef\.current\) \{[\s\S]*setHasPaintedChartOnce\(true\)/, 'CHART_READY may latch first paint only when retained candles are non-empty');
+  assertSourceContains(source, /if \(didInject\) \{[\s\S]*renderedSeriesSnapshotRef\.current = nextSnapshot;[\s\S]*setHasPaintedChartOnce\(true\)/, 'updateChartData must latch first paint when the first candle batch arrives after empty READY');
   assertSourceContains(source, /getChartSnapshotSignature\(pendingInitSnapshotRef\.current\) === getChartSnapshotSignature\(readySnapshot\)[\s\S]*renderedSeriesSnapshotRef\.current = readySnapshot[\s\S]*updateChartData\(\$\{JSON\.stringify\(mapped\)\}\)/, 'CHART_READY must skip duplicate full-history paint when init already seeded the same series');
   assertSourceContains(source, /msg\.type === 'CHART_GEOMETRY'[\s\S]*setChartPlotArea/, 'CHART_GEOMETRY must update plot area');
   assertSourceContains(source, /msg\.type === 'CHART_TRADE_LINE_DRAG'[\s\S]*handleChartTradePreviewDragMessage\(msg\)/, 'trade-line drag messages must reach React state');

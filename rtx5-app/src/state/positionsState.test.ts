@@ -84,6 +84,50 @@ test('buildMergedPositions preserves recent optimistic positions that are still 
   assert.deepEqual(merged.map((position) => position.id), ['401']);
 });
 
+test('buildMergedPositions clears optimistic state after backend confirmation so SL/TP closes disappear', () => {
+  const optimisticCreatedAt = Date.now() - 5000;
+  const confirmed = buildMergedPositions(
+    [
+      {
+        id: '411',
+        symbol: 'XAUUSD',
+        side: 'buy',
+        volume: 0.3,
+        openPrice: 3240,
+        currentPrice: 3241,
+        pnl: 15,
+        swap: 0,
+        openTime: '2026-04-16T10:00:00.000Z',
+        sl: 3230,
+        tp: 3260,
+        clientCreatedAt: optimisticCreatedAt,
+      },
+    ],
+    [
+      {
+        ticket: 411,
+        symbol: 'XAUUSD',
+        side: 'buy',
+        volume: 0.3,
+        price_open: 3240,
+        price_current: 3241,
+        price_sl: 3230,
+        price_tp: 3260,
+        profit: 15,
+        swap: 0,
+        commission: 0,
+        time_create: 1_775_000_000,
+      },
+    ],
+  );
+
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0]?.clientCreatedAt, undefined);
+
+  const afterHitSnapshot = buildMergedPositions(confirmed, []);
+  assert.deepEqual(afterHitSnapshot, []);
+});
+
 test('dedupePositionsById keeps the newest optimistic row when a ticket collides', () => {
   const firstCreatedAt = Date.now();
   const deduped = dedupePositionsById([

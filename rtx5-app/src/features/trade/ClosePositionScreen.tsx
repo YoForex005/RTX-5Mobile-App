@@ -9,7 +9,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserPreferences } from '../../state/userPreferences';
 import { usePositionsState } from '../../state/positionsState';
@@ -157,39 +157,44 @@ export function ClosePositionScreen() {
 
     setIsClosing(true);
     setCloseError(null);
-    try {
-      await positionsApi.closePosition(ticketId);
+    const closeSnapshot = { ...position };
+    // Close feels instant: remove the row and navigate back first, then finish
+    // server confirmation in the background or restore the row on failure.
+    usePositionsState.getState().beginOptimisticClose(ticketId);
+    setSubmitted(true);
+    safeRouterBack(router, '/(tabs)/trade');
 
-      const state = usePositionsState.getState();
-      state.setPositions(state.positions.filter(p => String(p.id) !== String(ticketId)));
-      setSubmitted(true);
+    void positionsApi.closePosition(ticketId)
+      .then(() => {
+        const state = usePositionsState.getState();
+        state.finishOptimisticClose(ticketId);
 
-      // Invalidate all history / deals / account caches so the History tab
-      // immediately shows the newly closed trade and its Net P/L.
-      appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
-      appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
-      appQueryClient.invalidateQueries({ queryKey: ['deals'] });
-      appQueryClient.invalidateQueries({ queryKey: ['positions'] });
-      appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
-      appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
-      appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
-      appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
+        // Invalidate all history / deals / account caches so the History tab
+        // immediately shows the newly closed trade and its Net P/L.
+        appQueryClient.invalidateQueries({ queryKey: ['positionHistory'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountDeals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['deals'] });
+        appQueryClient.invalidateQueries({ queryKey: ['positions'] });
+        appQueryClient.invalidateQueries({ queryKey: ['ordersByLogin'] });
+        appQueryClient.invalidateQueries({ queryKey: ['accountSummary'] });
+        appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
+        appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-      safeRouterBack(router, '/(tabs)/trade');
-
-      if (resolvedLogin) {
-        state.refreshPositions(resolvedLogin);
-      }
-    } catch (error: any) {
-      setCloseError(
-        formatTradingErrorFeedback(
-          classifyTradingError(error, { action: 'close-position' }),
-        ),
-      );
-    } finally {
-      setIsClosing(false);
-      releaseActionLock();
-    }
+        if (resolvedLogin) {
+          void state.refreshPositions(resolvedLogin);
+        }
+      })
+      .catch((error: any) => {
+        const feedback = classifyTradingError(error, { action: 'close-position' });
+        const message = formatTradingErrorFeedback(feedback);
+        usePositionsState.getState().rollbackOptimisticClose(closeSnapshot);
+        setCloseError(message);
+        Alert.alert(feedback.title, feedback.message);
+      })
+      .finally(() => {
+        setIsClosing(false);
+        releaseActionLock();
+      });
   }, [isClosing, position, releaseActionLock, resolvedLogin]);
 
   const handleOpenCloseBy = useCallback(() => {

@@ -1138,6 +1138,9 @@ function ChartTradeSheetBody({
             lotSize={sheet.tradeVolume}
             volumeBounds={sheet.tradeVolumeBounds}
             comment={sheet.chartTradeComment}
+            stopLossPrice={sheet.chartTradeSlEnabled ? sheet.chartTradeSlPrice : undefined}
+            takeProfitPrice={sheet.chartTradeTpEnabled ? sheet.chartTradeTpPrice : undefined}
+            pointSize={sheet.chartPointSize}
             variant='mt5-market'
             onTradeResult={sheet.onTradeResult}
             fallbackBid={sheet.chartBid}

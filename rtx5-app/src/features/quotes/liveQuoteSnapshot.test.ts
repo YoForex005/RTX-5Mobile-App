@@ -127,6 +127,60 @@ test('applyLiveQuoteTickToSnapshot derives spread from displayed bid ask instead
   assert.equal(xauusd?.spread, 23);
 });
 
+test('applyLiveQuoteTickToSnapshot uses backend volume only and does not invent mock volume', () => {
+  const withoutBackendVolume = applyLiveQuoteTickToSnapshot(
+    'EURUSD',
+    undefined,
+    {
+      symbol: 'EURUSD',
+      bid: 1.16345,
+      ask: 1.16365,
+      digits: 5,
+      timestamp: 1777410001,
+      receivedAt: 1777410003000,
+    },
+    1,
+  );
+
+  assert.equal(withoutBackendVolume?.volume, undefined);
+  assert.equal(withoutBackendVolume?.volumeSource, undefined);
+
+  const withBackendVolume = applyLiveQuoteTickToSnapshot(
+    'EURUSD',
+    withoutBackendVolume,
+    {
+      symbol: 'EURUSD',
+      bid: 1.16346,
+      ask: 1.16366,
+      volume: 0,
+      digits: 5,
+      timestamp: 1777410002,
+      receivedAt: 1777410004000,
+    },
+    2,
+  );
+
+  assert.equal(withBackendVolume?.volume, 0);
+  assert.equal(withBackendVolume?.volumeSource, 'backend');
+
+  const carriedBackendVolume = applyLiveQuoteTickToSnapshot(
+    'EURUSD',
+    withBackendVolume,
+    {
+      symbol: 'EURUSD',
+      bid: 1.16347,
+      ask: 1.16367,
+      digits: 5,
+      timestamp: 1777410003,
+      receivedAt: 1777410005000,
+    },
+    3,
+  );
+
+  assert.equal(carriedBackendVolume?.volume, 0);
+  assert.equal(carriedBackendVolume?.volumeSource, 'backend');
+});
+
 test('hasDisplayableLiveQuotePrice keeps stale snapshots renderable when prices exist', () => {
   const staleNow = 1777410100000;
   const staleSnapshot = {

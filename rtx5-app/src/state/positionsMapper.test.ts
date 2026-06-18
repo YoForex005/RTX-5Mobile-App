@@ -78,6 +78,46 @@ test('mapPositionToItem normalizes broker symbols and common live update aliases
   assert.equal(mapped.pnl, 61.5);
 });
 
+test('mapPositionToItem calculates net open-position pnl from profit swap and commission once', () => {
+  const mapped = mapPositionToItem({
+    ticket: 802,
+    symbol: 'EURUSD',
+    side: 'buy',
+    volume: 0.1,
+    price_open: 1.1,
+    price_current: 1.101,
+    profit: 10,
+    swap: -1.25,
+    commission: -0.5,
+    time_create: 1775901600,
+  });
+
+  assert.equal(mapped.pnl, 8.25);
+  assert.equal(mapped.swap, -1.25);
+  assert.equal(mapped.commission, -0.5);
+});
+
+test('mapPositionToItem preserves existing swap and commission on profit-only updates', () => {
+  const existing: PositionItem = {
+    id: '803',
+    symbol: 'EURUSD',
+    side: 'buy',
+    volume: 0.1,
+    openPrice: 1.1,
+    currentPrice: 1.101,
+    pnl: 8.25,
+    swap: -1.25,
+    commission: -0.5,
+    openTime: '2026-04-11T10:00:00.000Z',
+  };
+
+  const mapped = mapPositionToItem({ ticket: 803, profit: 12 }, existing);
+
+  assert.equal(mapped.pnl, 10.25);
+  assert.equal(mapped.swap, -1.25);
+  assert.equal(mapped.commission, -0.5);
+});
+
 test('mapPositionToItem ignores undefined symbol sentinels in partial updates', () => {
   const existing: PositionItem = {
     id: '902',

@@ -1070,7 +1070,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (typeof this._resetDrawingSession === 'function') this._resetDrawingSession();
     } else {
       this.stopDrawing();
-      this._manager.setActiveTool('crosshair');
+      this._manager.finishDrawingTool(this._kind);
     }
   };
 
@@ -1199,13 +1199,29 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   function AdvancedDrawingToolsManager(chart, series) {
     this._chart = chart;
     this._series = series;
-    this._activeTool = 'crosshair';
+    this._activeTool = 'none';
     this._hidden = false;
     this._locked = false;
     this._sticky = false;
     this._magnetEnabled = false;
     this._crosshairLocked = false;
     this._crosshairVisible = false;
+    // True once a touch gesture has ever had >=2 fingers down (a pinch/zoom).
+    // Stays true until every finger lifts, so the whole gesture is treated as a
+    // zoom and never shows/locks the crosshair — even though a real pinch puts
+    // one finger down a frame before the second.
+    this._gestureHadMultitouch = false;
+    // Time-based suppression window. Lightweight-charts drives the crosshair via
+    // its own subscribeCrosshairMove/subscribeClick events, and its trailing
+    // click fires on touchend AFTER our touch handlers have already cleared
+    // _gestureHadMultitouch. A short window that outlives the gesture keeps the
+    // pinch from showing/locking the crosshair through that path too.
+    this._multiTouchSuppressUntil = 0;
+    // Tracks whether the active drawing tool acted on the first finger of the
+    // current gesture, plus the drawings count before it did, so a pinch that
+    // follows can roll back anything that first finger started/committed.
+    this._gestureToolActed = false;
+    this._gestureDrawingBaseline = 0;
     this._crosshairRaf = 0;
     this._crosshairConfig = {
       symbol: '',
@@ -1299,11 +1315,62 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._isDrawingToolActive = function () {
-    return !this._locked && !!this._tools[this._activeTool];
+    var tool = this._tools[this._activeTool];
+    return !this._locked && !!tool && (typeof tool.isDrawing !== 'function' || tool.isDrawing());
   };
 
   AdvancedDrawingToolsManager.prototype.shouldUseDirectTouchInput = function () {
     return hasTouchSupport();
+  };
+
+  // A pinch/zoom is in progress, or just ended within the suppression window.
+  AdvancedDrawingToolsManager.prototype._isPinchActive = function () {
+    return this._gestureHadMultitouch || Date.now() < this._multiTouchSuppressUntil;
+  };
+
+  // Mark the current gesture as a pinch and (re)arm the trailing suppression
+  // window so the lightweight-charts crosshair/click events fired on touchend
+  // are ignored too.
+  AdvancedDrawingToolsManager.prototype._markPinch = function () {
+    this._gestureHadMultitouch = true;
+    this._multiTouchSuppressUntil = Date.now() + 450;
+    this._activeTouchId = null;
+    this._touchDidMove = false;
+    this._rollbackPinchStartedDrawing();
+  };
+
+  // Undo anything the first finger of a now-confirmed pinch started on the active
+  // drawing tool: an uncommitted in-progress preview (2-point tools) and/or a
+  // drawing the first tap committed (single-tap tools like Level/Label). Runs
+  // only when that first finger actually acted, so normal single-finger drawing
+  // is untouched.
+  AdvancedDrawingToolsManager.prototype._rollbackPinchStartedDrawing = function () {
+    if (!this._gestureToolActed) {
+      return;
+    }
+    this._gestureToolActed = false;
+    var activeTool = this._tools[this._activeTool];
+    if (activeTool && activeTool._drawing) {
+      if (typeof activeTool._resetDrawingSession === 'function') {
+        try { activeTool._resetDrawingSession(); } catch (_resetErr) {}
+      } else if (typeof activeTool.stopDrawing === 'function' && typeof activeTool.startDrawing === 'function') {
+        try { activeTool.stopDrawing(); activeTool.startDrawing(); } catch (_restartErr) {}
+      }
+    }
+    if (typeof this._gestureDrawingBaseline === 'number') {
+      var removed = false;
+      while (this._records.length > this._gestureDrawingBaseline) {
+        var rec = this._records.pop();
+        try { this._detachRecord(rec); } catch (_detachErr) {}
+        if (rec && this._selectedRecordId === rec.id) {
+          this._selectedRecordId = null;
+        }
+        removed = true;
+      }
+      if (removed) {
+        this._emitDrawingsChanged();
+      }
+    }
   };
 
   AdvancedDrawingToolsManager.prototype._bindTouchBridge = function () {
@@ -1957,7 +2024,23 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleCrosshairMove = function (param) {
+    if (this._isPinchActive()) {
+      // Pinch/zoom: lightweight-charts still emits crosshairMove for the moving
+      // fingers. Do not show the crosshair overlay from a zoom gesture.
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      return;
+    }
     if (!param || !param.point) {
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      this._setHoveredRecord(null);
+      return;
+    }
+    var drawingMode = this._isDrawingToolActive();
+    if (this._activeTool === 'none' || (this._activeTool !== 'crosshair' && !drawingMode)) {
       if (!this._crosshairLocked) {
         this._hideCrosshairOverlay();
       }
@@ -1970,11 +2053,16 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     } else {
       this._setHoveredRecord(null);
     }
-    this._updateCrosshairOverlay(param, this._isDrawingToolActive());
+    this._updateCrosshairOverlay(param, drawingMode);
   };
 
   AdvancedDrawingToolsManager.prototype._handleCrosshairClick = function (param) {
     if (this._activeTool !== 'crosshair' || !param || !param.point) {
+      return;
+    }
+    if (this._isPinchActive()) {
+      // Trailing click that lightweight-charts fires when a pinch ends — must not
+      // toggle/lock the crosshair.
       return;
     }
     this._suppressHostTapMenu();
@@ -2023,8 +2111,8 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       if (this._selectedRecordId) {
         this._selectRecord(null);
       }
-      if (this._activeTool !== 'crosshair') {
-        this.setActiveTool('crosshair');
+      if (this._activeTool !== 'none') {
+        this.setActiveTool('none');
       }
       return;
     }
@@ -2515,8 +2603,23 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchStart = function (event) {
+    var activeTouchCount = (event.touches && typeof event.touches.length === 'number') ? event.touches.length : 1;
+    if (activeTouchCount >= 2) {
+      // A second finger landed → this gesture is a pinch/zoom. Mark it and undo
+      // any crosshair the first finger transiently showed (unless the user had
+      // already locked it on purpose). Kept true until all fingers lift.
+      this._markPinch();
+      if (!this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+    } else {
+      // Genuine fresh single-finger gesture (only one finger on screen).
+      this._gestureHadMultitouch = false;
+      this._gestureToolActed = false;
+    }
+
     if (this._activeTool === 'crosshair' && this.shouldUseDirectTouchInput()) {
-      if (event.touches && event.touches.length > 1) {
+      if (this._gestureHadMultitouch || (event.touches && event.touches.length > 1)) {
         this._activeTouchId = null;
         return;
       }
@@ -2581,7 +2684,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       return;
     }
 
-    if (event.touches && event.touches.length > 1) {
+    if (this._gestureHadMultitouch || (event.touches && event.touches.length > 1)) {
       this._activeTouchId = null;
       return;
     }
@@ -2592,6 +2695,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
 
     this._activeTouchId = touch.identifier;
+    // Snapshot before the tool acts so a pinch that follows this first finger can
+    // roll back whatever it started/committed (e.g. a single-tap Level).
+    this._gestureDrawingBaseline = this._records.length;
+    this._gestureToolActed = true;
     var param = this._buildSyntheticPointerParam(touch);
     this._touchDidMove = false;
     var hasPreviewHandler = typeof tool._handleMove === 'function';
@@ -2621,6 +2728,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchMove = function (event) {
+    if (this._gestureHadMultitouch || (event.touches && event.touches.length > 1)) {
+      // Pinch/zoom in progress — never drive the crosshair or a drawing from it.
+      this._markPinch();
+      return;
+    }
+
     if (this._lineEditState && this.shouldUseDirectTouchInput()) {
       var editTouch = this._findTrackedTouch(event.touches || event.changedTouches);
       if (!editTouch) {
@@ -2678,6 +2791,32 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
   };
 
   AdvancedDrawingToolsManager.prototype._handleTouchEnd = function (event) {
+    var remainingTouches = (event.touches && typeof event.touches.length === 'number') ? event.touches.length : 0;
+    if (this._gestureHadMultitouch) {
+      // A finger lifted from a pinch/zoom. Do NOT treat it as a crosshair tap
+      // (which would toggle the LOCK overlay on). Just clear transient state.
+      this._activeTouchId = null;
+      this._lastTouchParam = null;
+      this._touchDidMove = false;
+      this._touchGestureMode = 'idle';
+      if (this._activeTool === 'crosshair' && !this._crosshairLocked) {
+        this._hideCrosshairOverlay();
+      }
+      if (remainingTouches === 0) {
+        // Whole gesture finished — arm the next one as a fresh single touch.
+        this._gestureHadMultitouch = false;
+        this._gestureToolActed = false;
+      }
+      return;
+    }
+
+    // A clean (non-pinch) gesture is ending. Once the last finger lifts, the tool
+    // action is committed and final — clear the rollback arm so a later
+    // simultaneous two-finger pinch can never undo this finished drawing.
+    if (remainingTouches === 0) {
+      this._gestureToolActed = false;
+    }
+
     if (this._touchGestureMode === 'text-edit') {
       this._touchGestureMode = 'idle';
       this._touchDidMove = false;
@@ -2780,6 +2919,11 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._activeTouchId = null;
     this._lastTouchParam = null;
     this._lastTextEditTap = null;
+    var cancelRemaining = (event && event.touches && typeof event.touches.length === 'number') ? event.touches.length : 0;
+    if (cancelRemaining === 0) {
+      this._gestureHadMultitouch = false;
+      this._gestureToolActed = false;
+    }
     if (this._activeTool === 'crosshair') {
       if (!this._crosshairLocked) {
         this._hideCrosshairOverlay();
@@ -2860,22 +3004,64 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     return null;
   };
 
+  AdvancedDrawingToolsManager.prototype._isRecordPresentationVisible = function (record) {
+    if (!record || !record.visible || this._hidden) return false;
+    if (!this._activeTool || this._activeTool === 'none') return false;
+    if (this._activeTool === 'crosshair') return true;
+    return record.kind === this._activeTool;
+  };
+
+  AdvancedDrawingToolsManager.prototype._applyRecordPresentationVisibility = function (record) {
+    if (!record || !record.primitive) return false;
+    var visible = this._isRecordPresentationVisible(record);
+    record.displayVisible = visible;
+    if (typeof record.primitive.setVisible === 'function') {
+      record.primitive.setVisible(visible);
+    }
+    if (!visible) {
+      if (typeof record.primitive.setHovered === 'function') {
+        record.primitive.setHovered(false);
+      }
+      if (typeof record.primitive.setSelected === 'function') {
+        record.primitive.setSelected(false);
+      }
+    } else if (typeof record.primitive.setSelected === 'function') {
+      record.primitive.setSelected(!!record.selected);
+    }
+    return visible;
+  };
+
+  AdvancedDrawingToolsManager.prototype._refreshRecordPresentationVisibility = function () {
+    var selectedStillVisible = false;
+    this._records.forEach(function (record) {
+      var visible = this._applyRecordPresentationVisibility(record);
+      if (visible && record.id === this._selectedRecordId) {
+        selectedStillVisible = true;
+      }
+    }, this);
+    if (this._selectedRecordId && !selectedStillVisible) {
+      this._selectedRecordId = null;
+    }
+  };
+
   AdvancedDrawingToolsManager.prototype._setHoveredRecord = function (id) {
     if (this._hoveredRecordId === (id || null)) return;
     this._hoveredRecordId = id || null;
     this._records.forEach(function (record) {
-      var hovered = !!id && record.id === id;
+      var hovered = !!id && record.id === id && this._isRecordPresentationVisible(record);
       if (record.primitive && typeof record.primitive.setHovered === 'function') {
         record.primitive.setHovered(hovered);
       }
-    });
+    }, this);
   };
 
   AdvancedDrawingToolsManager.prototype._selectRecord = function (id) {
     var changed = false;
-    this._selectedRecordId = id || null;
+    var requested = id ? this._findRecordById(id) : null;
+    var selectedId = requested && this._isRecordPresentationVisible(requested) ? id : null;
+    this._selectedRecordId = selectedId;
     this._records.forEach(function (record) {
-      var selected = !!id && record.id === id;
+      var selected = !!selectedId && record.id === selectedId;
       if (!!record.selected !== selected) changed = true;
       record.selected = selected;
       if (record.primitive && typeof record.primitive.setSelected === 'function') {
@@ -2932,7 +3118,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
 
   AdvancedDrawingToolsManager.prototype._hitTestTrendLineRecordAtPoint = function (record, point) {
     if (!record || !point || this._locked) return null;
-    if (record.kind !== 'trendline' || record.locked || !record.visible || !record.primitive || typeof record.primitive.getGeometry !== 'function') {
+    if (record.kind !== 'trendline' || record.locked || !this._isRecordPresentationVisible(record) || !record.primitive || typeof record.primitive.getGeometry !== 'function') {
       return null;
     }
     var handleThreshold = this.shouldUseDirectTouchInput() ? 18 : 10;
@@ -2969,7 +3155,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     var isTouch = this.shouldUseDirectTouchInput();
     for (var i = this._records.length - 1; i >= 0; i -= 1) {
       var record = this._records[i];
-      if (!record || !record.visible || !record.primitive) {
+      if (!record || !this._isRecordPresentationVisible(record) || !record.primitive) {
         continue;
       }
       if (record.primitive && typeof record.primitive.hitTest === 'function') {
@@ -3334,17 +3520,12 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       createdAt: serializedData && isFiniteNumber(serializedData.createdAt) ? serializedData.createdAt : Date.now(),
       updatedAt: serializedData && isFiniteNumber(serializedData.updatedAt) ? serializedData.updatedAt : Date.now()
     };
-    if (typeof primitive.setVisible === 'function') {
-      primitive.setVisible(record.visible);
-    }
-    if (typeof primitive.setSelected === 'function') {
-      primitive.setSelected(record.selected);
-    }
-    if (record.selected) {
+    this._records.push(record);
+    if (record.selected && this._isRecordPresentationVisible(record)) {
       this._selectedRecordId = record.id;
     }
+    this._applyRecordPresentationVisibility(record);
     this._series.attachPrimitive(primitive);
-    this._records.push(record);
     this._emitDrawingsChanged();
     if (serializedData && serializedData.editAfterCreate && this._isTextRecordEditable(record)) {
       var manager = this;
@@ -3355,22 +3536,49 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     }
   };
 
-  AdvancedDrawingToolsManager.prototype.setActiveTool = function (tool, silent) {
+  AdvancedDrawingToolsManager.prototype.setActiveTool = function (tool, silent, options) {
     this._stopAllTools();
-    if (tool === 'crosshair' || !tool) {
+    var shouldStartDrawing = !(options && options.startDrawing === false);
+    if (tool === 'none' || !tool) {
+      this._activeTool = 'none';
+    } else if (tool === 'crosshair') {
       this._activeTool = 'crosshair';
     } else if (this._locked) {
-      this._activeTool = 'crosshair';
+      this._activeTool = 'none';
     } else if (this._tools[tool] && typeof this._tools[tool].startDrawing === 'function') {
       this._activeTool = tool;
-      this._tools[tool].startDrawing();
+      if (shouldStartDrawing) {
+        this._tools[tool].startDrawing();
+      }
     } else {
-      this._activeTool = 'crosshair';
+      this._activeTool = 'none';
     }
+    if (this._activeTool !== 'crosshair') {
+      this._crosshairLocked = false;
+      this._hideCrosshairOverlay();
+    }
+    this._refreshRecordPresentationVisibility();
     this._applyChartInteractionMode();
     if (!silent) {
-      safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool });
+      safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool, drawingActive: this._isDrawingToolActive() });
     }
+  };
+
+  AdvancedDrawingToolsManager.prototype.finishDrawingTool = function (tool) {
+    if (this._locked) {
+      this._activeTool = 'none';
+    } else if (tool && this._tools[tool]) {
+      this._activeTool = tool;
+    } else if (!this._activeTool) {
+      this._activeTool = 'none';
+    }
+    if (this._activeTool !== 'crosshair') {
+      this._crosshairLocked = false;
+      this._hideCrosshairOverlay();
+    }
+    this._refreshRecordPresentationVisibility();
+    this._applyChartInteractionMode();
+    safeNotify('TOOL_ACTIVE_CHANGED', { tool: this._activeTool, drawingActive: false });
   };
 
   AdvancedDrawingToolsManager.prototype.getActiveTool = function () {
@@ -3387,9 +3595,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._records.forEach(function (record) {
       record.hidden = !!this._hidden;
       record.visible = !this._hidden;
-      if (record.primitive && typeof record.primitive.setVisible === 'function') {
-        record.primitive.setVisible(record.visible);
-      }
+      this._applyRecordPresentationVisibility(record);
     }, this);
     this._emitDrawingsChanged();
   };
@@ -3400,7 +3606,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       this._endLineEdit(false);
       this._endTextRecordEdit(false);
       this._selectRecord(null);
-      this.setActiveTool('crosshair');
+      this.setActiveTool('none');
     }
   };
 
@@ -3462,15 +3668,10 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
       record.primitive = primitive;
       record.hidden = this._hidden ? true : !!record.hidden;
       record.visible = !record.hidden;
-      if (typeof primitive.setVisible === 'function') {
-        primitive.setVisible(record.visible);
-      }
-      if (typeof primitive.setSelected === 'function') {
-        primitive.setSelected(!!record.selected);
-      }
-      if (record.selected) {
+      if (record.selected && this._isRecordPresentationVisible(record)) {
         this._selectedRecordId = record.id;
       }
+      this._applyRecordPresentationVisibility(record);
       this._series.attachPrimitive(primitive);
       this._records.push(record);
     }, this);
@@ -3489,7 +3690,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._records = [];
     this._drawingCounter = {};
     this._selectedRecordId = null;
-    this.setActiveTool('crosshair');
+    this.setActiveTool('none');
     this._emitDrawingsChanged();
   };
 
@@ -3519,7 +3720,7 @@ export const ENHANCED_DRAWING_TOOLS_JS = `
     this._records = [];
     this._drawingCounter = {};
     this._selectedRecordId = null;
-    this._activeTool = 'crosshair';
+    this._activeTool = 'none';
     this._unbindTouchBridge();
     this._destroyCrosshairOverlay();
     Object.keys(this._tools).forEach(function (key) {

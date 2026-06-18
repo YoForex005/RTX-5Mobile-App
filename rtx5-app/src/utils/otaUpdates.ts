@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import { logStartupDiagnostic, logStartupError } from './startupDiagnostics';
 
@@ -16,6 +16,22 @@ const canUseOtaUpdates = () =>
   Updates.isEnabled &&
   Boolean(Updates.runtimeVersion) &&
   EAS_UPDATE_CHANNELS.has(getActiveUpdateChannel() ?? '');
+
+const promptToInstallUpdate = () => {
+  Alert.alert(
+    'Update available',
+    'Install the latest version now?',
+    [
+      { text: 'Later', style: 'cancel' },
+      {
+        text: 'Install latest version',
+        onPress: () => {
+          void Updates.reloadAsync();
+        },
+      },
+    ],
+  );
+};
 
 export function useOtaUpdateOnLaunch() {
   useEffect(() => {
@@ -45,16 +61,14 @@ export function useOtaUpdateOnLaunch() {
           });
           if (isCancelled || !checkResult.isAvailable) return;
 
-          // Download the (fingerprint-matched) update so it is ready. We do NOT
-          // force Updates.reloadAsync() here: under the "fingerprint" runtime
-          // policy only natively-compatible updates are ever served, and a mid-
-          // session reload would interrupt an active trading session. expo-updates
-          // applies the downloaded update automatically on the next cold launch.
           const fetchResult = await Updates.fetchUpdateAsync();
           logStartupDiagnostic('updates.fetch.finished', {
             isNew: fetchResult.isNew,
             manifest: fetchResult.manifest?.id ?? null,
           });
+          if (!isCancelled && fetchResult.isNew) {
+            promptToInstallUpdate();
+          }
         } catch (error) {
           logStartupError('updates.check.failed', error);
         }

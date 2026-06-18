@@ -35,6 +35,16 @@ test('order ticket symbol picker updates the same screen instead of routing', ()
   assert.match(source, /lastConfiguredPendingOrderTypeRef\.current = null/);
 });
 
+test('order ticket seeds SL and TP from chart route params', () => {
+  const source = readOrderTicketSource();
+
+  assert.match(source, /sl: routeSlParam/);
+  assert.match(source, /tp: routeTpParam/);
+  assert.match(source, /const initialSlPrice = Number\.isFinite\(initialRouteSlPrice\)/);
+  assert.match(source, /const \[slEnabled, setSlEnabled\] = useState\(initialSlPrice > 0\)/);
+  assert.match(source, /const \[tpEnabled, setTpEnabled\] = useState\(initialTpPrice > 0\)/);
+});
+
 test('order ticket graph uses the screen background instead of a white card', () => {
   const source = readOrderTicketSource();
   const graphStart = source.indexOf('<LiveOrderTickExecutionGraph');
