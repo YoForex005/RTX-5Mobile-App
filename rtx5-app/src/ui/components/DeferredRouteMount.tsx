@@ -134,6 +134,33 @@ export function DeferredRouteMount({ children }: DeferredRouteMountProps) {
   return children;
 }
 
+/**
+ * Route-level deferral for heavy screens. Renders nothing (the navigator's
+ * `contentStyle` background shows through) for the first ~2 frames, then mounts
+ * the screen. This lets a Settings row tap swap to the destination instantly
+ * instead of freezing while the heavy screen mounts on the navigation commit —
+ * the heavy mount now runs AFTER the new screen is already on-screen.
+ *
+ * Use for thin route wrappers whose screen does NOT already defer its own body
+ * (e.g. EconomicCalendarScreen uses useDeferredRouteContentReady internally and
+ * should NOT be double-wrapped).
+ */
+export function DeferredRouteScreen({
+  Screen,
+  fallback = null,
+  delayMs = 0,
+}: {
+  Screen: ComponentType;
+  fallback?: ReactNode;
+  delayMs?: number;
+}) {
+  const ready = useDeferredRouteContentReady(delayMs);
+  if (!ready) {
+    return <>{fallback}</>;
+  }
+  return <Screen />;
+}
+
 export function DeferredRouteModule({ load, cacheKey }: DeferredRouteModuleProps) {
   const [RouteComponent, setRouteComponent] = useState<ComponentType | null>(() => (
     cacheKey ? routeModuleCache.get(cacheKey)?.component ?? null : null

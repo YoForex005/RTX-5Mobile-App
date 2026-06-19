@@ -26,6 +26,7 @@ import { useSavedAccounts, setSavedAccountPassword } from '../src/state/savedAcc
 import { loginAPI } from '../src/api/auth';
 import { getBrokerConfig, type BrokerServer } from '../src/api/broker';
 import { useTheme, type ThemeColors } from '../src/ui/theme/useTheme';
+import { useDeferredRouteContentReady } from '../src/ui/components/DeferredRouteMount';
 import { useQueryClient } from '@tanstack/react-query';
 import { ACCOUNTS_LIST_KEY, ACCOUNT_DETAIL_KEY } from '../src/query/accounts';
 import { BROKER_CONFIG_KEY, useBrokerServers } from '../src/query/broker';
@@ -232,6 +233,9 @@ export default function RegisterScreen() {
   const isDark = themeMode === 'dark';
   const insets = useSafeAreaInsets();
   const styles = React.useMemo(() => makeStyles(T, isDark, insets.top), [T, isDark, insets.top]);
+  // Defer the heavy form mount by ~2 frames so opening "New Account" shows the
+  // modal backdrop instantly instead of freezing while the whole form mounts.
+  const contentReady = useDeferredRouteContentReady(0);
   const privacyPolicyUrl = resolveLegalUrl(
     getConfiguredPrivacyPolicyUrl(),
     'https://rtx5.orrnn.com/privacy-policy',
@@ -691,6 +695,17 @@ export default function RegisterScreen() {
   const heroBackIconColor = isDark ? '#DCEBFF' : T.text;
   const noticeIconColor = isDark ? '#38BDF8' : T.trading.buy.primary;
   const autofillBackgroundColor = isDark ? T.bg : REGISTER_QUOTES_LIGHT_BACKGROUND;
+
+  if (!contentReady) {
+    // Backdrop-only first paint: the modal appears immediately; the form below
+    // mounts on the next frames without blocking the open.
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.bg} />
+      </>
+    );
+  }
 
   return (
     <>

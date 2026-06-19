@@ -42,6 +42,7 @@ import {
   type NewsScreenStatus,
   type WatchlistNewsItem,
 } from './newsViewModel';
+import { safeRouterBack } from '../../utils/navigation';
 
 const NEWS_SECONDARY_CONTENT_DELAY_MS = 320;
 
@@ -96,7 +97,7 @@ export function NewsScreen() {
   }, []);
 
   const goBack = useCallback(() => {
-    router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   }, []);
 
   const openBreakingSymbolChart = useCallback((symbol: string) => {

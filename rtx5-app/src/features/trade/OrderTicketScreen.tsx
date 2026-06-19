@@ -1445,6 +1445,10 @@ function OrderTicketInteractiveContent() {
         detent="large"
         instantOpen
         runActionAfterClose={false}
+        // Keep the sheet fixed when the search keyboard opens (no rise/jump);
+        // the keyboard just overlays the lower part of the list. Mirrors the
+        // chart symbol picker fix (ChartScreen.native handleOpenSymbolPicker).
+        keepFullHeightOnKeyboard
         actions={symbolPickerActions}
       />
     </View>

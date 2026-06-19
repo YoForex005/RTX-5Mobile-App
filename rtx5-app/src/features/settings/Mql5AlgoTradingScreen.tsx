@@ -44,6 +44,7 @@ import {
   type Strategy,
   type UserAccount,
 } from './mql5AlgoTradingViewModel';
+import { safeRouterBack } from '../../utils/navigation';
 
 type ConfirmationConfig = {
   title: string;
@@ -115,7 +116,7 @@ export function Mql5AlgoTradingScreen() {
   };
 
   const goBack = () => {
-    router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   const closeSearch = () => {

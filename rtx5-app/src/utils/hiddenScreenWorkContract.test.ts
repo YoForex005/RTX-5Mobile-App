@@ -137,8 +137,11 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(accountsSource, /useMt5Status\(isScreenFocused\)/);
 
   assert.match(settingsSource, /const isScreenFocused = useIsFocused\(\)/);
-  assert.match(settingsSource, /import \{ useDeferredActiveFlag \} from '\.\.\/\.\.\/\.\.\/hooks\/useDeferredActiveFlag'/);
-  assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(isLoggedIn && isScreenFocused\)/);
+  // Settings fetches the account card as soon as the session is connected and the
+  // screen is focused (no startup deferral, so the card isn't slow after login).
+  // The pause-when-hidden contract still holds: settingsDataActive includes
+  // isScreenFocused, so the queries below disable when another screen is focused.
+  assert.match(settingsSource, /const settingsDataActive = isAccountConnected && isScreenFocused/);
   assert.match(settingsSource, /useAccounts\(settingsDataActive\)/);
   assert.match(settingsSource, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
 

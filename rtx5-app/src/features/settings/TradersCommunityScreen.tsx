@@ -37,6 +37,7 @@ import {
   type PollTone,
   type TradingRoom,
 } from './tradersCommunityViewModel';
+import { safeRouterBack } from '../../utils/navigation';
 
 const COMMUNITY_GOLD = '#F5B642';
 const COMMUNITY_FEED_DELAY_MS = 320;
@@ -77,7 +78,7 @@ export function TradersCommunityScreen() {
   };
 
   const goBack = () => {
-    router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   return (

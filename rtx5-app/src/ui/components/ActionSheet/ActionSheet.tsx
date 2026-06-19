@@ -248,10 +248,11 @@ export function ActionSheet({
   // double-lift jump on resize-mode devices.
   // Symbol-picker "stay still" mode: opt out of the keyboard avoidance entirely
   // so the sheet keeps its full height and fixed position; the keyboard simply
-  // overlays its lower part (see the pinned sheetHost height below). Isolated —
+  // overlays its lower part. Cross-platform — on Android the host is pinned to
+  // full height (see the sheetHost render below), on iOS the KeyboardAvoidingView
+  // is disabled so it stops padding the bottom-anchored sheet up. Isolated —
   // every other searchable sheet keeps the avoidance math unchanged.
-  const keepFullHeightSheet =
-    Platform.OS === 'android' && activeSearchable && activeKeepFullHeightOnKeyboard;
+  const keepFullHeightSheet = activeSearchable && activeKeepFullHeightOnKeyboard;
   const androidSearchableSheet =
     Platform.OS === 'android' && activeSearchable && !keepFullHeightSheet;
   const overlayKeyboardLift = androidSearchableSheet
@@ -776,6 +777,10 @@ export function ActionSheet({
       {Platform.OS === 'ios' ? (
         <KeyboardAvoidingView
           behavior="padding"
+          // "Stay still" mode: disable avoidance so the keyboard overlays the
+          // sheet's lower part instead of padding the bottom-anchored sheet up
+          // (that upward push is the jump). Matches the Android pinned-host path.
+          enabled={!keepFullHeightSheet}
           style={styles.sheetHost}
           pointerEvents="box-none"
         >

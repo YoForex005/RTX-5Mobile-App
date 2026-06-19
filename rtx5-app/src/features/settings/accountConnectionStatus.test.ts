@@ -40,22 +40,24 @@ test('connected account status requires a completed authenticated session', () =
   );
 });
 
-test('settings screens gate connected badges behind authenticated session state', () => {
+test('settings screens gate connected account UI behind authenticated session state', () => {
   const settingsSource = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
   const accountsSource = readSource('src/features/settings/AccountsScreen.tsx');
 
   assert.match(settingsSource, /hasAuthenticatedAccountSession\(isLoggedIn, accountDetails\)/);
   assert.match(accountsSource, /hasAuthenticatedAccountSession\(isLoggedIn, accountDetails\)/);
 
-  const settingsBadgeStart = settingsSource.indexOf('{isAccountConnected ? (');
-  const settingsBadgeEnd = settingsSource.indexOf('<Text style={[styles.accName', settingsBadgeStart);
-  const settingsBadgeBlock = settingsSource.slice(settingsBadgeStart, settingsBadgeEnd);
+  const settingsCardStart = settingsSource.indexOf('{isAccountConnected ? (');
+  const settingsCardEnd = settingsSource.indexOf('<View style={styles.metricsRow}', settingsCardStart);
+  const settingsCardBlock = settingsSource.slice(settingsCardStart, settingsCardEnd);
 
-  assert.notEqual(settingsBadgeStart, -1);
-  assert.match(settingsBadgeBlock, /styles\.connectedPill/);
-  assert.match(settingsBadgeBlock, /styles\.greenDot/);
-  assert.match(settingsBadgeBlock, /t\('Connected'\)/);
-  assert.match(settingsBadgeBlock, /\) : null\}/);
+  assert.notEqual(settingsCardStart, -1);
+  assert.match(settingsCardBlock, /latencyLabel="settings\.accounts\.open"/);
+  assert.match(settingsCardBlock, /styles\.accountCard/);
+  assert.match(settingsCardBlock, /styles\.connectedPill/);
+  assert.match(settingsCardBlock, /styles\.greenDot/);
+  assert.match(settingsCardBlock, /t\('Connected'\)/);
+  assert.match(settingsCardBlock, /\) : null\}/);
 
   const accountsBadgeStart = accountsSource.indexOf('{hasConnectedAccount ? (');
   const accountsBadgeEnd = accountsSource.indexOf('</View>', accountsBadgeStart);

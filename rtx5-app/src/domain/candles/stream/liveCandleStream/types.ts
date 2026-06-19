@@ -99,6 +99,14 @@ export type StreamEntry = {
   pendingEvents: BufferedLiveEvent[];
   flushTimer: ReturnType<typeof setTimeout> | null;
   eventOrder: number;
+  /**
+   * Pending bounded auto-retry timer for a failed INITIAL (non-paginated)
+   * history load. Cleared on a fresh load, on success, and on entry disposal so
+   * a stale retry can never fire against a superseded or recreated entry.
+   */
+  historyRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** Auto-retries already attempted for the current failed initial history load. */
+  historyRetryAttempt: number;
 };
 
 export type CandleHistorySnapshot = Awaited<ReturnType<typeof getCandleHistory>>;
@@ -111,6 +119,16 @@ export type HistorySeedSnapshot = {
 
 /** Default max number of candles to keep in memory per stream to prevent leaks. */
 export const DEFAULT_HISTORY_LIMIT = MAX_CANDLE_SERIES_LENGTH;
+/**
+ * First-paint history window. The initial REST fetch on a fresh chart open /
+ * symbol / timeframe switch pulls only this many recent bars instead of the
+ * full DEFAULT_HISTORY_LIMIT. The slow broker `/candles` endpoint scales with
+ * limit (≈4s for 2500 vs ≈2.7s for 500), and a smaller payload also cuts the
+ * on-switch JS render cost, so the chosen symbol paints noticeably sooner.
+ * Older bars are lazy-loaded on left-scroll via PAGINATED_HISTORY_LIMIT, and
+ * the retained/rendered caps below are unchanged.
+ */
+export const INITIAL_HISTORY_LIMIT = Math.min(600, MAX_CANDLE_SERIES_LENGTH);
 /** Smaller left-scroll page size so older history can be prepended without a heavy full-window fetch. */
 export const PAGINATED_HISTORY_LIMIT = Math.min(500, MAX_CANDLE_SERIES_LENGTH);
 /** Hard cap for lazily rendered history; high enough for deep M1 scroll, bounded for mobile WebView cost. */

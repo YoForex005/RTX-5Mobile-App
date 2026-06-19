@@ -16,6 +16,7 @@ import { FastPressable as Pressable } from '../../../ui/components/FastPressable
 import { Screen } from '../../../ui/components/Screen';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
+import { safeRouterBack } from '../../../utils/navigation';
 import { useJournalTrades } from './liveJournal';
 import { makeJournalStyles } from './styles';
 import type { TradeJournalEntry } from './types';
@@ -382,7 +383,7 @@ export function JournalScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <Pressable
-          onPress={() => router.replace('/(tabs)/settings')}
+          onPress={() => safeRouterBack(router, '/(tabs)/settings')}
           hitSlop={15}
           style={styles.backButton}
           latencyLabel="journal.back"

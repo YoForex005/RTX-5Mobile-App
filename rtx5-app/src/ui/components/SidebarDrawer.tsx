@@ -55,7 +55,7 @@ const SIDEBAR_NAVIGATION_LOCK_MS = 50;
 const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200;
 const LOGGED_OUT_PREFETCH_ROUTES = ['/login'] as const;
 const SIDEBAR_STACK_ROUTES = new Set<string>(LOGGED_OUT_PREFETCH_ROUTES);
-const SIDEBAR_REPLACE_ROUTE_PREFIXES = ['/settings/'] as const;
+const SIDEBAR_PUSH_ROUTE_PREFIXES = ['/settings/'] as const;
 
 type PrefetchRouter = {
   prefetch?: (href: string) => void;
@@ -73,8 +73,8 @@ function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
 }
 
-function shouldReplaceSidebarRoute(route: string) {
-  return SIDEBAR_REPLACE_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix));
+function shouldPushSidebarRoute(route: string) {
+  return SIDEBAR_PUSH_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix));
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -247,10 +247,11 @@ export function SidebarDrawer() {
     closeImmediately();
 
     if (shouldNavigate) {
-      if (SIDEBAR_STACK_ROUTES.has(route)) {
+      if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
+        // Push detail routes over the (tabs) navigator so it — and the warm
+        // chart WebView — stays mounted; BACK is then an instant pop, not a
+        // full tab re-mount.
         router.push(route as any);
-      } else if (shouldReplaceSidebarRoute(route)) {
-        router.replace(route as any);
       } else {
         router.navigate(route as any);
       }

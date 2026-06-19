@@ -4,6 +4,7 @@ import { apiClient } from '../../api/apiClient';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
 import { quotesWsService, type QuoteTickEvent } from '../../api/ws/quotesSocket';
 import { normalizeQuoteSymbolKey, normalizeSymbol } from '../../domain/symbols';
+import { normalizeQuoteVolume } from '../../utils/quoteVolume';
 import { useTradingState } from '../../state/tradingState';
 import { useUserPreferences } from '../../state/userPreferences';
 import {
@@ -18,6 +19,10 @@ type SnapshotListener = () => void;
 const snapshotsBySymbol = new Map<string, LiveQuoteSnapshot | undefined>();
 const listenersBySymbol = new Map<string, Set<SnapshotListener>>();
 const pendingNotifySymbols = new Set<string>();
+// Symbols we've already received at least one REST /quotes response for. Lets a
+// missing volume force the initial fetch on app open without polling forever for
+// symbols the backend simply never reports volume on.
+const restPrimedSymbols = new Set<string>();
 let updateSeq = 0;
 let notifyAnimationFrame: number | null = null;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -192,6 +197,55 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
   return true;
 };
 
+// Backfill ONLY backend volume onto an already-fresh live snapshot. Live WS
+// ticks usually omit volume, so when fresh bid/ask keep the snapshot "fresh"
+// the REST /quotes payload (the lone volume source) would otherwise be dropped
+// by the freshness guard — leaving "Vol: --" for seconds after the app opens.
+// This applies the volume without disturbing the live price.
+const ingestRestQuoteVolumeOnly = (requestedSymbol: string, payload: unknown): void => {
+  const now = Date.now();
+  const normalized = normalizeQuoteTickPayload(
+    {
+      symbol: requestedSymbol,
+      ...(payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}),
+    },
+    now,
+  );
+  if (!normalized.ok) {
+    return;
+  }
+
+  const { update } = normalized;
+  const volume = normalizeQuoteVolume(update.volume);
+  if (volume === undefined) {
+    return;
+  }
+
+  const symbolKey = normalizeQuoteSymbolKey(update.rawSymbol ?? update.symbol);
+  const previous = ensureSnapshot(symbolKey);
+  if (!previous) {
+    return;
+  }
+  if (previous.volumeSource === 'backend' && normalizeQuoteVolume(previous.volume) === volume) {
+    return;
+  }
+
+  snapshotsBySymbol.set(symbolKey, {
+    ...previous,
+    volume,
+    volumeSource: 'backend',
+    updateSeq: ++updateSeq,
+  });
+  scheduleSymbolNotification(symbolKey);
+
+  // Mirror onto an existing tradingState quote so other consumers see volume,
+  // but never create a price-less quote from a volume-only update.
+  const stateSymbol = update.rawSymbol || update.symbol;
+  if (useTradingState.getState().quotes[normalizeSymbol(stateSymbol)]) {
+    useTradingState.getState().setQuote(stateSymbol, { volume });
+  }
+};
+
 const asQuoteSnapshotArray = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) {
     return payload;
@@ -214,10 +268,25 @@ const asQuoteSnapshotArray = (payload: unknown): unknown[] => {
   return [];
 };
 
-const needsRestQuoteSnapshot = (symbol: string, now = Date.now()): boolean => {
+const isRestQuotePriceStale = (symbol: string, now = Date.now()): boolean => {
   const snapshot = resolveSnapshot(symbol);
   const freshnessAnchor = getQuoteFreshnessAnchor(snapshot);
   return freshnessAnchor === undefined || now - freshnessAnchor > QUOTE_REST_SNAPSHOT_STALE_MS;
+};
+
+const hasBackendQuoteVolume = (snapshot: LiveQuoteSnapshot | undefined): boolean =>
+  snapshot?.volumeSource === 'backend' && normalizeQuoteVolume(snapshot?.volume) !== undefined;
+
+const needsRestQuoteSnapshot = (symbol: string, now = Date.now()): boolean => {
+  if (isRestQuotePriceStale(symbol, now)) {
+    return true;
+  }
+  // Live ticks keep bid/ask fresh but usually carry no volume, and volume comes
+  // only from the REST /quotes snapshot. Keep pulling it until we've seen one
+  // response for this symbol so "Vol: --" fills in promptly on app open instead
+  // of waiting for a live-tick gap to mark the price stale.
+  const key = normalizeQuoteSymbolKey(symbol);
+  return !restPrimedSymbols.has(key) && !hasBackendQuoteVolume(resolveSnapshot(symbol));
 };
 
 const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
@@ -242,14 +311,27 @@ const fetchRestQuoteSnapshots = async (symbols: string[]): Promise<void> => {
       ? (snapshot as Record<string, unknown>)
       : null;
     const symbol = String(record?.symbol ?? record?.Symbol ?? record?.s ?? '');
-    if (symbol) {
-      const matchesRequestedSymbol = getSnapshotKeys(symbol).some((key) => requestedKeys.has(key));
-      if (!matchesRequestedSymbol || !needsRestQuoteSnapshot(symbol)) {
-        return;
-      }
+    if (!symbol) {
+      return;
+    }
+    const matchesRequestedSymbol = getSnapshotKeys(symbol).some((key) => requestedKeys.has(key));
+    if (!matchesRequestedSymbol) {
+      return;
+    }
+    if (isRestQuotePriceStale(symbol)) {
+      // Price stale/absent — safe to adopt the whole REST snapshot.
       ingestRestQuoteSnapshot(symbol, snapshot);
+    } else {
+      // Live ticks already own a fresh price; keep it and only backfill volume.
+      ingestRestQuoteVolumeOnly(symbol, snapshot);
     }
   });
+
+  // One /quotes response received for the batch — stop letting missing volume
+  // force further fetches (price staleness still triggers normal refreshes).
+  for (const key of requestedKeys) {
+    restPrimedSymbols.add(key);
+  }
 };
 
 const useRestQuoteSnapshotFallback = (symbols: string[], active: boolean): void => {

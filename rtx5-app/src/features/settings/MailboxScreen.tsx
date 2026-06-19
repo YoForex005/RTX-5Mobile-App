@@ -39,6 +39,7 @@ import {
   type SupportState,
   type UserMailboxState,
 } from './mailboxViewModel';
+import { safeRouterBack } from '../../utils/navigation';
 
 const MAIL_CYAN = '#2F9BFF';
 const MAIL_BLUE = '#2F9BFF';
@@ -200,7 +201,7 @@ export function MailboxScreen() {
   };
 
   const goBack = () => {
-    router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   const openAnnouncementMessage = () => {

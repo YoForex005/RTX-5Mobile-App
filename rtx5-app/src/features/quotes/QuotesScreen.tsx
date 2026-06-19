@@ -1526,9 +1526,8 @@ function AddSymbolModal({
   );
 }
 
-export function QuotesScreen() {
+const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteActive }: { isQuotesRouteActive: boolean }) {
   const router = useRouter();
-  const pathname = usePathname();
   const isScreenFocused = useIsFocused();
   const T = useTheme();
   const { t } = useTranslation();
@@ -1553,12 +1552,10 @@ export function QuotesScreen() {
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
-  const quoteRouteActive =
-    isScreenFocused ||
-    pathname === '/quotes' ||
-    pathname.startsWith('/quotes/') ||
-    pathname === '/(tabs)/quotes' ||
-    pathname.startsWith('/(tabs)/quotes/');
+  // isQuotesRouteActive (the /quotes path match) comes from the thin wrapper so
+  // this screen only re-renders when its own focus or route-active state flips,
+  // not on every unrelated tab switch (usePathname re-renders on any path change).
+  const quoteRouteActive = isScreenFocused || isQuotesRouteActive;
   const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending;
   const quoteWatchlistActive = quoteCatalogActive && isLoggedIn;
   const { data: apiSymbols = [] } = useMarketSymbols(quoteCatalogActive);
@@ -1796,7 +1793,7 @@ export function QuotesScreen() {
 
   useEffect(() => {
     setQuoteSheetRouteActionPending(false);
-  }, [pathname]);
+  }, [isQuotesRouteActive]);
 
   useEffect(() => {
     if (!quoteSheetRouteActionPending) {
@@ -2150,6 +2147,19 @@ export function QuotesScreen() {
       />
     </View>
   );
+});
+
+// Thin wrapper: derive the quotes-route boolean from the path here so the heavy
+// memoized QuotesScreen above does not reconcile on every bottom-tab switch — it
+// only re-renders when its own focus or the quotes-route active state changes.
+export function QuotesScreen() {
+  const pathname = usePathname();
+  const isQuotesRouteActive =
+    pathname === '/quotes' ||
+    pathname.startsWith('/quotes/') ||
+    pathname === '/(tabs)/quotes' ||
+    pathname.startsWith('/(tabs)/quotes/');
+  return <QuotesScreenInner isQuotesRouteActive={isQuotesRouteActive} />;
 }
 
 /* ───── Styles ───── */

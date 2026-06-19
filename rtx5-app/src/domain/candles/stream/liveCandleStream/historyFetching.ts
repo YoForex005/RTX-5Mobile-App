@@ -20,6 +20,7 @@ import { candleMemoryCache } from '../candleMemoryCache';
 import { getEventTime, getHistorySeedSnapshot, logDebug } from './helpers';
 import {
   DEFAULT_HISTORY_LIMIT,
+  INITIAL_HISTORY_LIMIT,
   MAX_RENDERED_HISTORY_CANDLES,
   MAX_RETAINED_HISTORY_CANDLES,
   type BufferedLiveEvent,
@@ -40,6 +41,7 @@ export interface HistoryFetchManagerBridge {
 }
 
 import { sanitizeCandlesForChart } from '../../normalization/chartAdapter';
+import { computeHistoryRetryPlan } from './historyRetryPolicy';
 
 /**
  * Executes an async fetch of authoritative historical candles from the REST API.
@@ -57,13 +59,23 @@ export const runLoadHistory = (
   manager: HistoryFetchManagerBridge,
   entry: StreamEntry,
   limit: number,
-  options?: { to?: number; from?: number },
+  options?: { to?: number; from?: number; isRetry?: boolean },
 ): void => {
   if (!manager.entries.has(entry.key)) {
     return;
   }
 
   const isPaginationRequest = Boolean(options?.to);
+  // A new load supersedes any pending failure-retry for this entry.
+  if (entry.historyRetryTimer) {
+    clearTimeout(entry.historyRetryTimer);
+    entry.historyRetryTimer = null;
+  }
+  // A fresh (non-retry) initial load resets the bounded retry budget, so a
+  // user-driven refresh or symbol re-open gets a clean set of attempts.
+  if (!isPaginationRequest && !options?.isRetry) {
+    entry.historyRetryAttempt = 0;
+  }
   entry.requestId += 1;
   const requestId = entry.requestId;
   entry.abortController?.abort();
@@ -141,6 +153,7 @@ export const runLoadHistory = (
       live.historyLoading = false;
       live.historyPageLoading = false;
       live.error = null;
+      live.historyRetryAttempt = 0;
       syncMergedCandleCache(symbol, timeframe, history.closedCandles, { canonical: true });
 
       const replayEvents = live.bufferedEvents
@@ -181,6 +194,39 @@ export const runLoadHistory = (
         message: live.error,
         replayedLiveEvents: replayEvents.length,
       });
+
+      // Self-heal: the initial history load (which gates the chart render) just
+      // failed and we still have no history. Schedule a bounded, self-cancelling
+      // retry so a transient backend hiccup recovers automatically instead of
+      // leaving the chart blank until the user switches symbol. Pagination
+      // failures are excluded (they don't gate the render and already advance
+      // their own cursor).
+      const retryPlan = computeHistoryRetryPlan(live, isPaginationRequest);
+      if (retryPlan.shouldRetry) {
+        live.historyRetryAttempt = retryPlan.nextAttempt;
+        const attemptNumber = retryPlan.nextAttempt;
+        if (live.historyRetryTimer) {
+          clearTimeout(live.historyRetryTimer);
+        }
+        live.historyRetryTimer = setTimeout(() => {
+          const retryEntry = manager.entries.get(entry.key);
+          if (!retryEntry) {
+            return;
+          }
+          retryEntry.historyRetryTimer = null;
+          // Superseded by a symbol/timeframe switch, manual refresh, or a
+          // request that already started: the requestId moved on — no-op.
+          if (retryEntry.requestId !== requestId) {
+            return;
+          }
+          // Cache/prefetch already filled history while we waited — no-op.
+          if (retryEntry.historyCandles.length > 0) {
+            return;
+          }
+          logDebug('history_retry', { symbol, timeframe, attempt: attemptNumber });
+          runLoadHistory(manager, retryEntry, limit, { isRetry: true });
+        }, retryPlan.delayMs);
+      }
     })
     .finally(() => {
       const live = manager.entries.get(entry.key);
@@ -225,7 +271,7 @@ export const runPrefetchHistory = (
     return existing;
   }
 
-  const prefetch = getCandleHistory(normalizedSymbol, normalizedTimeframe, DEFAULT_HISTORY_LIMIT)
+  const prefetch = getCandleHistory(normalizedSymbol, normalizedTimeframe, INITIAL_HISTORY_LIMIT)
     .then((history) => {
       const seed = getHistorySeedSnapshot(history);
       const candles = seed.candles;

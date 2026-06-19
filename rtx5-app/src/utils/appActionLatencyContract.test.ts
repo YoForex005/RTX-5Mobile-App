@@ -390,7 +390,7 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   const accountCardStart = settingsSource.indexOf("onPress={() => openReadySettingsRoute('/settings/accounts')}");
   const metricsRowStart = settingsSource.indexOf('<View style={styles.metricsRow}', accountCardStart);
   const registerRowStart = settingsSource.indexOf("onPress={() => openReadySettingsRoute('/register')}");
-  const lowerSettingsStart = settingsSource.indexOf('{lowerSettingsReady ? (', registerRowStart);
+  const marketUpdatesStart = settingsSource.indexOf("t('MARKET UPDATES')", registerRowStart);
 
   assert.match(rowSource, /<FastPressable[\s\S]*latencyLabel=\{`settings\.row\.\$\{title\}`\}[\s\S]*onPress=\{onPress\}/);
   assert.match(rowSource, /activateOnPressIn\?: boolean/);
@@ -401,11 +401,11 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.notEqual(accountCardStart, -1);
   assert.notEqual(metricsRowStart, -1);
   assert.notEqual(registerRowStart, -1);
-  assert.notEqual(lowerSettingsStart, -1);
+  assert.notEqual(marketUpdatesStart, -1);
   assert.doesNotMatch(settingsSource.slice(accountCardStart, metricsRowStart), /activateOnPressIn|activateOnTouchStart/);
-  assert.doesNotMatch(settingsSource.slice(registerRowStart, lowerSettingsStart), /activateOnPressIn|activateOnTouchStart/);
+  assert.doesNotMatch(settingsSource.slice(registerRowStart, marketUpdatesStart), /activateOnPressIn|activateOnTouchStart/);
   assert.match(backBarSource, /<FastPressable[\s\S]*router\.replace\('\/\(tabs\)\/settings'\)[\s\S]*activateOnPressIn[\s\S]*latencyLabel="settings\.back"/);
-  assert.match(settingsSource, /const SETTINGS_LOWER_CONTENT_DELAY_MS = 80/);
+  assert.doesNotMatch(settingsSource, /SETTINGS_LOWER_CONTENT_DELAY_MS|lowerSettingsReady|useDeferredRouteContentReady/);
   assert.match(settingsSource, /const SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/economic-calendar'[\s\S]*'\/settings\/journal'[\s\S]*'\/settings\/help'[\s\S]*\] as const/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/user-guide'/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/otp'/);
@@ -414,7 +414,10 @@ test('settings navigation surfaces keep scrollable rows release-confirmed', () =
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/mailbox'/);
   assert.doesNotMatch(settingsSource, /SETTINGS_READY_ROUTE_PATHS = \[[\s\S]*'\/settings\/news'/);
   assert.match(settingsSource, /const openReadySettingsRoute = useCallback/);
-  assert.match(settingsSource, /router\.replace\(routePath as any\)/);
+  // Detail routes are PUSHED (not replaced) so the (tabs) navigator — and the
+  // pre-warmed chart WebView — stays mounted underneath, making BACK an instant
+  // pop instead of a full tab re-mount (~1.8s freeze).
+  assert.doesNotMatch(settingsSource, /router\.replace\(routePath as any\)/);
   assert.match(settingsSource, /router\.push\(routePath as any\)/);
   assert.match(settingsSource, /latencyLabel="settings\.search\.open"/);
   assert.match(settingsSource, /latencyLabel="settings\.accounts\.open"/);

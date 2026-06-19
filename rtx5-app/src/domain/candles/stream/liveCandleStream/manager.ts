@@ -24,6 +24,7 @@ import {
   FLUSH_INTERVAL_MS,
   MAX_BUFFERED_LIVE_EVENTS,
   DEFAULT_HISTORY_LIMIT,
+  INITIAL_HISTORY_LIMIT,
   MAX_RENDERED_HISTORY_CANDLES,
   PAGINATED_HISTORY_LIMIT,
   type BufferedLiveEvent,
@@ -133,7 +134,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
 
     entry.renderHistoryLimit = DEFAULT_HISTORY_LIMIT;
     entry.historyPaginationCursorTime = null;
-    runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
+    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
   }
 
   /**
@@ -411,6 +412,8 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       pendingEvents: [],
       flushTimer: null,
       eventOrder: 0,
+      historyRetryTimer: null,
+      historyRetryAttempt: 0,
     };
 
     this.entries.set(key, entry);
@@ -431,7 +434,7 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
       });
     }
 
-    runLoadHistory(this, entry, DEFAULT_HISTORY_LIMIT);
+    runLoadHistory(this, entry, INITIAL_HISTORY_LIMIT);
     return entry;
   }
 
@@ -458,6 +461,10 @@ export class LiveCandleStreamManager implements HistoryFetchManagerBridge {
     if (entry.flushTimer) {
       clearTimeout(entry.flushTimer);
       entry.flushTimer = null;
+    }
+    if (entry.historyRetryTimer) {
+      clearTimeout(entry.historyRetryTimer);
+      entry.historyRetryTimer = null;
     }
     entry.bufferedEvents = [];
     entry.pendingEvents = [];

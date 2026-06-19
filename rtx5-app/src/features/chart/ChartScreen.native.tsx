@@ -355,15 +355,14 @@ type ChartTradeConfirmation = {
   volumeLabel: string;
 };
 
-export function ChartScreen() {
+const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActive }: { isChartRouteActive: boolean }) {
   const T = useTheme();
   const { t } = useTranslation();
-  const pathname = usePathname();
-  const isChartRouteActive =
-    pathname === '/chart' ||
-    pathname.startsWith('/chart/') ||
-    pathname === '/(tabs)/chart' ||
-    pathname.startsWith('/(tabs)/chart/');
+  // isChartRouteActive is provided by the thin ChartScreen wrapper below, so this
+  // giant component (memoized) only re-renders when the chart's active state
+  // actually flips — NOT on every unrelated tab switch. (usePathname re-renders
+  // on any path change, which was re-rendering this 5000-line tree ~1s on every
+  // bottom-tab switch and was the dominant tab-switch cost.)
   const isScreenFocused = isChartRouteActive;
   const chartRuntimeActive = useDeferredActiveFlag(isChartRouteActive, CHART_RUNTIME_ACTIVE_DELAY_MS);
   // Mount-once keep-alive: the first chart visit defers the WebView mount so tab
@@ -1047,7 +1046,6 @@ export function ChartScreen() {
   const chartTapMenuBoundsRef = useRef<ChartTapMenuBounds>({ width: 0, height: 0 });
   const chartTapMenuViewportRef = useRef<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const chartTapMenuSuppressUntilRef = useRef(0);
-  const chartSwitchCommitSeqRef = useRef(0);
   const lastChartViewportSizeRef = useRef({ width: 0, height: 0 });
   const pendingChartViewportSizeRef = useRef<{ width: number; height: number } | null>(null);
   const chartViewportResizeFrameRef = useRef<number | null>(null);
@@ -3150,22 +3148,12 @@ export function ChartScreen() {
 
   const warmChartContextAndCommit = useCallback(
     (nextSymbol: string, nextTimeframe: string) => {
-      const switchSeq = chartSwitchCommitSeqRef.current + 1;
-      chartSwitchCommitSeqRef.current = switchSeq;
-      void prefetchChartTimeframeHistory(nextSymbol, nextTimeframe).then((count) => {
-        if (
-          typeof __DEV__ !== 'undefined' &&
-          __DEV__ &&
-          CHART_BRIDGE_DEBUG &&
-          chartSwitchCommitSeqRef.current === switchSeq
-        ) {
-          console.log('[CHART-BRIDGE] switch_prefetch_complete', {
-            symbol: nextSymbol,
-            timeframe: nextTimeframe,
-            count,
-          });
-        }
-      });
+      // Commit the new context and let the candle engine drive the single
+      // authoritative history fetch. ensureEntry() fetches as soon as
+      // useLiveCandles re-subscribes for the new (symbol, timeframe), so a
+      // separate prefetch here would only fire a duplicate /candles request
+      // (its result is discarded by loadHistory's requestId guard) and add load
+      // to the already-slow broker endpoint.
       if (nextSymbol !== chartSymbol) {
         setChartSymbol(nextSymbol);
         void prefetchInstrument(nextSymbol);
@@ -3174,7 +3162,7 @@ export function ChartScreen() {
         setChartTimeframe(nextTimeframe);
       }
     },
-    [chartSymbol, chartTimeframe, prefetchChartTimeframeHistory, setChartSymbol, setChartTimeframe],
+    [chartSymbol, chartTimeframe, setChartSymbol, setChartTimeframe],
   );
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
@@ -5963,4 +5951,17 @@ export function ChartScreen() {
       />
     </Screen>
   );
+});
+
+// Thin wrapper: derive the chart-active boolean from the path here so the heavy
+// memoized component above does not reconcile on every bottom-tab switch. Only a
+// change in isChartRouteActive (entering/leaving the chart) re-renders it.
+export function ChartScreen() {
+  const pathname = usePathname();
+  const isChartRouteActive =
+    pathname === '/chart' ||
+    pathname.startsWith('/chart/') ||
+    pathname === '/(tabs)/chart' ||
+    pathname.startsWith('/(tabs)/chart/');
+  return <ChartScreenInner isChartRouteActive={isChartRouteActive} />;
 }

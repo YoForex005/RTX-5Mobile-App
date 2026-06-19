@@ -72,7 +72,15 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /const freshnessAnchor = getQuoteFreshnessAnchor\(snapshot\)/);
   assert.match(liveQuotesSource, /const symbolsNeedingFallback = symbols\.filter\(\(symbol\) => needsRestQuoteSnapshot\(symbol\)\)/);
   assert.match(liveQuotesSource, /await fetchRestQuoteSnapshots\(symbolsNeedingFallback\)/);
-  assert.match(liveQuotesSource, /if \(!matchesRequestedSymbol \|\| !needsRestQuoteSnapshot\(symbol\)\)/);
+  // Volume backfill: the REST /quotes snapshot is the lone volume source, so a
+  // fresh-priced symbol must still adopt its volume (no "Vol: --" lag on open)
+  // instead of dropping the whole payload behind the price-freshness guard.
+  assert.match(
+    liveQuotesSource,
+    /if \(isRestQuotePriceStale\(symbol\)\) \{[\s\S]*ingestRestQuoteSnapshot\(symbol, snapshot\)[\s\S]*\} else \{[\s\S]*ingestRestQuoteVolumeOnly\(symbol, snapshot\)/,
+  );
+  assert.match(liveQuotesSource, /const ingestRestQuoteVolumeOnly = \(requestedSymbol: string, payload: unknown\): void =>/);
+  assert.match(liveQuotesSource, /!restPrimedSymbols\.has\(key\) && !hasBackendQuoteVolume\(resolveSnapshot\(symbol\)\)/);
   assert.match(liveQuotesSource, /isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}/);
   assert.match(liveQuotesSource, /QUOTE_REST_SNAPSHOT_POLL_MS = 500/);
   assert.match(liveQuotesSource, /WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16/);

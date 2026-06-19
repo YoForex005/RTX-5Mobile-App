@@ -28,10 +28,11 @@ test('chart symbol pickers keep the saved chart symbol first and include fallbac
 
 test('symbol picker stays fixed when the search keyboard opens (no focus-time jump)', () => {
   // Regression guard for the search-focus "jump": the symbol picker must opt
-  // into keepFullHeightOnKeyboard, and the shared ActionSheet must honour it by
-  // (a) opting OUT of android keyboard avoidance and (b) pinning the host to the
-  // full screen height so the bottom-anchored sheet never rides the shrinking
-  // window up. If any link in this chain is removed the jump returns.
+  // into keepFullHeightOnKeyboard, and the shared ActionSheet must honour it
+  // cross-platform — (a) on Android by pinning the host to the full screen
+  // height so the bottom-anchored sheet never rides the shrinking window up, and
+  // (b) on iOS by disabling the KeyboardAvoidingView so it stops padding the
+  // bottom-anchored sheet up. If any link in this chain is removed the jump returns.
   const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
   const uiStateSource = readSource('src/state/uiState.ts');
   const tabsLayoutSource = readSource('app/(tabs)/_layout.tsx');
@@ -48,12 +49,14 @@ test('symbol picker stays fixed when the search keyboard opens (no focus-time ju
   assert.match(uiStateSource, /keepFullHeightOnKeyboard\?:\s*boolean/);
   assert.match(tabsLayoutSource, /keepFullHeightOnKeyboard=\{activeConfig\?\.keepFullHeightOnKeyboard\}/);
 
-  // 3) ActionSheet honours the flag: avoidance is disabled AND the host is pinned
-  //    to the full (stable) screen height, top-anchored, so it cannot rise.
+  // 3) ActionSheet honours the flag cross-platform. The flag itself is no longer
+  //    android-gated (it now also drives the iOS path).
   assert.match(
     actionSheetSource,
-    /const keepFullHeightSheet\s*=\s*\n?\s*Platform\.OS === 'android' && activeSearchable && activeKeepFullHeightOnKeyboard;/,
+    /const keepFullHeightSheet\s*=\s*activeSearchable && activeKeepFullHeightOnKeyboard;/,
   );
+  //    Android: avoidance math is opted out AND the host is pinned to the full
+  //    (stable) screen height, top-anchored, so it cannot rise.
   assert.match(
     actionSheetSource,
     /const androidSearchableSheet\s*=\s*\n?\s*Platform\.OS === 'android' && activeSearchable && !keepFullHeightSheet;/,
@@ -62,6 +65,9 @@ test('symbol picker stays fixed when the search keyboard opens (no focus-time ju
     actionSheetSource,
     /keepFullHeightSheet\s*\n?\s*\?\s*\{ position: 'absolute' as const, top: 0, left: 0, right: 0, height: screenHeight \}/,
   );
+  //    iOS: the KeyboardAvoidingView is disabled so it stops padding the
+  //    bottom-anchored sheet up (that upward push is the jump).
+  assert.match(actionSheetSource, /enabled=\{!keepFullHeightSheet\}/);
 
   // 4) The chart must not run its own keyboard avoidance for a sheet's keyboard.
   assert.match(

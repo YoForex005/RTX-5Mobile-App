@@ -71,6 +71,7 @@ import {
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
+import { safeRouterBack } from '../../utils/navigation';
 
 const ACCOUNTS_SCREEN_DIAGNOSTICS_ENABLED =
   typeof process !== 'undefined' && process.env.EXPO_PUBLIC_DEBUG_ACCOUNTS_SCREEN === 'true';
@@ -558,7 +559,7 @@ export function AccountsScreen() {
     // Delete must NOT redirect to /login (that's the logout flow). Go back
     // to the settings tab so the user sees the app in a logged-out state
     // without their old credentials pre-filled anywhere.
-    router.replace('/(tabs)/settings');
+    safeRouterBack(router, '/(tabs)/settings');
   };
 
   const openOptions = () => {
@@ -598,7 +599,7 @@ export function AccountsScreen() {
           <FastPressable
             style={styles.iconBtn}
             hitSlop={15}
-            onPress={() => router.replace('/(tabs)/settings')}
+            onPress={() => safeRouterBack(router, '/(tabs)/settings')}
             activateOnPressIn
             latencyLabel="accounts.back"
             unstable_pressDelay={0}

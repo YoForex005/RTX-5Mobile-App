@@ -43,8 +43,8 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.doesNotMatch(source, /profileDataReady/);
   assert.match(source, /const LOGGED_OUT_PREFETCH_ROUTES = \['\/login'\] as const/);
   assert.match(source, /const SIDEBAR_STACK_ROUTES = new Set<string>\(LOGGED_OUT_PREFETCH_ROUTES\)/);
-  assert.match(source, /const SIDEBAR_REPLACE_ROUTE_PREFIXES = \['\/settings\/'\] as const/);
-  assert.match(source, /function shouldReplaceSidebarRoute\(route: string\)/);
+  assert.match(source, /const SIDEBAR_PUSH_ROUTE_PREFIXES = \['\/settings\/'\] as const/);
+  assert.match(source, /function shouldPushSidebarRoute\(route: string\)/);
   assert.match(source, /useLayoutEffect\(\(\) => \{/);
   assert.match(source, /Animated\.parallel\(\[/);
   assert.match(source, /toValue: 0,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
@@ -83,10 +83,11 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /normalizeSidebarPath\(route\)/);
   assert.doesNotMatch(source, /scheduleAfterFirstVisualFrame/);
   assert.doesNotMatch(source, /showSidebarRouteTransition/);
-  assert.match(source, /SIDEBAR_STACK_ROUTES\.has\(route\)/);
+  // Detail routes push over (tabs) (keeping the tab navigator + warm chart
+  // WebView mounted) so BACK is an instant pop, not a tab re-mount.
+  assert.match(source, /SIDEBAR_STACK_ROUTES\.has\(route\) \|\| shouldPushSidebarRoute\(route\)/);
   assert.match(source, /router\.push\(route as any\)/);
-  assert.match(source, /shouldReplaceSidebarRoute\(route\)/);
-  assert.match(source, /router\.replace\(route as any\)/);
+  assert.doesNotMatch(source, /router\.replace\(route as any\)/);
   assert.match(source, /router\.navigate\(route as any\)/);
   assert.doesNotMatch(source, /prefetchSidebarRoute\(route\);\s*router\.push\(route as any\)/);
   assert.match(source, /unlockSidebarNavigation\(\)/);
@@ -103,7 +104,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.doesNotMatch(source, /traceUiInteraction/);
 });
 
-test('sidebar detail back buttons do not walk through old sidebar history', () => {
+test('settings detail back buttons pop instantly instead of re-mounting the tab navigator', () => {
   const directBackFiles = [
     'src/features/settings/AccountsScreen.tsx',
     'src/features/settings/NewsScreen.tsx',
@@ -112,13 +113,19 @@ test('sidebar detail back buttons do not walk through old sidebar history', () =
     'src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx',
     'src/features/settings/InterfaceScreen.tsx',
     'src/features/settings/TradersCommunityScreen.tsx',
-    'src/features/settings/SettingsBackBar.tsx',
   ];
 
   for (const file of directBackFiles) {
     const source = readSource(file);
-    assert.match(source, /router\.replace\('\/\(tabs\)\/settings'\)/, `${file} should replace to the settings tab`);
-    assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/, `${file} should not replay stack history`);
+    // Back is an instant pop to the already-mounted previous screen. The old
+    // router.replace('/(tabs)/settings') re-mounted the entire (tabs) navigator
+    // (re-booting the pre-warmed chart WebView) — a ~1.8s freeze on a real
+    // device. Forward nav now PUSHES (SettingsScreen.openReadySettingsRoute and
+    // SidebarDrawer), so the tab navigator stays mounted underneath and
+    // safeRouterBack pops straight to it. No deep history walk: the sidebar only
+    // opens from tabs, so the detail stack stays one level deep.
+    assert.match(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/, `${file} should pop back, not re-mount`);
+    assert.doesNotMatch(source, /router\.replace\('\/\(tabs\)\/settings'\)/, `${file} should not re-mount the tab navigator`);
   }
 });
 
@@ -203,7 +210,10 @@ test('sidebar keeps the main option routes warm and available', () => {
     const routeSource = readSource(file);
     assert.doesNotMatch(routeSource, /DeferredRouteModule|const load[A-Za-z0-9]+Screen = \(\) => import\('/);
     assert.match(routeSource, /import \{ [A-Za-z0-9]+Screen \} from '..\/..\/src\/features\/settings\//);
-    assert.match(routeSource, /<[A-Za-z0-9]+Screen \/>/);
+    // Rendered directly, or via the route-level deferred-mount wrapper that keeps
+    // the synchronous import (warm) while letting the heavy screen mount a frame
+    // after navigation so the tap never freezes.
+    assert.match(routeSource, /<[A-Za-z0-9]+Screen \/>|<DeferredRouteScreen Screen=\{[A-Za-z0-9]+Screen\}/);
     assert.doesNotMatch(routeSource, /title="/);
   }
 });
