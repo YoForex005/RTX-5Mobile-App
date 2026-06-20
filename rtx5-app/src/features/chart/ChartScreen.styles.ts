@@ -861,7 +861,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeVolumeCardPending: {
       minHeight: 58,
-      borderRadius: 10,
+      borderRadius: 8,
       borderColor: TRADE_SHEET_BORDER_SOFT,
     },
     chartTradeVolumeSide: {
@@ -908,9 +908,10 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       letterSpacing: 0,
     },
     chartTradeCardLabelPending: {
-      color: TRADE_SHEET_TEXT,
-      fontSize: 18,
-      fontWeight: '500',
+      color: TRADE_SHEET_TEXT_MUTED,
+      fontSize: 14,
+      fontWeight: '700',
+      letterSpacing: 0,
     },
     chartTradeCardValue: {
       color: TRADE_SHEET_TEXT,
@@ -928,20 +929,21 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'space-between',
       borderWidth: 1,
       borderColor: TRADE_SHEET_BORDER_SOFT,
-      borderRadius: 6,
+      borderRadius: 8,
       backgroundColor: TRADE_SHEET_PANEL,
       paddingHorizontal: 14,
-      minHeight: 44,
+      minHeight: 48,
     },
     chartTradePriceCardPending: {
-      borderColor: isDark ? 'rgba(248,113,113,0.36)' : '#F97373',
-      backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : '#FFFDFD',
+      borderColor: TRADE_SHEET_BORDER_SOFT,
+      borderLeftWidth: 3,
+      borderLeftColor: isDark ? 'rgba(248,113,113,0.54)' : '#EF4444',
+      backgroundColor: TRADE_SHEET_PANEL,
     },
     chartTradePriceCardPendingMt: {
-      minHeight: 60,
-      borderRadius: 10,
-      borderColor: isDark ? 'rgba(248,113,113,0.42)' : '#E85A4F',
-      backgroundColor: TRADE_SHEET_PANEL,
+      minHeight: 58,
+      borderRadius: 8,
+      borderColor: TRADE_SHEET_BORDER_SOFT,
     },
     chartTradeMetaLink: {
       color: '#2563EB',
@@ -1117,12 +1119,12 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontVariant: ['tabular-nums'],
     },
     chartTradePriceInputPending: {
-      color: '#F23645',
+      color: isDark ? '#FCA5A5' : '#DC2626',
     },
     chartTradePriceInputPendingMt: {
       minWidth: 112,
-      fontSize: 18,
-      color: '#E4554B',
+      fontSize: 17,
+      color: isDark ? '#FCA5A5' : '#DC2626',
     },
     chartTradeFieldSuffix: {
       color: TRADE_SHEET_TEXT_MUTED,
@@ -1685,7 +1687,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradePlaceButton: {
       minHeight: 50,
-      borderRadius: 10,
+      borderRadius: 8,
       width: '100%',
       alignSelf: 'stretch',
       paddingHorizontal: 16,
@@ -1695,14 +1697,15 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradePlaceButtonDisabled: {
       minHeight: 50,
-      borderRadius: 10,
+      borderRadius: 8,
       backgroundColor: '#DEDEDF',
       marginTop: 4,
     },
     chartTradePlaceButtonText: {
       color: '#FFFFFF',
-      fontSize: 17,
-      fontWeight: '700',
+      fontSize: 16,
+      fontWeight: '800',
+      letterSpacing: 0,
       width: '100%',
       textAlign: 'center',
     },

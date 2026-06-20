@@ -41,6 +41,7 @@ function ChartTradeSheetHeaderActions({
   sheet: any;
   handlers: any;
 }) {
+  const { t } = useTranslation();
   const slEnabled = !!sheet.chartTradeSlEnabled;
   const tpEnabled = !!sheet.chartTradeTpEnabled;
   return (
@@ -53,6 +54,9 @@ function ChartTradeSheetHeaderActions({
         ]}
         onPress={() => handlers.onToggleStopLevel('sl')}
         unstable_pressDelay={0}
+        accessibilityRole="button"
+        accessibilityLabel={t('Stop Loss')}
+        accessibilityState={{ selected: slEnabled }}
       >
         <Text style={[styles.chartTradeQuickChipText, slEnabled && styles.chartTradeQuickChipTextActive]}>
           SL
@@ -66,6 +70,9 @@ function ChartTradeSheetHeaderActions({
         ]}
         onPress={() => handlers.onToggleStopLevel('tp')}
         unstable_pressDelay={0}
+        accessibilityRole="button"
+        accessibilityLabel={t('Take Profit')}
+        accessibilityState={{ selected: tpEnabled }}
       >
         <Text style={[styles.chartTradeQuickChipText, tpEnabled && styles.chartTradeQuickChipTextActive]}>
           TP
@@ -75,6 +82,10 @@ function ChartTradeSheetHeaderActions({
         style={styles.chartTradeQuickExpandButton}
         onPress={handlers.onToggleSheetMode}
         unstable_pressDelay={0}
+        accessibilityRole="button"
+        accessibilityLabel={
+          sheet.chartTradeSheetMode === 'expanded' ? t('Collapse trade panel') : t('Expand trade panel')
+        }
       >
         <Ionicons
           name={sheet.chartTradeSheetMode === 'expanded' ? 'chevron-down' : 'arrow-forward'}
@@ -575,6 +586,8 @@ function ChartTradeSheetContent({
             ]}
             onPress={handlers.onOpenPriceStepper}
             unstable_pressDelay={0}
+            accessibilityRole="button"
+            accessibilityLabel={t('Price')}
           >
             <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
             <View style={styles.chartTradeVolumeValueGroup}>
@@ -619,6 +632,8 @@ function ChartTradeSheetContent({
             ]}
             onPress={handlers.onOpenStopLimitPriceStepper}
             unstable_pressDelay={0}
+            accessibilityRole="button"
+            accessibilityLabel={t('Stop Limit Price')}
           >
             <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
               {t('Stop Limit Price')}
@@ -777,6 +792,8 @@ function ChartTradeSheetContent({
               ]}
               onPress={sheet.disablePendingTradePlaceButton ? undefined : handlers.onSubmitPendingTrade}
               disabled={sheet.disablePendingTradePlaceButton}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: sheet.disablePendingTradePlaceButton }}
             >
               <Text
                 style={[
@@ -997,6 +1014,8 @@ function ChartTradeSheetBody({
           ]}
           onPress={handlers.onOpenPriceStepper}
           unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel={t('Price')}
         >
           <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>{t('Price')}</Text>
           <View style={styles.chartTradeVolumeValueGroup}>
@@ -1041,6 +1060,8 @@ function ChartTradeSheetBody({
           ]}
           onPress={handlers.onOpenStopLimitPriceStepper}
           unstable_pressDelay={0}
+          accessibilityRole="button"
+          accessibilityLabel={t('Stop Limit Price')}
         >
           <Text style={[styles.chartTradeCardLabel, useMtPendingTradeSheetLayout && styles.chartTradeCardLabelPending]}>
             {t('Stop Limit Price')}
@@ -1202,6 +1223,8 @@ function ChartTradeSheetBody({
             ]}
             onPress={sheet.disablePendingTradePlaceButton ? undefined : handlers.onSubmitPendingTrade}
             disabled={sheet.disablePendingTradePlaceButton}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: sheet.disablePendingTradePlaceButton }}
           >
             <Text
               style={[
