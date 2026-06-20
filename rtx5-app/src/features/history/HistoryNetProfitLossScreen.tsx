@@ -518,6 +518,47 @@ export function HistoryNetProfitLossScreen() {
         </View>
 
         <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
+          <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Top Movers')}</Text>
+          {topWinner ? (
+            <View style={[styles.leaderRow, topLoser ? styles.leaderRowDivider : null, { borderBottomColor: T.borderSubtle }]}>
+              <View style={styles.leaderLeft}>
+                <View style={[styles.leaderIcon, { backgroundColor: 'rgba(34,197,94,0.14)' }]}>
+                  <Ionicons name="arrow-up" size={14} color={T.up} />
+                </View>
+                <View>
+                  <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topWinner.symbol)}</Text>
+                  <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
+                    {t(topWinner.side.toUpperCase())} | {topWinner.volume.toFixed(2)} {t('lots')}
+                  </Text>
+                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topWinner, 0)}</Text>
+                </View>
+              </View>
+              <Text style={[styles.leaderPnl, { color: T.up }]}>{fmt.pnl(topWinner.netPnl)}</Text>
+            </View>
+          ) : null}
+          {topLoser ? (
+            <View style={styles.leaderRow}>
+              <View style={styles.leaderLeft}>
+                <View style={[styles.leaderIcon, { backgroundColor: 'rgba(239,68,68,0.14)' }]}>
+                  <Ionicons name="arrow-down" size={14} color={T.down} />
+                </View>
+                <View>
+                  <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topLoser.symbol)}</Text>
+                  <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
+                    {t(topLoser.side.toUpperCase())} | {topLoser.volume.toFixed(2)} {t('lots')}
+                  </Text>
+                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topLoser, 0)}</Text>
+                </View>
+              </View>
+              <Text style={[styles.leaderPnl, { color: T.down }]}>{fmt.pnl(topLoser.netPnl)}</Text>
+            </View>
+          ) : null}
+          {!topWinner && !topLoser ? (
+            <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No position contributors available yet.')}</Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
           <Text style={[styles.sectionTitle, { color: T.text }]}>{t('History Snapshot')}</Text>
           <SnapshotRow label={t('Balance')} value={fmt.decimal(balance)} styles={styles} T={T} />
           <SnapshotRow label={t('Estimated Deposit')} value={fmt.decimal(deposit)} border styles={styles} T={T} />
@@ -572,46 +613,6 @@ export function HistoryNetProfitLossScreen() {
           )}
         </View>
 
-        <View style={[styles.card, { backgroundColor: isDark ? '#0E141F' : T.glass2, borderColor: T.border }]}>
-          <Text style={[styles.sectionTitle, { color: T.text }]}>{t('Top Movers')}</Text>
-          {topWinner ? (
-            <View style={[styles.leaderRow, topLoser ? styles.leaderRowDivider : null, { borderBottomColor: T.borderSubtle }]}>
-              <View style={styles.leaderLeft}>
-                <View style={[styles.leaderIcon, { backgroundColor: 'rgba(34,197,94,0.14)' }]}>
-                  <Ionicons name="arrow-up" size={14} color={T.up} />
-                </View>
-                <View>
-                  <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topWinner.symbol)}</Text>
-                  <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
-                    {t(topWinner.side.toUpperCase())} | {topWinner.volume.toFixed(2)} {t('lots')}
-                  </Text>
-                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topWinner, 0)}</Text>
-                </View>
-              </View>
-              <Text style={[styles.leaderPnl, { color: T.up }]}>{fmt.pnl(topWinner.netPnl)}</Text>
-            </View>
-          ) : null}
-          {topLoser ? (
-            <View style={styles.leaderRow}>
-              <View style={styles.leaderLeft}>
-                <View style={[styles.leaderIcon, { backgroundColor: 'rgba(239,68,68,0.14)' }]}>
-                  <Ionicons name="arrow-down" size={14} color={T.down} />
-                </View>
-                <View>
-                  <Text style={[styles.leaderSymbol, { color: T.text }]}>{fmt.symbol(topLoser.symbol)}</Text>
-                  <Text style={[styles.leaderMeta, { color: T.textMuted }]}>
-                    {t(topLoser.side.toUpperCase())} | {topLoser.volume.toFixed(2)} {t('lots')}
-                  </Text>
-                  <Text style={[styles.leaderTicket, { color: T.textDimmed }]}>#{resolveClosedPositionTicket(topLoser, 0)}</Text>
-                </View>
-              </View>
-              <Text style={[styles.leaderPnl, { color: T.down }]}>{fmt.pnl(topLoser.netPnl)}</Text>
-            </View>
-          ) : null}
-          {!topWinner && !topLoser ? (
-            <Text style={[styles.emptyText, { color: T.textMuted }]}>{t('No position contributors available yet.')}</Text>
-          ) : null}
-        </View>
       </ScrollView>
     </View>
   );

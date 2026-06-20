@@ -69,7 +69,7 @@ type CachedActionSheetConfig = Pick<
   'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
-const ACTION_SHEET_ROW_MIN_HEIGHT = 56;
+const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
 const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 60;
 const ACTION_SHEET_OPEN_TRANSLATE_Y = 12;
 const ACTION_SHEET_FAST_OPEN_TRANSLATE_Y = 0;

@@ -39,8 +39,8 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     },
     handle: {
       alignSelf: 'center',
-      marginTop: 8,
-      marginBottom: 6,
+      marginTop: 6,
+      marginBottom: 4,
       width: 36,
       height: 4,
       borderRadius: 2,
@@ -49,10 +49,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     titleContainer: {
       flexDirection: 'row',
       justifyContent: 'center',
-      paddingBottom: 12,
+      paddingBottom: 8,
       borderBottomWidth: 1,
       borderBottomColor: T.border,
-      marginBottom: 12,
+      marginBottom: 8,
     },
     titlePrefix: {
       fontSize: 12,
@@ -95,15 +95,15 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       flexGrow: 1,
     },
     action: {
-      minHeight: 56,
+      minHeight: 48,
       paddingHorizontal: 16,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
     },
     actionWithSubtitle: {
-      minHeight: 68,
-      paddingVertical: 9,
+      minHeight: 60,
+      paddingVertical: 8,
     },
     actionLeft: {
       flex: 1,
@@ -158,7 +158,7 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     },
     cancelButton: {
       width: '100%',
-      minHeight: 54,
+      minHeight: 48,
       borderTopWidth: 1,
       borderColor: T.border,
       backgroundColor: isDark ? '#0E141F' : T.glass2,

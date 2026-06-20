@@ -1861,12 +1861,6 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
             onPress: () => goDetail(sym),
           },
           {
-            label: t('Depth Of Market'),
-            disabled: true,
-            // Disabled - no DOM backend available yet
-            onPress: undefined,
-          },
-          {
             label: t('Market Statistics'),
             activateOnPressIn: true,
             onPress: () => {
@@ -1875,14 +1869,31 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               }, { routeChange: true });
             },
           },
+          // Show both view modes; the currently-active one is disabled (rendered
+          // at low opacity, like a status row) and the other switches to it.
           {
-            label: quoteViewMode === 'list' ? t('Simple view mode') : t('Advanced view mode'),
-            activateOnPressIn: true,
-            onPress: () => {
-              runQuoteSheetOption(() => {
-                setQuoteViewMode(quoteViewMode === 'list' ? 'table' : 'list');
-              });
-            },
+            label: t('Simple view mode'),
+            disabled: quoteViewMode === 'table',
+            activateOnPressIn: quoteViewMode !== 'table',
+            onPress: quoteViewMode === 'table'
+              ? undefined
+              : () => {
+                  runQuoteSheetOption(() => {
+                    setQuoteViewMode('table');
+                  });
+                },
+          },
+          {
+            label: t('Advanced view mode'),
+            disabled: quoteViewMode === 'list',
+            activateOnPressIn: quoteViewMode !== 'list',
+            onPress: quoteViewMode === 'list'
+              ? undefined
+              : () => {
+                  runQuoteSheetOption(() => {
+                    setQuoteViewMode('list');
+                  });
+                },
           },
         ],
       });

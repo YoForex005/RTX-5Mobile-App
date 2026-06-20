@@ -5530,10 +5530,18 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                         style={[styles.chartTradeStopButton, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonPending]}
                         onPress={handleEnableChartTradeStops}
                         unstable_pressDelay={0}
+                        accessibilityRole="button"
+                        accessibilityLabel={chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
                       >
-                        <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
-                          {chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
-                        </Text>
+                        <View style={styles.chartTradeStopButtonContent}>
+                          <View style={styles.chartTradeStopButtonIcon}>
+                            <Ionicons name="shield-checkmark-outline" size={17} color={BLUE} />
+                          </View>
+                          <Text style={[styles.chartTradeStopButtonText, useMtPendingTradeSheetLayout && styles.chartTradeStopButtonTextPending]}>
+                            {chartTradeSlEnabled || chartTradeTpEnabled ? t('Edit Stop Levels') : t('Add Stop Levels')}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={16} color={BLUE} />
+                        </View>
                       </Pressable>
 
                       {(chartTradeSlEnabled || chartTradeTpEnabled) && (
@@ -5555,59 +5563,96 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                           </View>
                           <View style={styles.chartTradeStopPairRow}>
                             <Pressable
-                              style={[styles.chartTradeStopPairCard, styles.chartTradeStopPairCardSl]}
+                              style={[
+                                styles.chartTradeStopPairCard,
+                                styles.chartTradeStopPairCardSl,
+                                !chartTradeSlEnabled && styles.chartTradeStopPairCardInactive,
+                              ]}
                               onPress={() => runImmediateAction('chart.tradeSheet.stepper.sl', () => setChartStepperEditor({ kind: 'sl' }))}
                               unstable_pressDelay={0}
+                              accessibilityRole="button"
+                              accessibilityLabel={t('Stop Loss')}
                             >
-                              <View style={styles.chartTradeStopPairSwatchSl} />
-                              <Text style={styles.chartTradeStopPairLabel}>S/L</Text>
-                              {chartTradeSlEnabled && (
-                                <Text style={styles.chartTradeStopPairValue}>{chartTradeSlPrice.toFixed(displayDecimals)}</Text>
-                              )}
-                              {chartTradeStopUnit === 'Pips' && (
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={(e) => {
-                                    e.stopPropagation?.();
-                                    runImmediateAction('chart.tradeSheet.sl.lockToggle', () => setChartTradeSlLocked((v) => !v));
-                                  }}
-                                  style={styles.chartTradeStopPairLock}
-                                >
-                                  <Ionicons
-                                    name={chartTradeSlLocked ? 'lock-closed' : 'lock-open-outline'}
-                                    size={16}
-                                    color={chartTradeSlLocked ? BLUE : TEXT_MUTED}
-                                  />
-                                </Pressable>
-                              )}
+                              <View style={styles.chartTradeStopPairHeader}>
+                                <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeSl]}>
+                                  <Ionicons name="trending-down-outline" size={16} color="#EF4444" />
+                                </View>
+                                {chartTradeStopUnit === 'Pips' && (
+                                  <Pressable
+                                    hitSlop={8}
+                                    onPress={(e) => {
+                                      e.stopPropagation?.();
+                                      runImmediateAction('chart.tradeSheet.sl.lockToggle', () => setChartTradeSlLocked((v) => !v));
+                                    }}
+                                    style={[styles.chartTradeStopPairLock, chartTradeSlLocked && styles.chartTradeStopPairLockActive]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={t('Stop Loss')}
+                                  >
+                                    <Ionicons
+                                      name={chartTradeSlLocked ? 'lock-closed' : 'lock-open-outline'}
+                                      size={15}
+                                      color={chartTradeSlLocked ? BLUE : TEXT_MUTED}
+                                    />
+                                  </Pressable>
+                                )}
+                              </View>
+                              <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Stop Loss')}</Text>
+                              <Text
+                                style={[
+                                  styles.chartTradeStopPairValue,
+                                  !chartTradeSlEnabled && styles.chartTradeStopPairValueMuted,
+                                ]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                              >
+                                {chartTradeSlEnabled ? chartTradeSlPrice.toFixed(displayDecimals) : '--'}
+                              </Text>
                             </Pressable>
-                            <View style={styles.chartTradeStopPairDivider} />
                             <Pressable
-                              style={[styles.chartTradeStopPairCard, styles.chartTradeStopPairCardTp]}
+                              style={[
+                                styles.chartTradeStopPairCard,
+                                styles.chartTradeStopPairCardTp,
+                                !chartTradeTpEnabled && styles.chartTradeStopPairCardInactive,
+                              ]}
                               onPress={() => runImmediateAction('chart.tradeSheet.stepper.tp', () => setChartStepperEditor({ kind: 'tp' }))}
                               unstable_pressDelay={0}
+                              accessibilityRole="button"
+                              accessibilityLabel={t('Take Profit')}
                             >
-                              <View style={styles.chartTradeStopPairSwatchTp} />
-                              <Text style={styles.chartTradeStopPairLabel}>T/P</Text>
-                              {chartTradeTpEnabled && (
-                                <Text style={styles.chartTradeStopPairValue}>{chartTradeTpPrice.toFixed(displayDecimals)}</Text>
-                              )}
-                              {chartTradeStopUnit === 'Pips' && (
-                                <Pressable
-                                  hitSlop={8}
-                                  onPress={(e) => {
-                                    e.stopPropagation?.();
-                                    runImmediateAction('chart.tradeSheet.tp.lockToggle', () => setChartTradeTpLocked((v) => !v));
-                                  }}
-                                  style={styles.chartTradeStopPairLock}
-                                >
-                                  <Ionicons
-                                    name={chartTradeTpLocked ? 'lock-closed' : 'lock-open-outline'}
-                                    size={16}
-                                    color={chartTradeTpLocked ? BLUE : TEXT_MUTED}
-                                  />
-                                </Pressable>
-                              )}
+                              <View style={styles.chartTradeStopPairHeader}>
+                                <View style={[styles.chartTradeStopPairBadge, styles.chartTradeStopPairBadgeTp]}>
+                                  <Ionicons name="trending-up-outline" size={16} color="#16A34A" />
+                                </View>
+                                {chartTradeStopUnit === 'Pips' && (
+                                  <Pressable
+                                    hitSlop={8}
+                                    onPress={(e) => {
+                                      e.stopPropagation?.();
+                                      runImmediateAction('chart.tradeSheet.tp.lockToggle', () => setChartTradeTpLocked((v) => !v));
+                                    }}
+                                    style={[styles.chartTradeStopPairLock, chartTradeTpLocked && styles.chartTradeStopPairLockActive]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={t('Take Profit')}
+                                  >
+                                    <Ionicons
+                                      name={chartTradeTpLocked ? 'lock-closed' : 'lock-open-outline'}
+                                      size={15}
+                                      color={chartTradeTpLocked ? BLUE : TEXT_MUTED}
+                                    />
+                                  </Pressable>
+                                )}
+                              </View>
+                              <Text style={styles.chartTradeStopPairLabel} numberOfLines={1}>{t('Take Profit')}</Text>
+                              <Text
+                                style={[
+                                  styles.chartTradeStopPairValue,
+                                  !chartTradeTpEnabled && styles.chartTradeStopPairValueMuted,
+                                ]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                              >
+                                {chartTradeTpEnabled ? chartTradeTpPrice.toFixed(displayDecimals) : '--'}
+                              </Text>
                             </Pressable>
                           </View>
                         </View>
