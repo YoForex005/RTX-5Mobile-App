@@ -1632,6 +1632,15 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
+    stepperModalMainInput: {
+      width: '82%',
+      minHeight: 34,
+      paddingHorizontal: 0,
+      paddingVertical: 0,
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      lineHeight: 28,
+    },
     stepperModalGhost: {
       color: isDark ? '#475569' : '#CBD5E1',
       fontSize: 17,

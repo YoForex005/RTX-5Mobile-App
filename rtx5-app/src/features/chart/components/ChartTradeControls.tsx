@@ -1,6 +1,6 @@
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import React, {  } from 'react';
-import { Dimensions, Modal, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { Dimensions, Keyboard, Modal, ScrollView, StyleSheet, Text, TextInput, View, Platform } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -12,6 +12,7 @@ import { OVERLAY_MODAL_PROPS } from '../../../ui/overlayModalProps';
 import {
   normalizeTradeVolume,
   resolveTradeVolumeBounds,
+  sanitizeTradeVolumeDraft,
   type TradeVolumeBounds,
 } from '../../../utils/tradeVolume';
 import {
@@ -36,6 +37,7 @@ export function ChartStepperModal({
   decimals,
   min,
   max,
+  editable = false,
   styles,
   onClose,
   onCommit,
@@ -47,15 +49,14 @@ export function ChartStepperModal({
   decimals: number;
   min?: number;
   max?: number;
+  editable?: boolean;
   styles: ReturnType<typeof makeStyles>;
   onClose: () => void;
   onCommit: (next: number) => void;
 }) {
   const { t } = useTranslation();
   const [value, setValue] = React.useState(initial);
-  React.useEffect(() => {
-    if (visible) setValue(initial);
-  }, [visible, initial]);
+  const [draft, setDraft] = React.useState(() => initial.toFixed(Math.max(decimals, 0)));
 
   const clamp = React.useCallback(
     (v: number) => {
@@ -67,14 +68,60 @@ export function ChartStepperModal({
     [decimals, max, min],
   );
 
+  React.useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const nextValue = clamp(initial);
+    setValue(nextValue);
+    setDraft(nextValue.toFixed(decimals));
+  }, [clamp, decimals, initial, visible]);
+
+  const syncDraftToValue = React.useCallback((nextValue: number) => {
+    const clampedValue = clamp(nextValue);
+    setValue(clampedValue);
+    setDraft(clampedValue.toFixed(decimals));
+    return clampedValue;
+  }, [clamp, decimals]);
+
   const bump = React.useCallback(
-    (dir: -1 | 1) => setValue((v) => clamp(v + dir * step)),
-    [clamp, step],
+    (dir: -1 | 1) => syncDraftToValue(value + dir * step),
+    [step, syncDraftToValue, value],
   );
 
   if (!visible) return null;
   const prev = clamp(value - step);
   const next = clamp(value + step);
+
+  const handleDraftChange = (text: string) => {
+    const nextDraft = sanitizeTradeVolumeDraft(text);
+    setDraft(nextDraft);
+
+    if (!nextDraft.trim() || nextDraft === '.') {
+      return;
+    }
+
+    const parsed = Number(nextDraft);
+    if (Number.isFinite(parsed)) {
+      setValue(clamp(parsed));
+    }
+  };
+
+  const commitDraft = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      return syncDraftToValue(value);
+    }
+
+    return syncDraftToValue(parsed);
+  };
+
+  const commitValue = () => {
+    const nextValue = editable ? commitDraft() : value;
+    onCommit(nextValue);
+    onClose();
+  };
 
   return (
     <Modal
@@ -95,7 +142,27 @@ export function ChartStepperModal({
             <View style={styles.stepperModalStack}>
               <Text style={styles.stepperModalGhost}>{prev.toFixed(decimals)}</Text>
               <View style={styles.stepperModalDivider} />
-              <Text style={styles.stepperModalMain}>{value.toFixed(decimals)}</Text>
+              {editable ? (
+                <TextInput
+                  style={[styles.stepperModalMain, styles.stepperModalMainInput]}
+                  value={draft}
+                  onChangeText={handleDraftChange}
+                  onBlur={commitDraft}
+                  onSubmitEditing={() => {
+                    commitDraft();
+                    Keyboard.dismiss();
+                  }}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  selectTextOnFocus
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  maxLength={12}
+                  accessibilityLabel={title}
+                />
+              ) : (
+                <Text style={styles.stepperModalMain}>{value.toFixed(decimals)}</Text>
+              )}
               <View style={styles.stepperModalDivider} />
               <Text style={styles.stepperModalGhost}>{next.toFixed(decimals)}</Text>
             </View>
@@ -108,10 +175,7 @@ export function ChartStepperModal({
               <Text style={styles.stepperModalCancel}>{t('Cancel')}</Text>
             </Pressable>
             <Pressable
-              onPress={() => {
-                onCommit(value);
-                onClose();
-              }}
+              onPress={commitValue}
               hitSlop={8}
             >
               <Text style={styles.stepperModalOk}>{t('OK')}</Text>

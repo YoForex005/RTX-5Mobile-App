@@ -64,6 +64,24 @@ export function normalizeTradeVolume(value: unknown, bounds?: TradeVolumeBounds)
   return Math.min(maxVolume, Math.max(minVolume, roundToDecimals(stepped, decimals)));
 }
 
+// True only when `value` is a tradeable lot for these bounds: within
+// [min, max] AND an exact multiple of the step. Used to flag a manually-typed
+// lot (MT5-style) instead of silently snapping it to the nearest step.
+export function isValidTradeVolume(value: unknown, bounds?: TradeVolumeBounds) {
+  const parsed = toFiniteNumber(value);
+  if (parsed === null) {
+    return false;
+  }
+
+  const { minVolume, maxVolume, stepVolume } = resolveTradeVolumeBounds(bounds);
+  if (parsed < minVolume - 1e-9 || parsed > maxVolume + 1e-9) {
+    return false;
+  }
+
+  const steps = (parsed - minVolume) / stepVolume;
+  return Math.abs(steps - Math.round(steps)) <= 1e-6;
+}
+
 export function incrementTradeVolume(value: unknown, direction: -1 | 1, bounds?: TradeVolumeBounds) {
   const { stepVolume } = resolveTradeVolumeBounds(bounds);
   return normalizeTradeVolume((toFiniteNumber(value) ?? DEFAULT_TRADE_VOLUME) + direction * stepVolume, bounds);

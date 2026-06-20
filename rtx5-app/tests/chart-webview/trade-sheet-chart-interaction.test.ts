@@ -494,6 +494,29 @@ test('trade sheet volume lot value is manually editable without opening only the
   }
 });
 
+test('volume stepper modal center value is manually editable', () => {
+  assertSourceContains(
+    chartTradeControlsSource,
+    /editable = false[\s\S]*const \[draft, setDraft\] = React\.useState/,
+    'stepper modal must keep a typed draft for editable numeric values',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /<TextInput[\s\S]*value=\{draft\}[\s\S]*onChangeText=\{handleDraftChange\}[\s\S]*keyboardType="decimal-pad"[\s\S]*selectTextOnFocus/,
+    'editable stepper modal value must be a decimal-pad TextInput',
+  );
+  assertSourceContains(
+    chartTradeControlsSource,
+    /const commitValue = \(\) => \{[\s\S]*const nextValue = editable \? commitDraft\(\) : value[\s\S]*onCommit\(nextValue\)/,
+    'editable stepper modal OK action must commit the typed value',
+  );
+  assertSourceContains(
+    source,
+    /<ChartStepperModal[\s\S]*editable=\{chartStepperEditor\?\.kind === 'volume'\}/,
+    'only the volume chart stepper should enable manual modal input',
+  );
+});
+
 test('SL/TP sheet volume slider keeps local drag smooth and coalesces volume commits', () => {
   assertSourceContains(
     chartTradeControlsSource,

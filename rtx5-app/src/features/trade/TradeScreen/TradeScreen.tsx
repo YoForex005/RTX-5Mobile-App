@@ -113,17 +113,6 @@ export function TradeScreen() {
     [positions],
   );
   const totalVolume = renderablePositions.reduce((sum, p) => sum + (p.volume || 0), 0);
-  const livePositionRows = useMemo(
-    // These are the rows allowed to use live quote subscriptions right now.
-    // The header receives this smaller list so off-screen symbols do not slow
-    // down the first Trade render, while the full `renderablePositions` list
-    // still controls the count, total lots, and FlatList data.
-    () =>
-      renderablePositions.filter((position, index) =>
-        index < TRADE_INITIAL_POSITION_RENDER_COUNT || viewablePositionIds.has(String(position.id)),
-      ),
-    [renderablePositions, viewablePositionIds],
-  );
   const rowActivationKey = useMemo(
     // FlatList rows are memoized, so this key tells them when their "live row"
     // status changed after scrolling.
@@ -211,7 +200,6 @@ export function TradeScreen() {
       <AppHeader title={t('Trade')} noBorder />
       <TradeSummaryHeader
         positions={renderablePositions}
-        liveQuotePositions={livePositionRows}
         hydratedLogin={hydratedLogin}
         resolvedLogin={resolvedLogin}
         s={s}

@@ -52,7 +52,13 @@ type ChartTradeButtonsProps = {
   isDark: boolean;
   buyColor: string;
   sellColor: string;
+  // MT5-style invalid manual lot: when true, show `invalidLotDisplay` flagged in
+  // red and block BUY/SELL until the user enters a valid step/range.
+  lotInvalid?: boolean;
+  invalidLotDisplay?: string;
 };
+
+const INVALID_LOT_COLOR = '#EF4444';
 
 export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   symbol,
@@ -82,6 +88,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   isDark,
   buyColor,
   sellColor,
+  lotInvalid = false,
+  invalidLotDisplay,
 }: ChartTradeButtonsProps) {
   const latestQuote = useLiveSymbolQuote(symbol, active, TRADE_BUTTON_QUOTE_COMMIT_INTERVAL_MS);
   const { bid: latestBid, ask: latestAsk } = resolveChartTradeButtonQuote({
@@ -95,6 +103,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const formattedBid = hasLiveBid ? latestBid.toFixed(displayDecimals) : '---';
   const formattedAsk = hasLiveAsk ? latestAsk.toFixed(displayDecimals) : '---';
   const formattedLotSize = formatTradeVolume(lotSize, volumeBounds);
+  const lotDisplayText = lotInvalid && invalidLotDisplay ? invalidLotDisplay : formattedLotSize;
   const hasLotValueEditor = typeof onEditLot === 'function';
   const lotEditorAction = hasLotValueEditor ? onEditLot : undefined;
   const lotPickerAction = typeof onOpenLotEditor === 'function' ? onOpenLotEditor : undefined;
@@ -154,6 +163,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
     onTradeResult,
   });
   const tradeControlsDisabled = !isCurrentChartSymbol;
+  // Block trading while the manually-typed lot is invalid (MT5 parity).
+  const tradeBlocked = chartTradeActionDisabled || lotInvalid;
 
   const themeStyles = isDark ? darkStyles : lightStyles;
   const sellAction = getChartTradeAction('sell');
@@ -193,8 +204,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
   const sellTileColor = sellTileVisual.color;
   const buyTileColor = buyTileVisual.color;
   const lotDisplayValue = (
-    <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue]} numberOfLines={1}>
-      {formattedLotSize}
+    <Text style={[textBaseStyles.actionLotValue, baseStyles.actionLotDisplayGhost, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]} numberOfLines={1}>
+      {lotDisplayText}
     </Text>
   );
   const lotControl = (
@@ -306,8 +317,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             { backgroundColor: sellColor },
             isChartTradeActionVisuallyLocked('sell') && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={chartTradeActionDisabled}
-          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('sell') }}
+          disabled={tradeBlocked}
+          accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
           onPressIn={() => handleTrade('sell')}
           unstable_pressDelay={0}
           accessibilityRole="button"
@@ -320,7 +331,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <>
               <Text style={baseStyles.chartTradeMarketActionTitle}>{sellAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {formattedLotSize} Lots · {formattedBid}
+                {lotDisplayText} Lots · {formattedBid}
               </Text>
             </>
           )}
@@ -331,8 +342,8 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             { backgroundColor: buyColor },
             isChartTradeActionVisuallyLocked('buy') && baseStyles.chartTradeMarketActionButtonBusy,
           ]}
-          disabled={chartTradeActionDisabled}
-          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('buy') }}
+          disabled={tradeBlocked}
+          accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}
           onPressIn={() => handleTrade('buy')}
           unstable_pressDelay={0}
           accessibilityRole="button"
@@ -345,7 +356,7 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
             <>
               <Text style={baseStyles.chartTradeMarketActionTitle}>{buyAction.marketLabel}</Text>
               <Text style={baseStyles.chartTradeMarketActionMeta}>
-                {formattedLotSize} Lots · {formattedAsk}
+                {lotDisplayText} Lots · {formattedAsk}
               </Text>
             </>
           )}
@@ -361,10 +372,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: sellTileColor, borderWidth: 0, shadowColor: sellTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            isChartTradeActionVisuallyLocked('sell') && { opacity: 0.5 },
+            (isChartTradeActionVisuallyLocked('sell') || lotInvalid) && { opacity: 0.5 },
           ]}
-          disabled={chartTradeActionDisabled}
-          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('sell') }}
+          disabled={tradeBlocked}
+          accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('sell') }}
           onPressIn={() => handleTrade('sell')}
           accessibilityRole="button"
           accessibilityLabel={sellAction.accessibilityLabel}
@@ -400,10 +411,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
               />
             </View>
             <Text
-              style={[textBaseStyles.actionLotValue, baseStyles.actionLotCommittedValue, themeStyles.actionLotValue]}
+              style={[textBaseStyles.actionLotValue, baseStyles.actionLotCommittedValue, themeStyles.actionLotValue, lotInvalid && { color: INVALID_LOT_COLOR }]}
               numberOfLines={1}
             >
-              {formattedLotSize}
+              {lotDisplayText}
             </Text>
             <View style={baseStyles.actionLotCommittedIconBox}>
               <Ionicons
@@ -425,10 +436,10 @@ export const ChartTradeButtons = React.memo(function ChartTradeButtons({
           style={[
             baseStyles.actionBtn,
             { backgroundColor: buyTileColor, borderWidth: 0, shadowColor: buyTileColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 8, elevation: 0 },
-            isChartTradeActionVisuallyLocked('buy') && { opacity: 0.5 },
+            (isChartTradeActionVisuallyLocked('buy') || lotInvalid) && { opacity: 0.5 },
           ]}
-          disabled={chartTradeActionDisabled}
-          accessibilityState={{ disabled: chartTradeActionDisabled, busy: isChartTradeActionBusy('buy') }}
+          disabled={tradeBlocked}
+          accessibilityState={{ disabled: tradeBlocked, busy: isChartTradeActionBusy('buy') }}
           onPressIn={() => handleTrade('buy')}
           accessibilityRole="button"
           accessibilityLabel={buyAction.accessibilityLabel}

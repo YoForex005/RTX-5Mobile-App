@@ -105,6 +105,7 @@ import { getDevRefreshKey, hashDevRefreshSource } from '../../dev/devRefreshKey'
 import {
   formatTradeVolume,
   incrementTradeVolume,
+  isValidTradeVolume,
   normalizeTradeVolume,
   resolveTradeVolumeBounds,
   sanitizeTradeVolumeDraft,
@@ -511,6 +512,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const footerLotEditorInputRef = useRef<TextInput>(null);
   const [footerLotPickerMode, setFooterLotPickerMode] = useState<FooterLotPickerMode | null>(null);
   const showFooterLotPicker = footerLotPickerMode !== null;
+  // MT5-style invalid-lot state: when the user manually types a lot that isn't a
+  // valid step/range, we keep it visible + flagged and block trading instead of
+  // silently snapping it. `footerLotInvalidDisplay` holds the exact typed text.
+  const [footerLotInvalid, setFooterLotInvalid] = useState(false);
+  const [footerLotInvalidDisplay, setFooterLotInvalidDisplay] = useState('');
+  // Synchronous "lot editor active" flag. The chart-viewport freeze is driven by
+  // React state (footerLotEditorFocused/Opening), so a keyboard-resize layout can
+  // fire BEFORE that state propagates to the onLayout closure — the chart shrinks
+  // + reflows once (the visible "jump"). This ref flips true the instant the lot
+  // editor opens so onLayout can freeze the very first shrink.
+  const footerLotEditorActiveRef = useRef(false);
   const [chartTradeVolumeInputFocused, setChartTradeVolumeInputFocused] = useState(false);
   const [chartTradeVolumeDraft, setChartTradeVolumeDraft] = useState(() => formatTradeVolume(tradeVolume, tradeVolumeBounds));
   const chartTradeVolumeDraftRef = useRef(chartTradeVolumeDraft);
@@ -597,7 +609,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setTradeVolume(normalized);
       return;
     }
-    if (!footerLotEditorFocused) {
+    if (!footerLotEditorFocused && !footerLotInvalid) {
       setFooterLotDraft(formatTradeVolume(normalized, tradeVolumeBounds));
     }
     if (!chartTradeVolumeInputFocused) {
@@ -606,6 +618,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [
     chartTradeVolumeInputFocused,
     footerLotEditorFocused,
+    footerLotInvalid,
     setChartTradeVolumeDraftValue,
     setFooterLotDraft,
     setTradeVolume,
@@ -619,6 +632,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setTradeVolume(normalized);
       setFooterLotDraft(formatTradeVolume(normalized, tradeVolumeBounds));
       setChartTradeVolumeDraftValue(formatTradeVolume(normalized, tradeVolumeBounds));
+      setFooterLotInvalid(false);
     },
     [setChartTradeVolumeDraftValue, setFooterLotDraft, setTradeVolume, tradeVolumeBounds],
   );
@@ -636,6 +650,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       // input to a value that's already been replaced by another commit.
       const latestVolume = useUserPreferences.getState().tradeVolume;
       setFooterLotDraft(formatTradeVolume(latestVolume, tradeVolumeBounds));
+      setFooterLotInvalid(false);
+      return;
+    }
+    if (!isValidTradeVolume(nextDraft, tradeVolumeBounds)) {
+      // MT5 parity: don't silently snap a non-step / out-of-range lot. Keep the
+      // typed value visible and flagged; trading stays blocked until it's valid.
+      setFooterLotDraft(nextDraft);
+      setFooterLotInvalidDisplay(nextDraft);
+      setFooterLotInvalid(true);
       return;
     }
     updateTradeVolume(nextDraft);
@@ -662,14 +685,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     setFooterLotDraft(sanitizeTradeVolumeDraft(text));
   }, [setFooterLotDraft]);
   const handleFocusFooterLotEditor = useCallback(() => {
+    // Engage the chart freeze synchronously (before the keyboard resize lands).
+    footerLotEditorActiveRef.current = true;
     setFooterLotPickerMode(null);
-    setFooterLotDraft(formatTradeVolume(tradeVolume, tradeVolumeBounds));
+    setFooterLotDraft(
+      footerLotInvalid ? footerLotInvalidDisplay : formatTradeVolume(tradeVolume, tradeVolumeBounds),
+    );
     setFooterLotEditorOpening(Platform.OS === 'android');
     setFooterLotEditorFocused(true);
-  }, [setFooterLotDraft, tradeVolume, tradeVolumeBounds]);
+  }, [footerLotInvalid, footerLotInvalidDisplay, setFooterLotDraft, tradeVolume, tradeVolumeBounds]);
   const finishFooterLotEditor = useCallback((draftOverride?: string) => {
     // Always prefer the ref (latest typed value) when no explicit override given
     commitLotDraft(draftOverride ?? footerLotDraftRef.current);
+    footerLotEditorActiveRef.current = false;
     setFooterLotEditorOpening(false);
     setFooterLotEditorFocused(false);
   }, [commitLotDraft]);
@@ -4760,7 +4788,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                 onLayout={(event) => {
                   const { width, height } = event.nativeEvent.layout;
                   const freezeViewportResize =
-                    shouldFreezeChartViewportResize &&
+                    (shouldFreezeChartViewportResize || footerLotEditorActiveRef.current) &&
                     lastChartViewportSizeRef.current.height > 0 &&
                     height < lastChartViewportSizeRef.current.height;
                   if (freezeViewportResize) {
@@ -5828,6 +5856,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               onLotDraftSubmit={handleSubmitFooterLotEditor}
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
+              lotInvalid={footerLotInvalid}
+              invalidLotDisplay={footerLotInvalidDisplay}
               active={chartRuntimeActive}
               fallbackBid={chartBid}
               fallbackAsk={chartAsk}
@@ -5866,6 +5896,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
               onLotDraftSubmit={handleSubmitFooterLotEditor}
               onDecreaseLot={() => handleStepFooterLotEditor(-1)}
               onIncreaseLot={() => handleStepFooterLotEditor(1)}
+              lotInvalid={footerLotInvalid}
+              invalidLotDisplay={footerLotInvalidDisplay}
               active={chartRuntimeActive}
               fallbackBid={chartBid}
               fallbackAsk={chartAsk}
@@ -5934,6 +5966,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             ? resolveTradeVolumeBounds(tradeVolumeBounds).maxVolume
             : undefined
         }
+        editable={chartStepperEditor?.kind === 'volume'}
         styles={styles}
         onClose={() => setChartStepperEditor(null)}
         onCommit={(next) => {

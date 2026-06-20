@@ -153,7 +153,7 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
   assert.match(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
   assert.match(tradeSource, /const positionRowsActive = isScreenFocused/);
-  assert.match(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
+  assert.doesNotMatch(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
   assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{isScreenFocused\}/);
   assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
   assert.match(tradeSource, /initialNumToRender=\{TRADE_INITIAL_POSITION_RENDER_COUNT\}/);
@@ -165,9 +165,10 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol, active\)/);
   assert.doesNotMatch(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol\)/);
   assert.match(tradeSummarySource, /active: boolean/);
-  assert.match(tradeSummarySource, /liveQuotePositions\?: PositionItem\[\]/);
-  assert.match(tradeSummarySource, /\(liveQuotePositions \?\? positions\)\.map/);
+  assert.doesNotMatch(tradeSummarySource, /liveQuotePositions\?: PositionItem\[\]/);
+  assert.match(tradeSummarySource, /positions\.map\(\(position\) => position\.symbol\)/);
   assert.match(tradeSummarySource, /useMarketData\(liveQuoteSymbols, active\)/);
+  assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(calendarSource, /const CALENDAR_INITIAL_DATA_DELAY_MS = 120/);

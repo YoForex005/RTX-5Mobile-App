@@ -1617,6 +1617,8 @@ type ChartTradeInlineFooterProps = {
   onLotDraftSubmit: (event?: any) => void;
   onDecreaseLot: () => void;
   onIncreaseLot: () => void;
+  lotInvalid?: boolean;
+  invalidLotDisplay?: string;
   active?: boolean;
   fallbackBid?: number | null;
   fallbackAsk?: number | null;
@@ -1649,6 +1651,8 @@ export function ChartTradeInlineFooter({
   onLotDraftSubmit,
   onDecreaseLot,
   onIncreaseLot,
+  lotInvalid = false,
+  invalidLotDisplay,
   active = true,
   fallbackBid,
   fallbackAsk,
@@ -1682,6 +1686,8 @@ export function ChartTradeInlineFooter({
           onLotDraftSubmit={onLotDraftSubmit}
           onDecreaseLot={onDecreaseLot}
           onIncreaseLot={onIncreaseLot}
+          lotInvalid={lotInvalid}
+          invalidLotDisplay={invalidLotDisplay}
           active={active}
           fallbackBid={fallbackBid}
           fallbackAsk={fallbackAsk}

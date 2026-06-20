@@ -216,7 +216,6 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
 
 export const TradeSummaryHeader = React.memo(({
   positions,
-  liveQuotePositions,
   hydratedLogin,
   resolvedLogin,
   s,
@@ -227,7 +226,6 @@ export const TradeSummaryHeader = React.memo(({
   active,
 }: {
   positions: PositionItem[];
-  liveQuotePositions?: PositionItem[];
   hydratedLogin: string | null;
   resolvedLogin: number | undefined;
   s: TradeScreenStyles;
@@ -250,11 +248,10 @@ export const TradeSummaryHeader = React.memo(({
     })),
   );
   const liveQuoteSymbols = useMemo(
-    // Only rows that are mounted/visible need live quote ticks immediately.
-    // Off-screen positions still count in the Positions total, but they keep
-    // their latest snapshot P/L until they scroll in and become live rows.
-    () => Array.from(new Set((liveQuotePositions ?? positions).map((position) => position.symbol))),
-    [liveQuotePositions, positions],
+    // The Floating P/L headline must represent every open position, not only
+    // the rows that are currently mounted by FlatList.
+    () => Array.from(new Set(positions.map((position) => position.symbol))),
+    [positions],
   );
   const liveQuotes = useMarketData(liveQuoteSymbols, active);
   const account = useMemo(() => {
