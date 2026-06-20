@@ -11,7 +11,7 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../ui/components/Screen';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -53,6 +53,14 @@ import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveAccountState } from '../../state/liveAccountState';
 import { usePositionsState } from '../../state/positionsState';
+import { useTradingState } from '../../state/tradingState';
+import { useMarketData } from '../../query/websocket';
+import { useWatchlistLiveQuotes } from '../quotes/useLiveQuotes';
+import {
+  buildTradeAccountSummary,
+  resolveRenderableTradeAccountSummary,
+  resolveTradeFloatingPnl,
+} from '../trade/accountSummary';
 import { useTranslation } from '../../i18n/useTranslation';
 import { translateAccountCardName } from '../../i18n/translations';
 import { runImmediateAction } from '../../utils/actionLatency';
@@ -354,6 +362,16 @@ export function AccountsScreen() {
   const liveMarginFree = useLiveAccountState((s) => s.margin_free);
   const liveFloating = useLiveAccountState((s) => s.floating);
   const liveMetricFlags = useLiveAccountState((s) => s.metricFlags);
+  const liveMargin = useLiveAccountState((s) => s.margin);
+  const liveMarginLevel = useLiveAccountState((s) => s.margin_level);
+  // The account WS only sends a one-time metrics snapshot, so equity/free-margin/
+  // floating from it are frozen. Recompute them live from open positions x live
+  // quotes (the same source the Trade screen uses) so the connected account's
+  // card updates on every tick. Falls back to the snapshot when positions are
+  // not hydrated for this login.
+  const livePositions = usePositionsState((s) => s.positions);
+  const liveHydratedLogin = usePositionsState((s) => s.hydratedLogin);
+  const liveTradingAccount = useTradingState((s) => s.account);
 
   // Extract the essential display values — prefer live WS data, fall back to REST API
   const displayLogin = activeAccount ? String(activeAccount.login) : (accountDetails?.id ?? '---');
@@ -361,12 +379,69 @@ export function AccountsScreen() {
   const displayName = rawDisplayName === '---' ? rawDisplayName : translateAccountCardName(rawDisplayName, t);
   const displayCurrency = activeAccount?.currency ?? 'USD';
   const liveMatchesActiveAccount = liveLogin !== 0 && (!activeAccount || liveLogin === activeAccount.login);
+  const resolvedAccountLogin = activeAccount?.login ?? (accountDetails?.id ? Number(accountDetails.id) : undefined);
+  const livePositionSymbols = useMemo(
+    () => Array.from(new Set(livePositions.map((p) => p.symbol))),
+    [livePositions],
+  );
+  // Keep the open positions' symbols fresh (REST poll + WS) while viewing this
+  // account so the floating below reflects current prices and updates as the
+  // market moves — same source/cadence as the Trade summary header. Without this,
+  // useTradingState.quotes (what useMarketData reads) goes stale off the Quotes
+  // screen and the calc falls back to the frozen position-snapshot price.
+  useWatchlistLiveQuotes(livePositionSymbols, isScreenFocused && liveMatchesActiveAccount);
+  const liveQuotes = useMarketData(livePositionSymbols, isScreenFocused && liveMatchesActiveAccount);
+  // Live equity = balance + credit + (live floating); free margin = equity - margin.
+  const liveAccountSummary = useMemo(() => {
+    const summary = buildTradeAccountSummary(
+      {
+        login: liveLogin,
+        balance: liveBalance,
+        equity: liveEquity,
+        margin: liveMargin,
+        margin_free: liveMarginFree,
+        margin_level: liveMarginLevel,
+        floating: liveFloating,
+        metricFlags: liveMetricFlags,
+      },
+      liveTradingAccount,
+    );
+    const floating = resolveTradeFloatingPnl(
+      summary.floating,
+      livePositions,
+      liveHydratedLogin,
+      resolvedAccountLogin,
+      liveQuotes,
+    );
+    return resolveRenderableTradeAccountSummary(summary, floating);
+  }, [liveLogin, liveBalance, liveEquity, liveMargin, liveMarginFree, liveMarginLevel, liveFloating, liveMetricFlags, liveTradingAccount, livePositions, liveHydratedLogin, resolvedAccountLogin, liveQuotes]);
   const displayBalance = liveMetricFlags.balance && liveMatchesActiveAccount ? fmt.price(liveBalance) : activeAccount ? fmt.price(activeAccount.balance) : '---';
-  const displayEquity = liveMetricFlags.equity && liveMatchesActiveAccount ? fmt.price(liveEquity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
+  const displayEquity = liveMatchesActiveAccount ? fmt.price(liveAccountSummary.equity) : activeAccount ? fmt.price(activeAccount.equity) : '---';
   const displayLeverage = activeAccount ? `1:${activeAccount.leverage}` : '---';
-  const displayFreeMargin = liveMetricFlags.margin_free && liveMatchesActiveAccount ? fmt.price(liveMarginFree) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
-  const displayFloatingPnl = liveMetricFlags.floating && liveMatchesActiveAccount ? liveFloating : (activeAccount?.floatingPnl ?? 0);
-  const displayOpenPositions = activeAccount?.openPositions ?? 0;
+  const displayFreeMargin = liveMatchesActiveAccount ? fmt.price(liveAccountSummary.freeMargin) : activeAccount ? fmt.price(activeAccount.freeMargin) : '---';
+  const displayFloatingPnl = liveMatchesActiveAccount ? liveAccountSummary.floating : (activeAccount?.floatingPnl ?? 0);
+  // The REST account snapshot reports openPositions=0 even when the account has
+  // live trades, so prefer the actual hydrated open-positions count for the
+  // connected account (same source the Trade screen uses); fall back to the
+  // snapshot when positions aren't hydrated for this login.
+  const livePositionsMatchActive =
+    liveHydratedLogin != null &&
+    resolvedAccountLogin != null &&
+    liveHydratedLogin === String(resolvedAccountLogin);
+  const displayOpenPositions = livePositionsMatchActive
+    ? livePositions.length
+    : (activeAccount?.openPositions ?? 0);
+  // Hydrate + refresh the connected account's positions while this screen is
+  // focused so the "N open" chip shows that account's live open-trade count and
+  // stays dynamic as trades open/close (same source/pattern as the Trade screen).
+  React.useEffect(() => {
+    if (resolvedAccountLogin == null) return;
+    void usePositionsState.getState().hydrateCachedPositions(String(resolvedAccountLogin));
+  }, [resolvedAccountLogin]);
+  React.useEffect(() => {
+    if (!screenDataActive || resolvedAccountLogin == null) return;
+    void usePositionsState.getState().refreshPositions(String(resolvedAccountLogin));
+  }, [screenDataActive, resolvedAccountLogin]);
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
   const displayServerName = brokerConfig?.server_name ?? '---';
 
@@ -641,9 +716,21 @@ export function AccountsScreen() {
           </View>
         </View>
 
-        <ScrollView
+        <FlatList
           keyboardShouldPersistTaps="always"
-          canCancelContentTouches={Platform.OS === 'ios'} style={styles.content} showsVerticalScrollIndicator={false}>
+          canCancelContentTouches={Platform.OS === 'ios'}
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          data={otherRows}
+          keyExtractor={(row) => row.key}
+          // Virtualize the other-accounts list: render only what fills the screen
+          // plus a small buffer, then render the rest lazily as the user scrolls.
+          initialNumToRender={4}
+          maxToRenderPerBatch={6}
+          windowSize={9}
+          removeClippedSubviews={false}
+          ListHeaderComponent={(
+            <>
           {/* ── Active Account Card ── */}
           <View style={styles.activeCard}>
             {/* Corner ribbons */}
@@ -763,8 +850,9 @@ export function AccountsScreen() {
               <Text style={styles.sectionCount}>{otherRows.length}</Text>
             )}
           </View>
-
-          {otherRows.length === 0 && (
+            </>
+          )}
+          ListEmptyComponent={(
             <View style={styles.emptyOtherCard}>
               <Ionicons name="people-outline" size={20} color={T.textDimmed} />
               <Text style={styles.emptyOtherTitle}>{t('No other accounts yet')}</Text>
@@ -781,8 +869,7 @@ export function AccountsScreen() {
               </FastPressable>
             </View>
           )}
-
-          {otherRows.map((row) => {
+          renderItem={({ item: row }) => {
             const ribbonLabel = t(
               row.accountType === 'demo'
                 ? 'Demo'
@@ -942,9 +1029,8 @@ export function AccountsScreen() {
                 )}
               </Pressable>
             );
-          })}
-
-        </ScrollView>
+          }}
+        />
       </View>
 
       {passwordSheetVisible && (

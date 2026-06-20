@@ -69,7 +69,9 @@ test('accounts screen uses broker branding and opens long-press delete for other
   const source = readSource('src/features/settings/AccountsScreen.tsx');
 
   assert.doesNotMatch(source, /AppLogo/);
-  assert.match(source, /import \{ ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, View \} from 'react-native'/);
+  assert.match(source, /import \{ ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View \} from 'react-native'/);
+  // Other-accounts list is virtualized: render the on-screen rows, lazy-render the rest on scroll.
+  assert.match(source, /<FlatList[\s\S]*data=\{otherRows\}[\s\S]*initialNumToRender=/);
   assert.match(source, /const activeBrokerLogoUrl = brokerConfig\?\.logo_url \|\| brokerLogoUrl \|\| ''/);
   assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*\? activeBrokerLogoUrl \|\| sa\.logoUrl \|\| ''[\s\S]*: sa\.logoUrl \|\| ''/);
   assert.match(source, /function BrokerLogoAvatar\(/);
@@ -80,7 +82,7 @@ test('accounts screen uses broker branding and opens long-press delete for other
   const activeCard = source.slice(activeCardStart, activeCardEnd);
   assert.match(activeCard, /<BrokerLogoAvatar[\s\S]*logoUri=\{activeBrokerLogoUrl\}/);
 
-  const otherRowStart = source.indexOf('{otherRows.map((row) => {');
+  const otherRowStart = source.indexOf('renderItem={({ item: row }) => {');
   const otherRowEnd = source.indexOf('{isExpanded && (', otherRowStart);
   const otherRow = source.slice(otherRowStart, otherRowEnd);
   assert.match(otherRow, /<BrokerLogoAvatar[\s\S]*logoUri=\{row\.logoUrl\}/);

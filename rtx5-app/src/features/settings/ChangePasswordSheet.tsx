@@ -34,6 +34,16 @@ const passwordSchema = z.object({
 
 type PasswordFormValues = z.infer<typeof passwordSchema>;
 
+// Live UI checklist — each rule MUST mirror the zod schema above so the visible
+// requirements and the submit-time validation never disagree.
+const PASSWORD_REQUIREMENTS: { key: string; label: string; test: (value: string) => boolean }[] = [
+  { key: 'length', label: 'Between 8 and 15 characters', test: (v) => v.length >= 8 && v.length <= MAX_PASSWORD_LENGTH },
+  { key: 'uppercase', label: 'At least 1 uppercase letter (A–Z)', test: (v) => /[A-Z]/.test(v) },
+  { key: 'lowercase', label: 'At least 1 lowercase letter (a–z)', test: (v) => /[a-z]/.test(v) },
+  { key: 'number', label: 'At least 1 number (0–9)', test: (v) => /[0-9]/.test(v) },
+  { key: 'special', label: 'At least 1 special character (e.g. !@#$%)', test: (v) => /[^A-Za-z0-9]/.test(v) },
+];
+
 interface Props {
   loginId: string;
   type: 'master' | 'investor';
@@ -42,9 +52,15 @@ interface Props {
 }
 
 export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props) {
-  const { control, handleSubmit, setError, formState: { errors } } = useForm<PasswordFormValues>({
+  const { control, handleSubmit, setError, watch, formState: { errors } } = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),
+    mode: 'onChange',
   });
+
+  const newPasswordValue = watch('newPassword') ?? '';
+  const oldPasswordValue = watch('oldPassword') ?? '';
+  const allRequirementsMet = PASSWORD_REQUIREMENTS.every((req) => req.test(newPasswordValue));
+  const canSubmit = allRequirementsMet && oldPasswordValue.length > 0;
 
   const [isPending, setIsPending] = useState(false);
   const T = useTheme();
@@ -146,14 +162,31 @@ export function ChangePasswordSheet({ loginId, type, onClose, onSuccess }: Props
               <Ionicons name={showNewPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.textMuted} />
             </Pressable>
           </View>
-          {errors.newPassword && <Text style={styles.fieldError}>{errors.newPassword.message}</Text>}
-          <Text style={styles.hintText}>Must be 8-15 characters with at least 1 uppercase, 1 lowercase, 1 number, and 1 special character.</Text>
+          <View style={styles.requirementsList}>
+            {PASSWORD_REQUIREMENTS.map((req) => {
+              const met = req.test(newPasswordValue);
+              // Highlight unmet rules in red once the user has typed something (or
+              // tried to submit), neutral grey before they start.
+              const showFailed = !met && (newPasswordValue.length > 0 || !!errors.newPassword);
+              const color = met ? T.up : showFailed ? T.down : T.textMuted;
+              return (
+                <View key={req.key} style={styles.requirementRow}>
+                  <Ionicons
+                    name={met ? 'checkmark-circle' : showFailed ? 'close-circle' : 'ellipse-outline'}
+                    size={15}
+                    color={color}
+                  />
+                  <Text style={[styles.requirementText, { color }]}>{req.label}</Text>
+                </View>
+              );
+            })}
+          </View>
         </View>
 
         <Pressable
-          style={[styles.submitBtn, isPending && styles.submitBtnDisabled]}
+          style={[styles.submitBtn, (isPending || !canSubmit) && styles.submitBtnDisabled]}
           onPress={handleSubmit(onSubmit)}
-          disabled={isPending}
+          disabled={isPending || !canSubmit}
         >
           {isPending ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -237,10 +270,18 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-  hintText: {
-    color: T.textMuted,
+  requirementsList: {
+    marginTop: 8,
+    gap: 5,
+  },
+  requirementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  requirementText: {
     fontSize: 12,
-    marginTop: 4,
+    flex: 1,
   },
   errorBox: {
     flexDirection: 'row',
