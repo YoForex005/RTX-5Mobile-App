@@ -16,6 +16,7 @@ import { FastPressable } from '../../ui/components/FastPressable';
 import { AppLogo } from '../../ui/components/AppLogo';
 import { useDeferredRouteContentReady } from '../../ui/components/DeferredRouteMount';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { makeUserGuideStyles, type UserGuideStyles } from './UserGuideScreen.styles';
 import {
   GUIDE_FOOTER_NOTE,
@@ -30,7 +31,6 @@ const USER_GUIDE_MANUAL_DELAY_MS = 320;
 export function UserGuideScreen() {
   const insets = useSafeAreaInsets();
   const isDark = useIsDarkTheme();
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const styles = useMemo(() => makeUserGuideStyles(isDark), [isDark]);
   const summary = useMemo(() => buildGuideSummary(), []);
@@ -43,15 +43,16 @@ export function UserGuideScreen() {
   const sectionIconColor = isDark ? '#60A5FA' : '#0A6EEB';
   const appName = Constants.expoConfig?.name ?? 'RTX5';
   const handleOpenMenu = useCallback(() => {
-    hideActionSheet();
-    setSidebarOpen(true);
-  }, [hideActionSheet, setSidebarOpen]);
+    openSidebarDrawerImmediately();
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
 
   return (
     <Screen noBottomInset style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 14 }]}>
         <FastPressable
           onPress={handleOpenMenu}
+          activateOnTouchStart
           latencyLabel="userGuide.menu"
           hitSlop={12}
           style={styles.menuButton}

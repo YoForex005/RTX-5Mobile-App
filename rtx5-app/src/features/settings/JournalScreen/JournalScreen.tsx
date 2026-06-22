@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Platform,
@@ -14,9 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useJournalState } from '../../../state/journalState';
 import { FastPressable as Pressable } from '../../../ui/components/FastPressable';
 import { Screen } from '../../../ui/components/Screen';
+import { useUIState } from '../../../state/uiState';
+import { SidebarDrawer } from '../../../ui/components/SidebarDrawer';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../../ui/components/sidebarDrawerController';
 import { useTheme } from '../../../ui/theme/useTheme';
 import { fmt } from '../../../utils/format';
-import { safeRouterBack } from '../../../utils/navigation';
 import { useJournalTrades } from './liveJournal';
 import { makeJournalStyles } from './styles';
 import type { TradeJournalEntry } from './types';
@@ -274,6 +275,7 @@ export function JournalScreen() {
   const actionColor = T.trading.buy.primary;
   const insets = useSafeAreaInsets();
   const { accountLogin, trades, isLoading, isError, refetch } = useJournalTrades();
+  const hideActionSheet = useUIState((state) => state.hideActionSheet);
   const addEntry = useJournalState((state) => state.addEntry);
   const [filter, setFilter] = useState<JournalFilter>('All');
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
@@ -347,6 +349,11 @@ export function JournalScreen() {
         ? 'Could not load account activity.'
         : 'No journal activity for this filter yet.';
 
+  const handleOpenMenu = useCallback(() => {
+    openSidebarDrawerImmediately();
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
+
   const handleRefresh = useCallback(() => {
     setIsPullRefreshing(true);
     void refetch().finally(() => setIsPullRefreshing(false));
@@ -383,12 +390,15 @@ export function JournalScreen() {
     <Screen style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <Pressable
-          onPress={() => safeRouterBack(router, '/(tabs)/settings')}
+          onPress={handleOpenMenu}
+          activateOnTouchStart
           hitSlop={15}
           style={styles.backButton}
-          latencyLabel="journal.back"
+          latencyLabel="journal.menu"
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
         >
-          <Ionicons name="arrow-back" size={22} color={T.text} />
+          <Ionicons name="menu" size={24} color={T.text} />
         </Pressable>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Journal</Text>
@@ -579,6 +589,11 @@ export function JournalScreen() {
           </View>
         </View>
       ) : null}
+
+      {/* Own drawer instance so the hamburger works on this pushed route — the
+          (tabs) drawer is below this screen and would open invisibly. Matches
+          AboutScreen / UserGuideScreen. */}
+      <SidebarDrawer />
     </Screen>
   );
 }

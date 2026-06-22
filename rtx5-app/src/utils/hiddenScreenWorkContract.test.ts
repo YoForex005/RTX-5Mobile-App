@@ -152,17 +152,20 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
-  assert.match(tradeSource, /const TRADE_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(tradeSource, /const TRADE_SCREEN_LIVE_DELAY_MS = 350/);
+  assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 8000/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(tradeSource, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
-  assert.match(tradeSource, /const tradeDataActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS\)/);
+  // Live quote subscriptions activate fast; only the REST re-fetch stays deferred.
+  assert.match(tradeSource, /const tradeLiveActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS\)/);
+  assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.match(tradeSource, /hydrateCachedPositions: state\.hydrateCachedPositions/);
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
-  assert.match(tradeSource, /if \(tradeDataActive && resolvedLogin\) \{/);
-  assert.match(tradeSource, /const positionRowsActive = tradeDataActive/);
+  assert.match(tradeSource, /if \(tradeFetchActive && resolvedLogin\) \{/);
+  assert.match(tradeSource, /const positionRowsActive = tradeLiveActive/);
   assert.doesNotMatch(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
   assert.doesNotMatch(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
-  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{tradeDataActive\}/);
+  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{tradeLiveActive\}/);
   assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
   assert.match(tradeSource, /initialNumToRender=\{TRADE_INITIAL_POSITION_RENDER_COUNT\}/);
   assert.match(tradeSource, /maxToRenderPerBatch=\{TRADE_POSITION_RENDER_BATCH_SIZE\}/);
@@ -175,7 +178,9 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSummarySource, /active: boolean/);
   assert.doesNotMatch(tradeSummarySource, /liveQuotePositions\?: PositionItem\[\]/);
   assert.match(tradeSummarySource, /positions\.map\(\(position\) => position\.symbol\)/);
-  assert.match(tradeSummarySource, /useMarketData\(liveQuoteSymbols, active\)/);
+  // Summary floating P&L uses the synchronous per-symbol path (not the global
+  // store flush, which stalls under load); `active` still gates it off when blurred.
+  assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active\)/);
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);

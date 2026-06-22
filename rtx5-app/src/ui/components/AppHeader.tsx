@@ -20,16 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
-import { openSidebarDrawerImmediately } from './sidebarDrawerController';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from './sidebarDrawerController';
 
-function scheduleAfterFirstVisualFrame(action: () => void) {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(action);
-    return;
-  }
-
-  setTimeout(action, 16);
-}
 
 // Keep the visible menu icon close to the app edge while preserving a large
 // press target for reliable Android taps.
@@ -70,15 +62,11 @@ export function AppHeader({
   const T = useTheme();
   const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const handleOpenSidebar = useCallback(() => {
     openSidebarDrawerImmediately();
-    scheduleAfterFirstVisualFrame(() => {
-      hideActionSheet();
-      setSidebarOpen(true);
-    });
-  }, [hideActionSheet, setSidebarOpen]);
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
 
   const safeTop = Platform.OS === 'web' ? 0 : Math.max(insets.top, 0);
   const topPad = safeTop + 6 + extraTopPad;

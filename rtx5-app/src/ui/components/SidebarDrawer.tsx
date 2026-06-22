@@ -164,8 +164,12 @@ export function SidebarDrawer() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [overlayAnim, slideAnim]);
+    ]).start(({ finished }) => {
+      if (finished && animatedVisibleRef.current) {
+        setSidebarOpen(true);
+      }
+    });
+  }, [overlayAnim, setSidebarOpen, slideAnim]);
 
   const showInteractiveAfterVisualFrame = useCallback(() => {
     const generation = interactiveGenerationRef.current + 1;

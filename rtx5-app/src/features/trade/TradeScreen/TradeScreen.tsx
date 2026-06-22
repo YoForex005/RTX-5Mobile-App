@@ -41,7 +41,13 @@ import { makeTradeScreenStyles } from './styles';
 const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
 const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
 const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
-const TRADE_SCREEN_DATA_DELAY_MS = 8000;
+// Live WS quote subscriptions (position rows + floating P&L) activate quickly so
+// values tick almost immediately on open, MT5-style. Only the first visible rows
+// subscribe (FlatList virtualizes the rest), so this stays cheap.
+const TRADE_SCREEN_LIVE_DELAY_MS = 350;
+// The REST positions re-fetch stays deferred so quick tab visits don't hammer the
+// slow /positions endpoint on every focus (cached positions hydrate instantly).
+const TRADE_SCREEN_FETCH_DELAY_MS = 8000;
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
@@ -129,16 +135,18 @@ export function TradeScreen() {
     };
   }, []);
 
-  const tradeDataActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS);
+  // Live quote subscriptions come alive fast; the slow REST re-fetch stays deferred.
+  const tradeLiveActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS);
+  const tradeFetchActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS);
 
   // Fetch only after the route has painted once so sidebar navigation is visual first,
   // then data refresh starts in the background.
   useEffect(() => {
-    if (tradeDataActive && resolvedLogin) {
+    if (tradeFetchActive && resolvedLogin) {
       fetchPositions();
     }
-  }, [tradeDataActive, resolvedLogin, fetchPositions]);
-  const positionRowsActive = tradeDataActive;
+  }, [tradeFetchActive, resolvedLogin, fetchPositions]);
+  const positionRowsActive = tradeLiveActive;
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -240,7 +248,7 @@ export function TradeScreen() {
         isDark={isDark}
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
-        active={tradeDataActive}
+        active={tradeLiveActive}
       />
       <FlatList
         keyboardShouldPersistTaps="always"

@@ -11,7 +11,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolateColor } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { PositionItem } from '../../../dev/mock/tradingData';
 import { useTheme } from '../../theme/useTheme';
@@ -136,6 +136,49 @@ function TradePositionRowComponent({
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
   const displayPnl = resolveLivePositionPnl(item, liveQuote);
 
+  // MT5-style tick flash: each live price move is tiny for FX pairs (5th decimal),
+  // so flash the current price + P&L green/red on change to make ticks visible.
+  const flashUpColor = T.trading.profit;
+  const flashDownColor = T.trading.loss;
+  const basePriceColor = T.textSub;
+  const tickFlash = useSharedValue(0);
+  const tickUp = useSharedValue(1);
+  const prevLivePriceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!Number.isFinite(livePrice)) {
+      return;
+    }
+    const prev = prevLivePriceRef.current;
+    prevLivePriceRef.current = livePrice;
+    if (prev === null || prev === livePrice) {
+      return;
+    }
+    tickUp.value = livePrice >= prev ? 1 : 0;
+    tickFlash.value = 1;
+    tickFlash.value = withTiming(0, { duration: 650 });
+  }, [livePrice, tickFlash, tickUp]);
+
+  const priceFlashStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      tickFlash.value,
+      [0, 1],
+      [basePriceColor, tickUp.value === 1 ? flashUpColor : flashDownColor],
+    ),
+  }));
+  const pnlFlashStyle = useAnimatedStyle(() => {
+    const up = tickUp.value === 1;
+    return {
+      backgroundColor: interpolateColor(
+        tickFlash.value,
+        [0, 1],
+        [
+          up ? 'rgba(22,163,74,0)' : 'rgba(220,38,38,0)',
+          up ? 'rgba(22,163,74,0.20)' : 'rgba(220,38,38,0.20)',
+        ],
+      ),
+    };
+  });
+
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => !prev);
@@ -203,9 +246,12 @@ function TradePositionRowComponent({
               <Text style={[styles.volume, { color: T.textMuted }]}>{(item.volume || 0).toFixed(2)}</Text>
             </View>
             <View style={styles.rightCol}>
-              <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-                {fmt.pnlPrecise(displayPnl)} {pnlCurrency}
-              </Text>
+              <View>
+                <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 6 }, pnlFlashStyle]} pointerEvents="none" />
+                <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
+                  {fmt.pnlPrecise(displayPnl)} {pnlCurrency}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -215,9 +261,9 @@ function TradePositionRowComponent({
                 {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
               </Text>
               <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} style={styles.arrow} />
-              <Text style={[styles.price, { color: T.textSub }]}>
+              <Animated.Text style={[styles.price, priceFlashStyle]}>
                 {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
-              </Text>
+              </Animated.Text>
             </View>
             <Text style={[styles.dateRight, { color: T.textSub }]}>
               {formatBrokerTime(item.openTime).replace(' ', '   ')}

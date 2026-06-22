@@ -35,6 +35,7 @@ import { AppLogo } from '../../ui/components/AppLogo';
 import { FastPressable } from '../../ui/components/FastPressable';
 import { Screen } from '../../ui/components/Screen';
 import { SidebarDrawer } from '../../ui/components/SidebarDrawer';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import {
   ABOUT_LINK_CHEVRON,
   ABOUT_STAR,
@@ -74,7 +75,6 @@ export function AboutScreen() {
   const isDark = useIsDarkTheme();
   const styles = useMemo(() => makeAboutStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const menuIconColor = isDark ? '#F8FAFC' : '#050505';
   const actionChevronColor = isDark ? '#64748B' : ABOUT_LINK_CHEVRON;
@@ -100,9 +100,9 @@ export function AboutScreen() {
   const [contactConsent, setContactConsent] = useState(false);
 
   const handleOpenMenu = useCallback(() => {
-    hideActionSheet();
-    setSidebarOpen(true);
-  }, [hideActionSheet, setSidebarOpen]);
+    openSidebarDrawerImmediately();
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
 
   const openExternalUrl = async (url: string, failureTitle: string) => {
     try {
@@ -237,6 +237,7 @@ export function AboutScreen() {
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 0) + 6 }]}>
         <FastPressable
           onPress={handleOpenMenu}
+          activateOnTouchStart
           latencyLabel="about.menu"
           hitSlop={12}
           style={styles.menuButton}

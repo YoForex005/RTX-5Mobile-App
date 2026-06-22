@@ -49,7 +49,7 @@ import {
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
 import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
-import { openSidebarDrawerImmediately } from '../../ui/components/sidebarDrawerController';
+import { openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual } from '../../ui/components/sidebarDrawerController';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
   type ChartTradeVolumeDisplayMode,
@@ -69,14 +69,6 @@ import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../
 import { ordersApi } from '../../api/orders';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
 
-function scheduleAfterFirstVisualFrame(action: () => void) {
-  if (typeof globalThis.requestAnimationFrame === 'function') {
-    globalThis.requestAnimationFrame(action);
-    return;
-  }
-
-  setTimeout(action, 16);
-}
 
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
@@ -808,15 +800,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const setChartTabBarKeyboardLift = useUIState((s) => s.setChartTabBarKeyboardLift);
   const showChartActionSheet = useUIState((s) => s.showChartActionSheet);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const safeInsets = useSafeAreaInsets();
   const handleOpenSidebar = useCallback(() => {
     openSidebarDrawerImmediately();
-    scheduleAfterFirstVisualFrame(() => {
-      hideActionSheet();
-      setSidebarOpen(true);
-    });
-  }, [hideActionSheet, setSidebarOpen]);
+    scheduleAfterSidebarOpenVisual(hideActionSheet);
+  }, [hideActionSheet]);
   const keyboardInset = useMemo(
     () => (keyboardVisibleHeight > 0 ? Math.max(0, keyboardVisibleHeight - safeInsets.bottom + 12) : 0),
     [keyboardVisibleHeight, safeInsets.bottom],

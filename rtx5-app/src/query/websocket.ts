@@ -534,6 +534,138 @@ export function useLiveSymbolQuote(
 }
 
 /**
+ * Multi-symbol sibling of {@link useLiveSymbolQuote}.
+ *
+ * Subscribes to several symbols through the SAME synchronous per-symbol tick
+ * path the position rows use (`subscribeToSymbol` → `emitSymbolTick`), then
+ * commits one coalesced snapshot map per frame. This deliberately bypasses the
+ * global `useTradingState` flush pipeline, which can stall under the Trade
+ * screen's load and leave the aggregate floating P&L frozen even while the rows
+ * tick. The returned map is keyed by normalized symbol.
+ */
+export function useLiveSymbolQuotes(
+  symbols: string[],
+  active = true,
+  commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS,
+): Record<string, Partial<QuoteItem>> {
+  const isActive = active;
+  const safeCommitIntervalMs = Math.max(0, Math.floor(commitIntervalMs));
+  const symbolsKey = JSON.stringify(symbols);
+  // Key the result map by the ORIGINAL position symbol, because consumers look
+  // up quotes via `quotesBySymbol[position.symbol]` (see sumLivePositionPnl).
+  const requestedSymbols = React.useMemo(
+    () => Array.from(new Set(symbols.map((sym) => sym?.trim?.() || sym).filter(Boolean))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [symbolsKey],
+  );
+  const stableKey = JSON.stringify(requestedSymbols);
+
+  const buildSeed = React.useCallback(() => {
+    if (!isActive || requestedSymbols.length === 0) {
+      return EMPTY_LIVE_QUOTES;
+    }
+    const storeQuotes = useTradingState.getState().quotes;
+    const seed: Record<string, Partial<QuoteItem>> = {};
+    for (const sym of requestedSymbols) {
+      const normalized = normalizeSymbol(sym);
+      const snapshot = resolveMergedQuoteSnapshot(sym, storeQuotes[sym] ?? (normalized ? storeQuotes[normalized] : undefined));
+      if (snapshot) {
+        seed[sym] = snapshot;
+      }
+    }
+    return seed;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, stableKey]);
+
+  const liveQuotesRef = React.useRef<Record<string, Partial<QuoteItem>>>(EMPTY_LIVE_QUOTES);
+  const [liveQuotes, setLiveQuotes] = React.useState<Record<string, Partial<QuoteItem>>>(() => {
+    const seed = buildSeed();
+    liveQuotesRef.current = seed;
+    return seed;
+  });
+  const commitFrameRef = React.useRef<number | null>(null);
+  const commitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelScheduledCommit = React.useCallback(() => {
+    if (commitFrameRef.current !== null) {
+      cancelAnimationFrame(commitFrameRef.current);
+      commitFrameRef.current = null;
+    }
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleCommit = React.useCallback(() => {
+    if (commitFrameRef.current !== null || commitTimerRef.current) {
+      return;
+    }
+    const commit = () => {
+      commitFrameRef.current = null;
+      commitTimerRef.current = null;
+      setLiveQuotes(liveQuotesRef.current);
+    };
+    if (safeCommitIntervalMs <= 16 && typeof globalThis.requestAnimationFrame === 'function') {
+      commitFrameRef.current = globalThis.requestAnimationFrame(commit);
+      return;
+    }
+    commitTimerRef.current = setTimeout(commit, safeCommitIntervalMs);
+  }, [safeCommitIntervalMs]);
+
+  useEffect(() => {
+    if (!isActive || requestedSymbols.length === 0) {
+      cancelScheduledCommit();
+      liveQuotesRef.current = EMPTY_LIVE_QUOTES;
+      setLiveQuotes(EMPTY_LIVE_QUOTES);
+      return;
+    }
+
+    liveQuotesRef.current = buildSeed();
+    setLiveQuotes(liveQuotesRef.current);
+
+    const unsubscribers = requestedSymbols.map((requestedSymbol) => {
+      const normalizedSymbol = normalizeSymbol(requestedSymbol);
+      const listener = (tick: {
+        symbol: string;
+        bid: number;
+        ask: number;
+        timestamp: number;
+        feedTickAt?: number;
+        receivedAt?: number;
+        digits?: number;
+        point?: number;
+        tickSize?: number;
+      }) => {
+        if (normalizeSymbol(tick.symbol) !== normalizedSymbol) {
+          return;
+        }
+        const merged = mergeQuoteTickIntoSnapshot(requestedSymbol, liveQuotesRef.current[requestedSymbol], tick);
+        if (!merged || areQuoteSnapshotsEqual(liveQuotesRef.current[requestedSymbol], merged)) {
+          return;
+        }
+        liveQuotesRef.current = { ...liveQuotesRef.current, [requestedSymbol]: merged };
+        scheduleCommit();
+      };
+
+      const unsubscribeWs = quotesWsService.subscribeToSymbol(requestedSymbol, listener);
+      const unsubscribeRest = subscribeLiveSymbolRestQuoteFallback(requestedSymbol, listener);
+      return () => {
+        unsubscribeWs();
+        unsubscribeRest();
+      };
+    });
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      cancelScheduledCommit();
+    };
+  }, [buildSeed, cancelScheduledCommit, isActive, scheduleCommit, stableKey]);
+
+  return liveQuotes;
+}
+
+/**
  * Hook to subscribe to live account metrics (equity, balance, etc).
  */
 export function useLiveAccount(accountId: string) {

@@ -13,7 +13,7 @@ import { useUserPreferences } from '../../../state/userPreferences';
 import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useTradingState } from '../../../state/tradingState';
 import { fmt } from '../../../utils/format';
-import { useMarketData } from '../../../query/websocket';
+import { useLiveSymbolQuotes } from '../../../query/websocket';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import {
   buildTradeAccountSummary,
@@ -253,7 +253,10 @@ export const TradeSummaryHeader = React.memo(({
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],
   );
-  const liveQuotes = useMarketData(liveQuoteSymbols, active);
+  // Use the synchronous per-symbol tick path (same one the rows use) instead of
+  // the global store, which can stall under the Trade screen's load and freeze
+  // the aggregate floating P&L even while individual rows keep ticking.
+  const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active);
   const account = useMemo(() => {
     const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
     const floating = resolveTradeFloatingPnl(summary.floating, positions, hydratedLogin, resolvedLogin, liveQuotes);

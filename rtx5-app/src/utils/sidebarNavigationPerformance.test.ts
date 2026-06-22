@@ -9,10 +9,12 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   const source = readSource('src/ui/components/AppHeader.tsx');
 
   assert.match(source, /const handleOpenSidebar = useCallback/);
-  assert.match(source, /import \{ openSidebarDrawerImmediately \} from '\.\/sidebarDrawerController'/);
+  assert.match(source, /import \{ openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual \} from '\.\/sidebarDrawerController'/);
   assert.match(source, /const hideActionSheet = useUIState\(\(s\) => s\.hideActionSheet\)/);
-  assert.match(source, /function scheduleAfterFirstVisualFrame\(action: \(\) => void\)/);
-  assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterFirstVisualFrame\(\(\) => \{\s*hideActionSheet\(\);\s*setSidebarOpen\(true\);\s*\}\)/);
+  assert.doesNotMatch(source, /const setSidebarOpen = useUIState\(\(s\) => s\.setSidebarOpen\)/);
+  assert.doesNotMatch(source, /scheduleAfterFirstVisualFrame/);
+  assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
+  assert.doesNotMatch(source, /setSidebarOpen\(true\)/);
   assert.doesNotMatch(source, /scheduleAfterTapFrame/);
   assert.match(source, /export const MENU_BUTTON_VISUAL_LEFT = 28/);
   assert.match(source, /const HEADER_HORIZONTAL_PADDING = 16/);
@@ -55,6 +57,7 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /const animatedVisibleRef = useRef\(initialSidebarOpenRef\.current\)/);
   assert.match(source, /const interactiveGenerationRef = useRef\(0\)/);
   assert.match(source, /const startOpenAnimation = useCallback/);
+  assert.match(source, /\]\)\.start\(\(\{ finished \}\) => \{[\s\S]*if \(finished && animatedVisibleRef\.current\) \{[\s\S]*setSidebarOpen\(true\);/);
   assert.doesNotMatch(source, /const snapClosed = useCallback/);
   assert.match(source, /const showInteractiveAfterVisualFrame = useCallback/);
   assert.match(source, /scheduleNextFrame\(\(\) => \{[\s\S]*setInteractive\(true\);/);
@@ -138,13 +141,16 @@ test('trade sidebar route defers position refresh until after route paint', () =
   const source = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
 
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
-  assert.match(source, /const TRADE_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(source, /const TRADE_SCREEN_LIVE_DELAY_MS = 350/);
+  assert.match(source, /const TRADE_SCREEN_FETCH_DELAY_MS = 8000/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.match(source, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
-  assert.match(source, /const tradeDataActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS\)/);
-  assert.match(source, /if \(tradeDataActive && resolvedLogin\) \{\s*fetchPositions\(\);/);
-  assert.match(source, /const positionRowsActive = tradeDataActive/);
+  // Live quote subscriptions (rows + summary) activate fast; REST re-fetch stays deferred.
+  assert.match(source, /const tradeLiveActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS\)/);
+  assert.match(source, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS\)/);
+  assert.match(source, /if \(tradeFetchActive && resolvedLogin\) \{\s*fetchPositions\(\);/);
+  assert.match(source, /const positionRowsActive = tradeLiveActive/);
   assert.doesNotMatch(source, /if \(isScreenFocused && resolvedLogin\) \{\s*fetchPositions\(\);/);
 });
 
@@ -177,12 +183,27 @@ test('journal sidebar route defers live account queries until after first paint'
   assert.doesNotMatch(source, /refetchOnMount: 'always'/);
 });
 
+
+test('journal sidebar destination keeps menu access for repeated MT-style drawer selection', () => {
+  const source = readSource('src/features/settings/JournalScreen/JournalScreen.tsx');
+
+  assert.match(source, /import \{ openSidebarDrawerImmediately, scheduleAfterSidebarOpenVisual \} from '..\/..\/..\/ui\/components\/sidebarDrawerController'/);
+  // Pushed detail routes render their own drawer instance (above this screen),
+  // otherwise the hamburger would open the (tabs) drawer hidden underneath.
+  assert.match(source, /import \{ SidebarDrawer \} from '..\/..\/..\/ui\/components\/SidebarDrawer'/);
+  assert.match(source, /<SidebarDrawer \/>/);
+  assert.match(source, /const hideActionSheet = useUIState\(\(state\) => state\.hideActionSheet\)/);
+  assert.match(source, /const handleOpenMenu = useCallback/);
+  assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
+  assert.match(source, /onPress=\{handleOpenMenu\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="journal\.menu"/);
+  assert.doesNotMatch(source, /latencyLabel="journal\.back"/);
+  assert.doesNotMatch(source, /safeRouterBack\(router, '\/\(tabs\)\/settings'\)/);
+});
 test('settings detail back buttons pop instantly instead of re-mounting the tab navigator', () => {
   const directBackFiles = [
     'src/features/settings/AccountsScreen.tsx',
     'src/features/settings/NewsScreen.tsx',
     'src/features/settings/MailboxScreen.tsx',
-    'src/features/settings/JournalScreen/JournalScreen.tsx',
     'src/features/settings/EconomicCalendarScreen/EconomicCalendarScreen.tsx',
     'src/features/settings/InterfaceScreen.tsx',
     'src/features/settings/TradersCommunityScreen.tsx',
@@ -211,8 +232,9 @@ test('chart header menu avoids Android edge gesture interception', () => {
   assert.match(source, /alignItems: 'flex-start'/);
   assert.match(source, /paddingLeft: MENU_BUTTON_VISUAL_LEFT/);
   assert.doesNotMatch(source, /CHART_HEADER_EDGE_GESTURE_SAFE_PAD/);
-  assert.match(chartSource, /function scheduleAfterFirstVisualFrame\(action: \(\) => void\)/);
-  assert.match(chartSource, /openSidebarDrawerImmediately\(\);\s*scheduleAfterFirstVisualFrame\(\(\) => \{\s*hideActionSheet\(\);\s*setSidebarOpen\(true\);\s*\}\)/);
+  assert.doesNotMatch(chartSource, /scheduleAfterFirstVisualFrame/);
+  assert.match(chartSource, /openSidebarDrawerImmediately\(\);\s*scheduleAfterSidebarOpenVisual\(hideActionSheet\);/);
+  assert.doesNotMatch(chartSource, /setSidebarOpen\(true\)/);
   assert.match(
     chartSource,
     /accessibilityLabel=\{t\('Open menu'\)\}[\s\S]*onPress=\{handleOpenSidebar\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="chartHeader\.menu"/,
