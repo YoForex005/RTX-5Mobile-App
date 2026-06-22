@@ -11,6 +11,7 @@ import { normalizeSymbol } from '../domain/symbols';
 import { appQueryClient } from '../state/providers/AppProviders';
 import { useUserPreferences } from '../state/userPreferences';
 import { ACCOUNT_SUMMARY_KEY } from '../query/account';
+import { INSTRUMENT_META_QUERY_VERSION } from '../query/instruments';
 import { candleKeys } from '../domain/candles/query/candles';
 import { mergeHistoryIntoCandleCache } from '../domain/candles/state/candleCache';
 
@@ -36,8 +37,8 @@ export function prefetchInstrument(symbol: string) {
   }
 
   return appQueryClient.prefetchQuery({
-    queryKey: ['instrument', normalizedSymbol, brokerId, accountId],
-    queryFn: () => fetchInstrumentMeta(normalizedSymbol, cacheScope),
+    queryKey: ['instrument', INSTRUMENT_META_QUERY_VERSION, normalizedSymbol, brokerId, accountId],
+    queryFn: () => fetchInstrumentMeta(symbol, cacheScope),
     staleTime: 60 * 60_000,
   }).catch(() => {});
 }

@@ -270,7 +270,7 @@ export function ActionSheet({
   const measuredVisibleHeight = androidSearchableSheet
     ? measuredHeight - effectiveKeyboardLift
     : measuredHeight;
-  const bottomSpacerHeight = bottomInset + unhandledKeyboardLift;
+  const bottomSpacerHeight = unhandledKeyboardLift;
   // Use the measured layout height from the in-tree overlay host.
   const availableWindowHeight = Math.max(260, measuredVisibleHeight);
   const maxVisibleHeight = Math.max(
@@ -279,8 +279,7 @@ export function ActionSheet({
   );
   const reservedChromeHeight =
     (activeTitle ? 58 : 28) +
-    (activeSearchable ? 56 : 0) +
-    84;
+    (activeSearchable ? 56 : 0);
   const estimatedActionsHeight = filteredActions.reduce(
     (height, action) => height + (action.subtitle ? 68 : ACTION_SHEET_ROW_MIN_HEIGHT),
     0,
@@ -566,7 +565,7 @@ export function ActionSheet({
     [],
   );
 
-  const renderActionRow = useCallback((action: ActionSheetAction, index: number) => {
+  const renderActionRow = useCallback((action: ActionSheetAction) => {
     const localizedLabel = t(action.label);
     return (
       <FastPressable
@@ -578,7 +577,6 @@ export function ActionSheet({
         disabled={action.disabled}
         style={({ pressed }) => [
           styles.action,
-          index < filteredActions.length - 1 && styles.actionDivider,
           action.danger && styles.actionDanger,
           action.subtitle && styles.actionWithSubtitle,
           pressed && !action.disabled && styles.actionPressed,
@@ -615,7 +613,6 @@ export function ActionSheet({
       </FastPressable>
     );
   }, [
-    filteredActions.length,
     handleActionRowPress,
     recordActionRowPressMove,
     recordActionRowPressStart,
@@ -625,7 +622,7 @@ export function ActionSheet({
 
   const renderAction = useCallback(
     ({ item: action, index }: { item: ActionSheetAction; index: number }) =>
-      renderActionRow(action, index),
+      renderActionRow(action),
     [renderActionRow],
   );
 
@@ -634,7 +631,7 @@ export function ActionSheet({
       shouldRenderInlineActions
         ? filteredActions.map((action, index) => (
           <React.Fragment key={keyAction(action, index)}>
-            {renderActionRow(action, index)}
+            {renderActionRow(action)}
           </React.Fragment>
         ))
         : null,
@@ -740,17 +737,8 @@ export function ActionSheet({
             scrollEventThrottle={16}
           />
         )}
-
-        <FastPressable
-          style={({ pressed }) => [styles.cancelButton, pressed && styles.actionPressed]}
-          latencyLabel="actionSheet.cancel"
-          onPress={onClose}
-          activateOnPressIn
-        >
-          <Text style={styles.cancelText}>{t('Cancel')}</Text>
-        </FastPressable>
       </View>
-      {/* Fill the bottom safe area with a solid background so tab bar doesn't peek through */}
+      {/* Fill only keyboard lift that was not already handled by the native layout. */}
       <View
         style={{
           width: '100%',

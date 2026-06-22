@@ -82,7 +82,8 @@ test('market symbol API cache is broker scoped and parses full instrument payloa
 
   assert.match(querySource, /useUserPreferences\(\(state\) => state\.brokerId\)/);
   assert.match(querySource, /useUserPreferences\(\(state\) => state\.accountDetails\?\.id \?\? ''\)/);
-  assert.match(querySource, /queryKey:\s*\['market', 'symbols', 'instrument-catalog-v2', brokerId, accountId\]/);
+  assert.match(querySource, /const accountScope\s*=\s*isLoggedIn \? accountId : 'public'/);
+  assert.match(querySource, /queryKey:\s*\['market', 'symbols', 'instrument-catalog-v2', brokerId, accountScope\]/);
   assert.match(querySource, /staleTime:\s*1000 \* 60 \* 5/);
   assert.match(querySource, /primeInstrumentMetaCacheFromCatalogPayload\(data, cacheScope\)/);
   assert.match(extractorSource, /'instruments'[\s\S]*'symbols'[\s\S]*'data'[\s\S]*'items'[\s\S]*'results'[\s\S]*'records'/);
@@ -138,21 +139,26 @@ test('native OHLC row renders below the full symbol name', () => {
 
 test('native chart toolbar keeps fast action openers on reliable press surfaces', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
+  const timeframePickerSource = readSource('src/features/chart/components/ChartTimeframePickerSheet.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
   const tradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
 
-  assert.match(source, /const timeframePickerActions = useMemo\([\s\S]*timeframes\.map/);
+  assert.match(timeframePickerSource, /TIMEFRAME_PICKER_GROUPS[\s\S]*title: 'Minutes'[\s\S]*options: \['M1', 'M5', 'M15', 'M30'\]/);
+  assert.match(timeframePickerSource, /title: 'Hours'[\s\S]*options: \['H1', 'H4'\]/);
+  assert.match(timeframePickerSource, /title: 'Days'[\s\S]*'D1'[\s\S]*'MN'/);
+  assert.doesNotMatch(timeframePickerSource, /'M2'|'M3'|'M4'|'M6'|'M10'|'M12'|'M20'|'H2'|'H3'|'H6'|'H8'|'H12'/);
+  assert.match(timeframePickerSource, /disabled=\{!supported\}/);
+  assert.match(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
   assert.match(source, /const drawingToolsActions = useMemo\(/);
   assert.match(source, /const chartTypePickerActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /requestAnimationFrame\(resetChartActionSheetContext\)/);
-  assert.match(
-    source,
-    /title: t\('Timeframes'\)[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: timeframePickerActions/,
-  );
+  assert.match(source, /const handleOpenTimeframePicker = useCallback\([\s\S]*timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)[\s\S]*setTimeframePickerVisible\(true\)/);
+  assert.match(source, /<ChartTimeframePickerSheet[\s\S]*visible=\{timeframePickerVisible\}[\s\S]*activeTimeframe=\{chartTimeframe\}[\s\S]*supportedTimeframes=\{timeframes\}/);
+  assert.doesNotMatch(source, /actions: timeframePickerActions/);
   assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
   assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
   assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
@@ -171,7 +177,7 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   );
   assert.match(
     source,
-    /const warmChartContextAndCommit = useCallback\([\s\S]*prefetchChartTimeframeHistory\(nextSymbol, nextTimeframe\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
+    /const warmChartContextAndCommit = useCallback\([\s\S]*setChartSymbol\(nextSymbol\)[\s\S]*prefetchInstrument\(nextSymbol\)[\s\S]*setChartTimeframe\(nextTimeframe\)/,
   );
   assert.match(
     source,

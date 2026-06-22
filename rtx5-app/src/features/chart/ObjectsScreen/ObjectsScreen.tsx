@@ -187,7 +187,7 @@ export function ObjectsScreen() {
       });
     }
 
-    if (selectedDrawing.kind) {
+    if (selectedDrawing.kind && ADD_OBJECT_TOOLS.includes(selectedDrawing.kind)) {
       actions.push({
         label: `Add another ${DRAWING_TOOL_META[selectedDrawing.kind].label.toLowerCase()}`,
         onPress: () => handleSelectTool(selectedDrawing.kind as ChartDrawingKind),

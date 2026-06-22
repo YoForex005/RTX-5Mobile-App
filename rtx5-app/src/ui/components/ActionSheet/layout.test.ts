@@ -280,7 +280,7 @@ test('android searchable sheets clamp to live overlay height during keyboard foc
     source,
     /const measuredVisibleHeight = androidSearchableSheet[\s\S]*measuredHeight - effectiveKeyboardLift/,
   );
-  assert.match(source, /const bottomSpacerHeight = bottomInset \+ unhandledKeyboardLift/);
+  assert.match(source, /const bottomSpacerHeight = unhandledKeyboardLift/);
   assert.match(source, /setCurrentOverlayHeight\(h\)/);
   assert.match(source, /const availableWindowHeight = Math\.max\(260, measuredVisibleHeight\)/);
   assert.match(source, /sheetHeightStyle/);

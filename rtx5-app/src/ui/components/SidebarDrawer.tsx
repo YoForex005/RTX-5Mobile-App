@@ -6,7 +6,7 @@ import { FastPressable as Pressable } from './FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import {
   Alert, Animated, BackHandler, Easing, Linking, ScrollView, StyleSheet, Text, View,
   Platform
@@ -16,13 +16,13 @@ import { useUserPreferences } from '../../state/userPreferences';
 import { useThemeMode } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
 import { useBrokerConfig } from '../../query/broker';
-import { useAccounts } from '../../query/accounts';
 import { useDeferredActiveFlag } from '../../hooks/useDeferredActiveFlag';
 import type { ThemeMode } from '../../state/userPreferences/types';
 import { AppLogo } from './AppLogo';
 import { resolveAppDisplayVersion } from '../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../config/legalLinks';
 import { buildHelpMailto } from '../../features/settings/helpViewModel';
+import { registerSidebarOpenHandler } from './sidebarDrawerController';
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────
 type MenuItem = {
@@ -47,8 +47,9 @@ const MENU_ITEMS: MenuItem[] = [
 // ─── Props ───────────────────────────────────────────────────────────────────
 // DELETED Props so component handles its own state
 const DRAWER_WIDTH = 310;
-const DRAWER_OPEN_ANIMATION_MS = 50;
-const DRAWER_CLOSE_ANIMATION_MS = 50;
+const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2;
+const DRAWER_OPEN_ANIMATION_MS = 190;
+const DRAWER_CLOSE_ANIMATION_MS = 160;
 const SIDEBAR_MENU_ITEM_HIT_SLOP = { top: 6, bottom: 6, left: 8, right: 8 } as const;
 const SIDEBAR_PROFILE_ACTION_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 4 } as const;
 const SIDEBAR_NAVIGATION_LOCK_MS = 50;
@@ -69,6 +70,16 @@ function scheduleNextFrame(action: () => void) {
   setTimeout(action, 0);
 }
 
+function scheduleAfterPressPaint(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      globalThis.requestAnimationFrame(action);
+    });
+    return;
+  }
+  setTimeout(action, 32);
+}
+
 function normalizeSidebarPath(path: string) {
   return path.replace(/\/\([^)]*\)/g, '') || '/';
 }
@@ -79,9 +90,10 @@ function shouldPushSidebarRoute(route: string) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export function SidebarDrawer() {
-  const visible = useUIState((s) => s.sidebarOpen);
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const onClose = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
+  const initialSidebarOpenRef = useRef(useUIState.getState().sidebarOpen);
+  const [interactive, setInteractive] = useState(initialSidebarOpenRef.current);
   const router = useRouter();
   const pathname = usePathname();
   const themeMode = useThemeMode();
@@ -89,25 +101,22 @@ export function SidebarDrawer() {
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
   const brokerId = useUserPreferences((s) => s.brokerId);
-  const sidebarProfileDataActive = useDeferredActiveFlag(visible && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS);
+  const sidebarProfileDataActive = useDeferredActiveFlag(interactive && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS);
   const { data: brokerConfig } = useBrokerConfig(brokerId, sidebarProfileDataActive && !!brokerId);
-  const { data: accounts } = useAccounts(sidebarProfileDataActive);
   const isDark = themeMode === 'dark';
-  const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
-  const activeAccount = accounts?.find((account) => account.login === currentLogin) ?? accounts?.[0];
-  const displayAccountName = activeAccount?.name?.trim() || (accountDetails?.id ? `Account ${accountDetails.id}` : '---');
+  const displayAccountName = accountDetails?.name?.trim() || (accountDetails?.id ? `Account ${accountDetails.id}` : '---');
   const supportEmail = getConfiguredSupportEmail();
   const appName = Constants.expoConfig?.name ?? 'RTX5';
   const nativeAppVersion = Constants.expoConfig?.version ?? 'Local';
   const appVersion = resolveAppDisplayVersion(nativeAppVersion);
 
-  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-  const overlayAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 0 : DRAWER_CLOSED_TRANSLATE_X)).current;
+  const overlayAnim = useRef(new Animated.Value(initialSidebarOpenRef.current ? 1 : 0)).current;
   const isClosingRef = useRef(false);
+  const animatedVisibleRef = useRef(initialSidebarOpenRef.current);
+  const interactiveGenerationRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const navigationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [keepDrawerMounted, setKeepDrawerMounted] = useState(false);
-  const shouldRenderDrawer = visible || keepDrawerMounted;
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -136,75 +145,60 @@ export function SidebarDrawer() {
     }
   }, []);
 
-  /* Keep the drawer mounted only while visible/closing so closed tabs stay lean. */
-  useLayoutEffect(() => {
-    if (visible) {
-      setKeepDrawerMounted(true);
-      isClosingRef.current = false;
-      slideAnim.stopAnimation();
-      overlayAnim.stopAnimation();
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: DRAWER_OPEN_ANIMATION_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayAnim, {
-          toValue: 1,
-          duration: DRAWER_OPEN_ANIMATION_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-      return;
-    }
-
-    // When visible switches to false while NOT closing (e.g. external state
-    // change), snap to hidden immediately while keeping the touch tree warm.
-    if (!isClosingRef.current) {
-      slideAnim.stopAnimation();
-      overlayAnim.stopAnimation();
-      slideAnim.setValue(-DRAWER_WIDTH);
-      overlayAnim.setValue(0);
-      setKeepDrawerMounted(false);
-    }
-  }, [overlayAnim, slideAnim, visible]);
-
-  const closeImmediately = useCallback((afterClose?: () => void) => {
+  /* Keep the drawer warm offscreen so opening only has to run native-driver motion. */
+  const startOpenAnimation = useCallback(() => {
+    animatedVisibleRef.current = true;
+    isClosingRef.current = false;
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
-    slideAnim.setValue(-DRAWER_WIDTH);
-    overlayAnim.setValue(0);
-    onClose();
-    isClosingRef.current = false;
-    setKeepDrawerMounted(false);
-    if (afterClose) {
-      afterClose();
-    }
-  }, [onClose, overlayAnim, slideAnim]);
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: DRAWER_OPEN_ANIMATION_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 1,
+        duration: DRAWER_OPEN_ANIMATION_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [overlayAnim, slideAnim]);
 
-  useEffect(() => {
-    if (!visible) {
-      return undefined;
-    }
+  const showInteractiveAfterVisualFrame = useCallback(() => {
+    const generation = interactiveGenerationRef.current + 1;
+    interactiveGenerationRef.current = generation;
 
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeImmediately();
-      return true;
+    scheduleNextFrame(() => {
+      if (interactiveGenerationRef.current === generation && animatedVisibleRef.current) {
+        setInteractive(true);
+      }
     });
+  }, []);
 
-    return () => subscription.remove();
-  }, [closeImmediately, visible]);
+  const hideInteractiveNow = useCallback(() => {
+    interactiveGenerationRef.current += 1;
+    setInteractive(false);
+  }, []);
+
+  useEffect(() => registerSidebarOpenHandler(() => {
+    if (!animatedVisibleRef.current) {
+      startOpenAnimation();
+    }
+    showInteractiveAfterVisualFrame();
+  }), [showInteractiveAfterVisualFrame, startOpenAnimation]);
 
   const handleClose = useCallback((afterClose?: () => void) => {
     if (isClosingRef.current) return;
+    animatedVisibleRef.current = false;
     isClosingRef.current = true;
     slideAnim.stopAnimation();
     overlayAnim.stopAnimation();
     Animated.parallel([
       Animated.timing(slideAnim, {
-        toValue: -DRAWER_WIDTH,
+        toValue: DRAWER_CLOSED_TRANSLATE_X,
         duration: DRAWER_CLOSE_ANIMATION_MS,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
@@ -217,11 +211,46 @@ export function SidebarDrawer() {
       }),
     ]).start(() => {
       onClose();
+      hideInteractiveNow();
       isClosingRef.current = false;
-      setKeepDrawerMounted(false);
       afterClose?.();
     });
-  }, [onClose, overlayAnim, slideAnim]);
+  }, [hideInteractiveNow, onClose, overlayAnim, slideAnim]);
+
+  useEffect(() => {
+    const unsubscribe = useUIState.subscribe((state, previousState) => {
+      if (state.sidebarOpen === previousState.sidebarOpen) {
+        return;
+      }
+
+      if (state.sidebarOpen) {
+        if (!animatedVisibleRef.current) {
+          startOpenAnimation();
+        }
+        showInteractiveAfterVisualFrame();
+        return;
+      }
+
+      if (!isClosingRef.current && animatedVisibleRef.current) {
+        handleClose();
+      }
+    });
+
+    return unsubscribe;
+  }, [handleClose, showInteractiveAfterVisualFrame, startOpenAnimation]);
+
+  useEffect(() => {
+    if (!interactive) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleClose();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [handleClose, interactive]);
 
   const unlockSidebarNavigation = useCallback(() => {
     if (navigationUnlockTimerRef.current) {
@@ -244,21 +273,23 @@ export function SidebarDrawer() {
     const currentPath = normalizeSidebarPath(pathname);
     const shouldNavigate = currentPath !== targetPath;
 
-    closeImmediately();
+    handleClose(() => {
+      unlockSidebarNavigation();
 
-    if (shouldNavigate) {
-      if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
-        // Push detail routes over the (tabs) navigator so it — and the warm
-        // chart WebView — stays mounted; BACK is then an instant pop, not a
-        // full tab re-mount.
-        router.push(route as any);
-      } else {
-        router.navigate(route as any);
+      if (shouldNavigate) {
+        scheduleAfterPressPaint(() => {
+          if (SIDEBAR_STACK_ROUTES.has(route) || shouldPushSidebarRoute(route)) {
+            // Push detail routes over the (tabs) navigator so it, and the warm
+            // chart WebView, stays mounted; BACK is then an instant pop, not a
+            // full tab re-mount.
+            router.push(route as any);
+          } else {
+            router.navigate(route as any);
+          }
+        });
       }
-    }
-
-    unlockSidebarNavigation();
-  }, [closeImmediately, pathname, router, unlockSidebarNavigation]);
+    });
+  }, [handleClose, pathname, router, unlockSidebarNavigation]);
 
   const openSupportEmail = useCallback(async () => {
     const mailtoUrl = buildHelpMailto({
@@ -277,7 +308,7 @@ export function SidebarDrawer() {
 
   const handleMenuItemPress = useCallback((item: MenuItem) => {
     if (item.action === 'support-email') {
-      closeImmediately(() => {
+      handleClose(() => {
         void openSupportEmail();
       });
       return;
@@ -286,22 +317,22 @@ export function SidebarDrawer() {
     if (item.route) {
       navigateSidebarRoute(item.route);
     }
-  }, [closeImmediately, navigateSidebarRoute, openSupportEmail]);
+  }, [handleClose, navigateSidebarRoute, openSupportEmail]);
 
   const ds = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
-  if (!shouldRenderDrawer) {
-    return null;
-  }
-
   return (
     <View
-      pointerEvents={visible ? 'auto' : 'none'}
-      style={[ds.container, !visible && ds.containerHidden]}
+      pointerEvents={interactive ? 'auto' : 'none'}
+      importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
+      accessibilityElementsHidden={!interactive}
+      style={ds.container}
     >
         {/* Overlay */}
         <Animated.View
           pointerEvents="box-none"
+          renderToHardwareTextureAndroid
+          needsOffscreenAlphaCompositing
           style={[
             ds.overlay,
             { opacity: overlayAnim },
@@ -310,7 +341,7 @@ export function SidebarDrawer() {
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => handleClose()}
-            activateOnPressIn
+            activateOnTouchStart
             latencyLabel="sidebar.closeOverlay"
             unstable_pressDelay={0}
           />
@@ -318,6 +349,8 @@ export function SidebarDrawer() {
 
         {/* Drawer */}
         <Animated.View
+          renderToHardwareTextureAndroid
+          shouldRasterizeIOS
           style={[
             ds.drawer,
             { transform: [{ translateX: slideAnim }] },
@@ -366,7 +399,7 @@ export function SidebarDrawer() {
               <Pressable
                 style={ds.closeBtn}
                 onPress={() => handleClose()}
-                activateOnPressIn
+                activateOnTouchStart
                 latencyLabel="sidebar.closeButton"
                 unstable_pressDelay={0}
               >
@@ -485,9 +518,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       ...StyleSheet.absoluteFillObject,
       zIndex: 9999,
       elevation: 9999,
-    },
-    containerHidden: {
-      opacity: 0,
     },
     overlay: {
       position: 'absolute',

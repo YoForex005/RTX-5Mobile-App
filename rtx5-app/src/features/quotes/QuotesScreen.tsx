@@ -58,6 +58,8 @@ import { useLiveQuoteSnapshot, useWatchlistLiveQuotes } from './useLiveQuotes';
 /* ───── Helpers ───── */
 
 const LIVE_SYMBOL_STALE_MS = 45_000;
+const SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS = 260;
+const SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS = 220;
 
 const pairLabel = (symbol: string) => fmt.symbol(symbol);
 
@@ -76,6 +78,42 @@ function scheduleQuoteSheetOptionAction(action: () => void) {
   }
 
   setTimeout(action, 0);
+}
+
+function useSidebarQuoteFeedPaused() {
+  const [paused, setPaused] = useState(() => useUIState.getState().sidebarOpen);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearPauseTimer = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const schedulePauseState = (sidebarOpen: boolean) => {
+      clearPauseTimer();
+      timer = setTimeout(() => {
+        timer = null;
+        setPaused(sidebarOpen);
+      }, sidebarOpen ? SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS : SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS);
+    };
+
+    const unsubscribe = useUIState.subscribe((state, previousState) => {
+      if (state.sidebarOpen !== previousState.sidebarOpen) {
+        schedulePauseState(state.sidebarOpen);
+      }
+    });
+
+    return () => {
+      clearPauseTimer();
+      unsubscribe();
+    };
+  }, []);
+
+  return paused;
 }
 
 const gmtClock = (d: Date) =>
@@ -1550,7 +1588,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   const hideQuotesActionSheet = useUIState((s) => s.hideQuotesActionSheet);
   const quotesActionSheetOpen = useUIState((s) => s.scopedActionSheets.quotes !== null);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
-  const sidebarOpen = useUIState((s) => s.sidebarOpen);
+  const sidebarQuoteFeedPaused = useSidebarQuoteFeedPaused();
   const [quoteSheetRouteActionPending, setQuoteSheetRouteActionPending] = useState(false);
   // isQuotesRouteActive (the /quotes path match) comes from the thin wrapper so
   // this screen only re-renders when its own focus or route-active state flips,
@@ -1719,7 +1757,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
   const quoteStickyFeedActive = quoteRouteActive;
   const quoteFeedActive =
     quoteStickyFeedActive &&
-    !sidebarOpen &&
+    !sidebarQuoteFeedPaused &&
     !quotesActionSheetOpen &&
     !quoteSheetRouteActionPending;
   const quoteFeedSymbolsKey = quoteFeedSymbols.join('|');
@@ -1831,7 +1869,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
       const displayName = fmt.symbol(sym);
       configs.set(sym, {
         title: `${displayName}: ${describeMarketSymbol(sym)}`,
-        detent: 'adaptive',
+        detent: 'auto',
         instantOpen: true,
         runActionAfterClose: false,
         actions: [

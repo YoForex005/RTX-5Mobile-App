@@ -25,14 +25,18 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
 
   assert.match(quotesSource, /import \{ usePathname, useRouter \} from 'expo-router'/);
   assert.match(quotesSource, /const pathname = usePathname\(\)/);
-  assert.match(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
+  assert.match(quotesSource, /const SIDEBAR_QUOTE_FEED_PAUSE_DELAY_MS = 260/);
+  assert.match(quotesSource, /const SIDEBAR_QUOTE_FEED_RESUME_DELAY_MS = 220/);
+  assert.match(quotesSource, /function useSidebarQuoteFeedPaused\(\)/);
+  assert.match(quotesSource, /useUIState\.subscribe\(\(state, previousState\) => \{/);
+  assert.doesNotMatch(quotesSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
   assert.match(quotesSource, /const quoteRouteActive =[\s\S]*isScreenFocused[\s\S]*pathname === '\/quotes'[\s\S]*pathname\.startsWith\('\/quotes\/'\)[\s\S]*pathname === '\/\(tabs\)\/quotes'[\s\S]*pathname\.startsWith\('\/\(tabs\)\/quotes\/'\)/);
   assert.match(quotesSource, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
   assert.match(quotesSource, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
   assert.match(quotesSource, /useMarketSymbols\(quoteCatalogActive\)/);
   assert.match(quotesSource, /useWatchlistQuery\(quoteWatchlistActive\)/);
   assert.match(quotesSource, /const quoteStickyFeedActive = quoteRouteActive/);
-  assert.match(quotesSource, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarOpen[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
+  assert.match(quotesSource, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarQuoteFeedPaused[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
   assert.match(quotesSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);
   assert.match(quotesSource, /useWatchlistLiveQuotes\(quoteFeedSymbols, quoteFeedActive\)/);
   assert.match(quotesSource, /<TickCounter[\s\S]*active=\{quoteFeedActive\}/);
@@ -137,24 +141,28 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(accountsSource, /useMt5Status\(isScreenFocused\)/);
 
   assert.match(settingsSource, /const isScreenFocused = useIsFocused\(\)/);
-  // Settings fetches the account card as soon as the session is connected and the
-  // screen is focused (no startup deferral, so the card isn't slow after login).
-  // The pause-when-hidden contract still holds: settingsDataActive includes
-  // isScreenFocused, so the queries below disable when another screen is focused.
-  assert.match(settingsSource, /const settingsDataActive = isAccountConnected && isScreenFocused/);
-  assert.match(settingsSource, /useAccounts\(settingsDataActive\)/);
+  assert.match(settingsSource, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(settingsSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
+  assert.match(settingsSource, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
+  assert.match(settingsSource, /const settingsDataActive = useDeferredActiveFlag\(\s*isAccountConnected && isScreenFocused && firstPaintReady && !sidebarOpen,\s*SETTINGS_SCREEN_DATA_DELAY_MS,\s*\)/);
+  assert.doesNotMatch(settingsSource, /useAccounts\(settingsDataActive\)/);
   assert.match(settingsSource, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
+  assert.doesNotMatch(settingsSource, /const settingsDataActive = isAccountConnected && isScreenFocused/);
 
   assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
-  assert.doesNotMatch(tradeSource, /TRADE_FOCUS_WORK_DELAY_MS|focusWorkReady|if \(!focusWorkReady\)/);
+  assert.match(tradeSource, /const TRADE_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
+  assert.match(tradeSource, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
+  assert.match(tradeSource, /const tradeDataActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS\)/);
   assert.match(tradeSource, /hydrateCachedPositions: state\.hydrateCachedPositions/);
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
-  assert.match(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
-  assert.match(tradeSource, /const positionRowsActive = isScreenFocused/);
+  assert.match(tradeSource, /if \(tradeDataActive && resolvedLogin\) \{/);
+  assert.match(tradeSource, /const positionRowsActive = tradeDataActive/);
+  assert.doesNotMatch(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
   assert.doesNotMatch(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
-  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{isScreenFocused\}/);
+  assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{tradeDataActive\}/);
   assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
   assert.match(tradeSource, /initialNumToRender=\{TRADE_INITIAL_POSITION_RENDER_COUNT\}/);
   assert.match(tradeSource, /maxToRenderPerBatch=\{TRADE_POSITION_RENDER_BATCH_SIZE\}/);

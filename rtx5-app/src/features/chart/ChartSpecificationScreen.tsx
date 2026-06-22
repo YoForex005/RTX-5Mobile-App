@@ -18,6 +18,7 @@ import { useMarketStatus } from '../../query/marketStatus';
 import { useUserPreferences } from '../../state/userPreferences';
 import { useTheme, ThemeColors } from '../../ui/theme/useTheme';
 import { safeRouterBack } from '../../utils/navigation';
+import { resolveTradeVolumeBounds } from '../../utils/tradeVolume';
 import { ChartTradingHoursModal } from './ChartTradingHoursModal';
 
 // Format helpers — show "—" when the broker hasn't returned a value yet so the
@@ -93,15 +94,24 @@ export function ChartSpecificationScreen() {
     return () => clearInterval(timer);
   }, [targetTs]);
 
+  const volumeBounds = useMemo(
+    () => resolveTradeVolumeBounds({
+      minVolume: meta?.minVolume,
+      maxVolume: meta?.maxVolume,
+      stepVolume: meta?.stepVolume,
+    }),
+    [meta?.maxVolume, meta?.minVolume, meta?.stepVolume],
+  );
+
   const infoRows = [
-    { label: 'Minimum volume, lots', value: fmtNum(meta?.minVolume, 2) },
-    { label: 'Maximum volume, lots', value: fmtNum(meta?.maxVolume, 2) },
-    { label: 'Step',                 value: fmtNum(meta?.stepVolume, 2) },
+    { label: 'Minimum volume, lots', value: fmtNum(meta?.minVolume ?? volumeBounds.minVolume, volumeBounds.decimals) },
+    { label: 'Maximum volume, lots', value: fmtNum(meta?.maxVolume ?? volumeBounds.maxVolume, volumeBounds.decimals) },
+    { label: 'Step',                 value: fmtNum(meta?.stepVolume ?? volumeBounds.stepVolume, volumeBounds.decimals) },
     { label: 'Contract size',        value: fmtNum(meta?.contractSize, 0) },
-    { label: 'Spread units',         value: fmtStr(meta?.profitCurrency) },
-    { label: 'Stop level, pips',     value: fmtStr(meta?.stopsLevel) },
-    { label: 'Swap long, pips',      value: fmtNum(meta?.swapLong, 1) },
-    { label: 'Swap short, pips',     value: fmtNum(meta?.swapShort, 1) },
+    { label: 'Spread',               value: fmtNum(meta?.spread, 1) },
+    { label: 'Stop level, pips',     value: fmtStr(meta?.stopsLevel ?? '0') },
+    { label: 'Swap long, pips',      value: fmtNum(meta?.swapLong ?? 0, 1) },
+    { label: 'Swap short, pips',     value: fmtNum(meta?.swapShort ?? 0, 1) },
   ];
 
   return (

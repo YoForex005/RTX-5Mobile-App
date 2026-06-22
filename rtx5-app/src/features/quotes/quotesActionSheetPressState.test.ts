@@ -43,7 +43,7 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
 
   assert.match(tapConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(tapConfigSource, /describeMarketSymbol\(sym\)/);
-  assert.match(tapConfigSource, /detent: 'adaptive'/);
+  assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
@@ -53,8 +53,12 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   assert.match(source, /const quotesActionSheetOpen = useUIState\(\(s\) => s\.scopedActionSheets\.quotes !== null\)/);
   assert.match(source, /type QuoteSheetOptionOptions = \{[\s\S]*routeChange\?: boolean;[\s\S]*\}/);
   assert.match(source, /const \[quoteSheetRouteActionPending, setQuoteSheetRouteActionPending\] = useState\(false\)/);
-  assert.match(source, /isScreenFocused && isLoggedIn && !quoteSheetRouteActionPending/);
-  assert.match(source, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarOpen[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
+  assert.match(source, /const quoteCatalogActive = quoteRouteActive && !quoteSheetRouteActionPending/);
+  assert.match(source, /const quoteWatchlistActive = quoteCatalogActive && isLoggedIn/);
+  assert.match(source, /function useSidebarQuoteFeedPaused\(\)/);
+  assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
+  assert.match(source, /const sidebarQuoteFeedPaused = useSidebarQuoteFeedPaused\(\)/);
+  assert.match(source, /const quoteFeedActive =[\s\S]*quoteStickyFeedActive[\s\S]*!sidebarQuoteFeedPaused[\s\S]*!quotesActionSheetOpen[\s\S]*!quoteSheetRouteActionPending/);
   assert.match(source, /function scheduleQuoteSheetOptionAction\(action: \(\) => void\) \{/);
   assert.match(
     source,

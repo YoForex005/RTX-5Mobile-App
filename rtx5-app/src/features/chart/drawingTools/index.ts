@@ -2,15 +2,11 @@ import { clearDrawingsDrawingToolAction } from './clearDrawingsTool';
 import { crosshairDrawingTool } from './crosshairTool';
 import { fibZoneDrawingTool } from './fibZoneTool';
 import { hideAllDrawingsDrawingToolAction } from './hideAllDrawingsTool';
-import { highlightBoxDrawingTool } from './highlightBoxTool';
 import { lockAllDrawingsDrawingToolAction } from './lockAllDrawingsTool';
 import { longPositionDrawingTool } from './longPositionTool';
 import { magnetModeDrawingToolAction } from './magnetModeTool';
 import { measureRangeDrawingTool } from './measureRangeTool';
-import { patternPathDrawingTool } from './patternPathTool';
-import { pitchforkDrawingTool } from './pitchforkTool';
 import { stayInDrawingModeDrawingToolAction } from './stayInDrawingModeTool';
-import { stickerDrawingTool } from './stickerTool';
 import { textLabelDrawingTool } from './textLabelTool';
 import { textLevelDrawingTool } from './textLevelTool';
 import { trendLineDrawingTool } from './trendLineTool';
@@ -78,17 +74,13 @@ export const DRAWING_TOOL_OPTIONS: SelectableDrawingToolDefinition[] = [
   crosshairDrawingTool,
   trendLineDrawingTool,
   fibZoneDrawingTool,
-  highlightBoxDrawingTool,
   textLabelDrawingTool,
   textLevelDrawingTool,
-  patternPathDrawingTool,
   longPositionDrawingTool,
-  pitchforkDrawingTool,
-  stickerDrawingTool,
 ];
 
 export const DRAWING_SHEET_OPTIONS: SelectableDrawingToolDefinition[] = [
-  ...DRAWING_TOOL_OPTIONS,
+  ...DRAWING_TOOL_OPTIONS.filter((definition) => definition.tool !== textLabelDrawingTool.tool),
   measureRangeDrawingTool,
 ];
 

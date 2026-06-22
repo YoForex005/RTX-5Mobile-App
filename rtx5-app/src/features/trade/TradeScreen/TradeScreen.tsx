@@ -32,6 +32,7 @@ import { useUIState } from '../../../state/uiState';
 import { getTradingErrorOriginLabel } from '../../../api/tradingErrors';
 import { prefetchOrderTicketData } from '../../../utils/navigationPrefetch';
 import { runImmediateAction } from '../../../utils/actionLatency';
+import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 import { TradeSummaryHeader } from './SummaryHeader';
 import { makeTradeScreenStyles } from './styles';
 
@@ -40,6 +41,7 @@ import { makeTradeScreenStyles } from './styles';
 const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
 const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
 const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
+const TRADE_SCREEN_DATA_DELAY_MS = 8000;
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
@@ -65,6 +67,7 @@ export function TradeScreen() {
 
   const setChartSymbol = useUserPreferences((s) => s.setChartSymbol);
   const showTradeActionSheet = useUIState((st) => st.showTradeActionSheet);
+  const sidebarOpen = useUIState((st) => st.sidebarOpen);
 
   const { positions, refreshPositions, hydrateCachedPositions, isLoading, lastFetchLogin, hydratedLogin, lastError } = usePositionsState(
     useShallow((state) => ({
@@ -98,14 +101,44 @@ export function TradeScreen() {
     }
   }, [hydrateCachedPositions, resolvedLogin]);
 
-  // Fetch only while the tab is focused so hidden Trade does not keep polling,
-  // but render the real stored positions immediately instead of a fake 0-open frame.
+  const [firstPaintReady, setFirstPaintReady] = useState(false);
   useEffect(() => {
-    if (isScreenFocused && resolvedLogin) {
+    let cancelled = false;
+    let frameId: number | null = null;
+    const markReady = () => {
+      if (!cancelled) {
+        setFirstPaintReady(true);
+      }
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(markReady);
+    } else {
+      const timerId = setTimeout(markReady, 16);
+      return () => {
+        cancelled = true;
+        clearTimeout(timerId);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, []);
+
+  const tradeDataActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS);
+
+  // Fetch only after the route has painted once so sidebar navigation is visual first,
+  // then data refresh starts in the background.
+  useEffect(() => {
+    if (tradeDataActive && resolvedLogin) {
       fetchPositions();
     }
-  }, [isScreenFocused, resolvedLogin, fetchPositions]);
-  const positionRowsActive = isScreenFocused;
+  }, [tradeDataActive, resolvedLogin, fetchPositions]);
+  const positionRowsActive = tradeDataActive;
 
   const pnlCurrency = useTradingState((state: any) => state.account?.currency || 'USD');
   const renderablePositions = useMemo(
@@ -207,7 +240,7 @@ export function TradeScreen() {
         isDark={isDark}
         totalVolume={totalVolume}
         onBulkPress={showBulkSheet}
-        active={isScreenFocused}
+        active={tradeDataActive}
       />
       <FlatList
         keyboardShouldPersistTaps="always"

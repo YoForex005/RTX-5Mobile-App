@@ -120,10 +120,6 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       marginRight: 12,
       alignItems: 'center',
     },
-    actionDivider: {
-      borderBottomWidth: 1,
-      borderBottomColor: T.border,
-    },
     actionDanger: {
       backgroundColor: isDark ? 'rgba(255, 75, 66, 0.05)' : 'rgba(239, 68, 68, 0.05)',
     },
@@ -155,20 +151,6 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     },
     actionTextDisabled: {
       color: T.textMuted,
-    },
-    cancelButton: {
-      width: '100%',
-      minHeight: 48,
-      borderTopWidth: 1,
-      borderColor: T.border,
-      backgroundColor: isDark ? '#0E141F' : T.glass2,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    cancelText: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: T.text,
     },
   });
 }

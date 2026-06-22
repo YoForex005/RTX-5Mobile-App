@@ -18,6 +18,8 @@ export interface InstrumentMetaDTO {
   tickSize?: number;
   tickValue?: number;
   digits?: number;
+  spread?: number;
+  commission?: number;
   marginInitial?: number;
   marginMaintenance?: number;
   swapLong?: number;
@@ -100,7 +102,135 @@ const CONTRACT_SIZE_FIELD_KEYS = [
   'ContractSize',
   'CONTRACT_SIZE',
   'contract_size',
+  'tradeContractSize',
+  'trade_contract_size',
   'contract',
+] as const;
+
+const SPREAD_FIELD_KEYS = [
+  'spread',
+  'Spread',
+  'SPREAD',
+] as const;
+
+const COMMISSION_FIELD_KEYS = [
+  'commission',
+  'Commission',
+  'COMMISSION',
+] as const;
+
+const MIN_VOLUME_FIELD_KEYS = [
+  'minVolume',
+  'MinVolume',
+  'MIN_VOLUME',
+  'min_volume',
+  'volumeMin',
+  'volume_min',
+  'minLot',
+  'min_lot',
+] as const;
+
+const MAX_VOLUME_FIELD_KEYS = [
+  'maxVolume',
+  'MaxVolume',
+  'MAX_VOLUME',
+  'max_volume',
+  'volumeMax',
+  'volume_max',
+  'maxLot',
+  'max_lot',
+] as const;
+
+const STEP_VOLUME_FIELD_KEYS = [
+  'stepVolume',
+  'StepVolume',
+  'STEP_VOLUME',
+  'step_volume',
+  'volumeStep',
+  'volume_step',
+  'lotStep',
+  'lot_step',
+] as const;
+
+const STOPS_LEVEL_FIELD_KEYS = [
+  'stopsLevel',
+  'StopsLevel',
+  'STOPS_LEVEL',
+  'stops_level',
+  'stopLevel',
+  'stop_level',
+  'tradeStopsLevel',
+  'trade_stops_level',
+] as const;
+
+const SWAP_LONG_FIELD_KEYS = [
+  'swapLong',
+  'SwapLong',
+  'SWAP_LONG',
+  'swap_long',
+] as const;
+
+const SWAP_SHORT_FIELD_KEYS = [
+  'swapShort',
+  'SwapShort',
+  'SWAP_SHORT',
+  'swap_short',
+] as const;
+
+const MARGIN_INITIAL_FIELD_KEYS = [
+  'marginInitial',
+  'MarginInitial',
+  'MARGIN_INITIAL',
+  'margin_initial',
+] as const;
+
+const MARGIN_MAINTENANCE_FIELD_KEYS = [
+  'marginMaintenance',
+  'MarginMaintenance',
+  'MARGIN_MAINTENANCE',
+  'margin_maintenance',
+] as const;
+
+const BASE_CURRENCY_FIELD_KEYS = [
+  'baseCurrency',
+  'BaseCurrency',
+  'BASE_CURRENCY',
+  'base_currency',
+  'currencyBase',
+  'currency_base',
+] as const;
+
+const PROFIT_CURRENCY_FIELD_KEYS = [
+  'profitCurrency',
+  'ProfitCurrency',
+  'PROFIT_CURRENCY',
+  'profit_currency',
+  'currencyProfit',
+  'currency_profit',
+] as const;
+
+const SPREAD_MODE_FIELD_KEYS = [
+  'spreadMode',
+  'SpreadMode',
+  'SPREAD_MODE',
+  'spread_mode',
+] as const;
+
+const CALCULATION_FIELD_KEYS = [
+  'calculation',
+  'Calculation',
+  'CALCULATION',
+  'calcMode',
+  'calc_mode',
+  'tradeCalcMode',
+  'trade_calc_mode',
+] as const;
+
+const CHART_MODE_FIELD_KEYS = [
+  'chartMode',
+  'ChartMode',
+  'CHART_MODE',
+  'chart_mode',
 ] as const;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -141,6 +271,20 @@ const pickStringField = (record: Record<string, unknown>, keys: readonly string[
   return undefined;
 };
 
+const pickStringLikeField = (record: Record<string, unknown>, keys: readonly string[]): string | undefined => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return undefined;
+};
+
 const pickDigits = (record: Record<string, unknown>): number | undefined => {
   for (const key of DIGITS_FIELD_KEYS) {
     const digits = normalizeDigits(record[key]);
@@ -155,6 +299,17 @@ const pickDigits = (record: Record<string, unknown>): number | undefined => {
 const pickPositiveNumber = (record: Record<string, unknown>, keys: readonly string[]): number | undefined => {
   for (const key of keys) {
     const value = normalizePositiveNumber(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const pickFiniteNumber = (record: Record<string, unknown>, keys: readonly string[]): number | undefined => {
+  for (const key of keys) {
+    const value = toFiniteNumber(record[key]);
     if (value !== undefined) {
       return value;
     }
@@ -231,6 +386,21 @@ export const normalizeInstrumentMetaPayload = (
   const tickSize = pickPositiveNumber(record, TICK_SIZE_FIELD_KEYS) ?? point;
   const tickValue = pickPositiveNumber(record, TICK_VALUE_FIELD_KEYS);
   const contractSize = pickPositiveNumber(record, CONTRACT_SIZE_FIELD_KEYS);
+  const spread = pickFiniteNumber(record, SPREAD_FIELD_KEYS);
+  const commission = pickFiniteNumber(record, COMMISSION_FIELD_KEYS);
+  const minVolume = pickPositiveNumber(record, MIN_VOLUME_FIELD_KEYS);
+  const maxVolume = pickPositiveNumber(record, MAX_VOLUME_FIELD_KEYS);
+  const stepVolume = pickPositiveNumber(record, STEP_VOLUME_FIELD_KEYS);
+  const stopsLevel = pickStringLikeField(record, STOPS_LEVEL_FIELD_KEYS);
+  const swapLong = pickFiniteNumber(record, SWAP_LONG_FIELD_KEYS);
+  const swapShort = pickFiniteNumber(record, SWAP_SHORT_FIELD_KEYS);
+  const marginInitial = pickFiniteNumber(record, MARGIN_INITIAL_FIELD_KEYS);
+  const marginMaintenance = pickFiniteNumber(record, MARGIN_MAINTENANCE_FIELD_KEYS);
+  const baseCurrency = pickStringField(record, BASE_CURRENCY_FIELD_KEYS);
+  const profitCurrency = pickStringField(record, PROFIT_CURRENCY_FIELD_KEYS);
+  const spreadMode = pickStringField(record, SPREAD_MODE_FIELD_KEYS);
+  const calculation = pickStringField(record, CALCULATION_FIELD_KEYS);
+  const chartMode = pickStringField(record, CHART_MODE_FIELD_KEYS);
   const meta: InstrumentMetaDTO = {
     ...(record as Partial<InstrumentMetaDTO>),
     symbol,
@@ -250,6 +420,66 @@ export const normalizeInstrumentMetaPayload = (
 
   if (contractSize !== undefined) {
     meta.contractSize = contractSize;
+  }
+
+  if (spread !== undefined) {
+    meta.spread = spread;
+  }
+
+  if (commission !== undefined) {
+    meta.commission = commission;
+  }
+
+  if (minVolume !== undefined) {
+    meta.minVolume = minVolume;
+  }
+
+  if (maxVolume !== undefined) {
+    meta.maxVolume = maxVolume;
+  }
+
+  if (stepVolume !== undefined) {
+    meta.stepVolume = stepVolume;
+  }
+
+  if (stopsLevel !== undefined) {
+    meta.stopsLevel = stopsLevel;
+  }
+
+  if (swapLong !== undefined) {
+    meta.swapLong = swapLong;
+  }
+
+  if (swapShort !== undefined) {
+    meta.swapShort = swapShort;
+  }
+
+  if (marginInitial !== undefined) {
+    meta.marginInitial = marginInitial;
+  }
+
+  if (marginMaintenance !== undefined) {
+    meta.marginMaintenance = marginMaintenance;
+  }
+
+  if (baseCurrency !== undefined) {
+    meta.baseCurrency = baseCurrency;
+  }
+
+  if (profitCurrency !== undefined) {
+    meta.profitCurrency = profitCurrency;
+  }
+
+  if (spreadMode !== undefined) {
+    meta.spreadMode = spreadMode;
+  }
+
+  if (calculation !== undefined) {
+    meta.calculation = calculation;
+  }
+
+  if (chartMode !== undefined) {
+    meta.chartMode = chartMode;
   }
 
   const resolvedDigits = digits ?? pickStepDerivedDigits(record);
@@ -300,4 +530,38 @@ export const primeInstrumentMetaCacheFromCatalogPayload = (payload: unknown, sco
       cacheInstrumentMeta(meta, scope);
     }
   }
+};
+
+export const findInstrumentMetaInCatalogPayload = (
+  payload: unknown,
+  symbol: string,
+): InstrumentMetaDTO | undefined => {
+  const targetExactKey = normalizeQuoteSymbolKey(symbol);
+  const targetNormalizedKey = normalizeSymbol(symbol);
+  if (!targetExactKey && !targetNormalizedKey) {
+    return undefined;
+  }
+
+  const items: unknown[] = [];
+  collectInstrumentItems(payload, items, new Set());
+  let normalizedMatch: InstrumentMetaDTO | undefined;
+
+  for (const item of items) {
+    const meta = normalizeInstrumentMetaPayload(item);
+    if (!meta.symbol) {
+      continue;
+    }
+
+    const exactKey = normalizeQuoteSymbolKey(meta.symbol);
+    const normalizedKey = normalizeSymbol(meta.symbol);
+    if (exactKey && exactKey === targetExactKey) {
+      return meta;
+    }
+
+    if (!normalizedMatch && normalizedKey && normalizedKey === targetNormalizedKey) {
+      normalizedMatch = meta;
+    }
+  }
+
+  return normalizedMatch;
 };

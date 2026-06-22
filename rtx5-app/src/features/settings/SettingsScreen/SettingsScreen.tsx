@@ -37,7 +37,7 @@ import { useTranslation } from '../../../i18n/useTranslation';
 import { SUPPORTED_LANGUAGES, translateAccountCardName } from '../../../i18n/translations';
 import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useBrokerConfig } from '../../../query/broker';
-import { useAccountDetails, useAccounts } from '../../../query/accounts';
+import { useAccountDetails } from '../../../query/accounts';
 import { resolveAppDisplayVersion } from '../../../config/appDisplayVersion';
 import { getConfiguredSupportEmail } from '../../../config/legalLinks';
 import { accountWsService } from '../../../api/ws/accountSocket';
@@ -46,9 +46,11 @@ import { buildHelpMailto } from '../helpViewModel';
 import { hasAuthenticatedAccountSession } from '../accountConnectionStatus';
 import { SettingRow } from './SettingRow';
 import { makeSettingsStyles } from './styles';
+import { useDeferredActiveFlag } from '../../../hooks/useDeferredActiveFlag';
 
 const SETTINGS_ROUTE_LOCK_MS = 250;
 const SETTINGS_ROUTE_PREFETCH_DELAY_MS = 80;
+const SETTINGS_SCREEN_DATA_DELAY_MS = 8000;
 const SETTINGS_READY_ROUTE_PATHS = [
   '/settings/accounts',
   '/register',
@@ -87,21 +89,48 @@ export function SettingsScreen() {
   const brokerId = useUserPreferences((s) => s.brokerId);
   const isLoggedIn = useUserPreferences((s) => s.isLoggedIn);
   const isAccountConnected = hasAuthenticatedAccountSession(isLoggedIn, accountDetails);
+  const sidebarOpen = useUIState((s) => s.sidebarOpen);
   const liveLogin = useLiveAccountState((s) => s.login);
   const liveBalance = useLiveAccountState((s) => s.balance);
   const liveHasBalance = useLiveAccountState((s) => s.metricFlags.balance);
-  // Fire the account-card queries (broker name, balance, account name) the moment
-  // the session is connected and the screen is focused — no startup deferral — so
-  // the marked card info isn't slow to appear right after login. Still focus-gated,
-  // so polling still pauses when another stack screen is focused.
-  const settingsDataActive = isAccountConnected && isScreenFocused;
+  const [firstPaintReady, setFirstPaintReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let frameId: number | null = null;
+    const markReady = () => {
+      if (!cancelled) {
+        setFirstPaintReady(true);
+      }
+    };
+
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      frameId = globalThis.requestAnimationFrame(markReady);
+    } else {
+      const timerId = setTimeout(markReady, 16);
+      return () => {
+        cancelled = true;
+        clearTimeout(timerId);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, []);
+
+  // Let the Settings route paint before starting account-card queries.
+  const settingsDataActive = useDeferredActiveFlag(
+    isAccountConnected && isScreenFocused && firstPaintReady && !sidebarOpen,
+    SETTINGS_SCREEN_DATA_DELAY_MS,
+  );
   const { data: brokerConfig } = useBrokerConfig(brokerId, settingsDataActive);
-  const { data: accounts } = useAccounts(settingsDataActive);
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
-  const listedAccount = accounts?.find((a) => a.login === currentLogin) ?? accounts?.[0];
-  const activeLogin = listedAccount?.login ?? currentLogin;
+  const activeLogin = currentLogin;
   const { data: activeAccountDetails } = useAccountDetails(activeLogin, settingsDataActive && !!activeLogin);
-  const activeAccount = activeAccountDetails ?? listedAccount;
+  const activeAccount = activeAccountDetails;
   // Seed the prominent account name from the login-available name so it shows
   // immediately instead of flashing the generic "Account" until the query lands.
   const rawAccountName = activeAccount?.name ?? accountDetails?.name ?? 'Account';
@@ -112,7 +141,6 @@ export function SettingsScreen() {
   const displayBalance = balanceToDisplay !== undefined ? fmt.price(balanceToDisplay) : '---';
   const displayCurrency = activeAccount?.currency ?? 'USD';
   const displayBrokerName = brokerConfig?.broker_name ?? '---';
-  const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const setSearchActive = useUIState((s) => s.setSearchActive);
   const T = useTheme();
   const { t, language } = useTranslation();
@@ -128,7 +156,6 @@ export function SettingsScreen() {
     setThemeMode(themeMode === 'light' ? 'dark' : 'light');
   }, [setThemeMode, themeMode]);
 
-  void setSidebarOpen;
   void activeAccount;
 
   const logout = useUserPreferences((s) => s.logout);
@@ -171,7 +198,7 @@ export function SettingsScreen() {
   }, [setSearchActive]);
 
   useEffect(() => {
-    if (!isScreenFocused) {
+    if (!isScreenFocused || sidebarOpen) {
       return undefined;
     }
 
@@ -218,7 +245,7 @@ export function SettingsScreen() {
         globalThis.cancelAnimationFrame?.(frameId);
       }
     };
-  }, [isScreenFocused]);
+  }, [isScreenFocused, sidebarOpen]);
 
   const unlockSettingsRoute = useCallback(() => {
     if (routeUnlockTimerRef.current) {

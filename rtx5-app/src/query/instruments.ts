@@ -3,6 +3,8 @@ import { fetchInstrumentMeta, getCachedInstrumentMeta, InstrumentMetaDTO } from 
 import { normalizeSymbol } from '../domain/symbols';
 import { useUserPreferences } from '../state/userPreferences';
 
+export const INSTRUMENT_META_QUERY_VERSION = 'instrument-meta-v2';
+
 export function useInstrumentMeta(symbol: string, enabled = true) {
   const isLoggedIn = useUserPreferences((state) => state.isLoggedIn);
   const brokerId = useUserPreferences((state) => state.brokerId);
@@ -12,8 +14,8 @@ export function useInstrumentMeta(symbol: string, enabled = true) {
   const cacheScope = `${brokerId}:${accountId}`;
 
   return useQuery({
-    queryKey: ['instrument', normalizedSymbol, brokerId, accountId],
-    queryFn: () => fetchInstrumentMeta(normalizedSymbol, cacheScope),
+    queryKey: ['instrument', INSTRUMENT_META_QUERY_VERSION, normalizedSymbol, brokerId, accountId],
+    queryFn: () => fetchInstrumentMeta(symbol, cacheScope),
     enabled: isEnabled,
     placeholderData: () => getCachedInstrumentMeta(normalizedSymbol || symbol, cacheScope),
     staleTime: 1000 * 60 * 60, // Cache for 1 hour, specs rarely change

@@ -52,13 +52,9 @@ export const DRAWING_TOOL_META: Record<ChartDrawingKind, DrawingToolMeta> = {
 export const ADD_OBJECT_TOOLS: ChartDrawingKind[] = [
   'trendline',
   'fib',
-  'brush',
   'textLevel',
-  'patterns',
   'prediction',
-  'pitchfork',
   'measure',
-  'smiley',
 ];
 
 export function buildLegacyDrawingDescription(label: string): string {

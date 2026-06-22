@@ -20,6 +20,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { useIsDarkTheme } from '../../state/themeMode';
 import { useUIState } from '../../state/uiState';
+import { openSidebarDrawerImmediately } from './sidebarDrawerController';
+
+function scheduleAfterFirstVisualFrame(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(action);
+    return;
+  }
+
+  setTimeout(action, 16);
+}
 
 // Keep the visible menu icon close to the app edge while preserving a large
 // press target for reliable Android taps.
@@ -63,8 +73,11 @@ export function AppHeader({
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const hideActionSheet = useUIState((s) => s.hideActionSheet);
   const handleOpenSidebar = useCallback(() => {
-    hideActionSheet();
-    setSidebarOpen(true);
+    openSidebarDrawerImmediately();
+    scheduleAfterFirstVisualFrame(() => {
+      hideActionSheet();
+      setSidebarOpen(true);
+    });
   }, [hideActionSheet, setSidebarOpen]);
 
   const safeTop = Platform.OS === 'web' ? 0 : Math.max(insets.top, 0);
@@ -89,7 +102,7 @@ export function AppHeader({
       <Pressable
         style={styles.leftGutter}
         onPress={handleOpenSidebar}
-        activateOnPressIn
+        activateOnTouchStart
         hitSlop={MENU_BUTTON_HIT_SLOP}
         latencyLabel="appHeader.menu"
         unstable_pressDelay={0}

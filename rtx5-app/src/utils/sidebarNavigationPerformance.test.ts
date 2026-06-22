@@ -9,8 +9,10 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   const source = readSource('src/ui/components/AppHeader.tsx');
 
   assert.match(source, /const handleOpenSidebar = useCallback/);
+  assert.match(source, /import \{ openSidebarDrawerImmediately \} from '\.\/sidebarDrawerController'/);
   assert.match(source, /const hideActionSheet = useUIState\(\(s\) => s\.hideActionSheet\)/);
-  assert.match(source, /hideActionSheet\(\);\s*setSidebarOpen\(true\)/);
+  assert.match(source, /function scheduleAfterFirstVisualFrame\(action: \(\) => void\)/);
+  assert.match(source, /openSidebarDrawerImmediately\(\);\s*scheduleAfterFirstVisualFrame\(\(\) => \{\s*hideActionSheet\(\);\s*setSidebarOpen\(true\);\s*\}\)/);
   assert.doesNotMatch(source, /scheduleAfterTapFrame/);
   assert.match(source, /export const MENU_BUTTON_VISUAL_LEFT = 28/);
   assert.match(source, /const HEADER_HORIZONTAL_PADDING = 16/);
@@ -21,10 +23,11 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
   assert.match(source, /paddingLeft: MENU_BUTTON_LEFT_INSET/);
   assert.match(source, /paddingRight: 12/);
   assert.match(source, /onPress=\{handleOpenSidebar\}/);
-  assert.match(source, /activateOnPressIn/);
+  assert.match(source, /activateOnTouchStart/);
   assert.match(source, /hitSlop=\{MENU_BUTTON_HIT_SLOP\}/);
   assert.match(source, /minHeight: 44/);
   assert.match(source, /latencyLabel="appHeader\.menu"/);
+  assert.doesNotMatch(source, /activateOnPressIn/);
   assert.doesNotMatch(source, /onPressIn=\{handleOpenSidebar\}/);
   assert.match(source, /unstable_pressDelay=\{0\}/);
   assert.doesNotMatch(source, /traceUiInteraction/);
@@ -34,32 +37,55 @@ test('hamburger opens the sidebar on the zero-delay stable press path', () => {
 test('sidebar drawer uses native-driver motion and non-blocking navigation for menu rows', () => {
   const source = readSource('src/ui/components/SidebarDrawer.tsx');
 
-  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 50/);
-  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 50/);
+  assert.match(source, /const DRAWER_OPEN_ANIMATION_MS = 190/);
+  assert.match(source, /const DRAWER_CLOSE_ANIMATION_MS = 160/);
+  assert.match(source, /const DRAWER_CLOSED_TRANSLATE_X = -DRAWER_WIDTH - 2/);
   assert.match(source, /const SIDEBAR_NAVIGATION_LOCK_MS = 50/);
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/hooks\/useDeferredActiveFlag'/);
   assert.match(source, /const SIDEBAR_PROFILE_DATA_DELAY_MS = 1200/);
-  assert.match(source, /const sidebarProfileDataActive = useDeferredActiveFlag\(visible && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS\)/);
+  assert.doesNotMatch(source, /const visible = useUIState\(\(s\) => s\.sidebarOpen\)/);
+  assert.match(source, /const initialSidebarOpenRef = useRef\(useUIState\.getState\(\)\.sidebarOpen\)/);
+  assert.match(source, /const \[interactive, setInteractive\] = useState\(initialSidebarOpenRef\.current\)/);
+  assert.match(source, /const sidebarProfileDataActive = useDeferredActiveFlag\(interactive && isLoggedIn, SIDEBAR_PROFILE_DATA_DELAY_MS\)/);
   assert.doesNotMatch(source, /profileDataReady/);
   assert.match(source, /const LOGGED_OUT_PREFETCH_ROUTES = \['\/login'\] as const/);
   assert.match(source, /const SIDEBAR_STACK_ROUTES = new Set<string>\(LOGGED_OUT_PREFETCH_ROUTES\)/);
   assert.match(source, /const SIDEBAR_PUSH_ROUTE_PREFIXES = \['\/settings\/'\] as const/);
   assert.match(source, /function shouldPushSidebarRoute\(route: string\)/);
-  assert.match(source, /useLayoutEffect\(\(\) => \{/);
+  assert.match(source, /const animatedVisibleRef = useRef\(initialSidebarOpenRef\.current\)/);
+  assert.match(source, /const interactiveGenerationRef = useRef\(0\)/);
+  assert.match(source, /const startOpenAnimation = useCallback/);
+  assert.doesNotMatch(source, /const snapClosed = useCallback/);
+  assert.match(source, /const showInteractiveAfterVisualFrame = useCallback/);
+  assert.match(source, /scheduleNextFrame\(\(\) => \{[\s\S]*setInteractive\(true\);/);
+  assert.match(source, /const hideInteractiveNow = useCallback/);
+  assert.match(source, /setInteractive\(false\);/);
+  assert.match(source, /import \{ registerSidebarOpenHandler \} from '\.\/sidebarDrawerController'/);
+  assert.match(source, /useEffect\(\(\) => registerSidebarOpenHandler\(\(\) => \{[\s\S]*startOpenAnimation\(\);[\s\S]*showInteractiveAfterVisualFrame\(\);/);
+  assert.match(source, /useUIState\.subscribe\(\(state, previousState\) => \{/);
+  assert.match(source, /if \(state\.sidebarOpen\) \{\s*if \(!animatedVisibleRef\.current\) \{\s*startOpenAnimation\(\);\s*\}\s*showInteractiveAfterVisualFrame\(\);/);
+  assert.match(source, /if \(!isClosingRef\.current && animatedVisibleRef\.current\) \{\s*handleClose\(\);/);
+  assert.doesNotMatch(source, /useLayoutEffect/);
   assert.match(source, /Animated\.parallel\(\[/);
   assert.match(source, /toValue: 0,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /toValue: 1,[\s\S]*duration: DRAWER_OPEN_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
-  assert.match(source, /toValue: -DRAWER_WIDTH,[\s\S]*duration: DRAWER_CLOSE_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
+  assert.match(source, /toValue: DRAWER_CLOSED_TRANSLATE_X,[\s\S]*duration: DRAWER_CLOSE_ANIMATION_MS,[\s\S]*useNativeDriver: true/);
   assert.match(source, /Easing\.out\(Easing\.cubic\)/);
-  assert.match(source, /const \[keepDrawerMounted, setKeepDrawerMounted\] = useState\(false\)/);
-  assert.match(source, /const shouldRenderDrawer = visible \|\| keepDrawerMounted/);
-  assert.match(source, /Keep the drawer mounted only while visible\/closing so closed tabs stay lean/);
-  assert.match(source, /pointerEvents=\{visible \? 'auto' : 'none'\}/);
-  assert.match(source, /containerHidden:/);
-  assert.match(source, /if \(!shouldRenderDrawer\) \{\s*return null;\s*\}/);
+  assert.doesNotMatch(source, /const \[keepDrawerMounted, setKeepDrawerMounted\]/);
+  assert.doesNotMatch(source, /const shouldRenderDrawer = visible \|\| keepDrawerMounted/);
+  assert.match(source, /Keep the drawer warm offscreen so opening only has to run native-driver motion/);
+  assert.match(source, /pointerEvents=\{interactive \? 'auto' : 'none'\}/);
+  assert.match(source, /importantForAccessibility=\{interactive \? 'auto' : 'no-hide-descendants'\}/);
+  assert.match(source, /accessibilityElementsHidden=\{!interactive\}/);
+  assert.doesNotMatch(source, /containerHidden:/);
+  assert.match(source, /style=\{ds\.container\}/);
+  assert.doesNotMatch(source, /if \(!shouldRenderDrawer\) \{\s*return null;\s*\}/);
   assert.match(source, /BackHandler\.addEventListener\('hardwareBackPress'/);
-  assert.match(source, /closeImmediately\(\);\s*return true;/);
+  assert.match(source, /handleClose\(\);\s*return true;/);
   assert.match(source, /pointerEvents="box-none"[\s\S]*style=\{\[[\s\S]*ds\.overlay/);
+  assert.match(source, /renderToHardwareTextureAndroid/);
+  assert.match(source, /needsOffscreenAlphaCompositing/);
+  assert.match(source, /shouldRasterizeIOS/);
   assert.match(source, /overlay: \{[\s\S]*left: DRAWER_WIDTH,[\s\S]*zIndex: 0,[\s\S]*elevation: 0,/);
   assert.doesNotMatch(source, /overlay: \{\s*\.\.\.StyleSheet\.absoluteFillObject/);
   assert.match(source, /drawer: \{[\s\S]*zIndex: 1,[\s\S]*elevation: 1,/);
@@ -79,7 +105,10 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /const navigateSidebarRoute = useCallback/);
   assert.match(source, /navigationLockedRef\.current = true/);
   assert.doesNotMatch(source, /clearSidebarPrefetchTimer/);
-  assert.match(source, /closeImmediately\(\)/);
+  assert.doesNotMatch(source, /closeImmediately/);
+  assert.match(source, /function scheduleAfterPressPaint\(action: \(\) => void\)/);
+  assert.match(source, /globalThis\.requestAnimationFrame\(\(\) => \{\s*globalThis\.requestAnimationFrame\(action\);/);
+  assert.match(source, /handleClose\(\(\) => \{\s*unlockSidebarNavigation\(\);[\s\S]*if \(shouldNavigate\) \{\s*scheduleAfterPressPaint\(\(\) => \{/);
   assert.match(source, /normalizeSidebarPath\(route\)/);
   assert.doesNotMatch(source, /scheduleAfterFirstVisualFrame/);
   assert.doesNotMatch(source, /showSidebarRouteTransition/);
@@ -102,6 +131,50 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.doesNotMatch(source, /handleSidebarPressOut/);
   assert.doesNotMatch(source, /SIDEBAR_PRESS_GUARD_MS/);
   assert.doesNotMatch(source, /traceUiInteraction/);
+});
+
+
+test('trade sidebar route defers position refresh until after route paint', () => {
+  const source = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
+
+  assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
+  assert.match(source, /const TRADE_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
+  assert.match(source, /requestAnimationFrame\(markReady\)/);
+  assert.match(source, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
+  assert.match(source, /const tradeDataActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_DATA_DELAY_MS\)/);
+  assert.match(source, /if \(tradeDataActive && resolvedLogin\) \{\s*fetchPositions\(\);/);
+  assert.match(source, /const positionRowsActive = tradeDataActive/);
+  assert.doesNotMatch(source, /if \(isScreenFocused && resolvedLogin\) \{\s*fetchPositions\(\);/);
+});
+
+test('settings sidebar route defers account-card queries until after route paint', () => {
+  const source = readSource('src/features/settings/SettingsScreen/SettingsScreen.tsx');
+
+  assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
+  assert.match(source, /const SETTINGS_SCREEN_DATA_DELAY_MS = 8000/);
+  assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
+  assert.match(source, /requestAnimationFrame\(markReady\)/);
+  assert.match(source, /const sidebarOpen = useUIState\(\(s\) => s\.sidebarOpen\)/);
+  assert.match(source, /const settingsDataActive = useDeferredActiveFlag\(\s*isAccountConnected && isScreenFocused && firstPaintReady && !sidebarOpen,\s*SETTINGS_SCREEN_DATA_DELAY_MS,\s*\)/);
+  assert.match(source, /useBrokerConfig\(brokerId, settingsDataActive\)/);
+  assert.doesNotMatch(source, /useAccounts\(settingsDataActive\)/);
+  assert.match(source, /useAccountDetails\(activeLogin, settingsDataActive && !!activeLogin\)/);
+  assert.doesNotMatch(source, /const settingsDataActive = isAccountConnected && isScreenFocused/);
+});
+test('journal sidebar route defers live account queries until after first paint', () => {
+  const source = readSource('src/features/settings/JournalScreen/liveJournal.ts');
+
+  assert.match(source, /const JOURNAL_QUERY_ACTIVATION_DELAY_MS = 8000/);
+  assert.match(source, /function useDeferredJournalQueries\(active: boolean, cacheKey: number \| undefined\)/);
+  assert.match(source, /const sidebarOpen = useUIState\(\(state\) => state\.sidebarOpen\)/);
+  assert.match(source, /const enabled = accountLogin !== undefined && !sidebarOpen/);
+  assert.match(source, /const queriesActive = useDeferredJournalQueries\(enabled, accountLogin\)/);
+  assert.match(source, /enabled: queriesActive/);
+  assert.match(source, /refetchInterval: queriesActive \? 5000 : false/);
+  assert.match(source, /refetchInterval: queriesActive \? 30_000 : false/);
+  assert.match(source, /refetchOnMount: false/);
+  assert.doesNotMatch(source, /refetchOnMount: 'always'/);
 });
 
 test('settings detail back buttons pop instantly instead of re-mounting the tab navigator', () => {
@@ -131,12 +204,19 @@ test('settings detail back buttons pop instantly instead of re-mounting the tab 
 
 test('chart header menu avoids Android edge gesture interception', () => {
   const source = readSource('src/features/chart/ChartScreen.styles.ts');
+  const chartSource = readSource('src/features/chart/ChartScreen.native.tsx');
 
   assert.match(source, /MENU_BUTTON_VISUAL_LEFT/);
   assert.match(source, /width: MENU_BTN_GUTTER/);
   assert.match(source, /alignItems: 'flex-start'/);
   assert.match(source, /paddingLeft: MENU_BUTTON_VISUAL_LEFT/);
   assert.doesNotMatch(source, /CHART_HEADER_EDGE_GESTURE_SAFE_PAD/);
+  assert.match(chartSource, /function scheduleAfterFirstVisualFrame\(action: \(\) => void\)/);
+  assert.match(chartSource, /openSidebarDrawerImmediately\(\);\s*scheduleAfterFirstVisualFrame\(\(\) => \{\s*hideActionSheet\(\);\s*setSidebarOpen\(true\);\s*\}\)/);
+  assert.match(
+    chartSource,
+    /accessibilityLabel=\{t\('Open menu'\)\}[\s\S]*onPress=\{handleOpenSidebar\}[\s\S]*activateOnTouchStart[\s\S]*latencyLabel="chartHeader\.menu"/,
+  );
 });
 
 test('sidebar login prompt opens login from a large first-touch target', () => {

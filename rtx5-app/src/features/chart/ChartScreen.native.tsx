@@ -32,6 +32,7 @@ import {
   type ChartTapMenuAnchor,
   type ChartTapMenuBounds,
 } from './components/ChartTapRadialMenu';
+import { ChartTimeframePickerSheet } from './components/ChartTimeframePickerSheet';
 import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
@@ -48,6 +49,7 @@ import {
 import { ChartTradeButtons } from './components/ChartTradeButtonsFeature';
 import { LiveOrderTickExecutionGraph } from '../trade/OrderTickExecutionGraph';
 import { Screen } from '../../ui/components/Screen';
+import { openSidebarDrawerImmediately } from '../../ui/components/sidebarDrawerController';
 import { useTranslation } from '../../i18n/useTranslation';
 import {
   type ChartTradeVolumeDisplayMode,
@@ -66,6 +68,15 @@ import { useOrdersByLoginQuery } from '../../query/orders';
 import { TradeFeedbackModal, TradeFeedbackState, TRADE_MODAL_INITIAL } from '../../ui/components/TradeFeedbackModal';
 import { ordersApi } from '../../api/orders';
 import { classifyTradingError, createFrontendTradingError } from '../../api/tradingErrors';
+
+function scheduleAfterFirstVisualFrame(action: () => void) {
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(action);
+    return;
+  }
+
+  setTimeout(action, 16);
+}
 
 import { usePositionsState } from '../../state/positionsState';
 import { resolveTradingLogin } from '../../state/tradingLogin';
@@ -601,8 +612,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     accountSummary?.marginLevel,
   ]);
 
-
-  const [tfOpen, setTfOpen] = useState(false);
+  const [timeframePickerVisible, setTimeframePickerVisible] = useState(false);
+  const handleCloseTimeframePicker = useCallback(() => setTimeframePickerVisible(false), []);
   useEffect(() => {
     const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
     if (Math.abs(normalized - tradeVolume) > 0.000001) {
@@ -800,8 +811,11 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const setSidebarOpen = useUIState((s) => s.setSidebarOpen);
   const safeInsets = useSafeAreaInsets();
   const handleOpenSidebar = useCallback(() => {
-    hideActionSheet();
-    setSidebarOpen(true);
+    openSidebarDrawerImmediately();
+    scheduleAfterFirstVisualFrame(() => {
+      hideActionSheet();
+      setSidebarOpen(true);
+    });
   }, [hideActionSheet, setSidebarOpen]);
   const keyboardInset = useMemo(
     () => (keyboardVisibleHeight > 0 ? Math.max(0, keyboardVisibleHeight - safeInsets.bottom + 12) : 0),
@@ -3195,6 +3209,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     runImmediateAction(`chart.timeframe.${nextTimeframe}`, () => {
+      setTimeframePickerVisible(false);
       if (nextTimeframe === chartTimeframe) {
         closeChartTapMenu();
         hideActionSheet();
@@ -3234,15 +3249,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     [availableSymbols, handleSymbolSelect],
   );
 
-  const timeframePickerActions = useMemo(
-    () => timeframes.map((tf) => ({
-      label: tf,
-      selected: tf === chartTimeframe,
-      onPress: () => handleTimeframeSelect(tf),
-    })),
-    [chartTimeframe, handleTimeframeSelect],
-  );
-
   const handleOpenSymbolPicker = useCallback(() => {
     runImmediateAction('chart.symbolPicker.open', () => {
       showChartActionSheet({
@@ -3266,23 +3272,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           void prefetchChartTimeframeHistory(chartSymbol, tf);
         }
       });
-      showChartActionSheet({
-        title: t('Timeframes'),
-        detent: 'adaptive',
-        instantOpen: true,
-        runActionAfterClose: false,
-        actions: timeframePickerActions,
-      });
-      scheduleChartActionSheetContextReset();
+      hideActionSheet();
+      closeChartTapMenu();
+      setTimeframePickerVisible(true);
     });
   }, [
     chartSymbol,
     chartTimeframe,
+    closeChartTapMenu,
+    hideActionSheet,
     prefetchChartTimeframeHistory,
-    scheduleChartActionSheetContextReset,
-    showChartActionSheet,
-    t,
-    timeframePickerActions,
   ]);
 
   const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
@@ -4687,7 +4686,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
             accessibilityLabel={t('Open menu')}
             style={styles.chartHeaderMenuButton}
             onPress={handleOpenSidebar}
-            activateOnPressIn
+            activateOnTouchStart
             latencyLabel="chartHeader.menu"
             hitSlop={{ top: 8, bottom: 8, left: 16, right: 6 }}
             unstable_pressDelay={0}
@@ -6013,6 +6012,17 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           </View>
         </Pressable>
       )}
+
+      <ChartTimeframePickerSheet
+        visible={timeframePickerVisible}
+        activeTimeframe={chartTimeframe}
+        supportedTimeframes={timeframes}
+        accentColor={BLUE}
+        isDark={isDark}
+        bottomInset={safeInsets.bottom}
+        onSelect={handleTimeframeSelect}
+        onClose={handleCloseTimeframePicker}
+      />
 
       <TextLevelEditOverlay
         accentColor={BLUE}

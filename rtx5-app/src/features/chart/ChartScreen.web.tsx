@@ -20,8 +20,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ActionSheet } from '../../ui/components/ActionSheet';
 import { runCriticalTradeAction, runImmediateAction } from '../../utils/actionLatency';
 import {
-  TvCrosshair, TvTrendLine, TvFib, TvBrush, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
-  TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPatterns, TvPrediction, TvPitchfork, TvSmiley, TvStayInDrawingMode, TvRadialObjects
+  TvCrosshair, TvTrendLine, TvFib, TvText, TvMeasure, TvZoom, TvMagnet, TvPencil, TvLock, TvHide, TvTrash, TvLayers,
+  TvCandles, TvGrid4, TvUndo, TvRedo, TvSaveSquare, TvPrediction, TvStayInDrawingMode, TvRadialObjects
 } from './components/ChartToolbarIcons';
 import { DrawingToolsManager } from './plugins/drawing-tools-manager';
 import { Screen } from '../../ui/components/Screen';
@@ -1576,23 +1576,11 @@ export function ChartScreen() {
                 <div title="Fib Retracement" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                   <Pressable style={[styles.toolIcon, activeTool === 'fib' && styles.toolIconActive]} onPress={() => { setActiveTool('fib'); drawingToolsRef.current?.setActiveTool('fib'); setShowDrawingToolbar(false); }}><TvFib color={activeTool === 'fib' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>
-                <div title="Brush" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'brush' && styles.toolIconActive]} onPress={() => { setActiveTool('brush'); drawingToolsRef.current?.setActiveTool('brush'); setShowDrawingToolbar(false); }}><TvBrush color={activeTool === 'brush' ? BLUE : TEXT_MUTED} /></Pressable>
-                </div>
                 <div title="Text" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                   <Pressable style={[styles.toolIcon, activeTool === 'text' && styles.toolIconActive]} onPress={() => { setActiveTool('text'); drawingToolsRef.current?.setActiveTool('text'); setShowDrawingToolbar(false); }}><TvText color={activeTool === 'text' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>
-                <div title="Patterns" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'patterns' && styles.toolIconActive]} onPress={() => { setActiveTool('patterns'); drawingToolsRef.current?.setActiveTool('patterns'); setShowDrawingToolbar(false); }}><TvPatterns color={activeTool === 'patterns' ? BLUE : TEXT_MUTED} /></Pressable>
-                </div>
                 <div title="Long Position" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                   <Pressable style={[styles.toolIcon, activeTool === 'prediction' && styles.toolIconActive]} onPress={() => { setActiveTool('prediction'); drawingToolsRef.current?.setActiveTool('prediction'); setShowDrawingToolbar(false); }}><TvPrediction color={activeTool === 'prediction' ? BLUE : TEXT_MUTED} /></Pressable>
-                </div>
-                <div title="Pitchfork" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'pitchfork' && styles.toolIconActive]} onPress={() => { setActiveTool('pitchfork'); drawingToolsRef.current?.setActiveTool('pitchfork'); setShowDrawingToolbar(false); }}><TvPitchfork color={activeTool === 'pitchfork' ? BLUE : TEXT_MUTED} /></Pressable>
-                </div>
-                <div title="Stickers" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                  <Pressable style={[styles.toolIcon, activeTool === 'smiley' && styles.toolIconActive]} onPress={() => { setActiveTool('smiley'); drawingToolsRef.current?.setActiveTool('smiley'); setShowDrawingToolbar(false); }}><TvSmiley color={activeTool === 'smiley' ? BLUE : TEXT_MUTED} /></Pressable>
                 </div>
                 <View style={styles.toolSeparator} />
                 <div title="Measure" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>

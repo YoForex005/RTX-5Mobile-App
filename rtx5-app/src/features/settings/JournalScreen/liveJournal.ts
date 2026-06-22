@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDealsQuery } from '../../../query/deals';
 import { usePositionHistoryQuery, usePositionsQuery } from '../../../query/positions';
 import { useJournalState } from '../../../state/journalState';
+import { useUIState } from '../../../state/uiState';
 import { useResolvedTradingLogin } from '../../../state/tradingLogin';
 import {
   deriveClosedPositionsFromDeals,
@@ -18,12 +19,52 @@ import {
   getJournalNextDayStartMs,
 } from './journalRetention';
 
+const JOURNAL_QUERY_ACTIVATION_DELAY_MS = 8000;
+
+function useDeferredJournalQueries(active: boolean, cacheKey: number | undefined) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setReady(false);
+    if (!active) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let frameId: number | null = null;
+    const timerId = setTimeout(() => {
+      if (typeof globalThis.requestAnimationFrame === 'function') {
+        frameId = globalThis.requestAnimationFrame(() => {
+          if (!cancelled) {
+            setReady(true);
+          }
+        });
+        return;
+      }
+
+      setReady(true);
+    }, JOURNAL_QUERY_ACTIVATION_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+      if (frameId !== null) {
+        globalThis.cancelAnimationFrame?.(frameId);
+      }
+    };
+  }, [active, cacheKey]);
+
+  return active && ready;
+}
+
 export function useJournalTrades() {
   const accountLogin = useResolvedTradingLogin();
+  const sidebarOpen = useUIState((state) => state.sidebarOpen);
   const manualEntries = useJournalState((state) => state.manualEntries);
   const pruneExpiredEntries = useJournalState((state) => state.pruneExpiredEntries);
   const [retentionNowMs, setRetentionNowMs] = useState(() => Date.now());
-  const enabled = accountLogin !== undefined;
+  const enabled = accountLogin !== undefined && !sidebarOpen;
+  const queriesActive = useDeferredJournalQueries(enabled, accountLogin);
 
   useEffect(() => {
     let midnightTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,17 +100,16 @@ export function useJournalTrades() {
   }, [pruneExpiredEntries]);
 
   const positionsQuery = usePositionsQuery(accountLogin, {
-    enabled,
-    refetchInterval: 5000,
-    refetchOnMount: 'always',
+    enabled: queriesActive,
+    refetchInterval: queriesActive ? 5000 : false,
   });
   const positionHistoryQuery = usePositionHistoryQuery(accountLogin, {
-    enabled,
-    refetchOnMount: 'always',
+    enabled: queriesActive,
+    refetchOnMount: false,
   });
   const dealsQuery = useDealsQuery(accountLogin, {
-    enabled,
-    refetchInterval: 30_000,
+    enabled: queriesActive,
+    refetchInterval: queriesActive ? 30_000 : false,
   });
 
   const derivedClosedPositions = useMemo(
@@ -123,7 +163,7 @@ export function useJournalTrades() {
     openEntries,
     liveEntries,
     manualEntries: retainedManualEntries,
-    isLoading: enabled && trades.length === 0 && (positionsQuery.isLoading || positionHistoryQuery.isLoading || dealsQuery.isLoading),
+    isLoading: enabled && (!queriesActive || (trades.length === 0 && (positionsQuery.isLoading || positionHistoryQuery.isLoading || dealsQuery.isLoading))),
     isFetching: positionsQuery.isFetching || positionHistoryQuery.isFetching || dealsQuery.isFetching,
     isError: enabled && retainedAccountEntries.length === 0 && positionsQuery.isError && positionHistoryQuery.isError && dealsQuery.isError,
     refetch,
