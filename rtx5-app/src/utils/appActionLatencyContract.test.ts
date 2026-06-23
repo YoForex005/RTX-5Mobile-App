@@ -530,13 +530,22 @@ test('close position actions use the immediate trade path', () => {
   const closePositionSource = readSource('src/features/trade/ClosePositionScreen.tsx');
   const closeBySource = readSource('src/features/trade/CloseByScreen.tsx');
   const positionsStateSource = readSource('src/state/positionsState.ts');
+  const rowSource = readSource('src/ui/components/TradePositionRow/TradePositionRow.tsx');
+  const closeFlowSource = readSource('src/features/trade/closePositionFlow.ts');
 
   assert.match(rootSource, /<Stack\.Screen name='quotes\/details' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='quotes\/market-statistics' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/order-ticket' options=\{\{ title: t\('Trade'\), animation: 'none' \}\}/);
   assert.match(rootSource, /<Stack\.Screen name='trade\/close-position' options=\{\{ headerShown: false, animation: 'none' \}\}/);
   assert.match(overlaySource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/\.\.\/utils\/actionLatency'/);
-  assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.open"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  assert.match(overlaySource, /onPress=\{onClose\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="tradeRow\.closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
+  // The row's X closes the position immediately (optimistic) instead of opening the Close Position screen.
+  assert.match(rowSource, /import \{ closePositionImmediately \} from '\.\.\/\.\.\/\.\.\/features\/trade\/closePositionFlow'/);
+  assert.match(rowSource, /onClose=\{\(\) => runOverlayAction\(\(\) => closePositionImmediately\(item, \{ resolvedLogin: tradingLogin \}\)\)\}/);
+  assert.match(closeFlowSource, /beginOptimisticClose\(ticketId\)[\s\S]*void positionsApi[\s\S]*\.closePosition\(ticketId\)/);
+  assert.match(closeFlowSource, /finishOptimisticClose\(ticketId\)/);
+  assert.match(closeFlowSource, /rollbackOptimisticClose\(closeSnapshot\)/);
+  assert.match(closeFlowSource, /Alert\.alert\(feedback\.title, feedback\.message\)/);
   assert.match(closePositionSource, /import \{ CRITICAL_TRADE_ACTION_MAX_LATENCY_MS \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(closePositionSource, /onPress=\{\(\) => \{ void handleClosePosition\(\); \}\}[\s\S]*activateOnPressIn[\s\S]*latencyLabel="closePosition\.submit"[\s\S]*latencyBudgetMs=\{CRITICAL_TRADE_ACTION_MAX_LATENCY_MS\}/);
   assert.match(closePositionSource, /beginOptimisticClose\(ticketId\)[\s\S]*safeRouterBack\(router, '\/\(tabs\)\/trade'\)[\s\S]*void positionsApi\.closePosition\(ticketId\)/);

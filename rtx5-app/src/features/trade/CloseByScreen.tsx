@@ -30,6 +30,11 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
+// Match the Settings screen's dark-theme palette (pure black canvas + deep
+// navy cards) instead of the default slate tokens.
+const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+
 export function CloseByScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const [submitted, setSubmitted] = useState(false);
@@ -39,8 +44,9 @@ export function CloseByScreen() {
   const actionLockRef = useRef(false);
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountDetails = useUserPreferences((s) => s.accountDetails);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -84,8 +90,7 @@ export function CloseByScreen() {
   const selectedPair = candidates.find((candidate) => candidate.id === activePairId);
 
   const insets = useSafeAreaInsets();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#F1F5F9';
 
   const releaseActionLock = useCallback((delay = 0) => {
     if (actionReleaseTimeoutRef.current) {
@@ -174,7 +179,7 @@ export function CloseByScreen() {
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={28} color={T.text} />
+          <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
         <View style={styles.headerBtn} />
@@ -190,7 +195,7 @@ export function CloseByScreen() {
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={28} color={T.text} />
+          <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitleText, { color: T.text }]}>Close By</Text>
         <View style={styles.headerBtn} />
@@ -291,14 +296,14 @@ export function CloseByScreen() {
   );
 }
 
-const makeStyles = (T: ThemeColors) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
   },
   headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
   headerTitleText: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
@@ -324,9 +329,9 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     marginVertical: spacing.md,
     padding: spacing.md,
     borderRadius: 16,
-    backgroundColor: T.glass2,
+    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
     borderWidth: 1,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? T.border : T.borderMedium,
   },
   referenceTitle: {
     color: T.textSub,
@@ -360,7 +365,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
   },
-  sideText: { fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  sideText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   sideTextBuy: { color: T.trading.buy.primary },
   sideTextSell: { color: T.trading.sell.primary },
 
@@ -375,9 +380,9 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     borderRadius: 16,
-    backgroundColor: T.glass2,
+    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
     borderWidth: 1,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? T.border : T.borderMedium,
   },
   pairCardSelected: {
     backgroundColor: T.accentGlow,
@@ -385,7 +390,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   pairTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   pairTicket: { color: T.textSub, fontSize: 13, fontWeight: '600' },
-  pairSymbol: { color: T.text, fontSize: 16, fontWeight: '700', letterSpacing: -0.3 },
+  pairSymbol: { color: T.text, fontSize: 16, fontWeight: '700', letterSpacing: 0 },
   pairBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   priceContainer: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   pairMeta: { color: T.textSub, fontSize: 13, fontWeight: '500' },

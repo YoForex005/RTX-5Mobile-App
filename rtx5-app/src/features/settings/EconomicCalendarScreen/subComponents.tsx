@@ -43,7 +43,7 @@ export function ImpactBadge({ impact, compact }: { impact: ImpactLevel; compact?
       <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: config.color + '30', alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: config.color }} />
       </View>
-      <Text style={{ color: config.color, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 }}>{config.label.toUpperCase()}</Text>
+      <Text style={{ color: config.color, fontSize: 10, fontWeight: '600', letterSpacing: 0.4 }}>{config.label.toUpperCase()}</Text>
     </View>
   );
 }
@@ -55,7 +55,7 @@ export function CountryBadge({ country }: { country: string }) {
       width: 22, height: 16, borderRadius: 3, alignItems: 'center', justifyContent: 'center',
       backgroundColor: cfg.bg, borderWidth: 1, borderColor: cfg.text + '30',
     }}>
-      <Text style={{ color: cfg.text, fontSize: 8, fontWeight: '900', letterSpacing: 0.2 }}>{cfg.abbr}</Text>
+      <Text style={{ color: cfg.text, fontSize: 8, fontWeight: '600', letterSpacing: 0.2 }}>{cfg.abbr}</Text>
     </View>
   );
 }

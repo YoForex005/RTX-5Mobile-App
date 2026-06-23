@@ -1,38 +1,13 @@
 export const CHART_SHOW_ON_CHART_ITEMS = [
   {
-    key: 'openPositions',
-    label: 'Open positions',
-    description: 'Keeps active trade entries visible on the chart until disabled or closed.',
+    key: 'buyTrade',
+    label: 'Show buy trade',
+    description: 'Shows your open buy positions, with their SL / TP, on the chart.',
   },
   {
-    key: 'tpSlStopLimit',
-    label: 'TP / SL / Stop / Limit',
-    description: 'Shows protective and pending trade levels for active positions.',
-  },
-  {
-    key: 'closedPositions',
-    label: 'Closed positions',
-    description: 'Displays markers for recently closed trades on the active symbol.',
-  },
-  {
-    key: 'tradingSignals',
-    label: 'Trading signals',
-    description: 'Displays signal markers when signal overlays are enabled.',
-  },
-  {
-    key: 'hmrPeriods',
-    label: 'HMR periods',
-    description: 'Displays highlighted high market volatility periods.',
-  },
-  {
-    key: 'priceAlerts',
-    label: 'Price alerts',
-    description: 'Displays active alert levels for the current instrument.',
-  },
-  {
-    key: 'potentialStopOut',
-    label: 'Potential Stop Out line',
-    description: 'Displays the estimated stop-out level derived from current exposure.',
+    key: 'sellTrade',
+    label: 'Show sell trade',
+    description: 'Shows your open sell positions, with their SL / TP, on the chart.',
   },
 ] as const;
 
@@ -40,6 +15,15 @@ export type ChartShowOnChartKey = (typeof CHART_SHOW_ON_CHART_ITEMS)[number]['ke
 
 export type ChartShowOnChartSettings = Record<ChartShowOnChartKey, boolean>;
 
+export const DEFAULT_CHART_SHOW_ON_CHART: ChartShowOnChartSettings = {
+  buyTrade: true,
+  sellTrade: true,
+};
+
+// Older builds persisted a richer per-feature show-on-chart object (open
+// positions, TP/SL, closed positions, signals, HMR, alerts, stop-out) and even
+// earlier top-level boolean flags. The model is now just buy/sell trade
+// visibility, so any legacy shape collapses to the defaults (both sides shown).
 export type LegacyChartShowOnChartState = Partial<{
   showOpenPositions: boolean;
   showTpSlStopLimit: boolean;
@@ -50,61 +34,32 @@ export type LegacyChartShowOnChartState = Partial<{
   showPotentialStopOut: boolean;
 }>;
 
-export const DEFAULT_CHART_SHOW_ON_CHART: ChartShowOnChartSettings = {
-  openPositions: true,
-  tpSlStopLimit: true,
-  closedPositions: false,
-  tradingSignals: false,
-  hmrPeriods: false,
-  priceAlerts: false,
-  potentialStopOut: false,
-};
-
-const LEGACY_CHART_SHOW_ON_CHART_DEFAULTS: ChartShowOnChartSettings = {
-  openPositions: true,
-  tpSlStopLimit: true,
-  closedPositions: false,
-  tradingSignals: false,
-  hmrPeriods: true,
-  priceAlerts: true,
-  potentialStopOut: true,
-};
-
 export function normalizeChartShowOnChartSettings(
-  value?: Partial<ChartShowOnChartSettings> | null,
+  value?: unknown,
 ): ChartShowOnChartSettings {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   return {
-    ...DEFAULT_CHART_SHOW_ON_CHART,
-    ...(value ?? {}),
+    buyTrade:
+      typeof record.buyTrade === 'boolean' ? record.buyTrade : DEFAULT_CHART_SHOW_ON_CHART.buyTrade,
+    sellTrade:
+      typeof record.sellTrade === 'boolean' ? record.sellTrade : DEFAULT_CHART_SHOW_ON_CHART.sellTrade,
   };
 }
 
 export function buildChartShowOnChartSettingsFromLegacy(
-  state: LegacyChartShowOnChartState | null | undefined,
+  _state: LegacyChartShowOnChartState | null | undefined,
 ): ChartShowOnChartSettings {
-  return normalizeChartShowOnChartSettings({
-    openPositions: state?.showOpenPositions,
-    tpSlStopLimit: state?.showTpSlStopLimit,
-    closedPositions: state?.showClosedPositions,
-    tradingSignals: state?.showTradingSignals,
-    hmrPeriods: state?.showHmrPeriods,
-    priceAlerts: state?.showPriceAlerts,
-    potentialStopOut: state?.showPotentialStopOut,
-  });
+  // Legacy per-feature flags don't map onto buy/sell trade visibility — default
+  // to showing both sides.
+  return { ...DEFAULT_CHART_SHOW_ON_CHART };
 }
 
 export function hasLegacyChartShowOnChartDefaults(
-  state: LegacyChartShowOnChartState | null | undefined,
+  _state: LegacyChartShowOnChartState | null | undefined,
 ): boolean {
-  const normalized = buildChartShowOnChartSettingsFromLegacy(state);
-
-  return (
-    normalized.openPositions === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.openPositions &&
-    normalized.tpSlStopLimit === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.tpSlStopLimit &&
-    normalized.closedPositions === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.closedPositions &&
-    normalized.tradingSignals === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.tradingSignals &&
-    normalized.hmrPeriods === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.hmrPeriods &&
-    normalized.priceAlerts === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.priceAlerts &&
-    normalized.potentialStopOut === LEGACY_CHART_SHOW_ON_CHART_DEFAULTS.potentialStopOut
-  );
+  // The legacy-defaults reset path no longer applies under the buy/sell model.
+  return false;
 }

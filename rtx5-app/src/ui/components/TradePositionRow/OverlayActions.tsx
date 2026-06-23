@@ -46,7 +46,7 @@ export function OverlayActions({
         disabled={overlayActionLocked}
         onPress={onClose}
         activateOnPressIn
-        latencyLabel="tradeRow.closePosition.open"
+        latencyLabel="tradeRow.closePosition.submit"
         latencyBudgetMs={CRITICAL_TRADE_ACTION_MAX_LATENCY_MS}
         unstable_pressDelay={0}
         style={({ pressed }) => [

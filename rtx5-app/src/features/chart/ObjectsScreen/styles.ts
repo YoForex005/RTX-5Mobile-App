@@ -74,7 +74,7 @@ export function makeObjectsScreenStyles(_T: ThemeColors, isDark: boolean) {
       backgroundColor: isDark ? 'rgba(100,116,139,0.18)' : 'rgba(100,116,139,0.12)',
       alignItems: 'center', justifyContent: 'center',
     },
-    hiddenPillText: { color: secondaryText, fontSize: 11, fontWeight: '700' },
+    hiddenPillText: { color: secondaryText, fontSize: 11, fontWeight: '600' },
     emptyPanel: {
       alignItems: 'center', justifyContent: 'center',
       paddingVertical: 32, paddingHorizontal: 24,

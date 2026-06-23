@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Platform
+  Platform,
+  Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui/components/Screen';
@@ -15,8 +16,16 @@ import { safeRouterBack } from '../../utils/navigation';
 import { useUserPreferences } from '../../state/userPreferences';
 import { ThemeColors } from '../../ui/theme/glass';
 import { useTheme } from '../../ui/theme/useTheme';
+import {
+  CHART_SHOW_ON_CHART_ITEMS,
+  type ChartShowOnChartKey,
+} from './chartShowOnChart';
 
 
+const SHOW_ON_CHART_ICONS: Record<ChartShowOnChartKey, keyof typeof Ionicons.glyphMap> = {
+  buyTrade: 'trending-up-outline',
+  sellTrade: 'trending-down-outline',
+};
 
 export function ChartSettingsScreen() {
   const T = useTheme();
@@ -26,6 +35,14 @@ export function ChartSettingsScreen() {
 
   const priceSource = useUserPreferences((s) => s.priceSource);
   const openOrderMode = useUserPreferences((s) => s.openOrderMode);
+  const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
+  const setChartShowOnChartItem = useUserPreferences((s) => s.setChartShowOnChartItem);
+  const handleToggleShowOnChart = useCallback(
+    (key: ChartShowOnChartKey, value: boolean) => {
+      setChartShowOnChartItem(key, value);
+    },
+    [setChartShowOnChartItem],
+  );
 
   return (
     <Screen style={styles.screen}>
@@ -94,6 +111,24 @@ export function ChartSettingsScreen() {
         </View>
 
         <View style={styles.sectionHeader}>
+          <Ionicons name="funnel-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
+          <Text style={styles.sectionTitle}>SHOW ON CHART</Text>
+        </View>
+        <View style={styles.card}>
+          {CHART_SHOW_ON_CHART_ITEMS.map((item, index) => (
+            <React.Fragment key={item.key}>
+              <ToggleRow
+                item={item}
+                enabled={chartShowOnChart[item.key]}
+                isDark={isDark}
+                onValueChange={(value) => handleToggleShowOnChart(item.key, value)}
+                styles={styles}
+              />
+              {index < CHART_SHOW_ON_CHART_ITEMS.length - 1 && <View style={styles.separator} />}
+            </React.Fragment>
+          ))}
+        </View>
+        <View style={styles.sectionHeader}>
           <Ionicons name="menu-outline" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
           <Text style={styles.sectionTitle}>NAVIGATION</Text>
         </View>
@@ -116,6 +151,46 @@ export function ChartSettingsScreen() {
   );
 }
 
+function ToggleRow({
+  item,
+  enabled,
+  isDark,
+  onValueChange,
+  styles,
+}: {
+  item: (typeof CHART_SHOW_ON_CHART_ITEMS)[number];
+  enabled: boolean;
+  isDark: boolean;
+  onValueChange: (value: boolean) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const iconName = SHOW_ON_CHART_ICONS[item.key];
+  const accentColor = isDark ? '#60A5FA' : '#2563EB';
+
+  return (
+    <FastPressable
+      style={({ pressed }) => [styles.toggleRow, pressed && styles.rowPressed]}
+      onPress={() => onValueChange(!enabled)}
+      latencyLabel={`chartSettings.showOnChart.${item.key}`}
+    >
+      <View style={styles.toggleLeft}>
+        <View style={styles.toggleIconWrap}>
+          <Ionicons name={iconName} size={17} color={isDark ? '#94A3B8' : '#64748B'} />
+        </View>
+        <Text style={styles.toggleLabel} numberOfLines={1}>{item.label}</Text>
+      </View>
+      <Switch
+        pointerEvents="none"
+        value={enabled}
+        onValueChange={onValueChange}
+        trackColor={{ false: isDark ? 'rgba(148,163,184,0.24)' : '#CBD5E1', true: isDark ? 'rgba(96,165,250,0.42)' : '#BFDBFE' }}
+        thumbColor={enabled ? accentColor : (isDark ? '#CBD5E1' : '#FFFFFF')}
+        ios_backgroundColor={isDark ? 'rgba(148,163,184,0.24)' : '#CBD5E1'}
+        style={styles.toggleSwitch}
+      />
+    </FastPressable>
+  );
+}
 function NavRow({
   label,
   value,
@@ -179,8 +254,8 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '700',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     sectionHeader: {
       flexDirection: 'row',
@@ -192,9 +267,9 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     sectionTitle: {
       color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 11,
-      fontWeight: '800',
-      letterSpacing: 1.1,
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
     card: {
@@ -224,6 +299,38 @@ function makeStyles(_T: ThemeColors, isDark: boolean) {
     },
     rowPressed: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    },
+    toggleRow: {
+      minHeight: 56,
+      paddingHorizontal: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    toggleLeft: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      minWidth: 0,
+    },
+    toggleIconWrap: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(148,163,184,0.10)' : '#F1F5F9',
+    },
+    toggleLabel: {
+      flex: 1,
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      fontSize: 15,
+      fontWeight: '500',
+    },
+    toggleSwitch: {
+      transform: [{ scaleX: 0.86 }, { scaleY: 0.86 }],
     },
     rowLabel: {
       flex: 1,

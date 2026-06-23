@@ -13,6 +13,10 @@ export type LiveQuoteSnapshot = Partial<QuoteItem> & {
   dailyOpen?: number;
   previousClose?: number;
   updateSeq?: number;
+  // Last-known backend volume restored from disk on cold open. Display-only
+  // fallback shown until the live REST volume lands; deliberately kept separate
+  // from volume/volumeSource so it never feeds the refetch logic.
+  cachedVolume?: number;
 };
 
 const quoteSpecBySymbol = new Map(

@@ -2,12 +2,16 @@ import { StyleSheet } from 'react-native';
 import { spacing } from '../../../ui/theme/index';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
+const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+
 export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
-  // Premium dark palette: matches the QuotesScreen rotation. Deep slate-black
-  // screen background with a subtly elevated card surface for clear depth.
-  const cardBg = isDark ? '#0E141F' : T.glass2;
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : T.bg;
+  const cardBg = isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2;
+
   return StyleSheet.create({
-    list: { flex: 1 },
+    screen: { flex: 1, backgroundColor: screenBg },
+    list: { flex: 1, backgroundColor: screenBg },
     listContent: { paddingBottom: 32 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
@@ -22,17 +26,73 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
       backgroundColor: 'transparent',
     },
-    summaryLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-    floating: { fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5, marginTop: 2 },
+    summaryHeadlineRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      width: '100%',
+      gap: 12,
+    },
+    summaryHeadlineLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      letterSpacing: 0,
+      textTransform: 'uppercase',
+      flexShrink: 1,
+    },
+    summaryHeadlineValue: {
+      fontSize: 23,
+      fontWeight: '700',
+      letterSpacing: 0,
+      fontVariant: ['tabular-nums'],
+      textAlign: 'right',
+      flexShrink: 0,
+    },
+    summaryMetricRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      minHeight: 20,
+    },
+    summaryMetricLabel: {
+      fontSize: 11,
+      lineHeight: 18,
+      fontWeight: '600',
+      letterSpacing: 0,
+      textTransform: 'uppercase',
+    },
+    summaryMetricCurrency: {
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    summaryMetricLeader: {
+      flex: 1,
+      height: 1,
+      alignSelf: 'center',
+      marginHorizontal: 8,
+      borderBottomWidth: 1,
+      borderStyle: 'dotted',
+      borderBottomColor: isDark ? 'rgba(210,220,235,0.24)' : 'rgba(91,103,122,0.32)',
+    },
+    summaryMetricValue: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '600',
+      letterSpacing: 0,
+      fontVariant: ['tabular-nums'],
+      textAlign: 'right',
+    },
+    summaryLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0, textTransform: 'uppercase' },
+    floating: { fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0, marginTop: 2 },
     floatingPositive: { color: T.up },
     floatingNegative: { color: T.down },
     summaryHint: { marginTop: 4, fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
-    summaryMetrics: { paddingHorizontal: 16, paddingBottom: 14, gap: 8 },
-    metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: T.glass1, overflow: 'hidden' },
+    summaryMetrics: { paddingHorizontal: 16, paddingBottom: 14, gap: 7 },
+    metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: cardBg, overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     gridLabel: { fontSize: 12, fontWeight: '500' },
-    gridValue: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
+    gridValue: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0 },
     positionsHeader: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2,
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1,
@@ -41,15 +101,15 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
     positionsAccentBar: { width: 3, height: 32, borderRadius: 2 },
     positionsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     totalPnlBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-    totalPnlText: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] as any },
-    positionsTitle: { fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
-    positionsMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
+    totalPnlText: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
+    positionsTitle: { fontSize: 19, fontWeight: '600', letterSpacing: 0 },
+    positionsMeta: { marginTop: 2, fontSize: 13, fontWeight: '500' },
     bulkButton: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
     /* Empty state */
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-    emptyTitle: { fontSize: 16, fontWeight: '700', marginTop: 12 },
+    emptyTitle: { fontSize: 16, fontWeight: '600', marginTop: 12 },
     emptySub: { fontSize: 13, fontWeight: '500', marginTop: 4 },
-    bulkButtonText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
+    bulkButtonText: { fontSize: 11, fontWeight: '600', letterSpacing: 0, textTransform: 'uppercase' },
     oneClick: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 12, paddingHorizontal: spacing.md,
       borderRadius: 16, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -61,7 +121,7 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
     oneClickTitle: { fontSize: 15, fontWeight: '700' },
     oneClickSub: { fontSize: 12, fontWeight: '500', marginTop: 2 },
     statusPill: { paddingHorizontal: 11, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
-    statusPillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+    statusPillText: { fontSize: 10, fontWeight: '600', letterSpacing: 0 },
     /* Header */
     headerGrad: { paddingBottom: 0 },
     headerRow: {
@@ -93,9 +153,9 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
     plMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
     /* Balance */
     balanceQuick: { alignItems: 'flex-end', justifyContent: 'center' },
-    balanceQuickLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
-    balanceQuickValue: { fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5, marginTop: 2 },
-    balanceQuickCurrency: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
+    balanceQuickLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0, marginBottom: 2 },
+    balanceQuickValue: { fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0, marginTop: 2 },
+    balanceQuickCurrency: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
     equityRow: { flexDirection: 'row', alignItems: 'center' },
     equityLabel: { fontSize: 12, fontWeight: '600' },
     equityValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
@@ -105,13 +165,13 @@ export function makeTradeScreenStyles(T: ThemeColors, isDark: boolean) {
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4,
     },
     exposureHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    exposureSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+    exposureSectionTitle: { fontSize: 11, fontWeight: '600', letterSpacing: 0, textTransform: 'uppercase' },
     exposureCount: { fontSize: 11, fontWeight: '600' },
     exposureRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
     exposureSymbol: { width: 50, fontSize: 12, fontWeight: '700' },
     exposureBarWrap: { flex: 1, height: 10, borderRadius: 5, marginHorizontal: 8, overflow: 'hidden', justifyContent: 'center' },
     exposureBar: { height: 10, borderRadius: 5 },
-    exposureNet: { width: 80, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'], textAlign: 'right' },
+    exposureNet: { width: 80, fontSize: 11, fontWeight: '600', fontVariant: ['tabular-nums'], textAlign: 'right' },
   });
 }
 

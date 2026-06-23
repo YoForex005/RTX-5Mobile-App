@@ -41,13 +41,13 @@ import { makeTradeScreenStyles } from './styles';
 const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
 const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
 const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
-// Live WS quote subscriptions activate quickly so values tick almost immediately
-// on open, MT5-style. Visible rows own their fast tick listeners; the header keeps
-// a lightweight aggregate subscription for Floating P/L.
-const TRADE_SCREEN_LIVE_DELAY_MS = 0;
-// The REST positions re-fetch stays deferred so quick tab visits don't hammer the
-// slow /positions endpoint on every focus (cached positions hydrate instantly).
-const TRADE_SCREEN_FETCH_DELAY_MS = 8000;
+// Live WS quote subscriptions start as soon as Trade is focused, MT5-style.
+// The heavier backend ledger refresh still waits for first paint below.
+// MT5 shows cached rows immediately, then keeps the live trade ledger current.
+// Start the backend verification as soon as the first paint lands and keep a
+// focused fallback poll for new/closed positions when websocket events lag.
+const TRADE_SCREEN_FETCH_DELAY_MS = 0;
+const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000;
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>) {
   if (left.size !== right.size) {
@@ -135,16 +135,32 @@ export function TradeScreen() {
     };
   }, []);
 
-  // Live quote subscriptions come alive fast; the slow REST re-fetch stays deferred.
-  const tradeLiveActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS);
+  // Live quotes should not wait behind the REST ledger work. The rows need the
+  // websocket bid/ask stream as soon as the Trade tab is focused.
+  const tradeLiveActive = isScreenFocused && !sidebarOpen;
   const tradeFetchActive = useDeferredActiveFlag(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS);
 
-  // Fetch only after the route has painted once so sidebar navigation is visual first,
-  // then data refresh starts in the background.
+  // Fetch only after the route has painted once so sidebar navigation is visual
+  // first, then keep a short MT5-style fallback poll while Trade remains open.
   useEffect(() => {
-    if (tradeFetchActive && resolvedLogin) {
-      fetchPositions();
+    if (!tradeFetchActive || !resolvedLogin) {
+      return undefined;
     }
+
+    let cancelled = false;
+    const refreshVisibleTradeLedger = () => {
+      if (!cancelled) {
+        void fetchPositions();
+      }
+    };
+
+    refreshVisibleTradeLedger();
+    const refreshIntervalId = setInterval(refreshVisibleTradeLedger, TRADE_SCREEN_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(refreshIntervalId);
+    };
   }, [tradeFetchActive, resolvedLogin, fetchPositions]);
   const positionRowsActive = tradeLiveActive;
 
@@ -159,6 +175,10 @@ export function TradeScreen() {
     // status changed after scrolling.
     () => `${positionRowsActive ? '1' : '0'}:${Array.from(viewablePositionIds).sort().join('|')}`,
     [positionRowsActive, viewablePositionIds],
+  );
+  const flatListExtraData = useMemo(
+    () => ({ rowActivationKey }),
+    [rowActivationKey],
   );
 
   const handleViewablePositionRowsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item?: PositionItem | null }> }) => {
@@ -182,19 +202,40 @@ export function TradeScreen() {
 
   const bulkActionSheetConfig = useMemo<Parameters<typeof showTradeActionSheet>[0]>(() => {
     const actions: Parameters<typeof showTradeActionSheet>[0]['actions'] = [
-      { label: t('Close All Positions'), danger: true, onPress: () => navigateToBulkMode('all') },
-      { label: t('Close Profitable Positions'), danger: true, onPress: () => navigateToBulkMode('profitable') },
-      { label: t('Close Losing Positions'), danger: true, onPress: () => navigateToBulkMode('losing') },
-      { label: t('Close Buy Positions'), danger: true, onPress: () => navigateToBulkMode('buy') },
+      {
+        icon: <Ionicons name="close-circle-outline" size={20} color={T.trading.sell.primary} />,
+        label: t('Close All Positions'),
+        danger: true,
+        onPress: () => navigateToBulkMode('all'),
+      },
+      {
+        icon: <Ionicons name="trending-up-outline" size={20} color={T.trading.sell.primary} />,
+        label: t('Close Profitable Positions'),
+        danger: true,
+        onPress: () => navigateToBulkMode('profitable'),
+      },
+      {
+        icon: <Ionicons name="trending-down-outline" size={20} color={T.trading.sell.primary} />,
+        label: t('Close Losing Positions'),
+        danger: true,
+        onPress: () => navigateToBulkMode('losing'),
+      },
+      {
+        icon: <Ionicons name="arrow-up-circle-outline" size={20} color={T.trading.sell.primary} />,
+        label: t('Close Buy Positions'),
+        danger: true,
+        onPress: () => navigateToBulkMode('buy'),
+      },
     ];
 
     return {
-      title: t('Bulk Operations'),
+      presentation: 'mt5Plain',
+      showActionIcons: true,
       detent: 'auto',
       instantOpen: true,
       actions,
     };
-  }, [navigateToBulkMode, showTradeActionSheet, t]);
+  }, [T.trading.sell.primary, navigateToBulkMode, showTradeActionSheet, t]);
 
   const showBulkSheet = useCallback(() => {
     runImmediateAction('trade.bulkSheet.open', () => showTradeActionSheet(bulkActionSheetConfig));
@@ -203,19 +244,42 @@ export function TradeScreen() {
   const showPositionSheet = useCallback((item: PositionItem) => {
     runImmediateAction('trade.positionSheet.open', () =>
       showTradeActionSheet({
-        title: `#${item.id} ${item.symbol.replace(/\//g, '')} ${item.side} ${(item.volume || 0).toFixed(2)}`,
-        detent: 'adaptive',
+        presentation: 'mt5Plain',
+        showActionIcons: true,
+        detent: 'auto',
         instantOpen: true,
         actions: [
-          { label: t('Close position'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); } },
-          { label: t('Close By'), danger: true, onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); } },
-          { label: t('Modify position'), onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); } },
-          { label: t('Trade'), onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); } },
-          { label: t('Chart'), onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); } },
+          {
+            icon: <Ionicons name="close-circle-outline" size={20} color={T.trading.sell.primary} />,
+            label: t('Close position'),
+            danger: true,
+            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-position', params: { positionId: item.id } }); },
+          },
+          {
+            icon: <Ionicons name="git-compare-outline" size={20} color={T.trading.sell.primary} />,
+            label: t('Close By'),
+            danger: true,
+            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/close-by', params: { positionId: item.id } }); },
+          },
+          {
+            icon: <Ionicons name="create-outline" size={20} color={T.textMuted} />,
+            label: t('Modify position'),
+            onPress: () => { primePositionSnapshot(item); router.push({ pathname: '/trade/modify-position', params: { positionId: item.id } }); },
+          },
+          {
+            icon: <Ionicons name="swap-horizontal-outline" size={20} color={T.textMuted} />,
+            label: t('Trade'),
+            onPress: () => { prefetchOrderTicketData(String(resolvedLogin ?? ''), item.symbol); router.push({ pathname: '/trade/order-ticket', params: { symbol: item.symbol } }); },
+          },
+          {
+            icon: <Ionicons name="analytics-outline" size={20} color={T.textMuted} />,
+            label: t('Chart'),
+            onPress: () => { setChartSymbol(item.symbol); router.push('/(tabs)/chart'); },
+          },
         ],
       }),
     );
-  }, [primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
+  }, [T.textMuted, T.trading.sell.primary, primePositionSnapshot, resolvedLogin, setChartSymbol, showTradeActionSheet, t]);
 
   const renderPositionRow = useCallback(({ item, index }: { item: PositionItem; index: number }) => {
     // Keep the first visible batch live immediately; below-fold rows only start
@@ -237,7 +301,7 @@ export function TradeScreen() {
   }, [pnlCurrency, positionRowsActive, showBulkSheet, showPositionSheet, viewablePositionIds]);
 
   return (
-    <Screen noBottomInset style={isDark ? { backgroundColor: '#06080D' } : undefined}>
+    <Screen noBottomInset style={s.screen}>
       <AppHeader title={t('Trade')} noBorder />
       <TradeSummaryHeader
         positions={renderablePositions}
@@ -264,7 +328,7 @@ export function TradeScreen() {
         removeClippedSubviews={true}
         viewabilityConfig={TRADE_POSITION_VIEWABILITY_CONFIG}
         onViewableItemsChanged={handleViewablePositionRowsChanged}
-        extraData={rowActivationKey}
+        extraData={flatListExtraData}
         renderItem={renderPositionRow}
         ListEmptyComponent={
           <View style={s.emptyState}>

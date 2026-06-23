@@ -265,11 +265,25 @@ export class QuotesWebSocketService implements TickProcessorBridge, FlushPipelin
 
   /** @internal Used by `processTick`. */
   public emitSymbolTick(symbol: string, tick: QuoteTickEvent): void {
-    const bucket = this.symbolListeners.get(normalizeQuoteSymbolKey(symbol));
-    if (!bucket || bucket.size === 0) {
+    const listenerKeys = new Set([
+      ...resolveQuoteListenerKeys(symbol),
+      ...resolveQuoteListenerKeys(tick.symbol),
+      ...(tick.rawSymbol ? resolveQuoteListenerKeys(tick.rawSymbol) : []),
+    ]);
+    const listeners = new Set<SymbolTickListener>();
+
+    listenerKeys.forEach((key) => {
+      const bucket = this.symbolListeners.get(key);
+      if (!bucket || bucket.size === 0) {
+        return;
+      }
+      bucket.forEach((listener) => listeners.add(listener));
+    });
+
+    if (listeners.size === 0) {
       return;
     }
-    bucket.forEach((listener) => {
+    listeners.forEach((listener) => {
       try {
         listener(tick);
       } catch (error) {

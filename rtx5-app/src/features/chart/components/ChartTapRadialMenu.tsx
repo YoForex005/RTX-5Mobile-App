@@ -146,8 +146,8 @@ const createStyles = (isDark: boolean) =>
       color: '#FFFFFF',
       fontSize: 13,
       lineHeight: 14,
-      fontWeight: '800',
-      letterSpacing: -0.1,
+      fontWeight: '600',
+      letterSpacing: 0,
       opacity: 0.95,
       textAlign: 'center',
       includeFontPadding: false,
@@ -189,7 +189,7 @@ const createStyles = (isDark: boolean) =>
     centerActionLabel: {
       color: '#FFFFFF',
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.4,
     },
     innerDismissArea: {

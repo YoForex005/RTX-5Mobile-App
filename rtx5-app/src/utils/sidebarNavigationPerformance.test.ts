@@ -141,16 +141,21 @@ test('trade sidebar route defers position refresh until after route paint', () =
   const source = readSource('src/features/trade/TradeScreen/TradeScreen.tsx');
 
   assert.match(source, /import \{ useDeferredActiveFlag \} from '..\/..\/..\/hooks\/useDeferredActiveFlag'/);
-  assert.match(source, /const TRADE_SCREEN_LIVE_DELAY_MS = 350/);
-  assert.match(source, /const TRADE_SCREEN_FETCH_DELAY_MS = 8000/);
+  assert.match(source, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
+  assert.match(source, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
   assert.match(source, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(source, /requestAnimationFrame\(markReady\)/);
   assert.match(source, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
-  // Live quote subscriptions (rows + summary) activate fast; REST re-fetch stays deferred.
-  assert.match(source, /const tradeLiveActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS\)/);
+  // Live quote subscriptions are lightweight and start immediately on focus;
+  // backend ledger refresh remains deferred until after the route paints.
+  assert.match(source, /const tradeLiveActive = isScreenFocused && !sidebarOpen/);
   assert.match(source, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS\)/);
-  assert.match(source, /if \(tradeFetchActive && resolvedLogin\) \{\s*fetchPositions\(\);/);
+  assert.match(source, /if \(!tradeFetchActive \|\| !resolvedLogin\) \{/);
+  assert.match(source, /refreshVisibleTradeLedger\(\);[\s\S]*setInterval\(refreshVisibleTradeLedger, TRADE_SCREEN_REFRESH_INTERVAL_MS\)/);
+  assert.match(source, /clearInterval\(refreshIntervalId\)/);
   assert.match(source, /const positionRowsActive = tradeLiveActive/);
+  assert.match(source, /quotesWsService\.setSubscriptions\(liveQuoteSymbols\)/);
+  assert.match(source, /quotesWsService\.setSubscriptions\(\[\]\)/);
   assert.doesNotMatch(source, /if \(isScreenFocused && resolvedLogin\) \{\s*fetchPositions\(\);/);
 });
 

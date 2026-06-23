@@ -95,7 +95,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   eyebrow: {
     color: T.textMuted,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
     textAlign: 'center',
@@ -104,7 +104,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     color: T.text,
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textAlign: 'center',
   },
@@ -137,7 +137,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   statusText: {
     color: T.text,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
@@ -179,14 +179,14 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   metricValue: {
     color: T.text,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     fontVariant: ['tabular-nums'],
   },
   metricLabel: {
     color: T.textMuted,
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
     marginTop: 3,
     letterSpacing: 0,
     textTransform: 'uppercase',
@@ -248,7 +248,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   coverageValue: {
     color: T.text,
     fontSize: 23,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     fontVariant: ['tabular-nums'],
   },
@@ -256,7 +256,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     color: T.textMuted,
     fontSize: 10,
     lineHeight: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     marginTop: 3,
     letterSpacing: 0,
     textTransform: 'uppercase',
@@ -264,7 +264,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   coverageTitle: {
     color: T.text,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
   },
   coverageText: {
@@ -309,7 +309,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   },
   pillText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
@@ -317,7 +317,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     color: T.text,
     fontSize: 17,
     lineHeight: 24,
-    fontWeight: '800',
+    fontWeight: '600',
     marginTop: spacing.md,
     letterSpacing: 0,
   },
@@ -354,7 +354,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   sectionTitle: {
     color: T.text,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
   },
   sectionSubtitle: {
@@ -371,7 +371,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
     backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(15,23,42,0.06)',
     color: T.textSub,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     textAlign: 'center',
     lineHeight: 22,
     overflow: 'hidden',
@@ -414,7 +414,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   metaText: {
     color: T.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 0,
   },
   metaSeparator: {
@@ -426,7 +426,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   categoryLabel: {
     color: T.accent,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
@@ -458,7 +458,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   },
   compactPillText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
@@ -480,7 +480,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   tagText: {
     color: T.textSub,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 0,
   },
   guardrailList: {
@@ -518,7 +518,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   guardrailTitle: {
     color: T.text,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
   },
   guardrailText: {
@@ -551,7 +551,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   stepBulletText: {
     color: T.accent,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   stepText: {
@@ -607,7 +607,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   trustTitle: {
     color: T.textSub,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
@@ -640,7 +640,7 @@ export const makeSettingsEnterpriseScreenStyles = (T: ThemeColors, isDark: boole
   emptyTitle: {
     color: T.text,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     textAlign: 'center',
   },

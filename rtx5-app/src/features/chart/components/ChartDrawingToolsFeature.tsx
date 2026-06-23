@@ -47,6 +47,8 @@ type ChartDrawingToolsSidebarProps = {
 type ChartDrawingToolsActionSheetProps = {
   chartHideAll: boolean;
   chartLockAll: boolean;
+  dangerIconColor?: string;
+  iconColor?: string;
   magnetEnabled: boolean;
   minimumTopInset?: number;
   onClearDrawings: () => void;
@@ -283,6 +285,8 @@ export function ChartDrawingToolsSidebar({
 export function ChartDrawingToolsActionSheet({
   chartHideAll,
   chartLockAll,
+  dangerIconColor = '#DC2626',
+  iconColor = '#64748B',
   magnetEnabled,
   minimumTopInset,
   onClearDrawings,
@@ -300,13 +304,16 @@ export function ChartDrawingToolsActionSheet({
     <ActionSheet
       visible={visible}
       onClose={onClose}
-      title="Drawing Tools"
+      presentation="mt5Plain"
+      showActionIcons
       minimumTopInset={minimumTopInset}
       detent="adaptive"
       instantOpen
       actions={createDrawingToolsActionSheetActions({
         chartHideAll,
         chartLockAll,
+        dangerIconColor,
+        iconColor,
         magnetEnabled,
         onClearDrawings,
         onSelectTool,

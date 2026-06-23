@@ -45,10 +45,10 @@ export const tradePositionRowStyles = StyleSheet.create({
     flex: 1,
   },
   symbol: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   sideBadge: {
     borderRadius: 3,
@@ -57,19 +57,19 @@ export const tradePositionRowStyles = StyleSheet.create({
   },
   sideText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'lowercase',
-    letterSpacing: 0.3,
+    letterSpacing: 0,
   },
   volume: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   pnl: {
     minWidth: 126,
     textAlign: 'right',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     fontVariant: ['tabular-nums'],
   },
@@ -85,15 +85,15 @@ export const tradePositionRowStyles = StyleSheet.create({
     gap: 3,
   },
   price: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },
   arrow: {
     marginHorizontal: 4,
   },
   dateRight: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
@@ -106,10 +106,10 @@ export const tradePositionRowStyles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     left: 8,
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 11,
+    fontWeight: '500',
     fontVariant: ['tabular-nums'],
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   slTpRow: {
     flexDirection: 'row',
@@ -128,10 +128,10 @@ export const tradePositionRowStyles = StyleSheet.create({
     backgroundColor: 'rgba(150,150,150,0.05)',
   },
   slTpText: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
-    letterSpacing: 0.3,
+    letterSpacing: 0,
   },
 
   /* ── Expanded Details ── */
@@ -149,14 +149,14 @@ export const tradePositionRowStyles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.6,
+    fontWeight: '600',
+    letterSpacing: 0,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
   detailValue: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   modBadge: {

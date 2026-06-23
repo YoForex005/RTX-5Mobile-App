@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { PriceAlert } from '../../api/alerts';
-import type { LoginOrder } from '../../api/orders';
-import type { ClosedPosition } from '../../api/positions';
 import {
   buildChartOverlayPayload,
   CHART_LINE_STYLE,
@@ -39,6 +36,9 @@ const candles: ChartOverlayCandle[] = Array.from({ length: 40 }, (_, index) => {
   };
 });
 
+const BOTH_SIDES = { buyTrade: true, sellTrade: true } as const;
+const NO_SIDES = { buyTrade: false, sellTrade: false } as const;
+
 test('normalizeChartOverlaySymbol strips broker suffix variants consistently', () => {
   // Separator-based suffixes
   assert.equal(normalizeChartOverlaySymbol('EURUSDm'), 'EURUSD');
@@ -65,37 +65,7 @@ test('normalizeChartOverlaySymbol strips broker suffix variants consistently', (
   assert.equal(normalizeChartOverlaySymbol('BTCUSD'), 'BTCUSD');
 });
 
-test('buildChartOverlayPayload maps active positions, alerts, and closed history for the chart symbol', () => {
-  const closedPositions: ClosedPosition[] = [
-    {
-      ticket: 99,
-      account_login: 1,
-      symbol: 'EURUSDm',
-      side: 'buy',
-      volume: 0.1,
-      price_open: 1.101,
-      price_close: candles[20].close,
-      profit: 12,
-      swap: 0,
-      commission: 0,
-      time_create: candles[18].time,
-      time_update: candles[20].time,
-      time_close: candles[20].time,
-    },
-  ];
-
-  const alerts: PriceAlert[] = [
-    {
-      id: 7,
-      symbol: 'EURUSD',
-      condition: 'above',
-      price: 1.133,
-      message: 'Breakout',
-      triggered: false,
-      created_at: candles[10].time,
-    },
-  ];
-
+test('buildChartOverlayPayload maps open positions for the chart symbol with their SL/TP', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',
     candles,
@@ -125,41 +95,26 @@ test('buildChartOverlayPayload maps active positions, alerts, and closed history
         openTime: new Date(candles[6].time * 1000).toISOString(),
       },
     ],
-    closedPositions,
-    alerts,
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
-    liveAccount: {
-      equity: 5_000,
-      margin: 1_000,
-      marginLevel: 500,
-    },
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: true,
-      closedPositions: true,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: true,
-      potentialStopOut: true,
-    },
+    liveAccount: null,
+    showOnChart: BOTH_SIDES,
   });
 
+  // Only the EURUSD position is in-symbol; the GBPUSD one is excluded.
   assert.deepEqual(
     payload.priceLines.map((line: any) => line.id).sort(),
-    ['sl-1', 'open-1', 'tp-1', 'alert-7', 'potential-stop-out'].sort(),
+    ['sl-1', 'open-1', 'tp-1'].sort(),
   );
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-1');
   assert.equal(openLine?.lineStyle, CHART_LINE_STYLE.Dotted);
   assert.equal(openLine?.title, 'BUY 0.20, +42.00 USD');
   assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
   assert.equal(openLine?.labelPlacement, 'line');
-  assert.equal(payload.priceLines.find((line: any) => line.id === 'alert-7')?.title, 'ALERT ABOVE');
-  assert.equal(payload.markers.length, 1);
-  assert.equal(payload.markers[0].id, 'closed-99');
+  assert.equal(payload.markers.length, 0);
 });
 
-test('buildChartOverlayPayload removes SL/TP lines once the hit position is no longer active', () => {
+test('buildChartOverlayPayload drops a position and its SL/TP once it is no longer active', () => {
   const openPosition = {
     id: 'hit-501',
     symbol: 'EURUSD',
@@ -173,25 +128,15 @@ test('buildChartOverlayPayload removes SL/TP lines once the hit position is no l
     sl: 1.106,
     tp: 1.116,
   };
-  const showOnChart = {
-    openPositions: true,
-    tpSlStopLimit: true,
-    closedPositions: true,
-    tradingSignals: false,
-    hmrPeriods: false,
-    priceAlerts: false,
-    potentialStopOut: false,
-  };
 
   const beforeHit = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',
     candles,
     positions: [openPosition],
-    closedPositions: [],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart,
+    showOnChart: BOTH_SIDES,
   });
 
   assert.deepEqual(
@@ -203,31 +148,14 @@ test('buildChartOverlayPayload removes SL/TP lines once the hit position is no l
     chartSymbol: 'EURUSD',
     candles,
     positions: [],
-    closedPositions: [
-      {
-        ticket: 501,
-        account_login: 1,
-        symbol: 'EURUSD',
-        side: 'buy',
-        volume: 0.1,
-        price_open: 1.111,
-        price_close: 1.116,
-        profit: 50,
-        swap: 0,
-        commission: 0,
-        time_create: candles[5].time,
-        time_update: candles[10].time,
-        time_close: candles[10].time,
-      },
-    ],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart,
+    showOnChart: BOTH_SIDES,
   });
 
   assert.deepEqual(afterHit.priceLines, []);
-  assert.equal(afterHit.markers[0]?.id, 'closed-501');
+  assert.deepEqual(afterHit.markers, []);
 });
 
 test('buildChartOverlayPayload updates open position labels from live bid and ask prices', () => {
@@ -277,15 +205,7 @@ test('buildChartOverlayPayload updates open position labels from live bid and as
     liveBid: 61025.3,
     liveAsk: 60950,
     liveAccount: null,
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: BOTH_SIDES,
   });
 
   const titleById = new Map(payload.priceLines.map((line: any) => [line.id, line.title]));
@@ -321,15 +241,7 @@ test('buildChartOverlayPayload keeps open position pnl live when one quote side 
     sellColor: '#EF5350',
     liveBid: 1.199,
     liveAccount: null,
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: BOTH_SIDES,
   });
 
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-sell-one-sided');
@@ -337,74 +249,84 @@ test('buildChartOverlayPayload keeps open position pnl live when one quote side 
   assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
 });
 
-test('buildChartOverlayPayload adds active pending stop and limit orders to TP/SL/Stop/Limit overlays', () => {
-  const orders: LoginOrder[] = [
+test('buildChartOverlayPayload filters open trades by side via the buy/sell toggles', () => {
+  const positions = [
     {
-      ticket: 55,
-      account_login: 1,
-      symbol: 'EURUSDm',
-      type: 'buy_limit',
-      side: 'buy',
-      volume: 0.15,
-      price_open: 1.1095,
-      price_sl: 1.1045,
-      price_tp: 1.1155,
-      status: 'pending',
-      comment: '',
-      time_setup: candles[12].time,
-      time_done: 0,
+      id: 'buy-1',
+      symbol: 'EURUSD',
+      side: 'buy' as const,
+      volume: 0.1,
+      openPrice: 1.11,
+      currentPrice: 1.115,
+      pnl: 10,
+      swap: 0,
+      openTime: new Date(candles[5].time * 1000).toISOString(),
     },
     {
-      ticket: 56,
-      account_login: 1,
+      id: 'sell-1',
       symbol: 'EURUSDm',
-      type: 'sell_stop',
-      side: 'sell',
+      side: 'sell' as const,
       volume: 0.1,
-      price_open: 1.0985,
-      status: 'canceled',
-      comment: '',
-      time_setup: candles[13].time,
-      time_done: candles[14].time,
+      openPrice: 1.12,
+      currentPrice: 1.115,
+      pnl: 10,
+      swap: 0,
+      openTime: new Date(candles[6].time * 1000).toISOString(),
     },
   ];
 
-  const payload = buildChartOverlayPayload({
+  const buyOnly = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',
     candles,
-    positions: [],
-    orders,
+    positions,
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: {
-      openPositions: false,
-      tpSlStopLimit: true,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: { buyTrade: true, sellTrade: false },
   });
-
   assert.deepEqual(
-    payload.priceLines.map((line: any) => line.id).sort(),
-    ['order-entry-55', 'order-sl-55', 'order-tp-55'].sort(),
+    buyOnly.priceLines.map((line: any) => line.id),
+    ['open-buy-1'],
   );
-  assert.equal(payload.priceLines.find((line: any) => line.id === 'order-entry-55')?.title, 'BUY LIMIT 0.15');
-  assert.equal(payload.priceLines.find((line: any) => line.id === 'order-entry-55')?.lineStyle, CHART_LINE_STYLE.Solid);
+
+  const sellOnly = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions,
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: { buyTrade: false, sellTrade: true },
+  });
+  assert.deepEqual(
+    sellOnly.priceLines.map((line: any) => line.id),
+    ['open-sell-1'],
+  );
+
+  const both = buildChartOverlayPayload({
+    chartSymbol: 'EURUSD',
+    candles,
+    positions,
+    colors: TEST_CHART_COLORS,
+    sellColor: '#EF5350',
+    liveAccount: null,
+    showOnChart: BOTH_SIDES,
+  });
+  assert.deepEqual(
+    both.priceLines.map((line: any) => line.id).sort(),
+    ['open-buy-1', 'open-sell-1'].sort(),
+  );
 });
 
-test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind toggle state', () => {
-  const signalCandles = candles.map((candle, index) => ({
+test('buildChartOverlayPayload still renders pattern markers from the drawing tool regardless of trade toggles', () => {
+  const patternCandles = candles.map((candle, index) => ({
     ...candle,
     close: candle.open + index * 0.0003,
     high: candle.open + index * 0.0003 + 0.0007,
     low: candle.open + index * 0.0003 - 0.0008,
   }));
-  signalCandles[6] = {
-    ...signalCandles[6],
+  patternCandles[6] = {
+    ...patternCandles[6],
     open: 1.204,
     close: 1.2044,
     high: 1.20445,
@@ -413,29 +335,20 @@ test('buildChartOverlayPayload keeps pattern, signal, and HMR markers behind tog
 
   const payload = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',
-    candles: signalCandles,
+    candles: patternCandles,
     positions: [],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: {
-      openPositions: false,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: true,
-      hmrPeriods: true,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: NO_SIDES,
     activeTool: 'patterns',
   });
 
-  assert.ok(payload.markers.some((marker: any) => marker.id.startsWith('signal-')));
-  assert.ok(payload.markers.some((marker: any) => marker.id.startsWith('hmr-')));
+  assert.equal(payload.priceLines.length, 0);
   assert.ok(payload.markers.some((marker: any) => marker.id.startsWith('pattern-')));
 });
 
-test('buildChartOverlayPayload returns one shared empty payload when all overlays are disabled', () => {
+test('buildChartOverlayPayload returns one shared empty payload when both trade sides are disabled', () => {
   const baseInput = {
     chartSymbol: 'BTCUSD',
     candles,
@@ -452,37 +365,10 @@ test('buildChartOverlayPayload returns one shared empty payload when all overlay
         openTime: new Date(candles[5].time * 1000).toISOString(),
       },
     ],
-    orders: [
-      {
-        ticket: 55,
-        account_login: 1,
-        symbol: 'BTCUSD',
-        type: 'buy_limit',
-        side: 'buy' as const,
-        volume: 0.1,
-        price_open: 71000,
-        status: 'pending',
-        comment: '',
-        time_setup: candles[8].time,
-        time_done: 0,
-      },
-    ] satisfies LoginOrder[],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
-    liveAccount: {
-      equity: 5_000,
-      margin: 1_000,
-      marginLevel: 500,
-    },
-    showOnChart: {
-      openPositions: false,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    liveAccount: null,
+    showOnChart: NO_SIDES,
   };
 
   const payloadA = buildChartOverlayPayload(baseInput);
@@ -495,7 +381,7 @@ test('buildChartOverlayPayload returns one shared empty payload when all overlay
   assert.deepEqual(payloadA, { priceLines: [], markers: [] });
 });
 
-test('buildChartOverlayPayload follows the show-on-chart flags without any secondary trade-level gate', () => {
+test('buildChartOverlayPayload shows or hides trades directly from the buy/sell toggles', () => {
   const baseInput = {
     chartSymbol: 'EURUSD',
     candles,
@@ -516,37 +402,17 @@ test('buildChartOverlayPayload follows the show-on-chart flags without any secon
     ],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
-    liveAccount: {
-      equity: 5_000,
-      margin: 1_000,
-      marginLevel: 500,
-    },
-    showOnChart: {
-      openPositions: false,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    liveAccount: null,
+    showOnChart: NO_SIDES,
   };
 
   const visiblePayload = buildChartOverlayPayload({
     ...baseInput,
-    showOnChart: {
-      ...baseInput.showOnChart,
-      openPositions: true,
-      tpSlStopLimit: true,
-    },
+    showOnChart: BOTH_SIDES,
   });
   const hiddenPayload = buildChartOverlayPayload({
     ...baseInput,
-    showOnChart: {
-      ...baseInput.showOnChart,
-      openPositions: false,
-      tpSlStopLimit: false,
-    },
+    showOnChart: NO_SIDES,
   });
 
   assert.deepEqual(
@@ -589,15 +455,7 @@ test('buildChartOverlayPayload matches all open positions across slash and suffi
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: true,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: BOTH_SIDES,
   });
 
   assert.deepEqual(
@@ -637,15 +495,7 @@ test('buildChartOverlayPayload keeps each stacked open position line visible', (
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: false,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: BOTH_SIDES,
   });
 
   const stackedLines = payload.priceLines.filter((line: any) => line.price === 1.34266);

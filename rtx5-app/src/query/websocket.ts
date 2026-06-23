@@ -23,18 +23,36 @@ import { buildRestQuoteTickEvent } from './restQuoteTick';
 const LIVE_QUOTE_STALE_MS = 45_000;
 const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16;
 const LIVE_SYMBOL_REST_SNAPSHOT_POLL_MS = 1_000;
+const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000;
 const EMPTY_LIVE_QUOTES: Record<string, any> = Object.freeze({});
 
 type LiveSymbolQuoteListener = (tick: QuoteTickEvent) => void;
+type LiveSymbolDirectTickAnchor = () => number;
 
 type RestQuoteFallbackEntry = {
   symbol: string;
   listeners: Set<LiveSymbolQuoteListener>;
+  directTickAnchors: Map<LiveSymbolQuoteListener, LiveSymbolDirectTickAnchor>;
   timer: ReturnType<typeof setInterval> | null;
   inFlight: boolean;
 };
 
 const restQuoteFallbackEntries = new Map<string, RestQuoteFallbackEntry>();
+
+const hasRecentDirectSymbolTick = (entry: RestQuoteFallbackEntry, now = Date.now()): boolean => {
+  for (const getDirectTickAt of entry.directTickAnchors.values()) {
+    const directTickAt = getDirectTickAt();
+    if (
+      Number.isFinite(directTickAt) &&
+      directTickAt > 0 &&
+      now - directTickAt <= LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 function getQuoteFreshnessAnchorMs(liveQuote?: Partial<QuoteItem>): number | null {
   return (
@@ -112,6 +130,10 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
     return;
   }
 
+  if (hasRecentDirectSymbolTick(entry)) {
+    return;
+  }
+
   const liveQuote = useTradingState.getState().quotes[entry.symbol];
   if (isFreshLiveQuote(liveQuote)) {
     return;
@@ -147,6 +169,10 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
       return;
     }
 
+    if (hasRecentDirectSymbolTick(entry)) {
+      return;
+    }
+
     publishQuoteTickToSharedStores(selectedTick);
     entry.listeners.forEach((listener) => {
       try {
@@ -165,6 +191,7 @@ const fetchRestQuoteSnapshotForEntry = async (entry: RestQuoteFallbackEntry): Pr
 const subscribeLiveSymbolRestQuoteFallback = (
   symbol: string,
   listener: LiveSymbolQuoteListener,
+  getDirectTickAt?: LiveSymbolDirectTickAnchor,
 ): (() => void) => {
   const normalizedSymbol = normalizeSymbol(symbol);
   if (!normalizedSymbol) {
@@ -176,6 +203,7 @@ const subscribeLiveSymbolRestQuoteFallback = (
     entry = {
       symbol: normalizedSymbol,
       listeners: new Set(),
+      directTickAnchors: new Map(),
       timer: null,
       inFlight: false,
     };
@@ -183,6 +211,7 @@ const subscribeLiveSymbolRestQuoteFallback = (
   }
 
   entry.listeners.add(listener);
+  entry.directTickAnchors.set(listener, getDirectTickAt ?? (() => 0));
   void fetchRestQuoteSnapshotForEntry(entry);
   if (!entry.timer) {
     entry.timer = setInterval(() => {
@@ -199,6 +228,7 @@ const subscribeLiveSymbolRestQuoteFallback = (
       return;
     }
     activeEntry.listeners.delete(listener);
+    activeEntry.directTickAnchors.delete(listener);
     if (activeEntry.listeners.size > 0) {
       return;
     }
@@ -439,6 +469,7 @@ export function useLiveSymbolQuote(
   );
   const [liveQuote, setLiveQuote] = React.useState<Partial<QuoteItem> | undefined>(seedQuote);
   const liveQuoteRef = React.useRef<Partial<QuoteItem> | undefined>(seedQuote);
+  const directQuoteTickAtRef = React.useRef(0);
   const quoteCommitAnimationFrameRef = React.useRef<number | null>(null);
   const quoteCommitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -502,11 +533,12 @@ export function useLiveSymbolQuote(
     if (!isActive || !normalizedSymbol) {
       cancelScheduledCommit();
       liveQuoteRef.current = undefined;
+      directQuoteTickAtRef.current = 0;
       setLiveQuote(undefined);
       return;
     }
 
-    const listener = (tick: {
+    const applyQuoteTick = (tick: {
       symbol: string;
       bid: number;
       ask: number;
@@ -525,12 +557,23 @@ export function useLiveSymbolQuote(
       scheduleQuoteCommit();
     };
 
-    const unsubscribe = quotesWsService.subscribeToSymbol(symbol, listener);
-    const unsubscribeRestFallback = subscribeLiveSymbolRestQuoteFallback(symbol, listener);
+    const wsListener: LiveSymbolQuoteListener = (tick) => {
+      directQuoteTickAtRef.current = Date.now();
+      applyQuoteTick(tick);
+    };
+    const restListener: LiveSymbolQuoteListener = applyQuoteTick;
+
+    const unsubscribe = quotesWsService.subscribeToSymbol(symbol, wsListener);
+    const unsubscribeRestFallback = subscribeLiveSymbolRestQuoteFallback(
+      symbol,
+      restListener,
+      () => directQuoteTickAtRef.current,
+    );
 
     return () => {
       unsubscribe();
       unsubscribeRestFallback();
+      directQuoteTickAtRef.current = 0;
       cancelScheduledCommit();
     };
   }, [cancelScheduledCommit, isActive, normalizedSymbol, scheduleQuoteCommit, symbol]);
@@ -583,6 +626,7 @@ export function useLiveSymbolQuotes(
   }, [isActive, stableKey]);
 
   const liveQuotesRef = React.useRef<Record<string, Partial<QuoteItem>>>(EMPTY_LIVE_QUOTES);
+  const directQuoteTickAtBySymbolRef = React.useRef<Record<string, number>>({});
   const [liveQuotes, setLiveQuotes] = React.useState<Record<string, Partial<QuoteItem>>>(() => {
     const seed = buildSeed();
     liveQuotesRef.current = seed;
@@ -622,16 +666,18 @@ export function useLiveSymbolQuotes(
     if (!isActive || requestedSymbols.length === 0) {
       cancelScheduledCommit();
       liveQuotesRef.current = EMPTY_LIVE_QUOTES;
+      directQuoteTickAtBySymbolRef.current = {};
       setLiveQuotes(EMPTY_LIVE_QUOTES);
       return;
     }
 
     liveQuotesRef.current = buildSeed();
+    directQuoteTickAtBySymbolRef.current = {};
     setLiveQuotes(liveQuotesRef.current);
 
     const unsubscribers = requestedSymbols.map((requestedSymbol) => {
       const normalizedSymbol = normalizeSymbol(requestedSymbol);
-      const listener = (tick: {
+      const applyQuoteTick = (tick: {
         symbol: string;
         bid: number;
         ask: number;
@@ -653,11 +699,22 @@ export function useLiveSymbolQuotes(
         scheduleCommit();
       };
 
-      const unsubscribeWs = quotesWsService.subscribeToSymbol(requestedSymbol, listener);
-      const unsubscribeRest = subscribeLiveSymbolRestQuoteFallback(requestedSymbol, listener);
+      const wsListener: LiveSymbolQuoteListener = (tick) => {
+        directQuoteTickAtBySymbolRef.current[requestedSymbol] = Date.now();
+        applyQuoteTick(tick);
+      };
+      const restListener: LiveSymbolQuoteListener = applyQuoteTick;
+
+      const unsubscribeWs = quotesWsService.subscribeToSymbol(requestedSymbol, wsListener);
+      const unsubscribeRest = subscribeLiveSymbolRestQuoteFallback(
+        requestedSymbol,
+        restListener,
+        () => directQuoteTickAtBySymbolRef.current[requestedSymbol] ?? 0,
+      );
       return () => {
         unsubscribeWs();
         unsubscribeRest();
+        delete directQuoteTickAtBySymbolRef.current[requestedSymbol];
       };
     });
 

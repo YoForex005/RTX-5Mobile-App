@@ -83,7 +83,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 21,
       lineHeight: 27,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'center',
     },
@@ -167,9 +167,9 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     },
     notificationText: {
       color: isDark ? '#07111F' : '#FFFFFF',
-      fontSize: 9,
+      fontSize: 10,
       lineHeight: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     avatar: {
       minWidth: 50,
@@ -185,7 +185,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     avatarText: {
       color: palette.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     userStatusDot: {
       position: 'absolute',
@@ -259,7 +259,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 19,
       lineHeight: 25,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     sectionCaption: {
@@ -282,7 +282,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     manageButtonText: {
       color: palette.primary,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     accountMainRow: {
       marginTop: 24,
@@ -298,7 +298,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 20,
       lineHeight: 26,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     accountServer: {
       color: palette.secondary,
@@ -335,7 +335,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     reconnectButtonText: {
       color: palette.warning,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     sectionHeader: {
       marginBottom: 12,
@@ -357,7 +357,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 19,
       lineHeight: 25,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     periodSelector: {
       minHeight: 30,
@@ -371,7 +371,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     periodSelectorText: {
       color: palette.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     performanceGrid: {
       flexDirection: 'row',
@@ -393,14 +393,14 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     metricValue: {
       marginTop: 8,
       color: palette.text,
       fontSize: 18,
       lineHeight: 23,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     metricIconBubble: {
@@ -430,7 +430,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       marginBottom: 8,
     },
     chartBodyRow: {
@@ -446,7 +446,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     chartAxisText: {
       color: palette.secondary,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     chartColumn: {
@@ -461,7 +461,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     chartDateText: {
       color: palette.secondary,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     sparklineRow: {
       marginTop: 16,
@@ -507,7 +507,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     categoryText: {
       color: palette.secondary,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     categoryTextActive: {
       color: isDark ? '#07111F' : '#FFFFFF',
@@ -515,7 +515,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     categoryCount: {
       color: palette.muted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     categoryCountActive: {
       color: isDark ? '#07111F' : '#FFFFFF',
@@ -555,7 +555,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.primary,
       fontSize: 10,
       lineHeight: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.6,
       textTransform: 'uppercase',
     },
@@ -572,7 +572,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       fontSize: 17,
       lineHeight: 22,
       fontWeight: '700',
-      letterSpacing: -0.2,
+      letterSpacing: 0,
     },
     providerRow: {
       marginTop: 10,
@@ -590,8 +590,8 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     },
     providerAvatarText: {
       color: palette.secondary,
-      fontSize: 9,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     providerName: {
@@ -599,7 +599,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 12,
       fontWeight: '500',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     statusBadge: {
       minHeight: 24,
@@ -619,7 +619,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     statusBadgeText: {
       fontSize: 10,
       lineHeight: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     chipRail: {
       marginTop: 10,
@@ -640,7 +640,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 10,
       lineHeight: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     strategyMetaRow: {
       marginTop: 14,
@@ -661,7 +661,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       lineHeight: 16,
       fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     strategyRiskDot: {
       width: 7,
@@ -696,13 +696,13 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 14,
       fontWeight: '700',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     strategyPriceSub: {
       marginTop: 2,
       color: palette.success,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
@@ -719,13 +719,13 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 10,
       lineHeight: 14,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     inlineMetricValue: {
       color: palette.text,
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       marginTop: 2,
     },
@@ -745,7 +745,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 13,
       fontWeight: '600',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     strategyPrimaryButton: {
       minHeight: 36,
@@ -759,7 +759,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: isDark ? '#07111F' : '#FFFFFF',
       fontSize: 13,
       fontWeight: '700',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     primaryButton: {
       flex: 1,
@@ -772,7 +772,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     primaryButtonText: {
       color: isDark ? '#07111F' : '#FFFFFF',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     botCard: {
       position: 'relative',
@@ -813,7 +813,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 16,
       lineHeight: 21,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     botMeta: {
       color: palette.secondary,
@@ -872,7 +872,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     botPauseText: {
       color: palette.warning,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     botDetailsButton: {
       flex: 1,
@@ -887,7 +887,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     botDetailsText: {
       color: palette.primary,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     botStopButton: {
       flex: 1,
@@ -902,7 +902,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     botStopText: {
       color: palette.danger,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     helperText: {
       color: palette.secondary,
@@ -938,13 +938,13 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     riskModeValue: {
       color: palette.text,
       fontSize: 14,
       lineHeight: 19,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 2,
     },
     riskGroup: {
@@ -959,7 +959,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       paddingHorizontal: 12,
       paddingTop: 12,
       paddingBottom: 8,
@@ -1009,13 +1009,13 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 14,
       lineHeight: 19,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     emergencySubtitle: {
       color: palette.secondary,
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 3,
     },
     emergencyButton: {
@@ -1030,7 +1030,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     emergencyButtonText: {
       color: '#FFFFFF',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     activityPanel: {
       borderRadius: 18,
@@ -1076,12 +1076,12 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     activityTime: {
       color: palette.muted,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     activityMessage: {
       color: palette.secondary,
@@ -1101,7 +1101,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       maxWidth: 150,
       color: palette.muted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     disclaimer: {
       flexDirection: 'row',
@@ -1139,7 +1139,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     },
     stateBannerButtonText: {
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     errorState: {
       minHeight: 240,
@@ -1157,7 +1157,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       fontSize: 16,
       lineHeight: 22,
       textAlign: 'center',
-      fontWeight: '800',
+      fontWeight: '600',
     },
     emptyState: {
       padding: 18,
@@ -1169,7 +1169,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     emptyTitle: {
       color: palette.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     emptySubtitle: {
       color: palette.secondary,
@@ -1229,7 +1229,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     modalTitle: {
       color: palette.text,
       fontSize: 18,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     modalMessage: {
       color: palette.secondary,
@@ -1256,7 +1256,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     modalCancelText: {
       color: palette.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     modalConfirmButton: {
       flex: 1,
@@ -1272,7 +1272,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     modalConfirmText: {
       color: '#FFFFFF',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     headerFilterDot: {
       position: 'absolute',
@@ -1329,8 +1329,8 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     filterSheetTitle: {
       color: palette.text,
       fontSize: 16,
-      fontWeight: '800',
-      letterSpacing: -0.1,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     filterSheetCloseButton: {
       width: 32,
@@ -1353,7 +1353,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     filterSectionTitle: {
       color: palette.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
@@ -1376,7 +1376,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.secondary,
       fontSize: 12,
       fontWeight: '700',
-      letterSpacing: -0.05,
+      letterSpacing: 0,
     },
     filterToggleRow: {
       minHeight: 44,
@@ -1391,7 +1391,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
       color: palette.text,
       fontSize: 13,
       fontWeight: '600',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     filterSheetFooter: {
       marginTop: 12,
@@ -1414,7 +1414,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     filterResetButtonText: {
       color: palette.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     filterApplyButton: {
       flex: 1,
@@ -1428,7 +1428,7 @@ export const makeMql5AlgoTradingStyles = (_T: ThemeColors, isDark: boolean) => {
     filterApplyButtonText: {
       color: '#FFFFFF',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.1,
     },
   });

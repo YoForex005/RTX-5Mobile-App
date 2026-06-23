@@ -64,7 +64,10 @@ test('register demo form keeps last name optional and formats phone with selecte
   assert.match(source, /return trimmedPhone\.startsWith\('\+'\) \? trimmedPhone : `\$\{dialCode\}\$\{trimmedPhone\}`/);
   assert.match(source, /const submissionPhone = formatDemoPhoneForSubmission\(selectedPhoneCountry\.dialCode, trimmedPhone\)/);
   assert.match(source, /phone: submissionPhone/);
+  assert.doesNotMatch(source, /\bplaceholder=/);
+  assert.doesNotMatch(source, /placeholderTextColor=/);
   assert.match(source, /last_name: trimmedLastName \|\| undefined/);
+  assert.match(source, /\{t\('Last name'\)\} <Text style=\{styles\.inputOptionalLabel\}>\(\{t\('optional'\)\}\)<\/Text>/);
   assert.doesNotMatch(source, /!trimmedFirstName \|\| !trimmedLastName \|\| !trimmedEmail/);
   assert.match(source, /if \(!trimmedFirstName \|\| !trimmedEmail \|\| !password \|\| !investorPassword \|\| !trimmedCountry\)/);
   assert.match(source, /visible=\{phoneCountryPickerOpen\}/);
@@ -95,6 +98,16 @@ test('register demo form uses broker dropdown, read-only currency, and searchabl
   assert.doesNotMatch(source, /currencyPickerOpen/);
   assert.doesNotMatch(source, /currencyPickerActions/);
   assert.doesNotMatch(source, /handleOpenCurrencyPicker/);
+});
+
+test('register demo form uses compact professional typography', () => {
+  const source = readSource('app/register.tsx');
+
+  assert.match(source, /heroTitle:\s*\{[\s\S]*fontSize: 22,[\s\S]*fontWeight: '600'/);
+  assert.match(source, /heroSubtitle:\s*\{[\s\S]*fontSize: 14,[\s\S]*fontWeight: '500'/);
+  assert.match(source, /inputLabel:\s*\{[\s\S]*fontSize: 14,[\s\S]*fontWeight: '600'/);
+  assert.match(source, /input:\s*\{[\s\S]*fontSize: 16,[\s\S]*fontWeight: '500'/);
+  assert.match(source, /registerBtnText:\s*\{[\s\S]*fontSize: 16,[\s\S]*fontWeight: '600'/);
 });
 
 test('register demo searchable action sheets use Android resize keyboard avoidance', () => {

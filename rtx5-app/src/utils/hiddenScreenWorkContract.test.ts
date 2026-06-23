@@ -153,34 +153,37 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
-  assert.match(tradeSource, /const TRADE_SCREEN_LIVE_DELAY_MS = 0/);
-  assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 8000/);
+  assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 0/);
+  assert.match(tradeSource, /const TRADE_SCREEN_REFRESH_INTERVAL_MS = 3000/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(tradeSource, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
-  // Live quote subscriptions activate fast; only the REST re-fetch stays deferred.
-  assert.match(tradeSource, /const tradeLiveActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_LIVE_DELAY_MS\)/);
+  // Live quote subscriptions activate immediately on the focused Trade tab;
+  // the heavier backend ledger refresh still waits until after first paint.
+  assert.match(tradeSource, /const tradeLiveActive = isScreenFocused && !sidebarOpen/);
   assert.match(tradeSource, /const tradeFetchActive = useDeferredActiveFlag\(isScreenFocused && firstPaintReady && !sidebarOpen, TRADE_SCREEN_FETCH_DELAY_MS\)/);
   assert.match(tradeSource, /hydrateCachedPositions: state\.hydrateCachedPositions/);
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
-  assert.match(tradeSource, /if \(tradeFetchActive && resolvedLogin\) \{/);
+  assert.match(tradeSource, /if \(!tradeFetchActive \|\| !resolvedLogin\) \{/);
+  assert.match(tradeSource, /refreshVisibleTradeLedger\(\);[\s\S]*setInterval\(refreshVisibleTradeLedger, TRADE_SCREEN_REFRESH_INTERVAL_MS\)/);
+  assert.match(tradeSource, /clearInterval\(refreshIntervalId\)/);
   assert.match(tradeSource, /const positionRowsActive = tradeLiveActive/);
-  assert.doesNotMatch(tradeSource, /useLiveSymbolQuotes\(liveQuoteSymbols, positionRowsActive\)/);
+  assert.doesNotMatch(tradeSource, /const liveQuotes = useLiveSymbolQuotes\(liveQuoteSymbols, tradeLiveActive, 0\)/);
+  assert.doesNotMatch(tradeSource, /quotesWsService\.setSubscriptions/);
   assert.doesNotMatch(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
   assert.doesNotMatch(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
   assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{tradeLiveActive\}/);
   assert.doesNotMatch(tradeSource, /<TradeSummaryHeader[\s\S]*liveQuotes=\{liveQuotes\}/);
   assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
-  assert.doesNotMatch(tradeSource, /<TradePositionRow[\s\S]*liveQuote=\{liveQuotes\[item\.symbol\]\}/);
+  assert.doesNotMatch(tradeSource, /<TradePositionRow[\s\S]*liveQuote=\{resolveTradeRowLiveQuote\(liveQuotes, item\.symbol\)\}/);
   assert.match(tradeSource, /initialNumToRender=\{TRADE_INITIAL_POSITION_RENDER_COUNT\}/);
   assert.match(tradeSource, /maxToRenderPerBatch=\{TRADE_POSITION_RENDER_BATCH_SIZE\}/);
   assert.match(tradeSource, /onViewableItemsChanged=\{handleViewablePositionRowsChanged\}/);
-  assert.match(tradeSource, /extraData=\{rowActivationKey\}/);
+  assert.match(tradeSource, /extraData=\{flatListExtraData\}/);
   assert.doesNotMatch(tradeSource, /const rowExtraData = useMemo/);
   assert.match(tradePositionRowSource, /active = true/);
   assert.match(tradePositionRowSource, /active\?: boolean/);
-  assert.match(tradePositionRowSource, /liveQuote\?: Partial<QuoteItem>/);
-  assert.match(tradePositionRowSource, /const liveQuote = liveQuoteOverride \?\? fallbackLiveQuote/);
-  assert.match(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol, active && !liveQuoteOverride, 0\)/);
+  assert.doesNotMatch(tradePositionRowSource, /liveQuote\?: Partial<QuoteItem>|liveQuoteOverride/);
+  assert.match(tradePositionRowSource, /const liveQuote = useLiveSymbolQuote\(item\.symbol, active, 0\)/);
   assert.match(tradePositionRowSource, /function resolveLivePnlDecimals\(value: number\): number/);
   assert.match(tradePositionRowSource, /absValue < 1\) \{[\s\S]*return 5/);
   assert.match(tradePositionRowSource, /formatLiveRowPnl\(displayPnl\)/);
@@ -190,9 +193,9 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSummarySource, /active: boolean/);
   assert.doesNotMatch(tradeSummarySource, /liveQuotePositions\?: PositionItem\[\]/);
   assert.match(tradeSummarySource, /positions\.map\(\(position\) => position\.symbol\)/);
-  // Trade rows use per-row direct ticks so each visible row repaints without a
-  // full FlatList quote-map update; Summary keeps the aggregate live quote map.
-  assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active\)/);
+  // Rows and summary subscribe directly to the per-symbol websocket listener so
+  // TradeScreen itself does not re-render the FlatList on every quote tick.
+  assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active, 0\)/);
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
   assert.doesNotMatch(tradeSummarySource, /pulseAnim|Animated\.loop|Animated\.Text/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);

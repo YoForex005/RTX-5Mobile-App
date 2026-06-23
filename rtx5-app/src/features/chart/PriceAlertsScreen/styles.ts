@@ -126,7 +126,7 @@ export function makePriceAlertsStyles(_T: ThemeColors, isDark: boolean) {
     },
     triggeredBadgeText: {
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       color: isDark ? '#475569' : '#94A3B8',
       textTransform: 'uppercase',
       letterSpacing: 0.5,

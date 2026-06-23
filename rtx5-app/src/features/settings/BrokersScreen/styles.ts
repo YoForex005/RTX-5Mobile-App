@@ -60,7 +60,7 @@ export const makeBrokersStyles = (T: ThemeColors) => StyleSheet.create({
   badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   badgeBlue: { backgroundColor: T.accentGlow },
   badgeText: {
-    color: T.accent, fontSize: 10, fontWeight: '700',
+    color: T.accent, fontSize: 10, fontWeight: '600',
     letterSpacing: 0.4, textTransform: 'uppercase',
   },
   infoButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
@@ -84,7 +84,7 @@ export const makeBrokersStyles = (T: ThemeColors) => StyleSheet.create({
     backgroundColor: T.glass2, paddingVertical: 7, paddingHorizontal: 8,
   },
   detailLabel: { color: T.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6 },
-  detailValue: { marginTop: 3, color: T.text, fontSize: 12, fontWeight: '700' },
+  detailValue: { marginTop: 3, color: T.text, fontSize: 12, fontWeight: '600' },
   primaryButton: {
     marginTop: spacing.md, borderRadius: 11, backgroundColor: T.accent,
     minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

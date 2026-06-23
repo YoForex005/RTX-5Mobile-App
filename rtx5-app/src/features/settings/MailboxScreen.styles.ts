@@ -79,7 +79,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 23,
       lineHeight: 28,
-      fontWeight: '900',
+      fontWeight: '700',
       letterSpacing: 0,
     },
     headerActions: {
@@ -167,7 +167,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       textAlign: 'center',
       lineHeight: 18,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     categoryCountActive: {
       color: '#FFFFFF',
@@ -195,7 +195,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: isDark ? '#F8FAFC' : C.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     announcementTime: {
       color: isDark ? '#AAB4C3' : C.textMuted,
@@ -224,13 +224,13 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 21,
       lineHeight: 27,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     sectionCaption: {
       color: C.textSub,
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 2,
     },
     iconActionButton: {
@@ -247,7 +247,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: isDark ? '#F8FAFC' : C.text,
       fontSize: 18,
       lineHeight: 24,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 10,
     },
     announcementSummary: {
@@ -281,7 +281,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       textAlign: 'center',
       lineHeight: 24,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       backgroundColor: isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.05)',
       borderWidth: 1,
       borderColor: C.border,
@@ -293,7 +293,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.textSub,
       fontSize: 12,
       lineHeight: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0.4,
       marginTop: 2,
@@ -349,7 +349,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     swipeActionText: {
       fontSize: 10,
       lineHeight: 13,
-      fontWeight: '900',
+      fontWeight: '600',
     },
     messageTopRow: {
       flexDirection: 'row',
@@ -387,7 +387,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       fontSize: 13,
       lineHeight: 17,
       fontWeight: '600',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     verifiedBadge: {
       width: 16,
@@ -432,7 +432,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       fontSize: 15,
       lineHeight: 20,
       fontWeight: '600',
-      letterSpacing: -0.1,
+      letterSpacing: 0,
     },
     messageTitleUnread: {
       color: C.text,
@@ -470,7 +470,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     statusBadgeText: {
       fontSize: 11,
       lineHeight: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     supportCard: {
       padding: 18,
@@ -488,7 +488,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: isDark ? '#F8FAFC' : C.text,
       fontSize: 18,
       lineHeight: 23,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     supportCaption: {
       color: isDark ? '#C8D2E4' : C.textSub,
@@ -516,13 +516,13 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: isDark ? '#A5B4FC' : C.textSub,
       fontSize: 11,
       lineHeight: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     supportMetricValue: {
       color: isDark ? '#F8FAFC' : C.text,
       fontSize: 13,
       lineHeight: 17,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 2,
     },
     supportActions: {
@@ -537,13 +537,13 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: '#A5B4FC',
       fontSize: 10,
       lineHeight: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     inlineMetaValue: {
       color: '#F8FAFC',
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 2,
     },
     primaryButton: {
@@ -557,7 +557,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     primaryButtonText: {
       color: C.buttonText,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     secondaryButton: {
       flex: 1,
@@ -572,7 +572,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     secondaryButtonText: {
       color: CYAN,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     dangerButton: {
       flex: 1,
@@ -587,7 +587,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     dangerButtonText: {
       color: DANGER,
       fontSize: 13,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     buttonDisabled: {
       opacity: 0.5,
@@ -622,7 +622,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     errorState: {
       minHeight: 260,
@@ -640,7 +640,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       fontSize: 16,
       lineHeight: 22,
       textAlign: 'center',
-      fontWeight: '900',
+      fontWeight: '700',
     },
     emptyState: {
       padding: spacing.lg,
@@ -653,7 +653,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     emptyTitle: {
       color: C.text,
       fontSize: 15,
-      fontWeight: '900',
+      fontWeight: '700',
       textAlign: 'center',
       marginTop: spacing.sm,
     },
@@ -766,7 +766,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 17,
       lineHeight: 22,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     riskSheetSubtitle: {
       color: C.textSub,
@@ -788,14 +788,14 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: DANGER,
       fontSize: 10,
       lineHeight: 14,
-      fontWeight: '900',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     riskAlertTitle: {
       color: C.text,
       fontSize: 16,
       lineHeight: 21,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 4,
     },
     riskAlertBody: {
@@ -856,20 +856,20 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 21,
       lineHeight: 28,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 14,
     },
     detailMeta: {
       color: C.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     detailTime: {
       color: C.textMuted,
       fontSize: 11,
       lineHeight: 16,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 2,
     },
     detailBadgeRow: {
@@ -926,7 +926,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 15,
       lineHeight: 20,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     detailContextSubtitle: {
       color: C.textSub,
@@ -946,7 +946,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     detailContextStatusText: {
       fontSize: 11,
       lineHeight: 15,
-      fontWeight: '900',
+      fontWeight: '600',
     },
     detailContextGrid: {
       flexDirection: 'row',
@@ -969,21 +969,21 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.textMuted,
       fontSize: 10,
       lineHeight: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     detailContextMetricValue: {
       color: C.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '900',
+      fontWeight: '700',
       marginTop: 2,
     },
     detailMetaTitle: {
       color: C.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     detailBody: {
       color: C.textSub,
@@ -1005,7 +1005,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     relatedInfoRow: {
       minHeight: 28,
@@ -1017,13 +1017,13 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     relatedInfoLabel: {
       color: C.textMuted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     relatedInfoValue: {
       flexShrink: 1,
       color: C.text,
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     attachmentPanel: {
       marginTop: spacing.md,
@@ -1047,12 +1047,12 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     attachmentName: {
       color: C.text,
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     attachmentMeta: {
       color: C.textMuted,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 2,
     },
     detailActions: {
@@ -1092,7 +1092,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.text,
       fontSize: 18,
       lineHeight: 24,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     filterSection: {
       marginTop: spacing.md,
@@ -1102,7 +1102,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.textSub,
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '900',
+      fontWeight: '700',
       textTransform: 'uppercase',
     },
     filterOptions: {
@@ -1128,7 +1128,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     filterOptionText: {
       color: C.textSub,
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     filterOptionTextActive: {
       color: '#07111F',
@@ -1169,7 +1169,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       color: C.textMuted,
       fontSize: 11,
       lineHeight: 16,
-      fontWeight: '900',
+      fontWeight: '600',
       textTransform: 'uppercase',
       marginTop: spacing.xs,
     },
@@ -1186,7 +1186,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       minWidth: 0,
       color: C.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     actionRowTextDanger: {
       color: DANGER,
@@ -1200,7 +1200,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
       textAlign: 'center',
       lineHeight: 24,
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '700',
       backgroundColor: isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.05)',
     },
     modalOverlay: {
@@ -1221,7 +1221,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     modalTitle: {
       color: C.text,
       fontSize: 18,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     modalMessage: {
       color: C.textSub,
@@ -1248,7 +1248,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     modalCancelText: {
       color: C.text,
       fontSize: 13,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     modalConfirmButton: {
       flex: 1,
@@ -1264,7 +1264,7 @@ export const makeMailboxScreenStyles = (T: ThemeColors, isDark: boolean) => {
     modalConfirmText: {
       color: '#FFFFFF',
       fontSize: 13,
-      fontWeight: '900',
+      fontWeight: '700',
     },
   });
 };

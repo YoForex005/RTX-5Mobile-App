@@ -265,7 +265,7 @@ test('SL and TP drag throttles label redraw separately from the local line movem
 
   assertSourceContains(
     source,
-    /var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 64/,
+    /var CHART_TRADE_LINE_DRAG_DOM_REFRESH_INTERVAL_MS = 16/,
     'drag label redraws must be throttled separately from price-line movement',
   );
   assertSourceContains(

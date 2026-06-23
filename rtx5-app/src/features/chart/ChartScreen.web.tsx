@@ -439,7 +439,7 @@ const CustomDatePicker = ({ visible, onClose, onSelectDate, bg, text, accent, bo
             <Ionicons name="arrow-down" size={16} color={text} style={{ cursor: 'pointer' }} onClick={handleNext} />
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 8, color: accent, fontWeight: '700' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 8, color: accent, fontWeight: '600' }}>
           {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(d => <div key={d}>{d}</div>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, textAlign: 'center', fontSize: 13 }}>
@@ -621,7 +621,6 @@ export function ChartScreen() {
   );
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
-  const showTradingSignals = chartShowOnChart.tradingSignals;
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
@@ -1935,8 +1934,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     fxBadgeText: {
       color: isDark ? '#94A3B8' : '#64748B',
-      fontSize: 9,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '600',
       letterSpacing: 0.5,
     },
     symbolSubText: {
@@ -1955,9 +1954,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.5,
+      letterSpacing: 0,
     },
     priceChangeText: {
       fontSize: 11,
@@ -1977,9 +1976,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     balanceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.3,
+      letterSpacing: 0,
     },
     balanceLabel: {
       color: isDark ? '#FFFFFF' : '#64748B',
@@ -1992,7 +1991,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     currencyText: {
       fontSize: 10,
       color: isDark ? '#94A3B8' : '#64748B',
-      fontWeight: '700',
+      fontWeight: '600',
     },
     priceChangePct: {
       fontSize: 11,
@@ -2146,12 +2145,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     chartMetaLabel: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     chartMetaValue: {
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     inlineActionGroup: {
@@ -2263,13 +2262,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sentimentLabelSell: {
       color: RED,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     sentimentLabelBuy: {
       color: BLUE,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     sentimentBarRow: {
@@ -2323,7 +2322,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     actionBtnLabelTitle: {
       color: '#FFFFFF',
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 1,
     },
     actionBtnLabelSell: {
@@ -2364,7 +2363,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       color: isDark ? '#E2E8F0' : '#0F172A',
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       textAlign: 'center',
       paddingVertical: 0,

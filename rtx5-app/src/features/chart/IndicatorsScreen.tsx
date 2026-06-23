@@ -170,8 +170,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sectionTitle: {
       color: T.text,
       fontSize: 13,
-      fontWeight: '800',
-      letterSpacing: 1,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
     sectionDivider: {
       height: StyleSheet.hairlineWidth,

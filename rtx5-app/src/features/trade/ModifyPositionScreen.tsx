@@ -9,19 +9,11 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TextInput, View,
   Platform
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Path, Text as SvgText, Rect, G } from 'react-native-svg';
 
@@ -49,6 +41,9 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
+const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+
 function formatModifyPrice(val: number, decimals: number) {
   const str = val.toFixed(decimals);
   // Splitting off the exact last two digits that the user circled
@@ -58,11 +53,6 @@ function formatModifyPrice(val: number, decimals: number) {
   };
 }
 
-function clamp(value: number, min: number, max: number) {
-  'worklet';
-  return Math.min(max, Math.max(min, value));
-}
-
 export function ModifyPositionScreen() {
   const { positionId } = useLocalSearchParams<{ positionId?: string }>();
   const insets = useSafeAreaInsets();
@@ -70,6 +60,9 @@ export function ModifyPositionScreen() {
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#FFFFFF';
+  const SL_COLOR = T.trading.loss;
+  const TP_COLOR = T.trading.profit;
   const isScreenFocused = useIsFocused();
 
   const positions = usePositionsState((s) => s.positions);
@@ -191,80 +184,9 @@ export function ModifyPositionScreen() {
   }, [position?.id, position?.sl, position?.tp]);
 
 
-  const screenHeight = Dimensions.get('window').height;
-  const sheetMaxHeight = Math.max(360, screenHeight - Math.max(insets.top, 16) - 12);
-  const sheetMinHeight = Math.min(sheetMaxHeight, Math.max(280, screenHeight * 0.34));
-  const sheetInitialHeight = Math.min(sheetMaxHeight, Math.max(sheetMinHeight, screenHeight * 0.46));
-  const sheetMaxTranslateY = Math.max(0, sheetMaxHeight - sheetMinHeight);
-  const sheetInitialTranslateY = clamp(sheetMaxHeight - sheetInitialHeight, 0, sheetMaxTranslateY);
-  const backdropOpacity = useSharedValue(0);
-  const sheetTranslateY = useSharedValue(sheetMaxHeight);
-  const dragStartTranslateY = useSharedValue(sheetInitialTranslateY);
-  const isClosingRef = useRef(false);
-
-  const handleSheetClosed = useCallback(() => {
+  const handleBack = useCallback(() => {
     safeRouterBack(router, '/(tabs)/trade');
   }, []);
-
-  const dismissSheet = useCallback(() => {
-    if (isClosingRef.current) {
-      return;
-    }
-
-    isClosingRef.current = true;
-    backdropOpacity.value = withTiming(0, { duration: 140 });
-    sheetTranslateY.value = withTiming(sheetMaxHeight, { duration: 180 }, (finished) => {
-      if (finished) {
-        runOnJS(handleSheetClosed)();
-      }
-    });
-  }, [backdropOpacity, handleSheetClosed, sheetMaxHeight, sheetTranslateY]);
-
-  useEffect(() => {
-    isClosingRef.current = false;
-    dragStartTranslateY.value = sheetInitialTranslateY;
-    backdropOpacity.value = 0;
-    sheetTranslateY.value = sheetMaxHeight;
-
-    backdropOpacity.value = withTiming(1, { duration: 160 });
-    sheetTranslateY.value = withSpring(sheetInitialTranslateY, {
-      damping: 26,
-      stiffness: 240,
-      overshootClamping: true,
-    });
-  }, [backdropOpacity, dragStartTranslateY, sheetInitialTranslateY, sheetMaxHeight, sheetTranslateY]);
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: sheetTranslateY.value }],
-  }));
-
-  const backdropAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
-  }));
-
-  const sheetDragGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetY([-4, 4])
-        .failOffsetX([-24, 24])
-        .onBegin(() => {
-          dragStartTranslateY.value = sheetTranslateY.value;
-        })
-        .onUpdate((event) => {
-          sheetTranslateY.value = clamp(
-            dragStartTranslateY.value + event.translationY,
-            0,
-            sheetMaxTranslateY,
-          );
-        })
-        .onEnd(() => {
-          dragStartTranslateY.value = sheetTranslateY.value;
-        })
-        .onFinalize(() => {
-          dragStartTranslateY.value = sheetTranslateY.value;
-        }),
-    [dragStartTranslateY, sheetMaxTranslateY, sheetTranslateY],
-  );
 
   // Same elements as the order ticket's top-right symbol picker: the full
   // market symbol list. An open position's symbol is fixed, so choosing a
@@ -502,7 +424,7 @@ export function ModifyPositionScreen() {
       appQueryClient.invalidateQueries({ queryKey: ['exposure'] });
       appQueryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-      dismissSheet();
+      handleBack();
     } catch (error: any) {
       setSubmitMessage(
         formatTradingErrorFeedback(
@@ -516,38 +438,25 @@ export function ModifyPositionScreen() {
 
   if (!position) {
     return (
-      <View style={styles.modalRoot}>
-        <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
-        </Animated.View>
-        <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
-          <View style={styles.sheetSurface}>
-            <GestureDetector gesture={sheetDragGesture}>
-              <View collapsable={false}>
-                <View style={styles.dragZone}>
-                  <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
-                </View>
-                <View style={[styles.header, { paddingTop: 6 }]}>
-                  <View style={styles.headerTopRow}>
-                    <Pressable onPress={dismissSheet} hitSlop={20} style={styles.backBtn}>
-                      <Ionicons name="chevron-down" size={24} color={T.text} />
-                    </Pressable>
-                    <View style={styles.headerTitleWrap} pointerEvents="none">
-                      <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
-                        MODIFY POSITION
-                      </Text>
-                    </View>
-                    <View style={styles.backBtn} />
-                  </View>
-                </View>
-              </View>
-            </GestureDetector>
-            <View style={styles.loaderWrap}>
-              <ActivityIndicator color={T.accent} />
-              <Text style={[styles.loaderText, { color: T.textMuted }]}>Loading position...</Text>
+      <View style={styles.screen}>
+        <View style={{ height: insets.top, backgroundColor: screenBg }} />
+        <View style={[styles.header, { paddingTop: 6 }]}>
+          <View style={styles.headerTopRow}>
+            <Pressable onPress={handleBack} hitSlop={20} style={styles.backBtn}>
+              <Ionicons name="chevron-back" size={26} color={T.text} />
+            </Pressable>
+            <View style={styles.headerTitleWrap} pointerEvents="none">
+              <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
+                MODIFY POSITION
+              </Text>
             </View>
+            <View style={styles.backBtn} />
           </View>
-        </Animated.View>
+        </View>
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator color={T.accent} />
+          <Text style={[styles.loaderText, { color: T.textMuted }]}>Loading position...</Text>
+        </View>
       </View>
     );
   }
@@ -612,64 +521,53 @@ export function ModifyPositionScreen() {
   }
 
   return (
-    <View style={styles.modalRoot}>
-      <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={dismissSheet} />
-      </Animated.View>
-      <Animated.View style={[styles.sheetFrame, { height: sheetMaxHeight }, sheetAnimatedStyle]}>
-        <View style={styles.sheetSurface}>
-          <GestureDetector gesture={sheetDragGesture}>
-            <View collapsable={false}>
-              <View style={styles.dragZone}>
-                <View style={[styles.dragHandle, { backgroundColor: T.border }]} />
-              </View>
+    <View style={styles.screen}>
+      <View style={{ height: insets.top, backgroundColor: screenBg }} />
 
-              {/* Header */}
-              <View style={[styles.header, { paddingTop: 6 }]}>
-                <View style={styles.headerTopRow}>
-                  <Pressable
-                    onPress={dismissSheet}
-                    hitSlop={20}
-                    style={styles.backBtn}
-                  >
-                    <Ionicons name="chevron-down" size={24} color={T.text} />
-                  </Pressable>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: 6 }]}>
+        <View style={styles.headerTopRow}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={20}
+            style={styles.backBtn}
+          >
+            <Ionicons name="chevron-back" size={26} color={T.text} />
+          </Pressable>
 
-                  <View style={styles.headerTitleWrap} pointerEvents="none">
-                    <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
-                      MODIFY POSITION
-                    </Text>
-                    <Text style={styles.headerTicketLabel} numberOfLines={1}>
-                      #{position.id}
-                    </Text>
-                  </View>
+          <View style={styles.headerTitleWrap} pointerEvents="none">
+            <Text style={styles.headerActionLabel} numberOfLines={1} adjustsFontSizeToFit>
+              MODIFY POSITION
+            </Text>
+            <Text style={styles.headerTicketLabel} numberOfLines={1}>
+              #{position.id}
+            </Text>
+          </View>
 
-                  <Pressable
-                    style={styles.positionPickerBtn}
-                    onPress={handleOpenPositionPicker}
-                    hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
-                    unstable_pressDelay={0}
-                    accessibilityRole="button"
-                    accessibilityLabel="Select Symbol"
-                  >
-                    <Ionicons name="logo-usd" size={20} color={T.accent} />
-                  </Pressable>
-                </View>
+          <Pressable
+            style={styles.positionPickerBtn}
+            onPress={handleOpenPositionPicker}
+            hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            unstable_pressDelay={0}
+            accessibilityRole="button"
+            accessibilityLabel="Select Symbol"
+          >
+            <Ionicons name="logo-usd" size={20} color={T.accent} />
+          </Pressable>
+        </View>
 
-                <View style={styles.headerSubRow}>
-                  <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
-                    {position.side.toUpperCase()}
-                  </Text>
-                  <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
-                  <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
-                  <Text style={styles.headerAt}>at</Text>
-                  <Text style={styles.headerPrice}>{position.openPrice.toFixed(positionHeaderDecimals)}</Text>
-                </View>
-              </View>
-            </View>
-          </GestureDetector>
+        <View style={styles.headerSubRow}>
+          <Text style={[styles.headerSide, { color: position.side === 'buy' ? T.trading.buy.primary : T.trading.sell.primary }]}>
+            {position.side.toUpperCase()}
+          </Text>
+          <Text style={styles.headerVol}>{position.volume.toFixed(2)}</Text>
+          <Text style={styles.headerSymbol}>{position.symbol.replace(/\//g, '')}</Text>
+          <Text style={styles.headerAt}>at</Text>
+          <Text style={styles.headerPrice}>{position.openPrice.toFixed(positionHeaderDecimals)}</Text>
+        </View>
+      </View>
 
-          {!sheetBodyReady ? (
+      {!sheetBodyReady ? (
             <View style={styles.bodyLoadingWrap}>
               <ActivityIndicator color={T.accent} />
             </View>
@@ -692,7 +590,7 @@ export function ModifyPositionScreen() {
         {/* Viewed-symbol banner — shown while browsing a symbol other than the
             modified position's; live prices below come from that symbol. */}
         {!symbolsMatch && (
-          <View style={[styles.viewSymbolBanner, { borderColor: T.border, backgroundColor: T.glass1 }]}>
+          <View style={[styles.viewSymbolBanner, { borderColor: T.border }]}>
             <Ionicons name="eye-outline" size={14} color={T.accent} />
             <Text style={[styles.viewSymbolBannerText, { color: T.text }]}>
               {viewSymbol} — live view. No open position on this symbol.
@@ -722,8 +620,6 @@ export function ModifyPositionScreen() {
             (clamping, estimates) is anchored to that symbol's live prices. */}
         {symbolsMatch && (() => {
           const PRESET_PIPS = [10, 25, 50, 100];
-          const SL_COLOR = isDark ? '#22D3EE' : '#06B6D4';
-          const TP_COLOR = '#22C55E';
           const contractSize =
             typeof instrumentMeta?.contractSize === 'number' && instrumentMeta.contractSize > 0
               ? instrumentMeta.contractSize
@@ -884,9 +780,9 @@ export function ModifyPositionScreen() {
                   the position's own price scale */}
               {symbolsMatch && stopLoss ? (
                 <G>
-                  <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={isDark ? '#22D3EE' : '#06B6D4'} strokeDasharray="6 6" strokeWidth="1" />
+                  <Line x1="0" y1={yPos(stopLoss)} x2={w} y2={yPos(stopLoss)} stroke={SL_COLOR} strokeDasharray="6 6" strokeWidth="1" />
                   <G x={w - 60} y={yPos(stopLoss) - 10}>
-                    <Rect width={60} height={20} fill={isDark ? '#22D3EE' : '#06B6D4'} />
+                    <Rect width={60} height={20} fill={SL_COLOR} />
                     <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
                       SL
                     </SvgText>
@@ -896,9 +792,9 @@ export function ModifyPositionScreen() {
 
               {symbolsMatch && takeProfit ? (
                 <G>
-                  <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke="#388E3C" strokeDasharray="6 6" strokeWidth="1" />
+                  <Line x1="0" y1={yPos(takeProfit)} x2={w} y2={yPos(takeProfit)} stroke={TP_COLOR} strokeDasharray="6 6" strokeWidth="1" />
                   <G x={w - 60} y={yPos(takeProfit) - 10}>
-                    <Rect width={60} height={20} fill="#388E3C" />
+                    <Rect width={60} height={20} fill={TP_COLOR} />
                     <SvgText x={30} y={14} fill="#FFF" fontSize="10" fontWeight="bold" textAnchor="middle">
                       TP
                     </SvgText>
@@ -964,9 +860,7 @@ export function ModifyPositionScreen() {
         </View>
         )}
           </ScrollView>
-          )}
-        </View>
-      </Animated.View>
+      )}
 
       <ActionSheet
         visible={positionPickerOpen}
@@ -987,51 +881,15 @@ export function ModifyPositionScreen() {
   );
 }
 
-const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
-  modalRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'transparent',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: isDark ? 'rgba(2, 6, 23, 0.42)' : 'rgba(15, 23, 42, 0.2)',
-  },
-  sheetFrame: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-  },
-  sheetSurface: {
-    flex: 1,
-    backgroundColor: isDark ? '#06080D' : '#FFFFFF',
-    borderColor: isDark ? '#1E293B' : 'rgba(0,0,0,0.05)',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: -6 },
-    elevation: 18,
-  },
-  dragZone: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 12,
-    paddingBottom: 10,
-  },
-  dragHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 999,
-  },
+const makeStyles = (T: ThemeColors, isDark: boolean) => {
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#FFFFFF';
+  const cardBg = isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2;
+  const insetCardBg = isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass1;
+
+  return StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: isDark ? '#06080D' : '#FFFFFF',
+    backgroundColor: screenBg,
   },
   loaderWrap: {
     flex: 1,
@@ -1047,6 +905,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    backgroundColor: screenBg,
   },
   bodyLoadingWrap: {
     flex: 1,
@@ -1074,6 +933,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
+    backgroundColor: insetCardBg,
   },
   viewSymbolBannerText: {
     flex: 1,
@@ -1131,7 +991,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   headerSide: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.8,
   },
   headerVol: {
@@ -1143,7 +1003,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   headerSymbol: {
     color: T.text,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   headerAt: {
     color: T.textMuted,
@@ -1152,14 +1012,14 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   headerPrice: {
     color: T.text,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   priceHero: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: T.glass2,
+    backgroundColor: cardBg,
     marginHorizontal: 16,
     borderRadius: 16,
     paddingVertical: 10,
@@ -1180,7 +1040,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   priceLabel: {
     color: T.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 1,
     marginBottom: -8,
     includeFontPadding: false,
@@ -1193,7 +1053,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   priceHuge: {
     fontSize: 34,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   stepperRow: {
     flexDirection: 'row',
@@ -1211,7 +1071,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     paddingRight: 9,
     borderRadius: 14,
     borderWidth: 1,
-    backgroundColor: T.glass1,
+    backgroundColor: cardBg,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -1241,13 +1101,13 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   stepperBadgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.8,
     color: '#FFFFFF',
   },
   stepperLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     color: T.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -1275,14 +1135,14 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   stepperPriceMain: {
     color: T.text,
     fontSize: 19,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
-    letterSpacing: -0.4,
+    letterSpacing: 0,
     textAlign: 'center',
   },
   stepperPriceHuge: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   stepperPriceEmpty: {
@@ -1308,7 +1168,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: T.glass2,
+    backgroundColor: insetCardBg,
   },
   stepperChipRow: {
     flexDirection: 'row',
@@ -1323,11 +1183,11 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: T.glass2,
+    backgroundColor: insetCardBg,
   },
   stepperChipText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.2,
   },
@@ -1363,7 +1223,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: cardBg,
     padding: 14,
     borderRadius: 12,
     marginBottom: 20,
@@ -1406,4 +1266,5 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.2,
   },
-});
+  });
+};

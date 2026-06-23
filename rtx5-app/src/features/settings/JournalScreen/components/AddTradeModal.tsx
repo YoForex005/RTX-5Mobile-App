@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  title: { fontSize: 18, fontWeight: '800' },
+  title: { fontSize: 18, fontWeight: '600' },
   closeBtn: { padding: 4 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   card: {
@@ -155,5 +155,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  saveBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  saveBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
 });

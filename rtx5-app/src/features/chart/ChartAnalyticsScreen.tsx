@@ -543,8 +543,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '700',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     card: {
       marginHorizontal: spacing.md,
@@ -569,8 +569,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     cardHeader: {
       color: T.text,
       fontSize: 18,
-      fontWeight: '800',
-      letterSpacing: -0.5,
+      fontWeight: '600',
+      letterSpacing: 0,
       marginBottom: spacing.md,
     },
     perfBlock: {
@@ -602,7 +602,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     perfLabelActive: {
       color: T.text,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     perfChangeRow: {
       flexDirection: 'row',
@@ -612,13 +612,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     perfValRed: {
       color: T.trading.sell.primary,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     perfValBlue: {
       color: T.trading.buy.primary,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
 
@@ -648,9 +648,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeLiveText: {
       color: '#22C55E',
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.8,
+      fontSize: 11,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
     // Hero row
     rangeHeroRow: {
@@ -661,15 +661,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeHeroPrice: {
       color: T.text,
-      fontSize: 30,
-      fontWeight: '800',
+      fontSize: 28,
+      fontWeight: '700',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -1.2,
+      letterSpacing: 0,
       flex: 1,
     },
     rangeHeroPriceHuge: {
-      fontSize: 34,
-      fontWeight: '900',
+      fontSize: 30,
+      fontWeight: '700',
       fontVariant: ['tabular-nums'],
     },
     rangeChangePill: {
@@ -683,9 +683,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeChangePillText: {
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: 0.2,
+      letterSpacing: 0,
     },
 
     // Position-in-range row
@@ -697,9 +697,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangePositionLabel: {
       color: T.textMuted,
-      fontSize: 11,
-      fontWeight: '700',
-      letterSpacing: 0.8,
+      fontSize: 12,
+      fontWeight: '500',
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
     rangePositionRight: {
@@ -708,14 +708,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       gap: 8,
     },
     rangePositionZone: {
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.8,
+      fontSize: 11,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
     rangePositionPct: {
       color: T.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
 
@@ -776,15 +776,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeEndpointLabel: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 1,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0.4,
       marginBottom: 2,
     },
     rangeEndpointValue: {
       color: T.text,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
 
@@ -807,16 +807,16 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeStatLabel: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '700',
-      letterSpacing: 0.8,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
       marginBottom: 4,
     },
     rangeStatValue: {
       color: T.textSub,
       fontSize: 12,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
 
@@ -836,7 +836,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     listTime: {
       color: T.text,
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       marginBottom: 6,
     },
@@ -858,8 +858,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     linkText: {
       color: T.trading.buy.hover,
       fontSize: 14,
-      fontWeight: '700',
-      letterSpacing: 0.5,
+      fontWeight: '600',
+      letterSpacing: 0.3,
       textTransform: 'uppercase',
     },
     linkRow: {
@@ -887,14 +887,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     signalMetricLabel: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.5,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0.4,
       marginBottom: 4,
     },
     signalMetricVal: {
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     signalSecondaryMetrics: {
@@ -942,8 +942,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     signalPrimaryAction: {
       color: T.trading.buy.primary,
       fontSize: 14,
-      fontWeight: '800',
-      letterSpacing: 0.5,
+      fontWeight: '600',
+      letterSpacing: 0.3,
       textTransform: 'uppercase',
     },
     signalSubAction: {
@@ -982,10 +982,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     signalBadgeText: {
       color: T.text,
-      fontSize: 10,
-      fontWeight: '800',
+      fontSize: 11,
+      fontWeight: '600',
       textTransform: 'uppercase',
-      letterSpacing: 0.5,
+      letterSpacing: 0.4,
     },
     signalBody: {
       marginBottom: 4,
@@ -993,7 +993,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     signalTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '700',
+      fontWeight: '600',
       marginBottom: 6,
     },
     signalDesc: {
@@ -1026,7 +1026,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     eventTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '700',
+      fontWeight: '600',
       flex: 1,
       marginRight: 8,
     },
@@ -1037,7 +1037,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     eventCode: {
       color: T.textSub,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       marginRight: 10,
     },
     impactPill: {
@@ -1054,9 +1054,9 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 2.5,
     },
     impactPillText: {
-      fontSize: 9,
-      fontWeight: '800',
-      letterSpacing: 0.5,
+      fontSize: 10,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
     eventTime: {
       color: T.textMuted,
@@ -1093,12 +1093,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     newsPair: {
       color: T.textSub,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     newsChange: {
       color: T.trading.sell.primary,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     newsTime: {
       color: T.textMuted,
@@ -1107,4 +1107,3 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
   });
 }
-

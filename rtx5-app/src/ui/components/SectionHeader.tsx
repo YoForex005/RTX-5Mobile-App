@@ -33,11 +33,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   title: {
-    fontSize: 19,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '600',
   },
   dots: {
     fontSize: 13,
+    fontWeight: '500',
     letterSpacing: 0.4,
   },
 });

@@ -213,18 +213,18 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     headerTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 17,
-      fontWeight: '700',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     scrollContent: {
       paddingTop: 18,
       paddingBottom: 40,
     },
     sectionHeader: {
-      fontSize: 11,
-      fontWeight: '800',
+      fontSize: 12,
+      fontWeight: '600',
       color: isDark ? '#94A3B8' : '#64748B',
-      letterSpacing: 1.1,
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
       paddingHorizontal: 20,
       marginBottom: 10,

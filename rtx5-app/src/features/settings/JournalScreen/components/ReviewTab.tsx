@@ -259,13 +259,13 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     eyebrow: {
       color: colors.accent,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     title: {
       color: colors.text,
       fontSize: 20,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 2,
     },
     periodTabs: {
@@ -289,7 +289,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     periodText: {
       color: colors.subText,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     periodTextActive: {
       color: '#FFFFFF',
@@ -312,12 +312,12 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     summaryLabel: {
       color: colors.subText,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     summaryValue: {
       fontSize: 28,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 4,
       fontVariant: ['tabular-nums'],
     },
@@ -333,7 +333,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     summaryBadgeText: {
       color: colors.subText,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     scoreGrid: {
       flexDirection: 'row',
@@ -351,13 +351,13 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     scoreLabel: {
       color: colors.muted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     scoreValue: {
       color: colors.text,
       fontSize: 18,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 8,
       fontVariant: ['tabular-nums'],
     },
@@ -386,7 +386,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     cardTitle: {
       color: colors.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     cardSubtitle: {
       color: colors.subText,
@@ -422,13 +422,13 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     tradeInsightLabel: {
       color: colors.muted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     tradeInsightTitle: {
       color: colors.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 2,
     },
     tradeInsightText: {
@@ -440,7 +440,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     },
     tradeInsightPnl: {
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     promptBlock: {
@@ -463,7 +463,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     promptTitle: {
       color: colors.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     input: {
       minHeight: 82,
@@ -490,7 +490,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     actionTitle: {
       color: colors.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       marginBottom: 10,
     },
     checkRow: {
@@ -521,12 +521,12 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     saveBtnText: {
       color: '#FFFFFF',
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     savedText: {
       color: colors.subText,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       textAlign: 'center',
       marginTop: 10,
     },

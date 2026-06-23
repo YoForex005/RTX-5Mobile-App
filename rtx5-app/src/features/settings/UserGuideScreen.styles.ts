@@ -68,13 +68,13 @@ export const makeUserGuideStyles = (isDark = false) => {
       color: palette.title,
       fontSize: 30,
       lineHeight: 36,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'center',
     },
     heroAccent: {
       color: '#E6A51A',
-      fontWeight: '800',
+      fontWeight: '600',
     },
     heroSubtitle: {
       color: palette.text,
@@ -112,7 +112,7 @@ export const makeUserGuideStyles = (isDark = false) => {
       color: palette.text,
       fontSize: 18,
       lineHeight: 22,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     summaryLabel: {
@@ -149,7 +149,7 @@ export const makeUserGuideStyles = (isDark = false) => {
       color: palette.accent,
       fontSize: 12,
       lineHeight: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     railLine: {

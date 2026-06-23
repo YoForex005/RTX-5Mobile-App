@@ -32,7 +32,7 @@ import {
   type ChartTapMenuAnchor,
   type ChartTapMenuBounds,
 } from './components/ChartTapRadialMenu';
-import { ChartTimeframePickerSheet } from './components/ChartTimeframePickerSheet';
+import { createTimeframePickerActionSheetActions } from './components/ChartTimeframePickerSheet';
 import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
@@ -211,6 +211,8 @@ const CHART_DEV_SOURCE_KEY = getDevRefreshKey(
 const CHART_BRIDGE_DEBUG = false;
 const CHART_SCREEN_QUOTE_COMMIT_INTERVAL_MS = 16;
 const CHART_SYMBOL_HEADER_HIT_SLOP = { top: 10, bottom: 18, left: 16, right: 48 };
+const CHART_OHLC_HIGH_COLOR = '#089981';
+const CHART_OHLC_LOW_COLOR = '#F23645';
 
 type ChartLiveQuoteTickFields = {
   time?: unknown;
@@ -470,7 +472,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const positions = usePositionsState((s) => s.positions);
   const preferencesHydrated = useUserPreferences((s) => s.hasHydrated);
   const chartShowOnChart = useUserPreferences((s) => s.chartShowOnChart);
-  const showTradingSignals = chartShowOnChart.tradingSignals;
   const resolvedChartColors = useMemo(
     () => resolveChartColorsForTheme(chartColors, chartColorScheme, isDark),
     [chartColors, chartColorScheme, isDark],
@@ -604,8 +605,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     accountSummary?.marginLevel,
   ]);
 
-  const [timeframePickerVisible, setTimeframePickerVisible] = useState(false);
-  const handleCloseTimeframePicker = useCallback(() => setTimeframePickerVisible(false), []);
   useEffect(() => {
     const normalized = normalizeTradeVolume(tradeVolume, tradeVolumeBounds);
     if (Math.abs(normalized - tradeVolume) > 0.000001) {
@@ -2058,12 +2057,28 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   }, [chartTradeSheetMode, snapTradeSheet]);
   const chartTradeExpirationActions = useMemo(
     () => [
-      { label: t('GTC'), onPress: () => setChartTradeExpiration('GTC') },
-      { label: t('Today'), onPress: () => setChartTradeExpiration('Today') },
-      { label: t('Date and Time'), onPress: () => setChartTradeExpiration('Date and Time') },
-      { label: t('Date'), onPress: () => setChartTradeExpiration('Date') },
+      {
+        icon: <Ionicons name="infinite-outline" size={20} color={TEXT_MUTED} />,
+        label: t('GTC'),
+        onPress: () => setChartTradeExpiration('GTC'),
+      },
+      {
+        icon: <Ionicons name="today-outline" size={20} color={TEXT_MUTED} />,
+        label: t('Today'),
+        onPress: () => setChartTradeExpiration('Today'),
+      },
+      {
+        icon: <Ionicons name="time-outline" size={20} color={TEXT_MUTED} />,
+        label: t('Date and Time'),
+        onPress: () => setChartTradeExpiration('Date and Time'),
+      },
+      {
+        icon: <Ionicons name="calendar-outline" size={20} color={TEXT_MUTED} />,
+        label: t('Date'),
+        onPress: () => setChartTradeExpiration('Date'),
+      },
     ],
-    [t],
+    [TEXT_MUTED, t],
   );
   const handleOpenChartExpirationMenu = useCallback(() => {
     runImmediateAction('chart.tradeSheet.expiration.open', () => {
@@ -2071,14 +2086,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       setChartTradeCommentFocused(false);
       Keyboard.dismiss();
       showChartActionSheet({
-        title: t('Expiration'),
+        presentation: 'mt5Plain',
+        showActionIcons: true,
         detent: 'auto',
         instantOpen: true,
         runActionAfterClose: false,
         actions: chartTradeExpirationActions,
       });
     });
-  }, [chartTradeExpirationActions, showChartActionSheet, t]);
+  }, [chartTradeExpirationActions, showChartActionSheet]);
   const handleFocusChartTradeComment = useCallback(() => {
     runImmediateAction('chart.tradeSheet.comment.focus', () => {
       if (chartTradeSheetMode !== 'expanded') {
@@ -3018,6 +3034,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const chartMetaBackendLast = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1] : null;
   const chartMetaLastCandle = chartCrosshairCandle ?? chartMetaBackendLast;
   const chartMetaIsUp = chartMetaLastCandle ? chartMetaLastCandle.close >= chartMetaLastCandle.open : true;
+  const chartMetaDirectionColor = chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend;
   const chartLatestCandleGap = useMemo(
     () => resolveLatestCandleGap(chartCandles, chartTimeframe),
     [chartCandles, chartTimeframe],
@@ -3030,16 +3047,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
       const items = chartDisplay.showOHLC
         ? [
-          { label: 'O', value: formatChartValue(chartMetaLastCandle.open) },
-          { label: 'H', value: formatChartValue(chartMetaLastCandle.high) },
-          { label: 'L', value: formatChartValue(chartMetaLastCandle.low) },
-          { label: 'C', value: formatChartValue(chartMetaLastCandle.close) },
+          { label: 'O', value: formatChartValue(chartMetaLastCandle.open), color: chartMetaDirectionColor },
+          { label: 'H', value: formatChartValue(chartMetaLastCandle.high), color: CHART_OHLC_HIGH_COLOR },
+          { label: 'L', value: formatChartValue(chartMetaLastCandle.low), color: CHART_OHLC_LOW_COLOR },
+          { label: 'C', value: formatChartValue(chartMetaLastCandle.close), color: chartMetaDirectionColor },
         ]
         : [];
 
       return items;
     },
-    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaLastCandle, formatChartValue],
+    [chartDisplay.showOHLC, chartLatestCandleGap, chartMetaDirectionColor, chartMetaLastCandle, formatChartValue],
   );
   const showChartMetaRow = chartMetaItems.length > 0;
   const showChartVolumePane = chartViewportShowVolumePane;
@@ -3197,7 +3214,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     runImmediateAction(`chart.timeframe.${nextTimeframe}`, () => {
-      setTimeframePickerVisible(false);
       if (nextTimeframe === chartTimeframe) {
         closeChartTapMenu();
         hideActionSheet();
@@ -3211,6 +3227,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       warmChartContextAndCommit(chartSymbol, nextTimeframe);
     });
   }, [chartSymbol, chartTimeframe, closeChartTapMenu, hideActionSheet, warmChartContextAndCommit]);
+
+  const timeframePickerActions = useMemo(
+    () => createTimeframePickerActionSheetActions({
+      activeTimeframe: chartTimeframe,
+      supportedTimeframes: timeframes,
+      onSelect: handleTimeframeSelect,
+    }),
+    [chartTimeframe, handleTimeframeSelect],
+  );
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     runImmediateAction(`chart.symbol.${nextSymbol}`, () => {
@@ -3260,16 +3285,23 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           void prefetchChartTimeframeHistory(chartSymbol, tf);
         }
       });
-      hideActionSheet();
-      closeChartTapMenu();
-      setTimeframePickerVisible(true);
+      showChartActionSheet({
+        presentation: 'mt5Plain',
+        minimumTopInset: drawingToolsSheetTopInset,
+        detent: 'adaptive',
+        instantOpen: true,
+        actions: timeframePickerActions,
+      });
+      scheduleChartActionSheetContextReset();
     });
   }, [
     chartSymbol,
     chartTimeframe,
-    closeChartTapMenu,
-    hideActionSheet,
+    drawingToolsSheetTopInset,
     prefetchChartTimeframeHistory,
+    scheduleChartActionSheetContextReset,
+    showChartActionSheet,
+    timeframePickerActions,
   ]);
 
   const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
@@ -3333,6 +3365,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     () => createDrawingToolsActionSheetActions({
       chartHideAll,
       chartLockAll,
+      dangerIconColor: T.trading.sell.primary,
+      iconColor: TEXT_MUTED,
       magnetEnabled,
       onClearDrawings: handleClearDrawings,
       onSelectTool: handleSetTool,
@@ -3344,6 +3378,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       stickyDrawingMode,
     }),
     [
+      TEXT_MUTED,
+      T.trading.sell.primary,
       chartHideAll,
       chartLockAll,
       handleClearDrawings,
@@ -3361,7 +3397,8 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleOpenDrawingTools = useCallback(() => {
     runImmediateAction('chart.drawingTools.open', () => {
       showChartActionSheet({
-        title: t('Drawing Tools'),
+        presentation: 'mt5Plain',
+        showActionIcons: true,
         minimumTopInset: drawingToolsSheetTopInset,
         detent: 'adaptive',
         instantOpen: true,
@@ -3369,7 +3406,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
+  }, [drawingToolsActions, drawingToolsSheetTopInset, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
   const handleOpenSettingsScreen = useCallback(() => {
     runImmediateAction('chart.settings.open', () => {
@@ -3490,14 +3527,15 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const handleOpenMoreMenu = useCallback(() => {
     runImmediateAction('chart.moreMenu.open', () => {
       showChartActionSheet({
-        title: t('Options'),
+        presentation: 'mt5Plain',
+        showActionIcons: true,
         detent: 'adaptive',
         instantOpen: true,
         actions: chartMoreActions,
       });
       scheduleChartActionSheetContextReset();
     });
-  }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet, t]);
+  }, [chartMoreActions, scheduleChartActionSheetContextReset, showChartActionSheet]);
 
   const chartOptions = useMemo(() => ({
     layout: {
@@ -5163,7 +5201,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                                 <Text style={[styles.symbolOhlcLabel, { textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
                                   {item.label}:
                                 </Text>
-                                <Text style={[styles.symbolOhlcValue, { color: chartMetaIsUp ? resolvedChartColors.candlesUptrend : resolvedChartColors.candlesDowntrend, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+                                <Text style={[styles.symbolOhlcValue, { color: item.color, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
                                   {item.value}
                                 </Text>
                               </View>
@@ -6000,17 +6038,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           </View>
         </Pressable>
       )}
-
-      <ChartTimeframePickerSheet
-        visible={timeframePickerVisible}
-        activeTimeframe={chartTimeframe}
-        supportedTimeframes={timeframes}
-        accentColor={BLUE}
-        isDark={isDark}
-        bottomInset={safeInsets.bottom}
-        onSelect={handleTimeframeSelect}
-        onClose={handleCloseTimeframePicker}
-      />
 
       <TextLevelEditOverlay
         accentColor={BLUE}

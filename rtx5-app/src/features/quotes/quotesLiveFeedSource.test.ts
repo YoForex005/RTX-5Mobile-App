@@ -9,6 +9,7 @@ const readSource = (path: string) =>
 test('quotes tab owns the full watchlist live feed snapshot path', () => {
   const serviceSource = readSource('src/api/ws/quotesSocket/QuotesWebSocketService.ts');
   const tickProcessorSource = readSource('src/api/ws/quotesSocket/tickProcessor.ts');
+  const queryWebsocketSource = readSource('src/query/websocket.ts');
   const liveQuotesSource = readSource('src/features/quotes/useLiveQuotes.ts');
   const quotesScreenSource = readSource('src/features/quotes/QuotesScreen.tsx');
 
@@ -52,8 +53,26 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(subscribeToSymbolSource, /this\.symbolConsumerCounts = applyQuoteSubscriptionDelta/);
   assert.match(subscribeToSymbolSource, /this\.syncActiveSymbols\(\)/);
   assert.doesNotMatch(subscribeToSymbolSource, /this\.send\(\{ type: 'subscribe', symbols: transportSymbols \}\)/);
+  assert.match(
+    serviceSource,
+    /public emitSymbolTick\(symbol: string, tick: QuoteTickEvent\): void \{[\s\S]*const listenerKeys = new Set\(\[[\s\S]*resolveQuoteListenerKeys\(symbol\)[\s\S]*resolveQuoteListenerKeys\(tick\.symbol\)[\s\S]*tick\.rawSymbol \? resolveQuoteListenerKeys\(tick\.rawSymbol\) : \[\][\s\S]*const listeners = new Set<SymbolTickListener>\(\)/,
+  );
+  assert.match(tickProcessorSource, /bridge\.emitSymbolTick\(normalizedUpdate\.rawSymbol \|\| normalizedUpdate\.symbol, tickEvent\)/);
+  assert.doesNotMatch(tickProcessorSource, /if \(normalizedUpdate\.rawSymbol !== normalizedUpdate\.symbol\) \{[\s\S]*bridge\.emitSymbolTick\(normalizedUpdate\.symbol, tickEvent\)/);
 
   assert.match(tickProcessorSource, /const tickEvent: QuoteTickEvent = \{[\s\S]*rawSymbol: normalizedUpdate\.rawSymbol/);
+  assert.match(queryWebsocketSource, /const LIVE_SYMBOL_REST_DIRECT_TICK_SUPPRESS_MS = 2_000/);
+  assert.match(queryWebsocketSource, /const hasRecentDirectSymbolTick = \(entry: RestQuoteFallbackEntry/);
+  assert.match(queryWebsocketSource, /if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;/);
+  assert.match(
+    queryWebsocketSource,
+    /if \(!selectedTick\) \{[\s\S]*return;[\s\S]*\}[\s\S]*if \(hasRecentDirectSymbolTick\(entry\)\) \{[\s\S]*return;[\s\S]*\}[\s\S]*publishQuoteTickToSharedStores\(selectedTick\)/,
+  );
+  assert.match(queryWebsocketSource, /directTickAnchors: Map<LiveSymbolQuoteListener, LiveSymbolDirectTickAnchor>/);
+  assert.match(queryWebsocketSource, /const subscribeLiveSymbolRestQuoteFallback = \([\s\S]*getDirectTickAt\?: LiveSymbolDirectTickAnchor/);
+  assert.match(queryWebsocketSource, /const wsListener: LiveSymbolQuoteListener = \(tick\) => \{[\s\S]*directQuoteTickAtRef\.current = Date\.now\(\);[\s\S]*applyQuoteTick\(tick\)/);
+  assert.match(queryWebsocketSource, /const restListener: LiveSymbolQuoteListener = applyQuoteTick/);
+  assert.match(queryWebsocketSource, /subscribeLiveSymbolRestQuoteFallback\([\s\S]*\(\) => directQuoteTickAtRef\.current/);
   assert.match(liveQuotesSource, /const uniqueQuoteSymbolKeys = \(symbols: string\[\]\): string\[\] =>\s*Array\.from\(new Set\(symbols\.flatMap\(getSnapshotKeys\)\)\)/);
   assert.match(liveQuotesSource, /export function useLiveQuoteSubscription\(symbol: string, active: boolean\): void \{[\s\S]*quotesWsService\.subscribeToSymbol\(symbol, ingestLiveQuoteTick\)/);
   const watchlistHookStart = liveQuotesSource.indexOf('export function useWatchlistLiveQuotes');
@@ -84,6 +103,13 @@ test('quotes tab owns the full watchlist live feed snapshot path', () => {
   assert.match(liveQuotesSource, /isLoggedIn \? \{\} : \{ skipAuth: true, skipRefresh: true \}/);
   assert.match(liveQuotesSource, /QUOTE_REST_SNAPSHOT_POLL_MS = 500/);
   assert.match(liveQuotesSource, /WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16/);
+  // Volume persistence: last-known backend volume is cached to disk and seeded
+  // as a display-only fallback so "Vol: --" doesn't linger on cold open.
+  assert.match(liveQuotesSource, /QUOTE_VOLUME_CACHE_STORAGE_KEY = 'rtx5-quote-volume-cache-v1'/);
+  assert.match(liveQuotesSource, /const rememberBackendVolume = \(symbolKey: string, volume: number \| undefined\): void =>/);
+  assert.match(liveQuotesSource, /seedSnapshotCachedVolume\(getStateQuote\(normalizedSymbol\), normalizedSymbol\)/);
+  assert.match(liveQuotesSource, /void loadVolumeCache\(\)/);
+  assert.match(quotesScreenSource, /volumeLabel\(item\.volume \?\? item\.cachedVolume\)/);
   assert.match(quotesScreenSource, /const quoteStickyFeedActive = quoteRouteActive/);
   assert.match(quotesScreenSource, /const quoteFeedActive =\s*quoteStickyFeedActive/);
   assert.match(quotesScreenSource, /quotesWsService\.setSubscriptions\(quoteFeedSymbols\)/);

@@ -32,6 +32,11 @@ import {
   formatTradingErrorFeedback,
 } from '../../api/tradingErrors';
 
+// Match the Settings screen's dark-theme palette (pure black canvas + deep
+// navy cards) instead of the default slate tokens.
+const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+
 function isValidCloseTicket(value: unknown): value is string | number {
   return typeof value === 'number'
     ? Number.isInteger(value) && value > 0
@@ -58,7 +63,8 @@ export function ClosePositionScreen() {
   const actionLockRef = useRef(false);
   const actionReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
 
   const positions = usePositionsState((s) => s.positions);
   const primedPosition = usePositionsState((s) =>
@@ -210,15 +216,14 @@ export function ClosePositionScreen() {
   }, [isClosing, position, primePositionSnapshot, releaseActionLock]);
 
   const insets = useSafeAreaInsets();
-  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
-  const screenBg = isDark ? T.bg : '#F1F5F9';
+  const screenBg = isDark ? SETTINGS_DARK_BACKGROUND : '#F1F5F9';
 
   if (!position) return (
     <View style={{ flex: 1, backgroundColor: screenBg }}>
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={28} color={T.text} />
+          <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
         <View style={styles.headerBtn} />
@@ -234,7 +239,7 @@ export function ClosePositionScreen() {
       <View style={{ height: insets.top, backgroundColor: screenBg }} />
       <View style={styles.customHeader}>
         <Pressable onPress={() => safeRouterBack(router, '/(tabs)/trade')} hitSlop={16} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={28} color={T.text} />
+          <Ionicons name="arrow-back" size={26} color={T.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: T.text }]}>Close Position</Text>
         <View style={styles.headerBtn} />
@@ -276,13 +281,13 @@ export function ClosePositionScreen() {
         </View>
 
         {closeError || submitted ? (
-          <View style={styles.success}>
+          <View style={[styles.statusBox, closeError ? styles.statusBoxError : styles.statusBoxSuccess]}>
             {closeError ? (
-              <Text style={[styles.successText, { color: T.trading.sell.primary }]}>
+              <Text style={[styles.statusText, styles.statusTextError]}>
                 {closeError}
               </Text>
             ) : (
-              <Text style={styles.successText}>Close order submitted. Position closed successfully.</Text>
+              <Text style={[styles.statusText, styles.statusTextSuccess]}>Close order submitted. Position closed successfully.</Text>
             )}
           </View>
         ) : null}
@@ -298,7 +303,7 @@ export function ClosePositionScreen() {
             unstable_pressDelay={0}
           >
             {isClosing ? (
-              <ActivityIndicator color={T.trading.sell.primary} />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.closeButtonText}>Close Position</Text>
             )}
@@ -334,7 +339,8 @@ function Metric({
   isSecondary?: boolean;
 }) {
   const T = useTheme();
-  const styles = useMemo(() => makeStyles(T), [T]);
+  const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
+  const styles = useMemo(() => makeStyles(T, isDark), [T, isDark]);
   return (
     <View style={[styles.metricRow, isHighlighted && styles.highlightedRow]}>
       <Text style={[styles.metricLabel, isHighlighted && styles.highlightedLabel]}>{label}</Text>
@@ -349,14 +355,14 @@ function Metric({
   );
 }
 
-const makeStyles = (T: ThemeColors) => StyleSheet.create({
+const makeStyles = (T: ThemeColors, isDark = false) => StyleSheet.create({
   customHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
     paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
   },
   headerBtn: { width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
@@ -388,8 +394,8 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: T.borderMedium,
-    backgroundColor: T.glass2,
+    borderColor: isDark ? T.border : T.borderMedium,
+    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass2,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -400,7 +406,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     color: T.text,
     fontSize: 24,
     fontWeight: '700',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   instrument: {
     marginTop: 2,
@@ -410,7 +416,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   sideText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   sideTextBuy: {
@@ -434,7 +440,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   highlightedRow: {
     marginTop: 2,
-    backgroundColor: T.glass1,
+    backgroundColor: isDark ? 'rgba(15,23,42,0.42)' : T.glass1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 10,
@@ -464,7 +470,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   },
   highlightedValue: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   negative: {
     color: T.trading.loss,
@@ -472,17 +478,30 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   positive: {
     color: T.trading.profit,
   },
-  success: {
+  statusBox: {
     marginHorizontal: spacing.md,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.25)',
-    backgroundColor: 'rgba(74,222,128,0.08)',
     padding: spacing.md,
   },
-  successText: {
-    color: T.trading.profit,
+  statusBoxSuccess: {
+    borderColor: isDark ? 'rgba(16,185,129,0.34)' : 'rgba(5,150,105,0.24)',
+    backgroundColor: T.upGlow,
+  },
+  statusBoxError: {
+    borderColor: isDark ? 'rgba(239,68,68,0.34)' : 'rgba(220,38,38,0.24)',
+    backgroundColor: T.downGlow,
+  },
+  statusText: {
     fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  statusTextSuccess: {
+    color: T.trading.profit,
+  },
+  statusTextError: {
+    color: T.trading.loss,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -507,9 +526,9 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
     letterSpacing: 0.5,
   },
   closeByButton: {
-    backgroundColor: T.glass1,
+    backgroundColor: isDark ? SETTINGS_DARK_CARD_BACKGROUND : T.glass1,
     borderWidth: 1,
-    borderColor: T.borderMedium,
+    borderColor: isDark ? T.border : T.borderMedium,
   },
   closeByButtonText: {
     color: T.text,

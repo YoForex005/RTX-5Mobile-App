@@ -83,7 +83,7 @@ export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
       marginBottom: 12, paddingHorizontal: 4,
     },
-    monthLabel: { fontSize: 17, fontWeight: '700', color: T.text, letterSpacing: -0.3 },
+    monthLabel: { fontSize: 17, fontWeight: '700', color: T.text, letterSpacing: 0 },
 
     /* Day header */
     dayHeaderRow: { flexDirection: 'row', marginBottom: 6 },
@@ -119,8 +119,8 @@ export function makeHistoryFilterStyles(T: ThemeColors, isDark: boolean) {
       fontSize: 14, fontWeight: '600', color: T.text,
       fontVariant: ['tabular-nums'],
     },
-    calDayTextSelected: { color: '#FFFFFF', fontWeight: '800' },
-    calDayTextToday: { color: T.accent, fontWeight: '800' },
+    calDayTextSelected: { color: '#FFFFFF', fontWeight: '600' },
+    calDayTextToday: { color: T.accent, fontWeight: '600' },
     calDayTextInRange: { color: T.accent, fontWeight: '700' },
 
     /* Selection info */

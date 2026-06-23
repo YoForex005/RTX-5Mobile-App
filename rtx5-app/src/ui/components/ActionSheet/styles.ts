@@ -34,8 +34,15 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderTopRightRadius: 16,
       borderTopWidth: 1,
       borderColor: T.border,
-      backgroundColor: isDark ? '#0E141F' : T.glass2,
+      backgroundColor: isDark ? '#000000' : T.glass2,
       overflow: 'hidden',
+    },
+    sheetMt5Plain: {
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      borderTopWidth: 0,
+      borderColor: 'transparent',
+      backgroundColor: isDark ? '#000000' : '#FFFFFF',
     },
     handle: {
       alignSelf: 'center',
@@ -54,17 +61,43 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       borderBottomColor: T.border,
       marginBottom: 8,
     },
+    titleContainerMt5Plain: {
+      justifyContent: 'flex-start',
+      alignItems: 'center',
+      paddingTop: 22,
+      paddingBottom: 20,
+      paddingHorizontal: 16,
+      borderBottomWidth: 0,
+      marginBottom: 0,
+    },
+    titleTextMt5Plain: {
+      flexShrink: 1,
+    },
     titlePrefix: {
       fontSize: 12,
       fontWeight: '600',
       color: T.textSub,
       textAlign: 'center',
     },
+    titlePrefixMt5Plain: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontWeight: '400',
+      color: isDark ? '#D7DBE2' : '#7A7D86',
+      textAlign: 'left',
+    },
     titleSuffix: {
       fontSize: 12,
       fontWeight: '600',
       color: T.textSub,
       textAlign: 'center',
+    },
+    titleSuffixMt5Plain: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontWeight: '400',
+      color: isDark ? '#D7DBE2' : '#7A7D86',
+      textAlign: 'left',
     },
     searchContainer: {
       flexDirection: 'row',
@@ -91,6 +124,9 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     actionsContent: {
       paddingBottom: 0,
     },
+    actionsContentMt5Plain: {
+      paddingBottom: 8,
+    },
     actionsContentLarge: {
       flexGrow: 1,
     },
@@ -100,6 +136,10 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+    },
+    actionMt5Plain: {
+      minHeight: 47,
+      paddingHorizontal: 16,
     },
     actionWithSubtitle: {
       minHeight: 60,
@@ -127,9 +167,17 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
       opacity: isDark ? 0.8 : 0.6,
       backgroundColor: T.glass3,
     },
+    actionPressedMt5Plain: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F2F4F7',
+    },
     actionText: {
       fontSize: 17,
       fontWeight: '500',
+    },
+    actionTextMt5Plain: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontWeight: '400',
     },
     actionSubtitle: {
       marginTop: 2,
@@ -140,6 +188,9 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     actionTextNormal: {
       color: isDark ? T.text : '#111827',
     },
+    actionTextNormalMt5Plain: {
+      color: isDark ? '#EEF1F5' : '#4F535C',
+    },
     actionTextSelected: {
       color: T.trading.buy.primary,
     },
@@ -149,8 +200,14 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     actionDisabled: {
       opacity: 0.4,
     },
+    actionDisabledMt5Plain: {
+      opacity: 1,
+    },
     actionTextDisabled: {
       color: T.textMuted,
+    },
+    actionTextDisabledMt5Plain: {
+      color: isDark ? '#626B77' : '#CDD1D8',
     },
   });
 }

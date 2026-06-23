@@ -83,7 +83,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
   },
   ribbonDemo: { backgroundColor: '#10B981' },
   ribbonLive: { backgroundColor: '#3B82F6' },
-  ribbonText: { color: '#FFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.8 },
+  ribbonText: { color: '#FFF', fontSize: 12, fontWeight: '600', letterSpacing: 0.4 },
 
   accTopRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -101,11 +101,11 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexShrink: 0,
   },
   greenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981', marginRight: 6 },
-  connectedText: { color: '#10B981', fontSize: 12, fontWeight: '700' },
+  connectedText: { color: '#10B981', fontSize: 12, fontWeight: '600' },
 
-  accName: { color: themeMode === 'light' ? '#FFF' : T.text, fontSize: 28, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
-  accBalance: { color: '#3b82f6', fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
-  accCurrency: { fontSize: 26, fontWeight: '800', color: '#3b82f6' },
+  accName: { color: themeMode === 'light' ? '#FFF' : T.text, fontSize: 24, fontWeight: '700', letterSpacing: 0, marginBottom: 6 },
+  accBalance: { color: '#3b82f6', fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0 },
+  accCurrency: { fontSize: 24, fontWeight: '600', color: '#3b82f6' },
 
   accDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 20, marginBottom: 16 },
 
@@ -117,7 +117,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
 
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  chipText: { color: T.textSub, fontSize: 11, fontWeight: '700' },
+  chipText: { color: T.textSub, fontSize: 11, fontWeight: '500' },
 
   // Metrics Row
   metricsRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 14 },
@@ -142,16 +142,16 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
     backgroundColor: 'rgba(59, 130, 246, 0.15)',
     borderColor: 'rgba(59, 130, 246, 0.3)',
   },
-  metricLabel: { color: T.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
+  metricLabel: { color: T.textMuted, fontSize: 12, fontWeight: '500', letterSpacing: 0 },
   metricValue: {
-    color: T.text, fontSize: 26, fontWeight: '800', textAlign: 'center',
-    fontVariant: ['tabular-nums'], letterSpacing: -0.5,
+    color: T.text, fontSize: 22, fontWeight: '700', textAlign: 'center',
+    fontVariant: ['tabular-nums'], letterSpacing: 0,
   },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 34 },
-  toggleText: { color: T.text, fontSize: 15, fontWeight: '700' },
+  toggleText: { color: T.text, fontSize: 15, fontWeight: '600' },
 
   // Sections
-  sectionTitle: { color: T.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
+  sectionTitle: { color: T.textMuted, fontSize: 12, fontWeight: '600', letterSpacing: 0.4, marginLeft: 20, marginTop: 28, marginBottom: 8, textTransform: 'uppercase' },
   singleRowCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, marginHorizontal: 16, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
   singleRowCardLogout: { flexDirection: 'row', alignItems: 'center', backgroundColor: settingsCardBackground, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: themeMode === 'light' ? 'rgba(0,0,0,0.03)' : T.border, overflow: 'hidden' },
   rowTitleSingle: { flex: 1, color: T.text, fontSize: 15, fontWeight: '600', marginLeft: 16, zIndex: 1 },
@@ -166,7 +166,7 @@ export const makeSettingsStyles = (T: ThemeColors, themeMode: 'light' | 'dark') 
   rowSub: { color: T.textMuted, fontSize: 12, fontWeight: '500', marginTop: 2 },
   rowRight: { flexDirection: 'row', alignItems: 'center', zIndex: 1 },
   badge: { backgroundColor: '#dc2626', minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginRight: 10 },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
 
   radialHighlight: {
     position: 'absolute', top: -50, right: -50, width: 150, height: 150,

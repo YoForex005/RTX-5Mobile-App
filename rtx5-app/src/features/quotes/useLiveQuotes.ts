@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiClient } from '../../api/apiClient';
 import { normalizeQuoteTickPayload } from '../../api/ws/quoteTickNormalizer';
@@ -29,6 +30,56 @@ let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 const WATCHLIST_QUOTE_NOTIFY_INTERVAL_MS = 16;
 const QUOTE_REST_SNAPSHOT_POLL_MS = 500;
 const QUOTE_REST_SNAPSHOT_STALE_MS = 2_000;
+
+// Volume is REST-only (WS ticks omit it) and the quotes store has no `persist`,
+// so on cold open "Vol: --" lingered for ~1s+ until the slow /quotes response.
+// We remember the last backend volume per symbol on disk and seed it as a
+// display-only fallback (snapshot.cachedVolume) so a value paints instantly; the
+// live REST volume overwrites it within the first poll. Kept out of
+// volume/volumeSource so it never suppresses the volume refetch.
+const QUOTE_VOLUME_CACHE_STORAGE_KEY = 'rtx5-quote-volume-cache-v1';
+const QUOTE_VOLUME_CACHE_PERSIST_DEBOUNCE_MS = 1_500;
+const cachedVolumeBySymbol = new Map<string, number>();
+let volumeCachePersistTimer: ReturnType<typeof setTimeout> | null = null;
+let volumeCacheDirty = false;
+
+const schedulePersistVolumeCache = (): void => {
+  if (volumeCachePersistTimer) {
+    return;
+  }
+  volumeCachePersistTimer = setTimeout(() => {
+    volumeCachePersistTimer = null;
+    if (!volumeCacheDirty) {
+      return;
+    }
+    volumeCacheDirty = false;
+    const serialized = JSON.stringify(Object.fromEntries(cachedVolumeBySymbol));
+    void AsyncStorage.setItem(QUOTE_VOLUME_CACHE_STORAGE_KEY, serialized).catch(() => {});
+  }, QUOTE_VOLUME_CACHE_PERSIST_DEBOUNCE_MS);
+};
+
+const rememberBackendVolume = (symbolKey: string, volume: number | undefined): void => {
+  if (!symbolKey || volume === undefined || !Number.isFinite(volume)) {
+    return;
+  }
+  if (cachedVolumeBySymbol.get(symbolKey) === volume) {
+    return;
+  }
+  cachedVolumeBySymbol.set(symbolKey, volume);
+  volumeCacheDirty = true;
+  schedulePersistVolumeCache();
+};
+
+const seedSnapshotCachedVolume = (
+  snapshot: LiveQuoteSnapshot | undefined,
+  symbolKey: string,
+): LiveQuoteSnapshot | undefined => {
+  if (!snapshot || snapshot.cachedVolume !== undefined) {
+    return snapshot;
+  }
+  const cached = cachedVolumeBySymbol.get(symbolKey);
+  return cached === undefined ? snapshot : { ...snapshot, cachedVolume: cached };
+};
 
 const getTickSymbolKey = (tick: QuoteTickEvent): string =>
   normalizeQuoteSymbolKey(tick.rawSymbol ?? tick.symbol);
@@ -95,7 +146,10 @@ const ensureSnapshot = (symbol: string): LiveQuoteSnapshot | undefined => {
   if (!normalizedSymbol) return undefined;
 
   if (!snapshotsBySymbol.has(normalizedSymbol)) {
-    snapshotsBySymbol.set(normalizedSymbol, getStateQuote(normalizedSymbol));
+    snapshotsBySymbol.set(
+      normalizedSymbol,
+      seedSnapshotCachedVolume(getStateQuote(normalizedSymbol), normalizedSymbol),
+    );
   }
 
   return snapshotsBySymbol.get(normalizedSymbol);
@@ -194,6 +248,10 @@ const ingestRestQuoteSnapshot = (requestedSymbol: string, payload: unknown): boo
     ...(update.volume !== undefined ? { volume: update.volume, volumeSource: 'backend' as const } : {}),
     ...(update.digits !== undefined ? { digits: update.digits } : {}),
   });
+  rememberBackendVolume(
+    normalizeQuoteSymbolKey(update.rawSymbol ?? update.symbol),
+    normalizeQuoteVolume(update.volume),
+  );
   return true;
 };
 
@@ -236,6 +294,7 @@ const ingestRestQuoteVolumeOnly = (requestedSymbol: string, payload: unknown): v
     volumeSource: 'backend',
     updateSeq: ++updateSeq,
   });
+  rememberBackendVolume(symbolKey, volume);
   scheduleSymbolNotification(symbolKey);
 
   // Mirror onto an existing tradingState quote so other consumers see volume,
@@ -447,3 +506,38 @@ export function useLiveQuoteSnapshot(symbol: string): LiveQuoteSnapshot | undefi
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+// Restore persisted volumes once at module load, then backfill onto any
+// snapshots already created so their rows paint the fallback volume without
+// waiting for a tick or the slow REST response.
+const loadVolumeCache = async (): Promise<void> => {
+  try {
+    const raw = await AsyncStorage.getItem(QUOTE_VOLUME_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(parsed)) {
+      const volume = normalizeQuoteVolume(value);
+      if (!key || volume === undefined || cachedVolumeBySymbol.has(key)) {
+        continue;
+      }
+      cachedVolumeBySymbol.set(key, volume);
+    }
+    for (const [key, snapshot] of snapshotsBySymbol) {
+      if (!snapshot || snapshot.cachedVolume !== undefined) {
+        continue;
+      }
+      const cached = cachedVolumeBySymbol.get(key);
+      if (cached === undefined) {
+        continue;
+      }
+      snapshotsBySymbol.set(key, { ...snapshot, cachedVolume: cached, updateSeq: ++updateSeq });
+      scheduleSymbolNotification(key);
+    }
+  } catch {
+    // Ignore a missing/corrupt cache — volume simply falls back to the REST fetch.
+  }
+};
+
+void loadVolumeCache();

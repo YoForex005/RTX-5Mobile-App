@@ -672,7 +672,7 @@ export function HistoryScreen() {
                 />
                 <MetricPill label={t('Trades')} value={String(data.length)} icon='layers-outline' tone='neutral' T={T} isDark={isDark} />
                 <MetricPill
-                  label={t('Closed Trade Net P/L')}
+                  label={t('Net P/L')}
                   value={fmt.pnl(netProfit)}
                   icon='wallet-outline'
                   tone={netTone}
@@ -765,7 +765,12 @@ function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: Th
           </View>
           <View style={rStyles.rightCol}>
             {profit !== null ? (
-              <Text style={[rStyles.pnlText, { color: profit >= 0 ? T.trading.profit : T.down }]}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+                style={[rStyles.pnlText, { color: profit >= 0 ? T.trading.profit : T.down }]}
+              >
                 {profit >= 0 ? '+' : ''}{profit.toFixed(2)}
               </Text>
             ) : (
@@ -778,7 +783,7 @@ function HistoryItemRow({ item, T, isDark, currency }: { item: HistoryRow; T: Th
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2.split('→')[0].trim()}</Text>
               <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} />
-              <Text style={[rStyles.priceTrack, { color: T.text, fontWeight: '700' }]}>{item.line2.split('→')[1].trim()}</Text>
+              <Text style={[rStyles.priceTrack, { color: T.text, fontWeight: '500' }]}>{item.line2.split('→')[1].trim()}</Text>
             </View>
           ) : (
             <Text style={[rStyles.priceTrack, { color: T.textSub }]}>{item.line2}</Text>
@@ -857,7 +862,12 @@ function ClosedPositionRow({ item, T, isDark, currency }: { item: HistoryRow; T:
             <Text style={[cpStyles.volume, { color: T.textMuted }]}>{volumeNum.toFixed(2)}</Text>
           </View>
           <View style={cpStyles.rightCol}>
-            <Text style={[cpStyles.pnl, { color: profit >= 0 ? T.trading.profit : T.trading.loss }]}>
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+              style={[cpStyles.pnl, { color: profit >= 0 ? T.trading.profit : T.trading.loss }]}
+            >
               {fmt.pnlPrecise(profit)} {currency}
             </Text>
           </View>
@@ -935,7 +945,14 @@ function MetricPill({
     <View style={[mpS.metricPill, { borderColor: isDark ? T.border : 'transparent', backgroundColor: isDark ? cardBg : T.glass1 }]}>
       <View style={mpS.metricTop}>
         <Ionicons name={icon} size={12} color={T.textSub} />
-        <Text style={[mpS.metricLabel, { color: T.textSub }]}>{label}</Text>
+        <Text
+          style={[mpS.metricLabel, { color: T.textSub }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {label}
+        </Text>
       </View>
       <Text
         style={[
@@ -945,6 +962,8 @@ function MetricPill({
           tone === 'negative' && { color: T.down },
         ]}
         numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
       >
         {value}
       </Text>
@@ -1003,21 +1022,21 @@ const rStyles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
+  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'], letterSpacing: 0 },
   rowBody: { width: '100%' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap', minWidth: 0 },
-  symbolText: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 1 },
+  symbolText: { fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0, flexShrink: 1 },
   sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
-  sideText: { fontSize: 11, fontWeight: '800', textTransform: 'lowercase', letterSpacing: 0.3 },
-  volumeText: { fontSize: 13, fontWeight: '700' },
+  sideText: { fontSize: 11, fontWeight: '600', textTransform: 'lowercase', letterSpacing: 0 },
+  volumeText: { fontSize: 13, fontWeight: '500' },
   statusBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
-  statusText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  statusText: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
   rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
-  pnlText: { minWidth: 88, textAlign: 'right', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  pnlText: { minWidth: 96, textAlign: 'right', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
   priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  priceTrack: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  timeText: { fontSize: 11, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  priceTrack: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  timeText: { fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
   timeOnly: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
   /** Deal comment row — only rendered when a non-empty comment exists on the deal */
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
@@ -1042,18 +1061,18 @@ const cpStyles = StyleSheet.create({
   body: { width: '100%' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   symbolLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  symbol: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  symbol: { fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
   sideBadge: { borderRadius: 3, paddingHorizontal: 6, paddingVertical: 2 },
-  sideText: { fontSize: 11, fontWeight: '800', textTransform: 'lowercase', letterSpacing: 0.3 },
-  volume: { fontSize: 13, fontWeight: '700' },
-  pnl: { minWidth: 126, textAlign: 'right', fontSize: 16, fontWeight: '800', letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  sideText: { fontSize: 11, fontWeight: '600', textTransform: 'lowercase', letterSpacing: 0 },
+  volume: { fontSize: 13, fontWeight: '500' },
+  pnl: { minWidth: 126, textAlign: 'right', fontSize: 16, fontWeight: '600', letterSpacing: 0, fontVariant: ['tabular-nums'] },
   priceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   priceLeft: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  price: { fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  price: { fontSize: 13, fontWeight: '500', fontVariant: ['tabular-nums'] },
   arrow: { marginHorizontal: 4 },
-  dateRight: { fontSize: 11, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  dateRight: { fontSize: 12, fontWeight: '500', textAlign: 'right', fontVariant: ['tabular-nums'] },
   rightCol: { alignItems: 'flex-end', justifyContent: 'flex-start' },
-  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 0.5 },
+  cornerId: { position: 'absolute', top: 4, left: 8, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'], letterSpacing: 0 },
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
   noteText: { fontSize: 11, fontWeight: '500', flex: 1 },
 });
@@ -1061,8 +1080,8 @@ const cpStyles = StyleSheet.create({
 const mpS = StyleSheet.create({
   metricPill: { flex: 1, minHeight: 52, borderRadius: 10, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 6, marginRight: spacing.sm, alignItems: 'center', justifyContent: 'center' },
   metricTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4, paddingHorizontal: 2 },
-  metricLabel: { marginLeft: 6, flexShrink: 1, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
-  metricValue: { fontSize: 15, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  metricLabel: { marginLeft: 6, flexShrink: 1, fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0 },
+  metricValue: { fontSize: 14, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'] },
 });
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
@@ -1072,7 +1091,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     listContent: { paddingBottom: 32 },
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
     menuBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: T.glass1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
-    accountSummaryHeading: { color: T.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.5, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
+    accountSummaryHeading: { color: T.text, fontSize: 19, fontWeight: '600', letterSpacing: 0, marginTop: 4, marginHorizontal: spacing.md, marginBottom: 8 },
     summaryBlock: {
       marginTop: spacing.md, marginHorizontal: spacing.md, borderRadius: 16,
       backgroundColor: isDark ? '#0E141F' : cardBg, borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
@@ -1083,7 +1102,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       overflow: 'hidden',
     },
     summaryTop: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'transparent', gap: 12 },
-    summaryLabel: { fontSize: 18, fontWeight: '500', letterSpacing: -0.5, marginTop: 1 },
+    summaryLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0, textTransform: 'uppercase', marginTop: 1 },
     summaryBalanceInline: {
       flex: 1,
       minWidth: 0,
@@ -1092,13 +1111,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       justifyContent: 'flex-end',
       gap: 4,
     },
-    summaryBalanceValue: { fontSize: 26, fontWeight: '600', letterSpacing: -0.5, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
-    balanceQuickCurrency: { fontSize: 20, fontWeight: '600', flexShrink: 0 },
+    summaryBalanceValue: { fontSize: 24, fontWeight: '700', letterSpacing: 0, lineHeight: 30, marginTop: 1, fontVariant: ['tabular-nums'] },
+    balanceQuickCurrency: { fontSize: 13, fontWeight: '600', flexShrink: 0 },
     metricsCard: { borderTopWidth: 1, borderColor: T.borderSubtle, backgroundColor: 'transparent', overflow: 'hidden' },
     gridRow: { flexDirection: 'row' },
     gridCol: { flex: 1, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    gridLabel: { fontSize: 13, fontWeight: '500' },
-    gridValue: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
+    gridLabel: { fontSize: 12, fontWeight: '500' },
+    gridValue: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'], letterSpacing: 0 },
     topBlock: {
       marginTop: spacing.lg, marginHorizontal: spacing.md, borderRadius: 16,
       borderWidth: 1, borderColor: isDark ? T.border : T.borderSubtle,
@@ -1113,11 +1132,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     segment: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 0.5, borderColor: T.border, backgroundColor: T.glass1 },
     segmentButton: { paddingVertical: 5, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
     segmentButtonActive: { backgroundColor: isDark ? T.glass3 : T.glass2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0 : 0.05, shadowRadius: 2, elevation: 1 },
-    segmentText: { fontSize: 13, fontWeight: '700' },
+    segmentText: { fontSize: 13, fontWeight: '600' },
     metricsRow: { marginTop: 14, flexDirection: 'row', columnGap: 8 },
     sectionHeader: { marginTop: spacing.lg, marginHorizontal: spacing.md, paddingVertical: 8, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
-    sectionTitle: { fontSize: 18, fontWeight: '600', letterSpacing: -0.5 },
-    sectionMeta: { marginTop: 2, fontSize: 12, fontWeight: '500' },
+    sectionTitle: { fontSize: 19, fontWeight: '600', letterSpacing: 0 },
+    sectionMeta: { marginTop: 2, fontSize: 13, fontWeight: '500' },
     emptyText: { marginTop: spacing.lg, textAlign: 'center', fontSize: 13 },
   });
 }

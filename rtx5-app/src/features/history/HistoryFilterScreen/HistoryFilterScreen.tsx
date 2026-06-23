@@ -201,7 +201,7 @@ export function HistoryFilterScreen() {
         >
           <View style={s.headerRow}>
             <Pressable onPress={handleBack} hitSlop={16} style={s.headerBackButton}>
-              <Ionicons name="chevron-back" size={28} color={T.text} />
+              <Ionicons name="arrow-back" size={26} color={T.text} />
             </Pressable>
             <View style={s.headerTitleWrap} pointerEvents="none">
               <Text style={s.headerTitle} numberOfLines={1} adjustsFontSizeToFit>

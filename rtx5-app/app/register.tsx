@@ -689,8 +689,6 @@ export default function RegisterScreen() {
     setGroupPickerOpen(true);
   }, [demoGroupOptions.length]);
   const fieldIconColor = isDark ? '#A7B4CC' : T.textMuted;
-  const fieldPlaceholderColor = isDark ? '#8EA0BA' : T.textMuted;
-  const strongPlaceholderColor = isDark ? '#EAF2FF' : T.text;
   const fieldAccentColor = isDark ? '#22A8FF' : T.trading.buy.primary;
   const heroBackIconColor = isDark ? '#DCEBFF' : T.text;
   const noticeIconColor = isDark ? '#38BDF8' : T.trading.buy.primary;
@@ -739,7 +737,7 @@ export default function RegisterScreen() {
 
             <View style={styles.formContainer}>
               <View style={styles.heroSection}>
-                <View style={styles.heroTitleRow}>
+                <View style={styles.heroHeader}>
                   <Pressable
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     onPress={handleRegisterBack}
@@ -748,20 +746,22 @@ export default function RegisterScreen() {
                     unstable_pressDelay={0}
                     style={styles.heroBackButton}
                   >
-                    <Ionicons name="arrow-back" size={26} color={heroBackIconColor} />
+                    <Ionicons name="arrow-back" size={24} color={heroBackIconColor} />
                   </Pressable>
-                  <Text
-                    style={styles.heroTitle}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.82}
-                  >
-                    {t('Demo Trading Account')}
-                  </Text>
+                  <View style={styles.heroCopy}>
+                    <Text
+                      style={styles.heroTitle}
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.86}
+                    >
+                      {t('Open Demo Account')}
+                    </Text>
+                    <Text style={styles.heroSubtitle}>
+                      {t('Create a practice account and start trading in minutes.')}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.heroSubtitle}>
-                  {t('Create a practice account and start trading in minutes.')}
-                </Text>
               </View>
 
               {isDemoSetupUnavailable && (
@@ -805,8 +805,6 @@ export default function RegisterScreen() {
                     value={firstName}
                     onChangeText={setFirstName}
                     onFocus={() => handleFieldFocus('firstName')}
-                    placeholder={t('First name')}
-                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="words"
                     selectionColor={fieldAccentColor}
                     cursorColor={fieldAccentColor}
@@ -822,7 +820,9 @@ export default function RegisterScreen() {
               </View>
 
               <View style={styles.inputRow} onLayout={handleFieldLayout('lastName')}>
-                <Text style={styles.inputLabel}>{t('Last name')}</Text>
+                <Text style={styles.inputLabel}>
+                  {t('Last name')} <Text style={styles.inputOptionalLabel}>({t('optional')})</Text>
+                </Text>
                 <View style={styles.inputShell}>
                   <Ionicons name="id-card-outline" size={21} color={fieldIconColor} style={styles.inputRowIcon} />
                   <TextInput
@@ -830,8 +830,6 @@ export default function RegisterScreen() {
                     value={lastName}
                     onChangeText={setLastName}
                     onFocus={() => handleFieldFocus('lastName')}
-                    placeholder={t('Last name')}
-                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="words"
                     selectionColor={fieldAccentColor}
                     cursorColor={fieldAccentColor}
@@ -855,8 +853,6 @@ export default function RegisterScreen() {
                     value={email}
                     onChangeText={setEmail}
                     onFocus={() => handleFieldFocus('email')}
-                    placeholder={t('you@example.com')}
-                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     keyboardType="email-address"
                     selectionColor={fieldAccentColor}
@@ -899,8 +895,6 @@ export default function RegisterScreen() {
                     value={phone}
                     onChangeText={setPhone}
                     onFocus={() => handleFieldFocus('phone')}
-                    placeholder="(555) 123-4567"
-                    placeholderTextColor={fieldPlaceholderColor}
                     keyboardType="phone-pad"
                     selectionColor={fieldAccentColor}
                     cursorColor={fieldAccentColor}
@@ -946,8 +940,6 @@ export default function RegisterScreen() {
                     value={password}
                     onChangeText={setPassword}
                     onFocus={() => handleFieldFocus('password')}
-                    placeholder={t('Master password')}
-                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     secureTextEntry={!showPassword}
                     selectionColor={fieldAccentColor}
@@ -989,8 +981,6 @@ export default function RegisterScreen() {
                     value={investorPassword}
                     onChangeText={setInvestorPassword}
                     onFocus={() => handleFieldFocus('investorPassword')}
-                    placeholder={t('Investor password')}
-                    placeholderTextColor={fieldPlaceholderColor}
                     autoCapitalize="none"
                     secureTextEntry={!showInvestorPassword}
                     selectionColor={fieldAccentColor}
@@ -1051,8 +1041,6 @@ export default function RegisterScreen() {
                     onChangeText={setInitialBalance}
                     onFocus={() => handleFieldFocus('initialBalance')}
                     keyboardType="numeric"
-                    placeholder="10000"
-                    placeholderTextColor={strongPlaceholderColor}
                     selectionColor={fieldAccentColor}
                     cursorColor={fieldAccentColor}
                     underlineColorAndroid="transparent"
@@ -1285,8 +1273,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     headerTitle: {
       color: T.text,
       flex: 1,
-      fontSize: 19,
-      fontWeight: '800',
+      fontSize: 18,
+      fontWeight: '600',
       letterSpacing: 0,
     },
 
@@ -1308,34 +1296,41 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       paddingBottom: 14,
       marginBottom: 2,
     },
-    heroTitleRow: {
+    heroHeader: {
       flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: 9,
+      alignItems: 'flex-start',
+    },
+    heroCopy: {
+      flex: 1,
+      minWidth: 0,
+      paddingTop: 1,
     },
     heroTitle: {
       color: heroTitleColor,
-      fontSize: 26,
-      lineHeight: 32,
-      fontWeight: '900',
+      fontSize: 22,
+      lineHeight: 28,
+      fontWeight: '600',
       letterSpacing: 0,
-      flex: 1,
       marginBottom: 0,
     },
     heroBackButton: {
       alignSelf: 'flex-start',
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 10,
-      backgroundColor: 'transparent',
+      marginRight: 12,
+      borderWidth: 1,
+      borderColor: border,
+      backgroundColor: surface,
     },
     heroSubtitle: {
       color: secondaryText,
-      fontSize: 15,
-      lineHeight: 21,
+      fontSize: 14,
+      lineHeight: 20,
       fontWeight: '500',
+      marginTop: 5,
       marginLeft: 0,
       marginBottom: 0,
     },
@@ -1357,7 +1352,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: secondaryText,
       fontSize: 12,
       lineHeight: 16,
-      fontWeight: '600',
+      fontWeight: '500',
     },
     statusRetryBtn: {
       minWidth: 56,
@@ -1370,7 +1365,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     statusRetryText: {
       color: '#FFFFFF',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     inlineStatus: {
       flexDirection: 'row',
@@ -1403,7 +1398,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     inlineStatusTitle: {
       color: T.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     inlineStatusText: {
       color: T.textSub,
@@ -1423,7 +1418,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     inlineRetryBtnText: {
       color: '#ffffff',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     statusGate: {
       marginHorizontal: 20,
@@ -1450,7 +1445,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     statusGateTitle: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '700',
+      fontWeight: '600',
       textAlign: 'center',
       marginTop: 10,
     },
@@ -1477,7 +1472,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     retryBtnText: {
       color: '#ffffff',
       fontSize: 14,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     groupSelector: {
       paddingTop: 0,
@@ -1518,14 +1513,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     groupSectionLabel: {
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0,
     },
     groupSectionSubtitle: {
       color: T.text,
-      fontSize: 15,
-      fontWeight: '800',
+      fontSize: 14,
+      fontWeight: '600',
       marginTop: 2,
     },
     groupSectionCount: {
@@ -1537,7 +1532,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       textAlignVertical: 'center',
       color: T.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.14)',
     },
     groupOptions: {
@@ -1555,7 +1550,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     groupLoadingText: {
       color: T.textSub,
       fontSize: 12,
-      fontWeight: '600',
+      fontWeight: '500',
     },
     groupOption: {
       position: 'relative',
@@ -1596,7 +1591,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: T.text,
       flex: 1,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     groupOptionDescription: {
       color: T.textSub,
@@ -1613,7 +1608,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     groupSelectedPillText: {
       color: T.accent,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     groupOptionDivider: {
@@ -1627,8 +1622,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
 
     formSectionTitle: {
       color: T.textMuted,
-      fontSize: 12,
-      fontWeight: '800',
+      fontSize: 11,
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0,
       marginTop: 14,
@@ -1658,11 +1653,17 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     inputLabel: {
       color: heroTitleColor,
-      fontSize: 15,
+      fontSize: 14,
       lineHeight: 19,
       fontWeight: '600',
-      marginBottom: 7,
+      marginBottom: 6,
       letterSpacing: 0,
+    },
+    inputOptionalLabel: {
+      color: secondaryText,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
     },
     inputShell: {
       minHeight: 48,
@@ -1692,7 +1693,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     phoneCodeText: {
       color: fieldText,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       includeFontPadding: false,
     },
     phoneCodeDivider: {
@@ -1723,7 +1724,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       flex: 1,
       color: fieldText,
       fontSize: 16,
-      fontWeight: '700',
+      fontWeight: '500',
       textAlign: 'right',
       includeFontPadding: false,
     },
@@ -1773,8 +1774,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     selectValue: {
       flex: 1,
       color: fieldText,
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '500',
       includeFontPadding: false,
     },
     demoTypeRow: {
@@ -1824,14 +1825,14 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     linkText: {
       color: primaryBlue,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     registerBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: primaryBlue,
-      height: 58,
+      height: 54,
       borderRadius: 8,
       marginTop: 0,
       overflow: 'hidden',
@@ -1861,8 +1862,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     registerBtnText: {
       color: '#ffffff',
-      fontSize: 18,
-      fontWeight: '800',
+      fontSize: 16,
+      fontWeight: '600',
       letterSpacing: 0,
     },
 

@@ -8,13 +8,13 @@ import React, { useCallback, useMemo } from 'react';
 import { Text, View } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { useTranslation } from '../../../i18n/useTranslation';
-import { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
+import { PositionItem } from '../../../dev/mock/tradingData';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useTradingState } from '../../../state/tradingState';
-import { useLiveSymbolQuotes } from '../../../query/websocket';
 import { fmt } from '../../../utils/format';
 import { FastPressable } from '../../../ui/components/FastPressable';
+import { useLiveSymbolQuotes } from '../../../query/websocket';
 import {
   buildTradeAccountSummary,
   resolveRenderableTradeAccountSummary,
@@ -22,6 +22,33 @@ import {
 } from '../accountSummary';
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { TradeScreenStyles } from './styles';
+
+function SummaryMetricRow({
+  label,
+  currency,
+  value,
+  s,
+  T,
+}: {
+  label: string;
+  currency?: string;
+  value: string;
+  s: TradeScreenStyles;
+  T: ThemeColors;
+}) {
+  return (
+    <View style={s.summaryMetricRow}>
+      <Text style={[s.summaryMetricLabel, { color: T.textMuted }]}>
+        {label}
+        {currency ? <Text style={[s.summaryMetricCurrency, { color: T.textFaint }]}> ({currency})</Text> : null}
+      </Text>
+      <View style={s.summaryMetricLeader} />
+      <Text style={[s.summaryMetricValue, { color: T.text }]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
 
 const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
   const { t } = useTranslation();
@@ -58,22 +85,14 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
           ]}
         >
           {/* The Hero: Unrealized P/L */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }}>
+          <View style={s.summaryHeadlineRow}>
+            <Text style={[s.summaryHeadlineLabel, { color: T.textSub }]}>
               {t('Floating Profit/Loss')}
             </Text>
             <Text
               numberOfLines={1}
               adjustsFontSizeToFit
-              style={{
-                fontSize: 24,
-                fontWeight: '700',
-                color: safeFloating >= 0 ? T.up : T.down,
-                letterSpacing: 0,
-                fontVariant: ['tabular-nums'],
-                textAlign: 'right',
-                flexShrink: 0,
-              }}>
+              style={[s.summaryHeadlineValue, { color: safeFloating >= 0 ? T.up : T.down }]}>
               {fmt.pnlPrecise(safeFloating)} {accountCurrency}
             </Text>
           </View>
@@ -81,90 +100,19 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
         {tradeSummaryDetailsVisible ? (
           <View style={s.summaryMetrics}>
             {/* Keep Floating P/L as the collapsed headline; equity belongs in the expanded account breakdown. */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Balance')} <Text style={{ fontSize: 10, color: T.textFaint }}>({accountCurrency})</Text>
-              </Text>
-              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                  ....................................................................................................
-                </Text>
-              </View>
-              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                {fmt.decimal(safeBalance)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Equity')}
-              </Text>
-              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                  ....................................................................................................
-                </Text>
-              </View>
-              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                {fmt.decimal(safeEquity)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Margin')}
-              </Text>
-              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                  ....................................................................................................
-                </Text>
-              </View>
-              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                {fmt.decimal(safeMargin)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Free Margin')}
-              </Text>
-              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                  ....................................................................................................
-                </Text>
-              </View>
-              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                {fmt.decimal(safeFreeMargin)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {t('Margin Level')}
-              </Text>
-              <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                  ....................................................................................................
-                </Text>
-              </View>
-              <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                {fmt.decimal(safeMarginLevel)}%
-              </Text>
-            </View>
+            <SummaryMetricRow label={t('Balance')} currency={accountCurrency} value={fmt.decimal(safeBalance)} s={s} T={T} />
+            <SummaryMetricRow label={t('Equity')} value={fmt.decimal(safeEquity)} s={s} T={T} />
+            <SummaryMetricRow label={t('Margin')} value={fmt.decimal(safeMargin)} s={s} T={T} />
+            <SummaryMetricRow label={t('Free Margin')} value={fmt.decimal(safeFreeMargin)} s={s} T={T} />
+            <SummaryMetricRow label={t('Margin Level')} value={`${fmt.decimal(safeMarginLevel)}%`} s={s} T={T} />
 
             {account.credit > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: 12, color: T.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {t('Credit')}
-                </Text>
-                <View style={{ flex: 1, marginHorizontal: 8, overflow: 'hidden', height: 16, justifyContent: 'flex-end', opacity: 0.35, transform: [{ translateY: -3 }] }}>
-                  <Text style={{ color: T.text, fontSize: 13, letterSpacing: 2, fontWeight: '900' }} numberOfLines={1} ellipsizeMode="clip">
-                    ....................................................................................................
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 14, color: T.text, opacity: 0.85, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] }}>
-                  {fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
-                </Text>
-              </View>
+              <SummaryMetricRow
+                label={t('Credit')}
+                value={fmt.decimal(Number.isFinite(account.credit) ? account.credit : 0)}
+                s={s}
+                T={T}
+              />
             ) : null}
           </View>
         ) : null}
@@ -234,7 +182,7 @@ export const TradeSummaryHeader = React.memo(({
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],
   );
-  const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active);
+  const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active, 0);
   const account = useMemo(() => {
     const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
     const floating = resolveTradeFloatingPnl(summary.floating, positions, hydratedLogin, resolvedLogin, liveQuotes);

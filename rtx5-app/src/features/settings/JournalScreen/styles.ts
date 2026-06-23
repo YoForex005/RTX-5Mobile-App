@@ -48,7 +48,7 @@ export function makeJournalStyles(T: ThemeColors) {
     headerTitle: {
       color: text,
       fontSize: 22,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     headerSub: {
@@ -83,7 +83,7 @@ export function makeJournalStyles(T: ThemeColors) {
     statusPillText: {
       color: action,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     container: {
       flex: 1,
@@ -116,13 +116,13 @@ export function makeJournalStyles(T: ThemeColors) {
     summaryTitle: {
       color: text,
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '700',
       letterSpacing: 0,
     },
     summarySub: {
       color: textMuted,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 2,
       fontVariant: ['tabular-nums'],
     },
@@ -140,7 +140,7 @@ export function makeJournalStyles(T: ThemeColors) {
     summaryStatusText: {
       color: action,
       fontSize: 11,
-      fontWeight: '900',
+      fontWeight: '600',
     },
     summaryMetrics: {
       minHeight: 52,
@@ -162,7 +162,7 @@ export function makeJournalStyles(T: ThemeColors) {
     summaryLabel: {
       color: textMuted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0.4,
       textAlign: 'center',
@@ -170,7 +170,7 @@ export function makeJournalStyles(T: ThemeColors) {
     summaryValue: {
       color: text,
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 5,
       fontVariant: ['tabular-nums'],
       letterSpacing: 0,
@@ -193,13 +193,13 @@ export function makeJournalStyles(T: ThemeColors) {
     activityToolbarTitle: {
       color: text,
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '700',
       letterSpacing: 0,
     },
     activityToolbarSub: {
       color: textMuted,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 2,
     },
     toolbarNoteButton: {
@@ -217,7 +217,7 @@ export function makeJournalStyles(T: ThemeColors) {
     toolbarNoteText: {
       color: action,
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     filterRow: {
       gap: 6,
@@ -243,7 +243,7 @@ export function makeJournalStyles(T: ThemeColors) {
     filterText: {
       color: textSub,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     filterTextActive: {
       color: action,
@@ -251,7 +251,7 @@ export function makeJournalStyles(T: ThemeColors) {
     filterCount: {
       color: textMuted,
       fontSize: 11,
-      fontWeight: '900',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     dateGroup: {
@@ -261,7 +261,7 @@ export function makeJournalStyles(T: ThemeColors) {
     dateHeading: {
       color: textSub,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       marginBottom: 7,
       paddingLeft: 2,
     },
@@ -303,7 +303,7 @@ export function makeJournalStyles(T: ThemeColors) {
     activityTime: {
       color: textMuted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     actionPill: {
@@ -315,7 +315,7 @@ export function makeJournalStyles(T: ThemeColors) {
     },
     actionPillText: {
       fontSize: 10,
-      fontWeight: '900',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0.2,
     },
@@ -323,13 +323,13 @@ export function makeJournalStyles(T: ThemeColors) {
       flex: 1,
       color: text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     symbolBadge: {
       color: text,
       fontSize: 11,
-      fontWeight: '900',
+      fontWeight: '600',
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 7,
@@ -350,14 +350,14 @@ export function makeJournalStyles(T: ThemeColors) {
     detailLabel: {
       color: textMuted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       marginBottom: 3,
     },
     detailValue: {
       color: textSub,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       letterSpacing: 0,
     },
@@ -380,7 +380,7 @@ export function makeJournalStyles(T: ThemeColors) {
     addNoteText: {
       color: action,
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     emptyCard: {
       borderRadius: 12,
@@ -403,7 +403,7 @@ export function makeJournalStyles(T: ThemeColors) {
     emptyTitle: {
       color: text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       textAlign: 'center',
     },
     emptySub: {
@@ -438,7 +438,7 @@ export function makeJournalStyles(T: ThemeColors) {
     noteTitle: {
       color: text,
       fontSize: 16,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     noteClose: {
       width: 32,
@@ -475,7 +475,7 @@ export function makeJournalStyles(T: ThemeColors) {
     saveNoteText: {
       color: '#FFFFFF',
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '700',
     },
     primaryText: { color: text },
     mutedText: { color: textMuted },

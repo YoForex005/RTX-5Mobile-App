@@ -30,6 +30,10 @@ type ActionSheetAction = {
 export type ActionSheetConfig = {
   /** Optional title to display at the top of the sheet */
   title?: string;
+  /** Optional visual treatment for feature-specific native parity sheets */
+  presentation?: 'default' | 'mt5Plain';
+  /** Keep leading action icons visible even in plain presentations */
+  showActionIcons?: boolean;
   /** List of buttons to render */
   actions: ActionSheetAction[];
   /** Enable search filtering in the sheet */

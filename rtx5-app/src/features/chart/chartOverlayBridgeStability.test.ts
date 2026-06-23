@@ -36,6 +36,11 @@ const chartTradeActionsSource = readFileSync(
   'utf8',
 );
 
+const chartSettingsScreenSource = readFileSync(
+  resolve(process.cwd(), 'src/features/chart/ChartSettingsScreen.tsx'),
+  'utf8',
+);
+
 const TEST_CHART_COLORS = {
   background: '#000000',
   foreground: '#94A3B8',
@@ -154,27 +159,135 @@ test('chart market execution submits selected sheet SL and TP levels', () => {
   );
 });
 
+test('chart header: OHLC high and low use fixed market colors', () => {
+  assertSourceContains(
+    nativeSource,
+    /const CHART_OHLC_HIGH_COLOR = '#089981'/,
+    'OHLC high must use the fixed green market color',
+  );
+  assertSourceContains(
+    nativeSource,
+    /const CHART_OHLC_LOW_COLOR = '#F23645'/,
+    'OHLC low must use the fixed red market color',
+  );
+  assertSourceContains(
+    nativeSource,
+    /\{ label: 'H', value: formatChartValue\(chartMetaLastCandle\.high\), color: CHART_OHLC_HIGH_COLOR \}/,
+    'H value must stay green regardless of candle direction',
+  );
+  assertSourceContains(
+    nativeSource,
+    /\{ label: 'L', value: formatChartValue\(chartMetaLastCandle\.low\), color: CHART_OHLC_LOW_COLOR \}/,
+    'L value must stay red regardless of candle direction',
+  );
+  assertSourceContains(
+    nativeSource,
+    /styles\.symbolOhlcValue, \{ color: item\.color,/,
+    'OHLC value rendering must use the per-item color',
+  );
+  assert.doesNotMatch(nativeSource, /styles\.symbolOhlcValue, \{ color: chartMetaIsUp \?/);
+});
 test('overlay bridge: repeated overlay sync clears previous lines before recreating', () => {
   const body = extractFunctionBody(source, 'applyOverlayPayload');
   const clearBody = extractFunctionBody(source, 'clearOverlayPriceLines');
 
   assertSourceContains(body, /clearOverlayPriceLines\(\)/, 'overlay apply must clear previous lines first');
   assertSourceContains(body, /series\.createPriceLine/, 'overlay apply must recreate price lines from payload');
+  assertSourceContains(body, /lineVisible:\s*true/, 'overlay apply must explicitly keep recreated price lines visible');
   assertSourceContains(clearBody, /series\.removePriceLine\(_positionLinesArr\[i\]\)/, 'clear must remove every previous price-line ref');
   assertSourceContains(clearBody, /_overlayPriceLinesByDragKey = Object\.create\(null\)/, 'clear must reset drag-key lookup');
 });
 
 test('overlay bridge: anchored trade labels stay below the chart header', () => {
   const boundsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelBounds');
+  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
 
   assertSourceContains(
     boundsBody,
     /var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 6\)/,
     'line-anchored open-position labels must reserve the full chart header safe area',
   );
+  assertSourceContains(
+    refreshBody,
+    /anchoredLabels\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)/,
+    'line-anchored open-position labels must be sorted before stacking',
+  );
+  assertSourceContains(
+    refreshBody,
+    /anchoredTops\[anchoredTopIndex\] = Math\.max\(anchoredBounds\.minTop, Math\.min\(anchoredBounds\.maxTop, anchoredDesiredTop\)\)/,
+    'line-anchored open-position labels must be clamped through the stacked top array',
+  );
+  assertSourceContains(
+    refreshBody,
+    /label\.style\.textShadow = 'none'/,
+    'line-anchored open-position labels must render without text shadow',
+  );
+  assert.doesNotMatch(refreshBody, /label\.style\.textShadow = '0 1px 1px/);
 });
 
-test('overlay payload: duplicate position and order inputs produce unique line ids', () => {
+test('overlay bridge: right-axis trade price boxes keep close entries visible', () => {
+  const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+
+  assertSourceContains(
+    refreshBody,
+    /var seenBoxLevels = Object\.create\(null\)/,
+    'right-axis trade boxes must track exact displayed price keys instead of broad tolerance levels',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var boxKey = Number\(pln\.price\)\.toFixed\(boxDecimals\)[\s\S]*if \(seenBoxLevels\[boxKey\]\) continue[\s\S]*seenBoxLevels\[boxKey\] = true/,
+    'right-axis trade boxes must dedupe only by exact displayed price text',
+  );
+  assertSourceContains(
+    refreshBody,
+    /positionBoxes\.sort\(function\(left, right\) \{ return left\.desiredTop - right\.desiredTop; \}\)[\s\S]*positionBoxStep[\s\S]*positionBoxes\[boxLayoutIndex\]\.top/,
+    'right-axis trade boxes must stack nearby labels instead of covering close entry markers',
+  );
+  assert.doesNotMatch(refreshBody, /levelScale \* 1e-4/);
+});
+test('overlay bridge: trade overlays participate in price-scale autoscale', () => {
+  const autoscaleBody = extractFunctionBody(source, 'buildOverlayAwareAutoscaleInfo');
+  const visibleRangeBody = extractFunctionBody(source, 'resolvePriceRangeFromVisibleData');
+  const healthBody = extractFunctionBody(source, 'healCollapsedPriceScaleRange');
+  const setOverlayBody = extractFunctionBody(source, 'setChartOverlays');
+
+  assertSourceContains(
+    autoscaleBody,
+    /expandPriceRangeForTradeOverlays\(baseRange\)[\s\S]*expandPriceRangeForMarketPriceBadges\(expandedRange\)/,
+    'series autoscale must include visible trade overlay prices before market badges are applied',
+  );
+  assertSourceContains(
+    visibleRangeBody,
+    /return expandPriceRangeForTradeOverlays\(expandedRange\)/,
+    'visible price range recovery must keep old open trade levels in range',
+  );
+  assertSourceContains(
+    healthBody,
+    /var tradeOverlaysOutOfRange = !rangeContainsTradeOverlays\(currentRange\)[\s\S]*tradeOverlaysOutOfRange/,
+    'price-scale health recovery must treat missing trade overlays as an unhealthy range',
+  );
+  assertSourceContains(
+    setOverlayBody,
+    /scheduleOverlayPriceScaleLock\(true\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
+    'overlay updates must force the right price scale to recalculate before redrawing labels',
+  );
+  assertSourceContains(
+    source,
+    /autoscaleInfoProvider: buildOverlayAwareAutoscaleInfo/,
+    'every chart series type must use the overlay-aware autoscale provider',
+  );
+});
+
+test('chart preferences exposes persistent show-on-chart filters', () => {
+  // The "Show on chart" section now exposes only the buy/sell trade toggles.
+  assert.match(chartSettingsScreenSource, /CHART_SHOW_ON_CHART_ITEMS\.map/);
+  assert.match(chartSettingsScreenSource, /setChartShowOnChartItem\(key, value\)/);
+  assert.match(chartSettingsScreenSource, /SHOW ON CHART/);
+  assert.match(chartSettingsScreenSource, /buyTrade: 'trending-up-outline'/);
+  assert.match(chartSettingsScreenSource, /sellTrade: 'trending-down-outline'/);
+  assert.match(chartSettingsScreenSource, /pointerEvents="none"/);
+});
+test('overlay payload: duplicate position inputs produce unique line ids', () => {
   const payload = buildChartOverlayPayload({
     chartSymbol: 'EURUSD',
     candles,
@@ -206,53 +319,13 @@ test('overlay payload: duplicate position and order inputs produce unique line i
         tp: 1.11,
       },
     ],
-    orders: [
-      {
-        ticket: 77,
-        account_login: 1,
-        symbol: 'EURUSD',
-        type: 'buy_limit',
-        side: 'buy',
-        volume: 0.1,
-        price_open: 1.102,
-        price_sl: 1.099,
-        price_tp: 1.108,
-        status: 'pending',
-        comment: '',
-        time_setup: candles[6].time,
-        time_done: 0,
-      },
-      {
-        ticket: 77,
-        account_login: 1,
-        symbol: 'EURUSDm',
-        type: 'buy_limit',
-        side: 'buy',
-        volume: 0.1,
-        price_open: 1.102,
-        price_sl: 1.099,
-        price_tp: 1.108,
-        status: 'pending',
-        comment: '',
-        time_setup: candles[6].time,
-        time_done: 0,
-      },
-    ],
     colors: TEST_CHART_COLORS,
     sellColor: '#EF5350',
     liveAccount: null,
-    showOnChart: {
-      openPositions: true,
-      tpSlStopLimit: true,
-      closedPositions: false,
-      tradingSignals: false,
-      hmrPeriods: false,
-      priceAlerts: false,
-      potentialStopOut: false,
-    },
+    showOnChart: { buyTrade: true, sellTrade: true },
   });
 
   const ids = payload.priceLines.map((line: any) => line.id);
   assert.deepEqual(new Set(ids).size, ids.length);
-  assert.deepEqual(ids.sort(), ['open-same-ticket', 'order-entry-77', 'order-sl-77', 'order-tp-77', 'sl-same-ticket', 'tp-same-ticket'].sort());
+  assert.deepEqual(ids.sort(), ['open-same-ticket', 'sl-same-ticket', 'tp-same-ticket'].sort());
 });

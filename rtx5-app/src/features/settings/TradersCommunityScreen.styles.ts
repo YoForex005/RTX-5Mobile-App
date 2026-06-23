@@ -41,7 +41,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     color: T.text,
     fontSize: 22,
     lineHeight: 27,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   headerActions: {
@@ -81,7 +81,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   userAvatarText: {
     color: T.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   searchHeader: {
     minHeight: 42,
@@ -134,7 +134,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   cardEyebrow: {
     color: T.textSub,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   sentimentRow: {
@@ -158,7 +158,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     color: T.text,
     fontSize: 15,
     lineHeight: 18,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   sentimentChip: {
     width: 76,
@@ -170,7 +170,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   },
   sentimentChipText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   sentimentTrack: {
     flex: 1,
@@ -189,7 +189,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     textAlign: 'right',
     fontSize: 22,
     lineHeight: 26,
-    fontWeight: '900',
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   tabsRail: {
@@ -213,7 +213,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   tabText: {
     color: T.textSub,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   tabTextActive: {
     color: '#FFFFFF',
@@ -230,7 +230,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     color: T.text,
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   sectionAction: {
     flexDirection: 'row',
@@ -240,7 +240,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   sectionActionText: {
     color: T.textSub,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   horizontalRail: {
     gap: spacing.sm,
@@ -260,7 +260,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     color: T.text,
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: '900',
+    fontWeight: '700',
     marginTop: spacing.sm,
   },
   emptyText: {
@@ -297,7 +297,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     flexShrink: 1,
     color: T.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   traderSpecialty: {
     color: T.textSub,
@@ -318,7 +318,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   followButtonText: {
     color: T.accent,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   avatar: {
     width: 50,
@@ -337,7 +337,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   avatarText: {
     color: '#06111F',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   avatarTextCompact: {
     fontSize: 11,
@@ -377,7 +377,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   liveText: {
     color: T.down,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   roomMainRow: {
@@ -400,7 +400,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   roomName: {
     color: T.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   onlineRow: {
     marginTop: 5,
@@ -434,7 +434,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   joinButtonText: {
     color: T.accent,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   feedPollGrid: {
     gap: spacing.md,
@@ -464,7 +464,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     flexShrink: 1,
     color: T.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   postRole: {
     color: T.textSub,
@@ -492,7 +492,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   },
   tagText: {
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   symbolTagText: {
     color: COMMUNITY_GOLD,
@@ -575,7 +575,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     color: T.text,
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: '900',
+    fontWeight: '700',
     marginBottom: spacing.xs,
   },
   pollOption: {
@@ -604,7 +604,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
     width: 42,
     textAlign: 'right',
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   pollTrack: {
@@ -658,7 +658,7 @@ export const makeTradersCommunityStyles = (T: ThemeColors, isDark: boolean) => S
   shareButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
 });
 

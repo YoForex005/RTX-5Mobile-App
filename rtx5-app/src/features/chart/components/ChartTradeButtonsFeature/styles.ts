@@ -11,7 +11,7 @@ export const baseStyles = StyleSheet.create({
   },
   chartTradeMarketActionButtonBusy: { opacity: 0.5 },
   chartTradeMarketActionTitle: {
-    color: '#FFFFFF', fontSize: 12, fontWeight: '800',
+    color: '#FFFFFF', fontSize: 12, fontWeight: '600',
     letterSpacing: 0.2, textTransform: 'uppercase', textAlign: 'center',
   },
   chartTradeMarketActionMeta: {
@@ -84,7 +84,7 @@ export const baseStyles = StyleSheet.create({
     position: 'absolute', top: 2, left: 6, zIndex: 1,
     flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center',
   },
-  actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 8, fontWeight: '700', letterSpacing: 0.2 },
+  actionBtnLabelTitle: { color: '#FFFFFF', fontSize: 8, fontWeight: '600', letterSpacing: 0.2 },
   actionBtnPriceText: {
     width: '100%', color: 'rgba(255,255,255,0.85)', fontSize: 17, lineHeight: 20,
     fontWeight: '700', fontVariant: ['tabular-nums'], textAlign: 'right',

@@ -163,7 +163,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     fxBadgeText: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 8,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     symbolMetaRow: {
@@ -197,12 +197,12 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     symbolOhlcLabel: {
       color: isDark ? '#64748B' : '#64748B',
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     symbolOhlcValue: {
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       marginLeft: 1,
     },
@@ -240,9 +240,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       width: 28,
     },
     compactHeaderTimeframeText: {
-      color: BLUE,
+      color: TEXT_MUTED,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0,
     },
 
@@ -265,9 +265,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     quoteValueText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.2,
+      letterSpacing: 0,
     },
     quoteValuePlaceholder: {
       color: isDark ? '#94A3B8' : '#64748B',
@@ -275,9 +275,9 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     livePriceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.5,
+      letterSpacing: 0,
     },
     priceChangeText: {
       fontSize: 11,
@@ -298,23 +298,23 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     balanceLabel: {
       color: isDark ? '#64748B' : '#94A3B8',
-      fontSize: 9,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '500',
       textTransform: 'uppercase',
-      letterSpacing: 0.8,
+      letterSpacing: 0.4,
       marginBottom: 1,
     },
     balanceText: {
       color: isDark ? '#FFFFFF' : '#0F172A',
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
-      letterSpacing: -0.3,
+      letterSpacing: 0,
     },
     currencyText: {
       fontSize: 10,
       color: isDark ? '#94A3B8' : '#64748B',
-      fontWeight: '700',
+      fontWeight: '500',
     },
     headerActions: {
       flexDirection: 'row',
@@ -345,7 +345,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     accountTypeText: {
       fontSize: 9,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.5,
     },
     textDemo: {
@@ -489,14 +489,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: '#0F172A',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     chartTradeConfirmationSide: {
       flex: 0.8,
       minWidth: 0,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     chartTradeConfirmationVolume: {
@@ -504,7 +504,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: '#0F172A',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'center',
     },
@@ -513,7 +513,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: BLUE,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'right',
     },
@@ -535,12 +535,12 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartMetaLabel: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.3,
     },
     chartMetaValue: {
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     inlineActionGroup: {
@@ -604,7 +604,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 2,
     },
     toolbarTradeText: {
-      color: BLUE,
+      color: TEXT_MUTED,
       fontSize: 13,
       fontWeight: '700',
       letterSpacing: 0.1,
@@ -763,7 +763,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeQuickChipText: {
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       color: TRADE_SHEET_TEXT_SUB,
       letterSpacing: 0,
     },
@@ -1189,7 +1189,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     chartTradeMetricLabel: {
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     chartTradeMetricValue: {
       color: TRADE_SHEET_TEXT,
@@ -1230,7 +1230,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeProtectionEyebrow: {
       color: TRADE_SHEET_TEXT_DIM,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     chartTradeProtectionTitle: {
@@ -1257,7 +1257,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradeProtectionStatusText: {
       color: TRADE_SHEET_TEXT_MUTED,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     chartTradeProtectionStatusTextActive: {
@@ -1713,7 +1713,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     chartTradePlaceButtonText: {
       color: '#FFFFFF',
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       width: '100%',
       textAlign: 'center',
@@ -1765,7 +1765,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     floatingAutoText: {
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
 
     /* â”€â”€ Bottom Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -1803,14 +1803,14 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
     sentimentLabelSell: {
       color: RED,
       fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     sentimentLabelBuy: {
       color: BLUE,
       fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     sentimentBarRow: {
       flexDirection: 'row',
@@ -1991,7 +1991,7 @@ export function makeStyles(T: ThemeColors, isDark: boolean) {
       flex: 1,
       color: isDark ? '#E2E8F0' : '#0F172A',
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       textAlign: 'center',
       paddingVertical: 0,

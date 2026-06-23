@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   label: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
   },
   labelCompact: {
@@ -49,13 +49,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   value: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   valueCompact: {
     fontSize: 13, // Values slightly larger than 12
-    fontWeight: '700', // Standard value weight
-    letterSpacing: 0.2,
+    fontWeight: '600', // Standard value weight
+    letterSpacing: 0,
   },
 });

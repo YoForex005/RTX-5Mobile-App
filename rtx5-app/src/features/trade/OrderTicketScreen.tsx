@@ -620,34 +620,6 @@ function OrderTicketInteractiveContent() {
     scrollOrderTypeTabsToSelection(orderType, false);
   }, [orderType, scrollOrderTypeTabsToSelection]);
 
-  // Synthesize a small depth-of-market preview from live prices. The seed keeps
-  // displayed volumes moving gently instead of resetting hard on every tick.
-  const domSeed = useRef({
-    v1s: Math.floor(Math.random() * 60 + 20), v1b: Math.floor(Math.random() * 20 + 5),
-    v2s: Math.floor(Math.random() * 80 + 40), v2b: Math.floor(Math.random() * 80 + 40),
-    v3s: Math.floor(Math.random() * 20 + 5), v3b: Math.floor(Math.random() * 60 + 20),
-  });
-
-  const domRows = useMemo(() => {
-    // Slightly perturb each row so the depth table feels live without large jumps.
-    const perturb = (val: number) => {
-      const v = val + (Math.random() * 14 - 7);
-      return Math.max(5, Math.min(95, v));
-    };
-
-    domSeed.current = {
-      v1s: perturb(domSeed.current.v1s), v1b: perturb(domSeed.current.v1b),
-      v2s: perturb(domSeed.current.v2s), v2b: perturb(domSeed.current.v2b),
-      v3s: perturb(domSeed.current.v3s), v3b: perturb(domSeed.current.v3b),
-    };
-
-    return [
-      { sell: domSeed.current.v1s, price: fmt.price(ASK + pipSize * 3), buy: domSeed.current.v1b },
-      { sell: domSeed.current.v2s, price: fmt.price((ASK + BID) / 2), buy: domSeed.current.v2b },
-      { sell: domSeed.current.v3s, price: fmt.price(BID - pipSize * 3), buy: domSeed.current.v3b },
-    ];
-  }, [ASK, BID, pipSize, displayDecimals]);
-
   const [pendingSide, setPendingSide] = useState<TradeSide | null>(null);
   const [tradeActionLocked, setTradeActionLocked] = useState(false);
   // The tap lock blocks double-submits while a trade request is in flight.
@@ -1259,29 +1231,6 @@ function OrderTicketInteractiveContent() {
         <InfoRow label={t('Acc. Leverage')} value={`1:${leverage}`} styles={styles} />
         <View style={styles.hairline} />
 
-        {/* Depth of market: compact simulated liquidity rows around current price. */}
-        <Text style={styles.sectionTitle}>DEPTH OF MARKET</Text>
-        <View style={styles.domTable}>
-          {/* Column labels for the depth rows. */}
-          <View style={styles.domHeaderRow}>
-            <Text style={[styles.domColHead, { textAlign: 'right' }]}>SELL VOL</Text>
-            <Text style={styles.domColHead}>PRICE</Text>
-            <Text style={styles.domColHead}>BUY VOL</Text>
-          </View>
-          {/* Depth rows render sell volume, reference price, and buy volume. */}
-          {domRows.map((r, i) => (
-            <View key={i} style={styles.domRow}>
-              <View style={styles.domBarCol}>
-                <View style={[styles.domBarSell, { width: `${r.sell}%` }]} />
-              </View>
-              <Text style={styles.domPrice}>{r.price}</Text>
-              <View style={[styles.domBarCol, { alignItems: 'flex-start' }]}>
-                <View style={[styles.domBarBuy, { width: `${r.buy}%` }]} />
-              </View>
-            </View>
-          ))}
-        </View>
-
         {/* Execution buttons: market orders submit immediately; pending orders show trigger controls first. */}
         {isMarketExecution ? (
           <View style={styles.execRow}>
@@ -1491,7 +1440,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 14, zIndex: 10 },
     backBtn: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
     hCenter: { flex: 1, alignItems: 'center' },
-    hSymbol: { color: WHITE, fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+    hSymbol: { color: WHITE, fontSize: 16, fontWeight: '600', letterSpacing: 0.3 },
     symbolPickerBtn: {
       width: 44,
       height: 44,
@@ -1509,12 +1458,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 8 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 24, elevation: 4
     },
     priceHalf: { flex: 1, alignItems: 'center', paddingVertical: 10 },
-    priceTag: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
-    priceMain: { color: WHITE, fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: -0.5 },
-    priceLabel: { color: T.textSub, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 2 },
+    priceTag: { fontSize: 10, fontWeight: '600', letterSpacing: 1.2 },
+    priceMain: { color: WHITE, fontSize: 24, fontWeight: '600', fontVariant: ['tabular-nums'], padding: 8, letterSpacing: 0 },
+    priceLabel: { color: T.textSub, fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginTop: 2 },
     spreadCenter: { width: 40, alignItems: 'center', justifyContent: 'center' },
     spreadVal: { color: WHITE, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 1 },
-    spreadUnit: { color: T.textSub, fontSize: 8, fontWeight: '700' },
+    spreadUnit: { color: T.textSub, fontSize: 8, fontWeight: '600' },
 
     scroll: { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16 },
@@ -1527,7 +1476,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       paddingBottom: 2,
       overflow: 'hidden',
     },
-    sectionTitle: { color: T.textSub, fontSize: 9, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 10, marginBottom: 2 },
+    sectionTitle: { color: T.textSub, fontSize: 10, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginTop: 10, marginBottom: 2 },
 
     flatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
     rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1579,15 +1528,6 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sltpLabel: { flex: 1, color: DIM, fontSize: 18, fontWeight: '500', textAlign: 'center', fontVariant: ['tabular-nums'] },
     sltpValue: { color: WHITE, fontSize: 15, fontWeight: '700' },
 
-    domTable: { marginTop: 4, marginBottom: 6, borderRadius: 8, backgroundColor: SURFACE, overflow: 'hidden', paddingVertical: 6, paddingHorizontal: 8, borderWidth: 1, borderColor: T.border, shadowColor: isDark ? '#000' : '#64748B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.3 : 0.05, shadowRadius: 12, elevation: 2 },
-    domHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-    domColHead: { flex: 1, color: SUB, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, textAlign: 'center' },
-    domRow: { flexDirection: 'row', alignItems: 'center', height: 16, marginBottom: 2 },
-    domBarCol: { flex: 1, height: 10, alignItems: 'flex-end', justifyContent: 'center' },
-    domBarSell: { height: 12, borderRadius: 2, backgroundColor: SELL_C },
-    domBarBuy: { height: 12, borderRadius: 2, backgroundColor: BUY_C },
-    domPrice: { width: 80, textAlign: 'center', color: WHITE, fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'] },
-
     disclaimer: { alignItems: 'center', marginTop: 12, paddingHorizontal: 16 },
     disclaimerTxt: { color: T.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
     disclaimerIcons: { flexDirection: 'row', gap: 10 },
@@ -1597,7 +1537,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     execBtnBusy: { opacity: 0.88 },
     execSell: { backgroundColor: SELL_C, shadowColor: SELL_C },
     execBuy: { backgroundColor: BUY_C, shadowColor: BUY_C },
-    execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+    execCta: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
     execLots: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2, fontVariant: ['tabular-nums'] },
     executionGraphWrap: {
       marginTop: 12,
@@ -1666,7 +1606,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: '#0F172A',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     tradeConfirmationSide: {
@@ -1681,7 +1621,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: '#0F172A',
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'center',
     },
@@ -1690,7 +1630,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       minWidth: 0,
       color: BUY_C,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'right',
     },
@@ -1746,7 +1686,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       color: T.text,
       fontSize: 21,
       fontWeight: '700',
-      letterSpacing: -0.3,
+      letterSpacing: 0,
       marginBottom: 12,
     },
     modalSymbolRow: {
@@ -1767,15 +1707,15 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     modalSidePillText: {
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.8,
     },
     modalPrice: {
       color: T.text,
       fontSize: 36,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'] as any,
-      letterSpacing: -1,
+      letterSpacing: 0,
       marginTop: 4,
       marginBottom: 20,
     },

@@ -43,10 +43,12 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
 
   assert.match(tapConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(tapConfigSource, /describeMarketSymbol\(sym\)/);
+  assert.match(tapConfigSource, /presentation: 'mt5Plain'/);
   assert.match(tapConfigSource, /detent: 'auto'/);
   assert.match(tapConfigSource, /instantOpen: true/);
   assert.match(longPressConfigSource, /quoteSymbols\.forEach\(\(sym\) => \{/);
   assert.match(longPressConfigSource, /title: fmt\.symbol\(sym\)/);
+  assert.match(longPressConfigSource, /presentation: 'mt5Plain'/);
   assert.match(longPressConfigSource, /detent: 'auto'/);
   assert.match(longPressConfigSource, /instantOpen: true/);
   assert.match(source, /const hideQuotesActionSheet = useUIState\(\(s\) => s\.hideQuotesActionSheet\)/);
@@ -66,8 +68,15 @@ test('quote symbol action sheets open on confirmed taps without leaving the tapp
   );
   assert.match(tapConfigSource, /label: t\('New Order'\),[\s\S]*activateOnPressIn: true/);
   assert.match(tapConfigSource, /label: t\('Chart'\),[\s\S]*activateOnPressIn: true/);
-  assert.match(tapConfigSource, /label: t\('Symbol Details'\),[\s\S]*activateOnPressIn: true/);
+  assert.match(tapConfigSource, /label: t\('Properties'\),[\s\S]*activateOnPressIn: true/);
+  // Depth of Market was a disabled, dead option backed by hardcoded data — removed.
+  assert.doesNotMatch(tapConfigSource, /Depth Of Market/);
   assert.match(tapConfigSource, /label: t\('Market Statistics'\),[\s\S]*activateOnPressIn: true/);
+  // Both view modes are listed; the active one is marked `selected` so the
+  // shared ActionSheet renders it disabled. viewMode === 'table' is the simple view.
+  assert.match(tapConfigSource, /label: t\('Simple view mode'\),[\s\S]*selected: quoteViewMode === 'table'[\s\S]*label: t\('Advanced view mode'\),[\s\S]*selected: quoteViewMode === 'list'/);
+  assert.match(longPressConfigSource, /label: t\('Properties'\), activateOnPressIn: true, onPress: \(\) => goDetail\(sym\)/);
+  assert.match(longPressConfigSource, /label: t\('Hide'\),[\s\S]*danger: true/);
   assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\(\{ pathname: '\/trade\/order-ticket'/);
   assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\('\/\(tabs\)\/chart'\)/);
   assert.match(tapConfigSource, /runQuoteSheetOption\(\(\) => \{[\s\S]*router\.push\(\{ pathname: '\/quotes\/market-statistics'/);

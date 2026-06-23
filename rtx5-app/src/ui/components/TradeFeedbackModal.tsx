@@ -314,7 +314,7 @@ const tfmStyles = StyleSheet.create({
   statusTitle: {
     fontSize: 17,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: 0,
     marginBottom: 4,
   },
   statusSubRow: {
@@ -337,7 +337,7 @@ const tfmStyles = StyleSheet.create({
   },
   statusBadgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.8,
   },
   statusSubText: {
@@ -379,21 +379,21 @@ const tfmStyles = StyleSheet.create({
   sideChipText: {
     color: '#fff',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.8,
     marginHorizontal: 4,
   },
   priceText: {
     fontSize: 40,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'] as any,
-    letterSpacing: -1.4,
+    letterSpacing: 0,
     lineHeight: 44,
     marginTop: 2,
   },
   priceLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 1,
     marginTop: 4,
   },
@@ -414,7 +414,7 @@ const tfmStyles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 4,
     letterSpacing: 1,
   },

@@ -510,8 +510,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     headerTitle: {
       flex: 1,
       color: T.text,
-      fontSize: 22,
-      fontWeight: '800',
+      fontSize: 20,
+      fontWeight: '600',
     },
     searchRow: {
       flexDirection: 'row',
@@ -599,7 +599,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     avatarInitials: {
       color: '#FFFFFF',
       fontSize: 15,
-      fontWeight: '900',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     avatarImage: {
@@ -613,7 +613,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     brokerName: {
       color: T.text,
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     brokerIdRow: {
       alignSelf: 'flex-start',
@@ -628,7 +628,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     brokerIdLabel: {
       color: MT5_BLUE,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     selectBtn: {
       width: 36,
@@ -668,7 +668,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     retryText: {
       color: '#FFFFFF',
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     footerBtn: {
@@ -684,7 +684,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     footerText: {
       color: T.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
   });

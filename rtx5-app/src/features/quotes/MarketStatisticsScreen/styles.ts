@@ -2,8 +2,10 @@ import { StyleSheet } from 'react-native';
 import type { ThemeColors } from '../../../ui/theme/glass';
 
 export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
-  const pageBg = isDark ? '#060A12' : '#F4F7FB';
-  const panelBg = isDark ? '#0C1320' : '#FFFFFF';
+  // Dark theme matches the Settings screen palette (pure black canvas + deep
+  // navy cards).
+  const pageBg = isDark ? '#000000' : '#F4F7FB';
+  const panelBg = isDark ? '#0d1628' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.08)';
   const subtleBorder = isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.06)';
   const mutedPanel = isDark ? 'rgba(15,23,42,0.72)' : '#F8FAFC';
@@ -40,8 +42,8 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     headerTitle: {
       color: T.text,
-      fontSize: 16,
-      fontWeight: '800',
+      fontSize: 17,
+      fontWeight: '600',
       letterSpacing: 0,
     },
     headerRightSpacer: {
@@ -94,22 +96,22 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     symbolText: {
       color: T.text,
-      fontSize: 21,
-      fontWeight: '900',
+      fontSize: 20,
+      fontWeight: '700',
       letterSpacing: 0,
     },
     instrumentName: {
       marginTop: 2,
       color: T.textSub,
       fontSize: 13,
-      fontWeight: '700',
+      fontWeight: '500',
     },
     instrumentDescriptor: {
       marginTop: 3,
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '700',
-      letterSpacing: 0.4,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     marketChip: {
@@ -129,8 +131,8 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     marketChipText: {
       fontSize: 11,
-      fontWeight: '900',
-      letterSpacing: 0.3,
+      fontWeight: '600',
+      letterSpacing: 0,
     },
     quoteBand: {
       flexDirection: 'row',
@@ -157,13 +159,13 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     quoteLabel: {
       fontSize: 11,
-      fontWeight: '900',
-      letterSpacing: 1.1,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
     quoteValue: {
       color: T.text,
-      fontSize: 26,
-      fontWeight: '900',
+      fontSize: 24,
+      fontWeight: '700',
       fontVariant: ['tabular-nums'],
       letterSpacing: 0,
     },
@@ -177,20 +179,20 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     quoteMetaLabel: {
       color: T.textMuted,
       fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.5,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     quoteMetaValue: {
       color: T.textSub,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     quoteMetaDivider: {
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '500',
       opacity: 0.6,
     },
     changeStrip: {
@@ -213,16 +215,16 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     changeLabel: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.7,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     changeValue: {
       marginTop: 3,
       color: T.text,
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
 
@@ -267,15 +269,15 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     sectionTitle: {
       color: T.text,
       fontSize: 13,
-      fontWeight: '900',
-      letterSpacing: 0.6,
+      fontWeight: '600',
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
     sectionMeta: {
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '800',
-      letterSpacing: 0.5,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     statRow: {
@@ -306,14 +308,14 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     statLabel: {
       color: T.textSub,
       fontSize: 14,
-      fontWeight: '700',
+      fontWeight: '500',
       letterSpacing: 0,
     },
     statValue: {
       maxWidth: '52%',
       color: T.text,
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       textAlign: 'right',
       letterSpacing: 0,
@@ -346,15 +348,15 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     overviewLabel: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '900',
-      letterSpacing: 0.8,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
     },
     overviewValue: {
       color: T.text,
-      fontSize: 17,
-      fontWeight: '900',
+      fontSize: 16,
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       letterSpacing: 0,
     },
@@ -392,16 +394,16 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     },
     rangeLabelSmall: {
       color: T.textMuted,
-      fontSize: 10,
-      fontWeight: '900',
-      letterSpacing: 0.8,
+      fontSize: 11,
+      fontWeight: '500',
+      letterSpacing: 0,
       textTransform: 'uppercase',
       marginBottom: 5,
     },
     rangeLabelValue: {
       color: T.text,
       fontSize: 15,
-      fontWeight: '900',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
       letterSpacing: 0,
     },
@@ -458,7 +460,7 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
     sentimentPct: {
       width: 44,
       fontSize: 14,
-      fontWeight: '900',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     sentimentTrack: {
@@ -482,9 +484,9 @@ export function makeMarketStatisticsStyles(T: ThemeColors, isDark: boolean) {
       paddingHorizontal: 62,
     },
     sentimentLabel: {
-      fontSize: 9,
-      fontWeight: '900',
-      letterSpacing: 1,
+      fontSize: 10,
+      fontWeight: '600',
+      letterSpacing: 0.4,
     },
   });
 }

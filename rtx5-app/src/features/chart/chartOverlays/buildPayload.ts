@@ -2,6 +2,11 @@
  * Top-level overlay-payload builder. Composes per-feature builders into a
  * single deduplicated, sorted `ChartOverlayPayload` for the chart's WebView
  * to render.
+ *
+ * The chart only draws the trader's own open positions, gated by side: the
+ * "Show buy trade" / "Show sell trade" preferences. A shown position is drawn
+ * with its open line plus its SL/TP lines. Pattern markers from the drawing
+ * tools are independent of these preferences and still render when active.
  */
 import type { PriceAlert } from '../../../api/alerts';
 import type { LoginOrder } from '../../../api/orders';
@@ -10,17 +15,9 @@ import type { PositionItem } from '../../../dev/mock/tradingData';
 import type { ChartColorsConfig } from '../../../state/userPreferences';
 import type { ChartShowOnChartSettings } from '../chartShowOnChart';
 import {
-  buildPendingOrderLines,
-  buildPotentialStopOutLine,
-  buildPriceAlertLines,
-} from './lineBuilders';
-import {
   addUniqueMarker,
   addUniquePriceLine,
-  buildClosedPositionMarkers,
-  buildHmrMarkers,
   buildPatternMarkers,
-  buildTradingSignalMarkers,
   sanitizeCandles,
 } from './markerCollections';
 import {
@@ -57,14 +54,13 @@ type BuildChartOverlayPayloadInput = {
   activeTool?: string;
 };
 
-const hasEnabledOverlayFeatures = (showOnChart: ChartShowOnChartSettings): boolean =>
-  showOnChart.openPositions ||
-  showOnChart.tpSlStopLimit ||
-  showOnChart.closedPositions ||
-  showOnChart.tradingSignals ||
-  showOnChart.hmrPeriods ||
-  showOnChart.priceAlerts ||
-  showOnChart.potentialStopOut;
+const hasEnabledTradeSides = (showOnChart: ChartShowOnChartSettings): boolean =>
+  showOnChart.buyTrade || showOnChart.sellTrade;
+
+const isTradeSideEnabled = (
+  side: 'buy' | 'sell',
+  showOnChart: ChartShowOnChartSettings,
+): boolean => (side === 'buy' ? showOnChart.buyTrade : showOnChart.sellTrade);
 
 // MT5-parity: open-position lines stay as individual dotted lines so the
 // trader can see each entry, even when entries are clustered.
@@ -94,48 +90,36 @@ export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
   positions,
-  orders = [],
-  closedPositions = [],
-  alerts = [],
   colors,
   sellColor,
   liveBid,
   liveAsk,
-  liveAccount,
   showOnChart,
   activeTool,
 }: BuildChartOverlayPayloadInput): ChartOverlayPayload => {
   const needsPatternMarkers = activeTool === 'patterns';
-  if (!hasEnabledOverlayFeatures(showOnChart) && !needsPatternMarkers) {
+  if (!hasEnabledTradeSides(showOnChart) && !needsPatternMarkers) {
     return EMPTY_CHART_OVERLAY_PAYLOAD;
   }
 
-  const needsCandleData =
-    needsPatternMarkers ||
-    showOnChart.closedPositions ||
-    showOnChart.tradingSignals ||
-    showOnChart.hmrPeriods ||
-    showOnChart.potentialStopOut;
-  const sanitizedCandles = needsCandleData ? sanitizeCandles(candles) : EMPTY_OVERLAY_CANDLES;
+  // Only the pattern drawing tool needs candle data now.
+  const sanitizedCandles = needsPatternMarkers ? sanitizeCandles(candles) : EMPTY_OVERLAY_CANDLES;
   const normalizedChartSymbol = normalizeChartOverlaySymbol(chartSymbol);
-  const needsPositionData =
-    showOnChart.openPositions ||
-    showOnChart.tpSlStopLimit ||
-    showOnChart.potentialStopOut;
-  const symbolPositions = needsPositionData
-    ? positions.filter((position) => normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol)
-    : [];
-  const symbolOrders = showOnChart.tpSlStopLimit
-    ? orders.filter((order) => normalizeChartOverlaySymbol(order.symbol) === normalizedChartSymbol)
+  // Show the trader's open positions for this symbol, filtered to the sides the
+  // "Show buy trade" / "Show sell trade" preferences enable.
+  const symbolPositions = hasEnabledTradeSides(showOnChart)
+    ? positions.filter(
+        (position) =>
+          normalizeChartOverlaySymbol(position.symbol) === normalizedChartSymbol &&
+          isTradeSideEnabled(position.side, showOnChart),
+      )
     : [];
 
   if (typeof __DEV__ !== 'undefined' && __DEV__ && CHART_OVERLAY_DEBUG) {
     console.log(
       `[ChartOverlay] chart=${chartSymbol} (norm=${normalizedChartSymbol}) | ` +
       `totalPositions=${positions.length} matchingPositions=${symbolPositions.length} | ` +
-      `totalOrders=${orders.length} matchingOrders=${symbolOrders.length} | ` +
-      `flags: open=${showOnChart.openPositions} tpsl=${showOnChart.tpSlStopLimit} closed=${showOnChart.closedPositions} ` +
-      `signals=${showOnChart.tradingSignals} hmr=${showOnChart.hmrPeriods} alerts=${showOnChart.priceAlerts} stopOut=${showOnChart.potentialStopOut}`,
+      `flags: buy=${showOnChart.buyTrade} sell=${showOnChart.sellTrade}`,
     );
     if (symbolPositions.length > 0) {
       symbolPositions.forEach((p) =>
@@ -149,92 +133,60 @@ export const buildChartOverlayPayload = ({
   const priceLines = new Map<string, ChartOverlayPriceLine>();
   const markers = new Map<string, ChartOverlayMarker>();
 
-  if (symbolPositions.length > 0) {
-    symbolPositions.forEach((position) => {
-      const parsedPrice = Number(position.openPrice);
-      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
+  symbolPositions.forEach((position) => {
+    const parsedPrice = Number(position.openPrice);
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
 
-      if (showOnChart.openPositions) {
-        const livePnl =
-          calculateOpenPositionLivePnl({
-            symbol: position.symbol,
-            side: position.side,
-            volume: Number(position.volume),
-            openPrice: parsedPrice,
-            bid: liveBid,
-            ask: liveAsk,
-            swap: Number(position.swap),
-            commission: Number(position.commission),
-          }) ?? Number(position.pnl);
+    const livePnl =
+      calculateOpenPositionLivePnl({
+        symbol: position.symbol,
+        side: position.side,
+        volume: Number(position.volume),
+        openPrice: parsedPrice,
+        bid: liveBid,
+        ask: liveAsk,
+        swap: Number(position.swap),
+        commission: Number(position.commission),
+      }) ?? Number(position.pnl);
 
-        addUniquePriceLine(priceLines, {
-          id: `open-${position.id}`,
-          price: parsedPrice,
-          color: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
-          lineWidth: 1,
-          lineStyle: CHART_LINE_STYLE.Dotted,
-          axisLabelVisible: true,
-          title: formatOpenPositionOverlayLabel(position.side, Number(position.volume), livePnl),
-          labelPlacement: 'line',
-        });
-      }
-
-      if (showOnChart.tpSlStopLimit) {
-        const tpValue = Number(position.tp);
-        if (Number.isFinite(tpValue) && tpValue > 0) {
-          addUniquePriceLine(priceLines, {
-            id: `tp-${position.id}`,
-            price: tpValue,
-            color: colors.tradeTpSl || '#089981',
-            lineWidth: 1,
-            lineStyle: CHART_LINE_STYLE.Dashed,
-            axisLabelVisible: false,
-            title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
-          });
-        }
-
-        const slValue = Number(position.sl);
-        if (Number.isFinite(slValue) && slValue > 0) {
-          addUniquePriceLine(priceLines, {
-            id: `sl-${position.id}`,
-            price: slValue,
-            color: colors.tradeStopOut || '#F23645',
-            lineWidth: 1,
-            lineStyle: CHART_LINE_STYLE.Dashed,
-            axisLabelVisible: false,
-            title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
-          });
-        }
-      }
+    addUniquePriceLine(priceLines, {
+      id: `open-${position.id}`,
+      price: parsedPrice,
+      color: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
+      lineWidth: 1,
+      lineStyle: CHART_LINE_STYLE.Dotted,
+      axisLabelVisible: true,
+      title: formatOpenPositionOverlayLabel(position.side, Number(position.volume), livePnl),
+      labelPlacement: 'line',
     });
-  }
 
-  if (showOnChart.tpSlStopLimit) {
-    buildPendingOrderLines(symbolOrders, colors, sellColor).forEach((line) => addUniquePriceLine(priceLines, line));
-  }
+    // Trades are drawn together with their protective levels.
+    const tpValue = Number(position.tp);
+    if (Number.isFinite(tpValue) && tpValue > 0) {
+      addUniquePriceLine(priceLines, {
+        id: `tp-${position.id}`,
+        price: tpValue,
+        color: colors.tradeTpSl || '#089981',
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dashed,
+        axisLabelVisible: false,
+        title: formatTpSlOverlayLabel('tp', position.symbol, parsedPrice, tpValue, Number(position.volume)),
+      });
+    }
 
-  if (showOnChart.potentialStopOut) {
-    const stopOutLine = buildPotentialStopOutLine(symbolPositions, sanitizedCandles, liveAccount, colors);
-    if (stopOutLine) addUniquePriceLine(priceLines, stopOutLine);
-  }
-
-  if (showOnChart.priceAlerts) {
-    buildPriceAlertLines(alerts, chartSymbol).forEach((line) => addUniquePriceLine(priceLines, line));
-  }
-
-  if (showOnChart.closedPositions) {
-    buildClosedPositionMarkers(sanitizedCandles, closedPositions, chartSymbol).forEach((marker) =>
-      addUniqueMarker(markers, marker),
-    );
-  }
-
-  if (showOnChart.tradingSignals) {
-    buildTradingSignalMarkers(sanitizedCandles, colors).forEach((marker) => addUniqueMarker(markers, marker));
-  }
-
-  if (showOnChart.hmrPeriods) {
-    buildHmrMarkers(sanitizedCandles).forEach((marker) => addUniqueMarker(markers, marker));
-  }
+    const slValue = Number(position.sl);
+    if (Number.isFinite(slValue) && slValue > 0) {
+      addUniquePriceLine(priceLines, {
+        id: `sl-${position.id}`,
+        price: slValue,
+        color: colors.tradeStopOut || '#F23645',
+        lineWidth: 1,
+        lineStyle: CHART_LINE_STYLE.Dashed,
+        axisLabelVisible: false,
+        title: formatTpSlOverlayLabel('sl', position.symbol, parsedPrice, slValue, Number(position.volume)),
+      });
+    }
+  });
 
   if (needsPatternMarkers) {
     buildPatternMarkers(sanitizedCandles, activeTool).forEach((marker) => addUniqueMarker(markers, marker));

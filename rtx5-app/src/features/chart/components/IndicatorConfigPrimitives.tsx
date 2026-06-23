@@ -165,7 +165,7 @@ const s = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 1.1,
   },
   card: {

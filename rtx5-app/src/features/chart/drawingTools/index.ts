@@ -155,6 +155,8 @@ export function createDrawingToolsCommandHandlers(
 export function createDrawingToolsActionSheetActions(
   config: DrawingToolsActionSheetConfig,
 ): DrawingToolsActionSheetAction[] {
+  const iconColor = config.iconColor ?? '#64748B';
+  const dangerIconColor = config.dangerIconColor ?? '#DC2626';
   const commandState: DrawingToolsCommandState = {
     chartHideAll: config.chartHideAll,
     chartLockAll: config.chartLockAll,
@@ -165,11 +167,13 @@ export function createDrawingToolsActionSheetActions(
 
   return [
     ...DRAWING_SHEET_OPTIONS.map((definition) => ({
+      icon: definition.renderIcon(iconColor),
       label: definition.actionLabel,
       onPress: () => config.onSelectTool(definition.tool),
     })),
     ...DRAWING_TOOL_COMMANDS.map((definition) => ({
       danger: definition.danger,
+      icon: definition.renderIcon(definition.danger ? dangerIconColor : iconColor),
       label: resolveDrawingToolCommandLabel(definition, commandState),
       onPress: commandHandlers[definition.key],
     })),

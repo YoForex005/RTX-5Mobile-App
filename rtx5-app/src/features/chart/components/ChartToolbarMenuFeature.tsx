@@ -109,7 +109,8 @@ export function ChartToolbarMoreActionSheet({
     <ActionSheet
       visible={visible}
       onClose={onClose}
-      title="Options"
+      presentation="mt5Plain"
+      showActionIcons
       detent="adaptive"
       instantOpen
       actions={[

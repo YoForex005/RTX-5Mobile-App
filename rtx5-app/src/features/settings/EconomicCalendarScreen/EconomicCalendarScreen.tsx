@@ -141,7 +141,7 @@ export function EconomicCalendarScreen() {
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: config.color + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 }}>
                 <PulseDot color={config.color} size={5} />
-                <Text style={{ marginLeft: 6, color: config.color, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>{config.label.toUpperCase()}</Text>
+                <Text style={{ marginLeft: 6, color: config.color, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 }}>{config.label.toUpperCase()}</Text>
               </View>
             </View>
 
@@ -155,23 +155,23 @@ export function EconomicCalendarScreen() {
 
           <View style={{ flexDirection: 'row', backgroundColor: isDark ? '#0B0F17' : '#F1F5F9', borderRadius: 12, borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', marginTop: 8 }}>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 4 }}>ACTUAL</Text>
-              <Text style={{ fontSize: 22, fontWeight: '900', color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontVariant: ['tabular-nums'] }}>
+              <Text style={{ color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontSize: 10, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>ACTUAL</Text>
+              <Text style={{ fontSize: 22, fontWeight: '600', color: hasActual ? config.color : (isDark ? '#475569' : '#94A3B8'), fontVariant: ['tabular-nums'] }}>
                 {hasActual ? event.actual : '—'}
               </Text>
             </View>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6, borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 }}>FORECAST</Text>
-              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{event.forecast || '—'}</Text>
+              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>FORECAST</Text>
+              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.forecast || '—'}</Text>
               {forecastDiff ? (
-                <Text style={{ color: forecastDiff.color, fontSize: 10, fontWeight: '700', marginTop: 4 }}>vs: {forecastDiff.text} {forecastDiff.symbol}</Text>
+                <Text style={{ color: forecastDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {forecastDiff.text} {forecastDiff.symbol}</Text>
               ) : <View style={{ height: 16 }} />}
             </View>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 }}>
-              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 }}>PREVIOUS</Text>
-              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{event.previous || '—'}</Text>
+              <Text style={{ color: isDark ? '#64748B' : '#94A3B8', fontSize: 10, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>PREVIOUS</Text>
+              <Text style={{ color: isDark ? '#F8FAFC' : '#0F172A', fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{event.previous || '—'}</Text>
               {previousDiff ? (
-                <Text style={{ color: previousDiff.color, fontSize: 10, fontWeight: '700', marginTop: 4 }}>vs: {previousDiff.text} {previousDiff.symbol}</Text>
+                <Text style={{ color: previousDiff.color, fontSize: 10, fontWeight: '600', marginTop: 4 }}>vs: {previousDiff.text} {previousDiff.symbol}</Text>
               ) : <View style={{ height: 16 }} />}
             </View>
           </View>

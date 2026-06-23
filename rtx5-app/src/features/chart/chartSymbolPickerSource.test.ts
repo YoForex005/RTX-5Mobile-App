@@ -139,33 +139,62 @@ test('native OHLC row renders below the full symbol name', () => {
 
 test('native chart toolbar keeps fast action openers on reliable press surfaces', () => {
   const source = readSource('src/features/chart/ChartScreen.native.tsx');
+  const styles = readSource('src/features/chart/ChartScreen.styles.ts');
   const timeframePickerSource = readSource('src/features/chart/components/ChartTimeframePickerSheet.tsx');
   const menuSource = readSource('src/features/chart/components/ChartToolbarMenuFeature.tsx');
   const drawingSource = readSource('src/features/chart/components/ChartDrawingToolsFeature.tsx');
+  const drawingToolsSource = readSource('src/features/chart/drawingTools/index.ts');
+  const drawingTypesSource = readSource('src/features/chart/drawingTools/types.ts');
   const tradeFeatureSource = readSource('src/features/chart/components/ChartTradeFeature.tsx');
+  const timeframeTextStyle = styles.slice(
+    styles.indexOf('compactHeaderTimeframeText:'),
+    styles.indexOf('/*', styles.indexOf('compactHeaderTimeframeText:')),
+  );
+  const toolbarTradeTextStyle = styles.slice(
+    styles.indexOf('toolbarTradeText:'),
+    styles.indexOf('toolbarTrailingGroup:', styles.indexOf('toolbarTradeText:')),
+  );
+  const timeframeHandlerSource = source.slice(
+    source.indexOf('const handleOpenTimeframePicker = useCallback'),
+    source.indexOf('const handleSelectChartType = useCallback', source.indexOf('const handleOpenTimeframePicker = useCallback')),
+  );
 
   assert.match(timeframePickerSource, /TIMEFRAME_PICKER_GROUPS[\s\S]*title: 'Minutes'[\s\S]*options: \['M1', 'M5', 'M15', 'M30'\]/);
   assert.match(timeframePickerSource, /title: 'Hours'[\s\S]*options: \['H1', 'H4'\]/);
   assert.match(timeframePickerSource, /title: 'Days'[\s\S]*'D1'[\s\S]*'MN'/);
   assert.doesNotMatch(timeframePickerSource, /'M2'|'M3'|'M4'|'M6'|'M10'|'M12'|'M20'|'H2'|'H3'|'H6'|'H8'|'H12'/);
-  assert.match(timeframePickerSource, /disabled=\{!supported\}/);
-  assert.match(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);
+  assert.match(timeframePickerSource, /export function createTimeframePickerActionSheetActions/);
+  assert.match(timeframePickerSource, /selected: active/);
+  assert.match(timeframePickerSource, /disabled: !supported/);
+  assert.doesNotMatch(timeframePickerSource, /Ionicons|iconName|icon:/);
+  assert.doesNotMatch(timeframePickerSource, /<Modal|bottomDock|overlay:/);
+  assert.doesNotMatch(source, /const \[timeframePickerVisible, setTimeframePickerVisible\] = useState\(false\)/);
   assert.match(source, /const chartTradeExpirationActions = useMemo\(/);
+  assert.match(source, /chartTradeExpirationActions = useMemo\([\s\S]*name="infinite-outline"[\s\S]*label: t\('GTC'\)[\s\S]*name="today-outline"[\s\S]*label: t\('Today'\)[\s\S]*name="time-outline"[\s\S]*label: t\('Date and Time'\)[\s\S]*name="calendar-outline"[\s\S]*label: t\('Date'\)/);
+  assert.match(source, /const timeframePickerActions = useMemo\(/);
   assert.match(source, /const drawingToolsActions = useMemo\(/);
   assert.match(source, /const chartTypePickerActions = useMemo\(/);
   assert.match(source, /const chartMoreActions = useMemo\(/);
   assert.match(source, /const scheduleChartActionSheetContextReset = useCallback/);
   assert.match(source, /requestAnimationFrame\(resetChartActionSheetContext\)/);
-  assert.match(source, /const handleOpenTimeframePicker = useCallback\([\s\S]*timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)[\s\S]*setTimeframePickerVisible\(true\)/);
-  assert.match(source, /<ChartTimeframePickerSheet[\s\S]*visible=\{timeframePickerVisible\}[\s\S]*activeTimeframe=\{chartTimeframe\}[\s\S]*supportedTimeframes=\{timeframes\}/);
-  assert.doesNotMatch(source, /actions: timeframePickerActions/);
-  assert.match(source, /title: t\('Drawing Tools'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.match(source, /const handleOpenTimeframePicker = useCallback\([\s\S]*timeframes\.forEach[\s\S]*prefetchChartTimeframeHistory\(chartSymbol, tf\)[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*minimumTopInset: drawingToolsSheetTopInset[\s\S]*detent:\s*'adaptive'[\s\S]*instantOpen:\s*true[\s\S]*actions: timeframePickerActions/);
+  assert.doesNotMatch(timeframeHandlerSource, /showActionIcons:\s*true/);
+  assert.doesNotMatch(source, /<ChartTimeframePickerSheet[\s\S]*visible=\{timeframePickerVisible\}/);
+  assert.match(source, /runImmediateAction\('chart\.drawingTools\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*instantOpen:\s*true[\s\S]*actions: drawingToolsActions/);
+  assert.doesNotMatch(source, /title:\s*t\('Drawing Tools'\)[\s\S]*presentation:\s*'mt5Plain'/);
+  assert.doesNotMatch(drawingSource, /title="Drawing Tools"/);
+  assert.match(drawingSource, /presentation="mt5Plain"[\s\S]*showActionIcons[\s\S]*actions=\{createDrawingToolsActionSheetActions/);
+  assert.match(drawingTypesSource, /icon\?: ReactNode/);
+  assert.match(drawingToolsSource, /DRAWING_SHEET_OPTIONS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(iconColor\)/);
+  assert.match(drawingToolsSource, /DRAWING_TOOL_COMMANDS\.map\(\(definition\) => \(\{[\s\S]*icon: definition\.renderIcon\(definition\.danger \? dangerIconColor : iconColor\)/);
   assert.match(source, /title: t\('Chart Type'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartTypePickerActions/);
-  assert.match(source, /title: t\('Options'\)[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
+  assert.match(source, /runImmediateAction\('chart\.moreMenu\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*instantOpen:\s*true[\s\S]*actions: chartMoreActions/);
+  assert.doesNotMatch(source, /title:\s*(?:t\('Options'\)|'⋮')[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true/);
   assert.match(
     source,
-    /title: t\('Expiration'\)[\s\S]*detent:\s*'auto'[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: chartTradeExpirationActions/,
+    /runImmediateAction\('chart\.tradeSheet\.expiration\.open'[\s\S]*showChartActionSheet\(\{[\s\S]*presentation:\s*'mt5Plain'[\s\S]*showActionIcons:\s*true[\s\S]*detent:\s*'auto'[\s\S]*instantOpen:\s*true[\s\S]*runActionAfterClose:\s*false[\s\S]*actions: chartTradeExpirationActions/,
   );
+  assert.doesNotMatch(source, /title:\s*t\('Expiration'\)[\s\S]*actions: chartTradeExpirationActions/);
   assert.match(source, /requestAnimationFrame\(handleOpenChartTypePicker\)/);
   assert.doesNotMatch(source, /showChartTypeMenu\s*\?/);
   assert.doesNotMatch(source, /setShowChartTypeMenu/);
@@ -197,6 +226,10 @@ test('native chart toolbar keeps fast action openers on reliable press surfaces'
   assert.match(source, /onPress=\{handleOpenSettingsScreen\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenMoreMenu\}[\s\S]*activateOnPressIn/);
   assert.match(source, /onPress=\{handleOpenChartExpirationMenu\}[\s\S]*activateOnPressIn/);
+  assert.match(timeframeTextStyle, /color:\s*TEXT_MUTED/);
+  assert.doesNotMatch(timeframeTextStyle, /color:\s*BLUE/);
+  assert.match(toolbarTradeTextStyle, /color:\s*TEXT_MUTED/);
+  assert.doesNotMatch(toolbarTradeTextStyle, /color:\s*BLUE/);
   assert.match(tradeFeatureSource, /onPress=\{handlers\.onOpenExpirationMenu\}[\s\S]*activateOnPressIn/);
   assert.match(menuSource, /onPressIn=\{onPress\}/);
   assert.match(drawingSource, /onPressIn=\{onPress\}/);

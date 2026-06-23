@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
+import { PositionItem } from '../../../dev/mock/tradingData';
 import { useTheme } from '../../theme/useTheme';
 import { fmt } from '../../../utils/format';
 import { formatBrokerTime } from '../../../utils/brokerTime';
@@ -26,6 +26,7 @@ import {
   resolveLivePositionPnl,
   resolveLivePositionPrice,
 } from '../../../features/trade/livePositionMetrics';
+import { closePositionImmediately } from '../../../features/trade/closePositionFlow';
 import { OverlayActions } from './OverlayActions';
 import { tradePositionRowStyles as styles } from './styles';
 
@@ -60,7 +61,6 @@ function TradePositionRowComponent({
   pnlCurrency = 'USD',
   selected = false,
   active = true,
-  liveQuote: liveQuoteOverride,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
@@ -69,7 +69,6 @@ function TradePositionRowComponent({
   pnlCurrency?: string;
   selected?: boolean;
   active?: boolean;
-  liveQuote?: Partial<QuoteItem>;
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -149,9 +148,7 @@ function TradePositionRowComponent({
   });
 
   // Visible trade rows commit directly on every symbol tick for MT5-like cadence.
-  // A parent quote can still be supplied by non-list callers.
-  const fallbackLiveQuote = useLiveSymbolQuote(item.symbol, active && !liveQuoteOverride, 0);
-  const liveQuote = liveQuoteOverride ?? fallbackLiveQuote;
+  const liveQuote = useLiveSymbolQuote(item.symbol, active, 0);
 
   const livePrice = resolveLivePositionPrice(item, liveQuote);
 
@@ -193,7 +190,7 @@ function TradePositionRowComponent({
         style={[
           styles.row,
           {
-            backgroundColor: isDark ? '#0E141F' : T.glass2,
+            backgroundColor: isDark ? '#0d1628' : T.glass2,
             borderColor: T.border,
             borderLeftColor: isBuy ? T.trading.buy.primary : T.trading.sell.primary,
           },
@@ -227,7 +224,12 @@ function TradePositionRowComponent({
             </View>
             <View style={styles.rightCol}>
               <View>
-                <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                  style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}
+                >
                   {formatLiveRowPnl(displayPnl)} {pnlCurrency}
                 </Text>
               </View>
@@ -311,7 +313,7 @@ function TradePositionRowComponent({
             dividerColor={dividerColor}
             overlayActionLocked={overlayActionLocked}
             overlayStyle={overlayStyle}
-            onClose={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-position'))}
+            onClose={() => runOverlayAction(() => closePositionImmediately(item, { resolvedLogin: tradingLogin }))}
             onCloseBy={() => runOverlayAction(() => navigateWithSnapshot('/trade/close-by'))}
             onModify={() => runOverlayAction(navigateToModifyPosition)}
             onOrderTicket={() => runOverlayAction(navigateToOrderTicket)}
@@ -332,7 +334,6 @@ export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => 
   prev.pnlCurrency === next.pnlCurrency &&
   prev.selected === next.selected &&
   prev.active === next.active &&
-  prev.liveQuote === next.liveQuote &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&
   prev.onBulkPress === next.onBulkPress

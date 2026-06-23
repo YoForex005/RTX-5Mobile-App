@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
   badgeText: {
     color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.1,
     textTransform: 'uppercase',
   },
@@ -605,7 +605,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 20,
     lineHeight: 26,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   headlineLight: {
@@ -681,7 +681,7 @@ const styles = StyleSheet.create({
   contextText: {
     color: '#DDE7F6',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   contextTextLight: {
@@ -751,7 +751,7 @@ const styles = StyleSheet.create({
   symbolText: {
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   symbolTextLight: {
     color: '#334155',
@@ -828,7 +828,7 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   allSymbolsTitleLight: {
     color: '#0F172A',
@@ -880,7 +880,7 @@ const styles = StyleSheet.create({
   allSymbolsChipText: {
     color: '#E2E8F0',
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   allSymbolsChipTextLight: {
@@ -905,7 +905,7 @@ const styles = StyleSheet.create({
   readMoreText: {
     color: '#7DD3FC',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   readMoreTextLight: {
     color: '#2563EB',
@@ -933,7 +933,7 @@ const styles = StyleSheet.create({
   stateTitle: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   stateTitleLight: {
     color: '#0F172A',
@@ -966,7 +966,7 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   retryTextLight: {
     color: '#2563EB',

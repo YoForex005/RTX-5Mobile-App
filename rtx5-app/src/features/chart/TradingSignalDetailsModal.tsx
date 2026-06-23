@@ -291,7 +291,7 @@ function makeStyles(T: any, isDark: boolean) {
     tcLogoText: {
       fontSize: 7,
       color: '#FFF',
-      fontWeight: '800',
+      fontWeight: '600',
       textAlign: 'center',
       lineHeight: 8,
     },

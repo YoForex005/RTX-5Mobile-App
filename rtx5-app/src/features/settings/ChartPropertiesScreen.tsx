@@ -371,7 +371,7 @@ export function ChartPropertiesScreen() {
                       {/* Mini chart preview surface */}
                       <View style={[
                         styles.schemePreview,
-                        { backgroundColor: presetColors?.background ?? (isDark ? '#0E141F' : '#F1F5F9') },
+                        { backgroundColor: presetColors?.background ?? (isDark ? '#0d1628' : '#F1F5F9') },
                         isActive && styles.schemePreviewActive,
                       ]}>
                         {presetColors ? (
@@ -553,14 +553,14 @@ export function ChartPropertiesScreen() {
 function makeStyles(T: ThemeColors, isDark: boolean) {
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#000000' : '#F4F5F7',
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#06080D' : '#F4F5F7',
+      backgroundColor: isDark ? '#000000' : '#F4F5F7',
     },
     headerRow: {
       flexDirection: 'row',
@@ -596,12 +596,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     title: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 20,
-      fontWeight: '800',
+      fontWeight: '600',
       lineHeight: 26,
       marginBottom: 12,
     },
     previewCard: {
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -645,7 +645,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     liveBadgeText: {
       color: isDark ? '#DBEAFE' : '#1D4ED8',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     snapshotRow: {
       flexDirection: 'row',
@@ -660,14 +660,14 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 14,
       paddingVertical: 10,
       paddingHorizontal: 12,
-      backgroundColor: isDark ? '#0E141F' : 'rgba(248,250,252,0.94)',
+      backgroundColor: isDark ? '#0d1628' : 'rgba(248,250,252,0.94)',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.12)',
     },
     snapshotLabel: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 1,
       textTransform: 'uppercase',
       marginBottom: 6,
@@ -675,7 +675,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     snapshotValue: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     previewChart: {
       height: 240,
@@ -694,7 +694,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     previewMetaTicker: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0.4,
     },
     previewMetaOhlc: {
@@ -717,12 +717,12 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     previewMetaLabel: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       marginRight: 4,
     },
     previewMetaValue: {
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     previewFooter: {
       marginTop: 12,
@@ -747,7 +747,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tabsRow: {
       flexDirection: 'row',
       borderRadius: 18,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 8,
@@ -778,7 +778,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: T.trading.buy.primary,
     },
     panel: {
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -972,7 +972,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     schemeTileLabel: {
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       color: isDark ? '#94A3B8' : '#64748B',
       letterSpacing: 0.2,
     },
@@ -985,7 +985,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     colorGroupTitle: {
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       color: isDark ? '#94A3B8' : '#64748B',
       letterSpacing: 1.1,
       textTransform: 'uppercase',
@@ -994,7 +994,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     colorGroupCard: {
       marginHorizontal: 14,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderRadius: 14,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
@@ -1059,7 +1059,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
       width: '100%',
       maxWidth: 360,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderRadius: 18,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -1084,7 +1084,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
       width: '100%',
       maxWidth: 440,
-      backgroundColor: isDark ? '#0E141F' : '#FFFFFF',
+      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       borderWidth: 1,
@@ -1095,7 +1095,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     sheetTitle: {
       color: isDark ? '#F8FAFC' : '#0F172A',
       fontSize: 18,
-      fontWeight: '800',
+      fontWeight: '600',
       marginBottom: 16,
       textAlign: 'center',
     },
@@ -1136,7 +1136,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 12,
       paddingVertical: 10,
-      backgroundColor: isDark ? '#0E141F' : '#F8FAFC',
+      backgroundColor: isDark ? '#0d1628' : '#F8FAFC',
       alignItems: 'center',
     },
     infoCardThird: {
@@ -1146,13 +1146,13 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 4,
       paddingVertical: 8,
-      backgroundColor: isDark ? '#0E141F' : '#F8FAFC',
+      backgroundColor: isDark ? '#0d1628' : '#F8FAFC',
       alignItems: 'center',
     },
     infoLabel: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 1,
       textTransform: 'uppercase',
       marginBottom: 8,
@@ -1160,7 +1160,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     infoLabelThird: {
       color: isDark ? '#94A3B8' : '#64748B',
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 0.5,
       textTransform: 'uppercase',
       marginBottom: 4,
@@ -1190,7 +1190,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     doneButtonText: {
       color: '#FFFFFF',
       fontSize: 15,
-      fontWeight: '800',
+      fontWeight: '600',
     },
   });
 }

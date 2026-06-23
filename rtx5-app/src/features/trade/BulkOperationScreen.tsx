@@ -221,9 +221,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   },
   summaryValue: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   previewCard: {
     marginHorizontal: spacing.md,
@@ -244,32 +244,32 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : T.borderSubtle,
   },
-  rowIdText: { 
-    fontSize: 11, 
-    fontWeight: '800', 
-    fontVariant: ['tabular-nums'], 
-    letterSpacing: 0.5, 
-    marginBottom: 4 
+  rowIdText: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.5,
+    marginBottom: 4
   },
-  symbolText: { 
-    fontSize: 15, 
-    fontWeight: '700', 
-    textTransform: 'uppercase', 
-    letterSpacing: 0.5 
+  symbolText: {
+    fontSize: 15,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
   },
-  sideText: { 
-    fontSize: 12, 
-    fontWeight: '800', 
-    textTransform: 'lowercase', 
-    letterSpacing: 0.3 
+  sideText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'lowercase',
+    letterSpacing: 0.3
   },
-  volumeText: { 
-    fontSize: 13, 
-    fontWeight: '700' 
+  volumeText: {
+    fontSize: 13,
+    fontWeight: '700'
   },
   previewRight: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   emptyText: {
@@ -314,7 +314,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean) => StyleSheet.create({
   executeText: {
     color: '#FFFFFF', // Force stark white for explosive contrast against red
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   danger: {

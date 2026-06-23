@@ -72,8 +72,12 @@ test('accounts screen uses broker branding and opens long-press delete for other
   assert.match(source, /import \{ ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, View \} from 'react-native'/);
   // Other-accounts list is virtualized: render the on-screen rows, lazy-render the rest on scroll.
   assert.match(source, /<FlatList[\s\S]*data=\{otherRows\}[\s\S]*initialNumToRender=/);
-  assert.match(source, /const activeBrokerLogoUrl = brokerConfig\?\.logo_url \|\| brokerLogoUrl \|\| ''/);
-  assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*\? activeBrokerLogoUrl \|\| sa\.logoUrl \|\| ''[\s\S]*: sa\.logoUrl \|\| ''/);
+  assert.match(source, /import \{ BROKER_CONFIG_KEY, useBrokerConfig, useBrokerServers \} from '\.\.\/\.\.\/query\/broker'/);
+  assert.match(source, /const buildBrokerLogoIndex = \(brokerServers\?: readonly BrokerServer\[\]\): BrokerLogoIndex => \{/);
+  assert.match(source, /const \{ data: brokerServers \} = useBrokerServers\(isScreenFocused\)/);
+  assert.match(source, /const brokerLogoIndex = useMemo\(\(\) => buildBrokerLogoIndex\(brokerServers\), \[brokerServers\]\)/);
+  assert.match(source, /const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl\([\s\S]*brokerLogoIndex,[\s\S]*brokerId,[\s\S]*brokerServerUrl,[\s\S]*brokerConfig\?\.logo_url,[\s\S]*brokerLogoUrl,[\s\S]*\)/);
+  assert.match(source, /const savedLogoUrl = sa\.brokerId === activeBrokerId[\s\S]*\? resolveAccountBrokerLogoUrl\(brokerLogoIndex, sa\.brokerId, sa\.serverUrl, activeBrokerLogoUrl, sa\.logoUrl\)[\s\S]*: resolveAccountBrokerLogoUrl\(brokerLogoIndex, sa\.brokerId, sa\.serverUrl, sa\.logoUrl\)/);
   assert.match(source, /function BrokerLogoAvatar\(/);
   assert.match(source, /source=\{\{ uri: logoUri \}\}/);
 
@@ -86,6 +90,9 @@ test('accounts screen uses broker branding and opens long-press delete for other
   const otherRowEnd = source.indexOf('{isExpanded && (', otherRowStart);
   const otherRow = source.slice(otherRowStart, otherRowEnd);
   assert.match(otherRow, /<BrokerLogoAvatar[\s\S]*logoUri=\{row\.logoUrl\}/);
+  assert.match(otherRow, /row\.accountType === 'contest' &&/);
+  assert.match(otherRow, /\{!!ribbonLabel && \(/);
+  assert.doesNotMatch(otherRow, /: 'Real'/);
   assert.match(otherRow, /onLongPress=\{\(\) => openOtherAccountOptions\(row\)\}/);
   assert.doesNotMatch(otherRow, /secondaryDeleteButton/);
 

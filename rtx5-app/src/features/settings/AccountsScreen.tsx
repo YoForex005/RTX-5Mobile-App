@@ -47,7 +47,7 @@ import {
   useAccountDetails,
   useAccounts,
 } from '../../query/accounts';
-import { BROKER_CONFIG_KEY, useBrokerConfig } from '../../query/broker';
+import { BROKER_CONFIG_KEY, useBrokerConfig, useBrokerServers } from '../../query/broker';
 import { useHealth } from '../../query/health';
 import { useMt5Status } from '../../query/mt5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -78,6 +78,8 @@ import {
   isDemoTradingAccount,
 } from '../../domain/accountType';
 import type { TradingAccount } from '../../api/accounts';
+import type { BrokerServer } from '../../api/broker';
+import { normalizeBrokerServerUrl, resolveBrokerServiceBaseUrl } from '../../api/brokerRouting';
 import { hasAuthenticatedAccountSession } from './accountConnectionStatus';
 import { safeRouterBack } from '../../utils/navigation';
 
@@ -126,6 +128,71 @@ const formatBrokerInitials = (name: string) => {
     .map((word) => word[0]?.toUpperCase() ?? '')
     .join('')
     .slice(0, 2) || 'BR';
+};
+
+type BrokerLogoIndex = {
+  byBrokerId: Map<string, string>;
+  byServerUrl: Map<string, string>;
+};
+
+const normalizeBrokerLogoUrl = (logoUrl?: string | null) => String(logoUrl ?? '').trim();
+
+const normalizeBrokerLogoBrokerId = (brokerId?: string | null) =>
+  String(brokerId ?? '').trim().toLowerCase();
+
+const buildBrokerLogoIndex = (brokerServers?: readonly BrokerServer[]): BrokerLogoIndex => {
+  const byBrokerId = new Map<string, string>();
+  const byServerUrl = new Map<string, string>();
+
+  for (const broker of brokerServers ?? []) {
+    if (broker.enabled === false) continue;
+    const logoUrl = normalizeBrokerLogoUrl(broker.logo_url);
+    if (!logoUrl) continue;
+
+    const brokerId = normalizeBrokerLogoBrokerId(broker.broker_id);
+    if (brokerId && !byBrokerId.has(brokerId)) {
+      byBrokerId.set(brokerId, logoUrl);
+    }
+
+    const serverCandidates = [
+      resolveBrokerServiceBaseUrl(broker),
+      broker.server_url,
+      broker.market_api_url,
+      broker.domains?.services,
+      broker.services_domain,
+      broker.domains?.server,
+      broker.server_domain,
+      broker.domains?.domain_name,
+      broker.domain_name,
+    ];
+
+    for (const candidate of serverCandidates) {
+      const normalizedServerUrl = normalizeBrokerServerUrl(candidate);
+      if (normalizedServerUrl && !byServerUrl.has(normalizedServerUrl)) {
+        byServerUrl.set(normalizedServerUrl, logoUrl);
+      }
+    }
+  }
+
+  return { byBrokerId, byServerUrl };
+};
+
+const resolveAccountBrokerLogoUrl = (
+  logoIndex: BrokerLogoIndex,
+  brokerId?: string | null,
+  serverUrl?: string | null,
+  ...preferredLogoUrls: Array<string | null | undefined>
+) => {
+  for (const preferredLogoUrl of preferredLogoUrls) {
+    const logoUrl = normalizeBrokerLogoUrl(preferredLogoUrl);
+    if (logoUrl) return logoUrl;
+  }
+
+  const brokerLogo = logoIndex.byBrokerId.get(normalizeBrokerLogoBrokerId(brokerId));
+  if (brokerLogo) return brokerLogo;
+
+  const normalizedServerUrl = normalizeBrokerServerUrl(serverUrl);
+  return normalizedServerUrl ? logoIndex.byServerUrl.get(normalizedServerUrl) ?? '' : '';
 };
 
 const isMissingSavedAccountSwitchError = (error: unknown) => {
@@ -227,7 +294,15 @@ export function AccountsScreen() {
   const brokerServerUrl = useUserPreferences((s) => s.brokerServerUrl);
   const brokerLogoUrl = useUserPreferences((s) => s.brokerLogoUrl);
   const { data: brokerConfig } = useBrokerConfig(brokerId, isScreenFocused);
-  const activeBrokerLogoUrl = brokerConfig?.logo_url || brokerLogoUrl || '';
+  const { data: brokerServers } = useBrokerServers(isScreenFocused);
+  const brokerLogoIndex = useMemo(() => buildBrokerLogoIndex(brokerServers), [brokerServers]);
+  const activeBrokerLogoUrl = resolveAccountBrokerLogoUrl(
+    brokerLogoIndex,
+    brokerId,
+    brokerServerUrl,
+    brokerConfig?.logo_url,
+    brokerLogoUrl,
+  );
 
   // Find the active account by matching the login from Zustand state
   const currentLogin = accountDetails?.id ? Number(accountDetails.id) : undefined;
@@ -260,8 +335,8 @@ export function AccountsScreen() {
       const key = `${sa.brokerId}:${sa.login}`;
       if (key === activeKey) continue;
       const savedLogoUrl = sa.brokerId === activeBrokerId
-        ? activeBrokerLogoUrl || sa.logoUrl || ''
-        : sa.logoUrl || '';
+        ? resolveAccountBrokerLogoUrl(brokerLogoIndex, sa.brokerId, sa.serverUrl, activeBrokerLogoUrl, sa.logoUrl)
+        : resolveAccountBrokerLogoUrl(brokerLogoIndex, sa.brokerId, sa.serverUrl, sa.logoUrl);
       map.set(key, {
         key,
         login: sa.login,
@@ -283,14 +358,22 @@ export function AccountsScreen() {
       if (key === activeKey) continue;
       const existing = map.get(key);
       const accountType: SavedAccountType = existing?.accountType ?? getTradingAccountType(a.group);
+      const rowServerUrl = existing?.serverUrl || brokerServerUrl;
+      const rowLogoUrl = resolveAccountBrokerLogoUrl(
+        brokerLogoIndex,
+        activeBrokerId,
+        rowServerUrl,
+        activeBrokerLogoUrl,
+        existing?.logoUrl,
+      );
       map.set(key, {
         key,
         login: loginStr,
         name: a.name,
         brokerId: activeBrokerId,
         server: existing?.server || brokerConfig?.server_name || '',
-        serverUrl: existing?.serverUrl || brokerServerUrl,
-        logoUrl: activeBrokerLogoUrl || existing?.logoUrl || '',
+        serverUrl: rowServerUrl,
+        logoUrl: rowLogoUrl,
         accountType,
         hasSavedCredentials: existing?.hasSavedCredentials ?? false,
         snapshot: buildSavedAccountSnapshot(a),
@@ -303,7 +386,7 @@ export function AccountsScreen() {
       if (!!a.liveAccount !== !!b.liveAccount) return a.liveAccount ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.server_name, brokerServerUrl, savedAccounts]);
+  }, [accounts, activeBrokerId, activeKey, activeBrokerLogoUrl, brokerConfig?.server_name, brokerLogoIndex, brokerServerUrl, savedAccounts]);
 
   // Backfill the active session into the directory so accounts that were
   // logged in before this feature shipped (or pre-existing sessions on first
@@ -870,13 +953,11 @@ export function AccountsScreen() {
             </View>
           )}
           renderItem={({ item: row }) => {
-            const ribbonLabel = t(
-              row.accountType === 'demo'
-                ? 'Demo'
-                : row.accountType === 'contest'
-                  ? 'Contest'
-                  : 'Real',
-            );
+            const ribbonLabel = row.accountType === 'demo'
+              ? t('Demo')
+              : row.accountType === 'contest'
+                ? t('Contest')
+                : '';
             const accountDisplayName = translateAccountCardName(row.name || `Account ${row.login}`, t);
             const isSwitching = connectingKey === row.key;
             const live = row.liveAccount;
@@ -920,9 +1001,11 @@ export function AccountsScreen() {
                 delayLongPress={400}
               >
                 {/* Diagonal ribbon */}
-                <View style={ribbonStyle}>
-                  <Text style={styles.ribbonRightText}>{ribbonLabel}</Text>
-                </View>
+                {!!ribbonLabel && (
+                  <View style={ribbonStyle}>
+                    <Text style={styles.ribbonRightText}>{ribbonLabel}</Text>
+                  </View>
+                )}
 
                 {/* Top row: avatar + name + type pill — mirrors active card */}
                 <View style={styles.secondaryTopRow}>
@@ -940,7 +1023,7 @@ export function AccountsScreen() {
                     <View style={styles.secondaryInfo}>
                       <View style={styles.nameAndBadges}>
                         <Text style={styles.secondaryName} numberOfLines={1}>{accountDisplayName}</Text>
-                        {row.accountType !== 'demo' && (
+                        {row.accountType === 'contest' && (
                           <View style={styles.liveBadge}>
                             <Text style={styles.liveBadgeText}>{ribbonLabel}</Text>
                           </View>
@@ -1329,15 +1412,15 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
     flexShrink: 1,
     color: T.textMuted,
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    fontWeight: '600',
+    letterSpacing: 0,
     textTransform: 'uppercase',
   },
   deleteTitle: {
     color: T.text,
-    fontSize: 20,
-    fontWeight: '800',
-    lineHeight: 25,
+    fontSize: 18,
+    fontWeight: '600',
+    lineHeight: 24,
     marginBottom: 8,
   },
   deleteCloseButton: {
@@ -1382,7 +1465,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   deleteAccountName: {
     color: T.text,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     marginBottom: 3,
   },
   deleteAccountMeta: {
@@ -1410,7 +1493,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   deleteBtnSecondaryText: {
     color: T.text,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   deleteBtnPrimary: {
     backgroundColor: '#EF4444',
@@ -1418,7 +1501,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   deleteBtnPrimaryText: {
     color: '#fff',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   tradeNotifModal: {
     width: '85%',
@@ -1545,7 +1628,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   ribbonRightText: {
     color: '#fff',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   ribbonLeft: {
@@ -1561,7 +1644,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   ribbonLeftText: {
     color: '#fff',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   activeTopRow: {
@@ -1582,7 +1665,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   avatarText: {
     color: T.accent,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   avatarImage: {
     width: 46,
@@ -1595,8 +1678,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   activeName: {
     color: T.text,
     fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   activeCompany: {
     color: T.textMuted,
@@ -1622,8 +1705,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   connectedLabel: {
     color: '#10B981',
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   nameAndBadges: {
     flexDirection: 'row',
@@ -1644,9 +1727,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   demoBadgeActiveText: {
     color: '#10B981',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   liveBadge: {
     backgroundColor: 'rgba(59,130,246,0.1)',
@@ -1656,9 +1739,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   liveBadgeText: {
     color: '#3B82F6',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
 
   // Balance hero
@@ -1675,9 +1758,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   balanceValue: {
     color: T.text,
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: -1,
+    fontSize: 26,
+    fontWeight: '700',
+    letterSpacing: 0,
     fontVariant: ['tabular-nums'] as any,
   },
 
@@ -1713,7 +1796,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   metricValue: {
     color: T.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'] as any,
   },
 
@@ -1794,10 +1877,10 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   sectionLabel: {
     color: T.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.4,
   },
   sectionCount: {
     color: T.textDimmed,
@@ -1844,7 +1927,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   secondaryAvatarText: {
     color: T.textMuted,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   secondaryAvatarImage: {
     width: 38,
@@ -1878,9 +1961,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   tagDemoText: {
     color: '#10B981',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   tagContest: {
     backgroundColor: 'rgba(59,130,246,0.1)',
@@ -1890,9 +1973,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   tagContestText: {
     color: '#3B82F6',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   tagReadonly: {
     backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
@@ -1902,8 +1985,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   tagReadonlyText: {
     color: T.textDimmed,
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '600',
   },
   secondaryMeta: {
     color: T.textDimmed,
@@ -1924,7 +2007,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   secondaryBalance: {
     color: T.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'] as any,
   },
   secondaryCurrency: {
@@ -1973,7 +2056,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   expandedValue: {
     color: T.text,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'] as any,
   },
   expandedChips: {
@@ -1994,8 +2077,8 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   cornerBadgeText: {
     color: '#fff',
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.4,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   ribbonLeftSmall: {
     position: 'absolute',
@@ -2023,9 +2106,9 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => StyleSh
   },
   expandedBalanceValue: {
     color: T.text,
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 0,
     fontVariant: ['tabular-nums'] as any,
   },
   expandedBalanceCurrency: {

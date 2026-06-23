@@ -48,11 +48,14 @@ export type DrawingToolSidebarGroup = {
 
 export type DrawingToolsActionSheetAction = {
   danger?: boolean;
+  icon?: ReactNode;
   label: string;
   onPress?: () => void;
 };
 
 export type DrawingToolsActionSheetConfig = DrawingToolsCommandState & {
+  dangerIconColor?: string;
+  iconColor?: string;
   onClearDrawings: () => void;
   onSelectTool: (tool: string) => void;
   onToggleHide: () => void;

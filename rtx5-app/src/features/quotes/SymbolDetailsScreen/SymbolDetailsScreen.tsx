@@ -319,7 +319,7 @@ function SymbolDetailsInteractiveContent() {
                   s.nav.liveDot,
                   { marginRight: 2, backgroundColor: isMarketOpen ? T.up : T.textMuted, shadowColor: isMarketOpen ? T.up : 'transparent' }
                 ]} />
-                <Text style={[s.ticker.infoTxt, { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2, color: T.textSub }]}>
+                <Text style={[s.ticker.infoTxt, { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, color: T.textSub }]}>
                   {isMarketOpen ? 'Live Market Data' : 'Market Closed'}
                 </Text>
               </View>

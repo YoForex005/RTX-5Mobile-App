@@ -167,6 +167,8 @@ const GlobalActionSheetHost = memo(function GlobalActionSheetHost() {
     <ActionSheet
       visible={visible}
       title={activeConfig?.title}
+      presentation={activeConfig?.presentation}
+      showActionIcons={activeConfig?.showActionIcons}
       actions={activeConfig?.actions ?? []}
       onClose={handleClose}
       searchable={activeConfig?.searchable}
@@ -376,7 +378,7 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 12,
     marginBottom: 4,
-    fontWeight: '600',
+    fontWeight: '500',
     textAlign: 'center',
   },
   tabLabelLandscape: {

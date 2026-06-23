@@ -131,8 +131,9 @@ type QuoteSheetOptionOptions = {
 };
 
 // full quotes screen background color + card background color
+// Dark theme matches the Settings screen palette: pure-black canvas + deep navy cards.
 const QUOTES_THEME_ROTATION_DARK: QuotesRotationTheme[] = [
-  { fullscreenBackground: '#06080D', cardBackground: '#0E141F' },
+  { fullscreenBackground: '#000000', cardBackground: '#0d1628' },
 ];
 
 const QUOTES_THEME_ROTATION_LIGHT: QuotesRotationTheme[] = [
@@ -162,10 +163,10 @@ type QuotesPalette = {
 function getQuotesPalette(T: ThemeColors, isDark: boolean): QuotesPalette {
   if (isDark) {
     return {
-      shellBg: '#07111d',
+      shellBg: '#0d1628',
       shellBorder: 'rgba(132, 162, 201, 0.18)',
       shellHighlight: ['rgba(255,255,255,0.05)', 'rgba(255,255,255,0)'],
-      searchBg: '#0E1A2A',
+      searchBg: '#0d1628',
       searchBorder: 'rgba(132, 162, 201, 0.24)',
       searchPlaceholder: 'rgba(208, 219, 232, 0.62)',
       cardBorder: 'rgba(132, 162, 201, 0.16)',
@@ -361,9 +362,10 @@ const QuoteCard = React.memo(function QuoteCard({
             }}
           />
           <Text
-            style={{ color: T.text, fontSize: 16, fontWeight: '700' }}
+            style={{ color: T.text, fontSize: 16, fontWeight: '600' }}
             numberOfLines={1}
             adjustsFontSizeToFit
+            minimumFontScale={0.82}
           >
             {pairLabel(normalizedSymbol || symbol)}
           </Text>
@@ -486,6 +488,7 @@ const QuoteCard = React.memo(function QuoteCard({
               style={[sc.symbolText, { color: T.text }]}
               numberOfLines={1}
               adjustsFontSizeToFit
+              minimumFontScale={0.82}
             >
               {displaySymbol}
             </Text>
@@ -511,7 +514,7 @@ const QuoteCard = React.memo(function QuoteCard({
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
-                {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume)}</Text>
+                {t('Vol')}: <Text style={[sc.statValue, { color: T.text }]}>{volumeLabel(item.volume ?? item.cachedVolume)}</Text>
               </Text>
 
               <Text
@@ -545,6 +548,7 @@ const QuoteCard = React.memo(function QuoteCard({
               style={[sc.priceValue, { color: bidColor }]}
               numberOfLines={1}
               adjustsFontSizeToFit
+              minimumFontScale={0.82}
             >
               {noData ? '--' : fmt.price(item.bid, priceDigits)}
             </Text>
@@ -571,6 +575,7 @@ const QuoteCard = React.memo(function QuoteCard({
               style={[sc.priceValue, { color: askColor }]}
               numberOfLines={1}
               adjustsFontSizeToFit
+              minimumFontScale={0.82}
             >
               {noData ? '--' : fmt.price(item.ask, priceDigits)}
             </Text>
@@ -867,6 +872,60 @@ type AddSymbolFolderRow = {
   symbols: string[];
 };
 type AddSymbolListItem = string | AddSymbolFolderRow;
+type AddSymbolFolderLogoMeta = {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  iconSize?: number;
+};
+
+const ADD_SYMBOL_FOLDER_LOGO_META: Record<AddSymbolFolderKey, AddSymbolFolderLogoMeta> = {
+  root: {
+    icon: 'home',
+  },
+  quotes: {
+    icon: 'stats-chart',
+  },
+  forex: {
+    icon: 'earth',
+  },
+  metals: {
+    icon: 'diamond',
+  },
+  commodities: {
+    icon: 'flame',
+  },
+  cryptocurrenciesMtt: {
+    icon: 'logo-bitcoin',
+    iconSize: 24,
+  },
+  forexMarket: {
+    icon: 'earth',
+  },
+  indices: {
+    icon: 'bar-chart',
+  },
+  metalsMtt: {
+    icon: 'diamond',
+  },
+};
+
+function AddSymbolFolderLogo({ folderKey, isDark }: { folderKey: AddSymbolFolderKey; isDark: boolean }) {
+  const meta = ADD_SYMBOL_FOLDER_LOGO_META[folderKey];
+
+  return (
+    <View
+      style={[
+        addSymbolStyles.folderLogoBox,
+        {
+          backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : '#F8FAFC',
+          borderColor: isDark ? 'rgba(148,163,184,0.24)' : '#E2E8F0',
+          shadowColor: isDark ? '#000000' : '#CBD5E1',
+        },
+      ]}
+    >
+      <Ionicons name={meta.icon} size={meta.iconSize ?? 23} color={isDark ? '#E5E7EB' : '#111827'} />
+    </View>
+  );
+}
 
 const FX_CODES = new Set([
   'AUD', 'BRL', 'CAD', 'CHF', 'CNH', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD',
@@ -1096,11 +1155,12 @@ type AddSymbolPalette = {
 function getAddSymbolPalette(T: ThemeColors, isDark: boolean): AddSymbolPalette {
   if (isDark) {
     return {
-      screenBg: '#05070C',
+      // Dark theme matches the Settings screen palette: pure-black canvas + deep navy cards.
+      screenBg: '#000000',
       headerBorder: 'rgba(148,163,184,0.14)',
-      searchBg: '#0E141F',
+      searchBg: '#0d1628',
       searchBorder: 'rgba(148,163,184,0.22)',
-      rowBg: '#0B111C',
+      rowBg: '#0d1628',
       rowBorder: 'rgba(148,163,184,0.16)',
       rowPressed: 'rgba(255,255,255,0.045)',
       iconBg: 'rgba(255,255,255,0.05)',
@@ -1445,9 +1505,7 @@ function AddSymbolModal({
                 ]}
               >
                 <View style={addSymbolStyles.folderLeft}>
-                  <View style={[addSymbolStyles.folderIconBox, { backgroundColor: addPalette.iconBg }]}>
-                    <Ionicons name="folder-open" size={22} color="#FBBF24" />
-                  </View>
+                  <AddSymbolFolderLogo folderKey={item.key} isDark={isDark} />
                   <View style={addSymbolStyles.folderTextCol}>
                     <Text style={[addSymbolStyles.folderTitle, { color: T.text }]}>{t(item.label)}</Text>
                     <Text style={[addSymbolStyles.folderMeta, { color: addPalette.mutedText }]}>
@@ -1869,6 +1927,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
       const displayName = fmt.symbol(sym);
       configs.set(sym, {
         title: `${displayName}: ${describeMarketSymbol(sym)}`,
+        presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
         runActionAfterClose: false,
@@ -1894,7 +1953,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
             },
           },
           {
-            label: t('Symbol Details'),
+            label: t('Properties'),
             activateOnPressIn: true,
             onPress: () => goDetail(sym),
           },
@@ -1907,31 +1966,28 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               }, { routeChange: true });
             },
           },
-          // Show both view modes; the currently-active one is disabled (rendered
-          // at low opacity, like a status row) and the other switches to it.
+          // Both view modes are listed; the currently-active one is shown
+          // disabled (via `selected`) and you tap the other to switch.
+          // The quotes rows treat viewMode === 'table' as the simple view.
           {
             label: t('Simple view mode'),
-            disabled: quoteViewMode === 'table',
-            activateOnPressIn: quoteViewMode !== 'table',
-            onPress: quoteViewMode === 'table'
-              ? undefined
-              : () => {
-                  runQuoteSheetOption(() => {
-                    setQuoteViewMode('table');
-                  });
-                },
+            activateOnPressIn: true,
+            selected: quoteViewMode === 'table',
+            onPress: () => {
+              runQuoteSheetOption(() => {
+                setQuoteViewMode('table');
+              });
+            },
           },
           {
             label: t('Advanced view mode'),
-            disabled: quoteViewMode === 'list',
-            activateOnPressIn: quoteViewMode !== 'list',
-            onPress: quoteViewMode === 'list'
-              ? undefined
-              : () => {
-                  runQuoteSheetOption(() => {
-                    setQuoteViewMode('list');
-                  });
-                },
+            activateOnPressIn: true,
+            selected: quoteViewMode === 'list',
+            onPress: () => {
+              runQuoteSheetOption(() => {
+                setQuoteViewMode('list');
+              });
+            },
           },
         ],
       });
@@ -1946,6 +2002,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
     quoteSymbols.forEach((sym) => {
       configs.set(sym, {
         title: fmt.symbol(sym),
+        presentation: 'mt5Plain',
         detent: 'auto',
         instantOpen: true,
         runActionAfterClose: false,
@@ -1960,7 +2017,7 @@ const QuotesScreenInner = React.memo(function QuotesScreenInner({ isQuotesRouteA
               }, { routeChange: true });
             },
           },
-          { label: t('Details'), activateOnPressIn: true, onPress: () => goDetail(sym) },
+          { label: t('Properties'), activateOnPressIn: true, onPress: () => goDetail(sym) },
           {
             label: t('Hide'),
             danger: true,
@@ -2240,14 +2297,14 @@ const addSymbolStyles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '600',
     letterSpacing: 0,
   },
   subtitle: {
     marginTop: 3,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   headerCountPill: {
     minWidth: 62,
@@ -2260,7 +2317,7 @@ const addSymbolStyles = StyleSheet.create({
   },
   headerCountText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   searchRow: {
@@ -2316,7 +2373,7 @@ const addSymbolStyles = StyleSheet.create({
   },
   breadcrumbText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   listContent: {
     paddingHorizontal: 16,
@@ -2340,12 +2397,18 @@ const addSymbolStyles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  folderIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+  folderLogoBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   folderTextCol: {
     flex: 1,
@@ -2353,12 +2416,12 @@ const addSymbolStyles = StyleSheet.create({
   },
   folderTitle: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   folderMeta: {
     marginTop: 4,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   folderRight: {
     flexDirection: 'row',
@@ -2377,7 +2440,7 @@ const addSymbolStyles = StyleSheet.create({
   },
   folderCount: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
@@ -2415,7 +2478,7 @@ const addSymbolStyles = StyleSheet.create({
   },
   symbolName: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0,
     flexShrink: 1,
   },
@@ -2426,9 +2489,9 @@ const addSymbolStyles = StyleSheet.create({
     paddingVertical: 2,
   },
   symbolKindText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   symbolDescription: {
     marginTop: 6,
@@ -2489,7 +2552,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  subLeft: { fontSize: 12, fontWeight: '600' },
+  subLeft: { fontSize: 13, fontWeight: '500' },
 
   subRight: {
     flexDirection: 'row',
@@ -2499,8 +2562,8 @@ const s = StyleSheet.create({
     gap: 6,
   },
 
-  subGrey: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
-  subLive: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+  subGrey: { fontSize: 12, fontWeight: '500', letterSpacing: 0 },
+  subLive: { fontSize: 12, fontWeight: '600', letterSpacing: 0 },
 
   searchBar: {
     borderWidth: 1,
@@ -2615,9 +2678,9 @@ const sc = StyleSheet.create({
   },
 
   symbolText: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
 
   changePill: {
@@ -2627,7 +2690,7 @@ const sc = StyleSheet.create({
 
   changePillText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 
   cardRow2: {
@@ -2636,9 +2699,9 @@ const sc = StyleSheet.create({
     gap: 8,
   },
 
-  volText: { fontSize: 12, fontWeight: '600' },
-  spreadText: { fontSize: 12, fontWeight: '600' },
-  statValue: { fontSize: 12, fontWeight: '700' },
+  volText: { fontSize: 13, fontWeight: '500' },
+  spreadText: { fontSize: 13, fontWeight: '500' },
+  statValue: { fontSize: 13, fontWeight: '600' },
 
   pricesRow: {
     flexDirection: 'row',
@@ -2667,13 +2730,13 @@ const sc = StyleSheet.create({
 
   priceLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
 
   priceValue: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
@@ -2686,7 +2749,7 @@ const sc = StyleSheet.create({
   },
 
   lowHighText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     fontVariant: ['tabular-nums'],
   },

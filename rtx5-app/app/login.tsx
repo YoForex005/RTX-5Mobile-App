@@ -1088,8 +1088,8 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     headerTitle: {
       color: T.text,
-      fontSize: 22,
-      fontWeight: '800',
+      fontSize: 20,
+      fontWeight: '600',
       letterSpacing: 0,
     },
 
@@ -1109,9 +1109,9 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     },
     sectionTitle: {
       color: T.text,
-      fontSize: 25,
-      lineHeight: 31,
-      fontWeight: '900',
+      fontSize: 22,
+      lineHeight: 28,
+      fontWeight: '700',
       textAlign: 'left',
       letterSpacing: 0,
     },
@@ -1163,7 +1163,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: T.text,
       fontSize: 14,
       lineHeight: 18,
-      fontWeight: '700',
+      fontWeight: '600',
       marginBottom: 8,
       backgroundColor: 'transparent',
     },
@@ -1172,7 +1172,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
       color: T.text,
       fontSize: 16,
       lineHeight: 22,
-      fontWeight: '700',
+      fontWeight: '500',
       padding: 0,
       paddingHorizontal: 0,
       margin: 0,
@@ -1263,7 +1263,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     brokerAvatarInitials: {
       color: '#FFFFFF',
       fontSize: 11,
-      fontWeight: '900',
+      fontWeight: '600',
       letterSpacing: 0,
     },
 
@@ -1303,7 +1303,7 @@ function makeStyles(T: ThemeColors, isDark: boolean, safeTop: number) {
     loginBtnText: {
       color: '#ffffff',
       fontSize: 16,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
 

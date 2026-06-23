@@ -226,10 +226,7 @@ export const processTick = (bridge: TickProcessorBridge, raw: any): boolean => {
   // Fan out to per-symbol listeners synchronously. This is the path the
   // Quotes screen relies on for live bid/ask updates — it doesn't need to
   // wait for the rAF/setTimeout-driven Zustand flush.
-  bridge.emitSymbolTick(normalizedUpdate.rawSymbol, tickEvent);
-  if (normalizedUpdate.rawSymbol !== normalizedUpdate.symbol) {
-    bridge.emitSymbolTick(normalizedUpdate.symbol, tickEvent);
-  }
+  bridge.emitSymbolTick(normalizedUpdate.rawSymbol || normalizedUpdate.symbol, tickEvent);
   // Extend the chart's active candle so its close (and wick high/low) keep
   // ticking in real time between authoritative snapshots. The candle stream
   // may also open the current quote bucket when the candle backend is late,

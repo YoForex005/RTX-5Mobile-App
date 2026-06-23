@@ -68,7 +68,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_TEXT,
     fontSize: 23,
     lineHeight: 29,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     textAlign: 'center',
   },
@@ -138,8 +138,8 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   notificationBadgeText: {
     color: '#07111F',
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   profileAvatar: {
@@ -201,7 +201,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   breakingLabel: {
     color: '#FEE2E2',
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
     textTransform: 'uppercase',
   },
   breakingBookmarkButton: {
@@ -225,7 +225,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   breakingTopMetaText: {
     color: '#9AA7BA',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     maxWidth: 78,
   },
   iconActionButton: {
@@ -269,7 +269,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: '#F8FAFC',
     fontSize: 28,
     lineHeight: 36,
-    fontWeight: '900',
+    fontWeight: '700',
     marginTop: 18,
     maxWidth: '72%',
   },
@@ -324,7 +324,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   breakingImpactText: {
     fontSize: 17,
-    fontWeight: '900',
+    fontWeight: '700',
     textTransform: 'uppercase',
   },
   breakingDivider: {
@@ -342,7 +342,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   metaText: {
     color: NEWS_MUTED,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   metaDot: {
     width: 3,
@@ -368,7 +368,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   symbolChipText: {
     color: isDark ? '#DDE7F6' : '#334155',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   affectedSymbolsBlock: {
     flex: 1,
@@ -378,7 +378,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   affectedSymbolsLabel: {
     color: '#A9B4C6',
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '600',
     marginBottom: 12,
   },
   breakingBottomRow: {
@@ -424,7 +424,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   readMoreText: {
     color: '#FFFFFF',
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   impactBadge: {
     minHeight: 24,
@@ -442,7 +442,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   impactBadgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   tabsRail: {
@@ -466,7 +466,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   tabText: {
     color: NEWS_SUB,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   tabTextActive: {
     color: '#FFFFFF',
@@ -493,7 +493,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   filterText: {
     color: NEWS_SUB,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   aiCard: {
     marginTop: 14,
@@ -549,16 +549,16 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   aiKicker: {
     color: NEWS_CYAN,
-    fontSize: 9,
+    fontSize: 10,
     lineHeight: 12,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   aiTitle: {
     color: NEWS_TEXT,
     fontSize: 16,
     lineHeight: 20,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   aiUpdatedPill: {
     minHeight: 28,
@@ -576,7 +576,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   aiUpdatedText: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     maxWidth: 86,
   },
   aiSummaryBlock: {
@@ -591,7 +591,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   aiSummaryLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
     marginBottom: 5,
   },
@@ -620,7 +620,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     flex: 1,
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   aiDetailsButton: {
     minHeight: 28,
@@ -636,7 +636,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   aiDetailsButtonText: {
     color: NEWS_CYAN,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   aiDetailModalOverlay: {
     flex: 1,
@@ -721,20 +721,20 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   aiSignalLabel: {
     color: NEWS_MUTED,
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   aiSignalValue: {
     marginTop: 2,
     color: NEWS_TEXT,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   aiMarketFocusLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   aiMarketRail: {
@@ -758,7 +758,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   aiMarketText: {
     color: isDark ? '#BAE6FD' : '#1D4ED8',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   aiDetailMarketsPanel: {
     marginTop: 12,
@@ -780,7 +780,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   statusChipText: {
     color: NEWS_SUB,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   sectionHeader: {
     marginTop: 20,
@@ -794,7 +794,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_TEXT,
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   sectionAction: {
     flexDirection: 'row',
@@ -804,7 +804,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   sectionActionText: {
     color: NEWS_SUB,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   calendarCard: {
     padding: 4,
@@ -844,7 +844,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   currencyText: {
     color: NEWS_CYAN,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   eventBody: {
     flex: 1,
@@ -854,7 +854,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_TEXT,
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   eventMetaRow: {
     marginTop: 3,
@@ -942,14 +942,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   eventModalLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   eventModalTime: {
     marginTop: 3,
     color: NEWS_SUB,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   eventModalCloseButton: {
     width: 36,
@@ -966,7 +966,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_TEXT,
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   eventSchedulePanel: {
     marginTop: 12,
@@ -993,14 +993,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   eventScheduleLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   eventScheduleValue: {
     marginTop: 5,
     color: NEWS_TEXT,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   eventImpactPanel: {
     marginTop: 12,
@@ -1043,14 +1043,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   eventValueLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   eventValueText: {
     marginTop: 5,
     color: NEWS_TEXT,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   eventLiveNotice: {
     marginTop: 12,
@@ -1067,7 +1067,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   eventLiveNoticeText: {
     color: '#F87171',
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   eventModalNotice: {
     marginTop: 12,
@@ -1085,7 +1085,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_MUTED,
     fontSize: 11,
     lineHeight: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   livePill: {
     minHeight: 22,
@@ -1104,8 +1104,8 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   liveText: {
     color: '#F87171',
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '600',
   },
   newsCard: {
     marginBottom: 12,
@@ -1152,13 +1152,13 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   },
   categoryTagText: {
     color: NEWS_GOLD,
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '600',
   },
   newsSourceText: {
     color: NEWS_TEXT,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   newsTimeRow: {
     marginTop: 4,
@@ -1201,7 +1201,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     color: NEWS_TEXT,
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: '900',
+    fontWeight: '700',
     marginTop: 9,
   },
   newsSummary: {
@@ -1264,14 +1264,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   latestNewsSourceText: {
     color: NEWS_TEXT,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   latestNewsModalTitle: {
     marginTop: 14,
     color: NEWS_TEXT,
     fontSize: 19,
     lineHeight: 25,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   latestNewsModalSummary: {
     marginTop: 8,
@@ -1309,7 +1309,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   latestNewsSavedText: {
     color: NEWS_GOLD,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   latestNewsSymbolsBlock: {
@@ -1332,7 +1332,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     marginBottom: 8,
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   watchlistRail: {
@@ -1374,20 +1374,20 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   watchlistSymbolText: {
     color: isDark ? '#BAE6FD' : '#1D4ED8',
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   watchlistMatchText: {
     flex: 1,
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   watchlistTitle: {
     color: isDark ? '#F8FAFC' : '#0F172A',
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: '800',
+    fontWeight: '600',
     marginTop: 10,
   },
   watchlistTopRow: {
@@ -1418,7 +1418,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
     flex: 1,
     color: isDark ? '#A8B4C7' : '#475569',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   watchlistReadAction: {
     minHeight: 27,
@@ -1434,7 +1434,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   watchlistActionText: {
     color: isDark ? '#7DD3FC' : '#2563EB',
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   watchlistDetailHeader: {
     flexDirection: 'row',
@@ -1459,21 +1459,21 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   watchlistDetailKicker: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   watchlistDetailTime: {
     marginTop: 3,
     color: NEWS_SUB,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   watchlistDetailTitle: {
     marginTop: 14,
     color: NEWS_TEXT,
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   watchlistDetailMetaGrid: {
     marginTop: 14,
@@ -1492,14 +1492,14 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   watchlistDetailLabel: {
     color: NEWS_MUTED,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   watchlistDetailValue: {
     marginTop: 6,
     color: NEWS_TEXT,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   watchlistDetailPanel: {
     marginTop: 12,
@@ -1532,7 +1532,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   emptyTitle: {
     color: NEWS_TEXT,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
     textAlign: 'center',
   },
   emptyText: {
@@ -1557,7 +1557,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   retryButtonText: {
     color: NEWS_CYAN,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   offlineBanner: {
     marginBottom: spacing.sm,
@@ -1593,7 +1593,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   freshnessText: {
     color: NEWS_MUTED,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   skeletonCard: {
     borderRadius: radius.lg,
@@ -1650,7 +1650,7 @@ export const makeNewsScreenStyles = (_T: ThemeColors, isDark: boolean) => {
   navLabel: {
     color: NEWS_MUTED,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   navActivePill: {
     width: 36,

@@ -990,7 +990,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     brokerLogoText: {
       color: '#FFFFFF',
       fontSize: 17,
-      fontWeight: '900',
+      fontWeight: '700',
       letterSpacing: 0,
     },
     brokerLogoImage: {
@@ -1012,7 +1012,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     brokerEyebrow: {
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0,
       marginBottom: 3,
@@ -1020,7 +1020,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     brokerName: {
       color: T.text,
       fontSize: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
     },
     brokerServerPill: {
@@ -1061,7 +1061,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     readyText: {
       color: '#059669',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     optionPanel: {
       marginBottom: 12,
@@ -1124,7 +1124,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     optionTitle: {
       color: T.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
       lineHeight: 18,
     },
     optionTitleDisabled: {
@@ -1143,7 +1143,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
       overflow: 'hidden',
       color: '#2563EB',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       paddingHorizontal: 9,
       paddingVertical: 5,
       borderRadius: 12,
@@ -1193,7 +1193,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     panelEyebrow: {
       color: T.textMuted,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0,
     },
@@ -1209,7 +1209,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     secureText: {
       color: '#059669',
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     sectionHeader: {
       alignItems: 'center',
@@ -1218,7 +1218,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     sectionTitle: {
       color: T.text,
       fontSize: 17,
-      fontWeight: '800',
+      fontWeight: '600',
       letterSpacing: 0,
       lineHeight: 22,
     },
@@ -1238,7 +1238,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     inputLabel: {
       color: T.textSub,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0,
     },
@@ -1306,7 +1306,7 @@ const makeStyles = (T: ThemeColors, isDark: boolean, safeTop: number) => {
     forgotText: {
       color: primaryBlue,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     loginBtn: {
       flexDirection: 'row',

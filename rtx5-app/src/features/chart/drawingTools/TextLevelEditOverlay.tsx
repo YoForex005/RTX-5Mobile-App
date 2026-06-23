@@ -186,6 +186,6 @@ const styles = StyleSheet.create({
   doneText: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
   },
 });

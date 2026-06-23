@@ -384,7 +384,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     eyebrow: {
       color: T.textSub,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       letterSpacing: 1,
     },
     title: {
@@ -403,7 +403,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     typePillText: {
       color: T.accent,
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
     },
     legendRow: {
       flexDirection: 'row',

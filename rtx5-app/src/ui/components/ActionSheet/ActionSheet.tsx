@@ -52,6 +52,8 @@ type ActionSheetAction = {
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
+  presentation?: 'default' | 'mt5Plain';
+  showActionIcons?: boolean;
   actions: ActionSheetAction[];
   onClose: () => void;
   searchable?: boolean;
@@ -66,10 +68,12 @@ type ActionSheetProps = {
 
 type CachedActionSheetConfig = Pick<
   ActionSheetProps,
-  'title' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
+  'title' | 'presentation' | 'showActionIcons' | 'actions' | 'searchable' | 'searchPlaceholder' | 'detent' | 'minimumTopInset' | 'instantOpen' | 'runActionAfterClose' | 'androidKeyboardAvoidance' | 'keepFullHeightOnKeyboard'
 >;
 
 const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
+const ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT = 47;
+const ACTION_SHEET_MT5_PLAIN_ACTIONS_BOTTOM_PADDING = 8;
 const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 60;
 const ACTION_SHEET_OPEN_TRANSLATE_Y = 12;
 const ACTION_SHEET_FAST_OPEN_TRANSLATE_Y = 0;
@@ -118,6 +122,8 @@ const TAPPABLE_TOP_DISMISS_MARGIN = 80;
 export function ActionSheet({
   visible,
   title,
+  presentation = 'default',
+  showActionIcons = false,
   actions,
   onClose,
   searchable = false,
@@ -154,6 +160,8 @@ export function ActionSheet({
   const openedAtRef = useRef(visible ? Date.now() : 0);
   const cachedConfigRef = useRef<CachedActionSheetConfig>({
     title,
+    presentation,
+    showActionIcons,
     actions,
     searchable,
     searchPlaceholder,
@@ -166,6 +174,8 @@ export function ActionSheet({
   });
   const incomingConfig: CachedActionSheetConfig = {
     title,
+    presentation,
+    showActionIcons,
     actions,
     searchable,
     searchPlaceholder,
@@ -189,6 +199,8 @@ export function ActionSheet({
   }
 
   const activeTitle = activeConfig.title;
+  const activePresentation = activeConfig.presentation ?? 'default';
+  const activeShowActionIcons = activeConfig.showActionIcons ?? false;
   const activeActions = activeConfig.actions;
   const activeSearchable = activeConfig.searchable ?? false;
   const activeSearchPlaceholder = activeConfig.searchPlaceholder;
@@ -233,6 +245,13 @@ export function ActionSheet({
         rawSubtitle.includes(normalizedQuery);
     })
     : activeActions;
+  const isMt5PlainPresentation = activePresentation === 'mt5Plain';
+  const actionRowMinHeight = isMt5PlainPresentation
+    ? ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT
+    : ACTION_SHEET_ROW_MIN_HEIGHT;
+  const actionsContentExtraHeight = isMt5PlainPresentation
+    ? ACTION_SHEET_MT5_PLAIN_ACTIONS_BOTTOM_PADDING
+    : 0;
   // Reserve a tappable dismiss strip above the sheet that sits clear of any
   // OS edge-gesture region. `minimumTopInset` (when explicitly passed by a
   // caller) still wins if it asks for more.
@@ -278,11 +297,11 @@ export function ActionSheet({
     availableWindowHeight - topInset - bottomInset - 12,
   );
   const reservedChromeHeight =
-    (activeTitle ? 58 : 28) +
+    (activeTitle ? (isMt5PlainPresentation ? 64 : 58) : (isMt5PlainPresentation ? 0 : 28)) +
     (activeSearchable ? 56 : 0);
   const estimatedActionsHeight = filteredActions.reduce(
-    (height, action) => height + (action.subtitle ? 68 : ACTION_SHEET_ROW_MIN_HEIGHT),
-    0,
+    (height, action) => height + (action.subtitle ? 68 : actionRowMinHeight),
+    actionsContentExtraHeight,
   );
   const estimatedSheetHeight = reservedChromeHeight + estimatedActionsHeight;
   const adaptiveSheetFloor = resolveActionSheetFloor({
@@ -567,31 +586,42 @@ export function ActionSheet({
 
   const renderActionRow = useCallback((action: ActionSheetAction) => {
     const localizedLabel = t(action.label);
+    // A selected option represents the currently-active state, so it renders as
+    // disabled (greyed, non-tappable) across every action sheet — you can't
+    // re-select what's already active; you tap one of the other options.
+    const isActiveDisabled = action.disabled || action.selected === true;
     return (
       <FastPressable
         latencyLabel={`actionSheet.${action.label}`}
         onPressIn={recordActionRowPressStart}
         onTouchMove={recordActionRowPressMove}
-        onPress={action.disabled ? undefined : () => handleActionRowPress(action.onPress)}
-        activateOnPressIn={action.activateOnPressIn === true && !action.disabled}
-        disabled={action.disabled}
+        onPress={isActiveDisabled ? undefined : () => handleActionRowPress(action.onPress)}
+        activateOnPressIn={action.activateOnPressIn === true && !isActiveDisabled}
+        disabled={isActiveDisabled}
         style={({ pressed }) => [
           styles.action,
-          action.danger && styles.actionDanger,
+          isMt5PlainPresentation && styles.actionMt5Plain,
+          action.danger && !isMt5PlainPresentation && styles.actionDanger,
           action.subtitle && styles.actionWithSubtitle,
-          pressed && !action.disabled && styles.actionPressed,
-          action.disabled && styles.actionDisabled,
+          pressed && !isActiveDisabled && (isMt5PlainPresentation ? styles.actionPressedMt5Plain : styles.actionPressed),
+          isActiveDisabled && (isMt5PlainPresentation ? styles.actionDisabledMt5Plain : styles.actionDisabled),
         ]}
       >
         <View style={styles.actionLeft}>
-          {action.icon ? <View style={styles.iconWrap}>{action.icon}</View> : null}
+          {action.icon && (!isMt5PlainPresentation || activeShowActionIcons) ? (
+            <View style={styles.iconWrap}>{action.icon}</View>
+          ) : null}
           <View style={styles.actionTextBlock}>
             <Text
               style={[
                 styles.actionText,
-                action.danger ? styles.actionTextDanger : styles.actionTextNormal,
-                action.selected && !action.danger && styles.actionTextSelected,
-                action.disabled && styles.actionTextDisabled,
+                isMt5PlainPresentation && styles.actionTextMt5Plain,
+                action.danger
+                  ? styles.actionTextDanger
+                  : (isMt5PlainPresentation ? styles.actionTextNormalMt5Plain : styles.actionTextNormal),
+                isActiveDisabled && (
+                  isMt5PlainPresentation ? styles.actionTextDisabledMt5Plain : styles.actionTextDisabled
+                ),
               ]}
               numberOfLines={1}
             >
@@ -601,7 +631,7 @@ export function ActionSheet({
               <Text
                 style={[
                   styles.actionSubtitle,
-                  action.disabled && styles.actionTextDisabled,
+                  isActiveDisabled && styles.actionTextDisabled,
                 ]}
                 numberOfLines={1}
               >
@@ -614,6 +644,8 @@ export function ActionSheet({
     );
   }, [
     handleActionRowPress,
+    activeShowActionIcons,
+    isMt5PlainPresentation,
     recordActionRowPressMove,
     recordActionRowPressStart,
     styles,
@@ -659,24 +691,34 @@ export function ActionSheet({
       <View
         style={[
           styles.sheet,
+          isMt5PlainPresentation && styles.sheetMt5Plain,
           sheetHeightStyle,
           !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
         ]}
       >
-        <View style={styles.handle} />
+        {isMt5PlainPresentation ? null : <View style={styles.handle} />}
 
         {activeTitle ? (
-          <View style={styles.titleContainer}>
+          <View style={[styles.titleContainer, isMt5PlainPresentation && styles.titleContainerMt5Plain]}>
             {activeTitle.includes(': ') ? (
-              <Text>
-                <Text style={styles.titlePrefix}>{t(activeTitle.split(': ')[0])}</Text>
-                <Text style={styles.titleSuffix}>: {activeTitle.split(': ')[1]}</Text>
+              <Text style={isMt5PlainPresentation ? styles.titleTextMt5Plain : undefined} numberOfLines={1}>
+                <Text style={[styles.titlePrefix, isMt5PlainPresentation && styles.titlePrefixMt5Plain]}>
+                  {t(activeTitle.split(': ')[0])}
+                </Text>
+                <Text style={[styles.titleSuffix, isMt5PlainPresentation && styles.titleSuffixMt5Plain]}>
+                  : {activeTitle.split(': ')[1]}
+                </Text>
               </Text>
             ) : (
-              <Text style={styles.titlePrefix}>{t(activeTitle)}</Text>
+              <Text
+                style={[styles.titlePrefix, isMt5PlainPresentation && styles.titlePrefixMt5Plain]}
+                numberOfLines={1}
+              >
+                {t(activeTitle)}
+              </Text>
             )}
           </View>
-        ) : (
+        ) : isMt5PlainPresentation ? null : (
           <View style={{ height: 16 }} />
         )}
 
@@ -700,6 +742,7 @@ export function ActionSheet({
             style={[
               styles.actionsScroll,
               styles.actionsContent,
+              isMt5PlainPresentation ? styles.actionsContentMt5Plain : null,
               sheetFloorMinHeight ? styles.actionsContentLarge : null,
               { maxHeight: actionsMaxHeight },
               actionsMinHeight ? { minHeight: actionsMinHeight } : null,
@@ -719,6 +762,7 @@ export function ActionSheet({
             renderItem={renderAction}
             contentContainerStyle={[
               styles.actionsContent,
+              isMt5PlainPresentation ? styles.actionsContentMt5Plain : null,
               sheetFloorMinHeight ? styles.actionsContentLarge : null,
             ]}
             showsVerticalScrollIndicator={false}
@@ -739,11 +783,12 @@ export function ActionSheet({
         )}
       </View>
       {/* Fill only keyboard lift that was not already handled by the native layout. */}
+      {/* Matches the sheet background so there is no seam below it. */}
       <View
         style={{
           width: '100%',
           height: bottomSpacerHeight,
-          backgroundColor: isDark ? '#0E141F' : T.glass2,
+          backgroundColor: isDark ? '#000000' : T.glass2,
         }}
       />
     </Animated.View>

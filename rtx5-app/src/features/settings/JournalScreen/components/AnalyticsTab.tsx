@@ -330,13 +330,13 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     eyebrow: {
       color: colors.accent,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     title: {
       color: colors.text,
       fontSize: 20,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 2,
     },
     livePill: {
@@ -359,7 +359,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     livePillText: {
       color: colors.subText,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     metricGrid: {
       flexDirection: 'row',
@@ -391,12 +391,12 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     metricLabel: {
       color: colors.subText,
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     metricValue: {
       fontSize: 19,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 4,
       fontVariant: ['tabular-nums'],
     },
@@ -430,7 +430,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     cardTitle: {
       color: colors.text,
       fontSize: 14,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     cardSubtitle: {
       color: colors.subText,
@@ -478,7 +478,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     chartLabel: {
       color: colors.muted,
       fontSize: 9,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 7,
       marginBottom: 7,
     },
@@ -506,13 +506,13 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     footerLabel: {
       color: colors.muted,
       fontSize: 10,
-      fontWeight: '800',
+      fontWeight: '600',
       textTransform: 'uppercase',
     },
     footerValue: {
       color: colors.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
       marginTop: 3,
       fontVariant: ['tabular-nums'],
     },
@@ -543,7 +543,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
       flex: 1,
       color: colors.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     performanceTrack: {
       height: 7,
@@ -559,7 +559,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     performanceMeta: {
       color: colors.muted,
       fontSize: 10,
-      fontWeight: '700',
+      fontWeight: '600',
       marginTop: 4,
     },
     sessionRow: {
@@ -574,18 +574,18 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     sessionName: {
       color: colors.text,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     textPositive: {
       color: colors.positive,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     textNegative: {
       color: colors.negative,
       fontSize: 12,
-      fontWeight: '800',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     insightStrip: {
@@ -609,7 +609,7 @@ function makeStyles(colors: ReturnType<typeof makePalette>) {
     insightTitle: {
       color: colors.text,
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '600',
     },
     insightText: {
       color: colors.subText,
