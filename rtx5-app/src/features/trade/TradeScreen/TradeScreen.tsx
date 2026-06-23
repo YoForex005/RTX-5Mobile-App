@@ -41,10 +41,10 @@ import { makeTradeScreenStyles } from './styles';
 const TRADE_INITIAL_POSITION_RENDER_COUNT = 5;
 const TRADE_POSITION_RENDER_BATCH_SIZE = 5;
 const TRADE_POSITION_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
-// Live WS quote subscriptions (position rows + floating P&L) activate quickly so
-// values tick almost immediately on open, MT5-style. Only the first visible rows
-// subscribe (FlatList virtualizes the rest), so this stays cheap.
-const TRADE_SCREEN_LIVE_DELAY_MS = 350;
+// Live WS quote subscriptions activate quickly so values tick almost immediately
+// on open, MT5-style. Visible rows own their fast tick listeners; the header keeps
+// a lightweight aggregate subscription for Floating P/L.
+const TRADE_SCREEN_LIVE_DELAY_MS = 0;
 // The REST positions re-fetch stays deferred so quick tab visits don't hammer the
 // slow /positions endpoint on every focus (cached positions hydrate instantly).
 const TRADE_SCREEN_FETCH_DELAY_MS = 8000;

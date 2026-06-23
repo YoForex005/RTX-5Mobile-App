@@ -4,16 +4,16 @@
  * Shows live floating Profit/Loss, balance/equity/margin breakdown, and a Bulk-action
  * launcher. Memoized so it does not re-render on every position-row tick.
  */
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, Text, View } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { Text, View } from 'react-native';
 import { useShallow } from 'zustand/shallow';
 import { useTranslation } from '../../../i18n/useTranslation';
-import { PositionItem } from '../../../dev/mock/tradingData';
+import { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
 import { useUserPreferences } from '../../../state/userPreferences';
 import { useLiveAccountState } from '../../../state/liveAccountState';
 import { useTradingState } from '../../../state/tradingState';
-import { fmt } from '../../../utils/format';
 import { useLiveSymbolQuotes } from '../../../query/websocket';
+import { fmt } from '../../../utils/format';
 import { FastPressable } from '../../../ui/components/FastPressable';
 import {
   buildTradeAccountSummary,
@@ -23,7 +23,7 @@ import {
 import type { ThemeColors } from '../../../ui/theme/glass';
 import type { TradeScreenStyles } from './styles';
 
-const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress, active }: any) => {
+const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, totalVolume, onBulkPress }: any) => {
   const { t } = useTranslation();
   const safeBalance = Number.isFinite(account.balance) ? account.balance : 0;
   const safeFloating = Number.isFinite(account.floating) ? account.floating : 0;
@@ -35,22 +35,6 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
   const setTradeSummaryDetailsVisible = useUserPreferences((state) => state.setTradeSummaryDetailsVisible);
   const accountCurrency = account.currency || 'USD';
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (!active) {
-      pulseAnim.setValue(1);
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.82, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [active, pulseAnim]);
   const toggleTradeSummaryDetails = useCallback(() => {
     setTradeSummaryDetailsVisible(!tradeSummaryDetailsVisible);
   }, [setTradeSummaryDetailsVisible, tradeSummaryDetailsVisible]);
@@ -78,21 +62,20 @@ const LiveUnrealizedPnLHeader = React.memo(({ positions, account, s, T, isDark, 
             <Text style={{ fontSize: 12, fontWeight: '700', color: T.textSub, letterSpacing: 1.5, textTransform: 'uppercase', flexShrink: 1 }}>
               {t('Floating Profit/Loss')}
             </Text>
-            <Animated.Text
+            <Text
               numberOfLines={1}
               adjustsFontSizeToFit
               style={{
                 fontSize: 24,
                 fontWeight: '700',
                 color: safeFloating >= 0 ? T.up : T.down,
-                opacity: pulseAnim,
                 letterSpacing: 0,
                 fontVariant: ['tabular-nums'],
                 textAlign: 'right',
                 flexShrink: 0,
               }}>
               {fmt.pnlPrecise(safeFloating)} {accountCurrency}
-            </Animated.Text>
+            </Text>
           </View>
         </FastPressable>
         {tradeSummaryDetailsVisible ? (
@@ -248,14 +231,9 @@ export const TradeSummaryHeader = React.memo(({
     })),
   );
   const liveQuoteSymbols = useMemo(
-    // The Floating P/L headline must represent every open position, not only
-    // the rows that are currently mounted by FlatList.
     () => Array.from(new Set(positions.map((position) => position.symbol))),
     [positions],
   );
-  // Use the synchronous per-symbol tick path (same one the rows use) instead of
-  // the global store, which can stall under the Trade screen's load and freeze
-  // the aggregate floating P&L even while individual rows keep ticking.
   const liveQuotes = useLiveSymbolQuotes(liveQuoteSymbols, active);
   const account = useMemo(() => {
     const summary = buildTradeAccountSummary(liveAcc, tradingAccount);
@@ -272,7 +250,6 @@ export const TradeSummaryHeader = React.memo(({
       isDark={isDark}
       totalVolume={totalVolume}
       onBulkPress={onBulkPress}
-      active={active}
     />
   );
 });

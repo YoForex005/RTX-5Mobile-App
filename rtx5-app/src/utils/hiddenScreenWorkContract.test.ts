@@ -50,6 +50,7 @@ test('hidden tab screens do not keep live feed subscriptions active over stack r
   assert.match(marketDataSource, /useMarketData\(symbols: string\[\] = \[\], active = true\)/);
   assert.match(marketDataSource, /export function useLiveSymbolQuote\([\s\S]*symbol: string,[\s\S]*active = true,[\s\S]*commitIntervalMs = LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS/);
   assert.match(marketDataSource, /const LIVE_SYMBOL_QUOTE_COMMIT_INTERVAL_MS = 16/);
+  assert.match(marketDataSource, /if \(safeCommitIntervalMs === 0\) \{[\s\S]*commit\(\);[\s\S]*return;[\s\S]*\}/);
   assert.match(marketDataSource, /safeCommitIntervalMs <= 16[\s\S]*globalThis\.requestAnimationFrame/);
   assert.match(marketDataSource, /if \(safeCommitIntervalMs <= 16\) \{[\s\S]*updateLiveQuote\(\);[\s\S]*\} else \{[\s\S]*React\.startTransition\(updateLiveQuote\)/);
   assert.match(marketDataSource, /if \(!isActive \|\| !normalizedSymbol\)/);
@@ -152,7 +153,7 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(tradeSource, /const TRADE_INITIAL_POSITION_RENDER_COUNT = 5/);
   assert.match(tradeSource, /const TRADE_POSITION_RENDER_BATCH_SIZE = 5/);
-  assert.match(tradeSource, /const TRADE_SCREEN_LIVE_DELAY_MS = 350/);
+  assert.match(tradeSource, /const TRADE_SCREEN_LIVE_DELAY_MS = 0/);
   assert.match(tradeSource, /const TRADE_SCREEN_FETCH_DELAY_MS = 8000/);
   assert.match(tradeSource, /const \[firstPaintReady, setFirstPaintReady\] = useState\(false\)/);
   assert.match(tradeSource, /const sidebarOpen = useUIState\(\(st\) => st\.sidebarOpen\)/);
@@ -163,26 +164,37 @@ test('settings and trade screens pause polling when another stack screen is focu
   assert.match(tradeSource, /void hydrateCachedPositions\(String\(resolvedLogin\)\)/);
   assert.match(tradeSource, /if \(tradeFetchActive && resolvedLogin\) \{/);
   assert.match(tradeSource, /const positionRowsActive = tradeLiveActive/);
+  assert.doesNotMatch(tradeSource, /useLiveSymbolQuotes\(liveQuoteSymbols, positionRowsActive\)/);
   assert.doesNotMatch(tradeSource, /if \(isScreenFocused && resolvedLogin\) \{/);
   assert.doesNotMatch(tradeSource, /liveQuotePositions=\{livePositionRows\}/);
   assert.match(tradeSource, /<TradeSummaryHeader[\s\S]*active=\{tradeLiveActive\}/);
+  assert.doesNotMatch(tradeSource, /<TradeSummaryHeader[\s\S]*liveQuotes=\{liveQuotes\}/);
   assert.match(tradeSource, /<TradePositionRow[\s\S]*active=\{rowActive\}/);
+  assert.doesNotMatch(tradeSource, /<TradePositionRow[\s\S]*liveQuote=\{liveQuotes\[item\.symbol\]\}/);
   assert.match(tradeSource, /initialNumToRender=\{TRADE_INITIAL_POSITION_RENDER_COUNT\}/);
   assert.match(tradeSource, /maxToRenderPerBatch=\{TRADE_POSITION_RENDER_BATCH_SIZE\}/);
   assert.match(tradeSource, /onViewableItemsChanged=\{handleViewablePositionRowsChanged\}/);
   assert.match(tradeSource, /extraData=\{rowActivationKey\}/);
+  assert.doesNotMatch(tradeSource, /const rowExtraData = useMemo/);
   assert.match(tradePositionRowSource, /active = true/);
   assert.match(tradePositionRowSource, /active\?: boolean/);
-  assert.match(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol, active\)/);
+  assert.match(tradePositionRowSource, /liveQuote\?: Partial<QuoteItem>/);
+  assert.match(tradePositionRowSource, /const liveQuote = liveQuoteOverride \?\? fallbackLiveQuote/);
+  assert.match(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol, active && !liveQuoteOverride, 0\)/);
+  assert.match(tradePositionRowSource, /function resolveLivePnlDecimals\(value: number\): number/);
+  assert.match(tradePositionRowSource, /absValue < 1\) \{[\s\S]*return 5/);
+  assert.match(tradePositionRowSource, /formatLiveRowPnl\(displayPnl\)/);
+  assert.doesNotMatch(tradePositionRowSource, /fmt\.pnlPrecise\(displayPnl\)/);
   assert.doesNotMatch(tradePositionRowSource, /useLiveSymbolQuote\(item\.symbol\)/);
+  assert.doesNotMatch(tradePositionRowSource, /tickFlash|pnlFlashStyle|interpolateColor/);
   assert.match(tradeSummarySource, /active: boolean/);
   assert.doesNotMatch(tradeSummarySource, /liveQuotePositions\?: PositionItem\[\]/);
   assert.match(tradeSummarySource, /positions\.map\(\(position\) => position\.symbol\)/);
-  // Summary floating P&L uses the synchronous per-symbol path (not the global
-  // store flush, which stalls under load); `active` still gates it off when blurred.
+  // Trade rows use per-row direct ticks so each visible row repaints without a
+  // full FlatList quote-map update; Summary keeps the aggregate live quote map.
   assert.match(tradeSummarySource, /useLiveSymbolQuotes\(liveQuoteSymbols, active\)/);
   assert.match(readSource('src/api/ws/quotesSocket/flushPipeline.ts'), /const QUOTE_STORE_FLUSH_INTERVAL_MS = 16/);
-  assert.match(tradeSummarySource, /if \(!active\) \{[\s\S]*pulseAnim\.setValue\(1\);[\s\S]*return;[\s\S]*\}/);
+  assert.doesNotMatch(tradeSummarySource, /pulseAnim|Animated\.loop|Animated\.Text/);
   assert.match(calendarSource, /const isScreenFocused = useIsFocused\(\)/);
   assert.match(calendarSource, /const CALENDAR_INITIAL_DATA_DELAY_MS = 120/);
   assert.match(calendarSource, /const calendarDataReady = useDeferredRouteContentReady\(CALENDAR_INITIAL_DATA_DELAY_MS\)/);

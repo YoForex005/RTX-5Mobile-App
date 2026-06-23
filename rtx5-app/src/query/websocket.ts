@@ -480,6 +480,11 @@ export function useLiveSymbolQuote(
       }
     };
 
+    if (safeCommitIntervalMs === 0) {
+      commit();
+      return;
+    }
+
     if (safeCommitIntervalMs <= 16 && typeof globalThis.requestAnimationFrame === 'function') {
       quoteCommitAnimationFrameRef.current = globalThis.requestAnimationFrame(commit);
       return;
@@ -684,4 +689,3 @@ export function useLiveAccount(accountId: string) {
 
   return account;
 }
-

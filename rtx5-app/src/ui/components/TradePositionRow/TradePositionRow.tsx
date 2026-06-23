@@ -11,9 +11,9 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolateColor } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import { PositionItem } from '../../../dev/mock/tradingData';
+import { PositionItem, QuoteItem } from '../../../dev/mock/tradingData';
 import { useTheme } from '../../theme/useTheme';
 import { fmt } from '../../../utils/format';
 import { formatBrokerTime } from '../../../utils/brokerTime';
@@ -33,6 +33,25 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+function resolveLivePnlDecimals(value: number): number {
+  const absValue = Math.abs(Number.isFinite(value) ? value : 0);
+  if (absValue < 1) {
+    return 5;
+  }
+  if (absValue < 10) {
+    return 4;
+  }
+  if (absValue < 100) {
+    return 3;
+  }
+  return 2;
+}
+
+function formatLiveRowPnl(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${safeValue >= 0 ? '+' : ''}${safeValue.toFixed(resolveLivePnlDecimals(safeValue))}`;
+}
+
 function TradePositionRowComponent({
   item,
   onPress,
@@ -41,6 +60,7 @@ function TradePositionRowComponent({
   pnlCurrency = 'USD',
   selected = false,
   active = true,
+  liveQuote: liveQuoteOverride,
 }: {
   item: PositionItem;
   onPress: (item: PositionItem) => void;
@@ -49,6 +69,7 @@ function TradePositionRowComponent({
   pnlCurrency?: string;
   selected?: boolean;
   active?: boolean;
+  liveQuote?: Partial<QuoteItem>;
 }) {
   const T = useTheme();
   const isDark = useUserPreferences((s) => s.themeMode) === 'dark';
@@ -127,57 +148,16 @@ function TradePositionRowComponent({
     };
   });
 
-  // Subscribe to only this row's symbol through the shared quote store.
-  const liveQuote = useLiveSymbolQuote(item.symbol, active);
+  // Visible trade rows commit directly on every symbol tick for MT5-like cadence.
+  // A parent quote can still be supplied by non-list callers.
+  const fallbackLiveQuote = useLiveSymbolQuote(item.symbol, active && !liveQuoteOverride, 0);
+  const liveQuote = liveQuoteOverride ?? fallbackLiveQuote;
 
   const livePrice = resolveLivePositionPrice(item, liveQuote);
 
   const isJpy = item.symbol.includes('JPY');
   const decimals = isJpy ? 3 : 5; // Standard FX: 5 decimals, JPY pairs: 3 decimals
   const displayPnl = resolveLivePositionPnl(item, liveQuote);
-
-  // MT5-style tick flash: each live price move is tiny for FX pairs (5th decimal),
-  // so flash the current price + P&L green/red on change to make ticks visible.
-  const flashUpColor = T.trading.profit;
-  const flashDownColor = T.trading.loss;
-  const basePriceColor = T.textSub;
-  const tickFlash = useSharedValue(0);
-  const tickUp = useSharedValue(1);
-  const prevLivePriceRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!Number.isFinite(livePrice)) {
-      return;
-    }
-    const prev = prevLivePriceRef.current;
-    prevLivePriceRef.current = livePrice;
-    if (prev === null || prev === livePrice) {
-      return;
-    }
-    tickUp.value = livePrice >= prev ? 1 : 0;
-    tickFlash.value = 1;
-    tickFlash.value = withTiming(0, { duration: 650 });
-  }, [livePrice, tickFlash, tickUp]);
-
-  const priceFlashStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(
-      tickFlash.value,
-      [0, 1],
-      [basePriceColor, tickUp.value === 1 ? flashUpColor : flashDownColor],
-    ),
-  }));
-  const pnlFlashStyle = useAnimatedStyle(() => {
-    const up = tickUp.value === 1;
-    return {
-      backgroundColor: interpolateColor(
-        tickFlash.value,
-        [0, 1],
-        [
-          up ? 'rgba(22,163,74,0)' : 'rgba(220,38,38,0)',
-          up ? 'rgba(22,163,74,0.20)' : 'rgba(220,38,38,0.20)',
-        ],
-      ),
-    };
-  });
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -247,9 +227,8 @@ function TradePositionRowComponent({
             </View>
             <View style={styles.rightCol}>
               <View>
-                <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 6 }, pnlFlashStyle]} pointerEvents="none" />
                 <Text style={[styles.pnl, { color: displayPnl >= 0 ? T.trading.profit : T.trading.loss }]}>
-                  {fmt.pnlPrecise(displayPnl)} {pnlCurrency}
+                  {formatLiveRowPnl(displayPnl)} {pnlCurrency}
                 </Text>
               </View>
             </View>
@@ -261,9 +240,9 @@ function TradePositionRowComponent({
                 {Number.isFinite(item.openPrice) ? item.openPrice.toFixed(decimals) : '---'}
               </Text>
               <Ionicons name="arrow-forward-outline" size={16} color={T.textSub} style={styles.arrow} />
-              <Animated.Text style={[styles.price, priceFlashStyle]}>
+              <Text style={[styles.price, { color: T.textSub }]}>
                 {Number.isFinite(livePrice) ? livePrice.toFixed(decimals) : '---'}
-              </Animated.Text>
+              </Text>
             </View>
             <Text style={[styles.dateRight, { color: T.textSub }]}>
               {formatBrokerTime(item.openTime).replace(' ', '   ')}
@@ -353,6 +332,7 @@ export const TradePositionRow = memo(TradePositionRowComponent, (prev, next) => 
   prev.pnlCurrency === next.pnlCurrency &&
   prev.selected === next.selected &&
   prev.active === next.active &&
+  prev.liveQuote === next.liveQuote &&
   prev.onPress === next.onPress &&
   prev.onLongPress === next.onLongPress &&
   prev.onBulkPress === next.onBulkPress
