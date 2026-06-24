@@ -285,6 +285,44 @@ test('webview bridge: renders backend candle timestamps directly', () => {
   assert.doesNotMatch(chartWebViewHtmlSource, /_rtxIndexToRealTime|setIndexToRealTimeMap|appendIndexToRealTimeEntry|replaceLastIndexToRealTimeEntry/);
 });
 
+test('webview bridge: open-position labels separate trade side color from live PnL color', () => {
+  const refreshBody = extractFunctionBody(chartWebViewHtmlSource, 'refreshOverlayDomLabels');
+
+  assertSourceContains(
+    refreshBody,
+    /labelSideColor: typeof ln\.labelSideColor === 'string'[\s\S]*labelSideText: typeof ln\.labelSideText === 'string'[\s\S]*labelValueColor: typeof ln\.labelValueColor === 'string'[\s\S]*labelValueText: typeof ln\.labelValueText === 'string'/,
+    'open-position label records must carry separate side and live PnL fields',
+  );
+  assertSourceContains(
+    refreshBody,
+    /var hasSplitTradeLabel = !!\(item\.labelSideText && item\.labelValueText\)[\s\S]*sideSpan\.textContent = item\.labelSideText[\s\S]*separatorSpan\.textContent = ', '[\s\S]*valueSpan\.textContent = item\.labelValueText[\s\S]*valueSpan\.style\.color = item\.labelValueColor \|\| item\.color/,
+    'open-position labels must render BUY/SELL volume and live USD value as separately colored text spans',
+  );
+  assertSourceContains(
+    refreshBody,
+    /label\.style\.color = item\.labelSideColor \|\| item\.color/,
+    'split labels must keep the fallback label color aligned to the trade side',
+  );
+});
+
+test('webview bridge: open-position trade labels stay attached to their price line while panning', () => {
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2/,
+    'anchored trade labels must not be forced below the chart header while their price line stays at the real coordinate',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resolveAnchoredOverlayLabelBounds\(layer\)[\s\S]*var minTop = Math\.max\(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop \+ 2\)/,
+    'anchored trade labels must clamp only to the chart edge so top-of-chart trades remain glued to their line',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*return true/,
+    'vertical price panning must refresh trade overlays together with the right price scale',
+  );
+});
+
 test('webview bridge: preserves backend OHLC candles without price-continuity pruning', () => {
   const sanitizerBody = extractFunctionBody(chartWebViewHtmlSource, 'sanitizeSeriesData');
   const normalizerBody = extractFunctionBody(chartWebViewHtmlSource, 'normalizeRawSeriesDatum');
@@ -564,17 +602,18 @@ test('webview bridge: right price-scale DOM health ignores RTX5 numeric overlays
 
 test('webview bridge: custom right price-scale labels do not depend on native label health', () => {
   const renderBody = extractFunctionBody(chartWebViewHtmlSource, 'renderFallbackRightPriceScaleLabels');
+  const ticksBody = extractFunctionBody(chartWebViewHtmlSource, 'resolveRightPriceScaleFallbackTicks');
   const readyGateBody = extractFunctionBody(chartWebViewHtmlSource, 'postChartReadyWhenPriceScaleHealthy');
   const recoveryBody = extractFunctionBody(chartWebViewHtmlSource, 'scheduleRightPriceScaleLayoutRecovery');
 
   assertSourceContains(
-    chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
-    'custom right-axis labels must use standard nice price steps',
+    ticksBody,
+    /var labelTop = plotTop \+ RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*var labelBottom = plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*var topPrice = invertScale \? range\.from : range\.to[\s\S]*var bottomPrice = invertScale \? range\.to : range\.from[\s\S]*appendInterpolatedTick/,
+    'custom right-axis labels must interpolate the full visible range through a fixed MT5-style price-scale strip',
   );
   assertSourceContains(
     renderBody,
-    /!series \|\| !lastRawSeriesData \|\| lastRawSeriesData\.length === 0[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*axisBackground\.className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*axisBackground\.style\.background = lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'/,
+    /!series \|\| !lastRawSeriesData \|\| lastRawSeriesData\.length === 0[\s\S]*ensureRightPriceScaleFallbackLayer\(\)[\s\S]*axisBackground\.className = 'rtx5-right-price-scale-fallback-axis'[\s\S]*axisBackground\.style\.background = lastChartAxisBackgroundColor \|\| lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*className = 'rtx5-right-price-scale-fallback-label'/,
     'custom labels must render an owned right-axis strip whenever backend candle data is present',
   );
   assert.doesNotMatch(
@@ -609,8 +648,8 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
 
   assertSourceContains(
     chartWebViewHtmlSource,
-    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_NICE_FRACTIONS = \[1, 2, 2\.5, 5, 10\]/,
-    'custom right-axis label density and step choices must be bounded for phone/tablet chart heights',
+    /var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_TARGET_LABEL_GAP_PX = 60/,
+    'custom right-axis label density must stay bounded for phone/tablet chart heights',
   );
   assertSourceContains(
     rangeBody,
@@ -624,13 +663,13 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
   );
   assertSourceContains(
     ticksBody,
-    /lastRawSeriesData[\s\S]*resolveRightPriceScaleFallbackLabelCount\(metrics\)[\s\S]*resolveRightPriceScaleFallbackNiceStep\(span, Math\.max\(1, labelCount - 1\)\)[\s\S]*resolveRightPriceScaleFallbackStepDecimals\(step\)[\s\S]*appendTick[\s\S]*series\.priceToCoordinate\(price\)[\s\S]*formatRightPriceScaleFallbackLabel\(price, decimals\)[\s\S]*roundRightPriceScaleFallbackPrice\(priceTick, decimals\)/,
-    'custom axis ticks must be derived from backend data, nice step spacing, chart coordinates, and configured symbol precision',
+    /lastRawSeriesData[\s\S]*resolveRightPriceScaleFallbackLabelCount\(metrics\)[\s\S]*var intervals = Math\.max\(1, labelCount - 1\)[\s\S]*topPrice \+ \(bottomPrice - topPrice\) \* ratio[\s\S]*labelTop \+ \(labelBottom - labelTop\) \* ratio[\s\S]*roundRightPriceScaleFallbackPrice\(price, decimals\)/,
+    'custom axis ticks must be derived from backend data, visible-range interpolation, fixed y positions, and configured symbol precision',
   );
   assertSourceContains(
     ticksBody,
-    /appendTick\([\s\S]*plotTop \+ RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*appendTick\([\s\S]*plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \/ 2[\s\S]*ticks\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)/,
-    'custom axis ticks must include top and bottom edge labels to avoid empty right-scale whitespace',
+    /for \(var scaleIndex = 0; scaleIndex <= intervals[\s\S]*ticks\.length < RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS[\s\S]*appendInterpolatedTick[\s\S]*ticks\.sort\(function\(left, right\) \{ return left\.y - right\.y; \}\)/,
+    'custom axis ticks must update the full right-scale range instead of changing only edge labels',
   );
   assertSourceContains(
     chartWebViewHtmlSource,
@@ -653,6 +692,31 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
     'custom right-axis labels must keep right-aligned tabular numerals for stable price reading',
   );
   assertSourceContains(
+    chartWebViewHtmlSource,
+    /\.rtx5-right-price-scale-fallback-label \{[\s\S]*height: 17px;[\s\S]*font-size: 12px;[\s\S]*font-weight: 500;/,
+    'custom right-axis labels must be large enough to read on phone screens',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1'[\s\S]*var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0'/,
+    'custom right-axis label readability constants must stay explicit',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function getCanvasPerceivedBrightness\(rgb\)[\s\S]*return \(rgb\.r \* 299 \+ rgb\.g \* 587 \+ rgb\.b \* 114\) \/ 1000/,
+    'custom right-axis labels must be able to compare foreground and axis brightness',
+  );
+  assertSourceContains(
+    chartWebViewHtmlSource,
+    /function resolveReadableRightPriceScaleFallbackTextColor\(textColor\)[\s\S]*lastChartAxisBackgroundColor \|\| lastChartBackgroundColor \|\| '#FFFFFF'[\s\S]*axisBrightness < 80[\s\S]*textBrightness === null \|\| textBrightness < 190[\s\S]*return RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR/,
+    'custom right-axis labels must brighten muted text on the dark axis strip',
+  );
+  assertSourceContains(
+    renderBody,
+    /var textColor = resolveRightPriceScaleFallbackTextColor\(\)[\s\S]*label\.style\.fontSize = RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE \+ 'px'[\s\S]*label\.style\.lineHeight = RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT \+ 'px'[\s\S]*label\.style\.fontWeight = RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT[\s\S]*label\.style\.opacity = RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY/,
+    'custom right-axis labels must apply the balanced readable style at render time',
+  );
+  assertSourceContains(
     refreshBody,
     /renderFallbackRightPriceScaleLabels\(\)[\s\S]*renderMarketPriceScaleExtensions\(layer\)[\s\S]*renderMarketPriceScaleBadges\(layer\)/,
     'overlay refresh must repaint fallback axis labels before custom market/position overlays',
@@ -672,6 +736,23 @@ test('webview bridge: custom right price-scale labels are backend-data-driven an
     /postMessage/,
     'custom right-axis labels must not add a new public WebView bridge message',
   );
+});
+
+test('webview bridge: native chart uses the GitHub resolved chart background', () => {
+  const initBody = extractFunctionBody(chartWebViewHtmlSource, 'initChart');
+  const doInitBody = extractFunctionBody(chartWebViewHtmlSource, '_doInitChart');
+  const paneBackgroundBody = extractFunctionBody(chartWebViewHtmlSource, 'updateChartPaneBackgroundLayer');
+
+  assertSourceContains(source, /layout: \{[\s\S]*background: \{ color: resolvedChartColors\.background \}/, 'native chart canvas must use the resolved chart background');
+  assertSourceContains(source, /style=\{\{ flex: 1, backgroundColor: resolvedChartColors\.background \}\}/, 'native WebView host must use the resolved chart background');
+  assertSourceContains(source, /customColors: \{[\s\S]*grid: chartDisplay\.showGrid \? chartGridColor : 'transparent',[\s\S]*axisDivider: chartAxisBorderColor/, 'native chart custom colors must keep only the GitHub axis divider override');
+  assertSourceContains(source, /chartAxisBorderColor\}-\$\{chartColorsSignature\}/, 'chart config signature must use the GitHub color signature shape');
+  assert.doesNotMatch(source, /CHART_DARK_CANVAS_BACKGROUND_COLOR|chartAxisBackgroundColor|axisBackground:/);
+  assertSourceContains(chartWebViewHtmlSource, /<div id="chart"><\/div>[\s\S]*<svg id="rtx5-moving-vertical-grid" aria-hidden="true"><\/svg>/, 'GitHub moving grid SVG must remain a chart sibling');
+  assertSourceContains(initBody, /document\.body\.style\.background = bg[\s\S]*document\.getElementById\('chart'\)\.style\.background = 'transparent'/, 'early WebView paint must keep #chart transparent so the grid can show');
+  assertSourceContains(doInitBody, /document\.body\.style\.background = chartBackgroundColor[\s\S]*el\.style\.background = 'transparent'/, 'chart init must keep #chart transparent after layout is resolved');
+  assertSourceContains(paneBackgroundBody, /clearChartPaneBackgroundLayer\(\)[\s\S]*return false/, 'pane background updater must clear itself instead of covering the GitHub grid');
+  assert.doesNotMatch(paneBackgroundBody, /ensureChartPaneBackgroundLayer\(\)|layer\.style\.background = lastChartBackgroundColor/, 'pane background updater must not recreate a layer above the moving grid');
 });
 
 test('web chart: precision overlays and crosshair stay parity-safe', () => {
@@ -703,6 +784,7 @@ test('webview bridge: resizeChartViewport replays pending init and updates geome
 
   assertSourceContains(body, /if \(_pendingInit\)[\s\S]*_doInitChart\(/, 'resize must replay pending zero-size init');
   assertSourceContains(body, /chart\.resize\(w, h\)/, 'resize must resize the active chart');
+  assertSourceContains(body, /updateChartPaneBackgroundLayer\(\)/, 'resize must clear any stale pane background so the grid stays visible');
   assertSourceContains(body, /postChartGeometry\(\)/, 'resize must report chart geometry');
 });
 
@@ -712,6 +794,7 @@ test('webview bridge: recoverChartSurface restores data overlays market lines an
   assertSourceContains(chartWebViewHtmlSource, /var requestHostOptions = cloneSerializableValue\(opts \|\| \{\}, \{\}\)[\s\S]*lastInitHostOptions = requestHostOptions/, 'init must cache an immutable copy of host chart options');
   assertSourceContains(chartWebViewHtmlSource, /var safeOpts = applyChartLayout\(cloneSerializableValue\(opts \|\| \{\}, \{\}\)\)/, 'WebView chart creation must mutate only a throwaway options copy');
   assertSourceContains(chartWebViewHtmlSource, /var customCols = safeOpts\.customColors[\s\S]*applyMovingVerticalGridColor\(customCols && customCols\.grid\)[\s\S]*delete safeOpts\.customColors/, 'chart creation must read grid colors before removing customColors from LightweightCharts options');
+  assertSourceContains(body, /chart\.resize\(w, h\)[\s\S]*updateChartPaneBackgroundLayer\(\)/, 'surface recovery must clear any stale pane background so the grid stays visible');
   assertSourceContains(body, /lastRawSeriesData[\s\S]*series\.setData\(mapped\)/, 'surface recovery must restore the last raw series');
   assertSourceContains(body, /cloneSerializableValue\(lastInitHostOptions, \{\}\)[\s\S]*lastInitChartType/, 'surface recovery must recreate missing charts from preserved host options');
   assertSourceContains(body, /clearMarketPriceLineRefs\(\)[\s\S]*series\.setData\(mapped\)/, 'surface recovery must remove tracked market price lines before setData can orphan them');

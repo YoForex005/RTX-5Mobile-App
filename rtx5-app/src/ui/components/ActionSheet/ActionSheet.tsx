@@ -52,7 +52,7 @@ type ActionSheetAction = {
 type ActionSheetProps = {
   visible: boolean;
   title?: string;
-  presentation?: 'default' | 'mt5Plain';
+  presentation?: 'default' | 'mt5Plain' | 'mt5TimeframeGrid';
   showActionIcons?: boolean;
   actions: ActionSheetAction[];
   onClose: () => void;
@@ -74,6 +74,10 @@ type CachedActionSheetConfig = Pick<
 const ACTION_SHEET_ROW_MIN_HEIGHT = 48;
 const ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT = 47;
 const ACTION_SHEET_MT5_PLAIN_ACTIONS_BOTTOM_PADDING = 8;
+const ACTION_SHEET_TIMEFRAME_GRID_COLUMNS = 4;
+const ACTION_SHEET_TIMEFRAME_GRID_ROW_HEIGHT = 40;
+const ACTION_SHEET_TIMEFRAME_GRID_ROW_GAP = 8;
+const ACTION_SHEET_TIMEFRAME_GRID_VERTICAL_PADDING = 16;
 const ACTION_SHEET_BACKDROP_OPEN_GUARD_MS = 60;
 const ACTION_SHEET_OPEN_TRANSLATE_Y = 12;
 const ACTION_SHEET_FAST_OPEN_TRANSLATE_Y = 0;
@@ -245,11 +249,13 @@ export function ActionSheet({
         rawSubtitle.includes(normalizedQuery);
     })
     : activeActions;
+  const isTimeframeGridPresentation = activePresentation === 'mt5TimeframeGrid';
   const isMt5PlainPresentation = activePresentation === 'mt5Plain';
-  const actionRowMinHeight = isMt5PlainPresentation
+  const isMt5StylePresentation = isMt5PlainPresentation || isTimeframeGridPresentation;
+  const actionRowMinHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ROW_MIN_HEIGHT
     : ACTION_SHEET_ROW_MIN_HEIGHT;
-  const actionsContentExtraHeight = isMt5PlainPresentation
+  const actionsContentExtraHeight = isMt5StylePresentation
     ? ACTION_SHEET_MT5_PLAIN_ACTIONS_BOTTOM_PADDING
     : 0;
   // Reserve a tappable dismiss strip above the sheet that sits clear of any
@@ -297,12 +303,20 @@ export function ActionSheet({
     availableWindowHeight - topInset - bottomInset - 12,
   );
   const reservedChromeHeight =
-    (activeTitle ? (isMt5PlainPresentation ? 64 : 58) : (isMt5PlainPresentation ? 0 : 28)) +
+    (activeTitle ? (isMt5StylePresentation ? 64 : 58) : (isMt5StylePresentation ? 0 : 28)) +
     (activeSearchable ? 56 : 0);
-  const estimatedActionsHeight = filteredActions.reduce(
-    (height, action) => height + (action.subtitle ? 68 : actionRowMinHeight),
-    actionsContentExtraHeight,
-  );
+  const timeframeGridRows = Math.ceil(filteredActions.length / ACTION_SHEET_TIMEFRAME_GRID_COLUMNS);
+  const estimatedTimeframeGridActionsHeight = timeframeGridRows > 0
+    ? ACTION_SHEET_TIMEFRAME_GRID_VERTICAL_PADDING +
+      (timeframeGridRows * ACTION_SHEET_TIMEFRAME_GRID_ROW_HEIGHT) +
+      (Math.max(0, timeframeGridRows - 1) * ACTION_SHEET_TIMEFRAME_GRID_ROW_GAP)
+    : 0;
+  const estimatedActionsHeight = isTimeframeGridPresentation
+    ? estimatedTimeframeGridActionsHeight
+    : filteredActions.reduce(
+      (height, action) => height + (action.subtitle ? 68 : actionRowMinHeight),
+      actionsContentExtraHeight,
+    );
   const estimatedSheetHeight = reservedChromeHeight + estimatedActionsHeight;
   const adaptiveSheetFloor = resolveActionSheetFloor({
     detent: activeDetent,
@@ -328,6 +342,7 @@ export function ActionSheet({
     Math.min(filteredActions.length, activeSearchable ? 12 : 16),
   );
   const shouldRenderInlineActions =
+    !isTimeframeGridPresentation &&
     !activeSearchable &&
     filteredActions.length <= ACTION_SHEET_INLINE_ACTION_LIMIT &&
     estimatedActionsHeight <= actionsMaxHeight;
@@ -658,6 +673,49 @@ export function ActionSheet({
     [renderActionRow],
   );
 
+  const renderTimeframeGridAction = useCallback((action: ActionSheetAction) => {
+    const localizedLabel = t(action.label);
+    const isSelected = action.selected === true;
+    const isDisabled = action.disabled || isSelected;
+
+    return (
+      <FastPressable
+        key={action.label}
+        latencyLabel={`actionSheet.timeframe.${action.label}`}
+        onPressIn={recordActionRowPressStart}
+        onTouchMove={recordActionRowPressMove}
+        onPress={isDisabled ? undefined : () => handleActionRowPress(action.onPress)}
+        activateOnPressIn={action.activateOnPressIn === true && !isDisabled}
+        disabled={isDisabled}
+        style={({ pressed }) => [
+          styles.timeframeGridAction,
+          pressed && !isDisabled && styles.timeframeGridActionPressed,
+          isSelected && styles.timeframeGridActionSelected,
+          action.disabled && styles.timeframeGridActionDisabled,
+        ]}
+      >
+        <Text
+          style={[
+            styles.timeframeGridText,
+            isSelected && styles.timeframeGridTextSelected,
+            action.disabled && styles.timeframeGridTextDisabled,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+        >
+          {localizedLabel}
+        </Text>
+      </FastPressable>
+    );
+  }, [
+    handleActionRowPress,
+    recordActionRowPressMove,
+    recordActionRowPressStart,
+    styles,
+    t,
+  ]);
+
   const inlineActionRows = useMemo(
     () =>
       shouldRenderInlineActions
@@ -668,6 +726,14 @@ export function ActionSheet({
         ))
         : null,
     [filteredActions, keyAction, renderActionRow, shouldRenderInlineActions],
+  );
+
+  const timeframeGridActions = useMemo(
+    () =>
+      isTimeframeGridPresentation
+        ? filteredActions.map((action) => renderTimeframeGridAction(action))
+        : null,
+    [filteredActions, isTimeframeGridPresentation, renderTimeframeGridAction],
   );
 
   if (!visible && !mounted) {
@@ -691,34 +757,34 @@ export function ActionSheet({
       <View
         style={[
           styles.sheet,
-          isMt5PlainPresentation && styles.sheetMt5Plain,
+          isMt5StylePresentation && styles.sheetMt5Plain,
           sheetHeightStyle,
           !shouldLockSheetHeight && sheetMinHeight ? { minHeight: sheetMinHeight } : null,
         ]}
       >
-        {isMt5PlainPresentation ? null : <View style={styles.handle} />}
+        {isMt5StylePresentation ? null : <View style={styles.handle} />}
 
         {activeTitle ? (
-          <View style={[styles.titleContainer, isMt5PlainPresentation && styles.titleContainerMt5Plain]}>
+          <View style={[styles.titleContainer, isMt5StylePresentation && styles.titleContainerMt5Plain]}>
             {activeTitle.includes(': ') ? (
-              <Text style={isMt5PlainPresentation ? styles.titleTextMt5Plain : undefined} numberOfLines={1}>
-                <Text style={[styles.titlePrefix, isMt5PlainPresentation && styles.titlePrefixMt5Plain]}>
+              <Text style={isMt5StylePresentation ? styles.titleTextMt5Plain : undefined} numberOfLines={1}>
+                <Text style={[styles.titlePrefix, isMt5StylePresentation && styles.titlePrefixMt5Plain]}>
                   {t(activeTitle.split(': ')[0])}
                 </Text>
-                <Text style={[styles.titleSuffix, isMt5PlainPresentation && styles.titleSuffixMt5Plain]}>
+                <Text style={[styles.titleSuffix, isMt5StylePresentation && styles.titleSuffixMt5Plain]}>
                   : {activeTitle.split(': ')[1]}
                 </Text>
               </Text>
             ) : (
               <Text
-                style={[styles.titlePrefix, isMt5PlainPresentation && styles.titlePrefixMt5Plain]}
+                style={[styles.titlePrefix, isMt5StylePresentation && styles.titlePrefixMt5Plain]}
                 numberOfLines={1}
               >
                 {t(activeTitle)}
               </Text>
             )}
           </View>
-        ) : isMt5PlainPresentation ? null : (
+        ) : isMt5StylePresentation ? null : (
           <View style={{ height: 16 }} />
         )}
 
@@ -737,7 +803,18 @@ export function ActionSheet({
           </View>
         ) : null}
 
-        {shouldRenderInlineActions ? (
+        {isTimeframeGridPresentation ? (
+          <View
+            style={[
+              styles.actionsScroll,
+              styles.timeframeGrid,
+              { maxHeight: actionsMaxHeight },
+              actionsMinHeight ? { minHeight: actionsMinHeight } : null,
+            ]}
+          >
+            {timeframeGridActions}
+          </View>
+        ) : shouldRenderInlineActions ? (
           <View
             style={[
               styles.actionsScroll,

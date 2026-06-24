@@ -92,6 +92,10 @@ test('sidebar drawer uses native-driver motion and non-blocking navigation for m
   assert.match(source, /overlay: \{[\s\S]*left: DRAWER_WIDTH,[\s\S]*zIndex: 0,[\s\S]*elevation: 0,/);
   assert.doesNotMatch(source, /overlay: \{\s*\.\.\.StyleSheet\.absoluteFillObject/);
   assert.match(source, /drawer: \{[\s\S]*zIndex: 1,[\s\S]*elevation: 1,/);
+  assert.match(source, /Keep the account block compact so the first menu rows sit higher on phone screens/);
+  assert.match(source, /profileHeader: \{[\s\S]*paddingBottom: 8,/);
+  assert.match(source, /accountDetails: \{[\s\S]*marginBottom: 4,/);
+  assert.match(source, /manageBtn: \{[\s\S]*paddingVertical: 2,/);
   assert.match(source, /transform: \[\{ translateX: slideAnim \}\]/);
   assert.doesNotMatch(source, /if \(!visible\) \{\s*return null;\s*\}/);
   assert.doesNotMatch(source, /const PREFETCH_ROUTES = \[/);

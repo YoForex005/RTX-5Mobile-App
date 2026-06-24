@@ -1766,8 +1766,8 @@ export function ChartScreen() {
       <ActionSheet
         visible={tfOpen}
         onClose={() => setTfOpen(false)}
-        title='Timeframes'
-        detent="adaptive"
+        presentation="mt5TimeframeGrid"
+        detent="auto"
         instantOpen
         actions={timeframes.map((tf) => ({ label: tf, selected: tf === chartTimeframe, onPress: () => handleTimeframeSelect(tf) }))}
       />
@@ -1804,12 +1804,11 @@ export function ChartScreen() {
         visible={showChartTypeMenu}
         onClose={() => setShowChartTypeMenu(false)}
         title='Chart Type'
-        detent="adaptive"
+        detent="auto"
         instantOpen
         actions={[
           { label: 'Candlestick', onPress: () => setChartVisualType('candles') },
           { label: 'Hollow Candles', onPress: () => setChartVisualType('hollow') },
-          { label: 'OHLC Bars', onPress: () => setChartVisualType('bars') },
           { label: 'Line', onPress: () => setChartVisualType('line') },
         ]}
       />

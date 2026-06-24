@@ -14,7 +14,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, usePathname } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Dimensions, Keyboard, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -32,7 +32,7 @@ import {
   type ChartTapMenuAnchor,
   type ChartTapMenuBounds,
 } from './components/ChartTapRadialMenu';
-import { createTimeframePickerActionSheetActions } from './components/ChartTimeframePickerSheet';
+import { ChartTimeframePickerOverlay } from './components/ChartTimeframePickerSheet';
 import {
   ChartDrawingToolsSidebar,
 } from './components/ChartDrawingToolsFeature';
@@ -352,13 +352,31 @@ const MT5_LIGHT_GRID_COLOR = 'rgba(0,0,0,0.09)';
 const MT5_DARK_AXIS_BORDER_COLOR = 'rgba(148,163,184,0.38)';
 const MT5_LIGHT_AXIS_BORDER_COLOR = '#CBD5E1';
 const CHART_TRADE_CONFIRMATION_VISIBLE_MS = 5000;
-const CHART_TRADE_CONFIRMATION_MAX_ITEMS = 6;
+const CHART_TRADE_CONFIRMATION_MAX_ITEMS = 3;
 
 type ChartTradeConfirmation = {
   id: string;
   symbol: string;
   side: 'buy' | 'sell';
   volumeLabel: string;
+  priceLabel: string;
+  ticketLabel: string;
+  executedAtLabel: string;
+};
+
+const resolveTradeConfirmationPriceDecimals = (symbol: string): number => {
+  const upper = symbol.toUpperCase();
+  if (upper.includes('JPY')) return 3;
+  if (upper.includes('XAU') || upper.includes('BTC') || upper.includes('ETH')) return 2;
+  return 5;
+};
+
+const formatTradeConfirmationPrice = (
+  price: number | null | undefined,
+  symbol: string,
+): string => {
+  if (!Number.isFinite(price)) return '--';
+  return Number(price).toFixed(resolveTradeConfirmationPriceDecimals(symbol));
 };
 
 const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActive }: { isChartRouteActive: boolean }) {
@@ -745,11 +763,16 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       typeof feedback.volume === 'number'
         ? formatTradeVolume(feedback.volume, tradeVolumeBounds)
         : String(feedback.volume ?? passiveLotDisplay);
+    const symbol = String(feedback.symbol || chartSymbol).replace(/\//g, '');
+    const ticket = String(feedback.ticket ?? '').trim();
     const confirmation: ChartTradeConfirmation = {
       id,
-      symbol: String(feedback.symbol || chartSymbol).replace(/\//g, ''),
+      symbol,
       side: feedback.side === 'sell' ? 'sell' : 'buy',
       volumeLabel,
+      priceLabel: formatTradeConfirmationPrice(feedback.price, symbol),
+      ticketLabel: ticket || 'Confirmed',
+      executedAtLabel: feedback.executedAt || new Date().toLocaleTimeString(),
     };
 
     setChartTradeConfirmations((current) =>
@@ -1057,6 +1080,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
   const [activeTool, setActiveTool] = useState<string>(CHART_NO_DRAWING_TOOL);
   const [chartDrawingInputActive, setChartDrawingInputActive] = useState(false);
   const [chartTapMenuAnchor, setChartTapMenuAnchor] = useState<ChartTapMenuAnchor | null>(null);
+  const [timeframePickerVisible, setTimeframePickerVisible] = useState(false);
   const [chartTapMenuBounds, setChartTapMenuBounds] = useState<ChartTapMenuBounds>({ width: 0, height: 0 });
   const [chartTapMenuViewport, setChartTapMenuViewport] = useState<ChartTapMenuViewport>({ x: 0, y: 0, width: 0, height: 0 });
   const [, setChartPlotArea] = useState<FixedHorizontalGridPlotArea | null>(null);
@@ -1070,6 +1094,19 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     isChartExpanded || chartDrawingInputActive || Boolean(pendingChartDrawingTool);
 
   const webViewRef = useRef<WebView>(null);
+
+  useEffect(() => {
+    if (!timeframePickerVisible) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setTimeframePickerVisible(false);
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [timeframePickerVisible]);
   const pendingObjectsDrawingSyncRef = useRef(false);
   const chartViewportRef = useRef<View>(null);
   const chartTapMenuBoundsRef = useRef<ChartTapMenuBounds>({ width: 0, height: 0 });
@@ -3214,6 +3251,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
 
   const handleTimeframeSelect = useCallback((nextTimeframe: string) => {
     runImmediateAction(`chart.timeframe.${nextTimeframe}`, () => {
+      setTimeframePickerVisible(false);
       if (nextTimeframe === chartTimeframe) {
         closeChartTapMenu();
         hideActionSheet();
@@ -3227,15 +3265,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       warmChartContextAndCommit(chartSymbol, nextTimeframe);
     });
   }, [chartSymbol, chartTimeframe, closeChartTapMenu, hideActionSheet, warmChartContextAndCommit]);
-
-  const timeframePickerActions = useMemo(
-    () => createTimeframePickerActionSheetActions({
-      activeTimeframe: chartTimeframe,
-      supportedTimeframes: timeframes,
-      onSelect: handleTimeframeSelect,
-    }),
-    [chartTimeframe, handleTimeframeSelect],
-  );
 
   const handleSymbolSelect = useCallback((nextSymbol: string) => {
     runImmediateAction(`chart.symbol.${nextSymbol}`, () => {
@@ -3285,26 +3314,25 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
           void prefetchChartTimeframeHistory(chartSymbol, tf);
         }
       });
-      showChartActionSheet({
-        presentation: 'mt5Plain',
-        minimumTopInset: drawingToolsSheetTopInset,
-        detent: 'adaptive',
-        instantOpen: true,
-        actions: timeframePickerActions,
-      });
+      hideActionSheet();
+      closeChartTapMenu();
+      setTimeframePickerVisible(true);
       scheduleChartActionSheetContextReset();
     });
   }, [
     chartSymbol,
     chartTimeframe,
-    drawingToolsSheetTopInset,
+    closeChartTapMenu,
+    hideActionSheet,
     prefetchChartTimeframeHistory,
     scheduleChartActionSheetContextReset,
-    showChartActionSheet,
-    timeframePickerActions,
   ]);
 
-  const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'bars' | 'line') => {
+  const handleCloseTimeframePicker = useCallback(() => {
+    setTimeframePickerVisible(false);
+  }, []);
+
+  const handleSelectChartType = useCallback((nextType: 'candles' | 'hollow' | 'line') => {
     runImmediateAction(`chart.chartType.select.${nextType}`, () => {
       closeChartTapMenu();
       setChartVisualType(nextType);
@@ -3316,7 +3344,6 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     () => [
       { key: 'candles' as const, label: 'Candlestick', icon: 'stats-chart' as const },
       { key: 'hollow' as const, label: 'Hollow Candles', icon: 'stats-chart-outline' as const },
-      { key: 'bars' as const, label: 'OHLC Bars', icon: 'bar-chart-outline' as const },
       { key: 'line' as const, label: 'Line', icon: 'trending-up-outline' as const },
     ].map((option) => {
       const active = chartType === option.key;
@@ -3335,7 +3362,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
     runImmediateAction('chart.chartType.open', () => {
       showChartActionSheet({
         title: t('Chart Type'),
-        detent: 'adaptive',
+        detent: 'auto',
         instantOpen: true,
         actions: chartTypePickerActions,
       });
@@ -3575,7 +3602,7 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
       mouseWheel: true,
       pressedMouseMove: true,
       horzTouchDrag: true,
-      vertTouchDrag: true,
+      vertTouchDrag: false,
     },
     handleScale: {
       mouseWheel: true,
@@ -5252,6 +5279,12 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                     {chartTradeConfirmations.map((confirmation) => {
                       const isBuyConfirmation = confirmation.side === 'buy';
                       const accentColor = isBuyConfirmation ? BLUE : T.trading.sell.primary;
+                      const accentSoft = isBuyConfirmation
+                        ? (isDark ? 'rgba(37,99,235,0.16)' : 'rgba(37,99,235,0.10)')
+                        : (isDark ? 'rgba(220,38,38,0.16)' : 'rgba(220,38,38,0.10)');
+                      const ticketLabel = confirmation.ticketLabel === 'Confirmed'
+                        ? confirmation.ticketLabel
+                        : `#${confirmation.ticketLabel}`;
                       return (
                         <View
                           key={confirmation.id}
@@ -5260,29 +5293,101 @@ const ChartScreenInner = React.memo(function ChartScreenInner({ isChartRouteActi
                             { borderLeftColor: accentColor },
                           ]}
                         >
-                          <Text style={styles.chartTradeConfirmationSymbol} numberOfLines={1}>
-                            {confirmation.symbol}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.chartTradeConfirmationSide,
-                              { color: accentColor },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {isBuyConfirmation ? 'Buy' : 'Sell'}
-                          </Text>
-                          <Text style={styles.chartTradeConfirmationVolume} numberOfLines={1}>
-                            {confirmation.volumeLabel}
-                          </Text>
-                          <Text style={styles.chartTradeConfirmationDone} numberOfLines={1}>
-                            done
-                          </Text>
+                          <View style={styles.chartTradeConfirmationHeader}>
+                            <View style={styles.chartTradeConfirmationStatusGroup}>
+                              <View
+                                style={[
+                                  styles.chartTradeConfirmationStatusIcon,
+                                  { backgroundColor: accentSoft, borderColor: accentColor },
+                                ]}
+                              >
+                                <Ionicons name="checkmark" size={13} color={accentColor} />
+                              </View>
+                              <View style={styles.chartTradeConfirmationTitleGroup}>
+                                <Text style={styles.chartTradeConfirmationTitle} numberOfLines={1}>
+                                  {t('Order Filled')}
+                                </Text>
+                                <Text style={styles.chartTradeConfirmationTime} numberOfLines={1}>
+                                  {confirmation.executedAtLabel}
+                                </Text>
+                              </View>
+                            </View>
+                            <View
+                              style={[
+                                styles.chartTradeConfirmationSideBadge,
+                                { backgroundColor: accentSoft, borderColor: accentColor },
+                              ]}
+                            >
+                              <Ionicons
+                                name={isBuyConfirmation ? 'arrow-up' : 'arrow-down'}
+                                size={11}
+                                color={accentColor}
+                              />
+                              <Text
+                                style={[
+                                  styles.chartTradeConfirmationSideBadgeText,
+                                  { color: accentColor },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {isBuyConfirmation ? 'BUY' : 'SELL'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.chartTradeConfirmationInstrumentRow}>
+                            <Text style={styles.chartTradeConfirmationSymbol} numberOfLines={1}>
+                              {confirmation.symbol}
+                            </Text>
+                            <Text style={styles.chartTradeConfirmationPrice} numberOfLines={1}>
+                              {confirmation.priceLabel}
+                            </Text>
+                          </View>
+
+                          <View style={styles.chartTradeConfirmationDetailsRow}>
+                            <View style={styles.chartTradeConfirmationDetail}>
+                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
+                                {t('Volume')}
+                              </Text>
+                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
+                                {confirmation.volumeLabel}
+                              </Text>
+                            </View>
+                            <View style={styles.chartTradeConfirmationDivider} />
+                            <View style={styles.chartTradeConfirmationDetail}>
+                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
+                                {t('Price')}
+                              </Text>
+                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
+                                {confirmation.priceLabel}
+                              </Text>
+                            </View>
+                            <View style={styles.chartTradeConfirmationDivider} />
+                            <View style={styles.chartTradeConfirmationDetail}>
+                              <Text style={styles.chartTradeConfirmationDetailLabel} numberOfLines={1}>
+                                {t('Ticket')}
+                              </Text>
+                              <Text style={styles.chartTradeConfirmationDetailValue} numberOfLines={1}>
+                                {ticketLabel}
+                              </Text>
+                            </View>
+                          </View>
                         </View>
                       );
                     })}
                   </View>
                 ) : null}
+                <ChartTimeframePickerOverlay
+                  visible={timeframePickerVisible}
+                  activeTimeframe={chartTimeframe}
+                  supportedTimeframes={timeframes}
+                  accentColor={BLUE}
+                  isDark={isDark}
+                  textColor={T.text}
+                  mutedColor={TEXT_MUTED}
+                  onClose={handleCloseTimeframePicker}
+                  onSelect={handleTimeframeSelect}
+                />
               </View>
             </View>
           </View>

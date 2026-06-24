@@ -119,8 +119,11 @@ const isQuoteViewMode = (value: unknown): value is UserPreferencesState['quoteVi
   value === 'list' || value === 'table' || value === 'edit';
 const isChartTradeVolumeDisplayMode = (value: unknown): value is ChartTradeVolumeDisplayMode =>
   value === 'lots' || value === 'margin';
-const isChartVisualType = (value: unknown): value is ChartVisualType =>
-  value === 'candles' || value === 'bars' || value === 'line' || value === 'hollow';
+const normalizeChartVisualType = (value: unknown): ChartVisualType => {
+  // OHLC bars are retired from the chart type picker, so migrate any old saved value to candles.
+  if (value === 'bars') return 'candles';
+  return value === 'candles' || value === 'line' || value === 'hollow' ? value : 'candles';
+};
 const isPriceSource = (value: unknown): value is UserPreferencesState['priceSource'] =>
   value === 'bid' || value === 'ask';
 const isOpenOrderMode = (value: unknown): value is UserPreferencesState['openOrderMode'] =>
@@ -253,7 +256,7 @@ export function normalizePersistedUserPreferencesState(
     chartTradeVolumeDisplayMode: isChartTradeVolumeDisplayMode(state.chartTradeVolumeDisplayMode)
       ? state.chartTradeVolumeDisplayMode
       : 'lots',
-    chartVisualType: isChartVisualType(state.chartVisualType) ? state.chartVisualType : 'candles',
+    chartVisualType: normalizeChartVisualType(state.chartVisualType),
     chartViewportShowVolumePane: asBoolean(state.chartViewportShowVolumePane, false),
     chartViewportShowDrawingToolbar: asBoolean(state.chartViewportShowDrawingToolbar, false),
     chartDrawings: activeDrawingLabels.length > 0 ? activeDrawingLabels : asStringArray(state.chartDrawings),
@@ -515,7 +518,7 @@ export const useUserPreferences = create<UserPreferencesState>()(
         set({ tradeVolume: next });
       },
       setChartTradeVolumeDisplayMode: (mode) => set({ chartTradeVolumeDisplayMode: mode }),
-      setChartVisualType: (chartType) => set({ chartVisualType: chartType }),
+      setChartVisualType: (chartType) => set({ chartVisualType: normalizeChartVisualType(chartType) }),
       setChartViewportShowVolumePane: (visible) => set({ chartViewportShowVolumePane: visible }),
       setChartViewportShowDrawingToolbar: (visible) => set({ chartViewportShowDrawingToolbar: visible }),
       addChartDrawing: (drawing) => {

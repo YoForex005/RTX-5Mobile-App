@@ -14,6 +14,10 @@ test('persisted user preferences are normalized before second-launch hydration r
   assert.match(storeSource, /quoteSymbols: asStringArray\(state\.quoteSymbols\)/);
   assert.match(storeSource, /chartSymbol = asString\(state\.chartSymbol, 'GBPUSD'\)/);
   assert.match(storeSource, /chartTimeframe: normalizeCandleHistoryTimeframe\(state\.chartTimeframe\)/);
+  assert.match(storeSource, /const normalizeChartVisualType = \(value: unknown\): ChartVisualType => \{[\s\S]*if \(value === 'bars'\) return 'candles';[\s\S]*value === 'candles' \|\| value === 'line' \|\| value === 'hollow'/);
+  assert.match(storeSource, /chartVisualType: normalizeChartVisualType\(state\.chartVisualType\)/);
+  assert.match(storeSource, /setChartVisualType: \(chartType\) => set\(\{ chartVisualType: normalizeChartVisualType\(chartType\) \}\)/);
+  assert.doesNotMatch(storeSource, /const isChartVisualType/);
   assert.match(storeSource, /persistChartDrawingRecordsBySymbol\(nextRecordsBySymbol\)/);
   assert.match(storeSource, /readChartDrawingRecordsBySymbol\(\)[\s\S]*\.then\(\(storedRecordsBySymbol\) => \{[\s\S]*\.finally\(\(\) => \{[\s\S]*setHasHydrated\(true\)/);
   assert.match(storeSource, /marketNewsSavedIds: Array\.from\(new Set\(asStringArray\(state\.marketNewsSavedIds\)\)\)/);

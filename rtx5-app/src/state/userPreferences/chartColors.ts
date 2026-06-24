@@ -183,7 +183,6 @@ export const DEFAULT_CHART_DISPLAY_SETTINGS: ChartDisplaySettings = {
   // on the series — the BID price line is the only horizontal line on the
   // chart canvas.
   showLastPriceLine: true,
-  showPeriodSeparators: false,
   showGrid: true,
   showTickVolumes: true,
   showRealVolumes: false,

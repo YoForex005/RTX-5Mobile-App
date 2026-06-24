@@ -550,7 +550,8 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     /* Profile */
     profileHeader: {
       paddingHorizontal: 18,
-      paddingBottom: 14,
+      // Keep the account block compact so the first menu rows sit higher on phone screens.
+      paddingBottom: 8,
     },
     profileRow: {
       flexDirection: 'row',
@@ -583,11 +584,11 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     accountDetails: {
       color: T.textSub,
       fontSize: 14,
-      marginBottom: 8,
+      marginBottom: 4,
     },
     manageBtn: {
       alignSelf: 'flex-start',
-      paddingVertical: 4,
+      paddingVertical: 2,
     },
     manageText: {
       color: '#2563EB',

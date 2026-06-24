@@ -23,6 +23,8 @@ import {
 import {
   calculateOpenPositionLivePnl,
   formatOpenPositionOverlayLabel,
+  formatPositionVolumeLabel,
+  formatSignedUsdOverlayLabel,
   formatTpSlOverlayLabel,
 } from './orderHelpers';
 import { normalizeChartOverlaySymbol } from './symbolUtils';
@@ -86,6 +88,12 @@ const resolveOpenPositionPnlColor = (
   return side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor;
 };
 
+const resolveOpenPositionSideColor = (
+  side: 'buy' | 'sell',
+  colors: ChartColorsConfig,
+  sellColor: string,
+): string => (side === 'buy' ? colors.tradeOpen || '#2962FF' : sellColor || '#DC2626');
+
 export const buildChartOverlayPayload = ({
   chartSymbol,
   candles,
@@ -148,15 +156,24 @@ export const buildChartOverlayPayload = ({
         swap: Number(position.swap),
         commission: Number(position.commission),
       }) ?? Number(position.pnl);
+    const sideColor = resolveOpenPositionSideColor(position.side, colors, sellColor);
+    const pnlColor = resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor);
+    const sideLabel = `${position.side === 'sell' ? 'SELL' : 'BUY'} ${formatPositionVolumeLabel(
+      Number(position.volume),
+    )}`;
 
     addUniquePriceLine(priceLines, {
       id: `open-${position.id}`,
       price: parsedPrice,
-      color: resolveOpenPositionPnlColor(livePnl, position.side, colors, sellColor),
+      color: sideColor,
       lineWidth: 1,
       lineStyle: CHART_LINE_STYLE.Dotted,
       axisLabelVisible: true,
       title: formatOpenPositionOverlayLabel(position.side, Number(position.volume), livePnl),
+      labelSideText: sideLabel,
+      labelValueText: formatSignedUsdOverlayLabel(livePnl),
+      labelSideColor: sideColor,
+      labelValueColor: pnlColor,
       labelPlacement: 'line',
     });
 

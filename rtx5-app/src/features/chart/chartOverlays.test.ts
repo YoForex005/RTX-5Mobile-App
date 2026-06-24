@@ -109,7 +109,11 @@ test('buildChartOverlayPayload maps open positions for the chart symbol with the
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-1');
   assert.equal(openLine?.lineStyle, CHART_LINE_STYLE.Dotted);
   assert.equal(openLine?.title, 'BUY 0.20, +42.00 USD');
-  assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(openLine?.color, TEST_CHART_COLORS.tradeOpen);
+  assert.equal(openLine?.labelSideText, 'BUY 0.20');
+  assert.equal(openLine?.labelValueText, '+42.00 USD');
+  assert.equal(openLine?.labelSideColor, TEST_CHART_COLORS.tradeOpen);
+  assert.equal(openLine?.labelValueColor, TEST_CHART_COLORS.tradeTpSl);
   assert.equal(openLine?.labelPlacement, 'line');
   assert.equal(payload.markers.length, 0);
 });
@@ -210,13 +214,24 @@ test('buildChartOverlayPayload updates open position labels from live bid and as
 
   const titleById = new Map(payload.priceLines.map((line: any) => [line.id, line.title]));
   const colorById = new Map(payload.priceLines.map((line: any) => [line.id, line.color]));
+  const sideTextById = new Map(payload.priceLines.map((line: any) => [line.id, line.labelSideText]));
+  const valueTextById = new Map(payload.priceLines.map((line: any) => [line.id, line.labelValueText]));
+  const valueColorById = new Map(payload.priceLines.map((line: any) => [line.id, line.labelValueColor]));
 
   assert.equal(titleById.get('open-buy-live'), 'BUY 0.01, +0.22 USD');
-  assert.equal(colorById.get('open-buy-live'), TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(colorById.get('open-buy-live'), TEST_CHART_COLORS.tradeOpen);
+  assert.equal(sideTextById.get('open-buy-live'), 'BUY 0.01');
+  assert.equal(valueTextById.get('open-buy-live'), '+0.22 USD');
+  assert.equal(valueColorById.get('open-buy-live'), TEST_CHART_COLORS.tradeTpSl);
   assert.equal(titleById.get('open-buy-loss-live'), 'BUY 0.01, -0.05 USD');
-  assert.equal(colorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeStopOut);
+  assert.equal(colorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeOpen);
+  assert.equal(valueTextById.get('open-buy-loss-live'), '-0.05 USD');
+  assert.equal(valueColorById.get('open-buy-loss-live'), TEST_CHART_COLORS.tradeStopOut);
   assert.equal(titleById.get('open-sell-live'), 'SELL 0.02, +1.40 USD');
-  assert.equal(colorById.get('open-sell-live'), TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(colorById.get('open-sell-live'), '#EF5350');
+  assert.equal(sideTextById.get('open-sell-live'), 'SELL 0.02');
+  assert.equal(valueTextById.get('open-sell-live'), '+1.40 USD');
+  assert.equal(valueColorById.get('open-sell-live'), TEST_CHART_COLORS.tradeTpSl);
 });
 
 test('buildChartOverlayPayload keeps open position pnl live when one quote side is missing', () => {
@@ -246,7 +261,9 @@ test('buildChartOverlayPayload keeps open position pnl live when one quote side 
 
   const openLine = payload.priceLines.find((line: any) => line.id === 'open-sell-one-sided');
   assert.equal(openLine?.title, 'SELL 0.10, +10.00 USD');
-  assert.equal(openLine?.color, TEST_CHART_COLORS.tradeTpSl);
+  assert.equal(openLine?.color, '#EF5350');
+  assert.equal(openLine?.labelSideColor, '#EF5350');
+  assert.equal(openLine?.labelValueColor, TEST_CHART_COLORS.tradeTpSl);
 });
 
 test('buildChartOverlayPayload filters open trades by side via the buy/sell toggles', () => {

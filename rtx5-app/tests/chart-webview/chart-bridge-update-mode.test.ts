@@ -311,6 +311,16 @@ test('horizontal zoom and pan keeps price autoscale attached to visible bars', (
     /handleScale: \{[\s\S]*pinch: true[\s\S]*axisPressedMouseMove: true/,
     'mobile pinch zoom and price-axis scaling must stay enabled in the host chart options',
   );
+  assertSourceContains(
+    source,
+    /handleScroll: \{[\s\S]*horzTouchDrag: true[\s\S]*vertTouchDrag: false/,
+    'host chart options must leave horizontal touch drag enabled while custom WebView code owns body vertical panning',
+  );
+  assertSourceContains(
+    source,
+    /function resolveChartTouchInteractionOptions\(enabled\)[\s\S]*handleScroll\.vertTouchDrag = false/,
+    'WebView touch interaction restore must keep library vertical touch drag disabled',
+  );
 });
 
 test('vertical candle drag can own the price range without autoscale fighting it', () => {
@@ -321,18 +331,84 @@ test('vertical candle drag can own the price range without autoscale fighting it
   );
   assertSourceContains(
     source,
-    /var beginVerticalPan = function\(clientY\)[\s\S]*manualPriceScaleRangeActive = true[\s\S]*setAutoScale\(false\)[\s\S]*setVisibleRange\(\{ from: range\.from, to: range\.to \}\)/,
+    /var beginVerticalPan = function\(clientY\)[\s\S]*rememberManualVerticalPanRange\(range\)[\s\S]*setAutoScale\(false\)[\s\S]*setVisibleRange\(\{ from: range\.from, to: range\.to \}\)/,
     'vertical pan start must pin the current price range before movement',
   );
   assertSourceContains(
     source,
-    /var continueVerticalPan = function\(clientY\)[\s\S]*setAutoScale\(false\)[\s\S]*priceScaleApi\.setVisibleRange\(\{/,
-    'vertical pan moves candles by manually shifting the visible price range',
+    /var renderVerticalPanRange = function\(nextRange\)[\s\S]*rememberManualVerticalPanRange\(nextRange\)[\s\S]*priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)/,
+    'vertical pan moves candles by manually shifting the visible price range and refreshing overlays',
   );
   assertSourceContains(
     source,
-    /verticalPricePanGestureActive \|\| \(manualPriceScaleRangeActive && forceAutoScale !== true\)/,
+    /var VERT_PAN_PRICE_DELTA_MULTIPLIER = 0\.35[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*priceDelta = deltaPixels \* vertPanState\.pricePerPixel \* VERT_PAN_PRICE_DELTA_MULTIPLIER/,
+    'body vertical pan must use the MT5-like sensitivity multiplier instead of full-range jumps',
+  );
+  assertSourceContains(
+    source,
+    /function lockVisiblePriceScaleRange\(forceAutoScale, attempt\)[\s\S]*isManualVerticalPanRangeLocked\(\) && forceAutoScale !== true[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*verticalPricePanGestureActive \|\| \(manualPriceScaleRangeActive && forceAutoScale !== true\)/,
     'autoscale refresh must not override an active manual vertical price range',
+  );
+  const endVerticalPanStart = source.indexOf('var endVerticalPan = function()');
+  assert.notEqual(endVerticalPanStart, -1, 'endVerticalPan handler was not found');
+  const endVerticalPan = source.slice(endVerticalPanStart, source.indexOf('var resetAutoScale', endVerticalPanStart));
+  assertSourceContains(
+    endVerticalPan,
+    /var finalRange[\s\S]*renderVerticalPanRange\(finalRange\)[\s\S]*verticalPricePanGestureActive = false[\s\S]*rememberManualVerticalPanRange\(finalRange\)[\s\S]*syntheticRightPriceScaleFallbackRange = \{[\s\S]*applyManualVerticalPanLockedRange\(\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)/,
+    'vertical pan release must keep and reapply the exact final manual range',
+  );
+  assert.doesNotMatch(
+    endVerticalPan,
+    /syntheticRightPriceScaleFallbackRange = null/,
+    'vertical pan release must not clear the fallback right-scale range and drift after finger-up',
+  );
+  assertSourceContains(
+    source,
+    /var manualVerticalPanRangeActive = false[\s\S]*var manualVerticalPanLockedRange = null[\s\S]*function rememberManualVerticalPanRange\(range\)[\s\S]*manualVerticalPanRangeActive = true[\s\S]*manualVerticalPanLockedRange = \{[\s\S]*from: normalizedRange\.from[\s\S]*to: normalizedRange\.to/,
+    'vertical pan must keep the manual price range as persistent chart state',
+  );
+  assertSourceContains(
+    source,
+    /function healCollapsedPriceScaleRange\(reason, allowManualReset\)[\s\S]*isManualVerticalPanRangeLocked\(\)[\s\S]*shouldResetManualVerticalPanForHealth\(reason\)[\s\S]*return;[\s\S]*manualPriceScaleRangeActive && allowManualReset !== true/,
+    'idle price-scale health checks must not snap back a user-locked vertical pan',
+  );
+  assertSourceContains(
+    source,
+    /var beginVerticalPan = function\(clientY\)[\s\S]*rememberManualVerticalPanRange\(range\)[\s\S]*if \(priceScaleHealthRaf\) \{[\s\S]*cancelAnimationFrame\(priceScaleHealthRaf\)[\s\S]*priceScaleHealthRaf = 0/,
+    'vertical pan start must cancel pending price-scale health work that could race the gesture',
+  );
+  assertSourceContains(
+    source,
+    /var endVerticalPan = function\(\)[\s\S]*var finalRange[\s\S]*verticalPricePanGestureActive = false[\s\S]*rememberManualVerticalPanRange\(finalRange\)[\s\S]*vertPanState = null/,
+    'vertical pan release must preserve the final manual range after the active flag drops',
+  );
+  assertSourceContains(
+    source,
+    /var onPointerUp = function\(event\)[\s\S]*releasePointer\(event\);\s*rightPriceScaleGestureActive = false;[\s\S]*if \(vertPanState\) \{[\s\S]*endVerticalPan\(\)[\s\S]*return;[\s\S]*finishHorizontalScrollGesture\(\);/,
+    'vertical pan release must finish before horizontal-scroll idle recovery is allowed to run',
+  );
+  assertSourceContains(
+    source,
+    /function setChartOverlays\(payload\)[\s\S]*scheduleOverlayPriceScaleLock\(false\)[\s\S]*applyOverlayPayload\(_overlayPayload\)/,
+    'live trade and overlay refreshes must not force autoscale over the user-owned vertical range',
+  );
+});
+
+test('right price scale drag is routed separately from body vertical pan', () => {
+  assertSourceContains(
+    source,
+    /var isRightPriceScaleGesturePoint = function\(clientX, clientY\)[\s\S]*axisLeft[\s\S]*axisRight[\s\S]*point\.x >= axisLeft - 6/,
+    'right price-scale hit testing must recognize the reserved axis strip',
+  );
+  assertSourceContains(
+    source,
+    /if \(isRightPriceScaleGesturePoint\(point\.x, point\.y\)\) \{[\s\S]*rightPriceScaleGestureActive = true[\s\S]*vertPanPending = null[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*return;/,
+    'right-axis touches must not enter chart-body vertical pan tracking',
+  );
+  assertSourceContains(
+    source,
+    /if \(rightPriceScaleGestureActive\) \{[\s\S]*manualPriceScaleRangeActive = true[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*scheduleOverlayDomRefresh\(\)[\s\S]*return;/,
+    'right-axis drag must refresh custom right-scale and trade overlays during movement',
   );
 });
 

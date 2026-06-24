@@ -209,5 +209,46 @@ export function makeActionSheetStyles(T: ThemeColors, isDark: boolean) {
     actionTextDisabledMt5Plain: {
       color: isDark ? '#626B77' : '#CDD1D8',
     },
+    timeframeGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 8,
+    },
+    timeframeGridAction: {
+      flexBasis: '22.7%',
+      minHeight: 40,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? '#252B36' : '#D7DBE2',
+      backgroundColor: isDark ? '#111722' : '#F7F8FA',
+    },
+    timeframeGridActionPressed: {
+      backgroundColor: isDark ? '#1A2332' : '#E9EDF3',
+    },
+    timeframeGridActionSelected: {
+      borderColor: '#2563EB',
+      backgroundColor: isDark ? 'rgba(37, 99, 235, 0.22)' : 'rgba(37, 99, 235, 0.12)',
+    },
+    timeframeGridActionDisabled: {
+      opacity: 0.45,
+    },
+    timeframeGridText: {
+      color: isDark ? '#EEF1F5' : '#4F535C',
+      fontSize: 15,
+      lineHeight: 19,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    timeframeGridTextSelected: {
+      color: '#2563EB',
+    },
+    timeframeGridTextDisabled: {
+      color: isDark ? '#626B77' : '#AEB4BF',
+    },
   });
 }

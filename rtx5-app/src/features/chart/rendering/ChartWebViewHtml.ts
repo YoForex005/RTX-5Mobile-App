@@ -17,6 +17,11 @@ export const CH_HTML = `
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; position: relative; }
       #chart { width: 100%; height: 100%; position: relative; z-index: 1; background: transparent; }
+      .rtx5-chart-pane-background {
+        position: absolute;
+        pointer-events: none;
+        z-index: 0;
+      }
       .rtx5-right-price-scale-fallback {
         position: absolute;
         inset: 0;
@@ -32,9 +37,9 @@ export const CH_HTML = `
       .rtx5-right-price-scale-fallback-label {
         position: absolute;
         box-sizing: border-box;
-        height: 16px;
-        line-height: 16px;
-        font-size: 11px;
+        height: 17px;
+        line-height: 17px;
+        font-size: 12px;
         font-weight: 500;
         white-space: nowrap;
         overflow: hidden;
@@ -156,17 +161,27 @@ export const CH_HTML = `
       var overlayPriceScaleLockForceAutoScale = false;
       var priceScaleHealthRaf = 0;
       var rightPriceScaleLayoutRecoveryRaf = 0;
+      var chartPaneBackgroundLayer = null;
       var rightPriceScaleFallbackLayer = null;
+      var rightPriceScaleFallbackBackgroundNode = null;
+      var rightPriceScaleFallbackLabelNodes = [];
+      var syntheticRightPriceScaleFallbackRange = null;
       var rightPriceScaleFallbackRaf = 0;
+      var gestureRightPriceScaleFallbackTimer = null;
+      var gestureRightPriceScaleFallbackFrame = 0;
+      var lastGestureRightPriceScaleFallbackAt = 0;
       var chartReadyPostGeneration = 0;
       var lastChartBackgroundColor = '#FFFFFF';
+      var lastChartAxisBackgroundColor = '#FFFFFF';
       var lastChartTextColor = '#131722';
       var activeScrollPriceScaleRaf = 0;
       var lastActiveScrollPriceScaleCheckAt = 0;
       var activeHorizontalScrollGesture = false;
       var activeHorizontalScrollGestureUntil = 0;
       var visibleRangeIdleTimer = null;
+      var visibleRangeIdlePendingAfterGesture = false;
       var liveRightEdgeClampActive = false;
+      var lastHistoryPaginationPostAt = 0;
       var movingVerticalGridRaf = 0;
       var movingVerticalGridColor = 'transparent';
       var movingVerticalGridVisible = false;
@@ -190,6 +205,10 @@ export const CH_HTML = `
       var AXIS_DIVIDER_STROKE_WIDTH = ${CHART_AXIS_DIVIDER_STROKE_WIDTH};
       var manualPriceScaleRangeActive = false;
       var verticalPricePanGestureActive = false;
+      var manualVerticalPanRangeActive = false;
+      var manualVerticalPanLockedRange = null;
+      var manualVerticalPanPreserveUntil = 0;
+      var MANUAL_VERTICAL_PAN_PRESERVE_MS = 900;
       var chartTouchInteractionSuspendDepth = 0;
       var lastPostedChartTouchActive = false;
       var OVERLAY_LABEL_LINE_HEIGHT = 14;
@@ -197,7 +216,7 @@ export const CH_HTML = `
       var OVERLAY_LABEL_GAP = 4;
       var OVERLAY_LABEL_LINE_GAP = 1;
       var OVERLAY_LABEL_TOP_SAFE_PADDING = 42;
-      var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 132;
+      var OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING = 2;
       var OVERLAY_LABEL_BOTTOM_SAFE_PADDING = 10;
       var MARKET_PRICE_SCALE_EXTENSION_HEIGHT = 1;
       var MARKET_PRICE_SCALE_BADGE_HEIGHT = 22;
@@ -205,9 +224,14 @@ export const CH_HTML = `
       var MARKET_PRICE_SCALE_BADGE_PADDING_X = 4;
       var MARKET_PRICE_SCALE_BADGE_GAP = 1;
       var MARKET_PRICE_BADGE_RECOVERY_BUFFER_RATIO = 0.035;
-      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 16;
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT = 17;
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE = 12;
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT = '500';
+      var RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY = '1';
+      var RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR = '#E2E8F0';
       var RIGHT_PRICE_SCALE_FALLBACK_MIN_LABELS = 7;
       var RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS = 30;
+      var GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS = 16;
       // Target vertical gap between price labels. The scale now spans the full
       // pane height, so the old 32px target packed labels ~37px apart (cramped).
       // 60px lands the spacing on the next coarser "nice" step (~60-74px),
@@ -362,6 +386,74 @@ export const CH_HTML = `
         };
       }
 
+      function resolveChartAxisBackgroundColor(opts, fallbackColor) {
+        try {
+          var customColors = opts && opts.customColors ? opts.customColors : null;
+          if (customColors && typeof customColors.axisBackground === 'string' && customColors.axisBackground.length > 0) {
+            return customColors.axisBackground;
+          }
+        } catch (_e) {}
+        return fallbackColor || '#FFFFFF';
+      }
+
+      function clearChartPaneBackgroundLayer() {
+        if (chartPaneBackgroundLayer && chartPaneBackgroundLayer.parentNode) {
+          try { chartPaneBackgroundLayer.parentNode.removeChild(chartPaneBackgroundLayer); } catch (_removeErr) {}
+        }
+        chartPaneBackgroundLayer = null;
+      }
+
+      function promoteChartDomAbovePaneBackground(chartElement) {
+        try {
+          if (!chartElement || !chartElement.children) {
+            return;
+          }
+          for (var i = 0; i < chartElement.children.length; i += 1) {
+            var child = chartElement.children[i];
+            if (!child || child === chartPaneBackgroundLayer || child === rightPriceScaleFallbackLayer) {
+              continue;
+            }
+            if (child.style) {
+              if (!child.style.position || child.style.position === 'static') {
+                child.style.position = 'relative';
+              }
+              child.style.zIndex = '1';
+            }
+          }
+        } catch (_e) {}
+      }
+
+      function ensureChartPaneBackgroundLayer() {
+        var chartElement = document.getElementById('chart');
+        if (!chartElement) {
+          return null;
+        }
+        if (chartPaneBackgroundLayer && chartPaneBackgroundLayer.parentNode === chartElement) {
+          promoteChartDomAbovePaneBackground(chartElement);
+          return chartPaneBackgroundLayer;
+        }
+        chartPaneBackgroundLayer = document.createElement('div');
+        chartPaneBackgroundLayer.className = 'rtx5-chart-pane-background';
+        chartPaneBackgroundLayer.setAttribute('aria-hidden', 'true');
+        chartElement.style.position = 'relative';
+        chartElement.insertBefore(chartPaneBackgroundLayer, chartElement.firstChild);
+        promoteChartDomAbovePaneBackground(chartElement);
+        return chartPaneBackgroundLayer;
+      }
+
+      function updateChartPaneBackgroundLayer() {
+        try {
+          // GitHub's chart layering keeps #chart transparent so the moving
+          // grid SVG behind it can show through the Lightweight Charts canvas.
+          // Clearing this older pane layer prevents it from covering the grid
+          // and the right-axis trade price boxes.
+          clearChartPaneBackgroundLayer();
+          return false;
+        } catch (_e) {
+          return false;
+        }
+      }
+
       function applyRightPriceScaleLayoutOptions() {
         var layoutOptions = {
           visible: true,
@@ -380,6 +472,7 @@ export const CH_HTML = `
             priceScaleApi.applyOptions(layoutOptions);
           }
         } catch (_scaleOptionsErr) {}
+        updateChartPaneBackgroundLayer();
       }
 
       function isCustomRightPriceScaleOverlayNode(node) {
@@ -521,6 +614,28 @@ export const CH_HTML = `
         return null;
       }
 
+      function getCanvasPerceivedBrightness(rgb) {
+        if (!rgb) {
+          return null;
+        }
+        return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+      }
+
+      function resolveReadableRightPriceScaleFallbackTextColor(textColor) {
+        var axisBrightness = getCanvasPerceivedBrightness(
+          parseCanvasRgbColor(lastChartAxisBackgroundColor || lastChartBackgroundColor || '#FFFFFF')
+        );
+        var textBrightness = getCanvasPerceivedBrightness(parseCanvasRgbColor(textColor));
+        if (
+          axisBrightness !== null &&
+          axisBrightness < 80 &&
+          (textBrightness === null || textBrightness < 190)
+        ) {
+          return RIGHT_PRICE_SCALE_FALLBACK_DARK_LABEL_COLOR;
+        }
+        return textColor;
+      }
+
       function getCanvasColorDistance(left, right) {
         if (!left || !right) {
           return Number.POSITIVE_INFINITY;
@@ -590,7 +705,7 @@ export const CH_HTML = `
 
           var canvases = chartElement.querySelectorAll('canvas');
           var textRgb = parseCanvasRgbColor(resolveRightPriceScaleFallbackTextColor());
-          var backgroundRgb = parseCanvasRgbColor(lastChartBackgroundColor || '#FFFFFF');
+          var backgroundRgb = parseCanvasRgbColor(lastChartAxisBackgroundColor || lastChartBackgroundColor || '#FFFFFF');
           var sampled = false;
           var canvasCount = 0;
           var totalForegroundPixelCount = 0;
@@ -825,6 +940,8 @@ export const CH_HTML = `
         while (rightPriceScaleFallbackLayer.firstChild) {
           rightPriceScaleFallbackLayer.removeChild(rightPriceScaleFallbackLayer.firstChild);
         }
+        rightPriceScaleFallbackBackgroundNode = null;
+        rightPriceScaleFallbackLabelNodes = [];
       }
 
       function clearRightPriceScaleFallbackLayer() {
@@ -836,6 +953,9 @@ export const CH_HTML = `
           try { rightPriceScaleFallbackLayer.parentNode.removeChild(rightPriceScaleFallbackLayer); } catch (_removeErr) {}
         }
         rightPriceScaleFallbackLayer = null;
+        rightPriceScaleFallbackBackgroundNode = null;
+        rightPriceScaleFallbackLabelNodes = [];
+        syntheticRightPriceScaleFallbackRange = null;
       }
 
       function ensureRightPriceScaleFallbackLayer() {
@@ -869,10 +989,10 @@ export const CH_HTML = `
           var options = chart && typeof chart.options === 'function' ? chart.options() : null;
           var textColor = options && options.layout ? options.layout.textColor : null;
           if (typeof textColor === 'string' && textColor.length > 0) {
-            return textColor;
+            return resolveReadableRightPriceScaleFallbackTextColor(textColor);
           }
         } catch (_e) {}
-        return lastChartTextColor || '#131722';
+        return resolveReadableRightPriceScaleFallbackTextColor(lastChartTextColor || '#131722');
       }
 
       function resolveRightPriceScaleFallbackFontFamily() {
@@ -925,6 +1045,9 @@ export const CH_HTML = `
       }
 
       function resolveRightPriceScaleFallbackRange() {
+        if (isValidPriceRange(syntheticRightPriceScaleFallbackRange)) {
+          return normalizePriceRange(syntheticRightPriceScaleFallbackRange);
+        }
         // Prefer the COORDINATE range — it is the exact inverse of the
         // series.priceToCoordinate() mapping used to POSITION the labels, so the
         // generated label range always matches where labels actually land and
@@ -1195,6 +1318,53 @@ export const CH_HTML = `
           return [];
         }
         var labelCount = resolveRightPriceScaleFallbackLabelCount(metrics);
+        var priceScaleApi = getRightPriceScaleApi();
+        var priceScaleOptions =
+          priceScaleApi && typeof priceScaleApi.options === 'function'
+            ? priceScaleApi.options()
+            : null;
+        var invertScale = priceScaleOptions && priceScaleOptions.invertScale === true;
+        var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
+        var plotBottom = plotTop + Math.max(0, Math.round(metrics.plotHeight || 0));
+        var labelTop = plotTop + RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2;
+        var labelBottom = plotBottom - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2;
+        if (!(labelBottom > labelTop)) {
+          return [];
+        }
+        var ticks = [];
+        var seenLabels = Object.create(null);
+        var decimals = resolveRightPriceScaleFallbackDecimals();
+        var intervals = Math.max(1, labelCount - 1);
+        var topPrice = invertScale ? range.from : range.to;
+        var bottomPrice = invertScale ? range.to : range.from;
+        var appendInterpolatedTick = function(price, y) {
+          if (typeof price !== 'number' || !isFinite(price) || typeof y !== 'number' || !isFinite(y)) {
+            return false;
+          }
+          var text = formatRightPriceScaleFallbackLabel(price, decimals);
+          if (seenLabels[text]) {
+            return false;
+          }
+          seenLabels[text] = true;
+          ticks.push({
+            price: price,
+            text: text,
+            y: y,
+          });
+          return true;
+        };
+        // MT5 parity: the price-scale strip stays fixed, while the whole
+        // visible range is interpolated through it. Avoid fixed round-number
+        // ticks here; otherwise only the top/bottom endpoint labels change
+        // during vertical movement and the middle of the scale looks frozen.
+        for (var scaleIndex = 0; scaleIndex <= intervals && ticks.length < RIGHT_PRICE_SCALE_FALLBACK_MAX_LABELS; scaleIndex += 1) {
+          var ratio = scaleIndex / intervals;
+          var price = topPrice + (bottomPrice - topPrice) * ratio;
+          var y = labelTop + (labelBottom - labelTop) * ratio;
+          appendInterpolatedTick(roundRightPriceScaleFallbackPrice(price, decimals), y);
+        }
+        ticks.sort(function(left, right) { return left.y - right.y; });
+        return ticks;
         var plotHeightPx = Math.max(1, metrics.plotHeight || 1);
         var targetLabelGap = resolveRightPriceScaleFallbackTargetLabelGap();
         // Dynamic, symbol-agnostic step: derive the exact step that would place
@@ -1343,7 +1513,6 @@ export const CH_HTML = `
           if (!layer) {
             return false;
           }
-          clearRightPriceScaleFallbackLabels();
           var axisMetrics = resolveRightPriceScaleFallbackAxisMetrics(metrics);
           if (!(axisMetrics.chartWidth > 0) || !(axisMetrics.axisWidth > 0)) {
             return false;
@@ -1370,33 +1539,50 @@ export const CH_HTML = `
           // the move/volume region), so this background masks the native scale's
           // tick labels across the whole axis and the fallback paints one
           // continuous symbol price scale top-to-bottom.
-          var axisBackground = document.createElement('div');
-          axisBackground.className = 'rtx5-right-price-scale-fallback-axis';
+          var axisBackground = rightPriceScaleFallbackBackgroundNode;
+          if (!axisBackground || axisBackground.parentNode !== layer) {
+            axisBackground = document.createElement('div');
+            axisBackground.className = 'rtx5-right-price-scale-fallback-axis';
+            rightPriceScaleFallbackBackgroundNode = axisBackground;
+            layer.insertBefore(axisBackground, layer.firstChild);
+          }
           axisBackground.style.left = Math.max(0, Math.round(axisMetrics.axisLeft)) + 'px';
           axisBackground.style.top = Math.max(0, Math.round(metrics.plotTop || 0)) + 'px';
           axisBackground.style.width = Math.max(0, Math.round(axisMetrics.axisWidth)) + 'px';
           axisBackground.style.height = Math.max(0, Math.round(metrics.plotHeight || metrics.paneHeight || 0)) + 'px';
-          axisBackground.style.background = lastChartBackgroundColor || '#FFFFFF';
-          layer.appendChild(axisBackground);
+          axisBackground.style.background = lastChartAxisBackgroundColor || lastChartBackgroundColor || '#FFFFFF';
+          axisBackground.style.display = 'block';
           for (var i = 0; i < ticks.length; i += 1) {
             var tick = ticks[i];
-            var label = document.createElement('div');
-            label.className = 'rtx5-right-price-scale-fallback-label';
-            label.setAttribute('data-rtx5-role', 'right-price-scale-fallback-label');
+            var label = rightPriceScaleFallbackLabelNodes[i];
+            if (!label || label.parentNode !== layer) {
+              label = document.createElement('div');
+              label.className = 'rtx5-right-price-scale-fallback-label';
+              label.setAttribute('data-rtx5-role', 'right-price-scale-fallback-label');
+              rightPriceScaleFallbackLabelNodes[i] = label;
+              layer.appendChild(label);
+            }
             label.textContent = tick.text;
             label.style.left = labelLeft + 'px';
             label.style.top = Math.round(tick.y - RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT / 2) + 'px';
             label.style.width = labelWidth + 'px';
             label.style.color = textColor;
             label.style.fontFamily = fontFamily;
+            label.style.fontSize = RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_SIZE + 'px';
+            label.style.lineHeight = RIGHT_PRICE_SCALE_FALLBACK_LABEL_HEIGHT + 'px';
             label.style.textAlign = 'right';
-            label.style.fontWeight = '500';
+            label.style.fontWeight = RIGHT_PRICE_SCALE_FALLBACK_LABEL_FONT_WEIGHT;
             label.style.letterSpacing = '0px';
             label.style.fontVariantNumeric = 'tabular-nums';
             label.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
-            label.style.opacity = '0.86';
+            label.style.opacity = RIGHT_PRICE_SCALE_FALLBACK_LABEL_OPACITY;
             label.style.textShadow = 'none';
-            layer.appendChild(label);
+            label.style.display = 'block';
+          }
+          for (var unusedIndex = ticks.length; unusedIndex < rightPriceScaleFallbackLabelNodes.length; unusedIndex += 1) {
+            if (rightPriceScaleFallbackLabelNodes[unusedIndex]) {
+              rightPriceScaleFallbackLabelNodes[unusedIndex].style.display = 'none';
+            }
           }
           return true;
         } catch (fallbackErr) {
@@ -1413,6 +1599,37 @@ export const CH_HTML = `
           rightPriceScaleFallbackRaf = 0;
           renderFallbackRightPriceScaleLabels();
         });
+      }
+
+      function flushGestureRightPriceScaleFallbackRefresh() {
+        gestureRightPriceScaleFallbackTimer = null;
+        gestureRightPriceScaleFallbackFrame = 0;
+        lastGestureRightPriceScaleFallbackAt = Date.now();
+        renderFallbackRightPriceScaleLabels();
+      }
+
+      function scheduleGestureRightPriceScaleFallbackRefresh() {
+        if (
+          rightPriceScaleFallbackRaf ||
+          gestureRightPriceScaleFallbackTimer !== null ||
+          gestureRightPriceScaleFallbackFrame
+        ) {
+          return;
+        }
+        var now = Date.now();
+        var delay = Math.max(
+          0,
+          GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS - (now - lastGestureRightPriceScaleFallbackAt)
+        );
+        var scheduleFrame = function() {
+          gestureRightPriceScaleFallbackTimer = null;
+          gestureRightPriceScaleFallbackFrame = requestAnimationFrame(flushGestureRightPriceScaleFallbackRefresh);
+        };
+        if (delay > 0) {
+          gestureRightPriceScaleFallbackTimer = setTimeout(scheduleFrame, delay);
+          return;
+        }
+        scheduleFrame();
       }
 
       function recoverRightPriceScaleLayout(reason) {
@@ -1669,12 +1886,72 @@ export const CH_HTML = `
         scheduleMovingVerticalGridUpdate();
       }
 
-      function scheduleMovingVerticalGridUpdate() {
+      function updateMovingVerticalGridTransformOnly() {
+        try {
+          if (!movingVerticalGridVisible || !chart || !movingGridVerticalGroup) {
+            return false;
+          }
+          var layer = getMovingVerticalGridLayer();
+          if (!layer || movingGridVerticalGroup.parentNode !== layer) {
+            return false;
+          }
+          var timeScaleApi = chart && typeof chart.timeScale === 'function' ? chart.timeScale() : null;
+          if (!timeScaleApi) {
+            return false;
+          }
+          var visualSpacing = Math.max(12, MOVING_VERTICAL_GRID_SPACING);
+          var range =
+            typeof timeScaleApi.getVisibleLogicalRange === 'function'
+              ? timeScaleApi.getVisibleLogicalRange()
+              : null;
+          var options =
+            typeof timeScaleApi.options === 'function'
+              ? timeScaleApi.options()
+              : null;
+          var barSpacing =
+            options && typeof options.barSpacing === 'number' && isFinite(options.barSpacing) && options.barSpacing > 0
+              ? options.barSpacing
+              : ${CHART_DEFAULT_TIME_SCALE_BAR_SPACING};
+          if (
+            !range ||
+            typeof range.from !== 'number' ||
+            !isFinite(range.from)
+          ) {
+            return false;
+          }
+          var anchorCoordinate =
+            typeof timeScaleApi.logicalToCoordinate === 'function'
+              ? timeScaleApi.logicalToCoordinate(0)
+              : null;
+          if (typeof anchorCoordinate !== 'number' || !isFinite(anchorCoordinate)) {
+            anchorCoordinate = -(range.from * barSpacing);
+          }
+          var firstCoordinate = anchorCoordinate % visualSpacing;
+          while (firstCoordinate > 0) {
+            firstCoordinate -= visualSpacing;
+          }
+          while (firstCoordinate < -visualSpacing) {
+            firstCoordinate += visualSpacing;
+          }
+          setMovingGridGroupTransform(movingGridVerticalGroup, firstCoordinate);
+          return true;
+        } catch (_e) {
+          return false;
+        }
+      }
+
+      function scheduleMovingVerticalGridUpdate(preferTransformOnly) {
+        var transformOnly = preferTransformOnly === true;
         if (movingVerticalGridRaf) {
           return;
         }
         movingVerticalGridRaf = requestAnimationFrame(function() {
           movingVerticalGridRaf = 0;
+          // During a live horizontal pan, the SVG grid already exists. Only
+          // move that group instead of recalculating every grid line.
+          if (transformOnly && updateMovingVerticalGridTransformOnly()) {
+            return;
+          }
           updateMovingVerticalGrid();
         });
       }
@@ -2470,6 +2747,8 @@ export const CH_HTML = `
       function enableRightPriceAutoScale() {
         manualPriceScaleRangeActive = false;
         verticalPricePanGestureActive = false;
+        clearManualVerticalPanRange();
+        syntheticRightPriceScaleFallbackRange = null;
         var priceScaleApi = getRightPriceScaleApi();
         if (!priceScaleApi) {
           return;
@@ -2497,6 +2776,7 @@ export const CH_HTML = `
           return;
         }
         manualPriceScaleRangeActive = false;
+        clearManualVerticalPanRange();
         try {
           if (typeof priceScaleApi.setVisibleRange === 'function') {
             priceScaleApi.setVisibleRange({ from: recoveredRange.from, to: recoveredRange.to });
@@ -2512,8 +2792,15 @@ export const CH_HTML = `
           if (!isRightPriceScaleLayoutHealthy()) {
             recoverRightPriceScaleLayout(reason || 'price_scale_health');
           }
-          if (verticalPricePanGestureActive) {
+          if (verticalPricePanGestureActive || isManualVerticalPanRangePreserved()) {
             return;
+          }
+          if (isManualVerticalPanRangeLocked()) {
+            if (allowManualReset === true && shouldResetManualVerticalPanForHealth(reason)) {
+              clearManualVerticalPanRange();
+            } else {
+              return;
+            }
           }
           if (manualPriceScaleRangeActive && allowManualReset !== true) {
             return;
@@ -2599,6 +2886,71 @@ export const CH_HTML = `
         return Date.now() <= suppressChartTapUntil;
       }
 
+      function preserveManualVerticalPanRange() {
+        manualVerticalPanPreserveUntil = Date.now() + MANUAL_VERTICAL_PAN_PRESERVE_MS;
+      }
+
+      function isManualVerticalPanRangePreserved() {
+        return Date.now() <= manualVerticalPanPreserveUntil;
+      }
+
+      function clearManualVerticalPanRange() {
+        manualVerticalPanRangeActive = false;
+        manualVerticalPanLockedRange = null;
+        manualVerticalPanPreserveUntil = 0;
+        syntheticRightPriceScaleFallbackRange = null;
+      }
+
+      function rememberManualVerticalPanRange(range) {
+        var normalizedRange = normalizePriceRange(range);
+        if (!normalizedRange) {
+          return false;
+        }
+        manualPriceScaleRangeActive = true;
+        manualVerticalPanRangeActive = true;
+        manualVerticalPanLockedRange = {
+          from: normalizedRange.from,
+          to: normalizedRange.to,
+        };
+        preserveManualVerticalPanRange();
+        return true;
+      }
+
+      function isManualVerticalPanRangeLocked() {
+        return manualVerticalPanRangeActive && isValidPriceRange(manualVerticalPanLockedRange);
+      }
+
+      function shouldResetManualVerticalPanForHealth(reason) {
+        return reason === 'update_data_replace_series' || reason === 'recover_data' || reason === 'recover_surface';
+      }
+
+      function applyManualVerticalPanLockedRange() {
+        var lockedRange = normalizePriceRange(manualVerticalPanLockedRange);
+        if (!lockedRange) {
+          clearManualVerticalPanRange();
+          return false;
+        }
+        var priceScaleApi = getRightPriceScaleApi();
+        if (!priceScaleApi || typeof priceScaleApi.setVisibleRange !== 'function') {
+          return false;
+        }
+        manualPriceScaleRangeActive = true;
+        syntheticRightPriceScaleFallbackRange = lockedRange;
+        try {
+          if (typeof priceScaleApi.setAutoScale === 'function') {
+            priceScaleApi.setAutoScale(false);
+          }
+        } catch (_autoScaleErr) {}
+        try {
+          priceScaleApi.setVisibleRange({ from: lockedRange.from, to: lockedRange.to });
+        } catch (_rangeErr) {
+          return false;
+        }
+        scheduleGestureRightPriceScaleFallbackRefresh();
+        scheduleOverlayDomRefresh();
+        return true;
+      }
+
       function markHorizontalScrollGestureActive() {
         activeHorizontalScrollGesture = true;
         activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
@@ -2607,6 +2959,15 @@ export const CH_HTML = `
       function finishHorizontalScrollGesture() {
         activeHorizontalScrollGesture = false;
         activeHorizontalScrollGestureUntil = Date.now() + ACTIVE_SCROLL_PRICE_SCALE_GESTURE_GRACE_MS;
+        if (visibleRangeIdlePendingAfterGesture) {
+          // Settle the work intentionally deferred while the finger was down:
+          // full grid validation, price-scale recovery, overlays, and history.
+          visibleRangeIdlePendingAfterGesture = false;
+          scheduleMovingVerticalGridUpdate(false);
+          scheduleActiveScrollPriceScaleRecovery('visible_range_release');
+          scheduleVisibleRangeIdleWork();
+          requestHistoryPaginationForVisibleRange(getVisibleLogicalRangeSnapshot());
+        }
       }
 
       function isHorizontalScrollGesturePriceScaleRecoveryEligible() {
@@ -2621,12 +2982,14 @@ export const CH_HTML = `
         lastActiveScrollPriceScaleCheckAt = 0;
         activeHorizontalScrollGesture = false;
         activeHorizontalScrollGestureUntil = 0;
+        visibleRangeIdlePendingAfterGesture = false;
       }
 
       function healVisiblePriceScaleDuringActiveScroll(reason) {
         try {
           if (
             verticalPricePanGestureActive ||
+            isManualVerticalPanRangePreserved() ||
             activeTradeLineDrag ||
             manualPriceScaleRangeActive ||
             isChartScaleGestureSuppressed() ||
@@ -2683,6 +3046,11 @@ export const CH_HTML = `
 
       function scheduleActiveScrollPriceScaleRecovery(reason) {
         if (activeScrollPriceScaleRaf) {
+          return;
+        }
+        if (activeHorizontalScrollGesture) {
+          // Let Lightweight Charts own active horizontal motion. Price-scale
+          // healing can run in the post-gesture grace/idle window instead.
           return;
         }
         if (isChartScaleGestureSuppressed() || !isHorizontalScrollGesturePriceScaleRecoveryEligible()) {
@@ -2744,6 +3112,11 @@ export const CH_HTML = `
         // candle drag is the exception: it temporarily owns the price range.
         void attempt;
         try {
+          if (isManualVerticalPanRangeLocked() && forceAutoScale !== true) {
+            applyManualVerticalPanLockedRange();
+            postChartGeometry();
+            return;
+          }
           if (verticalPricePanGestureActive || (manualPriceScaleRangeActive && forceAutoScale !== true)) {
             scheduleOverlayDomRefresh();
             postChartGeometry();
@@ -2854,6 +3227,11 @@ export const CH_HTML = `
           handleScale.pinch = false;
           handleScale.axisPressedMouseMove = false;
         }
+        // RTX5 owns chart-body vertical panning so it can keep trade labels,
+        // custom price boxes, and the fallback right scale moving together.
+        // Leaving Lightweight Charts' vertical touch drag enabled lets two
+        // handlers fight over the same finger stream on Android WebView.
+        handleScroll.vertTouchDrag = false;
 
         return {
           handleScroll: handleScroll,
@@ -2940,6 +3318,10 @@ export const CH_HTML = `
       }
 
       function scheduleVisibleRangeIdleWork() {
+        if (activeHorizontalScrollGesture) {
+          visibleRangeIdlePendingAfterGesture = true;
+          return;
+        }
         if (visibleRangeIdleTimer !== null) {
           clearTimeout(visibleRangeIdleTimer);
         }
@@ -3133,10 +3515,33 @@ export const CH_HTML = `
           vertPanPending = null;
         };
 
-        var vertPanState = null; // { startY, startRange: {from, to} }
+        var vertPanState = null; // { startY, startRange, latestRange, pricePerPixel }
         var VERT_PAN_THRESHOLD = 6; // px before we commit to a vertical pan
-        var vertPanPending = null; // { startX, startY } — waiting for threshold
+        var VERT_PAN_PRICE_DELTA_MULTIPLIER = 0.35;
+        var vertPanPending = null; // { startX, startY } - waiting for threshold
+        var rightPriceScaleGestureActive = false;
         var lastDoubleTapAt = 0;
+
+        var isRightPriceScaleGesturePoint = function(clientX, clientY) {
+          var point = getRelativePoint(clientX, clientY);
+          if (!point) return false;
+          var metrics = resolvePrimaryPaneMetrics();
+          var chartWidth = Math.max(0, metrics.chartWidth || el.clientWidth || 0);
+          var paneWidth = Math.max(0, metrics.paneWidth || 0);
+          var leftAxisWidth = Math.max(0, metrics.leftAxisWidth || 0);
+          var axisWidth = Math.max(
+            ${CHART_RIGHT_PRICE_SCALE_MINIMUM_WIDTH},
+            Math.round(metrics.rightAxisWidth || 0)
+          );
+          var axisLeft = Math.max(0, Math.min(chartWidth, leftAxisWidth + paneWidth));
+          var axisRight = Math.min(chartWidth, axisLeft + axisWidth);
+          var plotTop = Math.max(0, Math.round(metrics.plotTop || 0));
+          var plotBottom = Math.max(
+            plotTop + 1,
+            Math.round(plotTop + (metrics.plotHeight || metrics.paneHeight || el.clientHeight || 0))
+          );
+          return point.x >= axisLeft - 6 && point.x <= axisRight + 4 && point.y >= plotTop && point.y <= plotBottom;
+        };
 
         var beginVerticalPan = function(clientY) {
           if (!chart || !series) return false;
@@ -3145,19 +3550,36 @@ export const CH_HTML = `
           var range = resolveVerticalPanStartPriceRange();
           if (!isValidPriceRange(range)) return false;
           verticalPricePanGestureActive = true;
-          manualPriceScaleRangeActive = true;
+          rememberManualVerticalPanRange(range);
           if (overlayPriceScaleLockRaf) {
             cancelAnimationFrame(overlayPriceScaleLockRaf);
             overlayPriceScaleLockRaf = 0;
+          }
+          if (priceScaleHealthRaf) {
+            cancelAnimationFrame(priceScaleHealthRaf);
+            priceScaleHealthRaf = 0;
           }
           if (visibleRangeIdleTimer !== null) {
             clearTimeout(visibleRangeIdleTimer);
             visibleRangeIdleTimer = null;
           }
+          var metrics = resolvePrimaryPaneMetrics();
+          var chartElement = document.getElementById('chart');
+          // Cache the drawable candle-pane height once per gesture. Measuring
+          // the DOM on every move was a big part of the vertical stutter.
+          var chartHeight =
+            metrics && typeof metrics.plotHeight === 'number' && metrics.plotHeight > 0
+              ? metrics.plotHeight
+              : (chartElement ? chartElement.clientHeight : window.innerHeight);
+          if (!(chartHeight > 0)) return false;
+          var rangeSpan = range.to - range.from;
           vertPanState = {
             startY: clientY,
             startRange: { from: range.from, to: range.to },
+            latestRange: { from: range.from, to: range.to },
+            pricePerPixel: rangeSpan / chartHeight,
           };
+          syntheticRightPriceScaleFallbackRange = null;
           // Disable auto-scale so our manual range adjustments stick.
           if (typeof priceScaleApi.setAutoScale === 'function') {
             priceScaleApi.setAutoScale(false);
@@ -3168,36 +3590,66 @@ export const CH_HTML = `
           return true;
         };
 
-        var continueVerticalPan = function(clientY) {
-          if (!vertPanState || !chart || !series) return;
+        var renderVerticalPanRange = function(nextRange) {
+          if (!isValidPriceRange(nextRange)) return false;
           var priceScaleApi = getRightPriceScaleApi();
-          if (!priceScaleApi || typeof priceScaleApi.setVisibleRange !== 'function') return;
+          if (!priceScaleApi || typeof priceScaleApi.setVisibleRange !== 'function') return false;
+          syntheticRightPriceScaleFallbackRange = nextRange;
+          rememberManualVerticalPanRange(nextRange);
+          priceScaleApi.setVisibleRange(nextRange);
+          // During active movement, repaint the owned right scale and trade
+          // overlays together so each BUY/SELL label stays glued to its line.
+          scheduleGestureRightPriceScaleFallbackRefresh();
+          scheduleOverlayDomRefresh();
+          return true;
+        };
+
+        var applyVerticalPanAt = function(clientY) {
+          if (!vertPanState || !chart || !series) return;
           // Calculate how much the finger moved in pixels.
           var deltaPixels = clientY - vertPanState.startY;
-          // Convert pixel delta to price delta.
-          // Dragging UP decreases the visible price range values, which moves
-          // candles upward on screen. Dragging DOWN increases the visible
-          // price range values, which moves candles downward on screen.
-          var rangeSpan = vertPanState.startRange.to - vertPanState.startRange.from;
-          var chartElement = document.getElementById('chart');
-          var chartHeight = chartElement ? chartElement.clientHeight : window.innerHeight;
-          if (chartHeight <= 0) return;
-          var pricePerPixel = rangeSpan / chartHeight;
-          var priceDelta = deltaPixels * pricePerPixel;
-          if (typeof priceScaleApi.setAutoScale === 'function') {
-            priceScaleApi.setAutoScale(false);
-          }
-          priceScaleApi.setVisibleRange({
+          // Convert pixel delta to price delta. Dragging up lowers the visible
+          // range values; dragging down raises them, matching MT5's chart-body
+          // vertical pan direction.
+          var priceDelta = deltaPixels * vertPanState.pricePerPixel * VERT_PAN_PRICE_DELTA_MULTIPLIER;
+          var nextRange = {
             from: vertPanState.startRange.from + priceDelta,
             to: vertPanState.startRange.to + priceDelta,
-          });
-          scheduleOverlayDomRefresh();
+          };
+          vertPanState.latestRange = nextRange;
+          // Apply the range on the touchmove itself. Delaying this through a
+          // smoothing RAF made short MT5-style drags collapse into end jumps.
+          renderVerticalPanRange(nextRange);
+        };
+
+        var continueVerticalPan = function(clientY) {
+          if (typeof clientY !== 'number' || !isFinite(clientY)) return;
+          // Android WebView can postpone requestAnimationFrame callbacks while
+          // a long touch stream is active. Write the range from the move event
+          // itself so candles track the finger like MT5.
+          applyVerticalPanAt(clientY);
         };
 
         var endVerticalPan = function() {
+          var finalRange =
+            vertPanState && isValidPriceRange(vertPanState.latestRange)
+              ? normalizePriceRange(vertPanState.latestRange)
+              : null;
+          if (finalRange) {
+            renderVerticalPanRange(finalRange);
+          }
           verticalPricePanGestureActive = false;
+          if (finalRange) {
+            rememberManualVerticalPanRange(finalRange);
+            syntheticRightPriceScaleFallbackRange = {
+              from: finalRange.from,
+              to: finalRange.to,
+            };
+            applyManualVerticalPanLockedRange();
+          }
           vertPanState = null;
           vertPanPending = null;
+          scheduleGestureRightPriceScaleFallbackRefresh();
           scheduleOverlayDomRefresh();
         };
 
@@ -3365,6 +3817,7 @@ export const CH_HTML = `
           postChartTouchState(true);
           activeHorizontalScrollGesture = false;
           activeHorizontalScrollGestureUntil = 0;
+          rightPriceScaleGestureActive = false;
           if (isScaleGestureEvent(event)) {
             suppressChartTapAfterScale();
             return;
@@ -3374,6 +3827,15 @@ export const CH_HTML = `
           }
           var point = getClientPoint(event);
           if (!point) return;
+          if (isRightPriceScaleGesturePoint(point.x, point.y)) {
+            rightPriceScaleGestureActive = true;
+            manualPriceScaleRangeActive = true;
+            pendingPointerTap = null;
+            vertPanState = null;
+            vertPanPending = null;
+            scheduleGestureRightPriceScaleFallbackRefresh();
+            return;
+          }
           // Check for double-tap to reset auto-scale
           var now = Date.now();
           if (now - lastDoubleTapAt < 350) {
@@ -3391,16 +3853,24 @@ export const CH_HTML = `
           };
           // Start tracking for potential vertical pan
           vertPanPending = { startX: point.x, startY: point.y };
-          scheduleOverlayDomRefresh();
+          scheduleGestureRightPriceScaleFallbackRefresh();
         };
 
         var onPointerMove = function(event) {
           if (isScaleGestureEvent(event)) {
             suppressChartTapAfterScale();
-            scheduleOverlayDomRefresh();
+            // Keep pinch/scale gestures light. Rebuilding every custom overlay
+            // on each move drops the WebView far below MT5-like frame cadence.
+            scheduleGestureRightPriceScaleFallbackRefresh();
             return;
           }
           if (continueTradeLineDrag(event)) {
+            return;
+          }
+          if (rightPriceScaleGestureActive) {
+            manualPriceScaleRangeActive = true;
+            scheduleGestureRightPriceScaleFallbackRefresh();
+            scheduleOverlayDomRefresh();
             return;
           }
           // Check if we should start or continue a vertical pan
@@ -3443,6 +3913,12 @@ export const CH_HTML = `
               vertPanPending = null;
             }
           }
+          if (point && (activeHorizontalScrollGesture || vertPanPending)) {
+            // Horizontal pans are handled by Lightweight Charts. Avoid forcing a
+            // heavy DOM overlay rebuild on every move; idle work will settle it.
+            scheduleGestureRightPriceScaleFallbackRefresh();
+            return;
+          }
           scheduleOverlayDomRefresh();
         };
 
@@ -3458,6 +3934,12 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
+          rightPriceScaleGestureActive = false;
+          if (vertPanState) {
+            endVerticalPan();
+            if (activePointerCount <= 0) postChartTouchState(false);
+            return;
+          }
           finishHorizontalScrollGesture();
           if (wasScaleGesture) {
             suppressChartTapAfterScale();
@@ -3473,11 +3955,6 @@ export const CH_HTML = `
               gestureHadMultitouch = false;
               postChartTouchState(false);
             }
-            return;
-          }
-          if (vertPanState) {
-            endVerticalPan();
-            if (activePointerCount <= 0) postChartTouchState(false);
             return;
           }
           vertPanPending = null;
@@ -3520,11 +3997,10 @@ export const CH_HTML = `
             return;
           }
           releasePointer(event);
-          finishHorizontalScrollGesture();
-          if (Date.now() <= suppressChartTapUntil) {
+          rightPriceScaleGestureActive = false;
+          if (vertPanState) {
+            endVerticalPan();
             if (activePointerCount <= 0) {
-              // Same auto-scale snap-back when a pinch is cancelled —
-              // see onPointerUp for the full rationale.
               if (gestureHadMultitouch) {
                 resetAutoScale();
               }
@@ -3533,9 +4009,11 @@ export const CH_HTML = `
             }
             return;
           }
-          if (vertPanState) {
-            endVerticalPan();
+          finishHorizontalScrollGesture();
+          if (Date.now() <= suppressChartTapUntil) {
             if (activePointerCount <= 0) {
+              // Same auto-scale snap-back when a pinch is cancelled —
+              // see onPointerUp for the full rationale.
               if (gestureHadMultitouch) {
                 resetAutoScale();
               }
@@ -3640,6 +4118,9 @@ export const CH_HTML = `
           gestureHadMultitouch = false;
           activeHorizontalScrollGesture = false;
           activeHorizontalScrollGestureUntil = 0;
+          verticalPricePanGestureActive = false;
+          syntheticRightPriceScaleFallbackRange = null;
+          rightPriceScaleGestureActive = false;
           activeTradeLineDrag = null;
           suppressNextChartClickUntil = 0;
           suppressChartTapUntil = 0;
@@ -3990,6 +4471,20 @@ export const CH_HTML = `
         return range.from <= leftPrefetchBars;
       }
 
+      function requestHistoryPaginationForVisibleRange(range) {
+        if (!shouldPaginateForVisibleLogicalRange(range)) {
+          return;
+        }
+        var now = Date.now();
+        if (now - lastHistoryPaginationPostAt <= HISTORY_PAGINATION_DEBOUNCE_MS) {
+          return;
+        }
+        lastHistoryPaginationPostAt = now;
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ON_PAGINATE_HISTORY' }));
+        } catch (e) {}
+      }
+
       window.__rtx5ApplyRecentViewport = applyRecentViewport;
       window.__rtx5ResetTimeScale = resetTimeScaleDefaults;
       window.__rtx5ClampLiveRightEdge = clampVisibleLogicalRangeToLiveEdge;
@@ -4297,6 +4792,7 @@ export const CH_HTML = `
           try { cancelAnimationFrame(rightPriceScaleLayoutRecoveryRaf); } catch (_) {}
           rightPriceScaleLayoutRecoveryRaf = 0;
         }
+        clearChartPaneBackgroundLayer();
         clearRightPriceScaleFallbackLayer();
         clearActiveScrollPriceScaleRecovery();
         if (visibleRangeIdleTimer !== null) {
@@ -4324,6 +4820,7 @@ export const CH_HTML = `
         var safeOpts = applyChartLayout(cloneSerializableValue(opts || {}, {}));
         var chartBackgroundColor = resolveChartBackgroundColor(safeOpts);
         lastChartBackgroundColor = chartBackgroundColor;
+        lastChartAxisBackgroundColor = chartBackgroundColor;
         lastChartTextColor = resolveChartTextColor(safeOpts);
         try {
           document.body.style.background = chartBackgroundColor;
@@ -4377,23 +4874,21 @@ export const CH_HTML = `
             typeof chart.timeScale === 'function' &&
             typeof chart.timeScale().subscribeVisibleLogicalRangeChange === 'function'
           ) {
-            var lastPaginateTime = 0;
             chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
               if (clampVisibleLogicalRangeToLiveEdge(range)) {
                 return;
               }
-              scheduleMovingVerticalGridUpdate();
+              var isActiveHorizontalGesture = activeHorizontalScrollGesture === true;
+              scheduleMovingVerticalGridUpdate(isActiveHorizontalGesture);
+              if (isActiveHorizontalGesture) {
+                // Keep the active scroll loop tiny. The deferred idle/recovery
+                // work runs from finishHorizontalScrollGesture on release.
+                visibleRangeIdlePendingAfterGesture = true;
+                return;
+              }
               scheduleActiveScrollPriceScaleRecovery('visible_range_active');
               scheduleVisibleRangeIdleWork();
-              if (shouldPaginateForVisibleLogicalRange(range)) {
-                var now = Date.now();
-                if (now - lastPaginateTime > HISTORY_PAGINATION_DEBOUNCE_MS) {
-                  lastPaginateTime = now;
-                  try {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ON_PAGINATE_HISTORY' }));
-                  } catch (e) {}
-                }
-              }
+              requestHistoryPaginationForVisibleRange(range);
             });
           }
         } catch (_overlayLabelSubErr) {}
@@ -4406,6 +4901,7 @@ export const CH_HTML = `
         moveDownColor = hexToRgba(colors.down, 0.85);
         lastPriceLineDirection = null;
         setPrimaryPriceScaleMargins(shouldUseMoveBarsPane());
+        updateChartPaneBackgroundLayer();
 
         // We render our own direction-coloured price line via
         // directionPriceLine (created post-data-load), so the series'
@@ -4532,8 +5028,8 @@ export const CH_HTML = `
             lastRequestedDisplayDecimals = displayDecimals;
           }
 
-          // Set body/container background to match chart — prevents
-          // white-on-white invisibility in light theme.
+          // Match the GitHub renderer: the body owns the chart background and
+          // #chart stays transparent so the SVG grid layer remains visible.
           try {
             var bg = (opts && opts.layout && opts.layout.background && opts.layout.background.color) || '#000';
             document.body.style.background = bg;
@@ -4596,6 +5092,7 @@ export const CH_HTML = `
 
           if (chart) {
             chart.resize(w, h);
+            updateChartPaneBackgroundLayer();
             ensureMoveBarsSeries(lastDisplayDecimals);
             schedulePriceScaleHealthCheck('resize', false);
             scheduleRightPriceScaleLayoutRecovery('resize', 4);
@@ -4655,6 +5152,7 @@ export const CH_HTML = `
           }
 
           chart.resize(w, h);
+          updateChartPaneBackgroundLayer();
           ensureMoveBarsSeries(lastDisplayDecimals);
 
           if (lastRawSeriesData && lastRawSeriesData.length > 0) {
@@ -4725,6 +5223,7 @@ export const CH_HTML = `
               // Chart exists — just resize it to match.
               try {
                 chart.resize(w, h);
+                updateChartPaneBackgroundLayer();
                 ensureMoveBarsSeries(lastDisplayDecimals);
                 schedulePriceScaleHealthCheck('resize_observer', false);
                 scheduleRightPriceScaleLayoutRecovery('resize_observer', 4);
@@ -4775,6 +5274,7 @@ export const CH_HTML = `
             scaleMargins: resolvePrimaryPriceScaleMargins(hasLowerPane),
           });
         } catch (_e) {}
+        updateChartPaneBackgroundLayer();
       }
 
       function ensureMoveBarsSeries(displayDecimals) {
@@ -6012,7 +6512,7 @@ export const CH_HTML = `
         var plotTop = metrics.plotTop || 0;
         var plotBottom = plotTop + (metrics.plotHeight || 0);
         var layerHeight = layer && layer.clientHeight ? layer.clientHeight : metrics.chartHeight || 0;
-        var minTop = Math.max(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop + 6);
+        var minTop = Math.max(OVERLAY_ANCHORED_LABEL_TOP_SAFE_PADDING, plotTop + 2);
         var maxTop = Math.max(
           minTop,
           Math.min(layerHeight - OVERLAY_LABEL_LINE_HEIGHT - 1, plotBottom - OVERLAY_LABEL_LINE_HEIGHT - 1)
@@ -6022,6 +6522,44 @@ export const CH_HTML = `
           minTop: minTop,
           maxTop: maxTop,
         };
+      }
+
+      function resolveOverlayDomLineBorderStyle(lineStyle) {
+        if (lineStyle === 1 || lineStyle === 4) return 'dotted';
+        if (lineStyle === 2 || lineStyle === 3) return 'dashed';
+        return 'solid';
+      }
+
+      function renderAnchoredTradeLine(layer, item) {
+        if (!layer || !item || item.drawAnchoredTradeLine !== true) {
+          return;
+        }
+        if (typeof item.y !== 'number' || !isFinite(item.y)) {
+          return;
+        }
+        var metrics = resolvePrimaryPaneMetrics();
+        var paneWidth = Math.max(0, Math.round(metrics.paneWidth || 0));
+        if (paneWidth <= 0) {
+          return;
+        }
+
+        // Keep the visible open-trade line locked to the same payload and
+        // coordinate as the live BUY/SELL lot + P/L text label.
+        var line = document.createElement('div');
+        line.className = 'rtx5-anchored-trade-line';
+        line.setAttribute('data-rtx5-role', 'anchored-trade-line');
+        line.style.position = 'absolute';
+        line.style.left = Math.max(0, Math.round(metrics.leftAxisWidth || 0)) + 'px';
+        line.style.top = Math.round(item.y) + 'px';
+        line.style.width = paneWidth + 'px';
+        line.style.height = '0px';
+        line.style.borderTop =
+          Math.max(1, Math.round(item.lineWidth || 1)) + 'px ' +
+          resolveOverlayDomLineBorderStyle(item.lineStyle) + ' ' +
+          (item.color || '#2962FF');
+        line.style.pointerEvents = 'none';
+        line.style.zIndex = '7';
+        layer.appendChild(line);
       }
 
       function clearMarketPriceScaleExtensions(layer) {
@@ -6311,6 +6849,14 @@ export const CH_HTML = `
             if (typeof y !== 'number' || !isFinite(y)) continue;
             var labelRecord = {
               color: ln.color || '#2962FF',
+              drawAnchoredTradeLine: ln.labelPlacement === 'line',
+              id: ln.id || '',
+              labelSideColor: typeof ln.labelSideColor === 'string' && ln.labelSideColor ? ln.labelSideColor : '',
+              labelSideText: typeof ln.labelSideText === 'string' ? ln.labelSideText : '',
+              labelValueColor: typeof ln.labelValueColor === 'string' && ln.labelValueColor ? ln.labelValueColor : '',
+              labelValueText: typeof ln.labelValueText === 'string' ? ln.labelValueText : '',
+              lineStyle: typeof ln.lineStyle === 'number' ? ln.lineStyle : 0,
+              lineWidth: typeof ln.lineWidth === 'number' ? ln.lineWidth : 1,
               text: String(ln.title),
               y: y,
             };
@@ -6379,11 +6925,27 @@ export const CH_HTML = `
 
           var renderLabel = function(item, top) {
             var label = document.createElement('div');
-            label.textContent = item.text;
+            var hasSplitTradeLabel = !!(item.labelSideText && item.labelValueText);
+            if (hasSplitTradeLabel) {
+              var sideSpan = document.createElement('span');
+              sideSpan.textContent = item.labelSideText;
+              sideSpan.style.color = item.labelSideColor || item.color;
+              var separatorSpan = document.createElement('span');
+              separatorSpan.textContent = ', ';
+              separatorSpan.style.color = item.labelSideColor || item.color;
+              var valueSpan = document.createElement('span');
+              valueSpan.textContent = item.labelValueText;
+              valueSpan.style.color = item.labelValueColor || item.color;
+              label.appendChild(sideSpan);
+              label.appendChild(separatorSpan);
+              label.appendChild(valueSpan);
+            } else {
+              label.textContent = item.text;
+            }
             label.style.position = 'absolute';
             label.style.left = '8px';
             label.style.top = top + 'px';
-            label.style.color = item.color;
+            label.style.color = item.labelSideColor || item.color;
             label.style.fontSize = '12px';
             label.style.fontWeight = '700';
             label.style.height = OVERLAY_LABEL_LINE_HEIGHT + 'px';
@@ -6405,6 +6967,7 @@ export const CH_HTML = `
           for (var anchoredIndex = 0; anchoredIndex < anchoredLabels.length; anchoredIndex++) {
             var anchoredItem = anchoredLabels[anchoredIndex];
             var anchoredTop = Math.max(anchoredBounds.minTop, Math.min(anchoredBounds.maxTop, anchoredTops[anchoredIndex]));
+            renderAnchoredTradeLine(layer, anchoredItem);
             renderLabel(anchoredItem, anchoredTop);
           }
 
@@ -6472,21 +7035,29 @@ export const CH_HTML = `
             boxEl.className = 'rtx5-position-price-scale-box';
             boxEl.textContent = box.text;
             boxEl.style.position = 'absolute';
-            boxEl.style.right = '2px';
+            // MT5 keeps open trade price markers owned by the right price
+            // scale, not floating beside it. Use the same measured axis strip
+            // as the bid/ask badges so panning the chart cannot detach them.
+            boxEl.style.left = (positionBoxMetrics ? positionBoxMetrics.axisLeft : Math.max(0, (layer.clientWidth || 0) - 72)) + 'px';
             boxEl.style.top = Math.round(box.top) + 'px';
+            boxEl.style.width = (positionBoxMetrics ? positionBoxMetrics.axisWidth : Math.min(72, layer.clientWidth || 72)) + 'px';
             boxEl.style.background = '#FFFFFF';
             boxEl.style.color = box.color;
             boxEl.style.border = '1px solid ' + box.color;
             boxEl.style.borderRadius = '2px';
             boxEl.style.fontSize = '11px';
             boxEl.style.fontWeight = '700';
-            boxEl.style.padding = '1px 5px';
+            boxEl.style.padding = '0 4px';
             boxEl.style.height = POSITION_BOX_HEIGHT + 'px';
-            boxEl.style.lineHeight = (POSITION_BOX_HEIGHT - 2) + 'px';
+            boxEl.style.lineHeight = POSITION_BOX_HEIGHT + 'px';
             boxEl.style.boxSizing = 'border-box';
+            boxEl.style.textAlign = 'right';
             boxEl.style.whiteSpace = 'nowrap';
+            boxEl.style.overflow = 'hidden';
+            boxEl.style.pointerEvents = 'none';
             boxEl.style.fontVariantNumeric = 'tabular-nums';
             boxEl.style.fontFeatureSettings = '"tnum" 1, "lnum" 1';
+            boxEl.style.zIndex = '16';
             layer.appendChild(boxEl);
           }
         } catch (labelErr) {
@@ -6574,7 +7145,9 @@ export const CH_HTML = `
         });
         nextOverlayPayload = preserveActiveTradeLineDragPayload(nextOverlayPayload);
         _overlayPayload = nextOverlayPayload;
-        scheduleOverlayPriceScaleLock(true);
+        // Live BUY/SELL, lot, and P/L label refreshes must not reset the
+        // user-owned vertical chart position.
+        scheduleOverlayPriceScaleLock(false);
         if (activeTradeLineDrag) {
           scheduleTradeLineDragDomRefresh();
           return;

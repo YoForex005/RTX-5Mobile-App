@@ -28,6 +28,10 @@ export type ChartOverlayPriceLine = {
   lineStyle: number;
   axisLabelVisible: boolean;
   title: string;
+  labelSideText?: string;
+  labelValueText?: string;
+  labelSideColor?: string;
+  labelValueColor?: string;
   labelPlacement?: 'floating' | 'line';
   dragKey?: 'entry' | 'stopLimit' | 'sl' | 'tp';
 };

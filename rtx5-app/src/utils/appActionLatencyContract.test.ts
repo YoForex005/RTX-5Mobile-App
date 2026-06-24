@@ -348,6 +348,125 @@ test('bottom-sheet style dropdowns avoid native slide animations on open', () =>
   }
 });
 
+test('chart properties color picker keeps readouts live and commits chart colors after gestures', () => {
+  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  assert.match(source, /<KeyboardAvoidingView behavior="padding" style=\{styles\.modalBackdropBottom\}>/);
+  assert.match(source, /<Pressable style=\{StyleSheet\.absoluteFillObject\} onPress=\{\(\) => applyDraftColor\(draftColor\)\} \/>/);
+  assert.doesNotMatch(source, /<Pressable style=\{styles\.modalBackdropBottom\} onPress=\{\(\) => applyDraftColor\(draftColor\)\}>/);
+  assert.match(source, /const pickerColorValue = useMemo\(\(\) => \{/);
+  assert.match(source, /ColorPicker cannot accept incomplete HEX drafts/);
+  const pickerChangeStart = source.indexOf('const handlePickerColorChange = (value: string) => {');
+  const pickerChangeEnd = source.indexOf('const handlePickerColorComplete', pickerChangeStart);
+  assert.notEqual(pickerChangeStart, -1);
+  assert.notEqual(pickerChangeEnd, -1);
+
+  const pickerChangeSource = source.slice(pickerChangeStart, pickerChangeEnd);
+  assert.match(pickerChangeSource, /requestAnimationFrame/);
+  assert.match(pickerChangeSource, /setDraftColor\(nextDraft\)/);
+  assert.doesNotMatch(pickerChangeSource, /setChartColor/);
+  const colorPickerStart = source.indexOf('<ColorPicker');
+  const colorPickerEnd = source.indexOf('</ColorPicker>', colorPickerStart);
+  assert.notEqual(colorPickerStart, -1);
+  assert.notEqual(colorPickerEnd, -1);
+
+  const colorPickerSource = source.slice(colorPickerStart, colorPickerEnd);
+  assert.match(colorPickerSource, /value=\{pickerColorValue\}/);
+  assert.match(colorPickerSource, /onChangeJS=\{\(color\) => handlePickerColorChange\(color\.hex\.toUpperCase\(\)\)\}/);
+  assert.match(colorPickerSource, /onCompleteJS=\{\(color\) => handlePickerColorComplete\(color\.hex\.toUpperCase\(\)\)\}/);
+  assert.doesNotMatch(colorPickerSource, /\sonChange=\{/);
+  assert.doesNotMatch(colorPickerSource, /\sonComplete=\{/);
+  assert.match(source, /const previewActive = isScreenFocused && !colorEditorOpen/);
+  assert.match(source, /import \{ useLiveSymbolQuote \} from '\.\.\/\.\.\/query\/websocket'/);
+  assert.match(source, /import \{ calculateQuoteSpreadPoints \} from '\.\.\/\.\.\/utils\/quoteSpread'/);
+  assert.doesNotMatch(source, /useMarketData/);
+  assert.match(source, /Direct per-symbol ticks keep the Bid and Spread preview cards live/);
+  assert.match(source, /useLiveSymbolQuote\(chartSymbol, previewActive, 0\)/);
+  assert.match(source, /const liveSpreadPoints = calculateQuoteSpreadPoints\(liveQuote\?\.bid, liveQuote\?\.ask, liveQuote\?\.digits\)/);
+  assert.match(source, /Number\.isFinite\(liveSpreadPoints\)[\s\S]*Number\(liveSpreadPoints\)\.toFixed\(1\)[\s\S]*Number\.isFinite\(liveQuote\?\.spread\)/);
+  assert.match(source, /const livePreviewPrice = useMemo\(\(\) => \{/);
+  assert.match(source, /const previewLiveCandle = useMemo\(\(\) => \{/);
+  assert.match(source, /Blend the immediate live quote into the current preview candle/);
+  assert.match(source, /high: Math\.max\(previewLastCandle\.high, livePreviewPrice\)/);
+  assert.match(source, /low: Math\.min\(previewLastCandle\.low, livePreviewPrice\)/);
+  assert.match(source, /close: livePreviewPrice/);
+  assert.match(source, /const previewOhlcItems = previewLiveCandle/);
+  assert.match(source, /formatQuote\(previewLiveCandle\.close, liveQuote\?\.digits\)/);
+  assert.doesNotMatch(source, /formatQuote\(previewLastCandle\.close, liveQuote\?\.digits\)/);
+  assert.match(source, /useLiveCandles\(chartSymbol, chartTimeframe, previewActive\)/);
+  assert.match(source, /active=\{previewActive\}/);
+});
+
+test('chart properties show tab omits retired mobile-only clutter options', () => {
+  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const typesSource = readSource('src/state/userPreferences/types.ts');
+  const defaultsSource = readSource('src/state/userPreferences/chartColors.ts');
+
+  assert.match(source, /Keep this mobile list focused on controls that visibly matter on a small chart/);
+  assert.doesNotMatch(source, /showPeriodSeparators|Show period separators/);
+  assert.doesNotMatch(typesSource, /showPeriodSeparators/);
+  assert.doesNotMatch(defaultsSource, /showPeriodSeparators/);
+});
+
+test('chart properties keeps line color under candles and links candle colors to hidden bar colors', () => {
+  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const colorGroupsStart = source.indexOf('const COLOR_GROUPS: ColorGroup[] = [');
+  const colorGroupsEnd = source.indexOf('];', colorGroupsStart);
+  assert.notEqual(colorGroupsStart, -1);
+  assert.notEqual(colorGroupsEnd, -1);
+
+  const colorGroupsSource = source.slice(colorGroupsStart, colorGroupsEnd);
+  assert.match(colorGroupsSource, /title: 'CANDLES'[\s\S]*key: 'candlesUptrend'[\s\S]*key: 'candlesDowntrend'[\s\S]*key: 'hollowBody'[\s\S]*key: 'lineBody'/);
+  assert.doesNotMatch(colorGroupsSource, /OTHER CHART TYPES/);
+  assert.doesNotMatch(colorGroupsSource, /key: 'barsUptrend'/);
+  assert.doesNotMatch(colorGroupsSource, /key: 'barsDowntrend'/);
+  assert.match(source, /const LINKED_CANDLE_COLOR_KEYS:[\s\S]*candlesUptrend: 'barsUptrend'[\s\S]*candlesDowntrend: 'barsDowntrend'/);
+
+  const commitStart = source.indexOf('const commitChartColor = (key: keyof ChartColorsConfig, color: string) => {');
+  const commitEnd = source.indexOf('const handleDraftColorChange', commitStart);
+  assert.notEqual(commitStart, -1);
+  assert.notEqual(commitEnd, -1);
+
+  const commitSource = source.slice(commitStart, commitEnd);
+  assert.match(commitSource, /Bar colors are hidden here/);
+  assert.match(commitSource, /setChartColor\(key, color\)/);
+  assert.match(commitSource, /const linkedBarKey = LINKED_CANDLE_COLOR_KEYS\[key\]/);
+  assert.match(commitSource, /setChartColor\(linkedBarKey, color\)/);
+  assert.match(source, /commitChartColor\(activeColorKey, normalized\)/);
+});
+
+test('chart properties dark chrome matches the Settings dark palette', () => {
+  const source = readSource('src/features/settings/ChartPropertiesScreen.tsx');
+  const settingsStyles = readSource('src/features/settings/SettingsScreen/styles.ts');
+  const stylesStart = source.indexOf('function makeStyles');
+  assert.notEqual(stylesStart, -1);
+  const stylesSource = source.slice(stylesStart);
+
+  assert.match(settingsStyles, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
+  assert.match(settingsStyles, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
+  assert.match(source, /Match Settings dark palette for the chart preferences shell and cards/);
+  assert.match(source, /const SETTINGS_DARK_BACKGROUND = '#000000'/);
+  assert.match(source, /const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628'/);
+  assert.match(source, /const preferencesBackground = isDark \? SETTINGS_DARK_BACKGROUND : '#F4F5F7'/);
+  assert.match(source, /const preferencesCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF'/);
+  assert.match(source, /const preferencesSoftCardBackground = isDark \? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC'/);
+  assert.doesNotMatch(source, /isDark \? '#(?:000000|0d1628)'/);
+
+  const backgroundStyles = ['screen', 'header'];
+  for (const styleName of backgroundStyles) {
+    assert.match(stylesSource, new RegExp(`${styleName}: \\{[\\s\\S]{0,500}backgroundColor: preferencesBackground`));
+  }
+
+  const cardStyles = ['previewCard', 'tabsRow', 'panel', 'colorGroupCard', 'modalCard', 'bottomSheet'];
+  for (const styleName of cardStyles) {
+    assert.match(stylesSource, new RegExp(`${styleName}: \\{[\\s\\S]{0,700}backgroundColor: preferencesCardBackground`));
+  }
+
+  const readoutStyles = ['infoCard', 'infoCardThird'];
+  for (const styleName of readoutStyles) {
+    assert.match(stylesSource, new RegExp(`${styleName}: \\{[\\s\\S]{0,500}backgroundColor: preferencesSoftCardBackground`));
+  }
+});
+
 test('shared scroll containers keep taps active while keyboard or scroll responders are present', () => {
   const screenSource = readSource('src/ui/components/Screen.tsx');
   const actionSheetSource = readSource('src/ui/components/ActionSheet/ActionSheet.tsx');
@@ -603,7 +722,7 @@ test('chart native and web hot actions use the shared immediate action guard', (
   assert.match(nativeChartSource, /import \{ runImmediateAction \} from '\.\.\/\.\.\/utils\/actionLatency'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.timeframePicker\.open'/);
   assert.match(nativeChartSource, /runImmediateAction\('chart\.moreMenu\.open'/);
-  assert.match(nativeChartSource, /runImmediateAction\('chart\.tradeSheet\.pending\.editOnChart'/);
+  assert.match(nativeChartSource, /runImmediateAction\('chart\.tradeSheet\.pending\.submit'/);
   assert.match(nativeChartSource, /onPress=\{handleOpenSymbolPicker\}[\s\S]*activateOnTouchStart/);
   assert.match(nativeChartSource, /onPress=\{handleOpenTimeframePicker\}[\s\S]*activateOnTouchStart/);
   assert.match(nativeChartSource, /onPress=\{handleOpenDrawingTools\}[\s\S]*activateOnTouchStart/);

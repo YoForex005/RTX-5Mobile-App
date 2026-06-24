@@ -2,7 +2,7 @@ import { FastPressable as Pressable } from '../../ui/components/FastPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,8 @@ import ColorPicker, { HueSlider, Panel1, Preview, colorKit } from 'reanimated-co
 import { Screen } from '../../ui/components/Screen';
 import { safeRouterBack } from '../../utils/navigation';
 import { useLiveCandles } from '../../domain/candles/hooks/useLiveCandles';
-import { useMarketData } from '../../query/websocket';
+import { useLiveSymbolQuote } from '../../query/websocket';
+import { calculateQuoteSpreadPoints } from '../../utils/quoteSpread';
 import {
   CHART_COLOR_SCHEME_PRESETS,
   ChartColorScheme,
@@ -26,11 +27,16 @@ import { LiveChartPreview } from '../chart/preview';
 
 type SettingsTab = 'show' | 'colors';
 
+// Match Settings dark palette for the chart preferences shell and cards.
+const SETTINGS_DARK_BACKGROUND = '#000000';
+const SETTINGS_DARK_CARD_BACKGROUND = '#0d1628';
+
 const TABS: Array<{ key: SettingsTab; label: string }> = [
   { key: 'show', label: 'Show' },
   { key: 'colors', label: 'Colors' },
 ];
 
+// Keep this mobile list focused on controls that visibly matter on a small chart.
 const SHOW_FIELDS: Array<{ key: keyof ChartDisplaySettings; label: string }> = [
   { key: 'showTicker', label: 'Show ticker' },
   { key: 'showOHLC', label: 'Show OHLC' },
@@ -38,7 +44,6 @@ const SHOW_FIELDS: Array<{ key: keyof ChartDisplaySettings; label: string }> = [
   { key: 'showBidPriceLine', label: 'Show bid price line' },
   { key: 'showAskPriceLine', label: 'Show ask price line' },
   { key: 'showLastPriceLine', label: 'Show last price line' },
-  { key: 'showPeriodSeparators', label: 'Show period separators' },
   { key: 'showGrid', label: 'Show grid' },
   { key: 'showObjectDescriptions', label: 'Show object descriptions' },
   { key: 'showTradeLevels', label: 'Show trade levels' },
@@ -64,17 +69,15 @@ const COLOR_GROUPS: ColorGroup[] = [
       { key: 'candlesUptrend',   label: 'Bull candle',   hint: 'Body when close ≥ open' },
       { key: 'candlesDowntrend', label: 'Bear candle',   hint: 'Body when close < open' },
       { key: 'hollowBody',       label: 'Hollow body',   hint: 'Fill for hollow candles' },
-    ],
-  },
-  {
-    title: 'OTHER CHART TYPES',
-    fields: [
-      { key: 'barsUptrend',   label: 'Bar up',     hint: 'OHLC bars rising' },
-      { key: 'barsDowntrend', label: 'Bar down',   hint: 'OHLC bars falling' },
       { key: 'lineBody',      label: 'Line chart', hint: 'Close-only line color' },
     ],
   },
 ];
+
+const LINKED_CANDLE_COLOR_KEYS: Partial<Record<keyof ChartColorsConfig, keyof ChartColorsConfig>> = {
+  candlesUptrend: 'barsUptrend',
+  candlesDowntrend: 'barsDowntrend',
+};
 
 const SCHEME_OPTIONS: Array<{ key: ChartColorScheme; label: string }> = [
   { key: 'green_on_black', label: CHART_COLOR_SCHEME_PRESETS.green_on_black.label },
@@ -130,14 +133,26 @@ export function ChartPropertiesScreen() {
     [chartColors, chartColorScheme, isDark],
   );
 
-  const liveQuotes = useMarketData([chartSymbol], isScreenFocused);
-  const liveQuote = liveQuotes[chartSymbol];
-  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, isScreenFocused);
-
   const [activeTab, setActiveTab] = useState<SettingsTab>('show');
   const [schemeModalOpen, setSchemeModalOpen] = useState(false);
   const [activeColorKey, setActiveColorKey] = useState<keyof ChartColorsConfig | null>(null);
   const [draftColor, setDraftColor] = useState('');
+  const livePickerFrameRef = useRef<number | null>(null);
+  const pendingPickerDraftRef = useRef<string | null>(null);
+  const colorEditorOpen = activeColorKey !== null;
+  const previewActive = isScreenFocused && !colorEditorOpen;
+
+  // Direct per-symbol ticks keep the Bid and Spread preview cards live without waiting on the shared quote map.
+  const liveQuote = useLiveSymbolQuote(chartSymbol, previewActive, 0);
+  const { candles } = useLiveCandles(chartSymbol, chartTimeframe, previewActive);
+
+  useEffect(() => {
+    return () => {
+      if (livePickerFrameRef.current !== null) {
+        cancelAnimationFrame(livePickerFrameRef.current);
+      }
+    };
+  }, []);
 
   const isValidDraftColor = useMemo(() => {
     if (!draftColor || draftColor.length < 4) return false;
@@ -176,21 +191,72 @@ export function ChartPropertiesScreen() {
     }
   }, [draftColor, isValidDraftColor]);
 
+  const pickerColorValue = useMemo(() => {
+    const normalizedDraft = normalizeChartColorInput(draftColor);
+    if (normalizedDraft && normalizedDraft !== 'transparent') return normalizedDraft;
+    if (activeColorKey) {
+      const storedColor = resolvedChartColors[activeColorKey];
+      const normalizedStoredColor = storedColor ? normalizeChartColorInput(storedColor) : null;
+      if (normalizedStoredColor && normalizedStoredColor !== 'transparent') return normalizedStoredColor;
+    }
+    // ColorPicker cannot accept incomplete HEX drafts, so keep rendering a safe color while the user types.
+    return '#000000';
+  }, [activeColorKey, draftColor, resolvedChartColors]);
+
+  const liveSpreadPoints = calculateQuoteSpreadPoints(liveQuote?.bid, liveQuote?.ask, liveQuote?.digits);
   const snapshot = [
     {
       label: priceSource === 'bid' ? 'Bid' : 'Ask',
       value: formatQuote(priceSource === 'bid' ? liveQuote?.bid : liveQuote?.ask, liveQuote?.digits),
     },
-    { label: 'Spread', value: Number.isFinite(liveQuote?.spread) ? liveQuote.spread.toFixed(1) : '--' },
+    {
+      label: 'Spread',
+      value: Number.isFinite(liveSpreadPoints)
+        ? Number(liveSpreadPoints).toFixed(1)
+        : Number.isFinite(liveQuote?.spread)
+          ? Number(liveQuote?.spread).toFixed(1)
+          : '--',
+    },
   ];
   const previewLastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
-  const previewIsUp = previewLastCandle ? previewLastCandle.close >= previewLastCandle.open : true;
-  const previewOhlcItems = previewLastCandle
+  const livePreviewPrice = useMemo(() => {
+    const primaryPrice = priceSource === 'ask' ? liveQuote?.ask : liveQuote?.bid;
+    const fallbackPrice = priceSource === 'ask' ? liveQuote?.bid : liveQuote?.ask;
+    if (typeof primaryPrice === 'number' && Number.isFinite(primaryPrice) && primaryPrice > 0) {
+      return primaryPrice;
+    }
+    if (typeof fallbackPrice === 'number' && Number.isFinite(fallbackPrice) && fallbackPrice > 0) {
+      return fallbackPrice;
+    }
+    return undefined;
+  }, [liveQuote?.ask, liveQuote?.bid, priceSource]);
+  const previewLiveCandle = useMemo(() => {
+    if (!previewLastCandle && livePreviewPrice === undefined) return null;
+    if (!previewLastCandle && livePreviewPrice !== undefined) {
+      return {
+        open: livePreviewPrice,
+        high: livePreviewPrice,
+        low: livePreviewPrice,
+        close: livePreviewPrice,
+      };
+    }
+    if (!previewLastCandle || livePreviewPrice === undefined) return previewLastCandle;
+
+    // Blend the immediate live quote into the current preview candle between candle-stream updates.
+    return {
+      ...previewLastCandle,
+      high: Math.max(previewLastCandle.high, livePreviewPrice),
+      low: Math.min(previewLastCandle.low, livePreviewPrice),
+      close: livePreviewPrice,
+    };
+  }, [livePreviewPrice, previewLastCandle]);
+  const previewIsUp = previewLiveCandle ? previewLiveCandle.close >= previewLiveCandle.open : true;
+  const previewOhlcItems = previewLiveCandle
     ? [
-        { label: 'O', value: formatQuote(previewLastCandle.open, liveQuote?.digits) },
-        { label: 'H', value: formatQuote(previewLastCandle.high, liveQuote?.digits) },
-        { label: 'L', value: formatQuote(previewLastCandle.low, liveQuote?.digits) },
-        { label: 'C', value: formatQuote(previewLastCandle.close, liveQuote?.digits) },
+        { label: 'O', value: formatQuote(previewLiveCandle.open, liveQuote?.digits) },
+        { label: 'H', value: formatQuote(previewLiveCandle.high, liveQuote?.digits) },
+        { label: 'L', value: formatQuote(previewLiveCandle.low, liveQuote?.digits) },
+        { label: 'C', value: formatQuote(previewLiveCandle.close, liveQuote?.digits) },
       ]
     : [];
   const previewFooterItems = [
@@ -224,12 +290,21 @@ export function ChartPropertiesScreen() {
     setDraftColor(color);
   };
 
+  const commitChartColor = (key: keyof ChartColorsConfig, color: string) => {
+    // Bar colors are hidden here, so keep OHLC bars aligned with the visible candle controls.
+    setChartColor(key, color);
+    const linkedBarKey = LINKED_CANDLE_COLOR_KEYS[key];
+    if (linkedBarKey) {
+      setChartColor(linkedBarKey, color);
+    }
+  };
+
   const applyDraftColor = (value: string) => {
     if (!activeColorKey) return;
     const normalized = normalizeChartColorInput(value);
     if (!normalized) return;
     setDraftColor(normalized);
-    setChartColor(activeColorKey, normalized);
+    commitChartColor(activeColorKey, normalized);
     setActiveColorKey(null);
   };
 
@@ -238,7 +313,35 @@ export function ChartPropertiesScreen() {
     if (!activeColorKey) return;
     const normalized = normalizeChartColorInput(value);
     if (normalized) {
-      setChartColor(activeColorKey, normalized);
+      commitChartColor(activeColorKey, normalized);
+    }
+  };
+
+  const handlePickerColorChange = (value: string) => {
+    pendingPickerDraftRef.current = value;
+    if (livePickerFrameRef.current !== null) return;
+
+    // Update only the local HEX/RGB/HSV/HSL readouts during drag; chart persistence waits for release.
+    livePickerFrameRef.current = requestAnimationFrame(() => {
+      livePickerFrameRef.current = null;
+      const nextDraft = pendingPickerDraftRef.current;
+      if (nextDraft) {
+        setDraftColor(nextDraft);
+      }
+    });
+  };
+
+  const handlePickerColorComplete = (value: string) => {
+    pendingPickerDraftRef.current = null;
+    if (livePickerFrameRef.current !== null) {
+      cancelAnimationFrame(livePickerFrameRef.current);
+      livePickerFrameRef.current = null;
+    }
+    setDraftColor(value);
+    if (!activeColorKey) return;
+    const normalized = normalizeChartColorInput(value);
+    if (normalized) {
+      commitChartColor(activeColorKey, normalized);
     }
   };
 
@@ -312,7 +415,7 @@ export function ChartPropertiesScreen() {
               colors={resolvedChartColors}
               display={previewDisplay}
               isDark={isDark}
-              active={isScreenFocused}
+              active={previewActive}
             />
           </View>
 
@@ -371,7 +474,7 @@ export function ChartPropertiesScreen() {
                       {/* Mini chart preview surface */}
                       <View style={[
                         styles.schemePreview,
-                        { backgroundColor: presetColors?.background ?? (isDark ? '#0d1628' : '#F1F5F9') },
+                        { backgroundColor: presetColors?.background ?? (isDark ? SETTINGS_DARK_CARD_BACKGROUND : '#F1F5F9') },
                         isActive && styles.schemePreviewActive,
                       ]}>
                         {presetColors ? (
@@ -482,19 +585,21 @@ export function ChartPropertiesScreen() {
         {...OVERLAY_MODAL_PROPS}
         onRequestClose={() => applyDraftColor(draftColor)}
       >
-        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-          <Pressable style={styles.modalBackdropBottom} onPress={() => applyDraftColor(draftColor)}>
-            <Pressable style={styles.bottomSheet} onPress={(event) => event.stopPropagation()}>
-              <ScrollView
-                keyboardShouldPersistTaps="always"
-                canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
-                <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalBackdropBottom}>
+          {/* Keep the backdrop outside the sheet so color-picker drags cannot bubble out and dismiss the modal. */}
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => applyDraftColor(draftColor)} />
+          <View style={styles.bottomSheet}>
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              canCancelContentTouches={Platform.OS === 'ios'} showsVerticalScrollIndicator={false}>
+              <Text style={styles.sheetTitle}>{COLOR_GROUPS.flatMap((g) => g.fields).find((item) => item.key === activeColorKey)?.label ?? 'Color'}</Text>
 
+                {/* Keep drag gestures on Reanimated's UI thread; commit to JS/Zustand only after release for smooth Android hue sliding. */}
                 <ColorPicker
                   style={{ width: '100%' }}
-                  value={draftColor}
-                  onChange={(color) => handleDraftColorChange(color.hex.toUpperCase())}
-                  onComplete={() => {}}
+                  value={pickerColorValue}
+                  onChangeJS={(color) => handlePickerColorChange(color.hex.toUpperCase())}
+                  onCompleteJS={(color) => handlePickerColorComplete(color.hex.toUpperCase())}
                 >
                   <View style={styles.colorPickerRow}>
                     <Preview hideText disableOpacityTexture style={styles.previewPanel} />
@@ -539,9 +644,8 @@ export function ChartPropertiesScreen() {
                 <Pressable style={styles.doneButton} onPress={() => applyDraftColor(draftColor)}>
                   <Text style={styles.doneButtonText}>Done</Text>
                 </Pressable>
-              </ScrollView>
-            </Pressable>
-          </Pressable>
+            </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </Screen>
@@ -551,16 +655,20 @@ export function ChartPropertiesScreen() {
 
 
 function makeStyles(T: ThemeColors, isDark: boolean) {
+  const preferencesBackground = isDark ? SETTINGS_DARK_BACKGROUND : '#F4F5F7';
+  const preferencesCardBackground = isDark ? SETTINGS_DARK_CARD_BACKGROUND : '#FFFFFF';
+  const preferencesSoftCardBackground = isDark ? SETTINGS_DARK_CARD_BACKGROUND : '#F8FAFC';
+
   return StyleSheet.create({
     screen: {
-      backgroundColor: isDark ? '#000000' : '#F4F5F7',
+      backgroundColor: preferencesBackground,
     },
     header: {
       paddingHorizontal: 16,
       paddingBottom: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
-      backgroundColor: isDark ? '#000000' : '#F4F5F7',
+      backgroundColor: preferencesBackground,
     },
     headerRow: {
       flexDirection: 'row',
@@ -601,7 +709,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       marginBottom: 12,
     },
     previewCard: {
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -660,7 +768,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderRadius: 14,
       paddingVertical: 10,
       paddingHorizontal: 12,
-      backgroundColor: isDark ? '#0d1628' : 'rgba(248,250,252,0.94)',
+      backgroundColor: isDark ? preferencesCardBackground : 'rgba(248,250,252,0.94)',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.12)',
     },
@@ -747,7 +855,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     tabsRow: {
       flexDirection: 'row',
       borderRadius: 18,
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 8,
@@ -778,7 +886,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       backgroundColor: T.trading.buy.primary,
     },
     panel: {
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderRadius: 20,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -994,7 +1102,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     colorGroupCard: {
       marginHorizontal: 14,
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderRadius: 14,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F7',
@@ -1059,7 +1167,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       alignSelf: 'center',
       width: '100%',
       maxWidth: 360,
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderRadius: 18,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
@@ -1082,9 +1190,10 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
     },
     bottomSheet: {
       alignSelf: 'center',
+      zIndex: 1,
       width: '100%',
       maxWidth: 440,
-      backgroundColor: isDark ? '#0d1628' : '#FFFFFF',
+      backgroundColor: preferencesCardBackground,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       borderWidth: 1,
@@ -1136,7 +1245,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 12,
       paddingVertical: 10,
-      backgroundColor: isDark ? '#0d1628' : '#F8FAFC',
+      backgroundColor: preferencesSoftCardBackground,
       alignItems: 'center',
     },
     infoCardThird: {
@@ -1146,7 +1255,7 @@ function makeStyles(T: ThemeColors, isDark: boolean) {
       borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#DDE3EA',
       paddingHorizontal: 4,
       paddingVertical: 8,
-      backgroundColor: isDark ? '#0d1628' : '#F8FAFC',
+      backgroundColor: preferencesSoftCardBackground,
       alignItems: 'center',
     },
     infoLabel: {

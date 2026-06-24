@@ -110,6 +110,86 @@ test('overlay bridge: draggable trade labels keep touch ownership through the fu
   assertSourceContains(source, /var listenerOptions = \{ capture: true, passive: false \}/, 'chart touch listeners must be non-passive so preventDefault works on mobile');
 });
 
+test('overlay bridge: chart movement keeps DOM overlay rebuilds off the hot path', () => {
+  const touchBody = extractFunctionBody(source, 'bindChartTapListeners');
+
+  assertSourceContains(
+    touchBody,
+    /var renderVerticalPanRange = function\(nextRange\)[\s\S]*priceScaleApi\.setVisibleRange\(nextRange\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*var applyVerticalPanAt = function\(clientY\)[\s\S]*vertPanState\.latestRange = nextRange[\s\S]*renderVerticalPanRange\(nextRange\)/,
+    'vertical chart movement must set the target price range during the active move while keeping the right scale on the lightweight repaint path',
+  );
+  assertSourceContains(
+    touchBody,
+    /var chartHeight =[\s\S]*pricePerPixel: rangeSpan \/ chartHeight/,
+    'vertical chart movement must cache the pane price-per-pixel value at gesture start',
+  );
+  assert.doesNotMatch(
+    touchBody,
+    /VerticalPanVisualTransform|verticalPanVisualNodes/,
+    'vertical chart movement must not use canvas transforms that can desync or blank the candle pane',
+  );
+  assertSourceContains(
+    touchBody,
+    /var continueVerticalPan = function\(clientY\)[\s\S]*Android WebView can postpone requestAnimationFrame callbacks[\s\S]*applyVerticalPanAt\(clientY\)/,
+    'vertical chart movement must write the price range directly from touchmove so it follows the finger',
+  );
+  assert.doesNotMatch(
+    touchBody,
+    /VERT_PAN_SMOOTHING|stepVerticalPanAnimation|targetRange|verticalPanMoveFrame|pendingVerticalPanClientY/,
+    'vertical chart movement must not use delayed smoothing or RAF batching that hides short MT5-style drags',
+  );
+  assertSourceContains(
+    touchBody,
+    /if \(dy > VERT_PAN_THRESHOLD && dy > dx \* 1\.2\) \{[\s\S]*beginVerticalPan\(vertPanPending\.startY\)[\s\S]*continueVerticalPan\(point\.y\)[\s\S]*stopChartEvent\(event\)/,
+    'dominant vertical movement must keep ownership of the custom price-range pan',
+  );
+  assertSourceContains(
+    touchBody,
+    /isScaleGestureEvent\(event\)[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*return;/,
+    'pinch and scale movement must stay on the lightweight right-scale refresh path',
+  );
+  assertSourceContains(
+    touchBody,
+    /if \(point && \(activeHorizontalScrollGesture \|\| vertPanPending\)\) \{[\s\S]*scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*return;[\s\S]*scheduleOverlayDomRefresh\(\);/,
+    'horizontal movement must defer the full DOM overlay rebuild until idle/release',
+  );
+  assertSourceContains(
+    touchBody,
+    /var endVerticalPan = function\(\)[\s\S]*scheduleOverlayDomRefresh\(\)/,
+    'vertical chart movement must still settle full overlays when the finger lifts',
+  );
+  assertSourceContains(
+    source,
+    /var GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS = 16[\s\S]*function scheduleGestureRightPriceScaleFallbackRefresh\(\)[\s\S]*GESTURE_RIGHT_PRICE_SCALE_REFRESH_INTERVAL_MS - \(now - lastGestureRightPriceScaleFallbackAt\)/,
+    'gesture right-scale label refreshes must run at frame cadence after label DOM reuse',
+  );
+  assertSourceContains(
+    source,
+    /var rightPriceScaleFallbackLabelNodes = \[\][\s\S]*function renderFallbackRightPriceScaleLabels\(\)[\s\S]*var label = rightPriceScaleFallbackLabelNodes\[i\][\s\S]*rightPriceScaleFallbackLabelNodes\[i\] = label[\s\S]*unusedIndex = ticks\.length/,
+    'right-scale fallback labels must be reused during vertical movement instead of rebuilt',
+  );
+  assertSourceContains(
+    source,
+    /function scheduleActiveScrollPriceScaleRecovery\(reason\)[\s\S]*if \(activeHorizontalScrollGesture\) \{[\s\S]*post-gesture grace\/idle window[\s\S]*return;/,
+    'horizontal price-scale recovery must defer while the finger is actively scrolling',
+  );
+  assertSourceContains(
+    source,
+    /function scheduleMovingVerticalGridUpdate\(preferTransformOnly\)[\s\S]*if \(transformOnly && updateMovingVerticalGridTransformOnly\(\)\) \{[\s\S]*return;[\s\S]*updateMovingVerticalGrid\(\);/,
+    'horizontal movement must use the transform-only grid path before falling back to full grid recalculation',
+  );
+  assertSourceContains(
+    source,
+    /subscribeVisibleLogicalRangeChange\(function\(range\)[\s\S]*var isActiveHorizontalGesture = activeHorizontalScrollGesture === true;[\s\S]*scheduleMovingVerticalGridUpdate\(isActiveHorizontalGesture\)[\s\S]*if \(isActiveHorizontalGesture\) \{[\s\S]*visibleRangeIdlePendingAfterGesture = true;[\s\S]*return;[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_active'\)/,
+    'active horizontal visible-range changes must skip recovery, overlays, and history until release',
+  );
+  assertSourceContains(
+    source,
+    /function finishHorizontalScrollGesture\(\)[\s\S]*visibleRangeIdlePendingAfterGesture[\s\S]*scheduleActiveScrollPriceScaleRecovery\('visible_range_release'\)[\s\S]*scheduleVisibleRangeIdleWork\(\)[\s\S]*requestHistoryPaginationForVisibleRange\(getVisibleLogicalRangeSnapshot\(\)\)/,
+    'horizontal gesture release must settle the deferred grid, price-scale, overlay, and history work',
+  );
+});
+
 test('chart pending CTA submits the pending order and then exposes chart-side levels', () => {
   const handlerSource = source.slice(
     source.indexOf('const handleSubmitPendingTradeFromSheet = useCallback'),
@@ -201,6 +281,7 @@ test('overlay bridge: repeated overlay sync clears previous lines before recreat
 test('overlay bridge: anchored trade labels stay below the chart header', () => {
   const boundsBody = extractFunctionBody(source, 'resolveAnchoredOverlayLabelBounds');
   const refreshBody = extractFunctionBody(source, 'refreshOverlayDomLabels');
+  const anchoredLineBody = extractFunctionBody(source, 'renderAnchoredTradeLine');
 
   assertSourceContains(
     boundsBody,
@@ -216,6 +297,21 @@ test('overlay bridge: anchored trade labels stay below the chart header', () => 
     refreshBody,
     /anchoredTops\[anchoredTopIndex\] = Math\.max\(anchoredBounds\.minTop, Math\.min\(anchoredBounds\.maxTop, anchoredDesiredTop\)\)/,
     'line-anchored open-position labels must be clamped through the stacked top array',
+  );
+  assertSourceContains(
+    refreshBody,
+    /renderAnchoredTradeLine\(layer, anchoredItem\)[\s\S]*renderLabel\(anchoredItem, anchoredTop\)/,
+    'line-anchored open-position labels must draw the owned dotted line and label from the same payload',
+  );
+  assertSourceContains(
+    anchoredLineBody,
+    /item\.drawAnchoredTradeLine !== true[\s\S]*line\.className = 'rtx5-anchored-trade-line'[\s\S]*line\.style\.top = Math\.round\(item\.y\) \+ 'px'[\s\S]*resolveOverlayDomLineBorderStyle\(item\.lineStyle\)/,
+    'owned open-position dotted lines must stay fixed to the label coordinate and style',
+  );
+  assertSourceContains(
+    refreshBody,
+    /drawAnchoredTradeLine: ln\.labelPlacement === 'line'[\s\S]*lineStyle: typeof ln\.lineStyle === 'number' \? ln\.lineStyle : 0[\s\S]*lineWidth: typeof ln\.lineWidth === 'number' \? ln\.lineWidth : 1/,
+    'only line-placement trade labels should draw the extra fixed dotted DOM line',
   );
   assertSourceContains(
     refreshBody,
@@ -243,6 +339,12 @@ test('overlay bridge: right-axis trade price boxes keep close entries visible', 
     /positionBoxes\.sort\(function\(left, right\) \{ return left\.desiredTop - right\.desiredTop; \}\)[\s\S]*positionBoxStep[\s\S]*positionBoxes\[boxLayoutIndex\]\.top/,
     'right-axis trade boxes must stack nearby labels instead of covering close entry markers',
   );
+  assertSourceContains(
+    refreshBody,
+    /boxEl\.style\.left = \(positionBoxMetrics \? positionBoxMetrics\.axisLeft[\s\S]*boxEl\.style\.width = \(positionBoxMetrics \? positionBoxMetrics\.axisWidth[\s\S]*boxEl\.style\.textAlign = 'right'[\s\S]*boxEl\.style\.zIndex = '16'/,
+    'right-axis trade boxes must stay pinned inside the measured price-scale strip during chart movement',
+  );
+  assert.doesNotMatch(refreshBody, /boxEl\.style\.right = '2px'/);
   assert.doesNotMatch(refreshBody, /levelScale \* 1e-4/);
 });
 test('overlay bridge: trade overlays participate in price-scale autoscale', () => {
